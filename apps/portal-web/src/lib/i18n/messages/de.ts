@@ -588,6 +588,140 @@ export const de: Partial<CatalogShape> = {
     tableNoShapes:
       '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
   },
+  mapAddLayer: {
+    title: 'Ebene hinzufügen',
+    description:
+      'Fügen Sie diesem Kartenlayout ein Portalelement, eine Datei, eine URL, einen ArcGIS-Dienst oder eine neue leere Ebene hinzu.',
+    tabs: {
+      portal: 'Portal',
+      file: 'Datei',
+      paste: 'Einfügen',
+      url: 'URL',
+      arcgis: 'ArcGIS',
+      new: 'Neu',
+    },
+    nameLabel: 'Name',
+    addLayerButton: 'Ebene hinzufügen',
+    newIntro:
+      'Starten Sie eine neue leere Ebene, in die Sie Objekte zeichnen können. Sie wird ein normales Element in Ihren Inhalten und landet sofort auf dieser Karte.',
+    newNamePlaceholder: 'z. B. Gebäudeumrisse',
+    newGeomLabel: 'Was darin liegt',
+    newCreateButton: 'Erstellen und zur Karte hinzufügen',
+    newFieldsHint:
+      'Sie beginnt mit einem einzelnen Namensfeld; weitere Felder können Sie jederzeit auf der Elementseite der Ebene hinzufügen.',
+    defaultFieldLabel: 'Name',
+    layerNamePlaceholder: 'Flurstücke, Straßen, Beobachtungen...',
+    geojsonUrlLabel: 'GeoJSON-URL',
+    geojsonUrlPlaceholder: 'https://example.org/parcels.geojson',
+    geojsonUrlHint:
+      'Muss vom Browser erreichbar sein (CORS) und ein GeoJSON-FeatureCollection zurückgeben.',
+    geojsonPasteLabel: 'GeoJSON',
+    geojsonPasteHint:
+      'Nur kleine Datensätze. Inline-Objekte werden im Element gespeichert; ab ein paar hundert Zeilen nutzen Sie eine URL.',
+    fileNamePlaceholder: 'Optional. Standard ist der Dateiname.',
+    fileFormatsHint:
+      'Akzeptiert GeoJSON, KML, KMZ und gezippte Shapefiles. Dateien werden im Browser geparst und inline auf der Ebene gespeichert; halten Sie sie unter ein paar hundert KB. Für größere Datensätze als Feature-Service importieren.',
+    searchGroups: 'Gruppen suchen...',
+    searchFolders: 'Ordner suchen...',
+    searchServices: 'Dienste suchen...',
+    backToGroups: 'Zurück zu Gruppen',
+    showingItemsSharedWith: 'Elemente geteilt mit',
+    loadingGroupItems: 'Elemente laden, die mit dieser Gruppe geteilt sind...',
+    emptyGroupItems: 'Mit dieser Gruppe sind noch keine Elemente geteilt.',
+    emptyNoGroups: 'Sie sind noch in keiner Gruppe.',
+    allFolders: 'Alle Ordner',
+    loadingFolder: 'Ordnerinhalt wird geladen...',
+    emptyFolder: 'Dieser Ordner ist leer.',
+    emptyNoFolders:
+      'Noch keine Ordner. Erstellen Sie einen auf der Seite Elemente, um Ebenen zu organisieren.',
+    loadingPortalItems: 'Dienste aus Ihrem Portal werden geladen...',
+    emptyNoServices:
+      'Keine passenden Dienste. Laden Sie Vektordaten als Feature-Service hoch oder speichern Sie eine ArcGIS-REST-URL als ArcGIS-Service-Element, um sie hier zu wählen.',
+    portalFootnote:
+      'Feature-Services streamen aus PostGIS; ArcGIS-Dienste fragen die Quelle live ab, wenn Sie schwenken und zoomen.',
+    sublayerBadge: '+{count} Ebenen',
+    sublayerBadgeTitle:
+      'Dieser Dienst stellt {count} Unterebenen bereit; ein Klick fügt alle hinzu.',
+    typeArcgis: 'ArcGIS',
+    typeDerived: 'Abgeleitet',
+    typeWms: 'WMS',
+    typeWfs: 'WFS',
+    typeWmts: 'WMTS',
+    typeService: 'Dienst',
+    type3d: '3D',
+    typeImagery: 'Bild',
+    typeFeature: 'Features',
+    arcgisNamePlaceholder: 'Katasterflurstücke, Straßen...',
+    arcgisUrlLabel: 'ArcGIS-REST-URL',
+    arcgisUrlPlaceholder:
+      'https://host/arcgis/rest/services/OpenData/Assessor/MapServer',
+    probeButton: 'Sonden',
+    arcgisUrlHint:
+      'Fügen Sie die Dienst-Root (.../MapServer oder .../FeatureServer) oder eine konkrete Ebenen-URL (.../MapServer/0) ein. Der Viewer fragt Objekte live per BBox ab, wenn Sie schwenken und zoomen.',
+    pickLayerLabel: 'Ebene wählen',
+    layerCount: '{count, plural, one {# Ebene} other {# Ebenen}}',
+    arcgisFootnote:
+      'Der Dienst muss Cross-Origin-Anfragen von diesem Portal erlauben. Paginierte Abrufe sind auf ~5000 Objekte pro Ansicht begrenzt: zoomen Sie für dichtere Ebenen oder holen Sie die Daten lokal von der Elementseite der Ebene (demnächst).',
+    arcgisNoLayers:
+      'Der Dienst meldete keine Ebenen. Zeigt diese URL auf etwas anderes als MapServer / FeatureServer?',
+    arcgisGroupSuffix: '(Gruppe)',
+    geometryTable: 'Tabelle',
+    readingFile: 'Datei wird gelesen...',
+    dropFile: 'Datei hier ablegen',
+    or: 'oder',
+    chooseFile: 'Datei wählen',
+    sublayerModalTitle: '„{title}“ hinzufügen',
+    sublayerModalIntro:
+      'Dieses Element hat {count} Unterebenen. Wählen Sie, welche einbezogen werden sollen, und wie sie hinzugefügt werden.',
+    sublayersHeading: 'Unterebenen',
+    selectAll: 'Alle auswählen',
+    deselectAll: 'Alle abwählen',
+    layerFallbackName: 'Ebene {id}',
+    addAsGroup: 'Als Gruppe hinzufügen',
+    addAsGroupMany: '{count} als Gruppe hinzufügen',
+    recommended: 'Empfohlen',
+    addAsGroupHint:
+      'Ein übergeordneter Kopf steuert Sichtbarkeit, Deckkraft und Entfernen aller Unterebenen auf einmal.',
+    addAsFlat: 'Als separate Ebenen hinzufügen',
+    addAsFlatMany: '{count} als separate Ebenen hinzufügen',
+    addAsFlatHint:
+      'Unabhängige Einträge auf oberster Ebene. Am besten, wenn Sie sie mit anderem Karteninhalt mischen.',
+    errors: {
+      newNameRequired: 'Geben Sie der neuen Ebene einen Namen.',
+      createFailed: 'Die Ebene konnte nicht erstellt werden.',
+      arcgisUrlRequired:
+        'Fügen Sie eine ArcGIS-MapServer- oder FeatureServer-URL ein.',
+      arcgisProbeFailed:
+        'Dieser Dienst konnte nicht gelesen werden. Prüfen Sie URL und CORS-Konfiguration.',
+      arcgisProbeFirst:
+        'Sonden Sie den Dienst zuerst, um zu wissen, welche Ebenen er bietet.',
+      arcgisGeocodeServer:
+        'Diese URL zeigt auf einen ArcGIS-GeocodeServer; Geocoder werden als Geocodierungsquelle hinzugefügt, nicht als Kartenebene.',
+      arcgisPickLayer: 'Wählen Sie eine Ebene aus dem Dienst.',
+      nameRequired:
+        'Geben Sie der Ebene einen Namen, damit sie in der Liste erscheint.',
+      geojsonUrlRequired: 'Fügen Sie eine GeoJSON-URL ein.',
+      invalidJson:
+        'Das ist kein gültiges JSON. Prüfen Sie auf fehlende Klammer oder Anführungszeichen.',
+      featureCollectionRequired:
+        'Fügen Sie eine GeoJSON-FeatureCollection ein (kein einzelnes Feature oder eine Geometrie).',
+      loadItemFailed: '{title} konnte nicht geladen werden.',
+      protocolNotRenderable:
+        'Kartenrendering für {protocol}-Dienste kommt im nächsten Schritt. Das Element erscheint zur Sichtbarkeit im Picker, kann aber noch nicht zur Karte hinzugefügt werden (Issue #305).',
+      noServiceUrl:
+        '{title} hat noch keine Dienst-URL. Öffnen Sie es und fügen Sie eine ein.',
+      noLayersCaptured:
+        '{title} hat noch keine erfassten Ebenen. Öffnen Sie es und sonden Sie erneut.',
+      noLayersSelected:
+        '{title} hat keine für Webkarten ausgewählten Ebenen. Öffnen Sie das Element und wählen Sie mindestens eine Ebene.',
+      noArcgisLayerIds:
+        '{title} hat keine ArcGIS-förmigen Ebenen-IDs. Öffnen Sie es und sonden Sie erneut.',
+      fileInvalidJson: 'Diese Datei ist kein gültiges JSON.',
+      fileFeatureCollection:
+        'Das Objekt der obersten Ebene muss eine GeoJSON-FeatureCollection sein.',
+      fileReadFailed: 'Datei konnte nicht gelesen werden.',
+    },
+  },
   mapSearch: {
     geocoderUnavailable:
       'Die Ortssuche ist gerade nicht verfügbar ({reason}). Die Layer-Ergebnisse oben sind davon nicht betroffen.',

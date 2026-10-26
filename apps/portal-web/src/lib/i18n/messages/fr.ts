@@ -589,6 +589,140 @@ export const fr: Partial<CatalogShape> = {
     tableNoShapes:
       "{layer} est une table sans formes, il n'y a donc rien à dessiner.",
   },
+  mapAddLayer: {
+    title: 'Ajouter une couche',
+    description:
+      'Ajoutez un élément du portail, un fichier, une URL, un service ArcGIS ou une nouvelle couche vide à cette carte.',
+    tabs: {
+      portal: 'Portail',
+      file: 'Fichier',
+      paste: 'Coller',
+      url: 'URL',
+      arcgis: 'ArcGIS',
+      new: 'Nouvelle',
+    },
+    nameLabel: 'Nom',
+    addLayerButton: 'Ajouter la couche',
+    newIntro:
+      'Créez une nouvelle couche vide dans laquelle vous pouvez dessiner des entités. Elle devient un élément normal de votre contenu et apparaît sur cette carte tout de suite.',
+    newNamePlaceholder: 'p. ex. Contours des bâtiments',
+    newGeomLabel: 'Ce qu’elle contient',
+    newCreateButton: 'Créer et ajouter à la carte',
+    newFieldsHint:
+      'Elle commence avec un seul champ Nom ; ajoutez d’autres champs à tout moment depuis la page de l’élément de la couche.',
+    defaultFieldLabel: 'Nom',
+    layerNamePlaceholder: 'Parcelles, routes, observations...',
+    geojsonUrlLabel: 'URL GeoJSON',
+    geojsonUrlPlaceholder: 'https://example.org/parcels.geojson',
+    geojsonUrlHint:
+      'Doit être accessible depuis le navigateur (CORS) et renvoyer un FeatureCollection GeoJSON.',
+    geojsonPasteLabel: 'GeoJSON',
+    geojsonPasteHint:
+      'Petits jeux de données seulement. Les entités inline sont stockées dans l’élément ; au-delà de quelques centaines de lignes, utilisez une URL.',
+    fileNamePlaceholder: 'Facultatif. Par défaut, le nom du fichier.',
+    fileFormatsHint:
+      'Accepte GeoJSON, KML, KMZ et Shapefiles zippés. Les fichiers sont analysés dans le navigateur et stockés sur la couche ; restez sous quelques centaines de Ko. Pour des jeux plus grands, importez comme service d’entités.',
+    searchGroups: 'Rechercher des groupes...',
+    searchFolders: 'Rechercher des dossiers...',
+    searchServices: 'Rechercher des services...',
+    backToGroups: 'Retour aux groupes',
+    showingItemsSharedWith: 'Éléments partagés avec',
+    loadingGroupItems: 'Chargement des éléments partagés avec ce groupe...',
+    emptyGroupItems: 'Aucun élément partagé avec ce groupe pour le moment.',
+    emptyNoGroups: 'Vous n’êtes membre d’aucun groupe pour le moment.',
+    allFolders: 'Tous les dossiers',
+    loadingFolder: 'Chargement du contenu du dossier...',
+    emptyFolder: 'Ce dossier est vide.',
+    emptyNoFolders:
+      'Aucun dossier pour le moment. Créez-en un depuis la page Éléments pour organiser les couches.',
+    loadingPortalItems: 'Chargement des services de votre portail...',
+    emptyNoServices:
+      'Aucun service ne correspond. Importez des données vectorielles comme service d’entités ou enregistrez une URL REST ArcGIS comme élément de service ArcGIS pour la choisir ici.',
+    portalFootnote:
+      'Les services d’entités proviennent de PostGIS ; les services ArcGIS interrogent la source en direct quand vous déplacez et zoomez.',
+    sublayerBadge: '+{count} couches',
+    sublayerBadgeTitle:
+      'Ce service expose {count} sous-couches ; un clic les ajoute toutes.',
+    typeArcgis: 'ArcGIS',
+    typeDerived: 'Dérivée',
+    typeWms: 'WMS',
+    typeWfs: 'WFS',
+    typeWmts: 'WMTS',
+    typeService: 'Service',
+    type3d: '3D',
+    typeImagery: 'Imagerie',
+    typeFeature: 'Entités',
+    arcgisNamePlaceholder: 'Parcelles cadastrales, routes...',
+    arcgisUrlLabel: 'URL REST ArcGIS',
+    arcgisUrlPlaceholder:
+      'https://host/arcgis/rest/services/OpenData/Assessor/MapServer',
+    probeButton: 'Sonder',
+    arcgisUrlHint:
+      'Collez la racine du service (.../MapServer ou .../FeatureServer) ou l’URL d’une couche précise (.../MapServer/0). Le visualiseur interroge les entités par bbox quand vous déplacez et zoomez.',
+    pickLayerLabel: 'Choisir une couche',
+    layerCount: '{count, plural, one {# couche} other {# couches}}',
+    arcgisFootnote:
+      'Le service doit autoriser les requêtes cross-origin depuis ce portail. Les chargements paginés plafonnent à ~5000 entités par vue : zoomez pour les couches denses ou copiez les données localement depuis la page de l’élément de la couche (bientôt).',
+    arcgisNoLayers:
+      'Le service n’a signalé aucune couche. Cette URL pointe-t-elle autre chose qu’un MapServer / FeatureServer ?',
+    arcgisGroupSuffix: '(groupe)',
+    geometryTable: 'table',
+    readingFile: 'Lecture du fichier...',
+    dropFile: 'Déposez un fichier ici',
+    or: 'ou',
+    chooseFile: 'Choisir un fichier',
+    sublayerModalTitle: 'Ajouter « {title} »',
+    sublayerModalIntro:
+      'Cet élément a {count} sous-couches. Choisissez lesquelles inclure, puis comment les ajouter.',
+    sublayersHeading: 'Sous-couches',
+    selectAll: 'Tout sélectionner',
+    deselectAll: 'Tout désélectionner',
+    layerFallbackName: 'Couche {id}',
+    addAsGroup: 'Ajouter en groupe',
+    addAsGroupMany: 'Ajouter {count} en groupe',
+    recommended: 'Recommandé',
+    addAsGroupHint:
+      'Un en-tête parent qui contrôle visibilité, opacité et suppression pour toutes les sous-couches à la fois.',
+    addAsFlat: 'Ajouter comme couches séparées',
+    addAsFlatMany: 'Ajouter {count} comme couches séparées',
+    addAsFlatHint:
+      'Entrées indépendantes de premier niveau. Idéal si vous prévoyez de les mélanger avec d’autre contenu de carte.',
+    errors: {
+      newNameRequired: 'Donnez un nom à la nouvelle couche.',
+      createFailed: 'Impossible de créer la couche.',
+      arcgisUrlRequired:
+        'Collez une URL ArcGIS MapServer ou FeatureServer.',
+      arcgisProbeFailed:
+        'Impossible de lire ce service. Vérifiez l’URL et la configuration CORS.',
+      arcgisProbeFirst:
+        'Sondez le service d’abord pour savoir quelles couches il propose.',
+      arcgisGeocodeServer:
+        'Cette URL pointe vers un GeocodeServer ArcGIS ; les géocodeurs s’ajoutent comme source de géocodage, pas comme couche de carte.',
+      arcgisPickLayer: 'Choisissez une couche du service.',
+      nameRequired:
+        'Donnez un nom à la couche pour qu’elle apparaisse dans la liste.',
+      geojsonUrlRequired: 'Collez une URL GeoJSON.',
+      invalidJson:
+        'Ce n’est pas du JSON valide. Vérifiez une accolade ou un guillemet manquant.',
+      featureCollectionRequired:
+        'Collez un FeatureCollection GeoJSON (pas une Feature ou une géométrie seule).',
+      loadItemFailed: 'Impossible de charger {title}.',
+      protocolNotRenderable:
+        'Le rendu cartographique pour les services {protocol} arrive dans la prochaine livraison. L’élément apparaît dans le sélecteur pour visibilité, mais ne peut pas encore être ajouté à la carte (suivre #305).',
+      noServiceUrl:
+        '{title} n’a pas encore d’URL de service. Ouvrez-le et collez-en une.',
+      noLayersCaptured:
+        '{title} n’a pas encore de couches capturées. Ouvrez-le et sondez à nouveau.',
+      noLayersSelected:
+        '{title} n’a pas de couches sélectionnées pour la carte web. Ouvrez l’élément et choisissez au moins une couche.',
+      noArcgisLayerIds:
+        '{title} n’a pas d’identifiants de couche au format ArcGIS. Ouvrez-le et sondez à nouveau.',
+      fileInvalidJson: 'Ce fichier n’est pas du JSON valide.',
+      fileFeatureCollection:
+        'L’objet de niveau supérieur doit être un FeatureCollection GeoJSON.',
+      fileReadFailed: 'Échec de la lecture du fichier.',
+    },
+  },
   mapSearch: {
     geocoderUnavailable:
       'La recherche de lieux est indisponible pour le moment ({reason}). Les résultats de couches ci-dessus ne sont pas affectés.',

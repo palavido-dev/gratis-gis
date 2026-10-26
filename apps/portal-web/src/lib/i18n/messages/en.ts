@@ -668,6 +668,141 @@ export const en = {
     tableNoShapes:
       '{layer} is a table with no shapes, so there is nothing to draw.',
   },
+  // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
+  mapAddLayer: {
+    title: 'Add layer',
+    description:
+      'Add a portal item, file, URL, ArcGIS service, or new empty layer to this map.',
+    tabs: {
+      portal: 'Portal',
+      file: 'File',
+      paste: 'Paste',
+      url: 'URL',
+      arcgis: 'ArcGIS',
+      new: 'New',
+    },
+    nameLabel: 'Name',
+    addLayerButton: 'Add layer',
+    newIntro:
+      'Start a brand-new, empty layer you can draw features into. It becomes a regular item in your content and lands on this map right away.',
+    newNamePlaceholder: 'e.g. Building outlines',
+    newGeomLabel: 'What goes in it',
+    newCreateButton: 'Create and add to map',
+    newFieldsHint:
+      "It starts with a single Name field; add more fields any time from the layer's item page.",
+    defaultFieldLabel: 'Name',
+    layerNamePlaceholder: 'Parcels, roads, observations...',
+    geojsonUrlLabel: 'GeoJSON URL',
+    geojsonUrlPlaceholder: 'https://example.org/parcels.geojson',
+    geojsonUrlHint:
+      'Must be reachable from a browser (CORS-enabled) and return a GeoJSON FeatureCollection.',
+    geojsonPasteLabel: 'GeoJSON',
+    geojsonPasteHint:
+      'Small datasets only. Inline features are stored in the item itself; for anything over a few hundred rows use a URL.',
+    fileNamePlaceholder: 'Optional. Defaults to the filename.',
+    fileFormatsHint:
+      'Accepts GeoJSON, KML, KMZ, and zipped Shapefiles. Files are parsed in your browser and stored inline on the layer; keep them under a few hundred KB. For larger datasets, ingest as a feature service instead.',
+    searchGroups: 'Search groups...',
+    searchFolders: 'Search folders...',
+    searchServices: 'Search services...',
+    backToGroups: 'Back to groups',
+    showingItemsSharedWith: 'Showing items shared with',
+    loadingGroupItems: 'Loading items shared with this group...',
+    emptyGroupItems: 'No items are shared with this group yet.',
+    emptyNoGroups: "You aren't a member of any groups yet.",
+    allFolders: 'All folders',
+    loadingFolder: 'Loading folder contents...',
+    emptyFolder: 'This folder is empty.',
+    emptyNoFolders:
+      'No folders yet. Create one from the Items page to organize layers.',
+    loadingPortalItems: 'Loading services from your portal...',
+    emptyNoServices:
+      'No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here.',
+    portalFootnote:
+      'Feature services stream from PostGIS; ArcGIS services query the origin live as you pan and zoom.',
+    sublayerBadge: '+{count} layers',
+    sublayerBadgeTitle:
+      'This service exposes {count} sublayers; clicking adds them all.',
+    typeArcgis: 'ArcGIS',
+    typeDerived: 'Derived',
+    typeWms: 'WMS',
+    typeWfs: 'WFS',
+    typeWmts: 'WMTS',
+    typeService: 'Service',
+    type3d: '3D',
+    typeImagery: 'Imagery',
+    typeFeature: 'Feature',
+    arcgisNamePlaceholder: 'Assessor parcels, roads, ...',
+    arcgisUrlLabel: 'ArcGIS REST URL',
+    arcgisUrlPlaceholder:
+      'https://host/arcgis/rest/services/OpenData/Assessor/MapServer',
+    probeButton: 'Probe',
+    arcgisUrlHint:
+      'Paste the service root (.../MapServer or .../FeatureServer) or a specific layer URL (.../MapServer/0). The viewer will query features live by bbox as you pan and zoom.',
+    pickLayerLabel: 'Pick a layer',
+    layerCount:
+      '{count, plural, one {# layer} other {# layers}}',
+    arcgisFootnote:
+      "The service must allow cross-origin requests from this portal. Paginated fetches cap at ~5000 features per viewport: zoom in for denser layers, or pull the data to a local copy from the layer's item page (coming next).",
+    arcgisNoLayers:
+      'Service reported no layers. Is this URL pointing at something other than a MapServer / FeatureServer?',
+    arcgisGroupSuffix: '(group)',
+    geometryTable: 'table',
+    readingFile: 'Reading file...',
+    dropFile: 'Drop a file here',
+    or: 'or',
+    chooseFile: 'Choose file',
+    sublayerModalTitle: 'Add "{title}"',
+    sublayerModalIntro:
+      'This item has {count} sublayers. Pick which to include, then choose how to add them.',
+    sublayersHeading: 'Sublayers',
+    selectAll: 'Select all',
+    deselectAll: 'Deselect all',
+    layerFallbackName: 'Layer {id}',
+    addAsGroup: 'Add as a group',
+    addAsGroupMany: 'Add {count} as a group',
+    recommended: 'Recommended',
+    addAsGroupHint:
+      'One parent header that controls visibility, opacity, and removal for every sublayer at once.',
+    addAsFlat: 'Add as separate layers',
+    addAsFlatMany: 'Add {count} as separate layers',
+    addAsFlatHint:
+      'Independent top-level entries. Best if you plan to mix them with other map content.',
+    errors: {
+      newNameRequired: 'Give the new layer a name.',
+      createFailed: 'The layer could not be created.',
+      arcgisUrlRequired:
+        'Paste an ArcGIS MapServer or FeatureServer URL.',
+      arcgisProbeFailed:
+        'Could not read that service. Check the URL and CORS config.',
+      arcgisProbeFirst:
+        'Probe the service first so we know which layers it offers.',
+      arcgisGeocodeServer:
+        'This URL points at an ArcGIS GeocodeServer; geocoders are added as a geocoding source, not as a map layer.',
+      arcgisPickLayer: 'Pick a layer from the service.',
+      nameRequired: 'Give the layer a name so it shows up in the list.',
+      geojsonUrlRequired: 'Paste a GeoJSON URL.',
+      invalidJson:
+        'That is not valid JSON. Check for a missing brace or quote.',
+      featureCollectionRequired:
+        'Paste a GeoJSON FeatureCollection (not a bare Feature or geometry).',
+      loadItemFailed: 'Could not load {title}.',
+      protocolNotRenderable:
+        "Map rendering for {protocol} services is coming in the next slice. The item appears in the picker for visibility, but can't be added to a map yet (track #305).",
+      noServiceUrl:
+        '{title} has no service URL yet. Open it and paste one.',
+      noLayersCaptured:
+        '{title} has no layers captured yet. Open it and Re-probe.',
+      noLayersSelected:
+        '{title} has no layers selected for web-map use. Open the item and pick at least one layer.',
+      noArcgisLayerIds:
+        "{title} doesn't have ArcGIS-shaped layer ids. Open it and Re-probe.",
+      fileInvalidJson: 'That file is not valid JSON.',
+      fileFeatureCollection:
+        'Top-level object must be a GeoJSON FeatureCollection.',
+      fileReadFailed: 'Failed to read file.',
+    },
+  },
   // The map builder's search bar: place results from the geocoder.
   mapSearch: {
     geocoderUnavailable:

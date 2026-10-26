@@ -577,6 +577,140 @@ export const ptBR: Partial<CatalogShape> = {
     tableNoShapes:
       '{layer} é uma tabela sem formas, então não há nada para desenhar.',
   },
+  mapAddLayer: {
+    title: 'Adicionar camada',
+    description:
+      'Adicione um item do portal, arquivo, URL, serviço ArcGIS ou uma camada vazia nova a este mapa.',
+    tabs: {
+      portal: 'Portal',
+      file: 'Arquivo',
+      paste: 'Colar',
+      url: 'URL',
+      arcgis: 'ArcGIS',
+      new: 'Nova',
+    },
+    nameLabel: 'Nome',
+    addLayerButton: 'Adicionar camada',
+    newIntro:
+      'Comece uma camada vazia nova na qual você pode desenhar feições. Ela vira um item normal do seu conteúdo e entra neste mapa imediatamente.',
+    newNamePlaceholder: 'ex.: Contornos de edifícios',
+    newGeomLabel: 'O que vai nela',
+    newCreateButton: 'Criar e adicionar ao mapa',
+    newFieldsHint:
+      'Começa com um único campo Nome; adicione mais campos a qualquer momento na página do item da camada.',
+    defaultFieldLabel: 'Nome',
+    layerNamePlaceholder: 'Lotes, ruas, observações...',
+    geojsonUrlLabel: 'URL do GeoJSON',
+    geojsonUrlPlaceholder: 'https://example.org/parcels.geojson',
+    geojsonUrlHint:
+      'Precisa ser acessível pelo navegador (com CORS) e retornar um FeatureCollection GeoJSON.',
+    geojsonPasteLabel: 'GeoJSON',
+    geojsonPasteHint:
+      'Somente conjuntos pequenos. Feições inline ficam no próprio item; para mais de algumas centenas de linhas use uma URL.',
+    fileNamePlaceholder: 'Opcional. O padrão é o nome do arquivo.',
+    fileFormatsHint:
+      'Aceita GeoJSON, KML, KMZ e Shapefiles zipados. Os arquivos são analisados no navegador e armazenados na camada; mantenha abaixo de algumas centenas de KB. Para conjuntos maiores, importe como serviço de feições.',
+    searchGroups: 'Buscar grupos...',
+    searchFolders: 'Buscar pastas...',
+    searchServices: 'Buscar serviços...',
+    backToGroups: 'Voltar aos grupos',
+    showingItemsSharedWith: 'Mostrando itens compartilhados com',
+    loadingGroupItems: 'Carregando itens compartilhados com este grupo...',
+    emptyGroupItems: 'Nenhum item compartilhado com este grupo ainda.',
+    emptyNoGroups: 'Você ainda não participa de nenhum grupo.',
+    allFolders: 'Todas as pastas',
+    loadingFolder: 'Carregando conteúdo da pasta...',
+    emptyFolder: 'Esta pasta está vazia.',
+    emptyNoFolders:
+      'Nenhuma pasta ainda. Crie uma na página Itens para organizar camadas.',
+    loadingPortalItems: 'Carregando serviços do seu portal...',
+    emptyNoServices:
+      'Nenhum serviço corresponde. Envie dados vetoriais como serviço de feições ou salve uma URL REST do ArcGIS como item de serviço ArcGIS para escolher aqui.',
+    portalFootnote:
+      'Serviços de feições vêm do PostGIS; serviços ArcGIS consultam a origem ao vivo conforme você move e amplia.',
+    sublayerBadge: '+{count} camadas',
+    sublayerBadgeTitle:
+      'Este serviço expõe {count} subcamadas; ao clicar, todas são adicionadas.',
+    typeArcgis: 'ArcGIS',
+    typeDerived: 'Derivada',
+    typeWms: 'WMS',
+    typeWfs: 'WFS',
+    typeWmts: 'WMTS',
+    typeService: 'Serviço',
+    type3d: '3D',
+    typeImagery: 'Imagem',
+    typeFeature: 'Feições',
+    arcgisNamePlaceholder: 'Lotes do fisco, ruas...',
+    arcgisUrlLabel: 'URL REST do ArcGIS',
+    arcgisUrlPlaceholder:
+      'https://host/arcgis/rest/services/OpenData/Assessor/MapServer',
+    probeButton: 'Sondar',
+    arcgisUrlHint:
+      'Cole a raiz do serviço (.../MapServer ou .../FeatureServer) ou a URL de uma camada específica (.../MapServer/0). O visualizador consulta feições por bbox conforme você move e amplia.',
+    pickLayerLabel: 'Escolher uma camada',
+    layerCount: '{count, plural, one {# camada} other {# camadas}}',
+    arcgisFootnote:
+      'O serviço precisa permitir requisições de origem cruzada deste portal. Buscas paginadas limitam a ~5000 feições por visão: amplie para camadas densas ou copie os dados localmente na página do item da camada (em breve).',
+    arcgisNoLayers:
+      'O serviço não reportou camadas. Esta URL aponta para algo que não é MapServer / FeatureServer?',
+    arcgisGroupSuffix: '(grupo)',
+    geometryTable: 'tabela',
+    readingFile: 'Lendo arquivo...',
+    dropFile: 'Solte um arquivo aqui',
+    or: 'ou',
+    chooseFile: 'Escolher arquivo',
+    sublayerModalTitle: 'Adicionar "{title}"',
+    sublayerModalIntro:
+      'Este item tem {count} subcamadas. Escolha quais incluir e como adicionar.',
+    sublayersHeading: 'Subcamadas',
+    selectAll: 'Selecionar tudo',
+    deselectAll: 'Desmarcar tudo',
+    layerFallbackName: 'Camada {id}',
+    addAsGroup: 'Adicionar como grupo',
+    addAsGroupMany: 'Adicionar {count} como grupo',
+    recommended: 'Recomendado',
+    addAsGroupHint:
+      'Um cabeçalho pai que controla visibilidade, opacidade e remoção de todas as subcamadas de uma vez.',
+    addAsFlat: 'Adicionar como camadas separadas',
+    addAsFlatMany: 'Adicionar {count} como camadas separadas',
+    addAsFlatHint:
+      'Entradas independentes no nível superior. Melhor se você planeja misturar com outro conteúdo do mapa.',
+    errors: {
+      newNameRequired: 'Dê um nome à nova camada.',
+      createFailed: 'Não foi possível criar a camada.',
+      arcgisUrlRequired:
+        'Cole uma URL de ArcGIS MapServer ou FeatureServer.',
+      arcgisProbeFailed:
+        'Não foi possível ler esse serviço. Verifique a URL e a configuração de CORS.',
+      arcgisProbeFirst:
+        'Sonde o serviço primeiro para saber quais camadas ele oferece.',
+      arcgisGeocodeServer:
+        'Esta URL aponta para um GeocodeServer do ArcGIS; geocodificadores são adicionados como fonte de geocodificação, não como camada do mapa.',
+      arcgisPickLayer: 'Escolha uma camada do serviço.',
+      nameRequired:
+        'Dê um nome à camada para que ela apareça na lista.',
+      geojsonUrlRequired: 'Cole uma URL de GeoJSON.',
+      invalidJson:
+        'Isso não é JSON válido. Verifique se falta uma chave ou aspas.',
+      featureCollectionRequired:
+        'Cole um FeatureCollection GeoJSON (não uma Feature ou geometria isolada).',
+      loadItemFailed: 'Não foi possível carregar {title}.',
+      protocolNotRenderable:
+        'A renderização de mapas para serviços {protocol} chega na próxima entrega. O item aparece no seletor por visibilidade, mas ainda não pode ser adicionado ao mapa (acompanhe #305).',
+      noServiceUrl:
+        '{title} ainda não tem URL de serviço. Abra e cole uma.',
+      noLayersCaptured:
+        '{title} ainda não tem camadas capturadas. Abra e sondar novamente.',
+      noLayersSelected:
+        '{title} não tem camadas selecionadas para uso em mapa web. Abra o item e escolha pelo menos uma camada.',
+      noArcgisLayerIds:
+        '{title} não tem ids de camada no formato ArcGIS. Abra e sondar novamente.',
+      fileInvalidJson: 'Esse arquivo não é JSON válido.',
+      fileFeatureCollection:
+        'O objeto de nível superior deve ser um FeatureCollection GeoJSON.',
+      fileReadFailed: 'Falha ao ler o arquivo.',
+    },
+  },
   mapSearch: {
     geocoderUnavailable:
       'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',

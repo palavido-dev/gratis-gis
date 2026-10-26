@@ -40,6 +40,7 @@ import {
   type ArcgisServiceDescription,
   type ArcgisServiceLayer,
 } from '@/lib/arcgis-rest';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   open: boolean;
@@ -60,6 +61,7 @@ type Tab = 'url' | 'paste' | 'file' | 'portal' | 'arcgis' | 'new';
  * MapLayer and fires onAdd, the parent decides what to do with it.
  */
 export function AddLayerDialog({ open, onClose, onAdd }: Props) {
+  const t = useT();
   const [tab, setTab] = useState<Tab>('portal');
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -81,7 +83,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   async function createNewLayer() {
     const name = newName.trim();
     if (!name) {
-      setError('Give the new layer a name.');
+      setError(t('mapAddLayer.errors.newNameRequired'));
       return;
     }
     setNewBusy(true);
@@ -114,7 +116,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   {
                     name: 'name',
                     type: 'string',
-                    label: 'Name',
+                    label: t('mapAddLayer.defaultFieldLabel'),
                     nullable: true,
                   },
                 ],
@@ -132,7 +134,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         const msg = Array.isArray(body?.message)
           ? body.message.join(' ')
           : body?.message;
-        setError(msg || 'The layer could not be created.');
+        setError(msg || t('mapAddLayer.errors.createFailed'));
         return;
       }
       const created = (await res.json()) as { id: string };
@@ -146,7 +148,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       setNewName('');
       onClose();
     } catch {
-      setError('The layer could not be created.');
+      setError(t('mapAddLayer.errors.createFailed'));
     } finally {
       setNewBusy(false);
     }
@@ -524,7 +526,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   async function runArcgisProbe(raw: string) {
     setError(null);
     if (!raw.trim()) {
-      setError('Paste an ArcGIS MapServer or FeatureServer URL.');
+      setError(t('mapAddLayer.errors.arcgisUrlRequired'));
       return;
     }
     arcgisAbortRef.current?.abort();
@@ -549,7 +551,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       if ((err as Error)?.name === 'AbortError') return;
       setError(
         (err as Error).message ||
-          'Could not read that service. Check the URL and CORS config.',
+          t('mapAddLayer.errors.arcgisProbeFailed'),
       );
     } finally {
       if (!controller.signal.aborted) setArcgisProbing(false);
@@ -559,7 +561,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   function submitArcgis() {
     setError(null);
     if (!arcgisService) {
-      setError('Probe the service first so we know which layers it offers.');
+      setError(t('mapAddLayer.errors.arcgisProbeFirst'));
       return;
     }
     if (arcgisService.serviceType === 'GeocodeServer') {
@@ -567,17 +569,15 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       // GeocodeServer has no sublayers to render (#75). Refuse
       // explicitly rather than handing the runtime a layer-ref
       // pointing at a geocoder.
-      setError(
-        'This URL points at an ArcGIS GeocodeServer; geocoders are added as a geocoding source, not as a map layer.',
-      );
+      setError(t('mapAddLayer.errors.arcgisGeocodeServer'));
       return;
     }
     if (arcgisLayerId == null) {
-      setError('Pick a layer from the service.');
+      setError(t('mapAddLayer.errors.arcgisPickLayer'));
       return;
     }
     if (!title.trim()) {
-      setError('Give the layer a name so it shows up in the list.');
+      setError(t('mapAddLayer.errors.nameRequired'));
       return;
     }
     onAdd(
@@ -600,13 +600,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   function submitUrlOrPaste() {
     setError(null);
     if (!title.trim()) {
-      setError('Give the layer a name so it shows up in the list.');
+      setError(t('mapAddLayer.errors.nameRequired'));
       return;
     }
     let source: MapLayerSource;
     if (tab === 'url') {
       if (!url.trim()) {
-        setError('Paste a GeoJSON URL.');
+        setError(t('mapAddLayer.errors.geojsonUrlRequired'));
         return;
       }
       source = { kind: 'geojson-url', url: url.trim() };
@@ -615,7 +615,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       try {
         parsed = JSON.parse(paste);
       } catch {
-        setError('That is not valid JSON. Check for a missing brace or quote.');
+        setError(t('mapAddLayer.errors.invalidJson'));
         return;
       }
       if (
@@ -623,7 +623,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         typeof parsed !== 'object' ||
         (parsed as { type?: string }).type !== 'FeatureCollection'
       ) {
-        setError('Paste a GeoJSON FeatureCollection (not a bare Feature or geometry).');
+        setError(t('mapAddLayer.errors.featureCollectionRequired'));
         return;
       }
       source = { kind: 'geojson-inline', geojson: parsed };
@@ -815,18 +815,22 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           : 'wfs';
     if (protocol !== 'arcgis_map' && protocol !== 'arcgis_feature') {
       setError(
-        `Map rendering for ${protocol.toUpperCase().replace('_', ' ')} services is coming in the next slice. The item appears in the picker for visibility, but can't be added to a map yet (track #305).`,
+        t('mapAddLayer.errors.protocolNotRenderable', {
+          protocol: protocol.toUpperCase().replace('_', ' '),
+        }),
       );
       return;
     }
     if (!d.url) {
-      setError(`${hydrated.title} has no service URL yet. Open it and paste one.`);
+      setError(
+        t('mapAddLayer.errors.noServiceUrl', { title: hydrated.title }),
+      );
       return;
     }
     const allLayers = d.layers ?? [];
     if (allLayers.length === 0) {
       setError(
-        `${hydrated.title} has no layers captured yet. Open it and Re-probe.`,
+        t('mapAddLayer.errors.noLayersCaptured', { title: hydrated.title }),
       );
       return;
     }
@@ -837,7 +841,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         : allLayers.map((_, i) => i);
     if (selectedIndices.length === 0) {
       setError(
-        `${hydrated.title} has no layers selected for web-map use. Open the item and pick at least one layer.`,
+        t('mapAddLayer.errors.noLayersSelected', { title: hydrated.title }),
       );
       return;
     }
@@ -872,7 +876,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     }
     if (orderedSubs.length === 0) {
       setError(
-        `${hydrated.title} doesn't have ArcGIS-shaped layer ids. Open it and Re-probe.`,
+        t('mapAddLayer.errors.noArcgisLayerIds', { title: hydrated.title }),
       );
       return;
     }
@@ -971,7 +975,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   async function hydratePortalItem(item: Item): Promise<Item | null> {
     const { item: hydrated, error } = await fetchHydratedItem(item);
     if (!hydrated) {
-      setError(error ?? `Could not load ${item.title}.`);
+      setError(
+        error ?? t('mapAddLayer.errors.loadItemFailed', { title: item.title }),
+      );
       return null;
     }
     return hydrated;
@@ -1064,7 +1070,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         try {
           parsed = JSON.parse(text);
         } catch {
-          setError('That file is not valid JSON.');
+          setError(t('mapAddLayer.errors.fileInvalidJson'));
           return;
         }
         if (
@@ -1072,7 +1078,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           typeof parsed !== 'object' ||
           (parsed as { type?: string }).type !== 'FeatureCollection'
         ) {
-          setError('Top-level object must be a GeoJSON FeatureCollection.');
+          setError(t('mapAddLayer.errors.fileFeatureCollection'));
           return;
         }
         geojson = parsed as GeoJSON.FeatureCollection;
@@ -1090,7 +1096,11 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       reset();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read file.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('mapAddLayer.errors.fileReadFailed'),
+      );
     } finally {
       setFileBusy(false);
     }
@@ -1110,11 +1120,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       >
         <div className="border-b border-border px-4 py-3 pr-12">
           <DialogTitle className="text-base font-semibold">
-            Add layer
+            {t('mapAddLayer.title')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Add a portal item, file, URL, ArcGIS service, or new empty layer
-            to this map.
+            {t('mapAddLayer.description')}
           </DialogDescription>
         </div>
 
@@ -1130,37 +1139,37 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               / Paste / URL are progressively more manual. */}
           <TabButton
             Icon={Database}
-            label="Portal"
+            label={t('mapAddLayer.tabs.portal')}
             active={tab === 'portal'}
             onClick={() => setTab('portal')}
           />
           <TabButton
             Icon={Upload}
-            label="File"
+            label={t('mapAddLayer.tabs.file')}
             active={tab === 'file'}
             onClick={() => setTab('file')}
           />
           <TabButton
             Icon={ClipboardPaste}
-            label="Paste"
+            label={t('mapAddLayer.tabs.paste')}
             active={tab === 'paste'}
             onClick={() => setTab('paste')}
           />
           <TabButton
             Icon={Link2}
-            label="URL"
+            label={t('mapAddLayer.tabs.url')}
             active={tab === 'url'}
             onClick={() => setTab('url')}
           />
           <TabButton
             Icon={Layers}
-            label="ArcGIS"
+            label={t('mapAddLayer.tabs.arcgis')}
             active={tab === 'arcgis'}
             onClick={() => setTab('arcgis')}
           />
           <TabButton
             Icon={Sparkles}
-            label="New"
+            label={t('mapAddLayer.tabs.new')}
             active={tab === 'new'}
             onClick={() => setTab('new')}
           />
@@ -1170,33 +1179,31 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           {tab === 'new' && (
             <div className="space-y-4">
               <p className="text-sm text-muted">
-                Start a brand-new, empty layer you can draw features
-                into. It becomes a regular item in your content and
-                lands on this map right away.
+                {t('mapAddLayer.newIntro')}
               </p>
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  Name
+                  {t('mapAddLayer.nameLabel')}
                 </label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Building outlines"
+                  placeholder={t('mapAddLayer.newNamePlaceholder')}
                   autoFocus
                   className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  What goes in it
+                  {t('mapAddLayer.newGeomLabel')}
                 </label>
                 <div className="flex gap-2">
                   {(
                     [
-                      ['point', 'Points'],
-                      ['line', 'Lines'],
-                      ['polygon', 'Areas'],
+                      ['point', t('itemDetail.geometryPoint')],
+                      ['line', t('itemDetail.geometryLine')],
+                      ['polygon', t('itemDetail.geometryPolygon')],
                     ] as const
                   ).map(([value, label]) => (
                     <button
@@ -1225,11 +1232,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                Create and add to map
+                {t('mapAddLayer.newCreateButton')}
               </button>
               <p className="text-xs text-muted">
-                It starts with a single Name field; add more fields
-                any time from the layer&apos;s item page.
+                {t('mapAddLayer.newFieldsHint')}
               </p>
             </div>
           )}
@@ -1237,13 +1243,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  Name
+                  {t('mapAddLayer.nameLabel')}
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Parcels, roads, observations..."
+                  placeholder={t('mapAddLayer.layerNamePlaceholder')}
                   maxLength={200}
                   className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
@@ -1251,24 +1257,23 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               {tab === 'url' ? (
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                    GeoJSON URL
+                    {t('mapAddLayer.geojsonUrlLabel')}
                   </label>
                   <input
                     type="url"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://example.org/parcels.geojson"
+                    placeholder={t('mapAddLayer.geojsonUrlPlaceholder')}
                     className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <p className="mt-1 text-xs text-muted">
-                    Must be reachable from a browser (CORS-enabled) and return
-                    a GeoJSON FeatureCollection.
+                    {t('mapAddLayer.geojsonUrlHint')}
                   </p>
                 </div>
               ) : (
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                    GeoJSON
+                    {t('mapAddLayer.geojsonPasteLabel')}
                   </label>
                   <textarea
                     value={paste}
@@ -1278,8 +1283,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <p className="mt-1 text-xs text-muted">
-                    Small datasets only. Inline features are stored in the item
-                    itself; for anything over a few hundred rows use a URL.
+                    {t('mapAddLayer.geojsonPasteHint')}
                   </p>
                 </div>
               )}
@@ -1290,13 +1294,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             <div className="space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  Name
+                  {t('mapAddLayer.nameLabel')}
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Optional. Defaults to the filename."
+                  placeholder={t('mapAddLayer.fileNamePlaceholder')}
                   maxLength={200}
                   className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
@@ -1305,12 +1309,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 busy={fileBusy}
                 onFile={submitFile}
                 accept=".kml,.kmz,.geojson,.json,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geo+json,application/json,application/zip"
+                t={t}
               />
               <p className="text-2xs text-muted">
-                Accepts GeoJSON, KML, KMZ, and zipped Shapefiles. Files are
-                parsed in your browser and stored inline on the layer;
-                keep them under a few hundred KB. For larger datasets,
-                ingest as a feature service instead.
+                {t('mapAddLayer.fileFormatsHint')}
               </p>
             </div>
           )}
@@ -1325,9 +1327,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               <div className="flex items-center gap-1 rounded-md border border-border bg-surface-2 p-0.5 text-xs">
                 {(
                   [
-                    ['items', 'Items', Database],
-                    ['groups', 'Groups', Users],
-                    ['folders', 'Folders', Folder],
+                    ['items', t('nav.items'), Database],
+                    ['groups', t('nav.groups'), Users],
+                    ['folders', t('nav.folders'), Folder],
                   ] as const
                 ).map(([key, lbl, Icon]) => (
                   <button
@@ -1359,10 +1361,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   onChange={(e) => setPortalQ(e.target.value)}
                   placeholder={
                     portalViewMode === 'groups' && !selectedGroup
-                      ? 'Search groups...'
+                      ? t('mapAddLayer.searchGroups')
                       : portalViewMode === 'folders' && folderPath.length === 0
-                        ? 'Search folders...'
-                        : 'Search services...'
+                        ? t('mapAddLayer.searchFolders')
+                        : t('mapAddLayer.searchServices')
                   }
                   className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
@@ -1378,28 +1380,33 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                   >
                     <ChevronRight className="h-3 w-3 rotate-180" />
-                    Back to groups
+                    {t('mapAddLayer.backToGroups')}
                   </button>
                   <div className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs">
-                    <span className="text-muted">Showing items shared with </span>
+                    <span className="text-muted">
+                      {t('mapAddLayer.showingItemsSharedWith')}{' '}
+                    </span>
                     <span className="font-medium text-ink-0">
                       {selectedGroup.title}
                     </span>
                   </div>
                   {groupLoading ? (
-                    <LoadingShell label="Loading items shared with this group..." />
+                    <LoadingShell
+                      label={t('mapAddLayer.loadingGroupItems')}
+                    />
                   ) : visibleGroupItems.length === 0 ? (
-                    <EmptyShell label="No items are shared with this group yet." />
+                    <EmptyShell label={t('mapAddLayer.emptyGroupItems')} />
                   ) : (
                     <PortalItemList
                       items={visibleGroupItems}
                       onPick={submitPortalItem}
+                      t={t}
                     />
                   )}
                 </div>
               ) : portalViewMode === 'groups' ? (
                 visibleGroups.length === 0 ? (
-                  <EmptyShell label="You aren't a member of any groups yet." />
+                  <EmptyShell label={t('mapAddLayer.emptyNoGroups')} />
                 ) : (
                   <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
                     {visibleGroups.map((g) => (
@@ -1440,7 +1447,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                       className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-surface-2"
                     >
                       <Folder className="h-3 w-3" />
-                      All folders
+                      {t('mapAddLayer.allFolders')}
                     </button>
                     {folderPath.map((seg, i) => (
                       <span
@@ -1465,9 +1472,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     ))}
                   </nav>
                   {folderLoading ? (
-                    <LoadingShell label="Loading folder contents..." />
+                    <LoadingShell label={t('mapAddLayer.loadingFolder')} />
                   ) : visibleFolderContents.length === 0 ? (
-                    <EmptyShell label="This folder is empty." />
+                    <EmptyShell label={t('mapAddLayer.emptyFolder')} />
                   ) : (
                     <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
                       {visibleFolderContents.map((item) =>
@@ -1499,6 +1506,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                             key={item.id}
                             item={item}
                             onPick={submitPortalItem}
+                            t={t}
                           />
                         ) : null,
                       )}
@@ -1507,7 +1515,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 </div>
               ) : portalViewMode === 'folders' ? (
                 visibleRootFolders.length === 0 ? (
-                  <EmptyShell label="No folders yet. Create one from the Items page to organize layers." />
+                  <EmptyShell label={t('mapAddLayer.emptyNoFolders')} />
                 ) : (
                   <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
                     {visibleRootFolders.map((f) => (
@@ -1541,134 +1549,21 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               {/* Items view: flat list with server-side search. */}
               {portalViewMode === 'items' && (
                 portalLoading ? (
-                  <LoadingShell label="Loading services from your portal..." />
+                  <LoadingShell
+                    label={t('mapAddLayer.loadingPortalItems')}
+                  />
                 ) : visiblePortalItems.length === 0 ? (
-                  <EmptyShell label="No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here." />
+                  <EmptyShell label={t('mapAddLayer.emptyNoServices')} />
                 ) : (
-                <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-                  {visiblePortalItems.map((item) => {
-                    // The list is fetched in lite mode (#52) so
-                    // `data` is omitted from the row payload; the
-                    // server attaches a derived `_subLayerCount` for
-                    // arcgis_service rows. Fall back to the legacy
-                    // `data`-derived count if a non-lite caller ever
-                    // re-uses this same list component.
-                    let sublayerCount = 0;
-                    if (
-                      item.type === 'arcgis_service' ||
-                      item.type === 'service' ||
-                      item.type === 'wms_service' ||
-                      item.type === 'wfs_service'
-                    ) {
-                      // arcgis_service rows get a server-derived
-                      // _subLayerCount (#52). The unified `service`
-                      // and legacy OGC types haven't been wired into
-                      // that derivation yet; until they are, fall
-                      // through to the data-derived count when
-                      // present (non-lite callers) or zero.
-                      const fromLite = (item as Item & {
-                        _subLayerCount?: number;
-                      })._subLayerCount;
-                      if (typeof fromLite === 'number') {
-                        sublayerCount = fromLite;
-                      } else {
-                        const d = (item.data ?? {}) as {
-                          selectedLayerIds?: Array<string | number>;
-                          layers?: Array<unknown>;
-                        };
-                        sublayerCount = d.selectedLayerIds
-                          ? d.selectedLayerIds.length
-                          : Array.isArray(d.layers)
-                            ? d.layers.length
-                            : 0;
-                      }
-                    }
-                    // #304 slice 5: pretty type label for the badge.
-                    // Connected Service items pull the protocol from
-                    // data.protocol when present (lite mode strips
-                    // data, so most rows show "Service"); legacy
-                    // wms_service / wfs_service keep their existing
-                    // shorthand labels.
-                    let typeLabel: string;
-                    let typeClasses: string;
-                    if (item.type === 'arcgis_service') {
-                      typeLabel = 'ArcGIS';
-                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
-                    } else if (item.type === 'derived_layer') {
-                      typeLabel = 'Derived';
-                      typeClasses = 'bg-info/15 text-info';
-                    } else if (item.type === 'service') {
-                      const protocol = (item.data as { protocol?: string } | null)
-                        ?.protocol;
-                      typeLabel =
-                        protocol === 'arcgis_map' || protocol === 'arcgis_feature'
-                          ? 'ArcGIS'
-                          : protocol === 'wms'
-                            ? 'WMS'
-                            : protocol === 'wfs'
-                              ? 'WFS'
-                              : protocol === 'wmts'
-                                ? 'WMTS'
-                                : 'Service';
-                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
-                    } else if (item.type === 'wms_service') {
-                      typeLabel = 'WMS';
-                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
-                    } else if (item.type === 'wfs_service') {
-                      typeLabel = 'WFS';
-                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
-                    } else if (item.type === 'point_cloud') {
-                      // #179 / #185: honest badges for the non-feature
-                      // portal types (previously mislabelled Feature).
-                      typeLabel = '3D';
-                      typeClasses = 'bg-accent/15 text-accent';
-                    } else if (item.type === 'tile_layer') {
-                      typeLabel = 'Imagery';
-                      typeClasses = 'bg-warn/15 text-warn';
-                    } else {
-                      typeLabel = 'Feature';
-                      typeClasses = 'bg-info/15 text-info';
-                    }
-                    return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => submitPortalItem(item)}
-                        className="flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
-                      >
-                        <div className="flex w-full items-center gap-2">
-                          <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
-                            {item.title}
-                          </div>
-                          {sublayerCount > 1 ? (
-                            <span
-                              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
-                              title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
-                            >
-                              +{sublayerCount} layers
-                            </span>
-                          ) : null}
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-2xs uppercase tracking-wide ${typeClasses}`}
-                          >
-                            {typeLabel}
-                          </span>
-                        </div>
-                        {item.description ? (
-                          <div className="line-clamp-1 text-xs text-muted">
-                            {item.description}
-                          </div>
-                        ) : null}
-                      </button>
-                    </li>
-                    );
-                  })}
-                </ul>
+                <PortalItemList
+                  items={visiblePortalItems}
+                  onPick={submitPortalItem}
+                  t={t}
+                />
                 )
               )}
               <p className="text-2xs text-muted">
-                Feature services stream from PostGIS; ArcGIS services
-                query the origin live as you pan and zoom.
+                {t('mapAddLayer.portalFootnote')}
               </p>
             </div>
           )}
@@ -1680,20 +1575,20 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  Name
+                  {t('mapAddLayer.nameLabel')}
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Assessor parcels, roads, ..."
+                  placeholder={t('mapAddLayer.arcgisNamePlaceholder')}
                   maxLength={200}
                   className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-                  ArcGIS REST URL
+                  {t('mapAddLayer.arcgisUrlLabel')}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -1706,7 +1601,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                         void runArcgisProbe(arcgisUrl);
                       }
                     }}
-                    placeholder="https://host/arcgis/rest/services/OpenData/Assessor/MapServer"
+                    placeholder={t('mapAddLayer.arcgisUrlPlaceholder')}
                     className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <button
@@ -1718,14 +1613,11 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     {arcgisProbing ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : null}
-                    Probe
+                    {t('mapAddLayer.probeButton')}
                   </button>
                 </div>
                 <p className="mt-1 text-xs text-muted">
-                  Paste the service root (<code>.../MapServer</code> or
-                  <code> .../FeatureServer</code>) or a specific layer URL
-                  (<code>.../MapServer/0</code>). The viewer will query
-                  features live by bbox as you pan and zoom.
+                  {t('mapAddLayer.arcgisUrlHint')}
                 </p>
               </div>
 
@@ -1737,8 +1629,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                         {arcgisService.name}
                       </div>
                       <div className="text-2xs text-muted">
-                        {arcgisService.serviceType} • {arcgisService.layers.length}{' '}
-                        layer{arcgisService.layers.length === 1 ? '' : 's'}
+                        {arcgisService.serviceType} •{' '}
+                        {t('mapAddLayer.layerCount', {
+                          count: arcgisService.layers.length,
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1748,11 +1642,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     </p>
                   ) : null}
                   <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-                    Pick a layer
+                    {t('mapAddLayer.pickLayerLabel')}
                   </label>
                   <ArcgisLayerPicker
                     layers={arcgisService.layers}
                     value={arcgisLayerId}
+                    t={t}
                     onChange={(id) => {
                       setArcgisLayerId(id);
                       const l = arcgisService.layers.find((x) => x.id === id);
@@ -1764,11 +1659,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 </div>
               ) : null}
               <p className="text-2xs text-muted">
-                The service must allow cross-origin requests from this
-                portal. Paginated fetches cap at ~5000 features per
-                viewport: zoom in for denser layers, or pull the data
-                to a local copy from the layer&apos;s item page (coming
-                next).
+                {t('mapAddLayer.arcgisFootnote')}
               </p>
             </div>
           )}
@@ -1787,7 +1678,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               onClick={onClose}
               className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -1798,7 +1689,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 (!arcgisService || arcgisLayerId == null || arcgisProbing)
               }
             >
-              Add layer
+              {t('mapAddLayer.addLayerButton')}
             </button>
           </div>
         )}
@@ -1808,6 +1699,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       <SublayerChoiceModal
         item={pendingSublayerChoice.item}
         sublayers={pendingSublayerChoice.sublayers}
+        t={t}
         onPick={(mode, selectedIds) => {
           const onConfirm = pendingSublayerChoice.onConfirm;
           setPendingSublayerChoice(null);
@@ -1836,9 +1728,15 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
  * The modal sits above the parent Add Layer dialog; we intercept
  * the backdrop click so it closes only the modal, not both.
  */
+type MapAddLayerT = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
+
 function SublayerChoiceModal({
   item,
   sublayers,
+  t,
   onPick,
   onCancel,
 }: {
@@ -1848,6 +1746,7 @@ function SublayerChoiceModal({
     name?: string;
     geometryType?: string;
   }>;
+  t: MapAddLayerT;
   onPick: (
     mode: 'group' | 'flat',
     selectedIds: Set<number | string>,
@@ -1887,31 +1786,33 @@ function SublayerChoiceModal({
       >
         <div className="shrink-0 border-b border-border px-4 py-3 pr-12">
           <DialogTitle className="text-base font-semibold">
-            Add &ldquo;{item.title}&rdquo;
+            {t('mapAddLayer.sublayerModalTitle', { title: item.title })}
           </DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted">
-            This item has <strong>{sublayers.length} sublayers</strong>. Pick
-            which to include, then choose how to add them.
+            {t('mapAddLayer.sublayerModalIntro', { count: sublayers.length })}
           </DialogDescription>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wide text-muted">
-              Sublayers
+              {t('mapAddLayer.sublayersHeading')}
             </span>
             <button
               type="button"
               onClick={toggleAll}
               className="text-xs text-accent hover:underline"
             >
-              {allChecked ? 'Deselect all' : 'Select all'}
+              {allChecked
+                ? t('mapAddLayer.deselectAll')
+                : t('mapAddLayer.selectAll')}
             </button>
           </div>
           <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
             {sublayers.map((l) => {
               const checked = selected.has(l.id);
-              const subName = l.name ?? `Layer ${l.id}`;
-              const geom = geometryShort(l.geometryType);
+              const subName =
+                l.name ?? t('mapAddLayer.layerFallbackName', { id: l.id });
+              const geom = geometryShortLabel(l.geometryType, t);
               return (
                 <li key={l.id}>
                   <label
@@ -1949,15 +1850,16 @@ function SublayerChoiceModal({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-ink-0">
-                  Add {selected.size > 1 ? `${selected.size} ` : ''}as a group
+                  {selected.size > 1
+                    ? t('mapAddLayer.addAsGroupMany', { count: selected.size })
+                    : t('mapAddLayer.addAsGroup')}
                 </span>
                 <span className="rounded bg-accent/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
-                  Recommended
+                  {t('mapAddLayer.recommended')}
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                One parent header that controls visibility, opacity, and
-                removal for every sublayer at once.
+                {t('mapAddLayer.addAsGroupHint')}
               </p>
             </div>
           </button>
@@ -1972,11 +1874,12 @@ function SublayerChoiceModal({
             </div>
             <div className="min-w-0 flex-1">
               <span className="text-sm font-medium text-ink-0">
-                Add {selected.size > 1 ? `${selected.size} ` : ''}as separate layers
+                {selected.size > 1
+                  ? t('mapAddLayer.addAsFlatMany', { count: selected.size })
+                  : t('mapAddLayer.addAsFlat')}
               </span>
               <p className="mt-0.5 text-xs text-muted">
-                Independent top-level entries. Best if you plan to mix them
-                with other map content.
+                {t('mapAddLayer.addAsFlatHint')}
               </p>
             </div>
           </button>
@@ -1987,7 +1890,7 @@ function SublayerChoiceModal({
             onClick={onCancel}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -1999,10 +1902,12 @@ function FileDropZone({
   busy,
   accept,
   onFile,
+  t,
 }: {
   busy: boolean;
   accept: string;
   onFile: (file: File) => void;
+  t: MapAddLayerT;
 }) {
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -2032,16 +1937,16 @@ function FileDropZone({
         <Upload className="h-5 w-5 text-muted" />
       )}
       <p className="text-sm text-ink-1">
-        {busy ? 'Reading file...' : 'Drop a file here'}
+        {busy ? t('mapAddLayer.readingFile') : t('mapAddLayer.dropFile')}
       </p>
-      <p className="text-xs text-muted">or</p>
+      <p className="text-xs text-muted">{t('mapAddLayer.or')}</p>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={busy}
         className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
       >
-        Choose file
+        {t('mapAddLayer.chooseFile')}
       </button>
       <input
         ref={inputRef}
@@ -2095,18 +2000,17 @@ function TabButton({
 function ArcgisLayerPicker({
   layers,
   value,
+  t,
   onChange,
 }: {
   layers: ArcgisServiceLayer[];
   value: number | null;
+  t: MapAddLayerT;
   onChange: (id: number) => void;
 }) {
   if (layers.length === 0) {
     return (
-      <p className="text-xs text-muted">
-        Service reported no layers. Is this URL pointing at something
-        other than a MapServer / FeatureServer?
-      </p>
+      <p className="text-xs text-muted">{t('mapAddLayer.arcgisNoLayers')}</p>
     );
   }
   const parentIds = new Set(
@@ -2135,11 +2039,13 @@ function ArcgisLayerPicker({
                 <span className="tabular-nums text-muted">{l.id}</span>{' '}
                 {l.name}
                 {isGroup ? (
-                  <span className="ml-1 text-2xs text-muted">(group)</span>
+                  <span className="ml-1 text-2xs text-muted">
+                    {t('mapAddLayer.arcgisGroupSuffix')}
+                  </span>
                 ) : null}
               </span>
               <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
-                {geometryShort(l.geometryType)}
+                {geometryShortLabel(l.geometryType, t)}
               </span>
             </button>
           </li>
@@ -2183,14 +2089,16 @@ function EmptyShell({ label }: { label: string }) {
 function PortalItemList({
   items,
   onPick,
+  t,
 }: {
   items: Item[];
   onPick: (item: Item) => void;
+  t: MapAddLayerT;
 }) {
   return (
     <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
       {items.map((item) => (
-        <PortalItemRow key={item.id} item={item} onPick={onPick} />
+        <PortalItemRow key={item.id} item={item} onPick={onPick} t={t} />
       ))}
     </ul>
   );
@@ -2199,9 +2107,11 @@ function PortalItemList({
 function PortalItemRow({
   item,
   onPick,
+  t,
 }: {
   item: Item;
   onPick: (item: Item) => void;
+  t: MapAddLayerT;
 }) {
   // The list is fetched in lite mode (#52) so `data` is omitted from
   // the row payload; the server attaches a derived `_subLayerCount`
@@ -2230,40 +2140,7 @@ function PortalItemRow({
           : 0;
     }
   }
-  // #304 slice 5: type-aware label + classes. Connected Service items
-  // surface the protocol when present; legacy types map directly.
-  let typeLabel: string;
-  let typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
-  if (item.type === 'arcgis_service') {
-    typeLabel = 'ArcGIS';
-  } else if (item.type === 'service') {
-    const protocol = (item.data as { protocol?: string } | null)?.protocol;
-    typeLabel =
-      protocol === 'arcgis_map' || protocol === 'arcgis_feature'
-        ? 'ArcGIS'
-        : protocol === 'wms'
-          ? 'WMS'
-          : protocol === 'wfs'
-            ? 'WFS'
-            : protocol === 'wmts'
-              ? 'WMTS'
-              : 'Service';
-  } else if (item.type === 'wms_service') {
-    typeLabel = 'WMS';
-  } else if (item.type === 'wfs_service') {
-    typeLabel = 'WFS';
-  } else if (item.type === 'point_cloud') {
-    // #179 / #185: honest badges for the non-feature portal types
-    // (these were mislabelled "Feature" before).
-    typeLabel = '3D';
-    typeClasses = 'bg-accent/15 text-accent';
-  } else if (item.type === 'tile_layer') {
-    typeLabel = 'Imagery';
-    typeClasses = 'bg-warn/15 text-warn';
-  } else {
-    typeLabel = 'Feature';
-    typeClasses = 'bg-info/15 text-info';
-  }
+  const { typeLabel, typeClasses } = portalItemTypeBadge(item, t);
   return (
     <li>
       <button
@@ -2278,9 +2155,11 @@ function PortalItemRow({
           {sublayerCount > 1 ? (
             <span
               className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
-              title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
+              title={t('mapAddLayer.sublayerBadgeTitle', {
+                count: sublayerCount,
+              })}
             >
-              +{sublayerCount} layers
+              {t('mapAddLayer.sublayerBadge', { count: sublayerCount })}
             </span>
           ) : null}
           <span
@@ -2297,4 +2176,63 @@ function PortalItemRow({
       </button>
     </li>
   );
+}
+
+function portalItemTypeBadge(
+  item: Item,
+  t: MapAddLayerT,
+): { typeLabel: string; typeClasses: string } {
+  let typeClasses =
+    'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
+  if (item.type === 'arcgis_service') {
+    return { typeLabel: t('mapAddLayer.typeArcgis'), typeClasses };
+  }
+  if (item.type === 'derived_layer') {
+    return {
+      typeLabel: t('mapAddLayer.typeDerived'),
+      typeClasses: 'bg-info/15 text-info',
+    };
+  }
+  if (item.type === 'service') {
+    const protocol = (item.data as { protocol?: string } | null)?.protocol;
+    const typeLabel =
+      protocol === 'arcgis_map' || protocol === 'arcgis_feature'
+        ? t('mapAddLayer.typeArcgis')
+        : protocol === 'wms'
+          ? t('mapAddLayer.typeWms')
+          : protocol === 'wfs'
+            ? t('mapAddLayer.typeWfs')
+            : protocol === 'wmts'
+              ? t('mapAddLayer.typeWmts')
+              : t('mapAddLayer.typeService');
+    return { typeLabel, typeClasses };
+  }
+  if (item.type === 'wms_service') {
+    return { typeLabel: t('mapAddLayer.typeWms'), typeClasses };
+  }
+  if (item.type === 'wfs_service') {
+    return { typeLabel: t('mapAddLayer.typeWfs'), typeClasses };
+  }
+  if (item.type === 'point_cloud') {
+    return {
+      typeLabel: t('mapAddLayer.type3d'),
+      typeClasses: 'bg-accent/15 text-accent',
+    };
+  }
+  if (item.type === 'tile_layer') {
+    return {
+      typeLabel: t('mapAddLayer.typeImagery'),
+      typeClasses: 'bg-warn/15 text-warn',
+    };
+  }
+  return {
+    typeLabel: t('mapAddLayer.typeFeature'),
+    typeClasses: 'bg-info/15 text-info',
+  };
+}
+
+function geometryShortLabel(g?: string, t?: MapAddLayerT): string {
+  const raw = geometryShort(g);
+  if (raw === 'table' && t) return t('mapAddLayer.geometryTable');
+  return raw;
 }

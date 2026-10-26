@@ -585,6 +585,140 @@ export const es: Partial<CatalogShape> = {
     tableNoShapes:
       '{layer} es una tabla sin formas, así que no hay nada que dibujar.',
   },
+  mapAddLayer: {
+    title: 'Añadir capa',
+    description:
+      'Añade un elemento del portal, archivo, URL, servicio ArcGIS o una capa vacía nueva a este mapa.',
+    tabs: {
+      portal: 'Portal',
+      file: 'Archivo',
+      paste: 'Pegar',
+      url: 'URL',
+      arcgis: 'ArcGIS',
+      new: 'Nueva',
+    },
+    nameLabel: 'Nombre',
+    addLayerButton: 'Añadir capa',
+    newIntro:
+      'Empieza una capa vacía nueva en la que puedes dibujar entidades. Se convierte en un elemento normal de tu contenido y aparece en este mapa al instante.',
+    newNamePlaceholder: 'p. ej. Contornos de edificios',
+    newGeomLabel: 'Qué contendrá',
+    newCreateButton: 'Crear y añadir al mapa',
+    newFieldsHint:
+      'Empieza con un solo campo Nombre; añade más campos cuando quieras desde la página del elemento de la capa.',
+    defaultFieldLabel: 'Nombre',
+    layerNamePlaceholder: 'Parcelas, carreteras, observaciones...',
+    geojsonUrlLabel: 'URL de GeoJSON',
+    geojsonUrlPlaceholder: 'https://example.org/parcels.geojson',
+    geojsonUrlHint:
+      'Debe ser accesible desde el navegador (con CORS) y devolver un FeatureCollection de GeoJSON.',
+    geojsonPasteLabel: 'GeoJSON',
+    geojsonPasteHint:
+      'Solo conjuntos pequeños. Las entidades en línea se guardan en el propio elemento; para más de unos cientos de filas usa una URL.',
+    fileNamePlaceholder: 'Opcional. Por defecto, el nombre del archivo.',
+    fileFormatsHint:
+      'Acepta GeoJSON, KML, KMZ y Shapefiles comprimidos. Los archivos se analizan en el navegador y se guardan en la capa; manténlos por debajo de unos cientos de KB. Para conjuntos más grandes, impórtalos como servicio de entidades.',
+    searchGroups: 'Buscar grupos...',
+    searchFolders: 'Buscar carpetas...',
+    searchServices: 'Buscar servicios...',
+    backToGroups: 'Volver a grupos',
+    showingItemsSharedWith: 'Mostrando elementos compartidos con',
+    loadingGroupItems: 'Cargando elementos compartidos con este grupo...',
+    emptyGroupItems: 'Aún no hay elementos compartidos con este grupo.',
+    emptyNoGroups: 'Aún no eres miembro de ningún grupo.',
+    allFolders: 'Todas las carpetas',
+    loadingFolder: 'Cargando contenido de la carpeta...',
+    emptyFolder: 'Esta carpeta está vacía.',
+    emptyNoFolders:
+      'Aún no hay carpetas. Crea una desde la página Elementos para organizar capas.',
+    loadingPortalItems: 'Cargando servicios de tu portal...',
+    emptyNoServices:
+      'No hay servicios que coincidan. Sube datos vectoriales como servicio de entidades o guarda una URL REST de ArcGIS como elemento de servicio ArcGIS para elegirla aquí.',
+    portalFootnote:
+      'Los servicios de entidades se transmiten desde PostGIS; los servicios ArcGIS consultan el origen en vivo al desplazarte y hacer zoom.',
+    sublayerBadge: '+{count} capas',
+    sublayerBadgeTitle:
+      'Este servicio expone {count} subcapas; al hacer clic se añaden todas.',
+    typeArcgis: 'ArcGIS',
+    typeDerived: 'Derivada',
+    typeWms: 'WMS',
+    typeWfs: 'WFS',
+    typeWmts: 'WMTS',
+    typeService: 'Servicio',
+    type3d: '3D',
+    typeImagery: 'Imagen',
+    typeFeature: 'Entidades',
+    arcgisNamePlaceholder: 'Parcelas catastrales, carreteras...',
+    arcgisUrlLabel: 'URL REST de ArcGIS',
+    arcgisUrlPlaceholder:
+      'https://host/arcgis/rest/services/OpenData/Assessor/MapServer',
+    probeButton: 'Sondear',
+    arcgisUrlHint:
+      'Pega la raíz del servicio (.../MapServer o .../FeatureServer) o la URL de una capa concreta (.../MapServer/0). El visor consultará entidades por bbox al desplazarte y hacer zoom.',
+    pickLayerLabel: 'Elegir una capa',
+    layerCount: '{count, plural, one {# capa} other {# capas}}',
+    arcgisFootnote:
+      'El servicio debe permitir solicitudes de origen cruzado desde este portal. Las descargas paginadas se limitan a ~5000 entidades por vista: acerca el zoom en capas densas o copia los datos localmente desde la página del elemento de la capa (próximamente).',
+    arcgisNoLayers:
+      'El servicio no informó de capas. ¿Apunta esta URL a algo distinto de un MapServer / FeatureServer?',
+    arcgisGroupSuffix: '(grupo)',
+    geometryTable: 'tabla',
+    readingFile: 'Leyendo archivo...',
+    dropFile: 'Suelta un archivo aquí',
+    or: 'o',
+    chooseFile: 'Elegir archivo',
+    sublayerModalTitle: 'Añadir "{title}"',
+    sublayerModalIntro:
+      'Este elemento tiene {count} subcapas. Elige cuáles incluir y cómo añadirlas.',
+    sublayersHeading: 'Subcapas',
+    selectAll: 'Seleccionar todo',
+    deselectAll: 'Deseleccionar todo',
+    layerFallbackName: 'Capa {id}',
+    addAsGroup: 'Añadir como grupo',
+    addAsGroupMany: 'Añadir {count} como grupo',
+    recommended: 'Recomendado',
+    addAsGroupHint:
+      'Un encabezado padre que controla visibilidad, opacidad y eliminación de todas las subcapas a la vez.',
+    addAsFlat: 'Añadir como capas separadas',
+    addAsFlatMany: 'Añadir {count} como capas separadas',
+    addAsFlatHint:
+      'Entradas independientes de nivel superior. Mejor si planeas mezclarlas con otro contenido del mapa.',
+    errors: {
+      newNameRequired: 'Pon un nombre a la capa nueva.',
+      createFailed: 'No se pudo crear la capa.',
+      arcgisUrlRequired:
+        'Pega una URL de ArcGIS MapServer o FeatureServer.',
+      arcgisProbeFailed:
+        'No se pudo leer ese servicio. Comprueba la URL y la configuración CORS.',
+      arcgisProbeFirst:
+        'Sondea el servicio primero para saber qué capas ofrece.',
+      arcgisGeocodeServer:
+        'Esta URL apunta a un GeocodeServer de ArcGIS; los geocodificadores se añaden como fuente de geocodificación, no como capa del mapa.',
+      arcgisPickLayer: 'Elige una capa del servicio.',
+      nameRequired:
+        'Pon un nombre a la capa para que aparezca en la lista.',
+      geojsonUrlRequired: 'Pega una URL de GeoJSON.',
+      invalidJson:
+        'Eso no es JSON válido. Comprueba si falta una llave o una comilla.',
+      featureCollectionRequired:
+        'Pega un FeatureCollection de GeoJSON (no una Feature o geometría suelta).',
+      loadItemFailed: 'No se pudo cargar {title}.',
+      protocolNotRenderable:
+        'El renderizado de mapas para servicios {protocol} llegará en la siguiente entrega. El elemento aparece en el selector por visibilidad, pero aún no se puede añadir al mapa (sigue #305).',
+      noServiceUrl:
+        '{title} aún no tiene URL de servicio. Ábrelo y pega una.',
+      noLayersCaptured:
+        '{title} aún no tiene capas capturadas. Ábrelo y vuelve a sondear.',
+      noLayersSelected:
+        '{title} no tiene capas seleccionadas para uso en mapa web. Abre el elemento y elige al menos una capa.',
+      noArcgisLayerIds:
+        '{title} no tiene identificadores de capa con forma ArcGIS. Ábrelo y vuelve a sondear.',
+      fileInvalidJson: 'Ese archivo no es JSON válido.',
+      fileFeatureCollection:
+        'El objeto de nivel superior debe ser un FeatureCollection de GeoJSON.',
+      fileReadFailed: 'No se pudo leer el archivo.',
+    },
+  },
   mapSearch: {
     geocoderUnavailable:
       'La búsqueda de lugares no está disponible ahora mismo ({reason}). Los resultados de capas de arriba no se ven afectados.',
