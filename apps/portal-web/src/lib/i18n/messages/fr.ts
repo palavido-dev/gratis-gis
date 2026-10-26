@@ -1874,6 +1874,26 @@ export const fr: Partial<CatalogShape> = {
       'Aucune correspondance d’attributs. Le géocodage est désactivé pour cette carte.',
     noSearchableLayers: 'Aucune couche de cette carte n’est interrogeable.',
   },
+  mapElevationProfile: {
+    title: "Profil d'élévation",
+    closeAria: "Fermer le profil d'élévation",
+    drawStart: 'Cliquez sur la carte pour commencer une ligne au sol.',
+    drawContinue:
+      'Cliquez pour ajouter des points. Double-cliquez (ou Entrée) pour terminer.',
+    drawAgain: 'Dessiner à nouveau',
+    reading: "Lecture de l'élévation du sol...",
+    fromSource: 'depuis {title}',
+    distance: 'Distance',
+    low: 'Bas',
+    high: 'Haut',
+    totalClimb: 'Dénivelé positif',
+    chartAria: "Élévation du sol le long de la ligne tracée",
+    noCoverage:
+      'Aucune couche d’élévation ne couvre cette ligne. Créez-en une à partir d’un nuage de points (sa page a un bouton « Créer une couche d’élévation »), puis réessayez.',
+    noDataAlongLine:
+      'La couche d’élévation n’a pas de données le long de cette ligne. Essayez une ligne dans sa zone de couverture.',
+    readFailed: 'Impossible de lire la couche d’élévation.',
+  },
   adminFieldQueues: {
     rejectedByServer: '{count} refusés par le serveur',
     queuedSummary: '{queued} en file ({failed} en échec)',

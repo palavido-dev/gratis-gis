@@ -1984,6 +1984,26 @@ export const en = {
       'No attribute matches. Geocoding is turned off for this map.',
     noSearchableLayers: 'No layers in this map are searchable.',
   },
+  mapElevationProfile: {
+    title: 'Elevation profile',
+    closeAria: 'Close elevation profile',
+    drawStart: 'Click the map to start a line across the ground.',
+    drawContinue:
+      'Click to add points. Double-click (or press Enter) to finish.',
+    drawAgain: 'Draw again',
+    reading: 'Reading the ground elevation...',
+    fromSource: 'from {title}',
+    distance: 'Distance',
+    low: 'Low',
+    high: 'High',
+    totalClimb: 'Total climb',
+    chartAria: 'Ground elevation along the drawn line',
+    noCoverage:
+      'No elevation layer covers this line. Create one from a point cloud (its page has a "Create elevation layer" button), then try again.',
+    noDataAlongLine:
+      'The elevation layer has no data along this line. Try a line inside its coverage area.',
+    readFailed: 'Could not read the elevation layer.',
+  },
   // /admin/field-queues: per device and per deployment queue health.
   adminFieldQueues: {
     rejectedByServer: '{count} rejected by the server',

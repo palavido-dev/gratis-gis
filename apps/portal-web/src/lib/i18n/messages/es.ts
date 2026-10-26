@@ -1870,6 +1870,26 @@ export const es: Partial<CatalogShape> = {
       'Sin coincidencias de atributos. La geocodificación está desactivada en este mapa.',
     noSearchableLayers: 'Ninguna capa de este mapa es buscable.',
   },
+  mapElevationProfile: {
+    title: 'Perfil de elevación',
+    closeAria: 'Cerrar perfil de elevación',
+    drawStart: 'Haz clic en el mapa para empezar una línea sobre el terreno.',
+    drawContinue:
+      'Haz clic para añadir puntos. Doble clic (o Enter) para terminar.',
+    drawAgain: 'Dibujar de nuevo',
+    reading: 'Leyendo la elevación del terreno...',
+    fromSource: 'de {title}',
+    distance: 'Distancia',
+    low: 'Mín.',
+    high: 'Máx.',
+    totalClimb: 'Ascenso total',
+    chartAria: 'Elevación del terreno a lo largo de la línea dibujada',
+    noCoverage:
+      'Ninguna capa de elevación cubre esta línea. Crea una desde una nube de puntos (su página tiene el botón "Crear capa de elevación") e inténtalo de nuevo.',
+    noDataAlongLine:
+      'La capa de elevación no tiene datos a lo largo de esta línea. Prueba una línea dentro de su área de cobertura.',
+    readFailed: 'No se pudo leer la capa de elevación.',
+  },
   adminFieldQueues: {
     rejectedByServer: '{count} rechazados por el servidor',
     queuedSummary: '{queued} en cola ({failed} con error)',

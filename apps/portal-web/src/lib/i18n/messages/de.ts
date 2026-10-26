@@ -1873,6 +1873,26 @@ export const de: Partial<CatalogShape> = {
       'Keine Attributtreffer. Geokodierung ist für diese Karte ausgeschaltet.',
     noSearchableLayers: 'Keine Layer in dieser Karte sind durchsuchbar.',
   },
+  mapElevationProfile: {
+    title: 'Höhenprofil',
+    closeAria: 'Höhenprofil schließen',
+    drawStart: 'Klicken Sie auf die Karte, um eine Linie über dem Gelände zu starten.',
+    drawContinue:
+      'Klicken Sie, um Punkte hinzuzufügen. Doppelklick (oder Enter) zum Beenden.',
+    drawAgain: 'Erneut zeichnen',
+    reading: 'Geländehöhe wird gelesen...',
+    fromSource: 'von {title}',
+    distance: 'Distanz',
+    low: 'Tief',
+    high: 'Hoch',
+    totalClimb: 'Gesamtanstieg',
+    chartAria: 'Geländehöhe entlang der gezeichneten Linie',
+    noCoverage:
+      'Kein Höhenlayer deckt diese Linie ab. Erstellen Sie einen aus einer Punktwolke (deren Seite hat die Schaltfläche „Höhenlayer erstellen“) und versuchen Sie es erneut.',
+    noDataAlongLine:
+      'Der Höhenlayer hat keine Daten entlang dieser Linie. Versuchen Sie eine Linie innerhalb seines Abdeckungsbereichs.',
+    readFailed: 'Höhenlayer konnte nicht gelesen werden.',
+  },
   adminFieldQueues: {
     rejectedByServer: '{count} vom Server abgelehnt',
     queuedSummary: '{queued} in der Warteschlange ({failed} fehlgeschlagen)',

@@ -2,6 +2,7 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 /**
  * Elevation profile tool: draw a line on the map, read the ground
  * elevation along it from the map's elevation layer, chart it.
@@ -95,6 +96,7 @@ export function ElevationProfileTool({
   onClose,
   resolveDemUrl,
 }: ElevationProfileToolProps) {
+  const t = useT();
   // Vertices of the line being drawn (before double-click).
   const [drawing, setDrawing] = useState<Array<[number, number]>>([]);
   // The finished line the chart was computed from.
@@ -129,17 +131,13 @@ export function ElevationProfileTool({
         ];
         const dem = await resolveDemUrl(bbox);
         if (!dem) {
-          setError(
-            'No elevation layer covers this line. Create one from a point cloud (its page has a "Create elevation layer" button), then try again.',
-          );
+          setError(t('mapElevationProfile.noCoverage'));
           return;
         }
         setDemTitle(dem.title ?? null);
         const profile = await sampleElevationProfile(dem.url, coords);
         if (profile.points.every((p) => p.elev === null)) {
-          setError(
-            'The elevation layer has no data along this line. Try a line inside its coverage area.',
-          );
+          setError(t('mapElevationProfile.noDataAlongLine'));
           return;
         }
         setResult(profile);
@@ -147,13 +145,13 @@ export function ElevationProfileTool({
         setError(
           err instanceof Error
             ? err.message
-            : 'Could not read the elevation layer.',
+            : t('mapElevationProfile.readFailed'),
         );
       } finally {
         setBusy(false);
       }
     },
-    [resolveDemUrl],
+    [resolveDemUrl, t],
   );
 
   // ---- Draw interaction ------------------------------------------
@@ -320,19 +318,19 @@ export function ElevationProfileTool({
           className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur-xs"
         >
           {drawing.length === 0
-            ? 'Click the map to start a line across the ground.'
-            : 'Click to add points. Double-click (or press Enter) to finish.'}
+            ? t('mapElevationProfile.drawStart')
+            : t('mapElevationProfile.drawContinue')}
         </div>
       ) : null}
       <div className="absolute inset-x-2 bottom-2 z-20 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs">
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <ChartSpline className="h-4 w-4 text-accent" />
           <span className="text-sm font-medium text-ink-0">
-            Elevation profile
+            {t('mapElevationProfile.title')}
           </span>
           {demTitle ? (
             <span className="hidden truncate text-2xs text-muted sm:inline">
-              from {demTitle}
+              {t('mapElevationProfile.fromSource', { title: demTitle })}
             </span>
           ) : null}
           <div className="ml-auto flex items-center gap-1.5">
@@ -359,13 +357,13 @@ export function ElevationProfileTool({
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-1"
               >
                 <Pencil className="h-3 w-3" />
-                Draw again
+                {t('mapElevationProfile.drawAgain')}
               </button>
             ) : null}
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close elevation profile"
+              aria-label={t('mapElevationProfile.closeAria')}
               className="rounded-md p-1 text-muted hover:bg-surface-1 hover:text-ink-0"
             >
               <X className="h-4 w-4" />
@@ -376,7 +374,7 @@ export function ElevationProfileTool({
           {busy ? (
             <div className="flex h-36 items-center justify-center gap-2 text-sm text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Reading the ground elevation...
+              {t('mapElevationProfile.reading')}
             </div>
           ) : error ? (
             <div className="flex h-36 items-center justify-center px-6 text-center text-sm text-muted">
@@ -435,6 +433,7 @@ function ProfileChart({
   hoverIdx: number | null;
   onHover: (idx: number | null) => void;
 }) {
+  const t = useT();
   const fmt = useFormat();
   const { points, totalM } = result;
   const valid = points.filter((p) => p.elev !== null);
@@ -529,40 +528,40 @@ function ProfileChart({
         onMouseMove={onMouseMove}
         onMouseLeave={() => onHover(null)}
         role="img"
-        aria-label="Ground elevation along the drawn line"
+        aria-label={t('mapElevationProfile.chartAria')}
       >
-        {yTicks.map((t, i) => (
+        {yTicks.map((tick, i) => (
           <g key={`y${i}`}>
             <line
               x1={PAD_L}
               x2={CHART_W - PAD_R}
-              y1={y(t)}
-              y2={y(t)}
+              y1={y(tick)}
+              y2={y(tick)}
               className="stroke-border"
               strokeDasharray="2 3"
               strokeWidth={1}
             />
             <text
               x={PAD_L - 5}
-              y={y(t) + 3}
+              y={y(tick) + 3}
               textAnchor="end"
               className="fill-current text-muted"
               fontSize={9}
             >
-              {fmt.number(Math.round(elevOf(t)))} {elevUnit}
+              {fmt.number(Math.round(elevOf(tick)))} {elevUnit}
             </text>
           </g>
         ))}
-        {xTicks.map((t, i) => (
+        {xTicks.map((tick, i) => (
           <text
             key={`x${i}`}
-            x={x(t)}
+            x={x(tick)}
             y={CHART_H - 6}
             textAnchor={i === 0 ? 'start' : i === xTickCount ? 'end' : 'middle'}
             className="fill-current text-muted"
             fontSize={9}
           >
-            {formatLengthIn(t, distUnit)}
+            {formatLengthIn(tick, distUnit)}
           </text>
         ))}
         {areaPaths.map((d, i) => (
@@ -600,19 +599,19 @@ function ProfileChart({
       </svg>
       <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-2xs text-muted">
         <Stat
-          label="Distance"
+          label={t('mapElevationProfile.distance')}
           value={formatLengthIn(totalM, distUnit)}
         />
         <Stat
-          label="Low"
+          label={t('mapElevationProfile.low')}
           value={`${fmt.number(Math.round(elevOf(minE)))} ${elevUnit}`}
         />
         <Stat
-          label="High"
+          label={t('mapElevationProfile.high')}
           value={`${fmt.number(Math.round(elevOf(maxE)))} ${elevUnit}`}
         />
         <Stat
-          label="Total climb"
+          label={t('mapElevationProfile.totalClimb')}
           value={`${fmt.number(Math.round(elevOf(climb)))} ${elevUnit}`}
         />
         {hover && hover.elev !== null ? (
