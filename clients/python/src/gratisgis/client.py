@@ -155,26 +155,6 @@ def _host_of(url: str) -> str:
     return without_scheme.split("/", 1)[0]
 
 
-def _attachment_key(attachment: Dict[str, Any]) -> str:
-    """The storage key to download, from an attachment record.
-
-    The record's ``storageUrl`` is a path into the WEB app's proxy
-    (``/api/portal/storage/...``), not the API. Fetching it against the
-    API base gives a 404 that looks like a missing file. The stable part
-    is the uuid on the end, which is what the API's own route takes.
-    """
-    url = attachment.get("storageUrl")
-    if not isinstance(url, str) or not url:
-        raise ValueError(
-            "That does not look like an attachment record; expected one of "
-            "the dicts returned by attachments()."
-        )
-    key = url.rstrip("/").rsplit("/", 1)[-1]
-    if not key:
-        raise ValueError(f"Could not read a storage key out of {url!r}.")
-    return key
-
-
 def field(
     name: str,
     type: str = "string",
@@ -1213,13 +1193,45 @@ class GratisGIS:
         ``content_type``: these are the portal's names and renaming them
         here would only mean two vocabularies to learn.
 
-        Attachments are not carried on the feature itself, so listing
-        them for a whole layer is one call per feature. That is the
-        portal's shape, not an oversight of this method.
+        For a whole-layer inventory use :meth:`iter_attachments` instead
+        of calling this once per feature.
         """
         result = self._request(
             "GET",
             f"/items/{item_id}/layers/{layer}/features/{feature_id}/attachments",
+        )
+        return result if isinstance(result, list) else []
+
+    def iter_attachments(
+        self,
+        item_id: str,
+        layer: str,
+        *,
+        feature_ids: Optional[Iterable[str]] = None,
+        all: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Layer-wide attachment inventory (one request, not N+1).
+
+        Pass ``feature_ids`` to scope the query, or ``all=True`` for
+        every attachment on the layer. Returns a list of groups shaped
+        ``{featureId, attachments: [...]}`` — the same record shape
+        :meth:`attachments` returns inside each group.
+        """
+        if all:
+            params: Dict[str, Any] = {"all": "1"}
+        elif feature_ids is not None:
+            ids = [str(x) for x in feature_ids]
+            if not ids:
+                raise ValueError(
+                    "feature_ids is empty; pass at least one id, or all=True."
+                )
+            params = {"featureIds": ",".join(ids)}
+        else:
+            raise ValueError("Pass feature_ids=... or all=True.")
+        result = self._request(
+            "GET",
+            f"/items/{item_id}/layers/{layer}/attachments",
+            params=params,
         )
         return result if isinstance(result, list) else []
 
@@ -1318,24 +1330,36 @@ class GratisGIS:
 
     def download_attachment(
         self,
+        item_id: str,
+        layer: str,
+        feature_id: str,
         attachment: Dict[str, Any],
         *,
         path: Optional[Union[str, "os.PathLike[str]"]] = None,
     ) -> Union[bytes, Path]:
-        """Fetch one attachment, given a record from :meth:`attachments`.
+        """Fetch one attachment by id (record from :meth:`attachments`).
 
-        With ``path``, streams to that file and returns the
-        :class:`pathlib.Path`; without it, returns the bytes. Pass a
-        directory and the attachment's own ``fileName`` is used inside
-        it, which is what you want when saving a whole feature's worth.
+        Streams via ``GET .../attachments/:id/download`` so the client
+        never has to parse ``storageUrl``. With ``path``, writes to that
+        file and returns the :class:`pathlib.Path`; without it, returns
+        the bytes. Pass a directory and the attachment's own
+        ``fileName`` is used inside it.
         """
-        key = _attachment_key(attachment)
-        url = f"/storage/private/feature-attachment/{key}"
+        att_id = attachment.get("id") if isinstance(attachment, dict) else None
+        if not isinstance(att_id, str) or not att_id:
+            raise ValueError(
+                "That does not look like an attachment record; expected one of "
+                "the dicts returned by attachments()."
+            )
+        url = (
+            f"/items/{item_id}/layers/{layer}/features/{feature_id}"
+            f"/attachments/{att_id}/download"
+        )
         target: Optional[Path] = None
         if path is not None:
             target = Path(path)
             if target.is_dir():
-                target = target / str(attachment.get("fileName") or key)
+                target = target / str(attachment.get("fileName") or att_id)
 
         try:
             with self._client.stream("GET", url) as response:

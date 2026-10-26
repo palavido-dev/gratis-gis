@@ -713,32 +713,74 @@ class TestAttachments:
         with pytest.raises(ValueError, match="accepts at most 10"):
             make_client(handler).attach_file("itm", "parcels", "f1", src)
 
-    def test_download_uses_the_api_route_not_the_bff_path(self, tmp_path):
-        # storageUrl points at the WEB app's proxy. Fetching it against
-        # the API base would 404 in a way that looks like a missing file.
+    def test_download_uses_the_by_id_route(self, tmp_path):
+        # #226: stream via .../attachments/:id/download — never parse
+        # storageUrl (which points at the WEB BFF, not the API).
         def handler(request):
             assert request.url.path == (
-                "/api/storage/private/feature-attachment/abc-123"
+                "/api/items/itm/layers/parcels/features/f1"
+                "/attachments/att-1/download"
             )
             return httpx.Response(200, content=b"JPEGBYTES")
 
         assert (
-            make_client(handler).download_attachment(ATTACHMENT) == b"JPEGBYTES"
+            make_client(handler).download_attachment(
+                "itm", "parcels", "f1", ATTACHMENT
+            )
+            == b"JPEGBYTES"
         )
 
     def test_download_into_a_directory_uses_the_stored_name(self, tmp_path):
         def handler(request):
             return httpx.Response(200, content=b"JPEGBYTES")
 
-        got = make_client(handler).download_attachment(ATTACHMENT, path=tmp_path)
+        got = make_client(handler).download_attachment(
+            "itm", "parcels", "f1", ATTACHMENT, path=tmp_path
+        )
         assert got == tmp_path / "site.jpg"
         assert got.read_bytes() == b"JPEGBYTES"
 
     def test_download_rejects_something_that_is_not_a_record(self):
         with pytest.raises(ValueError, match="attachment record"):
             make_client(lambda r: httpx.Response(200)).download_attachment(
-                {"id": "x"}
+                "itm", "parcels", "f1", {"fileName": "x"}
             )
+
+    def test_iter_attachments_all(self):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "featureId": "f1",
+                        "attachments": [ATTACHMENT],
+                    }
+                ],
+            )
+
+        groups = make_client(handler).iter_attachments(
+            "itm", "parcels", all=True
+        )
+        assert seen["path"] == "/api/items/itm/layers/parcels/attachments"
+        assert seen["params"] == {"all": "1"}
+        assert groups[0]["featureId"] == "f1"
+        assert groups[0]["attachments"][0]["id"] == "att-1"
+
+    def test_iter_attachments_feature_ids(self):
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(200, json=[])
+
+        make_client(handler).iter_attachments(
+            "itm", "parcels", feature_ids=["f1", "f2"]
+        )
+        assert seen["params"] == {"featureIds": "f1,f2"}
 
     def test_delete_hits_the_right_route(self):
         seen = {}

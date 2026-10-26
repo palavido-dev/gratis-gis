@@ -295,6 +295,52 @@ export const DEFAULT_DATA_LAYER_V3: DataLayerDataV3 = {
 };
 
 // ---------------------------------------------------------------------------
+// Feature attachments (#226)
+// ---------------------------------------------------------------------------
+
+/**
+ * Public record returned by the per-feature attachment list/register
+ * endpoints and by the layer-wide bulk list. Bytes live in object
+ * storage; this is metadata only. `storageKey` is intentionally
+ * omitted from the public shape — clients download via
+ * `GET .../attachments/:attId/download` (or the private-asset proxy
+ * for browser `<img>` tags) rather than reconstructing a key from
+ * `storageUrl`.
+ */
+export interface FeatureAttachment {
+  id: string;
+  fileName: string;
+  mime: string;
+  sizeBytes: number;
+  /** Browser-facing URL (typically the private-asset proxy path). */
+  storageUrl: string;
+  createdAt: ISODateString;
+  createdBy: string;
+}
+
+/**
+ * Body for POST .../features/:fid/attachments after the client has
+ * completed the presigned PUT. The server HeadObject-checks the key
+ * and overwrites `sizeBytes` with the real object size.
+ */
+export interface RegisterFeatureAttachmentInput {
+  fileName: string;
+  mime: string;
+  sizeBytes: number;
+  storageKey: string;
+  storageUrl: string;
+}
+
+/**
+ * One feature's attachments in a layer-wide bulk listing
+ * (`GET .../layers/:layerId/attachments`).
+ */
+export interface FeatureAttachmentGroup {
+  featureId: string;
+  attachments: FeatureAttachment[];
+}
+
+// ---------------------------------------------------------------------------
 // Feature API types (used by portal-web and field-app)
 // ---------------------------------------------------------------------------
 
