@@ -38,7 +38,6 @@ import {
   Loader2,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react';
 import type { AssetRef, FileData, Item } from '@gratis-gis/shared-types';
 import { presignUpload, type PresignKind } from '@/lib/presign-upload';
