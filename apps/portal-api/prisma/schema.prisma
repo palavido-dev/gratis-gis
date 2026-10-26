@@ -757,6 +757,10 @@ model BackupRun {
   heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
 
   @@index([startedAt])
+  /// Partial unique index `backup_run_one_running_idx` (see migration
+  /// 20261026042100): at most one row with status='running'. Enforced
+  /// in SQL, not Prisma schema, because Prisma cannot express
+  /// partial uniques. #235.
   @@map("backup_run")
 }
 
