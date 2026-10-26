@@ -4038,6 +4038,60 @@ export const en = {
     },
   },
 
+  /** Public feedback form + floating widget (#162). */
+  feedbackUi: {
+    tabLabel: 'Feedback',
+    dialogTitle: 'Send feedback',
+    dialogDescription:
+      'Found a problem, or something confusing? Tell us here. No account needed.',
+    thanksTitle: 'Thank you.',
+    thanksBody: 'Your feedback went straight to the people building this.',
+    close: 'Close',
+    whatHappened: 'What happened?',
+    messagePlaceholder:
+      'The parcels layer does not draw when I zoom past the county line.',
+    nameOptional: 'Name',
+    optional: '(optional)',
+    emailOptional: 'Email',
+    emailOptionalHint: '(optional, to reply)',
+    screenshotOptional: 'Screenshot',
+    chooseImage: 'Choose image',
+    removeImageAria: 'Remove image',
+    sending: 'Sending…',
+    send: 'Send feedback',
+    messageRequired: 'Please enter a message.',
+    imageTooLarge: 'That image is larger than 4 MB. Try a smaller screenshot.',
+    rateLimited:
+      'That is a lot of feedback in a short time. Try again in a few minutes.',
+    sendFailed: 'Could not send your feedback.',
+    networkError:
+      'Could not reach the portal. Check your connection and try again.',
+    formThanksTitle: "Thanks. It's landed.",
+    formThanksBody:
+      'The maintainer will read every message personally. If you included an email and want a reply, expect it within a few days. No follow-up needed on your side.',
+    formName: 'Name',
+    formEmail: 'Email',
+    formMessage: 'Message',
+    formNamePlaceholder: 'e.g. Sam Adams',
+    formEmailPlaceholder: 'you@example.com',
+    formMessagePlaceholder:
+      "What worked, what didn't, what surprised you. Specific repros land better than general impressions.",
+    formCharCount: '{count} / 10,000 characters',
+    formSend: 'Send feedback',
+    formSending: 'Sending...',
+    formInboxHint: "Goes straight to the maintainer's inbox.",
+    formRateLimited:
+      'Too many submissions from your network. Try again in a few minutes.',
+    formSendFailedHttp:
+      'Could not send (HTTP {status}). Try again, or use the GitHub link below.',
+    formSendFailed:
+      'Could not send. Try again, or use the GitHub link below.',
+    contextHint:
+      'We also record the page you are on, your browser, and your window size, so we can reproduce the problem.',
+    cancel: 'Cancel',
+    sendShort: 'Send',
+  },
+
   /** AI draft panel on item detail (#162). */
   aiDraft: {
     title: 'Ask about this item',

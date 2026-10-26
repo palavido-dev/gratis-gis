@@ -17,6 +17,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * In-portal feedback (#146).
@@ -59,6 +60,7 @@ export function FeedbackWidget({
   defaultName?: string | null;
   defaultEmail?: string | null;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const pathname = usePathname() ?? '';
 
@@ -93,7 +95,7 @@ export function FeedbackWidget({
         aria-haspopup="dialog"
       >
         <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-        Feedback
+        {t('feedbackUi.tabLabel')}
       </button>
       {open ? (
         <FeedbackDialog
@@ -118,6 +120,7 @@ export function FeedbackDialog({
   defaultName?: string;
   defaultEmail?: string;
 }) {
+  const t = useT();
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [message, setMessage] = useState('');
@@ -139,7 +142,7 @@ export function FeedbackDialog({
       return;
     }
     if (f.size > MAX_SCREENSHOT_BYTES) {
-      setError('That image is larger than 4 MB. Try a smaller screenshot.');
+      setError(t('feedbackUi.imageTooLarge'));
       return;
     }
     setFile(f);
@@ -149,7 +152,7 @@ export function FeedbackDialog({
     e.preventDefault();
     if (submitting) return;
     if (message.trim().length < 2) {
-      setError('Please enter a message.');
+      setError(t('feedbackUi.messageRequired'));
       return;
     }
     setError(null);
@@ -176,9 +179,7 @@ export function FeedbackDialog({
         body: form,
       });
       if (res.status === 429) {
-        setError(
-          'That is a lot of feedback in a short time. Try again in a few minutes.',
-        );
+        setError(t('feedbackUi.rateLimited'));
         return;
       }
       if (!res.ok) {
@@ -189,14 +190,12 @@ export function FeedbackDialog({
         } catch {
           // Non-JSON error body; the status alone will have to do.
         }
-        setError(`Could not send your feedback.${detail}`);
+        setError(`${t('feedbackUi.sendFailed')}${detail}`);
         return;
       }
       setDone(true);
     } catch {
-      setError(
-        'Could not reach the portal. Check your connection and try again.',
-      );
+      setError(t('feedbackUi.networkError'));
     } finally {
       setSubmitting(false);
     }
@@ -215,11 +214,10 @@ export function FeedbackDialog({
       >
         <div className="mb-3 pr-8">
           <DialogTitle className="text-base font-semibold text-ink-0">
-            Send feedback
+            {t('feedbackUi.dialogTitle')}
           </DialogTitle>
           <DialogDescription className="mt-0.5 text-sm text-muted">
-            Found a problem, or something confusing? Tell us here. No account
-            needed.
+            {t('feedbackUi.dialogDescription')}
           </DialogDescription>
         </div>
 
@@ -229,16 +227,16 @@ export function FeedbackDialog({
               className="mx-auto h-8 w-8 text-accent"
               aria-hidden="true"
             />
-            <p className="mt-3 text-sm font-medium text-ink-0">Thank you.</p>
-            <p className="mt-1 text-sm text-muted">
-              Your feedback went straight to the people building this.
+            <p className="mt-3 text-sm font-medium text-ink-0">
+              {t('feedbackUi.thanksTitle')}
             </p>
+            <p className="mt-1 text-sm text-muted">{t('feedbackUi.thanksBody')}</p>
             <button
               type="button"
               onClick={onClose}
               className="mt-4 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2"
             >
-              Close
+              {t('feedbackUi.close')}
             </button>
           </div>
         ) : (
@@ -248,7 +246,7 @@ export function FeedbackDialog({
                 htmlFor="fb-message"
                 className="mb-1 block text-sm font-medium text-ink-1"
               >
-                What happened?
+                {t('feedbackUi.whatHappened')}
               </label>
               <textarea
                 id="fb-message"
@@ -259,7 +257,7 @@ export function FeedbackDialog({
                 maxLength={10000}
                 required
                 className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
-                placeholder="The parcels layer does not draw when I zoom past the county line."
+                placeholder={t('feedbackUi.messagePlaceholder')}
               />
               <p className="mt-1 text-right text-xs text-muted">
                 {message.length} / 10,000
@@ -272,7 +270,10 @@ export function FeedbackDialog({
                   htmlFor="fb-name"
                   className="mb-1 block text-sm font-medium text-ink-1"
                 >
-                  Name <span className="font-normal text-muted">(optional)</span>
+                  {t('feedbackUi.nameOptional')}{' '}
+                  <span className="font-normal text-muted">
+                    {t('feedbackUi.optional')}
+                  </span>
                 </label>
                 <input
                   id="fb-name"
@@ -287,9 +288,9 @@ export function FeedbackDialog({
                   htmlFor="fb-email"
                   className="mb-1 block text-sm font-medium text-ink-1"
                 >
-                  Email{' '}
+                  {t('feedbackUi.emailOptional')}{' '}
                   <span className="font-normal text-muted">
-                    (optional, to reply)
+                    {t('feedbackUi.emailOptionalHint')}
                   </span>
                 </label>
                 <input
@@ -305,13 +306,15 @@ export function FeedbackDialog({
 
             <div>
               <label className="mb-1 block text-sm font-medium text-ink-1">
-                Screenshot{' '}
-                <span className="font-normal text-muted">(optional)</span>
+                {t('feedbackUi.screenshotOptional')}{' '}
+                <span className="font-normal text-muted">
+                  {t('feedbackUi.optional')}
+                </span>
               </label>
               <div className="flex items-center gap-2">
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-ink-1 hover:bg-surface-2">
                   <ImagePlus className="h-4 w-4" aria-hidden="true" />
-                  Choose image
+                  {t('feedbackUi.chooseImage')}
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/gif"
@@ -326,7 +329,7 @@ export function FeedbackDialog({
                       type="button"
                       onClick={() => setFile(null)}
                       className="shrink-0 rounded p-0.5 hover:bg-surface-2"
-                      aria-label="Remove image"
+                      aria-label={t('feedbackUi.removeImageAria')}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -368,10 +371,7 @@ export function FeedbackDialog({
               </p>
             ) : null}
 
-            <p className="text-xs text-muted">
-              We also record the page you are on, your browser, and your window
-              size, so we can reproduce the problem.
-            </p>
+            <p className="text-xs text-muted">{t('feedbackUi.contextHint')}</p>
 
             <div className="flex justify-end gap-2 pt-1">
               <button
@@ -379,7 +379,7 @@ export function FeedbackDialog({
                 onClick={onClose}
                 className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-2"
               >
-                Cancel
+                {t('feedbackUi.cancel')}
               </button>
               <button
                 type="submit"
@@ -389,7 +389,7 @@ export function FeedbackDialog({
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : null}
-                Send
+                {submitting ? t('feedbackUi.sending') : t('feedbackUi.sendShort')}
               </button>
             </div>
           </form>

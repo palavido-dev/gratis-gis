@@ -3938,6 +3938,60 @@ export const de: Partial<CatalogShape> = {
     },
   },
 
+  /** Public feedback form + floating widget (#162). */
+  feedbackUi: {
+    tabLabel: 'Feedback',
+    dialogTitle: 'Feedback senden',
+    dialogDescription:
+      'Ein Problem gefunden, oder etwas Unklares? Schreiben Sie uns hier. Kein Konto nötig.',
+    thanksTitle: 'Danke.',
+    thanksBody: 'Ihr Feedback ging direkt an die Leute, die das bauen.',
+    close: 'Schließen',
+    whatHappened: 'Was ist passiert?',
+    messagePlaceholder:
+      'Die Flurstücksebene wird nicht gezeichnet, wenn ich über die Kreisgrenze zoome.',
+    nameOptional: 'Name',
+    optional: '(optional)',
+    emailOptional: 'E-Mail',
+    emailOptionalHint: '(optional, für eine Antwort)',
+    screenshotOptional: 'Screenshot',
+    chooseImage: 'Bild wählen',
+    removeImageAria: 'Bild entfernen',
+    sending: 'Wird gesendet…',
+    send: 'Feedback senden',
+    messageRequired: 'Bitte geben Sie eine Nachricht ein.',
+    imageTooLarge: 'Dieses Bild ist größer als 4 MB. Versuchen Sie einen kleineren Screenshot.',
+    rateLimited:
+      'Das ist viel Feedback in kurzer Zeit. Versuchen Sie es in ein paar Minuten erneut.',
+    sendFailed: 'Feedback konnte nicht gesendet werden.',
+    networkError:
+      'Das Portal war nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.',
+    formThanksTitle: 'Danke. Es ist angekommen.',
+    formThanksBody:
+      'Der Maintainer liest jede Nachricht persönlich. Wenn Sie eine E-Mail angegeben haben und eine Antwort möchten, rechnen Sie mit ein paar Tagen. Von Ihrer Seite ist nichts weiter nötig.',
+    formName: 'Name',
+    formEmail: 'E-Mail',
+    formMessage: 'Nachricht',
+    formNamePlaceholder: 'z. B. Sam Adams',
+    formEmailPlaceholder: 'sie@beispiel.com',
+    formMessagePlaceholder:
+      'Was funktioniert hat, was nicht, was überrascht hat. Konkrete Repros helfen mehr als allgemeine Eindrücke.',
+    formCharCount: '{count} / 10.000 Zeichen',
+    formSend: 'Feedback senden',
+    formSending: 'Wird gesendet...',
+    formInboxHint: 'Geht direkt in den Posteingang des Maintainers.',
+    formRateLimited:
+      'Zu viele Einsendungen aus Ihrem Netzwerk. Versuchen Sie es in ein paar Minuten erneut.',
+    formSendFailedHttp:
+      'Senden fehlgeschlagen (HTTP {status}). Versuchen Sie es erneut oder nutzen Sie den GitHub-Link unten.',
+    formSendFailed:
+      'Senden fehlgeschlagen. Versuchen Sie es erneut oder nutzen Sie den GitHub-Link unten.',
+    contextHint:
+      'Wir speichern auch die Seite, auf der Sie sind, Ihren Browser und die Fenstergröße, damit wir das Problem nachvollziehen können.',
+    cancel: 'Abbrechen',
+    sendShort: 'Senden',
+  },
+
   /** AI draft panel on item detail (#162). */
   aiDraft: {
     title: 'Zu diesem Element fragen',

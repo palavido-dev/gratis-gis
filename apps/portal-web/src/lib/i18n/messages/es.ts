@@ -3923,6 +3923,60 @@ export const es: Partial<CatalogShape> = {
     },
   },
 
+  /** Public feedback form + floating widget (#162). */
+  feedbackUi: {
+    tabLabel: 'Comentarios',
+    dialogTitle: 'Enviar comentarios',
+    dialogDescription:
+      '¿Encontraste un problema o algo confuso? Cuéntanos aquí. No hace falta una cuenta.',
+    thanksTitle: 'Gracias.',
+    thanksBody: 'Tus comentarios llegaron directamente a quienes construyen esto.',
+    close: 'Cerrar',
+    whatHappened: '¿Qué pasó?',
+    messagePlaceholder:
+      'La capa de parcelas no se dibuja cuando me acerco más allá del límite del condado.',
+    nameOptional: 'Nombre',
+    optional: '(opcional)',
+    emailOptional: 'Correo',
+    emailOptionalHint: '(opcional, para responder)',
+    screenshotOptional: 'Captura de pantalla',
+    chooseImage: 'Elegir imagen',
+    removeImageAria: 'Quitar imagen',
+    sending: 'Enviando…',
+    send: 'Enviar comentarios',
+    messageRequired: 'Por favor escribe un mensaje.',
+    imageTooLarge: 'Esa imagen supera los 4 MB. Prueba con una captura más pequeña.',
+    rateLimited:
+      'Has enviado muchos comentarios en poco tiempo. Inténtalo de nuevo en unos minutos.',
+    sendFailed: 'No se pudieron enviar tus comentarios.',
+    networkError:
+      'No se pudo contactar el portal. Comprueba tu conexión e inténtalo de nuevo.',
+    formThanksTitle: 'Gracias. Ya llegó.',
+    formThanksBody:
+      'El mantenedor leerá cada mensaje personalmente. Si incluiste un correo y quieres respuesta, espera unos días. No hace falta seguimiento de tu parte.',
+    formName: 'Nombre',
+    formEmail: 'Correo',
+    formMessage: 'Mensaje',
+    formNamePlaceholder: 'p. ej. Sam Adams',
+    formEmailPlaceholder: 'tu@ejemplo.com',
+    formMessagePlaceholder:
+      'Qué funcionó, qué no, qué te sorprendió. Las reproducciones concretas ayudan más que las impresiones generales.',
+    formCharCount: '{count} / 10.000 caracteres',
+    formSend: 'Enviar comentarios',
+    formSending: 'Enviando...',
+    formInboxHint: 'Va directo a la bandeja del mantenedor.',
+    formRateLimited:
+      'Demasiados envíos desde tu red. Inténtalo de nuevo en unos minutos.',
+    formSendFailedHttp:
+      'No se pudo enviar (HTTP {status}). Inténtalo de nuevo o usa el enlace de GitHub abajo.',
+    formSendFailed:
+      'No se pudo enviar. Inténtalo de nuevo o usa el enlace de GitHub abajo.',
+    contextHint:
+      'También registramos la página en la que estás, tu navegador y el tamaño de la ventana, para poder reproducir el problema.',
+    cancel: 'Cancelar',
+    sendShort: 'Enviar',
+  },
+
   /** AI draft panel on item detail (#162). */
   aiDraft: {
     title: 'Preguntar sobre este elemento',
