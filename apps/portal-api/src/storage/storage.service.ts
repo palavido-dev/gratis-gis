@@ -70,7 +70,10 @@ const ALLOWED_CONTENT_TYPES = new Set([
 /** Feature attachments are any MIME (images, PDFs, office docs, etc.)
  *  up to a higher cap. The picker on the client side is what decides
  *  how to render them; the service just stores bytes. */
-const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+/** Shared with attachments register (#224) so DTO Max and HeadObject
+ *  checks cannot drift from the presign ceiling. */
+export const FEATURE_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+const ATTACHMENT_MAX_BYTES = FEATURE_ATTACHMENT_MAX_BYTES;
 
 /** File items wrap one arbitrary upload that's the whole point of
  *  the item -- a CSV deliverable, a PDF report, a zipped shapefile.
@@ -579,14 +582,24 @@ export class StorageService implements OnModuleInit {
 
   /** True when an object exists under the key. Head request only. */
   async objectExists(key: string): Promise<boolean> {
+    return (await this.headObjectSize(key)) !== null;
+  }
+
+  /**
+   * #224: Content-Length from HeadObject, or null if missing.
+   * Used by attachment register to persist the real size rather
+   * than the client-claimed sizeBytes.
+   */
+  async headObjectSize(key: string): Promise<number | null> {
     try {
       const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
-      await this.client.send(
+      const res = await this.client.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
       );
-      return true;
+      const n = res.ContentLength;
+      return typeof n === 'number' && Number.isFinite(n) ? n : 0;
     } catch {
-      return false;
+      return null;
     }
   }
 
