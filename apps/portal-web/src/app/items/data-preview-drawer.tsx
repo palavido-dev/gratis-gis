@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import type {
   ArcgisServiceData,
   DataLayerData,
@@ -11,6 +11,13 @@ import type {
 } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 /**
  * Right-side drawer that shows a quick preview of a layer's
@@ -85,20 +92,10 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [overflow, setOverflow] = useState(false);
 
-  // Close on Escape so the drawer feels modal even though it's a
-  // side panel. Body click outside the drawer also closes via the
-  // backdrop element in the JSX below.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   // Fetch the active sublayer's features when the drawer opens or
   // the sublayer pick changes. Aborts the prior request so a fast
-  // sublayer-flip doesn't paint stale data.
+  // sublayer-flip doesn't paint stale data. Escape + backdrop close
+  // come from the shared Sheet primitive (#173).
   useEffect(() => {
     if (activeId == null) return;
     const controller = new AbortController();
@@ -160,30 +157,17 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
   const activeSublayer = sublayers.find((s) => s.id === activeId) ?? null;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('dataPreview.title')}
-      className="fixed inset-0 z-40 flex"
-      onMouseDown={(e) => {
-        // Backdrop click closes; clicks inside the panel are
-        // captured by the inner <aside> stopPropagation handler.
-        if (e.currentTarget === e.target) onClose();
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
     >
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <aside
-        className="flex w-full max-w-3xl flex-col border-l border-border bg-surface-1 shadow-overlay"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+      <SheetContent side="right" size="lg" className="gap-0 p-0">
+        <SheetHeader className="pr-12">
           <div className="min-w-0">
-            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-              {t('dataPreview.eyebrow')}
-            </p>
-            <h2 className="mt-0.5 truncate text-base font-semibold text-ink-0">
-              {item.title}
-            </h2>
+            <SheetDescription>{t('dataPreview.eyebrow')}</SheetDescription>
+            <SheetTitle className="mt-0.5">{item.title}</SheetTitle>
             <Link
               href={`/items/${item.id}`}
               className="mt-1 inline-flex items-center gap-1 text-2xs text-muted hover:text-accent hover:underline"
@@ -192,15 +176,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
               <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t('dataPreview.closePreview')}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
+        </SheetHeader>
 
         {/* Sublayer picker. Hidden when there's only one option;
             shown as a dropdown when multiple sublayers exist (V3
@@ -332,8 +308,8 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
             ) : null}
           </footer>
         ) : null}
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
