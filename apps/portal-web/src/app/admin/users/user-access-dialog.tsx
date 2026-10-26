@@ -18,6 +18,12 @@ import {
 } from 'lucide-react';
 import { getItemTypeIcon, getItemTypeLabel } from '@/lib/item-type-icon';
 import type { ItemType } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Wire shape for GET /admin/users/:id/access. Mirrors
@@ -248,44 +254,30 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Access for ${username}`}
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => {
-        if (!busy) onClose();
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-raised"
+      <DialogContent
+        size="lg"
+        className="flex h-[80vh] !max-w-3xl flex-col overflow-hidden p-0"
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-accent" />
-              <h2 className="text-sm font-semibold text-ink-0">
-                What can {username} see?
-              </h2>
-            </div>
-            <p className="mt-0.5 text-xs text-muted">
-              Everything visible to this user, with how they have access.
-              Use the actions to revoke specific shares or group
-              memberships. Org-wide and public items aren&apos;t per-user
-              revocable from here.
-            </p>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 text-accent" />
+            <DialogTitle className="text-sm font-semibold text-ink-0">
+              What can {username} see?
+            </DialogTitle>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            aria-label="Close"
-            className="h-7 w-7 rounded text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <DialogDescription className="mt-0.5 text-xs">
+            Everything visible to this user, with how they have access.
+            Use the actions to revoke specific shares or group
+            memberships. Org-wide and public items aren&apos;t per-user
+            revocable from here.
+          </DialogDescription>
         </div>
 
         {/* Tabs */}
@@ -346,7 +338,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
         ) : null}
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {loading ? (
             <div className="flex h-full items-center justify-center text-muted">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -392,8 +384,8 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
             />
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

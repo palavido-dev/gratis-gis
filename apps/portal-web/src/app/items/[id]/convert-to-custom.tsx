@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Loader2, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import type {
   CustomAppData,
   CustomLayout,
@@ -13,6 +13,13 @@ import type {
   WebAppData,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_CUSTOM_APP } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Props {
   itemId: string;
@@ -165,59 +172,50 @@ export function ConvertToCustomButton({
         <Sparkles className="h-3.5 w-3.5 text-warn" />
         Convert to custom
       </button>
-      {open && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-surface-1 p-5 shadow-xl">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-ink-0">
-                  <Sparkles className="h-4 w-4 text-warn" />
-                  Convert to custom web app?
-                </h3>
-                <p className="mt-1 text-xs text-muted">
-                  This is a one-way swap. The {labelFor(sourceTemplate)}{' '}
-                  configurator will be replaced with the drag-drop
-                  designer. Map binding and layers carry over; per-target
-                  permission flags and template-specific knobs are dropped.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next && !submitting) setOpen(false);
+        }}
+      >
+        <DialogContent size="md" className="p-5">
+          <DialogTitle className="inline-flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-warn" />
+            Convert to custom web app?
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-xs">
+            This is a one-way swap. The {labelFor(sourceTemplate)}{' '}
+            configurator will be replaced with the drag-drop designer. Map
+            binding and layers carry over; per-target permission flags and
+            template-specific knobs are dropped.
+          </DialogDescription>
+          {error ? (
+            <div className="mt-3 inline-flex items-start gap-2 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {error}
             </div>
-            {error && (
-              <div className="mt-3 inline-flex items-start gap-2 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                {error}
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                disabled={submitting}
-                className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-md bg-warn px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-warn/80 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Convert
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          ) : null}
+          <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              disabled={submitting}
+              className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-warn px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-warn/80 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Convert
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

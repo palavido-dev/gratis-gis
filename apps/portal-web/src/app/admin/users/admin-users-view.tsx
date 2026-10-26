@@ -25,6 +25,13 @@ import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import { UserAccessDialog } from './user-access-dialog';
 import { useAlert, useConfirm } from '@/components/dialog-provider';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Admin-side users table.
@@ -675,26 +682,26 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
+      <DialogContent size="md" className="p-4">
       <form
         onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md space-y-3 rounded-lg border border-border bg-surface-1 p-4 shadow-raised"
+        className="space-y-3"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pr-8">
           <UserPlus className="h-5 w-5 text-accent" />
-          <h2 className="text-lg font-semibold">Invite user</h2>
+          <DialogTitle className="text-lg font-semibold">Invite user</DialogTitle>
         </div>
-        <p className="text-xs text-muted">
+        <DialogDescription className="text-xs">
           We&apos;ll send a password-setup email from the portal. The user
           establishes their own password through that link -{' '}
           <span className="font-medium">no passwords are set here</span>.
-        </p>
+        </DialogDescription>
 
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
@@ -767,7 +774,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
           </p>
         ) : null}
 
-        <div className="flex items-center justify-end gap-2">
+        <DialogFooter className="border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={onClose}
@@ -788,9 +795,10 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             )}
             Send invite
           </button>
-        </div>
+        </DialogFooter>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -880,27 +888,27 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
+      <DialogContent size="md" className="p-4">
       <form
         onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md space-y-3 rounded-lg border border-border bg-surface-1 p-4 shadow-raised"
+        className="space-y-3"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pr-8">
           <Pencil className="h-5 w-5 text-accent" />
-          <h2 className="text-lg font-semibold">Edit user</h2>
+          <DialogTitle className="text-lg font-semibold">Edit user</DialogTitle>
         </div>
-        <p className="text-xs text-muted">
+        <DialogDescription className="text-xs">
           Editing{' '}
           <span className="font-mono text-ink-1">{user.username}</span>. Username
           can&apos;t be changed here: it&apos;s used as the stable identifier
           for content this user created.
-        </p>
+        </DialogDescription>
 
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-xs">
@@ -1007,7 +1015,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           </p>
         ) : null}
 
-        <div className="flex items-center justify-end gap-2">
+        <DialogFooter className="border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={onClose}
@@ -1028,9 +1036,10 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             )}
             Save changes
           </button>
-        </div>
+        </DialogFooter>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
