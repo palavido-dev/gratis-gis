@@ -26,6 +26,9 @@ import {
   sanitizeAttributionHtml,
 } from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
+import { formatDateTime, formatRelativeTime } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 import { UploadError, fileKey, uploadBatch } from '@/lib/batch-upload';
 import {
   presignUpload,
@@ -87,6 +90,7 @@ interface Props {
 }
 
 export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
+  const locale = useLocale();
   const [data, setData] = useState<TileLayerData>(initial);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -853,7 +857,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   Your layer already works on maps and will get
                   faster automatically when this finishes.
                   {data.tilingStartedAt
-                    ? ` Started ${humanDate(data.tilingStartedAt)}.`
+                    ? ` Started ${humanDate(data.tilingStartedAt, locale)}.`
                     : ''}
                 </span>
               </div>
@@ -866,7 +870,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                 <span className="text-success/80">
                   This layer is optimized for fast map display
                   {data.tilingCompletedAt
-                    ? ` (finished ${humanDate(data.tilingCompletedAt)})`
+                    ? ` (finished ${humanDate(data.tilingCompletedAt, locale)})`
                     : ''}
                   . The original file is kept too (
                   {data.cogSizeBytes !== undefined
@@ -1182,15 +1186,13 @@ function originalFormatLabel(fmt: TileLayerOriginalFormat): string {
 /** Friendly relative-time renderer for tilingStartedAt /
  *  tilingCompletedAt timestamps in the status block.  Falls back
  *  to the raw ISO string when the value isn't a parseable date. */
-function humanDate(iso: string): string {
+function humanDate(iso: string, locale: SupportedLocale): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const now = Date.now();
   const diffSec = Math.round((now - d.getTime()) / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
-  return d.toLocaleString();
+  if (diffSec < 86400) return formatRelativeTime(d, locale);
+  return formatDateTime(d, locale);
 }
 
 /**

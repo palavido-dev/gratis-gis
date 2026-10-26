@@ -46,6 +46,7 @@ import {
   type LengthUnit,
   type ToolStep,
 } from '@gratis-gis/shared-types';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Inline builder for derived layers.
@@ -1851,6 +1852,7 @@ function BufferStepEditor({
   sourceFields: FeatureField[];
   sourcePicked: boolean;
 }) {
+  const fmt = useFormat();
   const setMode = (mode: 'fixed' | 'field') => {
     if (mode === params.mode) return;
     if (mode === 'fixed') {
@@ -1967,7 +1969,7 @@ function BufferStepEditor({
             <UnitSelect value={params.unit} onChange={setUnit} />
           </span>
           <span className="text-2xs text-muted">
-            Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
+            Up to {fmt.number(MAX_BUFFER_DISTANCE_METERS)} m. Try
             kilometers, feet, yards, or miles.
           </span>
         </label>

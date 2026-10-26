@@ -32,6 +32,7 @@ import {
   type ValidationError,
 } from '@gratis-gis/form-schema';
 import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Mobile-first runtime that renders any FormSchema and captures a
@@ -1430,6 +1431,7 @@ function MediaCaptureInput({
   onChange: (v: unknown) => void;
   kind: 'audio' | 'video';
 }) {
+  const fmt = useFormat();
   // A captured clip is in one of two shapes (see PhotoEntry above for
   // the same pattern). Online capture: { ..., url, key }. Offline
   // capture: { ..., dataUrl }. The drain step uploads any pending
@@ -1518,7 +1520,7 @@ function MediaCaptureInput({
               <span className="truncate">
                 {c.name}
                 {' · '}
-                {Math.round(c.sizeBytes / 1024).toLocaleString()} KB
+                {fmt.number(Math.round(c.sizeBytes / 1024))} KB
                 {typeof c.durationSec === 'number'
                   ? ` · ${c.durationSec.toFixed(1)}s`
                   : null}
@@ -1863,6 +1865,7 @@ function AcknowledgeInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const fmt = useFormat();
   const checked =
     typeof value === 'object' && value !== null && !Array.isArray(value)
       ? Boolean((value as { acknowledged?: unknown }).acknowledged)
@@ -1898,7 +1901,7 @@ function AcknowledgeInput({
           <span>{q.agreeLabel ?? 'I have read and agree.'}</span>
           {checked && typeof at === 'string' ? (
             <span className="ml-2 text-2xs text-muted">
-              ({new Date(at).toLocaleString()})
+              ({fmt.dateTime(at)})
             </span>
           ) : null}
         </span>

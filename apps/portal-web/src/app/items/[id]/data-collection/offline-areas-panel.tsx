@@ -26,6 +26,7 @@ import { formatBytes } from '@/lib/format-bytes';
 import { toast } from '@/lib/toast';
 import { useConfirm } from '@/components/dialog-provider';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Offline areas on a field deployment (#70).
@@ -97,6 +98,7 @@ function extentMiles(
 
 export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const confirm = useConfirm();
   const describeExtent = (bbox: [number, number, number, number]) => {
     const { width, height } = extentMiles(bbox);
@@ -331,7 +333,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                           ? t('offlineAreas.waiting')
                           : pending.tileCount
                             ? t('offlineAreas.preparingCount', {
-                                count: pending.tileCount.toLocaleString(),
+                                count: fmt.number(pending.tileCount),
                               })
                             : t('offlineAreas.preparing')}
                       </span>
@@ -345,7 +347,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                           ? `, ${formatBytes(current.sizeBytes)}`
                           : ''}
                         {current.finishedAt
-                          ? ` · ${t('offlineAreas.builtOn', { date: new Date(current.finishedAt).toLocaleDateString() })}`
+                          ? ` · ${t('offlineAreas.builtOn', { date: fmt.date(current.finishedAt) })}`
                           : ''}
                       </span>
                     </>

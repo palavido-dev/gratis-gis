@@ -139,6 +139,7 @@ import { FieldAttachments } from './field-attachments';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -3358,6 +3359,7 @@ function LayerVisibilityPanel({
   // group is a polish item for later.
   const [basemapPickerOpen, setBasemapPickerOpen] = useState(false);
   const panelT = useT();
+  const fmt = useFormat();
   const activeBasemap = basemaps.find((b) => b.id === currentBasemapId);
   return (
     // #257: layer panel converted to a bottom sheet (was a small
@@ -3661,7 +3663,7 @@ function LayerVisibilityPanel({
           </div>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
-            ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
+            ~{fmt.number(estimatedTileCount)} tiles at the
             current viewport. Cap is 200,000.
           </p>
         )}
@@ -3771,7 +3773,7 @@ function LayerVisibilityPanel({
           {tileCache && tileCache.count > 0 ? (
             <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
               <span>
-                Map tiles: {tileCache.count.toLocaleString()} (
+                Map tiles: {fmt.number(tileCache.count)} (
                 {formatBytes(tileCache.bytes)})
               </span>
               <button
