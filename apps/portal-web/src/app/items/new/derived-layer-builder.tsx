@@ -18,6 +18,12 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   AREA_UNITS,
   AREA_UNIT_LABELS,
   DEFAULT_BUFFER_STEP,
@@ -40,6 +46,9 @@ import {
   type LengthUnit,
   type ToolStep,
 } from '@gratis-gis/shared-types';
+import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
+import { useDerivedLayerCatalog } from './use-derived-layer-catalog';
 
 /**
  * Inline builder for derived layers.
@@ -70,6 +79,7 @@ export function DerivedLayerBuilder({
   // last step is a deliberate intermediate state until they add a
   // fresh one via the picker. The wizard's submit-time validation
   // still rejects an empty pipeline, so a user can never save one.
+  const t = useT();
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current) return;
@@ -189,19 +199,17 @@ export function DerivedLayerBuilder({
         </span>
         <div>
           <h3 className="text-sm font-medium text-ink-0">
-            Recipe
+            {t('derivedLayerBuilder.recipeTitle')}
           </h3>
           <p className="mt-1 text-xs text-muted">
-            Pick a source data layer, then choose how to transform it.
-            Results are computed live: when the source's features
-            change, this layer reflects the change on the next read.
+            {t('derivedLayerBuilder.recipeIntro')}
           </p>
         </div>
       </header>
 
       <section className="space-y-2">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
-          Source layer
+          {t('derivedLayerBuilder.sourceHeading')}
         </h4>
         <SourceLayerPicker
           selectedRef={
@@ -218,10 +226,7 @@ export function DerivedLayerBuilder({
           onSelect={setSourceItem}
         />
         <p className="text-2xs text-muted">
-          Lists data layers and derived layers you own or have been
-          shared with (#78). v3 multi-layer items expand to one row
-          per spatial sublayer; v1 inline-GeoJSON layers are hidden
-          because the tools run SQL against the source's feature table.
+          {t('derivedLayerBuilder.sourceFootnote')}
         </p>
       </section>
 
@@ -237,16 +242,13 @@ export function DerivedLayerBuilder({
 
       <section className="space-y-2">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
-          Feature limit (advanced)
+          {t('derivedLayerBuilder.featureLimitHeading')}
         </h4>
         <p className="text-xs text-muted">
-          Hard ceiling on features returned by a single read. The map
-          UI passes its current view extent so this rarely bites
-          on map workflows; it's the safety net for opening the
-          layer with no map context.
+          {t('derivedLayerBuilder.featureLimitIntro')}
         </p>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-1">Maximum features per read</span>
+          <span className="text-ink-1">{t('derivedLayerBuilder.maxFeaturesPerRead')}</span>
           <input
             type="number"
             min={1}
@@ -321,6 +323,8 @@ function SourceLayerPicker({
     layerKey?: string;
   }) => void;
 }) {
+  const { t, toolLabels, toolDescriptions, toolGroups, noParamBodies } = useDerivedLayerCatalog();
+
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<PickerRow[] | null>(null);
   const [query, setQuery] = useState('');
@@ -561,8 +565,8 @@ function SourceLayerPicker({
         ? `${base} - ${cachedSelection.sublayerLabel}`
         : base;
     }
-    if (selectedRefKey) return '(Resolving selected layer…)';
-    return 'Pick a source data layer…';
+    if (selectedRefKey) return t('derivedLayerBuilder.sourcePickerResolving');
+    return t('derivedLayerBuilder.sourcePickerPlaceholder');
   })();
 
   const triggerSubtitle =
@@ -607,7 +611,7 @@ function SourceLayerPicker({
       {open ? (
         <div
           role="listbox"
-          aria-label="Data layers"
+          aria-label={t('derivedLayerBuilder.sourcePickerListAria')}
           className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
         >
           <div className="relative border-b border-border p-2">
@@ -626,14 +630,14 @@ function SourceLayerPicker({
                   setOpen(false);
                 }
               }}
-              placeholder="Search data layers…"
+              placeholder={t('derivedLayerBuilder.sourcePickerSearch')}
               className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
             {query ? (
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                aria-label="Clear search"
+                aria-label={t('derivedLayerBuilder.clearSearchAria')}
                 className="absolute right-4 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted hover:bg-surface-2"
               >
                 <X className="h-3.5 w-3.5" />
@@ -644,25 +648,24 @@ function SourceLayerPicker({
           <div className="max-h-64 overflow-y-auto p-1">
             {err ? (
               <p className="px-3 py-2 text-xs text-danger">
-                Could not load data layers: {err}
+                {t('derivedLayerBuilder.sourcePickerLoadFailed', { error: err })}
               </p>
             ) : loading && !visibleRows ? (
               <p className="px-3 py-2 text-xs text-muted">
-                Loading data layers…
+                {t('derivedLayerBuilder.sourcePickerLoading')}
               </p>
             ) : !visibleRows || visibleRows.length === 0 ? (
               <div className="px-3 py-2 text-xs text-muted">
                 <p>
                   {query
-                    ? `No compatible data layers match "${query}".`
-                    : 'No compatible data layers visible to you yet. Create one under Data > Data layer first.'}
+                    ? t('derivedLayerBuilder.sourcePickerNoMatch', { query })
+                    : t('derivedLayerBuilder.sourcePickerNoQuery')}
                 </p>
                 {hiddenIncompatibleCount > 0 ? (
                   <p className="mt-1 text-2xs">
-                    {hiddenIncompatibleCount} layer
-                    {hiddenIncompatibleCount === 1 ? ' is' : 's are'}{' '}
-                    hidden because the buffer tool needs a PostGIS-backed
-                    source with at least one spatial sublayer.
+                    {t('derivedLayerBuilder.sourcePickerHidden', {
+                      count: hiddenIncompatibleCount,
+                    })}
                   </p>
                 ) : null}
               </div>
@@ -711,7 +714,7 @@ function SourceLayerPicker({
                           // raw layer.  Violet matches the FlaskConical
                           // recipe accent in the wizard header.
                           <span className="ml-2 mt-0.5 shrink-0 rounded bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-violet-800 dark:text-violet-300">
-                            Derived
+                            {t('derivedLayerBuilder.badgeDerived')}
                           </span>
                         ) : row.geometryType ? (
                           <span className="ml-2 mt-0.5 shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-info">
@@ -785,11 +788,13 @@ function FieldModeControls({
   onUnitChange: (u: LengthUnit) => void;
   sourcePicked: boolean;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const numericFields = sourceFields.filter((f) => f.type === 'number');
   return (
     <div className="space-y-2 pt-1">
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Numeric field</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.numericField')}</span>
         <select
           value={field}
           onChange={(e) => onFieldChange(e.target.value)}
@@ -799,10 +804,10 @@ function FieldModeControls({
           {field === '' ? (
             <option value="">
               {!sourcePicked
-                ? 'Pick a source layer first'
+                ? t('derivedLayerBuilder.pickSourceFirst')
                 : numericFields.length === 0
-                  ? 'No numeric fields on the source'
-                  : 'Pick a numeric field…'}
+                  ? t('derivedLayerBuilder.noNumericFields')
+                  : t('derivedLayerBuilder.pickNumericField')}
             </option>
           ) : null}
           {numericFields.map((f) => (
@@ -814,19 +819,16 @@ function FieldModeControls({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Unit</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.unit')}</span>
         <UnitSelect value={unit} onChange={onUnitChange} />
         <span className="text-2xs text-muted">
-          The field's stored value is interpreted in this unit. The
-          server figures out the upper bound by reading the largest
-          value when the recipe saves.
+{t('derivedLayerBuilder.fieldUnitHint')}
         </span>
       </label>
 
       {sourcePicked && numericFields.length === 0 ? (
         <p className="text-2xs text-warn">
-          The selected source has no numeric fields. Add a numeric
-          column to the source layer or switch to fixed mode.
+{t('derivedLayerBuilder.noNumericFieldsWarn')}
         </p>
       ) : null}
     </div>
@@ -881,132 +883,6 @@ function extractFields(data: unknown, layerKey: string | undefined): FeatureFiel
 // Pipeline UI: chained steps with add / remove / insert
 // ---------------------------------------------------------------------
 
-/**
- * Friendly label for each tool kind. Drives the step-card header and
- * the add-step picker. Kept as a flat record so adding a tool is a
- * one-line change here plus a new step editor below.
- */
-const TOOL_LABELS: Record<ToolStep['tool'], string> = {
-  buffer: 'Buffer',
-  dissolve: 'Dissolve',
-  centroid: 'Centroid',
-  'convex-hull': 'Convex hull',
-  bbox: 'Bounding box',
-  simplify: 'Simplify',
-  vertices: 'Vertices',
-  densify: 'Densify',
-  'top-n': 'Top N by attribute',
-  'random-sample': 'Random sample',
-  'nearest-neighbor': 'Nearest-neighbor distance',
-  fishnet: 'Fishnet',
-  'calculate-geometry': 'Calculate geometry',
-  filter: 'Filter by expression',
-  'calculate-field': 'Calculate field from expression',
-  aggregate: 'Group by + aggregate',
-  'spatial-join': 'Spatial join (from another layer)',
-  'spatial-filter': 'Spatial filter (by another layer)',
-  clip: 'Clip by another layer',
-  erase: 'Erase by another layer',
-  contour: 'Contour from points',
-};
-
-const TOOL_DESCRIPTIONS: Record<ToolStep['tool'], string> = {
-  buffer: 'Expand features outward into polygon halos.',
-  dissolve: 'Merge every input geometry into a single feature.',
-  centroid: 'Replace each feature with its center point.',
-  'convex-hull': 'Replace each feature with its smallest enclosing convex polygon.',
-  bbox: 'Replace each feature with its axis-aligned bounding rectangle.',
-  simplify: 'Drop vertices closer than the given tolerance.',
-  vertices: 'Explode each line / polygon into one point per vertex.',
-  densify: 'Add intermediate vertices so no segment exceeds a length.',
-  'top-n': 'Keep only the N highest or lowest values of a numeric field.',
-  'random-sample': 'Keep a deterministic random subset of features.',
-  'nearest-neighbor':
-    'Add a numeric field with the distance to the closest other feature.',
-  fishnet: 'Generate a grid of cells or transect lines over each polygon.',
-  'calculate-geometry':
-    'Add a length / perimeter / area field in your chosen unit.',
-  filter:
-    'Keep rows whose expression evaluates true. Reference fields with {{name}}.',
-  'calculate-field':
-    'Append a new attribute computed from any expression over the upstream fields.',
-  aggregate:
-    'Collapse rows into one per group with count / sum / avg / min / max aggregations. Geometry is unioned per group.',
-  'spatial-join':
-    "Join attributes (or a count) from another data layer onto each upstream row using a spatial predicate: within / intersects / nearest.",
-  'spatial-filter':
-    'Keep upstream rows whose geometry satisfies a predicate (intersects / within / contains / touches / near) against another layer.',
-  clip:
-    'Cookie-cutter the upstream features by another layer: only the parts that fall inside the other layer survive. Attributes pass through unchanged.',
-  erase:
-    'The inverse of clip: keep only the parts of upstream features that fall outside another layer. Useful for "everything except this mask" workflows.',
-  contour:
-    'Interpolate contour lines from a point layer with a numeric field (elevation, water level, sample reading). Output is line features tagged with the contour level.',
-};
-
-/**
- * Logical tool groups for the toolbox modal. Borrows from PostGIS's
- * own categorization (Geometry Processing / Accessors / Constructors /
- * Measurement Functions) where it cleanly maps to user intent, and
- * invents a UX-only category ('Filter') where it doesn't. Each group
- * is rendered as its own section in the toolbox; adding a tool is two
- * lines: extend TOOL_LABELS / TOOL_DESCRIPTIONS and append the kind
- * to its group's `tools` array here.
- *
- * Order matters: groups render top-to-bottom in the order declared.
- * A user opening the toolbox for the first time sees Reshape first,
- * which covers the most common single-feature transforms.
- */
-interface ToolGroup {
-  label: string;
-  description: string;
-  tools: Array<ToolStep['tool']>;
-}
-const TOOL_GROUPS: ToolGroup[] = [
-  {
-    label: 'Reshape',
-    description:
-      'Modify each feature’s geometry. Same row count out, attributes pass through.',
-    tools: ['buffer', 'simplify', 'densify', 'convex-hull', 'bbox'],
-  },
-  {
-    label: 'Extract',
-    description: 'Replace each feature with a piece extracted from it.',
-    tools: ['centroid', 'vertices'],
-  },
-  {
-    label: 'Combine',
-    description: 'Reduce many features to one or fewer.',
-    tools: ['dissolve'],
-  },
-  {
-    label: 'Measure',
-    description: 'Add a numeric attribute computed from each feature.',
-    tools: ['calculate-geometry', 'nearest-neighbor'],
-  },
-  {
-    label: 'Filter',
-    description: 'Keep a subset of rows, no geometry change.',
-    tools: ['top-n', 'random-sample'],
-  },
-  {
-    label: 'Generate',
-    description: 'Create new features from scratch.',
-    tools: ['fishnet'],
-  },
-  {
-    label: 'Interpolate',
-    description:
-      'Derive a surface (or its isolines) from a sparse set of point measurements.',
-    tools: ['contour'],
-  },
-  {
-    label: 'Compare with another layer',
-    description:
-      'Decorate or filter the upstream rows using a second data layer.',
-    tools: ['spatial-join', 'spatial-filter', 'clip', 'erase'],
-  },
-];
 
 /**
  * Renders the pipeline as a vertical list of step cards. Between
@@ -1034,6 +910,8 @@ function PipelineSection({
   onRemoveStep: (index: number) => void;
   onInsertStep: (index: number, kind: ToolStep['tool']) => void;
 }) {
+  const { t, toolLabels, toolDescriptions, toolGroups, noParamBodies } = useDerivedLayerCatalog();
+
   // Toolbox modal state lives at the section level so a single modal
   // instance serves every "Add a step" affordance. `pickerSlotIndex`
   // is the pipeline index where the picked tool will be spliced in
@@ -1042,12 +920,10 @@ function PipelineSection({
   return (
     <section className="space-y-2">
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
-        Pipeline
+        {t('derivedLayerBuilder.pipelineHeading')}
       </h4>
       <p className="text-xs text-muted">
-        Each step takes the output of the one above it. The first step
-        reads from the source layer; the last step's output is the
-        derived layer's features.
+        {t('derivedLayerBuilder.pipelineIntro')}
       </p>
 
       <div className="space-y-2">
@@ -1084,7 +960,7 @@ function PipelineSection({
 
         {pipeline.length === 0 ? (
           <p className="text-2xs text-muted">
-            The pipeline is empty. Add at least one step before saving.
+            {t('derivedLayerBuilder.pipelineEmpty')}
           </p>
         ) : null}
       </div>
@@ -1128,6 +1004,8 @@ function StepCard({
   onChange: (next: ToolStep) => void;
   onRemove: () => void;
 }) {
+  const { t, toolLabels, toolDescriptions, toolGroups, noParamBodies } = useDerivedLayerCatalog();
+
   return (
     <div className="rounded-md border border-border bg-surface-0 p-3">
       <header className="mb-2 flex items-start justify-between gap-2">
@@ -1137,17 +1015,17 @@ function StepCard({
           </span>
           <div>
             <p className="text-sm font-medium text-ink-0">
-              {TOOL_LABELS[step.tool] ?? step.tool}
+              {toolLabels[step.tool] ?? step.tool}
             </p>
             <p className="text-2xs text-muted">
-              {TOOL_DESCRIPTIONS[step.tool] ?? ''}
+              {toolDescriptions[step.tool] ?? ''}
             </p>
           </div>
         </div>
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove step ${index + 1}`}
+          aria-label={t('derivedLayerBuilder.removeStepAria', { n: index + 1 })}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -1162,20 +1040,20 @@ function StepCard({
           sourcePicked={sourcePicked}
         />
       ) : step.tool === 'dissolve' ? (
-        <NoParamInfo body="Merges every feature into a single combined geometry. All attributes are dropped; downstream steps that need a specific column will fail validation if they sit after dissolve." />
+        <NoParamInfo body={noParamBodies.dissolve} />
       ) : step.tool === 'centroid' ? (
-        <NoParamInfo body="Replaces each feature with its center point. Output is point geometry; attributes pass through." />
+        <NoParamInfo body={noParamBodies.centroid} />
       ) : step.tool === 'convex-hull' ? (
-        <NoParamInfo body="Replaces each feature with its convex hull (the smallest convex polygon enclosing it)." />
+        <NoParamInfo body={noParamBodies['convex-hull']} />
       ) : step.tool === 'bbox' ? (
-        <NoParamInfo body="Replaces each feature with its axis-aligned bounding rectangle. Useful for extent-only views or spatial-bin clustering." />
+        <NoParamInfo body={noParamBodies.bbox} />
       ) : step.tool === 'simplify' ? (
         <SimplifyStepEditor
           params={step.params}
           onChange={(params) => onChange({ tool: 'simplify', params })}
         />
       ) : step.tool === 'vertices' ? (
-        <NoParamInfo body="Explodes each line or polygon into one point feature per vertex. Adds a vertex_index column. Source attributes pass through." />
+        <NoParamInfo body={noParamBodies.vertices} />
       ) : step.tool === 'densify' ? (
         <DensifyStepEditor
           params={step.params}
@@ -1194,7 +1072,7 @@ function StepCard({
           onChange={(params) => onChange({ tool: 'random-sample', params })}
         />
       ) : step.tool === 'nearest-neighbor' ? (
-        <NoParamInfo body="Adds a nearest_distance_m attribute to each feature: meters to its closest neighbor in this layer. Geometry passes through." />
+        <NoParamInfo body={noParamBodies['nearest-neighbor']} />
       ) : step.tool === 'fishnet' ? (
         <FishnetStepEditor
           params={step.params}
@@ -1241,15 +1119,15 @@ function StepCard({
         <OtherLayerOnlyStepEditor
           params={step.params}
           onChange={(params) => onChange({ tool: 'clip', params })}
-          label="Clip by layer"
-          hint="The layer whose footprint to clip the upstream features to. Only the parts of upstream that fall inside this layer survive."
+          label={t('derivedLayerBuilder.clipLabel')}
+          hint={t('derivedLayerBuilder.clipHint')}
         />
       ) : step.tool === 'erase' ? (
         <OtherLayerOnlyStepEditor
           params={step.params}
           onChange={(params) => onChange({ tool: 'erase', params })}
-          label="Erase by layer"
-          hint="The layer whose footprint to remove from the upstream features. Only the parts of upstream that fall outside this layer survive."
+          label={t('derivedLayerBuilder.eraseLabel')}
+          hint={t('derivedLayerBuilder.eraseHint')}
         />
       ) : step.tool === 'contour' ? (
         <ContourStepEditor
@@ -1262,8 +1140,9 @@ function StepCard({
         // might emit that this client doesn't recognize. Surface
         // the raw kind so the user can still see the step exists.
         <p className="text-xs text-muted">
-          Unknown tool kind {(step as { tool: string }).tool}; this
-          client may be older than the server.
+          {t('derivedLayerBuilder.unknownTool', {
+            tool: (step as { tool: string }).tool,
+          })}
         </p>
       )}
 
@@ -1305,6 +1184,8 @@ function StepPreviewPanel({
   source: DerivedLayerData['source'];
   disabled: boolean;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1352,13 +1233,13 @@ function StepPreviewPanel({
           | { message?: string }
           | null;
         throw new Error(
-          body?.message ?? `Preview failed with HTTP ${res.status}`,
+          body?.message ?? t('derivedLayerBuilder.previewFailedHttp', { status: res.status }),
         );
       }
       const body = (await res.json()) as typeof result;
       setResult(body);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Preview failed');
+      setErr(e instanceof Error ? e.message : t('derivedLayerBuilder.previewFailed'));
       setResult(null);
     } finally {
       setLoading(false);
@@ -1388,7 +1269,7 @@ function StepPreviewPanel({
           <ChevronDown
             className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`}
           />
-          {open ? 'Hide preview' : 'Preview output'}
+          {open ? t('derivedLayerBuilder.previewHide') : t('derivedLayerBuilder.previewShow')}
         </button>
         {open ? (
           <button
@@ -1397,7 +1278,7 @@ function StepPreviewPanel({
             disabled={disabled || loading}
             className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
-            {loading ? 'Loading…' : 'Refresh'}
+            {loading ? t('derivedLayerBuilder.loading') : t('derivedLayerBuilder.refresh')}
           </button>
         ) : null}
       </div>
@@ -1405,7 +1286,7 @@ function StepPreviewPanel({
         <div className="mt-2 space-y-2">
           {disabled ? (
             <p className="text-2xs text-muted">
-              Pick a source layer above to preview this step.
+              {t('derivedLayerBuilder.previewPickSource')}
             </p>
           ) : null}
           {!disabled ? (
@@ -1415,7 +1296,7 @@ function StepPreviewPanel({
             // of the picked day.  Useful for "what did this look
             // like a month ago?" diff-against-now workflows.
             <label className="flex items-center gap-2 text-2xs text-muted">
-              <span>As of</span>
+              <span>{t('derivedLayerBuilder.asOf')}</span>
               <input
                 type="date"
                 value={asOfDate}
@@ -1428,11 +1309,11 @@ function StepPreviewPanel({
                   onClick={() => setAsOfDate('')}
                   className="text-accent hover:underline"
                 >
-                  Clear
+                  {t('derivedLayerBuilder.clear')}
                 </button>
               ) : (
                 <span className="text-muted">
-                  (leave blank for current truth)
+                  {t('derivedLayerBuilder.asOfBlank')}
                 </span>
               )}
             </label>
@@ -1443,14 +1324,18 @@ function StepPreviewPanel({
             </p>
           ) : null}
           {loading && !result ? (
-            <p className="text-2xs text-muted">Running preview…</p>
+            <p className="text-2xs text-muted">{t('derivedLayerBuilder.previewRunning')}</p>
           ) : null}
           {result ? (
             <div className="space-y-1">
               <p className="text-2xs text-muted">
                 {result.truncated
-                  ? `Showing first ${result.sample.length} of many rows (preview is capped)`
-                  : `${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'} in this step's output`}
+                  ? t('derivedLayerBuilder.previewTruncated', {
+                      shown: result.sample.length,
+                    })
+                  : t('derivedLayerBuilder.previewRowCount', {
+                      count: result.rowCount,
+                    })}
               </p>
               {result.sample.length > 0 ? (
                 <div className="overflow-x-auto rounded-md border border-border bg-surface-1">
@@ -1488,7 +1373,7 @@ function StepPreviewPanel({
                 </div>
               ) : (
                 <p className="text-2xs text-muted">
-                  No rows match this step.
+                  {t('derivedLayerBuilder.previewNoRows')}
                 </p>
               )}
             </div>
@@ -1530,6 +1415,8 @@ function AddStepRow({
   onClick: () => void;
   variant: 'slot' | 'primary';
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const triggerClasses =
     variant === 'primary'
       ? 'inline-flex h-9 items-center gap-1 rounded-md border border-accent/40 bg-accent/5 px-3 text-xs font-medium text-accent hover:bg-accent/10'
@@ -1543,7 +1430,7 @@ function AddStepRow({
         className={triggerClasses}
       >
         <Plus className="h-3.5 w-3.5" />
-        Add a step
+        {t('derivedLayerBuilder.addStep')}
       </button>
     </div>
   );
@@ -1575,6 +1462,8 @@ function ToolToolbox({
   onClose: () => void;
   onPick: (kind: ToolStep['tool']) => void;
 }) {
+  const { t, toolLabels, toolDescriptions, toolGroups } = useDerivedLayerCatalog();
+
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -1587,17 +1476,12 @@ function ToolToolbox({
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Global keyboard shortcuts while the modal is open. Esc closes;
-  // "/" focuses the search bar (skipped when the user is already
-  // typing in it so the slash isn't swallowed).
+  // "/" focuses the search bar while the modal is open (skipped when
+  // the user is already typing in it so the slash isn't swallowed).
+  // Escape is handled by the shared Dialog primitive.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       if (e.key === '/' && document.activeElement !== searchRef.current) {
         e.preventDefault();
         searchRef.current?.focus();
@@ -1606,20 +1490,18 @@ function ToolToolbox({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [open]);
 
   // Filter tool list by query against label / description / kind.
   // Empty query keeps every group; otherwise empty groups are
   // dropped from the rendered output entirely so a search like
   // "buffer" doesn't show empty Reshape / Filter / etc. headings.
   const q = query.trim().toLowerCase();
-  const visibleGroups = TOOL_GROUPS.map((g) => ({
+  const visibleGroups = toolGroups.map((g) => ({
     ...g,
     tools: g.tools.filter((kind) => {
       if (!q) return true;
-      const haystack = [TOOL_LABELS[kind], TOOL_DESCRIPTIONS[kind], kind]
+      const haystack = [toolLabels[kind], toolDescriptions[kind], kind]
         .join(' ')
         .toLowerCase();
       return haystack.includes(q);
@@ -1627,37 +1509,23 @@ function ToolToolbox({
   })).filter((g) => g.tools.length > 0);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a step"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="lg"
+        className="flex max-h-[85vh] !max-w-3xl flex-col overflow-hidden bg-surface-0 p-0 shadow-xl"
       >
-        <header className="border-b border-border p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-ink-0">
-                Add a step
-              </h2>
-              <p className="mt-0.5 text-xs text-muted">
-                Pick a tool. The output of this step becomes the input
-                of the next.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <header className="border-b border-border p-4 pr-12">
+          <DialogTitle className="text-base font-semibold text-ink-0">
+            {t('derivedLayerBuilder.toolboxTitle')}
+          </DialogTitle>
+          <DialogDescription className="mt-0.5 text-xs text-muted">
+            {t('derivedLayerBuilder.toolboxDesc')}
+          </DialogDescription>
           <div className="relative mt-3">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
@@ -1668,16 +1536,16 @@ function ToolToolbox({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder='Filter tools (press "/" anywhere to focus)…'
+              placeholder={t('derivedLayerBuilder.toolboxFilterPlaceholder')}
               className="h-10 w-full rounded-md border border-border bg-surface-1 pl-10 pr-3 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {visibleGroups.length === 0 ? (
             <p className="text-center text-sm text-muted">
-              No tools match "{query}".
+              {t('derivedLayerBuilder.noToolsMatch', { query })}
             </p>
           ) : (
             <div className="space-y-5">
@@ -1698,10 +1566,10 @@ function ToolToolbox({
                         className="flex flex-col items-start gap-1 rounded-md border border-border bg-surface-1 p-3 text-left transition-colors hover:border-accent/50 hover:bg-surface-2 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                       >
                         <span className="text-sm font-medium text-ink-0">
-                          {TOOL_LABELS[kind]}
+                          {toolLabels[kind]}
                         </span>
                         <span className="text-2xs text-muted">
-                          {TOOL_DESCRIPTIONS[kind]}
+                          {toolDescriptions[kind]}
                         </span>
                       </button>
                     ))}
@@ -1711,8 +1579,8 @@ function ToolToolbox({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1735,7 +1603,7 @@ function DataLayerPicker({
   itemId,
   layerKey,
   onChange,
-  label = 'Other layer',
+  label,
   hint,
 }: {
   itemId: string;
@@ -1744,6 +1612,10 @@ function DataLayerPicker({
   label?: string;
   hint?: string;
 }) {
+  const { t } = useDerivedLayerCatalog();
+  const resolvedLabel =
+    label ?? t('derivedLayerBuilder.otherLayerDefault');
+
   const [available, setAvailable] = useState<
     Array<{ id: string; title: string }> | null
   >(null);
@@ -1784,7 +1656,7 @@ function DataLayerPicker({
     <div className="space-y-2">
       <label className="flex flex-col gap-1">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          {label}
+          {resolvedLabel}
         </span>
         <select
           value={itemId}
@@ -1798,10 +1670,10 @@ function DataLayerPicker({
           className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-hidden"
         >
           {available === null ? (
-            <option value="">Loading…</option>
+            <option value="">{t('derivedLayerBuilder.loading')}</option>
           ) : (
             <>
-              <option value="">(pick a data layer)</option>
+              <option value="">{t('derivedLayerBuilder.pickDataLayer')}</option>
               {available.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.title}
@@ -1809,7 +1681,7 @@ function DataLayerPicker({
               ))}
               {itemId && !knownItem ? (
                 <option value={itemId} key="__unknown">
-                  (unknown layer · {itemId.slice(0, 8)}…)
+                  {t('derivedLayerBuilder.unknownLayer', { id: itemId.slice(0, 8) })}
                 </option>
               ) : null}
             </>
@@ -1821,7 +1693,7 @@ function DataLayerPicker({
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          Sublayer key (optional)
+          {t('derivedLayerBuilder.sublayerKey')}
         </span>
         <input
           type="text"
@@ -1830,12 +1702,11 @@ function DataLayerPicker({
             const v = e.target.value.trim();
             onChange({ itemId, ...(v ? { layerKey: v } : {}) });
           }}
-          placeholder="leave blank for the default sublayer"
+          placeholder={t('derivedLayerBuilder.sublayerPlaceholder')}
           className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
-          Only needed when the layer has multiple sublayers; visible
-          on the data layer&apos;s detail page.
+          {t('derivedLayerBuilder.sublayerHint')}
         </span>
       </label>
     </div>
@@ -1865,6 +1736,9 @@ function BufferStepEditor({
   sourceFields: FeatureField[];
   sourcePicked: boolean;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
+  const fmt = useFormat();
   const setMode = (mode: 'fixed' | 'field') => {
     if (mode === params.mode) return;
     if (mode === 'fixed') {
@@ -1924,7 +1798,7 @@ function BufferStepEditor({
       <div
         className="grid grid-cols-2 gap-2"
         role="radiogroup"
-        aria-label="Buffer distance source"
+        aria-label={t('derivedLayerBuilder.bufferDistanceAria')}
       >
         <button
           type="button"
@@ -1937,9 +1811,9 @@ function BufferStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">Fixed</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.bufferFixed')}</span>
           <span className="text-2xs text-muted">
-            The same distance for every feature.
+            {t('derivedLayerBuilder.bufferFixedHint')}
           </span>
         </button>
         <button
@@ -1950,7 +1824,7 @@ function BufferStepEditor({
           disabled={!sourcePicked}
           title={
             !sourcePicked
-              ? 'Pick a source layer first to see its numeric fields'
+              ? t('derivedLayerBuilder.bufferPickSourceTitle')
               : undefined
           }
           className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -1959,16 +1833,16 @@ function BufferStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">From a field</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.bufferFromField')}</span>
           <span className="text-2xs text-muted">
-            Read the distance from a numeric column on each row.
+            {t('derivedLayerBuilder.bufferFromFieldHint')}
           </span>
         </button>
       </div>
 
       {params.mode === 'fixed' ? (
         <label className="flex flex-col gap-1 pt-1 text-sm">
-          <span className="text-ink-1">Distance</span>
+          <span className="text-ink-1">{t('derivedLayerBuilder.distance')}</span>
           <span className="flex items-center gap-2">
             <input
               type="number"
@@ -1981,8 +1855,9 @@ function BufferStepEditor({
             <UnitSelect value={params.unit} onChange={setUnit} />
           </span>
           <span className="text-2xs text-muted">
-            Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
-            kilometers, feet, yards, or miles.
+            {t('derivedLayerBuilder.bufferMaxHint', {
+              max: fmt.number(MAX_BUFFER_DISTANCE_METERS),
+            })}
           </span>
         </label>
       ) : (
@@ -2056,10 +1931,11 @@ function SimplifyStepEditor({
   params: { tolerance: number; unit: LengthUnit };
   onChange: (next: { tolerance: number; unit: LengthUnit }) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
   return (
     <ToleranceEditor
-      label="Tolerance"
-      hint="Vertices closer than this distance are dropped. Higher = simpler shapes; smaller = closer to the original."
+      label={t('derivedLayerBuilder.tolerance')}
+      hint={t('derivedLayerBuilder.simplifyHint')}
       value={params.tolerance}
       unit={params.unit}
       onValueChange={(tolerance) => onChange({ tolerance, unit: params.unit })}
@@ -2075,10 +1951,11 @@ function DensifyStepEditor({
   params: { maxSegmentLength: number; unit: LengthUnit };
   onChange: (next: { maxSegmentLength: number; unit: LengthUnit }) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
   return (
     <ToleranceEditor
-      label="Max segment length"
-      hint="Adds intermediate vertices so no segment is longer than this."
+      label={t('derivedLayerBuilder.maxSegmentLength')}
+      hint={t('derivedLayerBuilder.densifyHint')}
       value={params.maxSegmentLength}
       unit={params.unit}
       onValueChange={(maxSegmentLength) =>
@@ -2106,6 +1983,8 @@ function TopNStepEditor({
   sourceFields: FeatureField[];
   sourcePicked: boolean;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const numericFields = sourceFields.filter((f) => f.type === 'number');
   return (
     <div className="space-y-2">
@@ -2135,7 +2014,7 @@ function TopNStepEditor({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Keep</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.keep')}</span>
         <span className="flex items-center gap-2">
           <input
             type="number"
@@ -2157,13 +2036,17 @@ function TopNStepEditor({
             }
             className="h-10 rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           >
-            <option value="desc">highest</option>
-            <option value="asc">lowest</option>
+            <option value="desc">{t('derivedLayerBuilder.highest')}</option>
+            <option value="asc">{t('derivedLayerBuilder.lowest')}</option>
           </select>
         </span>
         <span className="text-2xs text-muted">
-          The N rows with the {params.direction === 'asc' ? 'lowest' : 'highest'}{' '}
-          values of the chosen field. NULLs are dropped.
+          {t('derivedLayerBuilder.topNHint', {
+            direction:
+              params.direction === 'asc'
+                ? t('derivedLayerBuilder.lowest')
+                : t('derivedLayerBuilder.highest'),
+          })}
         </span>
       </label>
     </div>
@@ -2181,6 +2064,8 @@ function RandomSampleStepEditor({
     seed: number;
   }) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   // Persist a stable seed once the user inserts the step. The
   // generator's validate() also subs a default for seed=0, so the
   // wizard never needs to ship a fresh random integer; preserving
@@ -2188,7 +2073,7 @@ function RandomSampleStepEditor({
   const seed = params.seed || Math.floor(Math.random() * 2147483646) + 1;
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Sample mode">
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('derivedLayerBuilder.sampleModeAria')}>
         <button
           type="button"
           role="radio"
@@ -2200,8 +2085,8 @@ function RandomSampleStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">Percentage</span>
-          <span className="text-2xs text-muted">Approximately N percent of rows.</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.percentage')}</span>
+          <span className="text-2xs text-muted">{t('derivedLayerBuilder.percentageHint')}</span>
         </button>
         <button
           type="button"
@@ -2214,14 +2099,14 @@ function RandomSampleStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">Exact count</span>
-          <span className="text-2xs text-muted">Exactly N rows.</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.exactCount')}</span>
+          <span className="text-2xs text-muted">{t('derivedLayerBuilder.exactCountHint')}</span>
         </button>
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-ink-1">
-          {params.mode === 'percentage' ? 'Percent' : 'Number of rows'}
+          {params.mode === 'percentage' ? t('derivedLayerBuilder.percent') : t('derivedLayerBuilder.numberOfRows')}
         </span>
         <input
           type="number"
@@ -2235,13 +2120,12 @@ function RandomSampleStepEditor({
           className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
-          Sample is deterministic given the seed below; same recipe = same
-          rows on every read.
+{t('derivedLayerBuilder.sampleSeedHint')}
         </span>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Seed</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.seed')}</span>
         <span className="flex items-center gap-2">
           <input
             type="number"
@@ -2261,7 +2145,7 @@ function RandomSampleStepEditor({
             }
             className="h-10 rounded-md border border-border bg-surface-1 px-3 text-xs text-ink-1 hover:bg-surface-2"
           >
-            Shuffle
+            {t('derivedLayerBuilder.shuffle')}
           </button>
         </span>
       </label>
@@ -2280,17 +2164,19 @@ function FishnetStepEditor({
     output: 'polygons' | 'lines';
   }) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   return (
     <div className="space-y-2">
       <ToleranceEditor
-        label="Cell size"
-        hint="Side length of each grid cell. Smaller = more cells = more compute."
+        label={t('derivedLayerBuilder.cellSize')}
+        hint={t('derivedLayerBuilder.fishnetCellHint')}
         value={params.cellSize}
         unit={params.unit}
         onValueChange={(cellSize) => onChange({ ...params, cellSize })}
         onUnitChange={(unit) => onChange({ ...params, unit })}
       />
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Output mode">
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('derivedLayerBuilder.outputModeAria')}>
         <button
           type="button"
           role="radio"
@@ -2302,8 +2188,8 @@ function FishnetStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">Polygons</span>
-          <span className="text-2xs text-muted">Filled grid cells.</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.polygons')}</span>
+          <span className="text-2xs text-muted">{t('derivedLayerBuilder.polygonsHint')}</span>
         </button>
         <button
           type="button"
@@ -2316,13 +2202,12 @@ function FishnetStepEditor({
               : 'border-border bg-surface-1 hover:bg-surface-2'
           }`}
         >
-          <span className="text-sm font-medium text-ink-1">Lines</span>
-          <span className="text-2xs text-muted">Grid lines / transects only.</span>
+          <span className="text-sm font-medium text-ink-1">{t('derivedLayerBuilder.lines')}</span>
+          <span className="text-2xs text-muted">{t('derivedLayerBuilder.linesHint')}</span>
         </button>
       </div>
       <p className="text-2xs text-muted">
-        Restricted to polygon input. Output drops source attributes; each
-        cell carries cell_row and cell_col.
+{t('derivedLayerBuilder.fishnetFootnote')}
       </p>
     </div>
   );
@@ -2335,6 +2220,8 @@ function CalculateGeometryStepEditor({
   params: CalculateGeometryParams;
   onChange: (next: CalculateGeometryParams) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   // Switching measurement re-keys the unit because length and area
   // use different unit unions. Persist the field name across
   // measurement changes so a user who picked a name doesn't have to
@@ -2358,7 +2245,7 @@ function CalculateGeometryStepEditor({
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Measurement">
+      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={t('derivedLayerBuilder.measurementAria')}>
         {(['length', 'perimeter', 'area'] as const).map((m) => (
           <button
             key={m}
@@ -2412,7 +2299,7 @@ function CalculateGeometryStepEditor({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Field name</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.fieldName')}</span>
         <input
           type="text"
           value={params.fieldName}
@@ -2420,12 +2307,11 @@ function CalculateGeometryStepEditor({
             onChange({ ...params, fieldName: e.target.value } as CalculateGeometryParams)
           }
           maxLength={60}
-          placeholder="e.g. area_ha, length_km"
+          placeholder={t('derivedLayerBuilder.calcGeomPlaceholder')}
           className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
-          Letters, numbers, and underscores. Cannot match an existing field
-          on the source.
+{t('derivedLayerBuilder.calcGeomNameHint')}
         </span>
       </label>
     </div>
@@ -2449,10 +2335,12 @@ function FilterStepEditor({
   onChange: (next: { expression: string }) => void;
   sourceFields: FeatureField[];
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   return (
     <ExpressionEditor
-      label="Predicate"
-      hint="Keep rows whose expression evaluates true.  e.g. {{acres}} > 5 AND {{zoning}} == 'R1'"
+      label={t('derivedLayerBuilder.predicate')}
+      hint={t('derivedLayerBuilder.filterHint')}
       value={params.expression}
       onChange={(expression) => onChange({ expression })}
       sourceFields={sourceFields}
@@ -2479,24 +2367,26 @@ function CalculateFieldStepEditor({
   }) => void;
   sourceFields: FeatureField[];
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
         <label className="flex flex-col gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            New column name
+            {t('derivedLayerBuilder.newColumnName')}
           </span>
           <input
             type="text"
             value={params.outputName}
             onChange={(e) => onChange({ ...params, outputName: e.target.value })}
-            placeholder="e.g. hectares, full_name"
+            placeholder={t('derivedLayerBuilder.calcFieldPlaceholder')}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden"
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Output type
+            {t('derivedLayerBuilder.outputType')}
           </span>
           <select
             value={params.outputType}
@@ -2508,15 +2398,15 @@ function CalculateFieldStepEditor({
             }
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
           >
-            <option value="number">Number</option>
-            <option value="string">String</option>
-            <option value="boolean">Boolean</option>
+            <option value="number">{t('derivedLayerBuilder.outputTypeNumber')}</option>
+            <option value="string">{t('derivedLayerBuilder.outputTypeString')}</option>
+            <option value="boolean">{t('derivedLayerBuilder.outputTypeBoolean')}</option>
           </select>
         </label>
       </div>
       <ExpressionEditor
-        label="Expression"
-        hint="e.g. {{acres}} * 0.4047  •  concat({{first_name}}, ' ', {{last_name}})  •  if({{population}} > 1000, 'urban', 'rural')"
+        label={t('derivedLayerBuilder.expression')}
+        hint={t('derivedLayerBuilder.calcFieldHint')}
         value={params.expression}
         onChange={(expression) => onChange({ ...params, expression })}
         sourceFields={sourceFields}
@@ -2547,6 +2437,8 @@ function ExpressionEditor({
   sourceFields: FeatureField[];
   resultMode: 'boolean' | 'number' | 'string';
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const ref = useRef<HTMLTextAreaElement | null>(null);
   function insert(text: string) {
     const el = ref.current;
@@ -2585,11 +2477,11 @@ function ExpressionEditor({
     } catch (err) {
       if (err instanceof ExpressionError) {
         return {
-          errors: [`${err.message} (at position ${err.pos})`],
+          errors: [t('derivedLayerBuilder.exprErrorAt', { message: err.message, pos: err.pos })],
           info: null,
         };
       }
-      return { errors: ['Unknown parse error'], info: null };
+      return { errors: [t('derivedLayerBuilder.unknownParseError')], info: null };
     }
   }, [value, sourceFields]);
 
@@ -2600,7 +2492,7 @@ function ExpressionEditor({
       {sourceFields.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Insert:
+            {t('derivedLayerBuilder.insert')}
           </span>
           {sourceFields.map((f) => (
             <button
@@ -2619,7 +2511,7 @@ function ExpressionEditor({
       ) : null}
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          Operators:
+          {t('derivedLayerBuilder.operators')}
         </span>
         {['==', '!=', '<', '<=', '>', '>=', 'AND', 'OR', 'NOT', '+', '-', '*', '/', '(', ')'].map((op) => (
           <button
@@ -2664,7 +2556,7 @@ function ExpressionEditor({
         </ul>
       ) : value.trim().length > 0 ? (
         <p className="text-2xs text-success">
-          Expression parses cleanly.
+          {t('derivedLayerBuilder.exprParsesOk')}
         </p>
       ) : null}
     </div>
@@ -2702,19 +2594,21 @@ function ContourStepEditor({
   }) => void;
   sourceFields: FeatureField[];
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const numericFields = sourceFields.filter((f) => f.type === 'number');
   return (
     <div className="space-y-3">
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          Source numeric field
+          {t('derivedLayerBuilder.contourSourceField')}
         </span>
         <select
           value={params.field}
           onChange={(e) => onChange({ ...params, field: e.target.value })}
           className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
-          <option value="">(pick a numeric field)</option>
+          <option value="">{t('derivedLayerBuilder.pickNumericFieldOption')}</option>
           {numericFields.map((f) => (
             <option key={f.name} value={f.name}>
               {f.label ?? f.name}
@@ -2723,14 +2617,13 @@ function ContourStepEditor({
         </select>
         {numericFields.length === 0 ? (
           <span className="text-2xs text-warn">
-            The source layer has no numeric fields. Add one (e.g. via
-            Calculate field) earlier in the pipeline.
+{t('derivedLayerBuilder.contourNoNumeric')}
           </span>
         ) : null}
       </label>
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          Levels
+          {t('derivedLayerBuilder.levels')}
         </span>
         <select
           value={params.mode}
@@ -2743,16 +2636,16 @@ function ContourStepEditor({
           className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value="auto">
-            Auto: walk by interval between min / max
+            {t('derivedLayerBuilder.contourAuto')}
           </option>
-          <option value="manual">Manual: explicit list of levels</option>
+          <option value="manual">{t('derivedLayerBuilder.contourManual')}</option>
         </select>
       </label>
       {params.mode === 'auto' ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Interval
+              {t('derivedLayerBuilder.interval')}
             </span>
             <input
               type="number"
@@ -2770,7 +2663,7 @@ function ContourStepEditor({
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Min level (optional)
+              {t('derivedLayerBuilder.minLevelOptional')}
             </span>
             <input
               type="number"
@@ -2789,13 +2682,13 @@ function ContourStepEditor({
                   v === '' ? rest : { ...rest, minLevel: Number(v) },
                 );
               }}
-              placeholder="auto from data"
+              placeholder={t('derivedLayerBuilder.autoFromData')}
               className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Max level (optional)
+              {t('derivedLayerBuilder.maxLevelOptional')}
             </span>
             <input
               type="number"
@@ -2817,7 +2710,7 @@ function ContourStepEditor({
       ) : (
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Levels (comma-separated, ascending)
+            {t('derivedLayerBuilder.levelsCsv')}
           </span>
           <input
             type="text"
@@ -2842,16 +2735,13 @@ function ContourStepEditor({
               void _drop;
               onChange(next === undefined ? rest : { ...rest, levels: next });
             }}
-            placeholder="e.g. 100, 110, 120, 130"
+            placeholder={t('derivedLayerBuilder.levelsPlaceholder')}
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
           />
         </label>
       )}
       <p className="text-2xs text-muted">
-        Output is one line feature per (triangle, level) crossing,
-        tagged with a <code>level</code> attribute. Source attributes
-        are dropped because each output line is interpolated across
-        multiple source points.
+{t('derivedLayerBuilder.contourFootnote')}
       </p>
     </div>
   );
@@ -2877,6 +2767,8 @@ function AggregateStepEditor({
   }) => void;
   sourceFields: FeatureField[];
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const numericFields = sourceFields.filter((f) => f.type === 'number');
   const groupCandidates = sourceFields.filter(
     (f) => !params.groupBy.includes(f.name),
@@ -2914,11 +2806,10 @@ function AggregateStepEditor({
     <div className="space-y-3">
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Group by
+          {t('derivedLayerBuilder.groupBy')}
         </p>
         <p className="text-2xs text-muted">
-          One output row per distinct combination.  Empty = collapse
-          to a single output row (legacy dissolve behavior).
+{t('derivedLayerBuilder.groupByHint')}
         </p>
         {params.groupBy.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -2931,7 +2822,7 @@ function AggregateStepEditor({
                 <button
                   type="button"
                   onClick={() => toggleGroup(g, false)}
-                  aria-label={`Remove group key ${g}`}
+                  aria-label={t('derivedLayerBuilder.removeGroupKeyAria', { name: g })}
                   className="ml-1 text-accent/70 hover:text-danger"
                 >
                   <X className="h-3 w-3" />
@@ -2943,7 +2834,7 @@ function AggregateStepEditor({
         {groupCandidates.length > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-1">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Add:
+              {t('derivedLayerBuilder.add')}
             </span>
             {groupCandidates.map((f) => (
               <button
@@ -2961,7 +2852,7 @@ function AggregateStepEditor({
       <div>
         <div className="mb-1 flex items-center justify-between">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            Aggregations
+            {t('derivedLayerBuilder.aggregations')}
           </p>
           <button
             type="button"
@@ -2969,7 +2860,7 @@ function AggregateStepEditor({
             className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
-            Add
+            {t('derivedLayerBuilder.aggAdd')}
           </button>
         </div>
         <div className="space-y-1.5">
@@ -2999,7 +2890,7 @@ function AggregateStepEditor({
               </select>
               {a.op === 'count' ? (
                 <span className="rounded border border-border bg-surface-1 px-2 py-1 text-2xs text-muted">
-                  (no field needed)
+                  {t('derivedLayerBuilder.aggNoField')}
                 </span>
               ) : (
                 <select
@@ -3007,7 +2898,7 @@ function AggregateStepEditor({
                   onChange={(e) => updateAgg(idx, { field: e.target.value })}
                   className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden"
                 >
-                  <option value="">(pick a field)</option>
+                  <option value="">{t('derivedLayerBuilder.pickField')}</option>
                   {(a.op === 'first' ? sourceFields : numericFields).map((f) => (
                     <option key={f.name} value={f.name}>
                       {f.name}
@@ -3021,13 +2912,13 @@ function AggregateStepEditor({
                 onChange={(e) =>
                   updateAgg(idx, { outputName: e.target.value })
                 }
-                placeholder="output column name"
+                placeholder={t('derivedLayerBuilder.outputColumnPlaceholder')}
                 className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden"
               />
               <button
                 type="button"
                 onClick={() => removeAgg(idx)}
-                aria-label="Remove aggregation"
+                aria-label={t('derivedLayerBuilder.removeAggregationAria')}
                 className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-danger/10 hover:text-danger"
               >
                 <Trash2 className="h-3 w-3" />
@@ -3036,7 +2927,7 @@ function AggregateStepEditor({
           ))}
           {params.aggs.length === 0 ? (
             <p className="text-2xs text-muted">
-              No aggregations yet.  Add at least one with the + button.
+              {t('derivedLayerBuilder.aggEmpty')}
             </p>
           ) : null}
         </div>
@@ -3075,6 +2966,8 @@ function SpatialJoinStepEditor({
   };
   onChange: (next: typeof params) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   const prefix = params.attrPrefix ?? 'joined_';
   const attrsText = (params.attrsToKeep ?? []).join(', ');
   return (
@@ -3088,13 +2981,13 @@ function SpatialJoinStepEditor({
             otherSource: { kind: 'data_layer', ...next },
           })
         }
-        label="Other source"
-        hint="The layer whose features to join in.  Limited to data layers you can read."
+        label={t('derivedLayerBuilder.otherSource')}
+        hint={t('derivedLayerBuilder.spatialJoinOtherHint')}
       />
 
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Predicate
+          {t('derivedLayerBuilder.predicate')}
         </p>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
           {(['intersects', 'within', 'nearest'] as const).map((p) => (
@@ -3116,17 +3009,17 @@ function SpatialJoinStepEditor({
         </div>
         <p className="mt-1 text-2xs text-muted">
           {params.predicate === 'within'
-            ? 'Match when the upstream geometry is fully inside a feature in the other layer.'
+            ? t('derivedLayerBuilder.spatialJoinWithin')
             : params.predicate === 'intersects'
-              ? 'Match when the upstream geometry shares any space with a feature in the other layer.'
-              : 'Match when the closest feature in the other layer is within the chosen distance.'}
+              ? t('derivedLayerBuilder.spatialJoinIntersects')
+              : t('derivedLayerBuilder.spatialJoinNearest')}
         </p>
       </div>
 
       {params.predicate === 'nearest' ? (
         <label className="flex flex-col gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Max distance (meters)
+            {t('derivedLayerBuilder.maxDistanceMeters')}
           </span>
           <input
             type="number"
@@ -3146,7 +3039,7 @@ function SpatialJoinStepEditor({
 
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Bring over
+          {t('derivedLayerBuilder.bringOver')}
         </p>
         <div className="grid grid-cols-2 gap-2" role="radiogroup">
           {(['count', 'first'] as const).map((s) => (
@@ -3162,7 +3055,7 @@ function SpatialJoinStepEditor({
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
               }`}
             >
-              {s === 'count' ? 'Count of matches' : 'Attrs from first match'}
+              {s === 'count' ? t('derivedLayerBuilder.countOfMatches') : t('derivedLayerBuilder.attrsFromFirst')}
             </button>
           ))}
         </div>
@@ -3171,7 +3064,7 @@ function SpatialJoinStepEditor({
       {params.attributeStrategy === 'first' ? (
         <label className="flex flex-col gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Attributes to keep
+            {t('derivedLayerBuilder.attrsToKeep')}
           </span>
           <input
             type="text"
@@ -3185,23 +3078,18 @@ function SpatialJoinStepEditor({
                   .filter(Boolean),
               })
             }
-            placeholder="county_name, fips, population"
+            placeholder={t('derivedLayerBuilder.attrsToKeepPlaceholder')}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
           />
           <span className="text-2xs text-muted">
-            Comma-separated field names on the other layer.  Each
-            lands on every upstream row as
-            <code className="ml-1 rounded bg-surface-2 px-1 font-mono">
-              {prefix}
-              &lt;attr&gt;
-            </code>.
+            {t('derivedLayerBuilder.attrsToKeepHint', { prefix })}
           </span>
         </label>
       ) : null}
 
       <label className="flex flex-col gap-1">
         <span className="text-2xs uppercase tracking-wide text-muted">
-          Output prefix
+          {t('derivedLayerBuilder.outputPrefix')}
         </span>
         <input
           type="text"
@@ -3215,9 +3103,7 @@ function SpatialJoinStepEditor({
           className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
-          Prepended to every joined attribute name.  Defaults to{' '}
-          <code className="rounded bg-surface-2 px-1 font-mono">joined_</code>
-          .
+{t('derivedLayerBuilder.outputPrefixHint')}
         </span>
       </label>
     </div>
@@ -3283,6 +3169,8 @@ function SpatialFilterStepEditor({
   params: import('@gratis-gis/shared-types').SpatialFilterStep['params'];
   onChange: (next: typeof params) => void;
 }) {
+  const { t } = useDerivedLayerCatalog();
+
   // The wizard only supports the resolved-by-default shape; the
   // backend save-time validator rejects unresolved refs from a
   // derived_layer save anyway, so narrow at the editor level too.
@@ -3338,8 +3226,8 @@ function SpatialFilterStepEditor({
         itemId={dataLayerSource.itemId}
         layerKey={dataLayerSource.layerKey}
         onChange={setOther}
-        label="Filter against"
-        hint="The layer whose features the upstream rows are tested against."
+        label={t('derivedLayerBuilder.filterAgainst')}
+        hint={t('derivedLayerBuilder.spatialFilterHint')}
       />
 
       <div>
@@ -3366,21 +3254,21 @@ function SpatialFilterStepEditor({
         </div>
         <p className="mt-1 text-2xs text-muted">
           {fixedPredicate === 'intersects'
-            ? 'Keep upstream rows whose geometry shares any space with a feature in the other layer.'
+            ? t('derivedLayerBuilder.spatialFilterIntersects')
             : fixedPredicate === 'within'
-              ? 'Keep upstream rows whose geometry is fully inside a feature in the other layer.'
+              ? t('derivedLayerBuilder.spatialFilterWithin')
               : fixedPredicate === 'contains'
-                ? 'Keep upstream rows whose geometry fully contains a feature in the other layer.'
+                ? t('derivedLayerBuilder.spatialFilterContains')
                 : fixedPredicate === 'touches'
-                  ? 'Keep upstream rows whose geometry only shares a boundary with a feature in the other layer.'
-                  : 'Keep upstream rows within the chosen distance of any feature in the other layer.'}
+                  ? t('derivedLayerBuilder.spatialFilterTouches')
+                  : t('derivedLayerBuilder.spatialFilterNear')}
         </p>
       </div>
 
       {fixedPredicate === 'near' ? (
         <label className="flex flex-col gap-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Distance (meters)
+            {t('derivedLayerBuilder.distanceMeters')}
           </span>
           <input
             type="number"

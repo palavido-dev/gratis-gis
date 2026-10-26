@@ -152,6 +152,15 @@ import {
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
+import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Custom Web App runtime client (#341). Renders a designed page's
@@ -655,6 +664,8 @@ export function CustomRuntimeClient({
   themeTokens,
   canManage = false,
 }: Props) {
+  const fmt = useFormat();
+  const t = useT();
   // Multi-page support (#342). Track which page is showing; render
   // only that page's widgets, but seed map state from EVERY page so
   // a Map's layer toggles persist when the user switches pages and
@@ -990,16 +1001,16 @@ export function CustomRuntimeClient({
           // independently of the UI.
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.15)] px-4 py-1.5 text-xs text-[hsl(var(--app-warn))]">
             <span>
-              Viewing as of{' '}
-              <strong>{new Date(appAt).toLocaleString()}</strong>{' '}
-              &ndash; read-only
+              {t('customRuntime.chrome.viewingAsOf')}{' '}
+              <strong>{fmt.dateTime(appAt)}</strong>{' '}
+              &ndash; {t('customRuntime.chrome.readOnly')}
             </span>
             <button
               type="button"
               onClick={() => setAppAt(null)}
               className="rounded-md border border-[hsl(var(--app-warn)/0.5)] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-[hsl(var(--app-warn))] hover:bg-[hsl(var(--app-warn)/0.1)]"
             >
-              Return to Now
+              {t('customRuntime.chrome.returnToNow')}
             </button>
           </div>
         ) : null}
@@ -1016,7 +1027,7 @@ export function CustomRuntimeClient({
                 className="inline-flex items-center gap-1 text-xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-0))]"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Back to items
+                {t('customRuntime.chrome.backToItems')}
               </Link>
               <span className="text-[hsl(var(--app-muted))]">/</span>
               <span className="truncate text-base font-semibold text-[hsl(var(--app-ink-0))]">
@@ -1027,7 +1038,7 @@ export function CustomRuntimeClient({
               href={`/items/${itemId}?view=configure`}
               className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
-              Configure
+              {t('customRuntime.chrome.configure')}
             </Link>
           </header>
         ) : null}
@@ -1060,7 +1071,7 @@ export function CustomRuntimeClient({
         {app.pages.length > 1 && (
           <nav
             className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3"
-            aria-label="App pages"
+            aria-label={t('customRuntime.chrome.appPagesAria')}
           >
             {app.pages.map((p, i) => {
               const active = i === safePageIdx;
@@ -1107,17 +1118,17 @@ export function CustomRuntimeClient({
                   <SquareIcon className="h-6 w-6" />
                 </span>
                 <h2 className="mt-4 text-base font-semibold text-[hsl(var(--app-ink-0))]">
-                  Start building
+                  {t('customRuntime.chrome.startBuilding')}
                 </h2>
                 <p className="mt-1.5 text-sm text-[hsl(var(--app-muted))]">
-                  Add a map, a layer list, and other widgets from the{' '}
+                  {t('customRuntime.chrome.addWidgetsFrom')}{' '}
                   <Link
                     href={`/items/${itemId}`}
                     className="font-medium text-[hsl(var(--app-accent))] hover:underline"
                   >
-                    configuration page
+                    {t('customRuntime.chrome.configurationPage')}
                   </Link>{' '}
-                  to build this app.
+                  {t('customRuntime.chrome.buildAppHint')}
                 </p>
               </div>
             </div>
@@ -1285,6 +1296,7 @@ function WidgetSlot({
   widget: CustomWidget;
   mobile?: MobilePlacement;
 }) {
+  const t = useT();
   // #364: tool-mode widgets render as a small icon button in the
   // grid cell + a popover panel anchored per panelArrangement.
   // Panel-mode widgets render inline using the existing card chrome.
@@ -1355,8 +1367,8 @@ function WidgetSlot({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          title={expanded ? 'Shrink back (Esc)' : 'Expand to fill the page'}
-          aria-label={expanded ? 'Shrink back' : 'Expand to fill the page'}
+          title={expanded ? t('customRuntime.a11y.shrinkBackEsc') : t('customRuntime.a11y.expandToFillPage')}
+          aria-label={expanded ? t('customRuntime.a11y.shrinkBack') : t('customRuntime.a11y.expandToFillPage')}
           aria-pressed={expanded}
           className="absolute right-1 top-1 z-30 rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]/90 p-1 text-[hsl(var(--app-muted))] shadow-xs hover:text-[hsl(var(--app-ink-0))]"
         >
@@ -1410,19 +1422,25 @@ function widgetPanelArrangement(widget: CustomWidget): PanelArrangement {
   return cfg.panelArrangement ?? {};
 }
 
-const KIND_TOOL_LABEL: Record<string, string> = {
-  'layer-list': 'Layers',
-  legend: 'Legend',
-  search: 'Search',
-  print: 'Print',
-  select: 'Select',
-  export: 'Export',
-  'basemap-gallery': 'Basemaps',
-  bookmark: 'Bookmarks',
-  coordinates: 'Coordinates',
-  'my-location': 'My location',
-  'attribute-table': 'Attribute table',
-};
+function kindToolLabel(
+  kind: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const map: Record<string, string> = {
+    'layer-list': t('customRuntime.widgets.layers'),
+    legend: t('customRuntime.widgets.legend'),
+    search: t('customRuntime.widgets.search'),
+    print: t('customRuntime.widgets.print'),
+    select: t('customRuntime.widgets.select'),
+    export: t('customRuntime.widgets.export'),
+    'basemap-gallery': t('customRuntime.widgets.basemaps'),
+    bookmark: t('customRuntime.widgets.bookmarks'),
+    coordinates: t('customRuntime.widgets.coordinates'),
+    'my-location': t('customRuntime.widgets.myLocationShort'),
+    'attribute-table': t('customRuntime.widgets.attributeTable'),
+  };
+  return map[kind] ?? kind;
+}
 
 /**
  * #364: tool-mode wrapper. Renders an icon button in the canvas
@@ -1430,6 +1448,7 @@ const KIND_TOOL_LABEL: Record<string, string> = {
  * panelArrangement, using the existing widget renderer for content.
  */
 function ToolWidgetSlot({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   const ctx = useContext(CustomMapsContext);
   // When inside an app-bar, render the trigger as a flat header-ink
   // icon link rather than a raised white pill. The white-pill
@@ -1451,7 +1470,7 @@ function ToolWidgetSlot({ widget }: { widget: CustomWidget }) {
   // so a tool can read "Attributes" instead of "Attribute Table"
   // without changing the widget kind.  Falls through to the kind
   // default when not set.
-  const defaultLabel = KIND_TOOL_LABEL[widget.kind] ?? widget.kind;
+  const defaultLabel = kindToolLabel(widget.kind, t);
   const override = arrangement.labelOverride?.trim();
   const label = override && override.length > 0 ? override : defaultLabel;
   const iconOnly = arrangement.labelMode === 'icon-only';
@@ -1592,6 +1611,7 @@ function ToolPopover({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const placement = arrangement.placement ?? 'floating';
   const anchor: PanelAnchor = arrangement.anchor ?? 'top-right';
   const width = arrangement.width ?? 360;
@@ -1698,7 +1718,7 @@ function ToolPopover({
       <>
         <button
           type="button"
-          aria-label="Close"
+          aria-label={t('customRuntime.a11y.close')}
           onClick={handleClose}
           className="fixed inset-0 z-40 cursor-default bg-transparent"
         />
@@ -1727,7 +1747,7 @@ function ToolPopover({
     <>
       <button
         type="button"
-        aria-label="Close"
+        aria-label={t('customRuntime.a11y.close')}
         onClick={handleClose}
         // Backdrop sits behind the popover but above page content,
         // catching click-outside without blocking ARIA focus.
@@ -1769,6 +1789,7 @@ function ToolPopoverHeader({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }) {
+  const t = useT();
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-2">
       <Icon className="h-4 w-4 text-[hsl(var(--app-muted))]" strokeWidth={1.75} />
@@ -1779,7 +1800,7 @@ function ToolPopoverHeader({
         <button
           type="button"
           onClick={onToggleCollapsed}
-          aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
+          aria-label={collapsed ? t('customRuntime.a11y.expandPanel') : t('customRuntime.a11y.collapsePanel')}
           aria-expanded={!collapsed}
           className="rounded p-1 text-[hsl(var(--app-muted))] transition-colors hover:bg-[hsl(var(--app-surface-2))] hover:text-[hsl(var(--app-ink-1))]"
         >
@@ -1793,7 +1814,7 @@ function ToolPopoverHeader({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close panel"
+        aria-label={t('customRuntime.a11y.closePanel')}
         className="-mr-1 rounded p-1 text-[hsl(var(--app-muted))] transition-colors hover:bg-[hsl(var(--app-surface-2))] hover:text-[hsl(var(--app-ink-1))]"
       >
         <XIcon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -2251,6 +2272,7 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- LayerList widget ------------------------------------------------------
 
 function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'layer-list') return null;
   const { state, update, flyTo } = useBoundMap(widget.config.mapWidgetId);
   const allowToggle = widget.config.allowToggle !== false;
@@ -2425,11 +2447,11 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 
   return (
-    <WidgetFrame icon={LayersIcon} title="Layers">
+    <WidgetFrame icon={LayersIcon} title={t('customRuntime.widgets.layers')}>
       {!state ? (
-        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No bound map.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBoundMap')}</p>
       ) : layers.length === 0 ? (
-        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No layers.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noLayers')}</p>
       ) : (
         <ul className="space-y-0.5 p-1.5">
           {rootLayers.map((l) => (
@@ -2647,6 +2669,7 @@ function LayerListRow({
   onExportLayer: (layer: MapLayer, format: ClientExportFormat) => void;
   onPatchLayerStyle: (id: string, style: MapLayerStyle) => void;
 }) {
+  const t = useT();
   const isGroup = layer.source.kind === 'group';
   const children = isGroup ? childrenByParent.get(layer.id) ?? [] : [];
   const [open, setOpen] = useState(true);
@@ -2662,7 +2685,7 @@ function LayerListRow({
         {isGroup ? (
           <button
             type="button"
-            aria-label={open ? 'Collapse group' : 'Expand group'}
+            aria-label={open ? t('customRuntime.a11y.collapseGroup') : t('customRuntime.a11y.expandGroup')}
             onClick={() => setOpen((v) => !v)}
             className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
           >
@@ -2763,6 +2786,7 @@ function LayerRowKebabMenu({
   onExportLayer: (layer: MapLayer, format: ClientExportFormat) => void;
   onPatchLayerStyle: (id: string, style: MapLayerStyle) => void;
 }) {
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [propsOpen, setPropsOpen] = useState(false);
   const [symbologyOpen, setSymbologyOpen] = useState(false);
@@ -2830,7 +2854,7 @@ function LayerRowKebabMenu({
         type="button"
         onClick={openMenu}
         aria-label={`Actions for ${layer.title}`}
-        title="More actions"
+        title={t('customRuntime.common.moreActions')}
         className="inline-flex h-5 w-5 items-center justify-center rounded text-[hsl(var(--app-muted))] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[hsl(var(--app-surface-1))] hover:text-[hsl(var(--app-ink-1))]"
       >
         <MoreVertical className="h-3.5 w-3.5" />
@@ -3004,6 +3028,7 @@ function SessionSymbologyDialog({
   onPatchStyle: (style: MapLayerStyle) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   // Snapshot the original style on open so Reset can restore it.
   // structuredClone keeps the snapshot independent of any later
   // mutations; we never want Reset to roll back to a CURRENT value.
@@ -3021,45 +3046,35 @@ function SessionSymbologyDialog({
   }, [layer.source]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Symbology for ${layer.title}`}
-      onClick={onClose}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
+      <DialogContent
+        size="md"
+        className="flex max-h-[85vh] flex-col overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-0 shadow-(--app-shadow-overlay)"
       >
-        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
-              Symbology
-            </h3>
-            <p className="truncate text-2xs text-[hsl(var(--app-muted))]">{layer.title}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-          >
-            <XIcon className="h-4 w-4" />
-          </button>
+        <div className="border-b border-[hsl(var(--app-border))] px-4 py-3 pr-12">
+          <DialogTitle className="truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
+            {t('customRuntime.common.symbology')}
+          </DialogTitle>
+          <DialogDescription className="truncate text-2xs text-[hsl(var(--app-muted))]">
+            {layer.title}
+          </DialogDescription>
         </div>
         <p className="border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-warn)/0.1)] px-4 py-2 text-2xs text-[hsl(var(--app-warn))]">
-          Changes apply to this session only. Refresh the page to
-          reset to the saved style.
+          {t('customRuntime.symbologyDialog.sessionOnly')}
         </p>
-        <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <StyleEditor
             value={layer.style}
             onChange={onPatchStyle}
             {...(geometryTypes ? { geometryTypes } : {})}
           />
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-[hsl(var(--app-border))] px-4 py-3">
+        <DialogFooter className="border-[hsl(var(--app-border))] bg-transparent">
           <button
             type="button"
             onClick={() => onPatchStyle(structuredClone(originalRef.current))}
@@ -3074,9 +3089,9 @@ function SessionSymbologyDialog({
           >
             Done
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3095,53 +3110,46 @@ function LayerPropertiesDialog({
   layer: MapLayer;
   onClose: () => void;
 }) {
+  const t = useT();
+  const fmt = useFormat();
   const featureCount =
     layer.source.kind === 'geojson-inline'
       ? (layer.source.geojson as GeoJSON.FeatureCollection | null)?.features
           ?.length ?? 0
       : null;
-  const sourceLabel = describeSourceKind(layer.source.kind);
+  const sourceLabel = describeSourceKind(layer.source.kind, t);
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${layer.title} properties`}
-      onClick={onClose}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
+      <DialogContent
+        size="sm"
+        className="overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-0 shadow-(--app-shadow-overlay)"
       >
-        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
-          <h3 className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
+        <div className="border-b border-[hsl(var(--app-border))] px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
             {layer.title}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-          >
-            <XIcon className="h-4 w-4" />
-          </button>
+          </DialogTitle>
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-4 py-3 text-xs">
-          <dt className="text-[hsl(var(--app-muted))]">Source</dt>
+          <dt className="text-[hsl(var(--app-muted))]">{t('customRuntime.common.source')}</dt>
           <dd className="text-[hsl(var(--app-ink-1))]">{sourceLabel}</dd>
           {featureCount !== null ? (
             <>
-              <dt className="text-[hsl(var(--app-muted))]">Features</dt>
+              <dt className="text-[hsl(var(--app-muted))]">{t('customRuntime.common.features')}</dt>
               <dd className="text-[hsl(var(--app-ink-1))]">
-                {featureCount.toLocaleString()}
+                {fmt.number(featureCount)}
               </dd>
             </>
           ) : null}
-          <dt className="text-[hsl(var(--app-muted))]">Visible</dt>
+          <dt className="text-[hsl(var(--app-muted))]">{t('customRuntime.common.visible')}</dt>
           <dd className="text-[hsl(var(--app-ink-1))]">
-            {layer.visible === false ? 'No' : 'Yes'}
+            {layer.visible === false ? t('customRuntime.common.no') : t('customRuntime.common.yes')}
           </dd>
-          <dt className="text-[hsl(var(--app-muted))]">Opacity</dt>
+          <dt className="text-[hsl(var(--app-muted))]">{t('customRuntime.common.opacity')}</dt>
           <dd className="text-[hsl(var(--app-ink-1))]">
             {Math.round(((layer.opacity ?? 1) as number) * 100)}%
           </dd>
@@ -3150,28 +3158,31 @@ function LayerPropertiesDialog({
           Properties shown here are session-only. Refreshing the
           page resets them.
         </p>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 /** Human-readable label for a MapLayerSource['kind']. */
-function describeSourceKind(kind: string): string {
+function describeSourceKind(
+  kind: string,
+  t: (key: string) => string,
+): string {
   switch (kind) {
     case 'data-layer':
-      return 'Portal data layer';
+      return t('customRuntime.sources.portalDataLayer');
     case 'geojson-inline':
-      return 'In-memory features';
+      return t('customRuntime.sources.inMemoryFeatures');
     case 'geojson-url':
-      return 'GeoJSON URL';
+      return t('customRuntime.sources.geojsonUrl');
     case 'arcgis-rest':
-      return 'ArcGIS REST service';
+      return t('customRuntime.sources.arcgisRest');
     case 'wms-service':
-      return 'WMS service';
+      return t('customRuntime.sources.wms');
     case 'wfs-service':
-      return 'WFS service';
+      return t('customRuntime.sources.wfs');
     case 'group':
-      return 'Layer group';
+      return t('customRuntime.sources.layerGroup');
     default:
       return kind;
   }
@@ -3226,6 +3237,7 @@ function LegendKeySwatch({
 }
 
 function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'legend') return null;
   const { state } = useBoundMap(widget.config.mapWidgetId);
 
@@ -3322,9 +3334,9 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
   const authored = widget.config.title?.trim();
 
   return (
-    <WidgetFrame icon={ListTree} title="Legend">
+    <WidgetFrame icon={ListTree} title={t('customRuntime.widgets.legend')}>
       {!state ? (
-        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No bound map.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBoundMap')}</p>
       ) : layers.length === 0 ? (
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
           Nothing visible to describe.
@@ -3346,6 +3358,7 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- BasemapGallery widget -------------------------------------------------
 
 function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'basemap-gallery') return null;
   const { state, update, basemaps } = useBoundMap(widget.config.mapWidgetId);
   // Bind to a local so the narrowed type carries into the filter closure.
@@ -3356,9 +3369,9 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
       : basemaps;
   const activeId = state?.mapData.basemap ?? '';
   return (
-    <WidgetFrame icon={ImageIcon} title="Basemaps">
+    <WidgetFrame icon={ImageIcon} title={t('customRuntime.widgets.basemaps')}>
       {visibleBasemaps.length === 0 ? (
-        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No basemaps available.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBasemaps')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-1.5 p-2">
           {visibleBasemaps.map((b) => (
@@ -3435,6 +3448,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
  * candidate list with grouped sections + keyboard nav.
  */
 function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'search') return null;
   const cfg = widget.config;
   const ctx = useContext(CustomMapsContext);
@@ -3494,7 +3508,7 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
 
   if (!boundMapState || !mapWidgetId) {
     return (
-      <WidgetFrame icon={SearchIcon} title="Search">
+      <WidgetFrame icon={SearchIcon} title={t('customRuntime.widgets.search')}>
         <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
           Bind to a Map widget to enable.
         </p>
@@ -3511,7 +3525,7 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
   const geocoderItemId = mapSearch?.geocoderId;
 
   return (
-    <WidgetFrame icon={SearchIcon} title="Search">
+    <WidgetFrame icon={SearchIcon} title={t('customRuntime.widgets.search')}>
       <div className="p-2">
         <SearchBar
           embedded
@@ -3552,7 +3566,9 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
  * an admin deleted them all).
  */
 function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'print') return null;
+  const fmt = useFormat();
   const { state } = useBoundMap(widget.config.mapWidgetId);
   // #106: live MapLibre handle for the bound map, so onRender can
   // grab a PNG snapshot of what the user is currently looking at
@@ -3789,16 +3805,16 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
 
   if (templates === null) {
     return (
-      <WidgetFrame icon={Printer} title="Print">
-        <div className="p-3 text-xs text-[hsl(var(--app-muted))]">Loading templates…</div>
+      <WidgetFrame icon={Printer} title={t('customRuntime.widgets.print')}>
+        <div className="p-3 text-xs text-[hsl(var(--app-muted))]">{t('customRuntime.common.loadingTemplates')}</div>
       </WidgetFrame>
     );
   }
   if (templates.length === 0) {
     return (
-      <WidgetFrame icon={Printer} title="Print">
+      <WidgetFrame icon={Printer} title={t('customRuntime.widgets.print')}>
         <div className="flex flex-col items-center gap-2 p-3 text-xs text-[hsl(var(--app-muted))]">
-          <p>No print templates available.</p>
+          <p>{t('customRuntime.empty.noPrintTemplates')}</p>
           <button
             type="button"
             disabled={!state}
@@ -3813,11 +3829,11 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
     );
   }
   return (
-    <WidgetFrame icon={Printer} title="Print">
+    <WidgetFrame icon={Printer} title={t('customRuntime.widgets.print')}>
       <div className="flex h-full flex-col gap-2 p-2 text-xs">
         {!selected ? (
           <>
-            <div className="font-medium text-[hsl(var(--app-ink-0))]">Templates</div>
+            <div className="font-medium text-[hsl(var(--app-ink-0))]">{t('customRuntime.common.templates')}</div>
             <div className="space-y-1">
               {templates.map((t) => (
                 <button
@@ -3844,7 +3860,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                 onClick={() => setSelected(null)}
                 className="text-2xs text-[hsl(var(--app-muted))] hover:underline"
               >
-                ← Templates
+                {t('customRuntime.common.backToTemplates')}
               </button>
               <div className="ml-1 truncate font-medium text-[hsl(var(--app-ink-0))]">
                 {selected.title}
@@ -3906,7 +3922,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-[hsl(var(--app-accent))] px-3 py-1.5 text-xs font-medium text-white hover:bg-[hsl(var(--app-accent)/0.9)] disabled:opacity-50"
             >
               <Printer className="h-3.5 w-3.5" />
-              {rendering ? 'Generating PDF…' : 'Print'}
+              {rendering ? t('customRuntime.common.generatingPdf') : t('customRuntime.widgets.print')}
             </button>
             {renderError ? (
               <div className="rounded border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-danger)/0.1)] px-2 py-1 text-2xs text-[hsl(var(--app-danger))]">
@@ -3917,7 +3933,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
         )}
         {results.length > 0 ? (
           <div className="mt-2 border-t border-[hsl(var(--app-border))] pt-2">
-            <div className="text-2xs font-medium text-[hsl(var(--app-muted))]">Recent prints</div>
+            <div className="text-2xs font-medium text-[hsl(var(--app-muted))]">{t('customRuntime.common.recentPrints')}</div>
             <div className="mt-1 space-y-0.5">
               {results.slice(0, 5).map((r, i) => (
                 <a
@@ -3927,7 +3943,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                   rel="noreferrer"
                   className="block truncate rounded px-1 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:underline"
                 >
-                  {r.templateTitle} · {new Date(r.createdAt).toLocaleTimeString()}
+                  {r.templateTitle} · {fmt.dateTime(r.createdAt)}
                 </a>
               ))}
             </div>
@@ -3956,6 +3972,7 @@ const SELECT_MODES: Array<{
 ];
 
 function SelectWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'select') return null;
   const { state, update } = useBoundMap(widget.config.mapWidgetId);
   const allowedModes: Array<ActiveSelectMode> =
@@ -3963,7 +3980,7 @@ function SelectWidgetRender({ widget }: { widget: CustomWidget }) {
   const visible = SELECT_MODES.filter((m) => allowedModes.includes(m.mode));
   const active = state?.selectTool ?? 'off';
   return (
-    <WidgetFrame icon={MousePointer2} title="Select">
+    <WidgetFrame icon={MousePointer2} title={t('customRuntime.widgets.select')}>
       <div className="flex flex-wrap items-center gap-1 p-2">
         {visible.map(({ mode, label, Icon }) => (
           <button
@@ -4010,6 +4027,7 @@ function SelectWidgetRender({ widget }: { widget: CustomWidget }) {
  * a separate widget tracked as #109.
  */
 function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'export') return null;
   const cfg = widget.config;
   const ctx = useContext(CustomMapsContext);
@@ -4105,7 +4123,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
 
   const noTargets = resolved.length === 0;
   return (
-    <WidgetFrame icon={Download} title="Export">
+    <WidgetFrame icon={Download} title={t('customRuntime.widgets.export')}>
       <div className="flex flex-col gap-3 p-3 text-xs">
         <label className="block">
           <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
@@ -4216,6 +4234,7 @@ function splashHash(s: string): string {
 }
 
 function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'splash') return null;
   const cfg = widget.config;
 
@@ -4269,31 +4288,6 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
     }
   }, [dismissKey, cfg.allowDismiss]);
 
-  // Lock body scroll while the splash is open so the user can't
-  // scroll the map underneath -- matches how a modal SHOULD
-  // behave on a single-page app surface.
-  useEffect(() => {
-    if (!open || typeof document === 'undefined') return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // Escape closes the modal unless requireConfirm is on.
-  useEffect(() => {
-    if (!open) return;
-    if (cfg.requireConfirm) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, cfg.requireConfirm]);
-
-  if (!open) return null;
-
   function confirm(): void {
     if (dontShow && cfg.allowDismiss) {
       try {
@@ -4305,50 +4299,39 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
     setOpen(false);
   }
 
-  function onBackdropClick(): void {
-    if (cfg.requireConfirm) return;
-    setOpen(false);
-  }
-
-  const modal = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="splash-title"
-      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
-      onClick={onBackdropClick}
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && cfg.requireConfirm) return;
+        setOpen(next);
+      }}
     >
-      <div
-        className="relative flex max-h-full flex-col overflow-hidden rounded-lg bg-[hsl(var(--app-surface-0))] shadow-2xl"
-        style={{ width: `${width}px`, maxWidth: '100%' }}
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        hideCloseButton={Boolean(cfg.requireConfirm)}
+        className="flex !max-w-none max-h-[calc(100vh-4rem)] flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] p-0 shadow-2xl"
+        style={{ width: `${width}px`, maxWidth: 'calc(100vw - 2rem)' }}
+        onPointerDownOutside={(e) => {
+          if (cfg.requireConfirm) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (cfg.requireConfirm) e.preventDefault();
+        }}
       >
-        {/* Header with title.  Close-X only when requireConfirm is
-            off; otherwise the user must use the confirm button. */}
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
-          <h2
-            id="splash-title"
-            className="text-sm font-semibold text-[hsl(var(--app-ink-0))]"
-          >
-            {cfg.title || 'Welcome'}
-          </h2>
-          {cfg.requireConfirm ? null : (
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-              className="-mr-1 -mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-            >
-              <XIcon className="h-4 w-4" />
-            </button>
-          )}
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
+            {cfg.title || t('customRuntime.common.welcome')}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t('customRuntime.splash.srDescription')}
+          </DialogDescription>
         </header>
 
         <div className="prose-sm flex-1 overflow-auto px-4 py-4 text-sm text-[hsl(var(--app-ink-1))] [&_a]:text-[hsl(var(--app-accent))] [&_a]:underline [&_code]:rounded [&_code]:bg-[hsl(var(--app-surface-2))] [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc">
           <MarkdownLite text={cfg.markdown ?? ''} />
         </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
+        <DialogFooter className="justify-between gap-3 border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3 sm:justify-between">
           {cfg.allowDismiss ? (
             <label className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]">
               <input
@@ -4356,11 +4339,9 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
                 checked={dontShow}
                 onChange={(e) => setDontShow(e.target.checked)}
               />
-              Don&rsquo;t show this again
+              {t('customRuntime.splash.dontShowAgain')}
             </label>
           ) : (
-            // Empty flex item so the confirm button stays right-
-            // aligned even without the checkbox.
             <span />
           )}
           <button
@@ -4368,16 +4349,12 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
             onClick={confirm}
             className="inline-flex h-8 items-center rounded-md bg-[hsl(var(--app-accent))] px-4 text-sm font-medium text-white hover:opacity-90"
           >
-            {cfg.confirmLabel || 'OK'}
+            {cfg.confirmLabel || t('customRuntime.common.ok')}
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
-
-  return typeof document !== 'undefined'
-    ? createPortal(modal, document.body)
-    : modal;
 }
 
 // ---- AttributeTable widget -------------------------------------------------
@@ -4445,6 +4422,7 @@ interface ChartRow {
  */
 function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'attribute-table') return null;
+  const t = useT();
   // Pin the narrowed config to a local so the useMemo / useCallback
   // closures below don't re-narrow `widget.config` (TS loses the
   // discriminant inside hook bodies otherwise).
@@ -4686,8 +4664,7 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   if (layers.length === 0) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
-        Configure the widget&rsquo;s target layer (or bind to a Map
-        widget that has layers) to populate the attribute table.
+        {t('customRuntime.attributeTable.configureHint')}
       </p>
     );
   }
@@ -4699,7 +4676,7 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
           the table never announces a filter it is not applying. */}
       {scope.note ? (
         <p className="shrink-0 px-3 py-1 text-2xs italic text-[hsl(var(--app-muted))]">
-          Filtered to {scope.note}.
+          {t('customRuntime.chart.filteredTo', { note: scope.note })}
         </p>
       ) : null}
       <div className="relative min-h-0 flex-1">
@@ -4911,6 +4888,7 @@ function renderInline(s: string): React.ReactNode {
  * gzipped, gated to widgets that actually render charts).
  */
 function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'chart') return null;
   const ctx = useContext(CustomMapsContext);
   // #87 -- read app-time so the chart re-aggregates against the
@@ -5191,7 +5169,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {cfg.description}
           {cfg.description?.trim() && (followId || where) ? ' ' : ''}
           {followId ? (
-            <span className="italic">Current map view.</span>
+            <span className="italic">{t('customRuntime.chart.currentMapView')}</span>
           ) : null}
           {/* Say when a number on screen is narrowed by someone
               else's click. A chart that silently answered a different
@@ -5208,7 +5186,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {scope.note ? (
             <span className="italic">
               {followId ? ' ' : ''}
-              Filtered to {scope.note}.
+              {t('customRuntime.chart.filteredTo', { note: scope.note })}
             </span>
           ) : null}
           {activeValue !== undefined ? (
@@ -5225,7 +5203,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               }
               className="ml-1 rounded-full border border-[hsl(var(--app-accent))] px-1.5 align-middle text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
             >
-              Showing only{' '}
+              {t('customRuntime.chart.showingOnly')}{' '}
               {/* On a binned axis the selection's value is a bucket
                   index, which means nothing to a reader. Print the
                   bar's own range label instead. */}
@@ -5241,13 +5219,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
         </p>
       ) : null}
       {state.loading && state.rows.length === 0 ? (
-        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">Loading…</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.common.loading')}</p>
       ) : state.error ? (
         <p className="p-2 text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
       ) : state.rows.length === 0 ? (
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
-          No data to chart. Bind a target with at least one feature
-          and pick a group-by field.
+          {t('customRuntime.chart.noDataHint')}
         </p>
       ) : (
         // overflow-hidden because the frame body scrolls by default,
@@ -5299,8 +5276,8 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {state.truncated ? (
             <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
               {binField
-                ? 'Showing the first 250 ranges.'
-                : 'Showing the 50 largest groups.'}
+                ? t('customRuntime.chart.truncatedBins')
+                : t('customRuntime.chart.truncatedGroups')}
             </p>
           ) : null}
         </div>
@@ -5321,6 +5298,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
  * is indistinguishable from a number that is wrong.
  */
 function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'indicator') return null;
   const ctx = useContext(CustomMapsContext);
   const appAt = useAppTime();
@@ -5347,7 +5325,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
 
   useEffect(() => {
     if (!target) {
-      setState({ loading: false, value: null, error: 'No layer bound' });
+      setState({ loading: false, value: null, error: t('customRuntime.empty.noLayerBound') });
       return;
     }
     if (aggregate !== 'count' && !valueField) {
@@ -5450,7 +5428,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
             </span>
             {ref ? (
               <span className="text-2xs text-[hsl(var(--app-muted))]">
-                {ref.label?.trim() || 'target'}:{' '}
+                {ref.label?.trim() || t('customRuntime.common.target')}:{' '}
                 {formatAggregateValue(ref.value, cfg.format)}
               </span>
             ) : null}
@@ -6060,7 +6038,9 @@ function ChartPlot({
  * selection.
  */
 function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'filter') return null;
+  const fmt = useFormat();
   const cfg = widget.config;
   const source = useWidgetSource(cfg);
   const target = useWidgetTarget(cfg);
@@ -6152,7 +6132,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
   if (!target || !field) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
-        Configure the widget&rsquo;s layer and field to offer a
+        {t('customRuntime.chrome.configure')} the widget&rsquo;s layer and field to offer a
         filter.
       </p>
     );
@@ -6184,7 +6164,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
               {displayOf(o.value)}
               {o.count !== null ? (
                 <span className="ml-1 text-[hsl(var(--app-muted))]">
-                  {o.count.toLocaleString()}
+                  {fmt.number(o.count)}
                 </span>
               ) : null}
             </button>
@@ -6219,13 +6199,13 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
         >
           <option value={-1}>
             {state.loading && state.options.length === 0
-              ? 'Loading\u2026'
+              ? t('customRuntime.common.loadingEllipsis')
               : `All ${label ? label.toLowerCase() : 'values'}`}
           </option>
           {state.options.map((o, i) => (
             <option key={i} value={i}>
               {displayOf(o.value)}
-              {o.count !== null ? ` (${o.count.toLocaleString()})` : ''}
+              {o.count !== null ? ` (${fmt.number(o.count)})` : ''}
             </option>
           ))}
         </select>
@@ -6237,6 +6217,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- Page-element widgets (#361) -------------------------------------------
 
 function ImageWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'image') return null;
   const { asset, url, alt, objectFit, href, openInNewTab } = widget.config;
   // Resolve the image source. New configs use the `asset` AssetRef
@@ -6282,6 +6263,7 @@ function ImageWidgetRender({ widget }: { widget: CustomWidget }) {
 }
 
 function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'button') return null;
   const ctx = useContext(CustomMapsContext);
   const { label, variant, linkKind, url, pageId, toolId, openInNewTab } =
@@ -6292,7 +6274,7 @@ function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
       ? 'bg-[hsl(var(--app-accent))] text-white hover:opacity-90'
       : 'border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
   }`;
-  const text = label || 'Button';
+  const text = label || t('customRuntime.common.button');
   if ((linkKind ?? 'url') === 'tool') {
     return <ToolButtonRender toolId={toolId} text={text} className={className} />;
   }
@@ -6345,6 +6327,7 @@ function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
  */
 function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'tool') return null;
+  const t = useT();
   const {
     toolId,
     iconName,
@@ -6397,7 +6380,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <ToolButtonRender
       toolId={toolId}
-      text={label?.trim() || 'Tool'}
+      text={label?.trim() || t('customRuntime.common.tool')}
       className={className}
       {...(iconHtml ? { iconHtml } : {})}
       hideText={hideText}
@@ -6441,6 +6424,7 @@ function ToolButtonRender({
    *  and an optional label sits beneath it (vertical stack). */
   inAppBar?: boolean;
 }) {
+  const t = useT();
   type ToolItem = {
     id: string;
     title: string;
@@ -6594,7 +6578,7 @@ function ToolButtonRender({
   // state keeps the existing text so the runtime doesn't flash a
   // placeholder.
   const visibleText =
-    text && text !== 'Button' ? text : tool?.title ?? text;
+    text && text !== t('customRuntime.common.button') ? text : tool?.title ?? text;
   const disabled = status !== 'ok' || !tool?.data?.action;
 
   // In-bar: edge-to-edge wrapper that the button fills with h-full,
@@ -6624,8 +6608,8 @@ function ToolButtonRender({
         onClick={runTool}
         title={
           status === 'missing'
-            ? 'Tool no longer available'
-            : tool?.title ?? 'Tool'
+            ? t('customRuntime.errors.toolUnavailable')
+            : tool?.title ?? t('customRuntime.common.tool')
         }
         aria-label={hideText ? visibleText : undefined}
         className={`${className} ${
@@ -6683,7 +6667,7 @@ function ToolButtonRender({
                   applyRelationalResult({
                     ctx,
                     toolId,
-                    toolTitle: tool?.title ?? 'OSM',
+                    toolTitle: tool?.title ?? t('customRuntime.osm.defaultTitle'),
                     output: result.output,
                   });
                 } else if (result.output.kind === 'osm-features-overlay') {
@@ -6697,7 +6681,7 @@ function ToolButtonRender({
                   if (ctx && result.output.features.length > 0) {
                     const newLayer = buildOsmResultLayer({
                       toolId,
-                      toolTitle: tool?.title ?? 'OSM',
+                      toolTitle: tool?.title ?? t('customRuntime.osm.defaultTitle'),
                       ...(result.output.presetLabels &&
                       result.output.presetLabels.length > 0
                         ? { presetLabels: result.output.presetLabels }
@@ -6802,6 +6786,8 @@ function OsmAttributionChip({
   features: OsmOverlayFeature[];
   onDismiss: () => void;
 }) {
+  const t = useT();
+  const fmt = useFormat();
   // #102: save-as-layer state machine. The button cycles through
   // four states: idle (default), saving (POST in-flight), saved
   // (success, shows a link to the new item), error (red text + a
@@ -6819,7 +6805,7 @@ function OsmAttributionChip({
     // deliberate choice: the chip lives on top of the map and a
     // full modal would obscure context. If we later grow the chip
     // into a tray we can replace this with an inline input.
-    const defaultTitle = `OSM overlay (${new Date().toLocaleString()})`;
+    const defaultTitle = `OSM overlay (${fmt.dateTime(new Date())})`;
     const title = window.prompt(
       'Save these features as a new data layer. Choose a name:',
       defaultTitle,
@@ -6879,7 +6865,7 @@ function OsmAttributionChip({
             type="button"
             onClick={onDismiss}
             className="rounded-md border border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.15)] px-1.5 text-2xs text-[hsl(var(--app-warn))] hover:bg-[hsl(var(--app-warn)/0.25)]"
-            aria-label="Dismiss"
+            aria-label={t('customRuntime.a11y.dismiss')}
           >
             ×
           </button>
@@ -6914,14 +6900,14 @@ function OsmAttributionChip({
             type="button"
             onClick={onSaveClick}
             className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
-            aria-label="Save these features as a data layer"
-            title="Save these features as a data layer"
+            aria-label={t('customRuntime.a11y.saveFeaturesAsLayer')}
+            title={t('customRuntime.a11y.saveFeaturesAsLayer')}
           >
             Save as layer
           </button>
         ) : null}
         {saveState.kind === 'saving' ? (
-          <span className="text-[hsl(var(--app-muted))]">Saving…</span>
+          <span className="text-[hsl(var(--app-muted))]">{t('customRuntime.common.saving')}</span>
         ) : null}
         {saveState.kind === 'saved' ? (
           <a
@@ -6942,7 +6928,7 @@ function OsmAttributionChip({
               type="button"
               onClick={() => setSaveState({ kind: 'idle' })}
               className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-1.5 text-2xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]"
-              aria-label="Retry save"
+              aria-label={t('customRuntime.a11y.retrySave')}
             >
               Retry
             </button>
@@ -6952,7 +6938,7 @@ function OsmAttributionChip({
           type="button"
           onClick={onDismiss}
           className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-1.5 text-2xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]"
-          aria-label="Dismiss OSM overlay"
+          aria-label={t('customRuntime.a11y.dismissOsmOverlay')}
         >
           ×
         </button>
@@ -7767,6 +7753,7 @@ function EmbedWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- Mapcentric quick wins (#361 part 2) -----------------------------------
 
 function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'bookmark') return null;
   const ctx = useContext(CustomMapsContext);
   const { mapWidgetId, bookmarks } = widget.config;
@@ -7808,16 +7795,16 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
   }
 
   return (
-    <WidgetFrame icon={BookmarkIcon} title="Bookmarks">
+    <WidgetFrame icon={BookmarkIcon} title={t('customRuntime.widgets.bookmarks')}>
       {!mapWidgetId ? (
-        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">Bind a map widget.</p>
+        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">{t('customRuntime.empty.bindMapWidget')}</p>
       ) : all.length === 0 && !ctx?.maps[mapWidgetId] ? (
-        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">No bookmarks. Map not ready.</p>
+        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBookmarksReady')}</p>
       ) : (
         <ul className="flex-1 space-y-1 overflow-auto p-2">
           {all.length === 0 ? (
             <li className="px-2 py-1 text-xs text-[hsl(var(--app-muted))]">
-              No bookmarks yet. Capture the current view with the + button.
+              {t('customRuntime.empty.noBookmarksYet')}
             </li>
           ) : (
             all.map((b) => (
@@ -7847,9 +7834,9 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
             type="button"
             onClick={captureCurrent}
             className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-[hsl(var(--app-border))] px-2 py-1 text-xs text-[hsl(var(--app-muted))] hover:border-[hsl(var(--app-accent)/0.4)] hover:text-[hsl(var(--app-ink-1))]"
-            title="Capture the bound map's current viewport"
+            title={t('customRuntime.a11y.captureViewport')}
           >
-            + Add current view
+            {t('customRuntime.common.addCurrentView')}
           </button>
         </div>
       )}
@@ -7866,6 +7853,7 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
  * open feature popups.
  */
 function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'elevation-profile') return null;
   const ctx = useContext(CustomMapsContext);
   const { mapWidgetId } = widget.config;
@@ -7897,7 +7885,7 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((v) => !v)}
         disabled={!map}
         aria-pressed={active}
-        title="Elevation profile"
+        title={t('customRuntime.widgets.elevationProfile')}
         style={
           active
             ? {
@@ -7913,7 +7901,7 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
         }`}
       >
         <ChartSpline className="h-5 w-5" strokeWidth={1.75} />
-        <span className="text-2xs font-medium leading-none">Profile</span>
+        <span className="text-2xs font-medium leading-none">{t('customRuntime.widgets.profile')}</span>
       </button>
       <ElevationProfileTool
         map={map}
@@ -8018,6 +8006,7 @@ function clearMagicPreview(map: maplibregl.Map): void {
  */
 function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'magic-outline') return null;
+  const t = useT();
   const cfg = widget.config;
   const ctx = useContext(CustomMapsContext);
   const map = ctx?.maps[cfg.mapWidgetId] ?? null;
@@ -8201,14 +8190,14 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((v) => !v)}
         disabled={!map}
         aria-pressed={active}
-        title="Magic outline-solid"
+        title={t('customRuntime.widgets.magicOutlineSolid')}
         // Match the app-bar tool chrome (Search / Select / etc.).
         style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
         className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
       >
         <Wand2 className="h-5 w-5" strokeWidth={1.75} />
         <span className="text-2xs font-medium leading-none">
-          Magic outline
+          {t('customRuntime.widgets.magicOutline')}
         </span>
       </button>
       {active && container
@@ -8218,11 +8207,11 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                 role="status"
                 className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur-xs"
               >
-                {status ?? 'Click a building, pond, or lot to outline-solid it.'}
+                {status ?? t('customRuntime.errors.clickToOutline')}
               </div>
               <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur-xs">
                 <span className="text-2xs text-[hsl(var(--app-muted))]">
-                  Natural
+                  {t('customRuntime.common.natural')}
                 </span>
                 <input
                   type="range"
@@ -8231,11 +8220,11 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                   step={0.05}
                   value={squareness}
                   onChange={(e) => setSquareness(Number(e.target.value))}
-                  aria-label="Edge shape: natural to squared"
+                  aria-label={t('customRuntime.a11y.edgeShapeNaturalSquared')}
                   className="h-1 w-40 cursor-pointer accent-[hsl(var(--app-accent))]"
                 />
                 <span className="text-2xs text-[hsl(var(--app-muted))]">
-                  Squared
+                  {t('customRuntime.common.squared')}
                 </span>
               </div>
               {/* Always show the destination, even with one layer,
@@ -8243,18 +8232,18 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
               {(mut?.targets.length ?? 0) >= 1 ? (
                 <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur-xs">
                   <span className="text-2xs text-[hsl(var(--app-muted))]">
-                    Save to
+                    {t('customRuntime.common.saveTo')}
                   </span>
                   {(mut?.targets.length ?? 0) > 1 ? (
                     <select
                       value={targetIdx}
                       onChange={(e) => setTargetIdx(Number(e.target.value))}
-                      aria-label="Layer new outlines are saved to"
+                      aria-label={t('customRuntime.a11y.layerOutlinesSavedTo')}
                       className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-2xs text-[hsl(var(--app-ink-0))]"
                     >
-                      {(mut?.targets ?? []).map((t, i) => (
-                        <option key={`${t.dataLayerId}:${t.layerKey}`} value={i}>
-                          {t.title}
+                      {(mut?.targets ?? []).map((tgt, i) => (
+                        <option key={`${tgt.dataLayerId}:${tgt.layerKey}`} value={i}>
+                          {tgt.title}
                         </option>
                       ))}
                     </select>
@@ -8315,6 +8304,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
 }
 
 function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'coordinates') return null;
   const ctx = useContext(CustomMapsContext);
   const { mapWidgetId, format, precision, showZoom } = widget.config;
@@ -8366,7 +8356,7 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
         : `${pos.lat.toFixed(prec)}, ${pos.lng.toFixed(prec)}`;
 
   return (
-    <WidgetFrame icon={CrosshairIcon} title="Coordinates">
+    <WidgetFrame icon={CrosshairIcon} title={t('customRuntime.widgets.coordinates')}>
       <div className="flex flex-1 items-center gap-2 px-3 py-2 font-mono text-xs">
         <span className="flex-1 truncate text-[hsl(var(--app-ink-1))]">{display}</span>
         {showZoom && zoom !== null && (
@@ -8380,6 +8370,7 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
 }
 
 function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'my-location') return null;
   const ctx = useContext(CustomMapsContext);
   const { mapWidgetId, zoomLevel, keepMarker } = widget.config;
@@ -8498,7 +8489,7 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
   }
 
   return (
-    <WidgetFrame icon={LocateIcon} title="My Location">
+    <WidgetFrame icon={LocateIcon} title={t('customRuntime.widgets.myLocation')}>
       <div className="flex flex-1 flex-col items-stretch justify-center gap-1.5 p-3">
         <button
           type="button"
@@ -8511,12 +8502,12 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
           ) : (
             <LocateIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
           )}
-          {busy ? 'Locating...' : 'Show my location'}
+          {busy ? t('customRuntime.common.locating') : t('customRuntime.common.showMyLocation')}
         </button>
         {error ? (
           <p className="text-xs text-[hsl(var(--app-danger))]">{error}</p>
         ) : !map ? (
-          <p className="text-xs text-[hsl(var(--app-muted))]">Bind a map widget to enable.</p>
+          <p className="text-xs text-[hsl(var(--app-muted))]">{t('customRuntime.empty.bindMapToEnable')}</p>
         ) : null}
       </div>
     </WidgetFrame>
@@ -8526,6 +8517,7 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- Tabs container (#362) -------------------------------------------------
 
 function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'tabs') return null;
   const tabs = widget.config.tabs;
   const [activeIdx, setActiveIdx] = useState(0);
@@ -8536,7 +8528,7 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
       {tabs.length > 0 && (
         <nav
           className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2"
-          aria-label="Tabs"
+          aria-label={t('customRuntime.a11y.tabs')}
         >
           {tabs.map((t, i) => {
             const isActive = i === safeIdx;
@@ -8567,7 +8559,7 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
         {active && active.widgets.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-xs text-[hsl(var(--app-muted))]">
-            (Empty tab)
+            {t('customRuntime.common.emptyTab')}
           </div>
         ) : (
           active &&
@@ -8876,6 +8868,7 @@ function colorFromRenderer(mapLayer: MapLayer): string {
  * new feature; for table-only layers, the form submits directly.
  */
 function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'create-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
@@ -9017,7 +9010,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         }
       >
         <Plus className="h-3.5 w-3.5" />
-        {cfg.label || 'Add feature'}
+        {cfg.label || t('customRuntime.common.addFeature')}
       </button>
       {phase.kind === 'picking' ? (
         <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
@@ -9059,7 +9052,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       ) : phase.kind === 'placing' ? (
         <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
           {schema.loading ? (
-            <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
+            <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.common.loadingSchema')}</p>
           ) : schema.error ? (
             <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
           ) : needsGeometry && !phase.point ? (
@@ -9068,8 +9061,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 Adding to <strong>{phase.target.title}</strong>.
               </p>
               <p>
-                <strong>Step 1:</strong> click on the map to place the
-                new {schema.geometryType?.toLowerCase()}.
+                <strong>{t('customRuntime.common.step1')}</strong> {t('customRuntime.features.placeOnMap', { geometryType: schema.geometryType?.toLowerCase() ?? '' })}
               </p>
               {!isPointLayer ? (
                 <p className="text-[hsl(var(--app-muted))]">
@@ -9108,8 +9100,8 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 setBusy({ state: 'idle' });
               }}
               onSubmit={submit}
-              submitLabel="Create"
-              title="New feature"
+              submitLabel={t('customRuntime.common.create')}
+              title={t('customRuntime.common.newFeature')}
             />
           )}
         </div>
@@ -9135,6 +9127,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
  * map's MVT source invalidates on the next viewport settle.
  */
 function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'edit-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
@@ -9291,7 +9284,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const formCard = editing ? (
     <div className="overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
       {schema.loading ? (
-        <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
+        <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.common.loadingSchema')}</p>
       ) : schema.error ? (
         <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
       ) : (
@@ -9307,8 +9300,8 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             setBusy({ state: 'idle' });
           }}
           onSubmit={submit}
-          submitLabel="Update"
-          title="Edit feature"
+          submitLabel={t('customRuntime.common.update')}
+          title={t('customRuntime.common.editFeature')}
         />
       )}
     </div>
@@ -9332,7 +9325,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         >
           <Pencil className="h-5 w-5" strokeWidth={1.75} />
           <span className="text-2xs font-medium leading-none">
-            {cfg.label || 'Edit feature'}
+            {cfg.label || t('customRuntime.common.editFeature')}
           </span>
         </button>
         {container && active
@@ -9372,7 +9365,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         title={buttonTitle}
       >
         <Pencil className="h-3.5 w-3.5" />
-        {cfg.label || 'Edit feature'}
+        {cfg.label || t('customRuntime.common.editFeature')}
         {active ? <span className="text-2xs">(active)</span> : null}
       </button>
       {active && !editing ? (
@@ -9399,6 +9392,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
  * The confirm dialog mentions this so the user isn't surprised.
  */
 function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'delete-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
@@ -9575,7 +9569,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           onClick={doDelete}
           className="rounded-md bg-[hsl(var(--app-danger))] px-3 py-1 text-xs font-medium text-white hover:bg-[hsl(var(--app-danger)/0.8)] disabled:opacity-50"
         >
-          {busy.state === 'submitting' ? 'Deleting…' : 'Delete'}
+          {busy.state === 'submitting' ? t('customRuntime.common.deleting') : t('customRuntime.common.delete')}
         </button>
         <button
           type="button"
@@ -9607,7 +9601,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         >
           <Trash2 className="h-5 w-5" strokeWidth={1.75} />
           <span className="text-2xs font-medium leading-none">
-            {cfg.label || 'Delete feature'}
+            {cfg.label || t('customRuntime.common.deleteFeature')}
             {totalSelected > 0 ? ` (${totalSelected})` : ''}
           </span>
         </button>
@@ -9633,7 +9627,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         title={buttonTitle}
       >
         <Trash2 className="h-3.5 w-3.5" />
-        {cfg.label || 'Delete feature'}
+        {cfg.label || t('customRuntime.common.deleteFeature')}
         {totalSelected > 0 ? (
           <span className="text-[hsl(var(--app-muted))]">({totalSelected})</span>
         ) : null}
@@ -9662,6 +9656,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
  *     Clear button next to the input resets to null.
  */
 function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
+  const t = useT();
   if (widget.config.kind !== 'time-slider') return null;
   const cfg = widget.config;
   const { at, setAt } = useContext(AppTimeContext);
@@ -9699,7 +9694,7 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
   })();
   const maxDate = cfg.maxDate || todayIso;
   const stepDays = Math.max(1, Math.floor(cfg.stepDays ?? 1));
-  const label = cfg.label || 'Time';
+  const label = cfg.label || t('customRuntime.common.time');
   const mode = cfg.mode ?? 'date';
 
   // For the slider, convert the current `at` (ISO timestamp or null)
@@ -9845,8 +9840,8 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
               type="button"
               onClick={() => setPlaying((p) => !p)}
               className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
-              aria-label={playing ? 'Pause' : 'Play'}
-              title={playing ? 'Pause' : 'Play'}
+              aria-label={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}
+              title={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}
             >
               {/* Inline play / pause glyphs to avoid extra icon
                   imports. The current icon stable is lucide; both
@@ -9878,15 +9873,15 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
           />
           <span className="shrink-0 tabular-nums text-[hsl(var(--app-muted))]">{maxDate}</span>
           <span className="shrink-0 min-w-22 text-right font-medium tabular-nums text-[hsl(var(--app-ink-0))]">
-            {at ? currentDateStr : 'Now'}
+            {at ? currentDateStr : t('customRuntime.common.now')}
           </span>
           {playableCfg && speedOptions.length > 1 ? (
             <select
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
               className="shrink-0 h-6 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1 text-xs text-[hsl(var(--app-ink-1))] focus:border-[hsl(var(--app-accent))] focus:outline-hidden"
-              aria-label="Playback speed"
-              title="Playback speed"
+              aria-label={t('customRuntime.a11y.playbackSpeed')}
+              title={t('customRuntime.a11y.playbackSpeed')}
             >
               {speedOptions.map((s) => (
                 <option key={s} value={s}>

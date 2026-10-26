@@ -13,6 +13,7 @@ import {
 } from '@/lib/form-offline';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
+import { useFormat } from '@/lib/i18n/format';
 
 interface Props {
   form: FormSchema;
@@ -46,6 +47,7 @@ interface Props {
  * Idempotent on clientId at the server (a re-drained row is a no-op).
  */
 export function RespondClient({ form, formItemTitle }: Props) {
+  const fmt = useFormat();
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
@@ -180,7 +182,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
                   className="flex items-start justify-between gap-2 rounded border border-border bg-surface-0 px-2 py-1"
                 >
                   <span className="truncate">
-                    {new Date(r.capturedAt).toLocaleString()}
+                    {fmt.dateTime(r.capturedAt)}
                   </span>
                   <span
                     className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${

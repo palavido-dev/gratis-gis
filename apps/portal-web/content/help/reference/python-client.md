@@ -347,9 +347,13 @@ Photos and documents attach to individual features. All four operations
 work from Python.
 
 ```python
-# what is already attached
+# what is already attached to one feature
 for att in gg.attachments(item_id, "inspections", feature_id):
     print(att["fileName"], att["sizeBytes"], att["mime"])
+
+# inventory a whole layer in one request (not one call per feature)
+for group in gg.iter_attachments(item_id, "inspections", all=True):
+    print(group["featureId"], len(group["attachments"]))
 
 # add one
 gg.attach_file(item_id, "inspections", feature_id, "site-photo.jpg")
@@ -358,7 +362,9 @@ gg.attach_file(item_id, "inspections", feature_id, "site-photo.jpg")
 import pathlib
 out = pathlib.Path("photos"); out.mkdir(exist_ok=True)
 for att in gg.attachments(item_id, "inspections", feature_id):
-    gg.download_attachment(att, path=out)   # keeps the original name
+    gg.download_attachment(
+        item_id, "inspections", feature_id, att, path=out
+    )  # keeps the original name
 
 # remove one
 gg.delete_attachment(item_id, "inspections", feature_id, att["id"])
@@ -382,9 +388,9 @@ downloading still work, because those go through the portal. If an
 upload fails, the error names the host it tried, which is the thing to
 give your administrator.
 
-Downloading only needs read access to the layer. Worth knowing: that is
-a lower bar than exporting the layer's data, which needs download
-permission. A view-only share can still fetch the attached files.
+Downloading needs download permission on the item — the same tier as
+CSV / GeoParquet export. A view-only share can list features but cannot
+fetch the attached files.
 
 ## Export
 

@@ -309,7 +309,7 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
                 so it stays out of the i18n catalogs. Testers quoting
                 it in bug reports is the whole point (the demo resets
                 nightly and redeploys often). */}
-            <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted">
+            <div className="border-t border-border px-3 py-1.5 text-2xs text-muted">
               {versionReleaseUrl() ? (
                 <a
                   href={versionReleaseUrl()!}

@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { Mail, Loader2 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface PreferenceState {
   enabled: boolean;
@@ -27,12 +28,6 @@ interface Props {
   initial: PreferencesPayload;
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  sharing: 'Sharing',
-  account: 'Account',
-  editor: 'Editor activity',
-};
-
 /**
  * Per-(type, channel) toggles the user can flip. Each toggle does
  * an optimistic local update and PUTs the change. On error we
@@ -45,6 +40,12 @@ const CATEGORY_LABEL: Record<string, string> = {
  * `enabled === default`).
  */
 export function NotificationPreferencesForm({ initial }: Props) {
+  const t = useT();
+  const categoryLabel: Record<string, string> = {
+    sharing: t('settingsNotifications.categorySharing'),
+    account: t('settingsNotifications.categoryAccount'),
+    editor: t('settingsNotifications.categoryEditor'),
+  };
   const [types, setTypes] = useState(initial.types);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
@@ -130,7 +131,9 @@ export function NotificationPreferencesForm({ initial }: Props) {
       setErrorByKey((prev) => ({
         ...prev,
         [key]:
-          err instanceof Error ? err.message : 'Could not save change.',
+          err instanceof Error
+            ? err.message
+            : t('settingsNotifications.errSaveChange'),
       }));
     } finally {
       setSavingKey(null);
@@ -142,27 +145,27 @@ export function NotificationPreferencesForm({ initial }: Props) {
       {[...grouped.entries()].map(([category, items]) => (
         <section key={category}>
           <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
-            {CATEGORY_LABEL[category] ?? category}
+            {categoryLabel[category] ?? category}
           </h2>
           <ul className="space-y-1.5">
-            {items.map((t) => (
+            {items.map((item) => (
               <li
-                key={t.type}
+                key={item.type}
                 className="rounded-md border border-border bg-surface-1 p-4"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-ink-0">
-                      {t.label}
+                      {item.label}
                     </p>
                     <p className="mt-1 text-xs text-muted">
-                      {t.description}
+                      {item.description}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
-                    {t.channels.map((channel) => {
-                      const pref = t.preferences[channel];
-                      const key = `${t.type}|${channel}`;
+                    {item.channels.map((channel) => {
+                      const pref = item.preferences[channel];
+                      const key = `${item.type}|${channel}`;
                       const saving = savingKey === key;
                       return (
                         <div
@@ -171,11 +174,13 @@ export function NotificationPreferencesForm({ initial }: Props) {
                         >
                           <Mail className="h-3.5 w-3.5 text-muted" />
                           <span className="text-xs text-muted">
-                            {channel}
+                            {channel === 'email'
+                              ? t('settingsNotifications.channelEmail')
+                              : channel}
                           </span>
                           {pref.isDefault ? (
                             <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                              default
+                              {t('settingsNotifications.defaultBadge')}
                             </span>
                           ) : null}
                           <button
@@ -184,7 +189,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
                             aria-checked={pref.enabled}
                             disabled={saving}
                             onClick={() =>
-                              void toggle(t.type, channel, !pref.enabled)
+                              void toggle(item.type, channel, !pref.enabled)
                             }
                             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50 ${
                               pref.enabled
@@ -207,14 +212,14 @@ export function NotificationPreferencesForm({ initial }: Props) {
                       );
                     })}
                     {Object.entries(errorByKey).find(([k]) =>
-                      k.startsWith(`${t.type}|`),
+                      k.startsWith(`${item.type}|`),
                     ) ? (
                       <p
                         className="text-2xs text-danger"
                         role="alert"
                       >
                         {Object.entries(errorByKey).find(([k]) =>
-                          k.startsWith(`${t.type}|`),
+                          k.startsWith(`${item.type}|`),
                         )?.[1]}
                       </p>
                     ) : null}

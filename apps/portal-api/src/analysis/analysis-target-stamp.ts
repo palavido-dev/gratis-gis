@@ -18,6 +18,8 @@ import type { PrismaService } from '../prisma/prisma.service.js';
  *
  * Kind coverage mirrors the python side, with one addition:
  *   - raster kinds own a tile_layer stub only the worker fills in;
+ *   - colorize owns a point_cloud stub (same husk-stamp contract as
+ *     the raster kinds: a dedicated targetItemId the worker fills);
  *   - copc-build's "target" is the point_cloud item itself, left in
  *     processingState 'building' while a merge runs (the python
  *     handler stamps it in its own except path, but a dead worker
@@ -32,6 +34,8 @@ const RASTER_TARGET_KINDS = new Set([
   'viewshed',
   'steepness',
   'heightmap',
+  // #186: point_cloud stub, same dedicated-target husk stamp.
+  'colorize',
 ]);
 
 export interface AnalysisTargetRef {

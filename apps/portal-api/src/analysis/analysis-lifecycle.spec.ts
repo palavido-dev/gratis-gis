@@ -249,6 +249,15 @@ describe('AnalysisBridgeWorker.reclaimStaleJobs', () => {
           target_item_id: 't-vs',
           source_item_id: 's-vs',
         },
+        {
+          // #186: colorize pre-creates a point_cloud stub; reclaim
+          // must stamp that target the same way raster kinds do.
+          id: 'e',
+          kind: 'colorize',
+          state: 'failed',
+          target_item_id: 't-cz',
+          source_item_id: 's-cz',
+        },
       ],
       world,
     );
@@ -262,16 +271,17 @@ describe('AnalysisBridgeWorker.reclaimStaleJobs', () => {
     expect(sweepSql).toContain('COALESCE(heartbeat_at, started_at, created_at)');
 
     // Stamps: hillshade target, copc-build (falls back to the source
-    // item, which IS the point cloud being merged), viewshed target.
-    // contours is bridge-settled and gets no processingState stamp.
-    // Filter to the item stamps (the analysis_job sweeps also land in
-    // executeRawCalls; there are now two of them).
+    // item, which IS the point cloud being merged), viewshed target,
+    // colorize target. contours is bridge-settled and gets no
+    // processingState stamp. Filter to the item stamps (the
+    // analysis_job sweeps also land in executeRawCalls; there are
+    // now two of them).
     const stamps = world.executeRawCalls.filter((c) =>
       c.strings.join('?').includes('data_json'),
     );
-    expect(stamps).toHaveLength(3);
+    expect(stamps).toHaveLength(4);
     const stampedItems = stamps.map((c) => c.values[1]);
-    expect(stampedItems).toEqual(['t-hs', 's-pc', 't-vs']);
+    expect(stampedItems).toEqual(['t-hs', 's-pc', 't-vs', 't-cz']);
     const messages = stamps.map(
       (c) =>
         (JSON.parse(c.values[0] as string) as { processingError: string })
@@ -282,6 +292,7 @@ describe('AnalysisBridgeWorker.reclaimStaleJobs', () => {
     // The cancel_requested row was the user's own stop, so its item
     // note says cancelled, not crashed.
     expect(messages[2]).toContain('cancelled');
+    expect(messages[3]).toContain('stopped responding');
   });
 
   it('reclaims rows stranded in importing with no import ever queued', async () => {

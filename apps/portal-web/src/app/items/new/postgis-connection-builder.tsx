@@ -18,6 +18,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, Plug, Save } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /** Title chosen on the previous wizard step. */
@@ -43,6 +44,7 @@ export function PostgisConnectionBuilder({
   description,
   canSave,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const [host, setHost] = useState('');
   const [port, setPort] = useState(5432);
@@ -120,16 +122,14 @@ export function PostgisConnectionBuilder({
   return (
     <section className="rounded-lg border border-border bg-surface-1 p-4">
       <h2 className="mb-1 text-sm font-medium text-ink-0">
-        Connect to PostgreSQL + PostGIS
+        {t('postgisConnectionBuilder.title')}
       </h2>
       <p className="mb-3 text-xs text-muted">
-        We&rsquo;ll connect to your PostGIS database to read tables on
-        demand. The password is stored encrypted and never sent to
-        the browser after this form.
+        {t('postgisConnectionBuilder.intro')}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs">
-          Host
+          {t('postgisConnectionBuilder.host')}
           <input
             type="text"
             value={host}
@@ -140,7 +140,7 @@ export function PostgisConnectionBuilder({
           />
         </label>
         <label className="text-xs">
-          Port
+          {t('postgisConnectionBuilder.port')}
           <input
             type="number"
             value={port}
@@ -149,7 +149,7 @@ export function PostgisConnectionBuilder({
           />
         </label>
         <label className="text-xs">
-          Database
+          {t('postgisConnectionBuilder.database')}
           <input
             type="text"
             value={database}
@@ -160,7 +160,7 @@ export function PostgisConnectionBuilder({
           />
         </label>
         <label className="text-xs">
-          Role / username
+          {t('postgisConnectionBuilder.role')}
           <input
             type="text"
             value={role}
@@ -171,7 +171,7 @@ export function PostgisConnectionBuilder({
           />
         </label>
         <label className="text-xs sm:col-span-2">
-          Password
+          {t('postgisConnectionBuilder.password')}
           <input
             type="password"
             value={password}
@@ -181,7 +181,7 @@ export function PostgisConnectionBuilder({
           />
         </label>
         <label className="text-xs sm:col-span-2">
-          Default schema
+          {t('postgisConnectionBuilder.defaultSchema')}
           <input
             type="text"
             value={defaultSchema}
@@ -191,9 +191,7 @@ export function PostgisConnectionBuilder({
             autoComplete="off"
           />
           <span className="mt-0.5 inline-block text-2xs text-muted">
-            Tables in this schema show up in the layer picker by
-            default. Other schemas stay reachable via the detail
-            page.
+            {t('postgisConnectionBuilder.defaultSchemaHint')}
           </span>
         </label>
       </div>
@@ -209,12 +207,14 @@ export function PostgisConnectionBuilder({
           ) : (
             <Plug className="h-3.5 w-3.5" />
           )}
-          Test connection
+          {t('postgisConnectionBuilder.testConnection')}
         </button>
         {testResult?.ok ? (
           <span className="inline-flex items-center gap-1 text-xs text-success">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            PostGIS {testResult.postgisVersion}
+            {t('postgisConnectionBuilder.postgisVersion', {
+              version: testResult.postgisVersion,
+            })}
           </span>
         ) : null}
         {testResult && !testResult.ok ? (
@@ -235,11 +235,11 @@ export function PostgisConnectionBuilder({
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save connection
+          {t('postgisConnectionBuilder.saveConnection')}
         </button>
         {!testResult?.ok ? (
           <span className="text-2xs text-muted">
-            Run "Test connection" first.
+            {t('postgisConnectionBuilder.testFirst')}
           </span>
         ) : null}
         {saveError ? (

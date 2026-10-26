@@ -78,6 +78,13 @@ import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
 import { FieldSheet } from './field-sheet';
 import { useConfirm } from '@/components/dialog-provider';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
 import type {
   BottomSheet,
@@ -132,6 +139,8 @@ import { FieldAttachments } from './field-attachments';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
+import { formatDate, useFormat } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -3351,6 +3360,7 @@ function LayerVisibilityPanel({
   // group is a polish item for later.
   const [basemapPickerOpen, setBasemapPickerOpen] = useState(false);
   const panelT = useT();
+  const fmt = useFormat();
   const activeBasemap = basemaps.find((b) => b.id === currentBasemapId);
   return (
     // #257: layer panel converted to a bottom sheet (was a small
@@ -3597,7 +3607,7 @@ function LayerVisibilityPanel({
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z <= tileZoomMax).map((z) => (
                 <option key={z} value={z}>
-                  {describeZoom(z, centerLat)}
+                  {describeZoom(z, centerLat, fmt.locale)}
                 </option>
               ))}
             </select>
@@ -3613,7 +3623,7 @@ function LayerVisibilityPanel({
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z >= tileZoomMin).map((z) => (
                 <option key={z} value={z}>
-                  {describeZoom(z, centerLat)}
+                  {describeZoom(z, centerLat, fmt.locale)}
                 </option>
               ))}
             </select>
@@ -3654,7 +3664,7 @@ function LayerVisibilityPanel({
           </div>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
-            ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
+            ~{fmt.number(estimatedTileCount)} tiles at the
             current viewport. Cap is 200,000.
           </p>
         )}
@@ -3764,7 +3774,7 @@ function LayerVisibilityPanel({
           {tileCache && tileCache.count > 0 ? (
             <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
               <span>
-                Map tiles: {tileCache.count.toLocaleString()} (
+                Map tiles: {fmt.number(tileCache.count)} (
                 {formatBytes(tileCache.bytes)})
               </span>
               <button
@@ -5756,14 +5766,17 @@ function DownloadProgressModal({
   const t = useT();
   const finished = progress.phase === 'done' || progress.phase === 'failed';
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Download for offline"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) {
+          if (finished) onClose();
+          else onCancel();
+        }
+      }}
     >
-      <div className="w-full max-w-sm rounded-lg border border-border bg-surface-1 p-4 shadow-overlay">
-        <div className="flex items-center gap-2">
+      <DialogContent size="sm" className="p-4 shadow-overlay">
+        <div className="flex items-center gap-2 pr-8">
           {progress.phase === 'failed' ? (
             <CircleSlash className="h-5 w-5 text-danger" />
           ) : finished ? (
@@ -5771,17 +5784,17 @@ function DownloadProgressModal({
           ) : (
             <Loader2 className="h-5 w-5 animate-spin text-accent" />
           )}
-          <h2 className="text-sm font-semibold text-ink-0">
+          <DialogTitle className="text-sm font-semibold text-ink-0">
             {progress.phase === 'failed'
               ? 'Download failed'
               : finished
                 ? 'Ready for offline'
                 : 'Downloading for offline'}
-          </h2>
+          </DialogTitle>
         </div>
-        <p className="mt-2 text-xs text-muted">
+        <DialogDescription className="mt-2 text-xs text-muted">
           {formatOfflineMessage(t, progress.message)}
-        </p>
+        </DialogDescription>
         {/* Layers leads the breakdown so the user sees a non-zero
             number even on a fresh deployment with no features yet.
             Features, Forms, and Pick lists below are secondary
@@ -5827,7 +5840,7 @@ function DownloadProgressModal({
             had accidentally started a large download with no way out
             short of killing the tab, and on a phone in the field that
             is a genuinely bad place to be. */}
-        <div className="mt-4 flex justify-end">
+        <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={finished ? onClose : onCancel}
@@ -5835,9 +5848,9 @@ function DownloadProgressModal({
           >
             {finished ? 'Close' : 'Cancel'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -6261,7 +6274,7 @@ function formatRelativeTime(iso: string): string {
   const day = Math.floor(hr / 24);
   if (day === 1) return 'yesterday';
   if (day < 30) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso, DEFAULT_LOCALE);
 }
 
 /**

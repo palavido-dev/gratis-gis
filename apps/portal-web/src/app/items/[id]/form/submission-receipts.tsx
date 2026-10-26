@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { FileDown } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
 
 interface SubmissionRow {
   id: string;
@@ -15,6 +16,7 @@ interface SubmissionRow {
  * or an org admin). The Responses page remains the full browser.
  */
 export function SubmissionReceipts({ formId }: { formId: string }) {
+  const fmt = useFormat();
   const [rows, setRows] = useState<SubmissionRow[] | null>(null);
   const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export function SubmissionReceipts({ formId }: { formId: string }) {
           {rows.map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-3">
               <span className="text-xs text-ink-1">
-                {formatWhen(row.capturedAt)}
+                {fmt.dateTime(row.capturedAt) || row.capturedAt}
               </span>
               <button
                 type="button"
@@ -110,10 +112,4 @@ export function SubmissionReceipts({ formId }: { formId: string }) {
       )}
     </div>
   );
-}
-
-function formatWhen(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString();
 }

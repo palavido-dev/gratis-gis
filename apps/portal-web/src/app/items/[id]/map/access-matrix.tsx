@@ -10,7 +10,6 @@ import {
   Loader2,
   Search,
   Users,
-  X,
 } from 'lucide-react';
 import type {
   ItemShare,
@@ -19,6 +18,14 @@ import type {
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_LAYER_ACCESS } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Principal surfaced in the matrix columns. Resolved by the parent
@@ -95,6 +102,7 @@ export function AccessMatrix({
   onPatchAccess,
   onGrantItemAccess,
 }: Props) {
+  const t = useT();
   const [filter, setFilter] = useState('');
   const [activePopover, setActivePopover] = useState<{
     layerId: string;
@@ -161,8 +169,6 @@ export function AccessMatrix({
     }
     return out;
   }, [layers, layerItemIds, itemShares, principals, groupMemberships]);
-
-  if (!open) return null;
 
   const principalKey = (p: MatrixPrincipal) => `${p.type}:${p.id}`;
 
@@ -302,34 +308,23 @@ export function AccessMatrix({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Layer access matrix"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="xl"
+        className="flex max-h-[92vh] !max-w-7xl flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-base font-semibold">Layer access</h2>
-            <p className="text-xs text-muted">
-              Refine what each shared user or group sees on this map. The
-              matrix narrows access; a warning badge appears when a principal
-              has no item-level access to a layer&apos;s source data.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-base font-semibold">
+            {t('mapLayerAccess.title')}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted">
+            {t('mapLayerAccess.description')}
+          </DialogDescription>
         </div>
 
         <div className="flex items-center gap-3 border-b border-border bg-surface-1 px-4 py-3">
@@ -339,14 +334,15 @@ export function AccessMatrix({
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter layers..."
+              placeholder={t('mapLayerAccess.filterPlaceholder')}
               className="h-8 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
           <div className="text-xs text-muted">
-            {filtered.length} layer{filtered.length === 1 ? '' : 's'} ×{' '}
-            {principals.length} principal
-            {principals.length === 1 ? '' : 's'}
+            {t('mapLayerAccess.countsSummary', {
+              layers: filtered.length,
+              principals: principals.length,
+            })}
           </div>
           {gaps.length > 0 ? (
             <button
@@ -354,14 +350,16 @@ export function AccessMatrix({
               onClick={grantAllMissing}
               disabled={bulkGranting}
               className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-warn bg-warn/10 px-3 text-xs font-medium text-warn hover:bg-warn/15 disabled:opacity-50"
-              title="Add view-level shares on every backing item so the gaps below disappear"
+              title={t('mapLayerAccess.grantMissingTitle')}
             >
               {bulkGranting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <AlertTriangle className="h-3.5 w-3.5" />
               )}
-              Grant missing item access ({gapSummary(gaps)})
+              {t('mapLayerAccess.grantMissing', {
+                count: gapCount(gaps),
+              })}
             </button>
           ) : null}
         </div>
@@ -370,22 +368,19 @@ export function AccessMatrix({
           {principals.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted">
               <Users className="h-6 w-6" />
-              <p>Share the map with at least one user or group first.</p>
-              <p className="text-xs">
-                The matrix only shows principals that already have
-                access to the webmap itself.
-              </p>
+              <p>{t('mapLayerAccess.shareFirst')}</p>
+              <p className="text-xs">{t('mapLayerAccess.shareFirstHint')}</p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted">
-              No layers match the filter.
+              {t('mapLayerAccess.noLayersMatch')}
             </div>
           ) : (
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 bg-surface-1">
                 <tr>
                   <th className="sticky left-0 z-10 border-b border-r border-border bg-surface-1 px-3 py-2 text-left text-2xs font-medium uppercase tracking-wide text-muted">
-                    Layer
+                    {t('mapLayerAccess.layerHeader')}
                   </th>
                   {principals.map((p) => (
                     <th
@@ -461,7 +456,7 @@ export function AccessMatrix({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border bg-surface-1 px-4 py-3 text-2xs text-muted">
+        <DialogFooter className="justify-between bg-surface-1 text-2xs text-muted">
           <span>
             Access changes flow into the map&apos;s layers immediately.
             They persist with the next Save map.
@@ -473,15 +468,12 @@ export function AccessMatrix({
           >
             Done
           </button>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
 
-      {/* Per-cell detail dialog. Rendered as a sibling of the main
-          matrix (both sit on the same fixed backdrop) so it's never
-          clipped by the matrix's scroll area: the bug where users
-          had to scroll down to notice the popover. Stop-propagation
-          on the inner card lets a backdrop click close just this
-          dialog without collapsing the whole matrix. */}
+      {/* Per-cell detail dialog as a nested Radix Dialog so it isn't
+          clipped by the matrix scroll region and keeps its own focus
+          trap / escape handling without closing the matrix. */}
       {activePopover
         ? (() => {
             const aLayer = layers.find(
@@ -523,17 +515,17 @@ export function AccessMatrix({
             );
           })()
         : null}
-    </div>
+    </Dialog>
   );
 }
 
-function gapSummary(
+function gapCount(
   gaps: Array<{ itemId: string; principal: MatrixPrincipal }>,
-): string {
+): number {
   const uniq = new Set(
     gaps.map((g) => `${g.itemId}:${g.principal.type}:${g.principal.id}`),
   );
-  return `${uniq.size} gap${uniq.size === 1 ? '' : 's'}`;
+  return uniq.size;
 }
 
 /**
@@ -553,6 +545,7 @@ function AccessBadge({
   editable: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   const effective = {
     view: entry.view,
     query: entry.view && entry.query,
@@ -586,7 +579,7 @@ function AccessBadge({
       {!hasItemAccess ? (
         <span
           className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warn text-2xs font-bold text-white"
-          title="No access to the backing item: grant from the popover"
+          title={t('mapLayerAccess.noItemAccessBadge')}
         >
           !
         </span>
@@ -628,46 +621,28 @@ function AccessDetailDialog({
   onGrant?: () => void | Promise<void>;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
+  const t = useT();
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Access for ${principalName} on ${layerTitle}`}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs uppercase tracking-wide text-muted">
-              Layer access
-            </div>
-            <div className="mt-0.5 truncate text-sm font-semibold text-ink-0">
-              {layerTitle}
-            </div>
-            <div className="text-xs text-muted">
-              {principalType === 'group' ? 'Group' : 'User'} · {principalName}
-            </div>
+      <DialogContent size="sm" className="flex flex-col gap-3 p-4">
+        <div className="min-w-0 pr-8">
+          <div className="text-xs uppercase tracking-wide text-muted">
+            {t('mapLayerAccess.title')}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <DialogTitle className="mt-0.5 truncate text-sm font-semibold text-ink-0">
+            {layerTitle}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted">
+            {principalType === 'group'
+              ? t('mapLayerAccess.groupLabel')
+              : t('mapLayerAccess.userLabel')}{' '}
+            · {principalName}
+          </DialogDescription>
         </div>
 
         {itemId ? (
@@ -681,18 +656,17 @@ function AccessDetailDialog({
             {hasItemAccess ? (
               <span className="inline-flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5" />
-                Has item-level access to the backing item.
+                {t('mapLayerAccess.hasItemAccess')}
               </span>
             ) : (
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="inline-flex items-center gap-1.5 font-medium">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    No item-level access
+                    {t('mapLayerAccess.noItemAccess')}
                   </div>
                   <div className="mt-0.5 text-2xs opacity-80">
-                    The matrix flags below won&apos;t take effect until
-                    this principal is shared on the backing item.
+                    {t('mapLayerAccess.noItemAccessHint')}
                   </div>
                 </div>
                 {onGrant ? (
@@ -705,7 +679,7 @@ function AccessDetailDialog({
                     {granting ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : null}
-                    Grant view
+                    {t('mapLayerAccess.grantView')}
                   </button>
                 ) : null}
               </div>
@@ -713,31 +687,30 @@ function AccessDetailDialog({
           </div>
         ) : (
           <div className="rounded-md bg-surface-2 px-3 py-2 text-xs text-muted">
-            No backing item: every principal with map access can see
-            this layer.
+            {t('mapLayerAccess.noBackingItem')}
           </div>
         )}
 
         <div className="space-y-1">
           <PopoverRow
-            label="View"
-            desc="See the layer on the map"
+            label={t('mapLayerAccess.view')}
+            desc={t('mapLayerAccess.viewDesc')}
             checked={entry.view}
             onChange={(v) => onChange({ view: v })}
           />
           <PopoverRow
-            label="Query"
-            desc="Popups, attribute table, search"
+            label={t('mapLayerAccess.query')}
+            desc={t('mapLayerAccess.queryDesc')}
             checked={entry.query}
             disabled={!entry.view}
             onChange={(v) => onChange({ query: v })}
           />
           <PopoverRow
-            label="Edit"
+            label={t('mapLayerAccess.edit')}
             desc={
               editable
-                ? 'Modify features (enables once editing UI ships)'
-                : 'Not available: this layer has no writable source'
+                ? t('mapLayerAccess.editDescAvailable')
+                : t('mapLayerAccess.editDescUnavailable')
             }
             checked={editable && entry.edit}
             disabled={!editable || !entry.view || !entry.query}
@@ -745,15 +718,12 @@ function AccessDetailDialog({
           />
           {!editable ? (
             <p className="px-1.5 text-2xs text-muted">
-              Edit is only available for feature-service layers. Remote
-              sources (ArcGIS REST, URL, inline) stay read-only in the
-              matrix to avoid offering permissions that can&apos;t
-              take effect.
+              {t('mapLayerAccess.editOnlyFeatureService')}
             </p>
           ) : null}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

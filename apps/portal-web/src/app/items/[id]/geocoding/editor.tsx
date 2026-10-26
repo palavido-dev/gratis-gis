@@ -19,6 +19,7 @@ import type {
   GeocodingServiceMode,
   Item,
 } from '@gratis-gis/shared-types';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Detail-page editor for geocoding_service items (#74). Lets the
@@ -61,6 +62,7 @@ interface SchemaFieldRow {
 }
 
 export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [draft, setDraft] = useState<GeocodingServiceData>(initial);
   const [saving, setSaving] = useState(false);
@@ -998,7 +1000,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
                   <span className="text-muted">
                     {' '}
                     &middot; indexed{' '}
-                    {indexSummary.rowCount.toLocaleString()} rows in{' '}
+                    {fmt.number(indexSummary.rowCount)} rows in{' '}
                     {(indexSummary.durationMs / 1000).toFixed(1)}s
                   </span>
                 ) : null}

@@ -7,8 +7,15 @@ import {
   CheckCircle2,
   Loader2,
   ShieldAlert,
-  X,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Confirmation dialog for the destructive restore flow. Two gates:
@@ -50,6 +57,7 @@ interface Props {
 }
 
 export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
+  const fmt = useFormat();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState('');
@@ -122,123 +130,121 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !restoring && !result) onClose();
+      }}
     >
-      <div className="w-full max-w-lg space-y-4 rounded-lg border border-danger/30 bg-surface-1 p-5 shadow-raised">
-        <header className="flex items-center gap-2">
-          <ShieldAlert className="h-6 w-6 text-danger" />
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-ink-0">
-              Restore from backup
-            </h2>
-            <p className="text-xs text-muted">
-              This replaces all of the portal's items, files, and
+      <DialogContent
+        hideCloseButton={restoring || !!result}
+        className="border-danger/30"
+      >
+        <div className="flex items-start gap-2 px-5 pt-5">
+          <ShieldAlert className="h-6 w-6 shrink-0 text-danger" />
+          <div className="min-w-0 flex-1">
+            <DialogTitle>Restore from backup</DialogTitle>
+            <DialogDescription className="mt-1">
+              This replaces all of the portal&apos;s items, files, and
               settings with the contents of the backup you chose.
-              Anything you've changed since that backup was taken
+              Anything you&apos;ve changed since that backup was taken
               will be lost.
-            </p>
+            </DialogDescription>
           </div>
-          {!restoring && !result ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-0 text-muted hover:bg-surface-2"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </header>
-
-        {loadErr ? (
-          <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-            <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-            {loadErr}
-          </div>
-        ) : !preview ? (
-          <p className="inline-flex items-center gap-2 text-xs text-muted">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Reading the archive's manifest…
-          </p>
-        ) : (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-surface-0 p-3 text-xs">
-            <dt className="text-muted">File</dt>
-            <dd className="truncate font-mono text-ink-0" title={filename}>
-              {preview.filename}
-            </dd>
-            <dt className="text-muted">Created</dt>
-            <dd className="text-ink-0">
-              {new Date(preview.manifest.createdAt).toLocaleString()}
-            </dd>
-            <dt className="text-muted">Trigger</dt>
-            <dd className="text-ink-0">{preview.manifest.trigger}</dd>
-            <dt className="text-muted">Archive size</dt>
-            <dd className="text-ink-0">{formatBytes(preview.sizeBytes)}</dd>
-            <dt className="text-muted">Objects in backup</dt>
-            <dd className="text-ink-0">
-              {preview.manifest.minio.objectCount.toLocaleString()}
-            </dd>
-            {preview.manifest.portalVersion ? (
-              <>
-                <dt className="text-muted">Portal version</dt>
-                <dd className="font-mono text-ink-0">
-                  {preview.manifest.portalVersion}
-                </dd>
-              </>
-            ) : null}
-          </dl>
-        )}
-
-        <div className="space-y-1">
-          <p className="text-xs text-ink-0">
-            To continue, type this portal's name{' '}
-            <strong className="rounded bg-surface-2 px-1 py-0.5 text-2xs">
-              {orgName}
-            </strong>{' '}
-            below. We ask for this so you can't accidentally restore
-            the wrong backup onto the wrong portal.
-          </p>
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            disabled={restoring || !!result}
-            autoFocus
-            className={`w-full rounded border px-2 py-1.5 text-sm ${
-              confirmText &&
-              confirmText.trim().toLowerCase() !== orgName.trim().toLowerCase()
-                ? 'border-warn/50 bg-warn/10'
-                : 'border-border bg-surface-0'
-            }`}
-            placeholder={orgName}
-          />
         </div>
 
-        <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
-          <AlertTriangle className="mr-1 inline h-3 w-3" />
-          While the restore is running, the portal will be temporarily
-          unavailable to everyone: other people will see a
-          "maintenance mode" message for a minute or two. Ask your
-          team to stop editing before you click below, because any
-          changes in progress right now will be overwritten.
-        </p>
+        <div className="space-y-4 px-5 pt-4">
+          {loadErr ? (
+            <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+              {loadErr}
+            </div>
+          ) : !preview ? (
+            <p className="inline-flex items-center gap-2 text-xs text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Reading the archive&apos;s manifest…
+            </p>
+          ) : (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-border bg-surface-0 p-3 text-xs">
+              <dt className="text-muted">File</dt>
+              <dd className="truncate font-mono text-ink-0" title={filename}>
+                {preview.filename}
+              </dd>
+              <dt className="text-muted">Created</dt>
+              <dd className="text-ink-0">
+                {fmt.dateTime(preview.manifest.createdAt)}
+              </dd>
+              <dt className="text-muted">Trigger</dt>
+              <dd className="text-ink-0">{preview.manifest.trigger}</dd>
+              <dt className="text-muted">Archive size</dt>
+              <dd className="text-ink-0">{formatBytes(preview.sizeBytes)}</dd>
+              <dt className="text-muted">Objects in backup</dt>
+              <dd className="text-ink-0">
+                {fmt.number(preview.manifest.minio.objectCount)}
+              </dd>
+              {preview.manifest.portalVersion ? (
+                <>
+                  <dt className="text-muted">Portal version</dt>
+                  <dd className="font-mono text-ink-0">
+                    {preview.manifest.portalVersion}
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+          )}
 
-        {result === 'failed' ? (
-          <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-            <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-            Restore failed: {resultMsg}
+          <div className="space-y-1">
+            <p className="text-xs text-ink-0">
+              To continue, type this portal&apos;s name{' '}
+              <strong className="rounded bg-surface-2 px-1 py-0.5 text-2xs">
+                {orgName}
+              </strong>{' '}
+              below. We ask for this so you can&apos;t accidentally restore
+              the wrong backup onto the wrong portal.
+            </p>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              disabled={restoring || !!result}
+              autoFocus
+              className={`w-full rounded border px-2 py-1.5 text-sm ${
+                confirmText &&
+                confirmText.trim().toLowerCase() !==
+                  orgName.trim().toLowerCase()
+                  ? 'border-warn/50 bg-warn/10'
+                  : 'border-border bg-surface-0'
+              }`}
+              placeholder={orgName}
+            />
           </div>
-        ) : null}
-        {result === 'success' ? (
-          <div className="rounded-md border border-success/50 bg-success/10 px-3 py-2 text-xs text-success">
-            <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />
-            Restore succeeded. Reloading the page…
-          </div>
-        ) : null}
 
-        <div className="flex items-center justify-end gap-2">
+          <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
+            <AlertTriangle className="mr-1 inline h-3 w-3" />
+            While the restore is running, the portal will be temporarily
+            unavailable to everyone: other people will see a
+            &quot;maintenance mode&quot; message for a minute or two. Ask your
+            team to stop editing before you click below, because any
+            changes in progress right now will be overwritten.
+          </p>
+
+          {result === 'failed' ? (
+            <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+              Restore failed: {resultMsg}. Maintenance mode stays on so
+              users are not served a half-restored portal — finish or
+              re-run the restore from Admin → Backup before clearing it.
+            </div>
+          ) : null}
+          {result === 'success' ? (
+            <div className="rounded-md border border-success/50 bg-success/10 px-3 py-2 text-xs text-success">
+              <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />
+              Restore succeeded. Reloading the page…
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="mt-5 border-t-0 bg-transparent pb-5">
           <button
             type="button"
             onClick={onClose}
@@ -260,9 +266,9 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
             )}
             {restoring ? 'Restoring…' : 'Overwrite everything'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

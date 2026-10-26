@@ -8,6 +8,8 @@ import {
   Loader2,
   MessageSquarePlus,
 } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Anonymous feedback form (#146). POSTs to /api/portal/feedback,
@@ -29,6 +31,8 @@ import {
  *     here directly.
  */
 export function FeedbackForm() {
+  const t = useT();
+  const fmt = useFormat();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -58,7 +62,7 @@ export function FeedbackForm() {
     e.preventDefault();
     if (submitting) return;
     if (message.trim().length < 2) {
-      setError('Please enter a message.');
+      setError(t('feedbackUi.messageRequired'));
       return;
     }
     setError(null);
@@ -82,23 +86,17 @@ export function FeedbackForm() {
         }),
       });
       if (res.status === 429) {
-        setError(
-          'Too many submissions from your network. Try again in a few minutes.',
-        );
+        setError(t('feedbackUi.formRateLimited'));
         return;
       }
       if (!res.ok) {
-        setError(
-          `Could not send (HTTP ${res.status}). Try again, or use the GitHub link below.`,
-        );
+        setError(t('feedbackUi.formSendFailedHttp', { status: res.status }));
         return;
       }
       setDone(true);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not send. Try again, or use the GitHub link below.',
+        err instanceof Error ? err.message : t('feedbackUi.formSendFailed'),
       );
     } finally {
       setSubmitting(false);
@@ -110,12 +108,8 @@ export function FeedbackForm() {
       <div className="mt-8 flex items-start gap-3 rounded-md border border-success/40 bg-success/5 p-4">
         <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
         <div>
-          <p className="font-medium text-ink-0">Thanks. It&rsquo;s landed.</p>
-          <p className="mt-1 text-sm text-muted">
-            The maintainer will read every message personally. If
-            you included an email and want a reply, expect it within
-            a few days. No follow-up needed on your side.
-          </p>
+          <p className="font-medium text-ink-0">{t('feedbackUi.formThanksTitle')}</p>
+          <p className="mt-1 text-sm text-muted">{t('feedbackUi.formThanksBody')}</p>
         </div>
       </div>
     );
@@ -126,7 +120,8 @@ export function FeedbackForm() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="block text-xs font-medium text-ink-1">
-            Name <span className="font-normal text-muted">(optional)</span>
+            {t('feedbackUi.formName')}{' '}
+            <span className="font-normal text-muted">{t('feedbackUi.optional')}</span>
           </span>
           <input
             type="text"
@@ -135,12 +130,13 @@ export function FeedbackForm() {
             maxLength={120}
             autoComplete="name"
             className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
-            placeholder="e.g. Sam Adams"
+            placeholder={t('feedbackUi.formNamePlaceholder')}
           />
         </label>
         <label className="block">
           <span className="block text-xs font-medium text-ink-1">
-            Email <span className="font-normal text-muted">(optional)</span>
+            {t('feedbackUi.formEmail')}{' '}
+            <span className="font-normal text-muted">{t('feedbackUi.optional')}</span>
           </span>
           <input
             type="email"
@@ -149,14 +145,14 @@ export function FeedbackForm() {
             maxLength={254}
             autoComplete="email"
             className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
-            placeholder="you@example.com"
+            placeholder={t('feedbackUi.formEmailPlaceholder')}
           />
         </label>
       </div>
 
       <label className="block">
         <span className="block text-xs font-medium text-ink-1">
-          Message <span className="text-danger">*</span>
+          {t('feedbackUi.formMessage')} <span className="text-danger">*</span>
         </span>
         <textarea
           ref={messageRef}
@@ -166,10 +162,10 @@ export function FeedbackForm() {
           rows={8}
           required
           className="mt-1 w-full rounded border border-border bg-surface-1 px-2.5 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
-          placeholder="What worked, what didn't, what surprised you. Specific repros land better than general impressions."
+          placeholder={t('feedbackUi.formMessagePlaceholder')}
         />
         <span className="mt-1 block text-2xs text-muted">
-          {message.length.toLocaleString()} / 10,000 characters
+          {t('feedbackUi.formCharCount', { count: fmt.number(message.length) })}
         </span>
       </label>
 
@@ -222,11 +218,9 @@ export function FeedbackForm() {
           ) : (
             <MessageSquarePlus className="h-4 w-4" />
           )}
-          {submitting ? 'Sending...' : 'Send feedback'}
+          {submitting ? t('feedbackUi.formSending') : t('feedbackUi.formSend')}
         </button>
-        <span className="text-2xs text-muted">
-          Goes straight to the maintainer&rsquo;s inbox.
-        </span>
+        <span className="text-2xs text-muted">{t('feedbackUi.formInboxHint')}</span>
       </div>
     </form>
   );

@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   Check,
   ClipboardList,
@@ -45,6 +46,7 @@ interface Props {
  * pushes the header offscreen on tall designs.
  */
 export function FormActionsRow({ formId, linkedLayerId }: Props) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   // Resolve the absolute URL on the client. SSR can't know the
   // user's origin (proxy / public-share host might differ), so we
@@ -94,36 +96,36 @@ export function FormActionsRow({ formId, linkedLayerId }: Props) {
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-accent px-3 text-xs font-medium text-white shadow-card hover:bg-accent/90"
-        title="Open the form to submit a response"
+        title={t('formDesigner.actionsRow.openFormTitle')}
       >
         <ExternalLink className="h-3.5 w-3.5" />
-        Open form
+        {t('formDesigner.actionsRow.openForm')}
       </a>
       <a
         href={`/items/${formId}/responses`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-        title="Browse submitted responses on a map and through the form view"
+        title={t('formDesigner.actionsRow.responsesTitle')}
       >
         <ClipboardList className="h-3.5 w-3.5" />
-        Responses
+        {t('formDesigner.actionsRow.responses')}
       </a>
       <button
         type="button"
         onClick={onCopy}
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-        title="Copy the respondent URL"
+        title={t('formDesigner.actionsRow.copyLinkTitle')}
       >
         {copied ? (
           <>
             <Check className="h-3.5 w-3.5 text-success" />
-            Copied
+            {t('formDesigner.actionsRow.copied')}
           </>
         ) : (
           <>
             <Copy className="h-3.5 w-3.5" />
-            Copy link
+            {t('formDesigner.actionsRow.copyLink')}
           </>
         )}
       </button>
@@ -131,10 +133,10 @@ export function FormActionsRow({ formId, linkedLayerId }: Props) {
         <a
           href={`/items/${linkedLayerId}`}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-          title="Open the auto-created data layer where submissions land"
+          title={t('formDesigner.actionsRow.submissionsLayerTitle')}
         >
           <Database className="h-3.5 w-3.5" />
-          Submissions data layer
+          {t('formDesigner.actionsRow.submissionsLayer')}
         </a>
       ) : null}
     </div>

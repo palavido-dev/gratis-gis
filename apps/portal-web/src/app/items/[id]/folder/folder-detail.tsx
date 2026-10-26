@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -36,6 +38,13 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /** Shown when a PATCH is refused with 409 because another tab or
  *  admin saved this folder after we loaded it. Plain language on
@@ -113,6 +122,7 @@ export function FolderDetail({
   folderShares,
   folderAccess,
 }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [children, setChildren] = useState<ItemWithShares[]>(initialChildren);
   // Local copy of childItemIds so reorder writes don't depend on a
@@ -635,7 +645,7 @@ export function FolderDetail({
                     {getItemTypeLabel(child.type)}
                   </span>
                   <span className="hidden shrink-0 text-2xs text-muted lg:inline">
-                    {new Date(child.updatedAt).toLocaleDateString()}
+                    {fmt.date(child.updatedAt)}
                   </span>
                   {canEdit && !isSmart ? (
                     // Per-item Remove only makes sense on a static
@@ -845,23 +855,21 @@ function ShareAllItemsDialog({
         : 'The action below copies this folder\'s direct share rows onto each item, so the people you shared the folder with also see the items inside.';
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Apply folder sharing to all items"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-border px-4 py-3">
-          <h3 className="flex items-center gap-2 text-base font-semibold">
+      <DialogContent size="md" className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <Users className="h-4 w-4" />
             Apply folder sharing to all items
-          </h3>
-          <p className="mt-1 text-xs text-muted">{audienceNote}</p>
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-xs text-muted">
+            {audienceNote}
+          </DialogDescription>
         </div>
 
         <div className="space-y-3 px-4 py-4 text-sm">
@@ -929,7 +937,7 @@ function ShareAllItemsDialog({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <DialogFooter>
           <button
             type="button"
             onClick={onClose}
@@ -946,9 +954,9 @@ function ShareAllItemsDialog({
           >
             {busy ? 'Applying...' : 'Apply sharing'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -133,8 +133,6 @@ interface TypeOption {
    * stays collapsed while the picker keeps Esri-friendly names.
    */
   value: ItemType | 'viewer' | 'custom' | 'postgis_connection';
-  label: string;
-  desc: string;
   /**
    * The job someone arrives with, in their words rather than ours.
    *
@@ -163,7 +161,8 @@ interface TypeOption {
 // Group order follows the typical user journey: load data, make a
 // map, build apps over it, analyze, then organize.
 interface TypeGroup {
-  label: string;
+  /** Catalog key for the group heading (`newItemTypeGroup.*`). */
+  groupKey: string;
   options: TypeOption[];
   /**
    * Tailwind class fragment driving the per-group icon tile color
@@ -187,226 +186,69 @@ interface TypeGroup {
 
 const TYPE_GROUPS: TypeGroup[] = [
   {
-    label: 'Data',
+    groupKey: 'newItemTypeGroup.data',
     iconTileClass: 'bg-info/10 text-info',
     options: [
-      {
-        // Basemap lives under Data rather than Maps because it's a
-        // remote-data pointer (tile URL / style.json / WMS endpoint)
-        // that maps reference, just like Connected service or Data
-        // layer. The original "Map = canvas, Basemap = also a kind
-        // of map" framing mirrored Esri / AGO, but in GratisGIS's
-        // model Map is the composition and Basemap is one of the
-        // data sources composed -- the same category as the other
-        // referenced layer types.
-        value: 'basemap',
-        label: 'Basemap',
-        desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
-        Icon: Globe,
-      },
-      {
-        value: 'geo_boundary',
-        label: 'Boundary',
-        desc: 'A named region (polygon) reused across shares, maps, and filters.',
-        Icon: MapIcon,
-      },
-      {
-        // #304: unified Connected Service replaces the four
-        // protocol-specific tiles (ArcGIS service, WMS service,
-        // WFS service, and the not-yet-shipped WMTS). One tile,
-        // auto-detect probe -- the wizard figures out the protocol
-        // from the URL response so the user doesn't have to know
-        // upfront whether they're pointing at a MapServer, a WMS,
-        // or a WMTS endpoint.
-        value: 'service',
-        label: 'Connected service',
-        desc: 'Live pointer at an external service. Paste a URL; we recognize ArcGIS REST, WMS, WFS, and WMTS.',
-        Icon: Plug,
-      },
-      {
-        // #158 PostGIS live-read. UI-only wizard value; the
-        // backend creates a normal `service` item with
-        // `protocol: 'postgis_live'` via the single-shot
-        // /postgis-live/create endpoint. The builder handles its
-        // own save + redirect; the wizard's generic save flow is
-        // skipped when this type is selected.
-        value: 'postgis_connection',
-        label: 'PostgreSQL + PostGIS (live)',
-        desc: 'Connect to a live PostgreSQL + PostGIS database. Maps read tables on demand by bounding box; no data is copied into the portal.',
-        Icon: Plug,
-      },
+      { value: 'basemap', Icon: Globe },
+      { value: 'geo_boundary', Icon: MapIcon },
+      { value: 'service', Icon: Plug },
+      { value: 'postgis_connection', Icon: Plug },
       {
         value: 'data_layer',
-        label: 'Data layer',
-        desc: 'A shareable vector layer backed by PostGIS.',
         jobKey: 'newItemJob.data_layer',
         Icon: Layers,
       },
-      {
-        value: 'file',
-        label: 'File',
-        desc: 'Any uploaded file (PDF, image, zip, etc.).',
-        Icon: FileText,
-      },
-      {
-        // #74: geocoding_service. Wraps a data_layer + chosen
-        // search fields and exposes a /geocode endpoint for maps
-        // and apps to use as a search source.
-        value: 'geocoding_service',
-        label: 'Geocoding service',
-        desc: 'Searchable index over a data layer. Lets maps and apps geocode against your own parcels, addresses, or places.',
-        Icon: MapPin,
-      },
-      {
-        value: 'pick_list',
-        label: 'Pick list',
-        desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
-        Icon: ListChecks,
-      },
-      {
-        // #179: tile_layer. Wraps a pre-rendered PMTiles file
-        // (single .pmtiles upload) and exposes it as a tile
-        // service consumable as a basemap. Sibling to Basemap
-        // because both back map rendering, but Tile layer is
-        // "I have the cache, just host it" while Basemap is
-        // "I have the URL or service, point at it."
-        value: 'tile_layer',
-        label: 'Tile layer',
-        desc: 'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
-        Icon: Layers,
-      },
-      {
-        // #179 (3D as layers): point_cloud wraps one COPC lidar
-        // file. Sibling to Tile layer: both are "host my
-        // range-readable file" items; this one streams 3D points
-        // instead of tiles.
-        value: 'point_cloud',
-        label: 'Point cloud',
-        desc: 'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
-        Icon: Mountain,
-      },
+      { value: 'file', Icon: FileText },
+      { value: 'geocoding_service', Icon: MapPin },
+      { value: 'pick_list', Icon: ListChecks },
+      { value: 'tile_layer', Icon: Layers },
+      { value: 'point_cloud', Icon: Mountain },
     ],
   },
   {
-    label: 'Maps',
+    groupKey: 'newItemTypeGroup.maps',
     iconTileClass: 'bg-success/10 text-success',
     options: [
-      {
-        value: 'map',
-        label: 'Map',
-        desc: 'A basemap with overlay layers and styling.',
-        jobKey: 'newItemJob.map',
-        Icon: MapIcon,
-      },
+      { value: 'map', jobKey: 'newItemJob.map', Icon: MapIcon },
     ],
   },
   {
-    label: 'Apps',
+    groupKey: 'newItemTypeGroup.apps',
     iconTileClass: 'bg-warn/10 text-warn',
     options: [
-      // #22: Dashboard / Editor / Viewer pulled from the picker.
-      // Editor and Viewer are just specific layouts of the same
-      // Custom Web App framework, so they live as app_template
-      // items now (seeded per org alongside Sidebar Explorer
-      // etc.); the picker only needs the one "Custom web app"
-      // entry, and the wizard's template gallery is where users
-      // pick the editor / viewer / parcel / dashboard layout.
-      //
-      // Dashboards are the same story: the KPI Dashboard and
-      // Operations Board starters are app_template items, so a
-      // dashboard is a custom web app that starts from a dashboard
-      // layout. There is deliberately no `dashboard` entry here and
-      // no dashboard item type to create; the placeholder enum value
-      // survives only so any pre-existing row still resolves.
-      {
-        value: 'form',
-        label: 'Form',
-        desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
-        jobKey: 'newItemJob.form',
-        Icon: FileText,
-      },
+      { value: 'form', jobKey: 'newItemJob.form', Icon: FileText },
       {
         value: 'data_collection',
-        label: 'Data collection',
-        desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
         jobKey: 'newItemJob.data_collection',
         Icon: ClipboardList,
       },
-      // No 'report_template' tile. There is no report_template
-      // editor, so picking it produced a titled item permanently
-      // parked on the coming-soon page. Same reason 'dashboard' is
-      // not offered here.
-      {
-        value: 'custom',
-        label: 'Web app',
-        desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
-        Icon: Sparkles,
-      },
-      {
-        // #54: themes are items.  Starts a blank theme cloned
-        // from the Default starter so the user lands in the
-        // theme editor with a working palette to tweak.
-        value: 'theme',
-        label: 'Theme',
-        desc: 'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
-        Icon: Palette,
-      },
-      {
-        // #101: print templates are items.  Starts a blank
-        // template on a Letter portrait canvas so the user lands
-        // in the print-template designer ready to drop elements.
-        value: 'print_template',
-        label: 'Print template',
-        desc: 'Layout for the Print tool in a web app: paper size, title block, map frame, legend, scalebar, north arrow. Drag elements onto a paper-sized canvas, declare parameters the print form prompts for, save.',
-        Icon: Printer,
-      },
-      {
-        // #90: tool items.  Reusable named action (open a URL,
-        // jump to another item) that a Custom Web App Button widget
-        // can bind to.  The same tool used across multiple apps
-        // keeps the recipe centralized -- update the URL once and
-        // every button pointing at it follows.
-        value: 'tool',
-        label: 'Tool',
-        desc: 'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
-        Icon: Wand2,
-      },
+      { value: 'custom', Icon: Sparkles },
+      { value: 'theme', Icon: Palette },
+      { value: 'print_template', Icon: Printer },
+      { value: 'tool', Icon: Wand2 },
     ],
   },
   {
-    label: 'Analysis',
+    groupKey: 'newItemTypeGroup.analysis',
     iconTileClass: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
     options: [
-      {
-        value: 'derived_layer',
-        label: 'Derived layer',
-        desc: 'A layer computed live from another, with tools like buffer.',
-        Icon: FlaskConical,
-      },
-      {
-        // #221. Filtered out below unless the portal has scripts
-        // switched on, because on a portal without a script runner
-        // this would create an item nothing can execute.
-        value: 'script',
-        label: 'Script',
-        desc: 'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
-        Icon: TerminalSquare,
-      },
+      { value: 'derived_layer', Icon: FlaskConical },
+      { value: 'script', Icon: TerminalSquare },
     ],
   },
   {
-    label: 'Organize',
+    groupKey: 'newItemTypeGroup.organize',
     iconTileClass: 'bg-surface-2 text-ink-1',
-    options: [
-      {
-        value: 'folder',
-        label: 'Folder',
-        desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
-        Icon: FolderIcon,
-      },
-    ],
+    options: [{ value: 'folder', Icon: FolderIcon }],
   },
 ];
+
+function typeCatalogKey(
+  value: TypeOption['value'],
+  field: 'label' | 'desc',
+): `newItemType.${string}.${'label' | 'desc'}` {
+  return `newItemType.${value}.${field}`;
+}
 
 // Flat fallback used by everything-else-on-the-page (the picked-type
 // summary header on step 2, etc.) so we keep the grouped picker
@@ -415,26 +257,32 @@ const TYPE_OPTIONS: TypeOption[] = TYPE_GROUPS.flatMap((g) => g.options);
 
 const ACCESS_OPTIONS: Array<{
   value: ItemAccess;
-  label: string;
-  desc: string;
+  labelKey:
+    | 'newItem.accessPrivateLabel'
+    | 'newItem.accessOrgLabel'
+    | 'newItem.accessPublicLabel';
+  descKey:
+    | 'newItem.accessPrivateDesc'
+    | 'newItem.accessOrgDesc'
+    | 'newItem.accessPublicDesc';
   Icon: LucideIcon;
 }> = [
   {
     value: 'private',
-    label: 'Private',
-    desc: 'Only you and people you share with.',
+    labelKey: 'newItem.accessPrivateLabel',
+    descKey: 'newItem.accessPrivateDesc',
     Icon: Lock,
   },
   {
     value: 'org',
-    label: 'Your organization',
-    desc: 'Everyone with a login in your org.',
+    labelKey: 'newItem.accessOrgLabel',
+    descKey: 'newItem.accessOrgDesc',
     Icon: Building2,
   },
   {
     value: 'public',
-    label: 'Public',
-    desc: 'Anyone on the internet.',
+    labelKey: 'newItem.accessPublicLabel',
+    descKey: 'newItem.accessPublicDesc',
     Icon: Globe2,
   },
 ];
@@ -610,10 +458,16 @@ export function NewItemWizard({
   // began with someone asking where the map picker was. 'none' stays
   // the default because a map is not mandatory, but the choice is on
   // the create form where the decision naturally happens.
+  // #189: `?type=custom&map=<id>` from a map's list menu or builder
+  // preseeds "use an existing map" so Create app from this map skips
+  // the picker hunt (mirrors print_template's ?map= stamp).
+  const customMapHint = searchParams?.get('map') ?? null;
   const [customMapChoice, setCustomMapChoice] = useState<
     'none' | 'new' | 'existing'
-  >('none');
-  const [customExistingMapId, setCustomExistingMapId] = useState('');
+  >(customMapHint ? 'existing' : 'none');
+  const [customExistingMapId, setCustomExistingMapId] = useState(
+    customMapHint ?? '',
+  );
   const [customMapOptions, setCustomMapOptions] = useState<Array<{
     id: string;
     title: string;
@@ -1108,7 +962,7 @@ export function NewItemWizard({
     if (!type) return;
     setError(null);
     if (title.trim().length === 0) {
-      setError('Title is required.');
+      setError(t('newItem.titleRequired'));
       return;
     }
 
@@ -1834,7 +1688,7 @@ export function NewItemWizard({
     return (
       <div className="space-y-8">
         {visibleGroups.map((group) => (
-          <section key={group.label}>
+          <section key={group.groupKey}>
             {/* Group header inherits the group color via a small
                 bullet swatch + the icon-tile class for the chip
                 background, so the eye associates each section's
@@ -1844,11 +1698,13 @@ export function NewItemWizard({
                 aria-hidden="true"
                 className={`inline-block h-2.5 w-2.5 rounded-full ${group.iconTileClass}`}
               />
-              {group.label}
+              {t(group.groupKey)}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {group.options.map((opt) => {
                 const { Icon } = opt;
+                const typeLabel = t(typeCatalogKey(opt.value, 'label'));
+                const typeDesc = t(typeCatalogKey(opt.value, 'desc'));
                 return (
                   <button
                     key={opt.value}
@@ -1861,7 +1717,7 @@ export function NewItemWizard({
                     // you are hunting for one. The description stays
                     // visible and inside the button; it just stops
                     // being the name.
-                    aria-label={opt.label}
+                    aria-label={typeLabel}
                     onClick={() => pickType(opt.value)}
                     className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   >
@@ -1872,7 +1728,7 @@ export function NewItemWizard({
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-ink-0">
-                        {opt.label}
+                        {typeLabel}
                       </span>
                       {/* The job goes ABOVE the description and in
                           the stronger colour on the few types that
@@ -1886,7 +1742,7 @@ export function NewItemWizard({
                         </span>
                       ) : null}
                       <span className="mt-0.5 block text-xs text-muted">
-                        {opt.desc}
+                        {typeDesc}
                       </span>
                     </span>
                   </button>
@@ -1902,6 +1758,14 @@ export function NewItemWizard({
   // step === 'details'
   const typeOption = TYPE_OPTIONS.find((o) => o.value === type);
   const TypeIcon = typeOption?.Icon ?? Sparkles;
+  const pickedTypeLabel =
+    type && typeOption
+      ? t(typeCatalogKey(typeOption.value, 'label'))
+      : t('newItem.detailsEyebrowFallback');
+  const pickedTypeDesc =
+    type && typeOption
+      ? t(typeCatalogKey(typeOption.value, 'desc'))
+      : '';
   // Look up which group this type belongs to so the selected-type
   // header inherits the same color the user clicked in the gallery.
   // Keeps the visual handoff coherent: "the blue thing I picked is
@@ -1925,9 +1789,9 @@ export function NewItemWizard({
           </span>
           <div>
             <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-              New {typeOption?.label ?? 'item'}
+              {t('newItem.detailsEyebrow', { type: pickedTypeLabel })}
             </p>
-            <p className="text-sm text-ink-0">{typeOption?.desc}</p>
+            <p className="text-sm text-ink-0">{pickedTypeDesc}</p>
           </div>
         </div>
         <button
@@ -1936,18 +1800,149 @@ export function NewItemWizard({
           className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-muted hover:bg-surface-2 hover:text-ink-1"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Change type
+          {t('newItem.changeType')}
         </button>
       </div>
 
-      {/* Custom Web App template gallery. Shown before the
-          metadata fields when the user picked the Custom Web App
-          type, so they're committing to a starting point before
-          they title + describe the app. Templates are pre-
-          configured CustomAppData instances (theme, containers,
-          widgets already in place); the author lands in the
-          designer with a working app to customize, not a blank
-          canvas. The Blank template preserves the previous
+      {/* #190: identity fields first. Naming is what people reach for
+          on create; thumbnail / template / type-specific builders
+          come after so the form reads "I'm creating a <thing> called
+          <name>" before the decorative or type-specific detail. */}
+      <MetadataXmlImporter
+        onApply={({ title: t, description: d, tags: ts }) => {
+          if (t) {
+            setTitle(t);
+            userEditedTitleRef.current = true;
+          }
+          if (d) {
+            setDescription(d);
+            userEditedDescRef.current = true;
+          }
+          if (ts && ts.length > 0) setTagsText(ts.join(', '));
+        }}
+      />
+
+      <section className="space-y-4">
+        <div>
+          <label
+            htmlFor="title"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            {t('newItem.titleLabel')}
+          </label>
+          <input
+            id="title"
+            type="text"
+            value={title}
+            onChange={(e) => {
+              userEditedTitleRef.current = true;
+              setTitle(e.target.value);
+            }}
+            placeholder={t('newItem.titlePlaceholder')}
+            maxLength={200}
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="description"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            {t('newItem.descriptionLabel')}
+          </label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => {
+              userEditedDescRef.current = true;
+              setDescription(e.target.value);
+            }}
+            placeholder={t('newItem.descriptionPlaceholder')}
+            maxLength={5000}
+            rows={4}
+            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="tags"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            {t('newItem.tagsLabel')}
+          </label>
+          <input
+            id="tags"
+            type="text"
+            value={tagsText}
+            onChange={(e) => setTagsText(e.target.value)}
+            placeholder={t('newItem.tagsPlaceholder')}
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+          <p className="mt-1 text-xs text-muted">
+            {t('newItem.tagsHint')}
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+          {t('newItem.visibilityLabel')}
+        </label>
+        <div className="grid grid-cols-3 gap-2" role="radiogroup">
+          {ACCESS_OPTIONS.map(({ value, labelKey, descKey, Icon }) => {
+            const selected = access === value;
+            const label = t(labelKey);
+            const desc = t(descKey);
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setAccess(value)}
+                className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
+                  selected
+                    ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+                    : 'border-border bg-surface-1 hover:bg-surface-2'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon
+                    className={`h-4 w-4 ${selected ? 'text-accent' : 'text-muted'}`}
+                  />
+                  <span className="text-sm font-medium text-ink-1">
+                    {label}
+                  </span>
+                </div>
+                <span className="text-xs text-muted">{desc}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          You can change this later and add explicit shares from the item
+          detail page.
+        </p>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+          Thumbnail
+        </label>
+        <ThumbnailDesigner
+          type={resolvedTypeForThumbnail}
+          title={title}
+          value={thumbnailDesign}
+          onChange={setThumbnailDesign}
+        />
+      </section>
+
+      {/* Custom Web App template gallery. After identity so the author
+          names the app before picking a starting template. Templates
+          are pre-configured CustomAppData instances (theme, containers,
+          widgets already in place); the Blank template preserves the
           empty-page behavior for advanced users. */}
       {type === 'custom' ? (
         <section>
@@ -2102,141 +2097,6 @@ export function NewItemWizard({
           ) : null}
         </section>
       ) : null}
-
-      {/* Metadata (thumbnail, title, description, tags, visibility) runs
-          above the type-specific builder so the item's identity is
-          established before diving into schema. Matches the user's
-          mental model: "I'm creating a <thing> called <name>" reads
-          left-to-right instead of schema-first. */}
-
-      <MetadataXmlImporter
-        onApply={({ title: t, description: d, tags: ts }) => {
-          if (t) {
-            setTitle(t);
-            userEditedTitleRef.current = true;
-          }
-          if (d) {
-            setDescription(d);
-            userEditedDescRef.current = true;
-          }
-          if (ts && ts.length > 0) setTagsText(ts.join(', '));
-        }}
-      />
-
-      <section>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Thumbnail
-        </label>
-        <ThumbnailDesigner
-          type={resolvedTypeForThumbnail}
-          title={title}
-          value={thumbnailDesign}
-          onChange={setThumbnailDesign}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <div>
-          <label
-            htmlFor="title"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Title
-          </label>
-          <input
-            id="title"
-            type="text"
-            value={title}
-            onChange={(e) => {
-              userEditedTitleRef.current = true;
-              setTitle(e.target.value);
-            }}
-            placeholder="My layer, report, form..."
-            maxLength={200}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="description"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Description
-          </label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => {
-              userEditedDescRef.current = true;
-              setDescription(e.target.value);
-            }}
-            placeholder="What is this, and who's it for?"
-            maxLength={5000}
-            rows={4}
-            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="tags"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Tags
-          </label>
-          <input
-            id="tags"
-            type="text"
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-            placeholder="Comma separated, e.g. buildings, parcels, campus"
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-          <p className="mt-1 text-xs text-muted">
-            Used for search and filtering.
-          </p>
-        </div>
-      </section>
-
-      <section>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Visibility
-        </label>
-        <div className="grid grid-cols-3 gap-2" role="radiogroup">
-          {ACCESS_OPTIONS.map(({ value, label, desc, Icon }) => {
-            const selected = access === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => setAccess(value)}
-                className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
-                  selected
-                    ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
-                    : 'border-border bg-surface-1 hover:bg-surface-2'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Icon
-                    className={`h-4 w-4 ${selected ? 'text-accent' : 'text-muted'}`}
-                  />
-                  <span className="text-sm font-medium text-ink-1">
-                    {label}
-                  </span>
-                </div>
-                <span className="text-xs text-muted">{desc}</span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          You can change this later and add explicit shares from the item
-          detail page.
-        </p>
-      </section>
 
       {/* Type-specific builder / probe / etc. goes at the end of the
           form, closest to the Create button, so the user's last

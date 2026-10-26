@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+'use client';
+
+import { useFormat } from '@/lib/i18n/format';
 import { Calendar, FileInput, Globe } from 'lucide-react';
 import type {
   DataLayerData,
@@ -108,6 +111,7 @@ function ProvenanceRow({
   source: DataLayerSource;
   userNames: Record<string, string>;
 }) {
+  const fmt = useFormat();
   const importedBy =
     userNames[source.importedBy] ?? source.importedBy.slice(0, 8);
   const imported = new Date(source.importedAt);
@@ -127,7 +131,7 @@ function ProvenanceRow({
       ) : null}
       <span className="inline-flex items-center gap-1 text-muted">
         <Calendar className="h-3 w-3" />
-        {imported.toLocaleDateString()} by {importedBy}
+        {fmt.date(imported)} by {importedBy}
       </span>
       {source.note ? (
         <span className="text-2xs text-muted italic">{source.note}</span>

@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { MapLayerPopup } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { TemplateInput } from './template-input';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   value: MapLayerPopup;
@@ -26,6 +27,8 @@ interface Props {
  * naturally from the independent title template + body mode knobs.
  */
 export function PopupEditor({ value, metadata, onChange }: Props) {
+  const t = useT();
+
   function patch(p: Partial<MapLayerPopup>) {
     onChange({ ...value, ...p });
   }
@@ -42,9 +45,11 @@ export function PopupEditor({ value, metadata, onChange }: Props) {
     <div className="space-y-3">
       {!triggerActive ? (
         <p className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
-          Popups are off for this layer. Turn on{' '}
-          <em>Click shows popup</em> or <em>Popup on hover</em> in
-          Interactions to configure the popup&rsquo;s content.
+          {t('mapPopupEditor.popupsOffPrefix')}{' '}
+          <em>{t('mapLayerPanel.toggles.clickShowsPopup')}</em>{' '}
+          {t('mapPopupEditor.popupsOffOr')}{' '}
+          <em>{t('mapLayerPanel.toggles.popupOnHover')}</em>{' '}
+          {t('mapPopupEditor.popupsOffSuffix')}
         </p>
       ) : (
         <>
@@ -52,23 +57,23 @@ export function PopupEditor({ value, metadata, onChange }: Props) {
 
           <div>
             <label className="mb-2 block text-2xs uppercase tracking-wide text-muted">
-              Body
+              {t('mapPopupEditor.body')}
             </label>
             <div className="grid grid-cols-3 gap-2">
               <ModeBtn
                 active={value.mode === 'all'}
                 onClick={() => patch({ mode: 'all' })}
-                label="All fields"
+                label={t('mapPopupEditor.modeAll')}
               />
               <ModeBtn
                 active={value.mode === 'picked'}
                 onClick={() => patch({ mode: 'picked' })}
-                label="Picked"
+                label={t('mapPopupEditor.modePicked')}
               />
               <ModeBtn
                 active={value.mode === 'template'}
                 onClick={() => patch({ mode: 'template' })}
-                label="Template"
+                label={t('mapPopupEditor.modeTemplate')}
               />
             </div>
           </div>
@@ -94,6 +99,7 @@ function TitleEditor({
   metadata: LayerMetadata;
   onPatch: (p: Partial<MapLayerPopup>) => void;
 }) {
+  const t = useT();
   const sample = useMemo(
     () => metadata.sampleProperties ?? synthesizeSample(metadata),
     [metadata],
@@ -101,14 +107,14 @@ function TitleEditor({
   return (
     <div>
       <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-        Title template
+        {t('mapPopupEditor.titleTemplate')}
       </label>
       <TemplateInput
         value={value.titleTemplate}
         onChange={(next) => onPatch({ titleTemplate: next })}
         fields={metadata.fields}
         sampleProperties={sample}
-        placeholder={`{{name}}  (defaults to layer title)`}
+        placeholder={t('mapPopupEditor.titlePlaceholder')}
       />
     </div>
   );
@@ -123,6 +129,8 @@ function PickedEditor({
   metadata: LayerMetadata;
   onPatch: (p: Partial<MapLayerPopup>) => void;
 }) {
+  const t = useT();
+
   function moveField(idx: number, dir: -1 | 1) {
     const target = idx + dir;
     if (target < 0 || target >= value.fields.length) return;
@@ -144,9 +152,7 @@ function PickedEditor({
   return (
     <div className="space-y-2 rounded-md border border-border bg-surface-1 p-2">
       {value.fields.length === 0 ? (
-        <p className="text-2xs text-muted">
-          No fields yet. Add one from the dropdown below.
-        </p>
+        <p className="text-2xs text-muted">{t('mapPopupEditor.noFieldsYet')}</p>
       ) : (
         <ul className="space-y-1">
           {value.fields.map((f, i) => (
@@ -156,7 +162,7 @@ function PickedEditor({
                 type="button"
                 onClick={() => moveField(i, -1)}
                 disabled={i === 0}
-                aria-label="Move up"
+                aria-label={t('mapPopupEditor.moveUpAria')}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
               >
                 <ArrowUp className="h-3 w-3" />
@@ -165,7 +171,7 @@ function PickedEditor({
                 type="button"
                 onClick={() => moveField(i, 1)}
                 disabled={i === value.fields.length - 1}
-                aria-label="Move down"
+                aria-label={t('mapPopupEditor.moveDownAria')}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
               >
                 <ArrowDown className="h-3 w-3" />
@@ -173,7 +179,7 @@ function PickedEditor({
               <button
                 type="button"
                 onClick={() => removeField(i)}
-                aria-label="Remove"
+                aria-label={t('mapPopupEditor.removeFieldAria')}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
               >
                 <Trash2 className="h-3 w-3" />
@@ -194,7 +200,9 @@ function PickedEditor({
             className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
           >
             <option value="">
-              {unpicked.length === 0 ? 'All fields added' : 'Add a field...'}
+              {unpicked.length === 0
+                ? t('mapLayerPanel.search.allFieldsAdded')
+                : t('mapLayerPanel.search.addField')}
             </option>
             {unpicked.map((f) => (
               <option key={f} value={f}>
@@ -205,7 +213,7 @@ function PickedEditor({
         ) : (
           <input
             type="text"
-            placeholder="field name"
+            placeholder={t('mapLayerPanel.search.fieldNamePlaceholder')}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 addField((e.target as HTMLInputElement).value.trim());
@@ -216,7 +224,9 @@ function PickedEditor({
           />
         )}
         {metadata.loading ? (
-          <span className="self-center text-2xs text-muted">loading...</span>
+          <span className="self-center text-2xs text-muted">
+            {t('mapPopupEditor.loading')}
+          </span>
         ) : null}
       </div>
     </div>
@@ -232,6 +242,7 @@ function TemplateEditor({
   metadata: LayerMetadata;
   onPatch: (p: Partial<MapLayerPopup>) => void;
 }) {
+  const t = useT();
   // Live preview: render the body against a sample feature, falling
   // back to a synthetic one if the layer hasn't loaded any yet.
   const sample = useMemo(
@@ -246,18 +257,21 @@ function TemplateEditor({
         onChange={(next) => onPatch({ bodyTemplate: next })}
         fields={metadata.fields}
         sampleProperties={sample}
-        placeholder={`<strong>{{name}}</strong><br>\nCategory: {{category}}<br>\nFloors: {{floors | number}}`}
+        placeholder={t('mapPopupEditor.bodyPlaceholder')}
         multiline
         rows={6}
         previewAsHtml
-        extraInserts={[{ label: '+line break', insert: '<br>' }]}
+        extraInserts={[
+          { label: t('mapPopupEditor.lineBreakInsert'), insert: '<br>' },
+        ]}
       />
       <p className="text-2xs text-muted">
-        <code className="rounded bg-surface-2 px-1">{`{{field}}`}</code> reads
-        a property;{' '}
-        <code className="rounded bg-surface-2 px-1">{`{{field | fmt}}`}</code>{' '}
-        formats it. Field values are always HTML-escaped; wrap them in
-        your own markup for styling.
+        <code className="rounded bg-surface-2 px-1">{`{{field}}`}</code>{' '}
+        {t('mapPopupEditor.templateFieldReads')}{' '}
+        <code className="rounded bg-surface-2 px-1">
+          {t('mapPopupEditor.fieldFmtExample')}
+        </code>{' '}
+        {t('mapPopupEditor.templateFmtFormats')}
       </p>
     </div>
   );

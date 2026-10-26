@@ -35,6 +35,8 @@ abstract class FieldDatabase : RoomDatabase() {
     fun open(context: Context): FieldDatabase =
       Room.databaseBuilder(context.applicationContext, FieldDatabase::class.java, "gratisgis-field.db")
         .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        // Survive abrupt process death after a draft upsert / package write.
+        .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()
 
     /** v2: queue rows carry the optimistic-concurrency base and, on a

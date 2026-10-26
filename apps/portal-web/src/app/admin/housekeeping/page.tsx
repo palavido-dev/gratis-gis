@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { t } from '@/lib/i18n';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 import { getServerLocale } from '@/lib/i18n/server';
 import { HashTabs } from '@/components/ui/hash-tabs';
 import { HousekeepingView, type HousekeepingBundle } from './housekeeping-view';
@@ -78,21 +79,21 @@ export default async function AdminHousekeepingPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminHousekeeping.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Sparkles className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Housekeeping
+            {t('nav.housekeeping', undefined, locale)}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
-            Items and accounts that look like they could be reviewed
-            or retired. Everything below is a suggestion: click
-            through to decide.
+            {t('adminHousekeeping.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>
@@ -182,6 +183,7 @@ export default async function AdminHousekeepingPage() {
 // ---- Streaming sections ----------------------------------------
 
 async function ScheduleSection() {
+  const locale = await getServerLocale();
   try {
     const [config, runs] = await Promise.all([
       apiFetch<HousekeepingConfig>('/api/admin/housekeeping/config'),
@@ -191,55 +193,90 @@ async function ScheduleSection() {
       <HousekeepingScheduleCard initialConfig={config} initialRuns={runs} />
     );
   } catch (err) {
-    return <SectionError label="schedule" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionSchedule', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
 async function StarterTemplatesSection() {
+  const locale = await getServerLocale();
   try {
     const resp = await apiFetch<StarterStatusResponse>(
       '/api/admin/app-templates/starter-status',
     );
     return <StarterTemplatesCard initial={resp.starters} />;
   } catch (err) {
-    return <SectionError label="app templates" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionAppTemplates', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
 async function StarterThemesSection() {
+  const locale = await getServerLocale();
   try {
     const resp = await apiFetch<ThemeStarterStatusResponse>(
       '/api/admin/themes/starter-status',
     );
     return <StarterThemesCard initial={resp.starters} />;
   } catch (err) {
-    return <SectionError label="themes" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionThemes', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
 async function DanglingReferencesSection() {
+  const locale = await getServerLocale();
   try {
     const report = await apiFetch<DanglingReferencesReport>(
       '/api/admin/housekeeping/dangling-references',
     );
     return <DanglingReferencesCard initial={report} />;
   } catch (err) {
-    return <SectionError label="broken references" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionBrokenReferences', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
 async function OrphanedUploadsSection() {
+  const locale = await getServerLocale();
   try {
     const report = await apiFetch<OrphanedUploadsReport>(
       '/api/admin/housekeeping/orphaned-uploads',
     );
     return <OrphanedUploadsCard initial={report} />;
   } catch (err) {
-    return <SectionError label="orphaned uploads" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionOrphanedUploads', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
 async function BundleSection() {
+  const locale = await getServerLocale();
   try {
     const [
       summary,
@@ -283,7 +320,13 @@ async function BundleSection() {
     };
     return <HousekeepingView bundle={bundle} />;
   } catch (err) {
-    return <SectionError label="housekeeping data" err={err} />;
+    return (
+      <SectionError
+        label={t('adminHousekeeping.sectionHousekeepingData', undefined, locale)}
+        err={err}
+        locale={locale}
+      />
+    );
   }
 }
 
@@ -315,11 +358,21 @@ function SkeletonBigBundle() {
   );
 }
 
-function SectionError({ label, err }: { label: string; err: unknown }) {
+function SectionError({
+  label,
+  err,
+  locale,
+}: {
+  label: string;
+  err: unknown;
+  locale: SupportedLocale;
+}) {
   const msg = err instanceof Error ? err.message : String(err);
   return (
     <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-      <p className="font-medium">Could not load {label}</p>
+      <p className="font-medium">
+        {t('adminHousekeeping.sectionLoadFailed', { label }, locale)}
+      </p>
       <p className="mt-1 text-xs text-danger/90">{msg}</p>
     </div>
   );

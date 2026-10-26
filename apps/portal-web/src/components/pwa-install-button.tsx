@@ -3,6 +3,13 @@
 
 import { useEffect, useState } from 'react';
 import { Smartphone, X } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * "Install GratisGIS" affordance for the field runtime + items list.
@@ -189,46 +196,44 @@ export function PwaInstallButton({
         </div>
       )}
 
-      {showIOSHint ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Install on iOS"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
-          onClick={() => setShowIOSHint(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-xl border border-border bg-surface-1 p-4 shadow-overlay"
-          >
-            <h2 className="text-base font-semibold text-ink-0">
-              Install on iOS
-            </h2>
-            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink-1">
-              <li>
-                Tap the <strong>Share</strong> button at the bottom of Safari
-                (the square with an up-arrow).
-              </li>
-              <li>
-                Scroll down and tap{' '}
-                <strong>Add to Home Screen</strong>.
-              </li>
-              <li>Tap <strong>Add</strong> in the top-right corner.</li>
-            </ol>
-            <p className="mt-3 text-xs text-muted">
-              Once installed, GratisGIS gets stronger storage retention and
-              the iOS 1 GB cap on web storage no longer applies.
-            </p>
+      <Dialog
+        open={showIOSHint}
+        onOpenChange={(next) => {
+          if (!next) setShowIOSHint(false);
+        }}
+      >
+        <DialogContent size="sm" className="p-4 shadow-overlay">
+          <DialogTitle className="text-base font-semibold text-ink-0">
+            Install on iOS
+          </DialogTitle>
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink-1">
+            <li>
+              Tap the <strong>Share</strong> button at the bottom of Safari
+              (the square with an up-arrow).
+            </li>
+            <li>
+              Scroll down and tap{' '}
+              <strong>Add to Home Screen</strong>.
+            </li>
+            <li>
+              Tap <strong>Add</strong> in the top-right corner.
+            </li>
+          </ol>
+          <DialogDescription className="mt-3 text-xs text-muted">
+            Once installed, GratisGIS gets stronger storage retention and
+            the iOS 1 GB cap on web storage no longer applies.
+          </DialogDescription>
+          <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
             <button
               type="button"
               onClick={() => setShowIOSHint(false)}
-              className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-md bg-accent text-sm font-medium text-accent-foreground hover:opacity-90"
+              className="inline-flex h-9 w-full items-center justify-center rounded-md bg-accent text-sm font-medium text-accent-foreground hover:opacity-90"
             >
               Got it
             </button>
-          </div>
-        </div>
-      ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

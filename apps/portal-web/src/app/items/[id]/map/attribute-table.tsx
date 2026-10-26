@@ -32,7 +32,16 @@ import {
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import { formatDateTime, useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
@@ -227,6 +236,8 @@ export function AttributeTable({
   scopeWhere,
   scopeVia,
 }: Props) {
+  const t = useT();
+  const fmt = useFormat();
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [lastPicked, setLastPicked] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -610,7 +621,7 @@ export function AttributeTable({
           { signal: ctrl.signal },
         );
         if (!res.ok) {
-          const message = await parseApiError(res, 'Could not load rows');
+          const message = await parseApiError(res, t('mapAttributeTable.couldNotLoadRows'));
           if (!abort) {
             setServerPage({ features: [], count: 0, truncated: false });
             setServerError(message);
@@ -626,7 +637,7 @@ export function AttributeTable({
       } catch (err) {
         if (abort) return;
         if (err instanceof Error && err.name === 'AbortError') return;
-        setServerError(err instanceof Error ? err.message : 'Fetch failed');
+        setServerError(err instanceof Error ? err.message : t('mapAttributeTable.fetchFailed'));
         setServerPage({ features: [], count: 0, truncated: false });
       } finally {
         if (!abort) setServerLoading(false);
@@ -1143,7 +1154,7 @@ export function AttributeTable({
         ? (props['_global_id'] as string)
         : null;
     if (!featureId) {
-      setEditError('Missing feature id; refresh and try again.');
+      setEditError(t('mapAttributeTable.missingFeatureId'));
       return;
     }
     const coerced = coerceDraft(
@@ -1179,7 +1190,7 @@ export function AttributeTable({
       cancelEditCell();
     } catch (err) {
       setEditError(
-        err instanceof Error ? err.message : 'Save failed; try again.',
+        err instanceof Error ? err.message : t('mapAttributeTable.saveFailed'),
       );
     } finally {
       setSavingCell(null);
@@ -1320,16 +1331,22 @@ export function AttributeTable({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Query any field..."
+              placeholder={t('mapAttributeTable.queryPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </label>
           <span className="text-2xs text-muted">
             {serverLoading
-              ? 'Loading...'
-              : `${visibleIndexes.length.toLocaleString()} rows`}
+              ? t('mapAttributeTable.loading')
+              : t('mapAttributeTable.rows', {
+                  count: visibleIndexes.length,
+                })}
             {serverMode && serverPage?.truncated ? '+' : ''}
-            {activeSelection.size > 0 ? ` · ${activeSelection.size} selected` : ''}
+            {activeSelection.size > 0
+              ? t('mapAttributeTable.selectedSuffix', {
+                  count: activeSelection.size,
+                })
+              : ''}
           </span>
           {/* "Records in map extent" toggle (#115 P13). Default ON
               for data-layer sources so opening the table on a big
@@ -1347,10 +1364,10 @@ export function AttributeTable({
               disabled={!mapBbox}
               title={
                 !mapBbox
-                  ? 'Map viewport not available yet'
+                  ? t('mapAttributeTable.extentUnavailable')
                   : extentOnly
-                    ? 'Show all records (capped at 5,000)'
-                    : 'Show only records in the current map extent'
+                    ? t('mapAttributeTable.extentShowAll')
+                    : t('mapAttributeTable.extentShowOnly')
               }
               className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 extentOnly
@@ -1359,7 +1376,7 @@ export function AttributeTable({
               }`}
             >
               <MapIcon className="h-3 w-3" />
-              In extent
+              {t('mapAttributeTable.inExtent')}
             </button>
           ) : null}
           {/* "Show selected" toggle: when a layer has thousands of
@@ -1374,10 +1391,10 @@ export function AttributeTable({
             disabled={activeSelection.size === 0}
             title={
               activeSelection.size === 0
-                ? 'Select features on the map first'
+                ? t('mapAttributeTable.selectOnMapFirst')
                 : showOnlySelected
-                  ? 'Show all rows'
-                  : 'Show only the selected rows'
+                  ? t('mapAttributeTable.showAllRows')
+                  : t('mapAttributeTable.showOnlySelected')
             }
             className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               showOnlySelected
@@ -1386,7 +1403,7 @@ export function AttributeTable({
             }`}
           >
             <FilterIcon className="h-3 w-3" />
-            Show selected
+            {t('mapAttributeTable.showSelected')}
           </button>
           {/* "Edit history" toggle: surfaces the who-edited-when
               audit columns (Created / Created by / Edited /
@@ -1405,8 +1422,8 @@ export function AttributeTable({
               aria-pressed={showEditorTracking}
               title={
                 showEditorTracking
-                  ? 'Hide edit history columns'
-                  : 'Show edit history columns (who created / edited each row)'
+                  ? t('mapAttributeTable.hideEditHistory')
+                  : t('mapAttributeTable.showEditHistory')
               }
               className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors ${
                 showEditorTracking
@@ -1415,7 +1432,7 @@ export function AttributeTable({
               }`}
             >
               <History className="h-3 w-3" />
-              Edit history
+              {t('mapAttributeTable.editHistory')}
             </button>
           ) : null}
         </div>
@@ -1450,22 +1467,22 @@ export function AttributeTable({
           }`}
           title={
             autoZoomOnSelect
-              ? 'Auto-zoom on row click is ON. Click to turn off.'
-              : 'Click to turn on auto-zoom (row clicks zoom to the feature). Also zooms to the current selection once.'
+              ? t('mapAttributeTable.autoZoomOn')
+              : t('mapAttributeTable.autoZoomOff')
           }
         >
           <Focus className="h-3.5 w-3.5" />
-          Zoom to
+          {t('mapAttributeTable.zoomTo')}
         </button>
         <button
           type="button"
           onClick={selectionToFilter}
           disabled={activeSelection.size === 0 || !activeLayer}
           className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-          title="Filter the layer to only the selected features"
+          title={t('mapAttributeTable.useAsFilterTitle')}
         >
           <FilterIcon className="h-3.5 w-3.5" />
-          Use as filter
+          {t('mapAttributeTable.useAsFilter')}
         </button>
         {/* Calculate Field had one entry point: right-clicking a
             column header. Nothing in the UI said so, so a feature
@@ -1477,10 +1494,10 @@ export function AttributeTable({
             type="button"
             onClick={() => setCalcFieldFor('')}
             className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-            title="Set a column's value for many rows at once from an expression"
+            title={t('mapAttributeTable.calculateTitle')}
           >
             <Calculator className="h-3.5 w-3.5" />
-            Calculate
+            {t('mapAttributeTable.calculate')}
           </button>
         ) : null}
         {/* #108: export the currently-displayed feature set to CSV
@@ -1517,7 +1534,7 @@ export function AttributeTable({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('mapAttributeTable.closeAria')}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-3.5 w-3.5" />
@@ -1529,32 +1546,37 @@ export function AttributeTable({
         <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-2xs text-warn">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            Showing 5,000+ rows
-            {extentOnly ? ' in this extent' : ''}. Zoom in
-            {extentOnly ? '' : ', enable "In extent",'} or filter to see more.
+            {t('mapAttributeTable.truncatedBanner', {
+              extent: extentOnly
+                ? t('mapAttributeTable.truncatedInExtent')
+                : '',
+              extentHint: extentOnly
+                ? ''
+                : t('mapAttributeTable.truncatedEnableExtent'),
+            })}
           </span>
         </div>
       ) : null}
       {!activeLayer ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted">
-          No layer selected.
+          {t('mapAttributeTable.noLayer')}
         </div>
       ) : serverMode && serverLoading && activeFeatures.length === 0 ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading features...
+          {t('mapAttributeTable.loadingFeatures')}
         </div>
       ) : activeFeatures.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted">
           {serverError
-            ? `Failed to load: ${serverError}`
+            ? t('mapAttributeTable.loadFailed', { error: serverError })
             : serverMode
               ? extentOnly
-                ? 'No features in this map extent.'
-                : 'No features to show.'
+                ? t('mapAttributeTable.noFeaturesInExtent')
+                : t('mapAttributeTable.noFeatures')
               : metadata[activeLayer.id]?.loading
-                ? 'Loading features...'
-                : 'No features to show.'}
+                ? t('mapAttributeTable.loadingFeatures')
+                : t('mapAttributeTable.noFeatures')}
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
@@ -1583,7 +1605,7 @@ export function AttributeTable({
                     }}
                     title={
                       serverMode && canEditActiveLayer && calculableFields.includes(f)
-                        ? 'Click to sort, right-click to Calculate Field'
+                        ? t('mapAttributeTable.sortAndCalculate')
                         : undefined
                     }
                     className="cursor-pointer border-b border-border px-3 py-1.5 text-left font-medium text-ink-1 hover:bg-surface-1"
@@ -1608,10 +1630,10 @@ export function AttributeTable({
                         key={col.key}
                         onClick={() => onHeaderClick(col.key)}
                         className="cursor-pointer border-b border-border bg-surface-1 px-3 py-1.5 text-left font-medium italic text-muted hover:text-ink-1"
-                        title={col.tooltip}
+                        title={t(col.tooltipKey)}
                       >
                         <span className="inline-flex items-center gap-1">
-                          {col.label}
+                          {t(col.labelKey)}
                           {sortBy === col.key ? (
                             sortDir === 'asc' ? (
                               <ArrowUp className="h-3 w-3" />
@@ -1628,11 +1650,11 @@ export function AttributeTable({
                 {showAttachmentsColumn ? (
                   <th
                     className="border-b border-border bg-surface-1 px-3 py-1.5 text-left font-medium text-muted"
-                    title="Files attached to each feature (#352)"
+                    title={t('mapAttributeTable.attachmentsColumnTitle')}
                   >
                     <span className="inline-flex items-center gap-1">
                       <Paperclip className="h-3 w-3" />
-                      Attachments
+                      {t('mapAttributeTable.attachments')}
                     </span>
                   </th>
                 ) : null}
@@ -1694,7 +1716,7 @@ export function AttributeTable({
                           }}
                           title={
                             editable && !isEditing
-                              ? 'Double-click to edit'
+                              ? t('mapAttributeTable.doubleClickEdit')
                               : undefined
                           }
                           className={`whitespace-nowrap px-3 py-1 text-ink-1 ${
@@ -1802,7 +1824,7 @@ export function AttributeTable({
                             key={col.key}
                             className="whitespace-nowrap px-3 py-1 text-muted italic"
                           >
-                            {col.format(props[col.key])}
+                            {col.format(props[col.key], fmt.locale)}
                           </td>
                         ))
                       : null}
@@ -1824,7 +1846,7 @@ export function AttributeTable({
                                 setAttachmentDrawer({ featureId: fid });
                               }}
                               className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:border-accent/40 hover:bg-surface-2"
-                              title="View attachments"
+                              title={t('mapAttributeTable.viewAttachments')}
                             >
                               <Paperclip className="h-3 w-3 text-muted" />
                               View
@@ -1849,10 +1871,12 @@ export function AttributeTable({
         onPatchFeature && canEditActiveLayer ? (
           <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-2xs">
             <span className="text-muted">
-              Double-click a cell to edit. Enter to save, Esc to cancel.
+              {t('mapAttributeTable.editFooterHint')}
             </span>
             {savingCell ? (
-              <span className="text-accent">Saving...</span>
+              <span className="text-accent">
+                {t('mapAttributeTable.savingCell')}
+              </span>
             ) : editError ? (
               <span className="text-danger" role="alert">
                 {editError}
@@ -1861,8 +1885,7 @@ export function AttributeTable({
           </div>
         ) : (
           <div className="border-t border-border px-3 py-1.5 text-2xs text-muted">
-            This table is read-only here. Rows can be edited on layers
-            you have permission to change.
+            {t('mapAttributeTable.readOnlyHere')}
           </div>
         )
       ) : null}
@@ -1986,7 +2009,7 @@ function AttrTableExportMenu({
     if (!dataLayerItemId || !dataLayerLayerKey) return;
     setBundleError(null);
     setBundleRunning(true);
-    setBundleProgress('Loading layer schema…');
+    setBundleProgress(t('mapAttributeTable.bundleLoadingSchema'));
     try {
       // Fetch the data_layer item on-demand so the bundle helper
       // can enumerate related tables.  AttributeTable doesn't keep
@@ -2037,7 +2060,7 @@ function AttrTableExportMenu({
           }
         }
         if (allowlist.size === 0) {
-          throw new Error('No selected features to export.');
+          throw new Error(t('mapAttributeTable.noSelectedFeatures'));
         }
       }
 
@@ -2057,7 +2080,12 @@ function AttrTableExportMenu({
         onProgress: (msg) => setBundleProgress(msg),
       });
       setBundleProgress(
-        `Done -- ${result.layerCount} layer${result.layerCount === 1 ? '' : 's'} · ${result.featureCount} feature${result.featureCount === 1 ? '' : 's'} · ${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'} · ${(result.bytes / 1024 / 1024).toFixed(1)} MB`,
+        t('mapAttributeTable.bundleDone', {
+          layers: `${result.layerCount} layer${result.layerCount === 1 ? '' : 's'}`,
+          features: `${result.featureCount} feature${result.featureCount === 1 ? '' : 's'}`,
+          attachments: `${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'}`,
+          mb: (result.bytes / 1024 / 1024).toFixed(1),
+        }),
       );
       setTimeout(() => {
         setBundleOpen(false);
@@ -2152,7 +2180,7 @@ function AttrTableExportMenu({
         }
       >
         <Download className="h-3.5 w-3.5" />
-        Export
+        {t('mapAttributeTable.export')}
       </button>
       {open ? (
         <>
@@ -2163,41 +2191,43 @@ function AttrTableExportMenu({
           />
           <div className="absolute right-0 top-8 z-40 w-56 rounded-md border border-border bg-surface-0 py-1 text-xs shadow-lg">
             <div className="px-3 py-1 text-2xs uppercase tracking-wide text-muted">
-              All rows ({features.length})
+              {t('mapAttributeTable.exportAllRows', { count: features.length })}
             </div>
             <button
               type="button"
               onClick={() => run('xlsx', false)}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              Excel (.xlsx)
+              {t('mapAttributeTable.exportExcel')}
             </button>
             <button
               type="button"
               onClick={() => run('csv', false)}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              CSV
+              {t('mapAttributeTable.exportCsv')}
             </button>
             {hasSelection ? (
               <>
                 <div className="my-1 border-t border-border" />
                 <div className="px-3 py-1 text-2xs uppercase tracking-wide text-muted">
-                  Selected rows ({activeSelection.size})
+                  {t('mapAttributeTable.exportSelectedRows', {
+                    count: activeSelection.size,
+                  })}
                 </div>
                 <button
                   type="button"
                   onClick={() => run('xlsx', true)}
                   className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
                 >
-                  Excel (.xlsx)
+                  {t('mapAttributeTable.exportExcel')}
                 </button>
                 <button
                   type="button"
                   onClick={() => run('csv', true)}
                   className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
                 >
-                  CSV
+                  {t('mapAttributeTable.exportCsv')}
                 </button>
               </>
             ) : null}
@@ -2213,35 +2243,36 @@ function AttrTableExportMenu({
                   }}
                   className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
                 >
-                  Bundle (.zip): Excel + related + attachments
+                  {t('mapAttributeTable.exportBundle')}
                 </button>
               </>
             ) : null}
           </div>
         </>
       ) : null}
-      {bundleOpen && canBundle ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={bundleRunning ? undefined : () => setBundleOpen(false)}
+      {canBundle ? (
+        <Dialog
+          open={bundleOpen}
+          onOpenChange={(next) => {
+            if (!next && !bundleRunning) setBundleOpen(false);
+          }}
         >
-          <div
-            className="relative w-full max-w-md rounded-lg bg-surface-0 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+          <DialogContent
+            size="md"
+            className="overflow-hidden bg-surface-0 p-0 shadow-2xl"
           >
-            <header className="border-b border-border px-4 py-3">
-              <h3 className="text-sm font-semibold text-ink-0">
-                Bundle export
-              </h3>
-              <p className="mt-1 text-xs text-muted">
-                Pack {layerTitle} (and optionally its related tables +
-                attachments) into a single ZIP.
-              </p>
+            <header className="border-b border-border px-4 py-3 pr-12">
+              <DialogTitle className="text-sm font-semibold text-ink-0">
+                {t('mapAttributeTable.bundleTitle')}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-xs text-muted">
+                {t('mapAttributeTable.bundleDescription', { layer: layerTitle })}
+              </DialogDescription>
             </header>
             <div className="space-y-3 px-4 py-3 text-xs">
               <div>
                 <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
-                  Scope
+                  {t('mapAttributeTable.bundleScope')}
                 </label>
                 <div className="mt-1 inline-flex rounded-md border border-border bg-surface-2 p-0.5">
                   <button
@@ -2254,7 +2285,9 @@ function AttrTableExportMenu({
                         : 'text-muted'
                     }`}
                   >
-                    All ({features.length})
+                    {t('mapAttributeTable.bundleScopeAll', {
+                      count: features.length,
+                    })}
                   </button>
                   <button
                     type="button"
@@ -2262,8 +2295,10 @@ function AttrTableExportMenu({
                     onClick={() => setBundleScope('selection')}
                     title={
                       hasSelection
-                        ? `Export only the ${activeSelection.size} selected feature(s)`
-                        : 'Select features in the table to use this scope'
+                        ? t('mapAttributeTable.bundleScopeSelectedTitle', {
+                            count: activeSelection.size,
+                          })
+                        : t('mapAttributeTable.bundleScopeNeedSelection')
                     }
                     className={`px-3 py-1 text-2xs ${
                       bundleScope === 'selection'
@@ -2271,7 +2306,9 @@ function AttrTableExportMenu({
                         : 'text-muted'
                     } disabled:opacity-50`}
                   >
-                    Selected ({activeSelection.size})
+                    {t('mapAttributeTable.bundleScopeSelected', {
+                      count: activeSelection.size,
+                    })}
                   </button>
                 </div>
               </div>
@@ -2285,10 +2322,7 @@ function AttrTableExportMenu({
                   }
                   className="mt-0.5"
                 />
-                <span>
-                  Include related-table sheets in the workbook (rows that
-                  reference an exported parent feature ride along).
-                </span>
+                <span>{t('mapAttributeTable.bundleIncludeRelated')}</span>
               </label>
               <label className="flex items-start gap-2 text-ink-1">
                 <input
@@ -2300,10 +2334,7 @@ function AttrTableExportMenu({
                   }
                   className="mt-0.5"
                 />
-                <span>
-                  Include feature attachments under{' '}
-                  <code>attachments/</code>.
-                </span>
+                <span>{t('mapAttributeTable.bundleIncludeAttachments')}</span>
               </label>
             </div>
             {bundleProgress || bundleError ? (
@@ -2317,14 +2348,14 @@ function AttrTableExportMenu({
                 {bundleError ?? bundleProgress}
               </div>
             ) : null}
-            <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <DialogFooter>
               <button
                 type="button"
                 disabled={bundleRunning}
                 onClick={() => setBundleOpen(false)}
                 className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
-                Close
+                {t('mapAttributeTable.closeAria')}
               </button>
               <button
                 type="button"
@@ -2337,11 +2368,13 @@ function AttrTableExportMenu({
                 ) : (
                   <Download className="h-3 w-3" />
                 )}
-                {bundleRunning ? 'Building…' : 'Export bundle'}
+                {bundleRunning
+                  ? t('mapAttributeTable.bundleBuilding')
+                  : t('mapAttributeTable.bundleExport')}
               </button>
-            </footer>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -2388,6 +2421,7 @@ function CalculateFieldModal({
   onClose: () => void;
   onApplied: () => void;
 }) {
+  const t = useT();
   const selectionCount = selectedIds.length;
   const [fieldName, setFieldName] = useState(initialFieldName);
   const [expression, setExpression] = useState('');
@@ -2454,7 +2488,7 @@ function CalculateFieldModal({
         },
       );
       if (!res.ok) {
-        setError(await parseApiError(res, 'Calculation failed'));
+        setError(await parseApiError(res, t('mapAttributeTable.calculationFailed')));
         return;
       }
       const data = (await res.json()) as {
@@ -2473,67 +2507,65 @@ function CalculateFieldModal({
         onApplied();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : t('mapAttributeTable.requestFailed'));
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-border bg-surface-1 shadow-raised">
-        <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-2 px-4 py-3">
-          <div>
-            <h3 className="text-sm font-medium text-ink-0">
-              Calculate Field
-            </h3>
-            <p className="flex items-center gap-1 text-xs text-muted">
-              Updates
-              <select
-                value={fieldName}
-                onChange={(e) => {
-                  setFieldName(e.target.value);
-                  setPreview(null);
-                }}
-                className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
-              >
-                {availableFields.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              across every row in scope.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-muted hover:bg-surface-1"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !submitting) onClose();
+      }}
+    >
+      <DialogContent
+        size="lg"
+        className="overflow-hidden p-0 shadow-raised"
+      >
+        <header className="border-b border-border bg-surface-2 px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {t('mapAttributeTable.calculateModalTitle')}
+          </DialogTitle>
+          <DialogDescription className="flex items-center gap-1 text-xs text-muted">
+            {t('mapAttributeTable.calculateUpdatesPrefix')}
+            <select
+              value={fieldName}
+              onChange={(e) => {
+                setFieldName(e.target.value);
+                setPreview(null);
+              }}
+              className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
+            >
+              {availableFields.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            {t('mapAttributeTable.calculateUpdatesSuffix')}
+          </DialogDescription>
         </header>
 
         <div className="space-y-4 p-4">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-2xs uppercase tracking-wide text-muted">
-                Expression
+                {t('mapAttributeTable.expression')}
               </span>
               {declaredType ? (
                 <span
                   className="text-2xs text-muted"
-                  title="The result type comes from the column's own definition."
+                  title={t('mapAttributeTable.resultTypeTitle')}
                 >
-                  Result:{' '}
+                  {t('mapAttributeTable.resultLabel')}{' '}
                   <span className="font-medium text-ink-1">
                     {declaredType === 'number'
-                      ? 'Number'
+                      ? t('mapAttributeTable.typeNumber')
                       : declaredType === 'boolean'
-                        ? 'Yes / no'
-                        : 'Text'}
+                        ? t('mapAttributeTable.typeYesNo')
+                        : t('mapAttributeTable.typeText')}
                   </span>
                 </span>
               ) : (
@@ -2546,19 +2578,20 @@ function CalculateFieldModal({
                   }
                   className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden"
                 >
-                  <option value="number">Number</option>
-                  <option value="string">String</option>
-                  <option value="boolean">Boolean</option>
+                  <option value="number">
+                    {t('mapAttributeTable.typeNumber')}
+                  </option>
+                  <option value="string">
+                    {t('mapAttributeTable.typeString')}
+                  </option>
+                  <option value="boolean">
+                    {t('mapAttributeTable.typeBoolean')}
+                  </option>
                 </select>
               )}
             </div>
             <p className="text-2xs text-muted">
-              Reference fields with{' '}
-              <code className="rounded bg-surface-2 px-1 font-mono">
-                {`{{field}}`}
-              </code>
-              . Operators: + - * / == != &lt; &gt; AND OR. Functions: upper,
-              lower, concat, abs, round, if(cond, a, b).
+              {t('mapAttributeTable.expressionHelp')}
             </p>
             <div className="flex flex-wrap gap-1">
               {referenceFields.map((f) => (
@@ -2592,7 +2625,7 @@ function CalculateFieldModal({
 
           <div className="space-y-1">
             <p className="text-2xs uppercase tracking-wide text-muted">
-              Apply to
+              {t('mapAttributeTable.applyTo')}
             </p>
             <div className="flex flex-col gap-1">
               <label className="inline-flex items-center gap-2 text-xs">
@@ -2603,7 +2636,7 @@ function CalculateFieldModal({
                   checked={scope === 'all'}
                   onChange={() => setScope('all')}
                 />
-                <span>All rows in this sublayer</span>
+                <span>{t('mapAttributeTable.allRowsInSublayer')}</span>
               </label>
               <label
                 className={`inline-flex items-center gap-2 text-xs ${
@@ -2619,8 +2652,9 @@ function CalculateFieldModal({
                   disabled={selectionCount === 0}
                 />
                 <span>
-                  Selected rows ({selectionCount} feature
-                  {selectionCount === 1 ? '' : 's'})
+                  {t('mapAttributeTable.selectedRowsFeatures', {
+                    count: selectionCount,
+                  })}
                 </span>
               </label>
             </div>
@@ -2629,18 +2663,28 @@ function CalculateFieldModal({
           {preview ? (
             <div className="rounded-md border border-border bg-surface-2 p-3 text-xs">
               <p className="mb-2 font-medium text-ink-0">
-                Preview: {preview.totalRows} row
-                {preview.totalRows === 1 ? '' : 's'} would change
-                {preview.errors > 0
-                  ? ` (${preview.errors} evaluation errors will become null)`
-                  : ''}
+                {t('mapAttributeTable.previewSummary', {
+                  count: preview.totalRows,
+                  errors:
+                    preview.errors > 0
+                      ? t('mapAttributeTable.previewErrors', {
+                          count: preview.errors,
+                        })
+                      : '',
+                })}
               </p>
               <table className="w-full">
                 <thead>
                   <tr className="text-left text-2xs uppercase tracking-wide text-muted">
-                    <th className="pb-1 pr-3">Row</th>
-                    <th className="pb-1 pr-3">Old</th>
-                    <th className="pb-1">New</th>
+                    <th className="pb-1 pr-3">
+                      {t('mapAttributeTable.previewColRow')}
+                    </th>
+                    <th className="pb-1 pr-3">
+                      {t('mapAttributeTable.previewColOld')}
+                    </th>
+                    <th className="pb-1">
+                      {t('mapAttributeTable.previewColNew')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2669,14 +2713,14 @@ function CalculateFieldModal({
           ) : null}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-4 py-3">
+        <DialogFooter className="bg-surface-2">
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
             className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('mapAttributeTable.cancel')}
           </button>
           <button
             type="button"
@@ -2687,7 +2731,7 @@ function CalculateFieldModal({
             {submitting ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : null}
-            Preview
+            {t('mapAttributeTable.preview')}
           </button>
           <button
             type="button"
@@ -2695,19 +2739,19 @@ function CalculateFieldModal({
             disabled={submitting || expression.trim().length === 0 || preview === null}
             title={
               preview === null
-                ? 'Run Preview first to see what will change'
-                : 'Apply the calculated values to every row in scope'
+                ? t('mapAttributeTable.previewFirstTitle')
+                : t('mapAttributeTable.applyValuesTitle')
             }
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-50"
           >
             {submitting ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : null}
-            Apply
+            {t('mapAttributeTable.apply')}
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2741,6 +2785,7 @@ function AttachmentDrawer({
   attachments: AttributeAttachmentRow[] | null;
   onClose: () => void;
 }) {
+  const t = useT();
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -2751,12 +2796,14 @@ function AttachmentDrawer({
   return (
     <div
       role="dialog"
-      aria-label="Attachments"
+      aria-label={t('mapAttributeTable.attachments')}
       className="absolute bottom-3 right-3 z-30 flex max-h-80 w-80 flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <header className="flex shrink-0 items-center gap-1.5 border-b border-border bg-surface-2/40 px-3 py-1.5">
         <Paperclip className="h-3.5 w-3.5 text-muted" />
-        <span className="text-xs font-semibold text-ink-0">Attachments</span>
+        <span className="text-xs font-semibold text-ink-0">
+          {t('mapAttributeTable.attachments')}
+        </span>
         {attachments && attachments.length > 0 ? (
           <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
@@ -2766,7 +2813,7 @@ function AttachmentDrawer({
           type="button"
           onClick={onClose}
           className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-1 hover:text-ink-0"
-          aria-label="Close"
+          aria-label={t('mapAttributeTable.closeAria')}
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -2774,10 +2821,13 @@ function AttachmentDrawer({
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {attachments === null ? (
           <p className="inline-flex items-center gap-1 px-1 py-2 text-xs italic text-muted">
-            <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+            <Loader2 className="h-3 w-3 animate-spin" />{' '}
+            {t('mapAttributeTable.attachmentsLoading')}
           </p>
         ) : attachments.length === 0 ? (
-          <p className="px-1 py-2 text-xs italic text-muted">No attachments</p>
+          <p className="px-1 py-2 text-xs italic text-muted">
+            {t('mapAttributeTable.attachmentsEmpty')}
+          </p>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             {attachments.map((a) => (
@@ -3022,14 +3072,22 @@ const HIDDEN_SYSTEM_FIELDS = new Set([
  */
 const EDITOR_TRACKING_COLUMNS: Array<{
   key: string;
-  label: string;
-  tooltip: string;
-  format: (v: unknown) => string;
+  labelKey:
+    | 'mapAttributeTable.createdBy'
+    | 'mapAttributeTable.createdAt'
+    | 'mapAttributeTable.editedBy'
+    | 'mapAttributeTable.editedAt';
+  tooltipKey:
+    | 'mapAttributeTable.createdByTooltip'
+    | 'mapAttributeTable.createdAtTooltip'
+    | 'mapAttributeTable.editedByTooltip'
+    | 'mapAttributeTable.editedAtTooltip';
+  format: (v: unknown, locale?: SupportedLocale) => string;
 }> = [
   {
     key: '_created_by',
-    label: 'Created by',
-    tooltip: 'User who created the row',
+    labelKey: 'mapAttributeTable.createdBy',
+    tooltipKey: 'mapAttributeTable.createdByTooltip',
     // Resolved via the module-level user-name cache populated by
     // the metadata probe; falls back to a truncated uuid when the
     // resolver hasn't filled the cache yet (rare; the probe runs
@@ -3038,31 +3096,34 @@ const EDITOR_TRACKING_COLUMNS: Array<{
   },
   {
     key: '_created_at',
-    label: 'Created',
-    tooltip: 'Timestamp the row was first inserted',
+    labelKey: 'mapAttributeTable.createdAt',
+    tooltipKey: 'mapAttributeTable.createdAtTooltip',
     format: formatTimestamp,
   },
   {
     key: '_edited_by',
-    label: 'Edited by',
-    tooltip: 'User who last edited the row',
+    labelKey: 'mapAttributeTable.editedBy',
+    tooltipKey: 'mapAttributeTable.editedByTooltip',
     format: (v) => (typeof v === 'string' && v ? getCachedUserName(v) : ''),
   },
   {
     key: '_edited_at',
-    label: 'Edited',
-    tooltip: 'Timestamp of the most recent edit',
+    labelKey: 'mapAttributeTable.editedAt',
+    tooltipKey: 'mapAttributeTable.editedAtTooltip',
     format: formatTimestamp,
   },
 ];
 
-function formatTimestamp(v: unknown): string {
+function formatTimestamp(
+  v: unknown,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   if (v === null || v === undefined) return '';
   if (typeof v !== 'string') return String(v);
   try {
     const d = new Date(v);
     if (Number.isNaN(d.getTime())) return v;
-    return d.toLocaleString();
+    return formatDateTime(d, locale);
   } catch {
     return v;
   }

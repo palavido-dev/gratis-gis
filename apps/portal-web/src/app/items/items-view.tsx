@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -2329,6 +2331,7 @@ function ItemGrid({
   onTagClick,
   activeTags,
 }: GridProps) {
+  const fmt = useFormat();
   const t = useT();
   if (viewMode === 'card') {
     return (
@@ -2567,7 +2570,7 @@ function ItemGrid({
                   {ownerLabel}
                 </p>
                 <p className="hidden text-2xs text-muted lg:block">
-                  {new Date(item.updatedAt).toLocaleDateString()}
+                  {fmt.date(item.updatedAt)}
                 </p>
               </Link>
               {/* Sharing + kebab sit outside the Link so their click

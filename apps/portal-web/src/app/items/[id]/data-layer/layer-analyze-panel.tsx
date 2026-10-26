@@ -31,6 +31,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import { toast } from '@/lib/toast';
+import { useFormat } from '@/lib/i18n/format';
 import {
   getDuckDb,
   isSpatialAvailable,
@@ -51,6 +52,7 @@ type Phase =
   | { kind: 'boot-error'; message: string };
 
 export function LayerAnalyzePanel({ itemId, layer }: Props) {
+  const fmt = useFormat();
   // View name mirrors the layer's table name so queries read like
   // the schema the author already knows (SELECT * FROM facilities).
   const viewName = (layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
@@ -423,10 +425,10 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           ) : null}
           {result ? (
             <span className="text-2xs text-muted">
-              {result.rowCount.toLocaleString()} row
+              {fmt.number(result.rowCount)} row
               {result.rowCount === 1 ? '' : 's'} in {result.elapsedMs} ms
               {result.truncated
-                ? `; showing first ${RESULT_ROW_CAP.toLocaleString()}`
+                ? `; showing first ${fmt.number(RESULT_ROW_CAP)}`
                 : ''}
             </span>
           ) : null}

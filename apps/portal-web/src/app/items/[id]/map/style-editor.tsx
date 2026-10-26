@@ -21,6 +21,7 @@ import {
   MAP_ICON_CATEGORIES,
   renderIconSvg,
 } from './map-icons';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   value: MapLayerStyle;
@@ -51,6 +52,8 @@ interface Props {
  * Unique-value / class-break renderers ship as a separate panel.
  */
 export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
+  const t = useT();
+
   function patch<K extends keyof MapLayerStyle>(
     section: K,
     patch: Partial<MapLayerStyle[K]>,
@@ -71,16 +74,16 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
       {showPolygon ? (
       <section>
         <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-          Polygons
+          {t('mapStyleEditor.sections.polygon')}
         </h4>
         <div className="grid grid-cols-2 gap-2">
           <Color
-            label="Fill"
+            label={t('mapLayerPanel.symbology.fill')}
             value={value.polygon.fillColor}
             onChange={(c) => patch('polygon', { fillColor: c })}
           />
           <Slider
-            label="Fill opacity"
+            label={t('mapLayerPanel.symbology.fillOpacity')}
             min={0}
             max={1}
             step={0.05}
@@ -88,12 +91,12 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
             onChange={(n) => patch('polygon', { fillOpacity: n })}
           />
           <Color
-            label="Outline"
+            label={t('mapLayerPanel.symbology.outline')}
             value={value.polygon.strokeColor}
             onChange={(c) => patch('polygon', { strokeColor: c })}
           />
           <Slider
-            label="Outline width"
+            label={t('mapLayerPanel.symbology.outlineWidth')}
             min={0}
             max={8}
             step={0.5}
@@ -104,18 +107,18 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
               round / round so existing polygons keep their look
               when this section appears below the size sliders. */}
           <DashSelect
-            label="Outline dash"
+            label={t('mapStyleEditor.outlineDash')}
             value={value.polygon.strokeDashStyle ?? 'solid'}
             onChange={(d) => patch('polygon', { strokeDashStyle: d })}
           />
           <CapJoinSelect
-            label="Outline cap"
+            label={t('mapStyleEditor.outlineCap')}
             options={LINE_CAPS}
             value={value.polygon.strokeCap ?? 'round'}
             onChange={(c) => patch('polygon', { strokeCap: c as LineCap })}
           />
           <CapJoinSelect
-            label="Outline join"
+            label={t('mapStyleEditor.outlineJoin')}
             options={LINE_JOINS}
             value={value.polygon.strokeJoin ?? 'round'}
             onChange={(j) => patch('polygon', { strokeJoin: j as LineJoin })}
@@ -147,13 +150,13 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
               }
               className="accent-accent"
             />
-            Extrude in 3D by attribute
+            {t('mapStyleEditor.extrude3d')}
           </label>
           {value.polygon.extrusion?.enabled ? (
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="col-span-2 block">
                 <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-                  Height field (meters)
+                  {t('mapStyleEditor.heightFieldMeters')}
                 </span>
                 {fields && fields.length > 0 ? (
                   <select
@@ -178,7 +181,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                   <input
                     type="text"
                     value={value.polygon.extrusion.heightField}
-                    placeholder="e.g. height"
+                    placeholder={t('mapStyleEditor.heightFieldPlaceholder')}
                     onChange={(e) =>
                       patch('polygon', {
                         extrusion: {
@@ -192,7 +195,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                 )}
               </label>
               <Slider
-                label="Multiplier"
+                label={t('mapStyleEditor.multiplier')}
                 min={0.1}
                 max={20}
                 step={0.1}
@@ -207,7 +210,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                 }
               />
               <Slider
-                label="Base offset (m)"
+                label={t('mapStyleEditor.baseOffsetM')}
                 min={0}
                 max={100}
                 step={1}
@@ -222,8 +225,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                 }
               />
               <p className="col-span-2 text-2xs leading-relaxed text-muted">
-                Values in feet? Set the multiplier to 0.3048. Tilt
-                the map (right-click drag) to see the extrusion.
+                {t('mapStyleEditor.extrusionFeetHint')}
               </p>
             </div>
           ) : null}
@@ -234,16 +236,16 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
       {showLine ? (
       <section>
         <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-          Lines
+          {t('mapStyleEditor.sections.line')}
         </h4>
         <div className="grid grid-cols-2 gap-2">
           <Color
-            label="Color"
+            label={t('mapLayerPanel.symbology.color')}
             value={value.line.color}
             onChange={(c) => patch('line', { color: c })}
           />
           <Slider
-            label="Width"
+            label={t('mapLayerPanel.symbology.width')}
             min={0.5}
             max={12}
             step={0.5}
@@ -251,18 +253,18 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
             onChange={(n) => patch('line', { width: n })}
           />
           <DashSelect
-            label="Dash"
+            label={t('mapStyleEditor.dash')}
             value={value.line.dashStyle ?? 'solid'}
             onChange={(d) => patch('line', { dashStyle: d })}
           />
           <CapJoinSelect
-            label="Cap"
+            label={t('mapStyleEditor.cap')}
             options={LINE_CAPS}
             value={value.line.cap ?? 'round'}
             onChange={(c) => patch('line', { cap: c as LineCap })}
           />
           <CapJoinSelect
-            label="Join"
+            label={t('mapStyleEditor.join')}
             options={LINE_JOINS}
             value={value.line.join ?? 'round'}
             onChange={(j) => patch('line', { join: j as LineJoin })}
@@ -274,13 +276,13 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
       {showPoint ? (
         <section>
           <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-            Points
+            {t('mapStyleEditor.sections.point')}
           </h4>
           <div className="mb-2 grid grid-cols-2 gap-2">
             <SymbolBtn
               active={(value.point.symbol ?? 'circle') === 'circle'}
               onClick={() => patch('point', { symbol: 'circle' })}
-              label="Circle"
+              label={t('mapStyleEditor.circle')}
             />
             <SymbolBtn
               active={value.point.symbol === 'icon'}
@@ -290,7 +292,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                   iconName: value.point.iconName || 'map-pin',
                 })
               }
-              label="Icon"
+              label={t('mapStyleEditor.icon')}
             />
           </div>
 
@@ -302,7 +304,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
               />
               <div className="mt-3 space-y-3">
                 <Slider
-                  label="Icon size"
+                  label={t('mapStyleEditor.iconSize')}
                   min={0.5}
                   max={3}
                   step={0.1}
@@ -318,21 +320,18 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                     }
                     className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
                   />
-                  <span className="text-ink-1">Tint with fill color</span>
+                  <span className="text-ink-1">{t('mapStyleEditor.tintWithFill')}</span>
                 </label>
                 {value.point.iconTint !== false ? (
                   <Color
-                    label="Fill"
+                    label={t('mapLayerPanel.symbology.fill')}
                     value={value.point.color}
                     onChange={(c) => patch('point', { color: c })}
                   />
                 ) : null}
               </div>
               <p className="mt-2 text-2xs text-muted">
-                Tinting renders the icon as a signed-distance field
-                so the fill color applies cleanly at any size.
-                Un-tick if you want the icon to stay in its shipped
-                color.
+                {t('mapStyleEditor.tintHint')}
               </p>
 
               {/* #146: background shape behind the icon. AGO /
@@ -340,11 +339,11 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                   to 'none' so existing layers don't change look. */}
               <div className="mt-4 border-t border-border pt-3">
                 <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">
-                  Background
+                  {t('mapStyleEditor.background')}
                 </p>
                 <div className="space-y-3">
                   <label className="block text-xs">
-                    <span className="text-muted">Shape</span>
+                    <span className="text-muted">{t('mapStyleEditor.shape')}</span>
                     <select
                       value={value.point.backgroundShape ?? 'none'}
                       onChange={(e) =>
@@ -357,29 +356,29 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                       }
                       className="mt-1 w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
                     >
-                      <option value="none">None</option>
-                      <option value="circle">Circle</option>
-                      <option value="rounded-square">Rounded square</option>
+                      <option value="none">{t('mapStyleEditor.shapeNone')}</option>
+                      <option value="circle">{t('mapStyleEditor.shapeCircle')}</option>
+                      <option value="rounded-square">{t('mapStyleEditor.shapeRoundedSquare')}</option>
                     </select>
                   </label>
                   {(value.point.backgroundShape ?? 'none') !== 'none' ? (
                     <div className="grid grid-cols-2 gap-2">
                       <Color
-                        label="Fill"
+                        label={t('mapLayerPanel.symbology.fill')}
                         value={value.point.backgroundFill ?? '#ffffff'}
                         onChange={(c) =>
                           patch('point', { backgroundFill: c })
                         }
                       />
                       <Color
-                        label="Outline"
+                        label={t('mapLayerPanel.symbology.outline')}
                         value={value.point.backgroundStrokeColor ?? '#111827'}
                         onChange={(c) =>
                           patch('point', { backgroundStrokeColor: c })
                         }
                       />
                       <Slider
-                        label="Outline width"
+                        label={t('mapLayerPanel.symbology.outlineWidth')}
                         min={0}
                         max={6}
                         step={0.5}
@@ -394,9 +393,7 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                 {(value.point.backgroundShape ?? 'none') ===
                 'rounded-square' ? (
                   <p className="mt-2 text-2xs text-muted">
-                    Rounded square renders as a soft pill until the
-                    sprite-bake renderer ships; appearance is close
-                    but the corners read as fully circular.
+                    {t('mapStyleEditor.roundedSquareHint')}
                   </p>
                 ) : null}
               </div>
@@ -404,12 +401,12 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
           ) : (
             <div className="grid grid-cols-2 gap-2">
               <Color
-                label="Fill"
+                label={t('mapLayerPanel.symbology.fill')}
                 value={value.point.color}
                 onChange={(c) => patch('point', { color: c })}
               />
               <Slider
-                label="Radius"
+                label={t('mapLayerPanel.symbology.radius')}
                 min={2}
                 max={24}
                 step={1}
@@ -417,12 +414,12 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                 onChange={(n) => patch('point', { radius: n })}
               />
               <Color
-                label="Outline"
+                label={t('mapLayerPanel.symbology.outline')}
                 value={value.point.strokeColor}
                 onChange={(c) => patch('point', { strokeColor: c })}
               />
               <Slider
-                label="Outline width"
+                label={t('mapLayerPanel.symbology.outlineWidth')}
                 min={0}
                 max={6}
                 step={0.5}
@@ -483,6 +480,7 @@ function IconPicker({
   value: string;
   onChange: (name: string) => void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string>('all');
   const [uploads, setUploads] = useState<UploadedIcon[]>([]);
@@ -566,7 +564,7 @@ function IconPicker({
       // `upload:<key>` form by URL lookup at map load.
       onChange(`upload:${row.storageKey}`);
     } catch (err) {
-      setUploadError((err as Error).message || 'Upload failed');
+      setUploadError((err as Error).message || t('mapStyleEditor.uploadFailed'));
     } finally {
       setUploadingName(null);
     }
@@ -579,7 +577,7 @@ function IconPicker({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search icons..."
+          placeholder={t('mapStyleEditor.searchIcons')}
           className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
         <select
@@ -587,7 +585,7 @@ function IconPicker({
           onChange={(e) => setCategory(e.target.value)}
           className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         >
-          <option value="all">all</option>
+          <option value="all">{t('mapStyleEditor.categoryAll')}</option>
           {MAP_ICON_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -595,7 +593,7 @@ function IconPicker({
           ))}
         </select>
         <label className="flex h-7 cursor-pointer items-center rounded border border-border bg-surface-1 px-2 text-2xs hover:bg-surface-2">
-          + SVG
+          {t('mapStyleEditor.uploadSvg')}
           <input
             type="file"
             accept="image/svg+xml,.svg"
@@ -607,7 +605,7 @@ function IconPicker({
       </div>
       {uploadingName ? (
         <div className="mb-2 rounded border border-border bg-surface-0 px-2 py-1 text-2xs text-muted">
-          Uploading {uploadingName}...
+          {t('mapStyleEditor.uploading', { name: uploadingName })}
         </div>
       ) : null}
       {uploadError ? (
@@ -618,7 +616,7 @@ function IconPicker({
       {filteredUploads.length > 0 ? (
         <>
           <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
-            Your uploads
+            {t('mapStyleEditor.yourUploads')}
           </div>
           <div className="mb-2 grid grid-cols-6 gap-1">
             {filteredUploads.map((u) => {
@@ -668,7 +666,7 @@ function IconPicker({
         })}
         {filtered.length === 0 && filteredUploads.length === 0 ? (
           <div className="col-span-6 py-4 text-center text-2xs text-muted">
-            No icons match.
+            {t('mapStyleEditor.noIconsMatch')}
           </div>
         ) : null}
       </div>

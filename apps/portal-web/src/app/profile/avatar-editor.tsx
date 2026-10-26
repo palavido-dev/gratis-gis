@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ImageUploader } from '@/components/image-uploader';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   userId: string;
@@ -18,6 +19,7 @@ interface Props {
  * (notably the top bar in the shell) to re-fetch and paint the new one.
  */
 export function AvatarEditor({ userId, fullName, initialAvatarUrl }: Props) {
+  const t = useT();
   const router = useRouter();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl);
   const [saving, setSaving] = useState(false);
@@ -34,7 +36,12 @@ export function AvatarEditor({ userId, fullName, initialAvatarUrl }: Props) {
         body: JSON.stringify({ avatarUrl: next }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(
+          t('profile.avatar.saveFailed', {
+            status: String(res.status),
+            detail: await res.text(),
+          }),
+        );
         // Revert optimistic local state so the badge reflects reality.
         setAvatarUrl(initialAvatarUrl);
         return;
@@ -56,7 +63,9 @@ export function AvatarEditor({ userId, fullName, initialAvatarUrl }: Props) {
         size="xl"
         rounded="full"
       />
-      {saving ? <p className="text-xs text-muted">Saving...</p> : null}
+      {saving ? (
+        <p className="text-xs text-muted">{t('profile.avatar.saving')}</p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-xs text-danger">
           {error}

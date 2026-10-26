@@ -171,7 +171,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?KEYCLOAK_DB_PASSWORD must be set in .env.prod}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PG 18+ official images expect the mount at /var/lib/postgresql
+      # (not .../data). See docker-library/postgres#1259 and #306.
+      - pgdata:/var/lib/postgresql
       - ./init-prod-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
       - ./init-prod-db.sh:/docker-entrypoint-initdb.d/20-init-keycloak-db.sh:ro
     healthcheck:
@@ -179,6 +181,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 20s
     networks:
       - gratis-net
 
@@ -294,18 +297,14 @@ services:
       - gratis-net
 
   minio:
-    # Pin a recent MinIO. Earlier 2024 releases reject the
-    # x-amz-sdk-checksum-algorithm header that AWS SDK v3 sends by
-    # default on PUT / CreateBucket, with "A header you provided
-    # implies functionality that is not implemented". The April 2025
-    # release we used initially also rejected the same header on
-    # PUT-Bucket-CORS / PUT-Bucket-Policy specifically (admin
-    # operations send the header but the surface there hadn't caught
-    # up). The September 2025 release accepts it everywhere we use,
-    # so bucket bootstrap (HeadBucket / PutBucketPolicy /
-    # PutBucketCors) and presigned PUTs both succeed without the
-    # WHEN_REQUIRED opt-out alone needing to do all the work.
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # minio/minio was removed from Docker Hub (2026-09) and Quay
+    # anonymous pulls return 401 (#243). Silo is a maintained MinIO
+    # fork that keeps the same S3 API, MINIO_* env vars, /minio/*
+    # health routes, and on-disk format. Pin tag + digest.
+    # Earlier MinIO releases rejected x-amz-sdk-checksum-algorithm on
+    # PUT / CreateBucket / CORS / Policy; this Silo release accepts
+    # those headers the same way the September 2025 MinIO release did.
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: gratis-gis-prod-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -456,6 +455,15 @@ services:
       # portal-worker. Without this, the worker can't read files the
       # api wrote at /ingest/stage time (different container tmpfs).
       STAGING_DIR: /var/lib/gg-staging
+      # #234: GDAL network lockdown. Ingest also refuses /vsicurl/ in
+      # code; these knobs make any missed dial die fast and stop
+      # remote readdir. /vsis3/ (MinIO) is unaffected. Driver allowlist
+      # excludes VRT (MED-10); enforced again after every gdal.open.
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_CONNECTTIMEOUT: "2"
+      GDAL_HTTP_TIMEOUT: "5"
+      CPL_VSIL_CURL_USE_HEAD: "NO"
+      GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       # Token issuer side: KEYCLOAK_URL is the public-facing Keycloak
       # base, used both as the JWT issuer prefix and as the JWKS
@@ -671,6 +679,13 @@ services:
       # total DB demand (portal-api 2x25 + this + script-runner +
       # Keycloak) inside postgres max_connections=100.
       DB_POOL_MAX: "8"
+      # #234: same GDAL network lockdown as portal-api (ingest +
+      # tile conversion share this image).
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_CONNECTTIMEOUT: "2"
+      GDAL_HTTP_TIMEOUT: "5"
+      CPL_VSIL_CURL_USE_HEAD: "NO"
+      GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       KEYCLOAK_URL: https://${AUTH_DOMAIN:-auth.gratisgis.org}
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
@@ -914,6 +929,12 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${S3_BUCKET:-gratisgis}
       SCRATCH_DIR: /scratch
+      # #234: GDAL network lockdown. Workers build local VRTs and
+      # read /vsis3/; /vsicurl/ stays refused via HTTP timeouts.
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_CONNECTTIMEOUT: "2"
+      GDAL_HTTP_TIMEOUT: "5"
+      CPL_VSIL_CURL_USE_HEAD: "NO"
       # Operator tuning knobs (#205 / #199 / #208). These were
       # documented as env-tunable but never passed through compose,
       # so only the code defaults ever applied; discovered when the

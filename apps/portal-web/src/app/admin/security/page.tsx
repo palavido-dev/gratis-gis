@@ -2,6 +2,8 @@
 import { redirect } from 'next/navigation';
 
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { SecurityForm, type SecurityState } from './security-form';
 
 const EMPTY: SecurityState = { providers: [], mfaRequired: false };
@@ -18,21 +20,26 @@ export default async function AdminSecurityPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   let state = EMPTY;
   let error: string | null = null;
   try {
     state = await apiFetch<SecurityState>('/api/admin/security');
   } catch (err) {
-    error = err instanceof Error ? err.message : 'Could not load sign-in settings.';
+    error =
+      err instanceof Error
+        ? err.message
+        : t('adminSecurity.errLoad', undefined, locale);
   }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-semibold text-ink-0">Sign-in</h1>
+      <h1 className="text-xl font-semibold text-ink-0">
+        {t('nav.security', undefined, locale)}
+      </h1>
       <p className="mt-2 mb-8 text-sm text-ink-1">
-        Add a work account people already have, and decide whether the
-        next sign-in must set up an authenticator.
+        {t('adminSecurity.pageIntro', undefined, locale)}
       </p>
       {error ? (
         <p className="rounded-md border border-border bg-surface-1 px-4 py-3 text-sm text-ink-0">

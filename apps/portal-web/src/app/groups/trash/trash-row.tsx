@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import type { Group } from '@gratis-gis/shared-types';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useFormat } from '@/lib/i18n/format';
 
 interface Props {
   group: Group;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function TrashRow({ group, retentionDays }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [pending, setPending] = useState<'restore' | 'purge' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export function TrashRow({ group, retentionDays }: Props) {
         ) : null}
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
-        {deletedAt ? deletedAt.toLocaleString() : ''}
+        {deletedAt ? fmt.dateTime(deletedAt) : ''}
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
         {daysLeft !== null ? (

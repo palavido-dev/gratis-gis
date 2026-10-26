@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { formatDate, formatDateTime, formatNumber, useFormat } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import type { SupportedLocale } from '@/lib/i18n/locales';
+
 /**
  * #101: render a print template at paper-sized scale, with parameter
  * values resolved into bound segments, and trigger the browser's
@@ -70,6 +74,7 @@ interface MapSnapshot {
 }
 
 export function PrintRenderClient({ templateId }: PrintRenderClientProps) {
+  const locale = useLocale();
   const search = useSearchParams();
   const valuesParam = search?.get('values') ?? '{}';
   const mapWidgetId = search?.get('mapWidgetId') ?? '';
@@ -284,6 +289,7 @@ function resolveSegment(
   parameters: PrintTemplateParameter[],
   values: Record<string, string>,
   mapSnapshot: MapSnapshot | null,
+  locale: SupportedLocale,
 ): string {
   if (seg.kind === 'literal') return seg.text;
   if (seg.source === 'parameter') {
@@ -294,9 +300,9 @@ function resolveSegment(
   }
   // dynamic
   const id = seg.tokenId as DynamicTokenId;
-  if (id === 'today_date') return new Date().toLocaleDateString();
-  if (id === 'today_datetime') return new Date().toLocaleString();
-  if (id === 'now_time') return new Date().toLocaleTimeString();
+  if (id === 'today_date') return formatDate(new Date(), locale);
+  if (id === 'today_datetime') return formatDateTime(new Date(), locale);
+  if (id === 'now_time') return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(new Date());
   if (id === 'page_number') return '1';
   if (id === 'user_display_name') return '';
   if (id === 'org_name') return '';
@@ -311,7 +317,7 @@ function resolveSegment(
   if (id === 'map_scale') {
     if (!mapSnapshot) return '';
     const denom = Math.round(559082264 / Math.pow(2, mapSnapshot.zoom));
-    return `1:${denom.toLocaleString()}`;
+    return `1:${formatNumber(denom, locale)}`;
   }
   if (id === 'map_extent_bbox') {
     // bbox isn't in the snapshot today (followup); for now emit
@@ -341,6 +347,7 @@ function TextRender({
   baseStyle: CSSProperties;
   mapSnapshot: MapSnapshot | null;
 }) {
+  const locale = useLocale();
   const fontPx = (element.fontSizePt / 72) * PRINT_DPI;
   const style: CSSProperties = {
     ...baseStyle,
@@ -372,7 +379,7 @@ function TextRender({
     boxSizing: 'border-box',
   };
   const resolved = element.segments
-    .map((s) => resolveSegment(s, parameters, values, mapSnapshot))
+    .map((s) => resolveSegment(s, parameters, values, mapSnapshot, locale))
     .join('');
   return (
     <div style={style}>
@@ -554,6 +561,7 @@ function ScalebarRender({
   baseStyle: CSSProperties;
   mapSnapshot: MapSnapshot | null;
 }) {
+  const fmt = useFormat();
   // Compute the bar's ground length from the snapshot's center
   // latitude + zoom, the same web-mercator math the server / preview
   // renderer uses, so the client print shows a real distance instead
@@ -606,7 +614,7 @@ function ScalebarRender({
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
         <span>0</span>
         <span>
-          {displayValue.toLocaleString()} {unitLabel}
+          {fmt.number(displayValue)} {unitLabel}
         </span>
       </div>
     </div>

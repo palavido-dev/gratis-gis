@@ -32,7 +32,7 @@ GlobalID).
 
 You can reach Bundle from two surfaces:
 
-- **Data layer detail page → Layer data → Browse → Export → Bundle**
+- **Data layer detail page → Layer data → Attributes → Export → Bundle**
 - **Attribute table → Export → Bundle** (only when the active
  layer is sourced from a data layer)
 

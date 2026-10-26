@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppWindow,
   Check,
   Eye,
   List,
@@ -1693,8 +1694,14 @@ export function MapEditor({
             className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
               basemapMenuOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
             }`}
-            title={`Basemap${selectedBasemap ? `: ${selectedBasemap.label}` : ''}`}
-            aria-label="Basemap"
+            title={
+              selectedBasemap
+                ? t('mapEditor.basemapTitleWithName', {
+                    name: selectedBasemap.label,
+                  })
+                : t('mapEditor.basemapButton')
+            }
+            aria-label={t('mapEditor.basemapButton')}
             aria-haspopup="menu"
             aria-expanded={basemapMenuOpen}
           >
@@ -1706,11 +1713,11 @@ export function MapEditor({
               className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
             >
               <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-                Basemap
+                {t('mapEditor.basemapMenuHeading')}
               </div>
               {basemaps.length === 0 ? (
                 <div className="px-3 py-2 italic text-muted">
-                  No basemaps available
+                  {t('mapEditor.noBasemaps')}
                 </div>
               ) : (
                 <ul className="max-h-72 overflow-auto py-1">
@@ -1734,7 +1741,7 @@ export function MapEditor({
                           <span className="truncate">{b.label}</span>
                           {active ? (
                             <span className="ml-auto text-2xs uppercase tracking-wide">
-                              active
+                              {t('mapEditor.basemapActive')}
                             </span>
                           ) : null}
                         </button>
@@ -1753,13 +1760,13 @@ export function MapEditor({
       ) : null}
       <ToolbarIconToggle
         Icon={List}
-        label="Legend"
+        label={t('mapEditor.legendButton')}
         active={legendOpen}
         onClick={() => setLegendOpen((v) => !v)}
       />
       <ToolbarIconToggle
         Icon={Table}
-        label="Attribute table"
+        label={t('mapEditor.tableButton')}
         active={tableOpen}
         onClick={() => {
           // Toolbar toggle is the unfocused path: clear any per-layer
@@ -1771,14 +1778,14 @@ export function MapEditor({
       />
       <ToolbarIconToggle
         Icon={ChartSpline}
-        label="Elevation profile"
+        label={t('mapEditor.elevationProfileButton')}
         active={profileOpen}
         onClick={() => setProfileOpen((v) => !v)}
       />
       {currentUser ? (
         <ToolbarIconToggle
           Icon={Eye}
-          label="Visibility"
+          label={t('mapEditor.visibilityButton')}
           active={visibilityOpen}
           onClick={() => setVisibilityOpen((v) => !v)}
         />
@@ -1790,26 +1797,26 @@ export function MapEditor({
         <>
           <ToolbarIconToggle
             Icon={PencilLine}
-            label="Markup"
+            label={t('mapEditor.markupButton')}
             active={markupOpen}
             onClick={() => setMarkupOpen((v) => !v)}
           />
           <ToolbarIconToggle
             Icon={MessageSquare}
-            label="Comments"
+            label={t('mapEditor.commentsButton')}
             active={commentsOpen}
             onClick={() => setCommentsOpen((v) => !v)}
           />
           <ToolbarIconToggle
             Icon={Printer}
-            label="Print this map"
+            label={t('mapEditor.printButton')}
             active={printOpen}
             onClick={() => setPrintOpen((v) => !v)}
           />
           {canEdit ? (
             <ToolbarIconToggle
               Icon={ShieldCheck}
-              label="Layer access"
+              label={t('mapEditor.layerAccessButton')}
               active={matrixOpen}
               onClick={() => setMatrixOpen((v) => !v)}
             />
@@ -1829,12 +1836,23 @@ export function MapEditor({
           container is harmless when nobody else is on the map. */}
       <div ref={setPresenceChipsSlot} className="flex items-center" />
       {canvasTogglePill}
+      {/* #189: Create app from this map — next to Save. Hidden in
+          scratch mode (no durable map id to bind). */}
+      {!scratch ? (
+        <a
+          href={`/items/new?type=custom&map=${itemId}`}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
+        >
+          <AppWindow className="h-4 w-4" />
+          {t('mapEditor.createAppButton')}
+        </a>
+      ) : null}
       {canEdit ? (
         <>
           {saved ? (
             <span className="inline-flex items-center gap-1 text-xs text-success">
               <Check className="h-3.5 w-3.5" />
-              Saved
+              {t('mapEditor.savedIndicator')}
             </span>
           ) : null}
           <button
@@ -1848,7 +1866,7 @@ export function MapEditor({
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save map
+            {t('mapEditor.saveMapButton')}
           </button>
         </>
       ) : null}
@@ -2159,11 +2177,10 @@ export function MapEditor({
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40">
               <div className="w-80 rounded-lg border border-border bg-surface-1 p-4 shadow-overlay">
                 <h2 className="text-sm font-medium text-ink-0">
-                  Save this map
+                  {t('mapEditor.saveAsTitle')}
                 </h2>
                 <p className="mt-1 text-xs text-muted">
-                  Give it a name and it becomes a map in your portal,
-                  ready to share and open again later.
+                  {t('mapEditor.saveAsDescription')}
                 </p>
                 <input
                   autoFocus
@@ -2174,7 +2191,7 @@ export function MapEditor({
                     if (e.key === 'Enter') void saveScratchAsItem();
                     if (e.key === 'Escape') setSaveAsOpen(false);
                   }}
-                  placeholder="Map name"
+                  placeholder={t('mapEditor.mapNamePlaceholder')}
                   className="mt-3 w-full rounded border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
                 />
                 <div className="mt-3 flex justify-end gap-2">
@@ -2183,7 +2200,7 @@ export function MapEditor({
                     onClick={() => setSaveAsOpen(false)}
                     className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
                   >
-                    Cancel
+                    {t('mapEditor.cancel')}
                   </button>
                   <button
                     type="button"
@@ -2191,7 +2208,9 @@ export function MapEditor({
                     disabled={saving || !saveAsTitle.trim()}
                     className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? 'Saving...' : 'Save map'}
+                    {saving
+                      ? t('mapEditor.savingIndicator')
+                      : t('mapEditor.saveMapButton')}
                   </button>
                 </div>
               </div>

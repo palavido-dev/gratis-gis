@@ -26,6 +26,8 @@ import {
 import type { ItemType } from '@gratis-gis/shared-types';
 import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
+import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Wire shapes returned by /admin/housekeeping endpoints. Kept
@@ -153,6 +155,7 @@ interface Props {
 
 export function HousekeepingView({ bundle }: Props) {
   const router = useRouter();
+  const t = useT();
   const {
     summary,
     staleItems,
@@ -199,15 +202,22 @@ export function HousekeepingView({ bundle }: Props) {
         .map(([t, n]) => `${n} ${t.replace(/_/g, ' ')}`)
         .join(', ');
       setFlash(
-        `Recomputed extents for ${result.updated} of ${result.scanned} items${
-          breakdown ? ` (${breakdown})` : ''
-        }.`,
+        breakdown
+          ? t('adminHousekeeping.flashRecomputedExtentsWithBreakdown', {
+              updated: result.updated,
+              scanned: result.scanned,
+              breakdown,
+            })
+          : t('adminHousekeeping.flashRecomputedExtents', {
+              updated: result.updated,
+              scanned: result.scanned,
+            }),
       );
       setTimeout(() => setFlash(null), 5000);
       router.refresh();
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : 'Could not recompute extents.',
+        e instanceof Error ? e.message : t('adminHousekeeping.errRecomputeExtents'),
       );
     } finally {
       setBusy(null);
@@ -243,25 +253,35 @@ export function HousekeepingView({ bundle }: Props) {
         skippedFields: Array<{ scope: string; field: string; reason: string }>;
         durationMs: number;
       };
+      const removed =
+        result.dropped.length +
+        result.droppedInvalid.length +
+        result.orphansDropped.length;
       const bits = [
-        `${result.created.length} built`,
-        `${result.kept.length} already current`,
-        `${
-          result.dropped.length +
-          result.droppedInvalid.length +
-          result.orphansDropped.length
-        } removed`,
+        t('adminHousekeeping.indexPartBuilt', { count: result.created.length }),
+        t('adminHousekeeping.indexPartKept', { count: result.kept.length }),
+        t('adminHousekeeping.indexPartRemoved', { count: removed }),
       ];
       if (result.skippedFields.length > 0) {
-        bits.push(`${result.skippedFields.length} field(s) skipped`);
+        bits.push(
+          t('adminHousekeeping.indexPartSkipped', {
+            count: result.skippedFields.length,
+          }),
+        );
       }
       setFlash(
-        `Search indexes across ${result.indexedLayers} layer(s): ${bits.join(', ')} in ${(result.durationMs / 1000).toFixed(1)}s.`,
+        t('adminHousekeeping.flashSearchIndexes', {
+          layers: result.indexedLayers,
+          parts: bits.join(', '),
+          seconds: (result.durationMs / 1000).toFixed(1),
+        }),
       );
       setTimeout(() => setFlash(null), 8000);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : 'Could not build search indexes.',
+        e instanceof Error
+          ? e.message
+          : t('adminHousekeeping.errBuildSearchIndexes'),
       );
     } finally {
       setBusy(null);
@@ -309,11 +329,15 @@ export function HousekeepingView({ bundle }: Props) {
         if (!res.ok) throw new Error(`Item ${id.slice(0, 8)}: HTTP ${res.status}`);
       });
       setSelectedItems(new Set());
-      setFlash(`Moved ${ids.length} item${ids.length === 1 ? '' : 's'} to the recycle bin.`);
+      setFlash(
+        t('adminHousekeeping.flashMovedToTrash', { count: ids.length }),
+      );
       setTimeout(() => setFlash(null), 4000);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not move items to trash.');
+      setError(
+        e instanceof Error ? e.message : t('adminHousekeeping.errMoveItemsTrash'),
+      );
     } finally {
       setBusy(null);
     }
@@ -348,7 +372,7 @@ export function HousekeepingView({ bundle }: Props) {
         await disableUsers(ids);
         setSelectedUsers(new Set());
         setFlash(
-          `Disabled sign-in for ${ids.length} user${ids.length === 1 ? '' : 's'}.`,
+          t('adminHousekeeping.flashDisabledUsers', { count: ids.length }),
         );
         setTimeout(() => setFlash(null), 4000);
         router.refresh();
@@ -373,7 +397,9 @@ export function HousekeepingView({ bundle }: Props) {
                 `&limit=${PAGE}&offset=${page * PAGE}`,
             );
             if (!r.ok) {
-              throw new Error(`Could not list ${u.username}'s items`);
+              throw new Error(
+                t('adminHousekeeping.errListUserItems', { username: u.username }),
+              );
             }
             const rows = (await r.json()) as Array<{ id: string }>;
             ids.push(...rows.map((row) => row.id));
@@ -393,7 +419,9 @@ export function HousekeepingView({ bundle }: Props) {
         })),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not prepare disable.');
+      setError(
+        e instanceof Error ? e.message : t('adminHousekeeping.errPrepareDisable'),
+      );
     } finally {
       setBusy(null);
     }
@@ -428,12 +456,19 @@ export function HousekeepingView({ bundle }: Props) {
       setPendingDisable(null);
       setSelectedUsers(new Set());
       setFlash(
-        `Reassigned ${itemCount} item${itemCount === 1 ? '' : 's'} and disabled ${userCount} user${userCount === 1 ? '' : 's'}.`,
+        t('adminHousekeeping.flashReassignDisable', {
+          itemCount,
+          userCount,
+        }),
       );
       setTimeout(() => setFlash(null), 4500);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not complete the reassign + disable.');
+      setError(
+        e instanceof Error
+          ? e.message
+          : t('adminHousekeeping.errReassignDisable'),
+      );
     } finally {
       setBusy(null);
     }
@@ -462,10 +497,15 @@ export function HousekeepingView({ bundle }: Props) {
       }),
     });
     if (!res.ok) {
-      setError(`Could not extend share: HTTP ${res.status}`);
+      setError(t('adminHousekeeping.errExtendShare', { status: res.status }));
       return;
     }
-    setFlash(`Extended share on "${row.itemTitle}" by ${days} days.`);
+    setFlash(
+      t('adminHousekeeping.flashExtendedShare', {
+        title: row.itemTitle,
+        days,
+      }),
+    );
     setTimeout(() => setFlash(null), 4000);
     router.refresh();
   }
@@ -480,10 +520,12 @@ export function HousekeepingView({ bundle }: Props) {
       }),
     });
     if (!res.ok) {
-      setError(`Could not cancel share: HTTP ${res.status}`);
+      setError(t('adminHousekeeping.errCancelShare', { status: res.status }));
       return;
     }
-    setFlash(`Cancelled share on "${row.itemTitle}".`);
+    setFlash(
+      t('adminHousekeeping.flashCancelledShare', { title: row.itemTitle }),
+    );
     setTimeout(() => setFlash(null), 4000);
     router.refresh();
   }
@@ -499,10 +541,20 @@ export function HousekeepingView({ bundle }: Props) {
       body: JSON.stringify({ autoDisableAt: next }),
     });
     if (!res.ok) {
-      setError(`Could not extend ${row.username}: HTTP ${res.status}`);
+      setError(
+        t('adminHousekeeping.errExtendUser', {
+          username: row.username,
+          status: res.status,
+        }),
+      );
       return;
     }
-    setFlash(`Extended ${row.username} by ${days} days.`);
+    setFlash(
+      t('adminHousekeeping.flashExtendedUser', {
+        username: row.username,
+        days,
+      }),
+    );
     setTimeout(() => setFlash(null), 4000);
     router.refresh();
   }
@@ -514,10 +566,16 @@ export function HousekeepingView({ bundle }: Props) {
       body: JSON.stringify({ autoDisableAt: null }),
     });
     if (!res.ok) {
-      setError(`Could not cancel auto-disable: HTTP ${res.status}`);
+      setError(
+        t('adminHousekeeping.errClearAutoDisable', { status: res.status }),
+      );
       return;
     }
-    setFlash(`Removed auto-disable from ${row.username}.`);
+    setFlash(
+      t('adminHousekeeping.flashRemovedAutoDisable', {
+        username: row.username,
+      }),
+    );
     setTimeout(() => setFlash(null), 4000);
     router.refresh();
   }
@@ -529,10 +587,17 @@ export function HousekeepingView({ bundle }: Props) {
       body: JSON.stringify({ enabled: false }),
     });
     if (!res.ok) {
-      setError(`Could not disable ${row.username}: HTTP ${res.status}`);
+      setError(
+        t('adminHousekeeping.errDisableUser', {
+          username: row.username,
+          status: res.status,
+        }),
+      );
       return;
     }
-    setFlash(`Disabled ${row.username} immediately.`);
+    setFlash(
+      t('adminHousekeeping.flashDisabledUserNow', { username: row.username }),
+    );
     setTimeout(() => setFlash(null), 4000);
     router.refresh();
   }
@@ -547,11 +612,7 @@ export function HousekeepingView({ bundle }: Props) {
           afterwards. Lives at the top of the page so admins can
           run it before sorting through the lists below. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs">
-        <span className="text-muted">
-          Recompute spatial extents (item.bbox) for every map / data
-          layer / boundary / external service in your org. Run after
-          bulk imports if the area filter looks off.
-        </span>
+        <span className="text-muted">{t('adminHousekeeping.extentsIntro')}</span>
         <button
           type="button"
           onClick={recomputeExtents}
@@ -563,7 +624,7 @@ export function HousekeepingView({ bundle }: Props) {
           ) : (
             <Database className="h-3.5 w-3.5" />
           )}
-          Recompute extents
+          {t('adminHousekeeping.extentsButton')}
         </button>
       </div>
 
@@ -574,11 +635,7 @@ export function HousekeepingView({ bundle }: Props) {
           copy can explain when each one matters. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs">
         <span className="text-muted">
-          Build feature-search indexes for every data layer field
-          marked searchable. Run after changing searchable fields or
-          importing a large dataset; big layers may take a minute
-          per field and pause feature edits on that layer while each
-          index builds.
+          {t('adminHousekeeping.searchIndexesIntro')}
         </span>
         <button
           type="button"
@@ -591,7 +648,7 @@ export function HousekeepingView({ bundle }: Props) {
           ) : (
             <Search className="h-3.5 w-3.5" />
           )}
-          Build search indexes
+          {t('adminHousekeeping.searchIndexesButton')}
         </button>
       </div>
 
@@ -621,14 +678,16 @@ export function HousekeepingView({ bundle }: Props) {
           location is predictable. */}
       <Section
         icon={<CalendarClock className="h-4 w-4" />}
-        title={`Shares expiring in the next ${summary.expiryWindowDays} days`}
-        empty="No shares are scheduled to expire in this window."
+        title={t('adminHousekeeping.sectionSharesExpiringTitle', {
+          days: summary.expiryWindowDays,
+        })}
+        empty={t('adminHousekeeping.sectionSharesExpiringEmpty')}
         count={expiringShares.length}
         defaultOpen={expiringShares.length > 0}
         caption={
           expiringShares.length === 0
             ? null
-            : 'Already-expired rows show in red; upcoming ones in amber. Use the row actions to extend, cancel, or open the item.'
+            : t('adminHousekeeping.sectionSharesExpiringCaption')
         }
       >
         {expiringShares.length === 0 ? null : (
@@ -647,14 +706,16 @@ export function HousekeepingView({ bundle }: Props) {
           right now. */}
       <Section
         icon={<Timer className="h-4 w-4" />}
-        title={`Users auto-disabling in the next ${summary.expiryWindowDays} days`}
-        empty="No users have an auto-disable date in this window."
+        title={t('adminHousekeeping.sectionUsersAutoDisableTitle', {
+          days: summary.expiryWindowDays,
+        })}
+        empty={t('adminHousekeeping.sectionUsersAutoDisableEmpty')}
         count={expiringUsers.length}
         defaultOpen={expiringUsers.length > 0}
         caption={
           expiringUsers.length === 0
             ? null
-            : 'These accounts will lose sign-in on their listed date. Extend, cancel the timer, or disable immediately.'
+            : t('adminHousekeeping.sectionUsersAutoDisableCaption')
         }
       >
         {expiringUsers.length === 0 ? null : (
@@ -669,30 +730,34 @@ export function HousekeepingView({ bundle }: Props) {
 
       <Section
         icon={<Clock className="h-4 w-4" />}
-        title={`Items with no activity for ${summary.staleItemDays}+ days`}
-        empty="No stale items: every item in your org has been edited or had feature activity recently, or is still being shared."
+        title={t('adminHousekeeping.sectionStaleItemsTitle', {
+          days: summary.staleItemDays,
+        })}
+        empty={t('adminHousekeeping.sectionStaleItemsEmpty')}
         count={staleItems.length}
         defaultOpen={staleItems.length > 0}
         caption={
-          <>
-            {staleItems.length === 0
-              ? null
-              : `Showing the ${staleItems.length} items with the oldest activity (item edits + feature edits) and zero shares. `}
-            Tick the ones you want to retire and use "Move to trash"
-            below. Items go to the recycle bin first (30 day
-            retention), so a mistake is easy to undo.
-          </>
+          staleItems.length === 0
+            ? null
+            : (
+                <>
+                  {t('adminHousekeeping.sectionStaleItemsCaptionPrefix', {
+                    count: staleItems.length,
+                  })}
+                  {t('adminHousekeeping.sectionStaleItemsCaptionSuffix')}
+                </>
+              )
         }
         bulkBar={
           selectedItems.size > 0 ? (
             <BulkBar
               count={selectedItems.size}
-              label="item"
+              selectionKind="items"
               busy={busy === 'items'}
               onClear={() => setSelectedItems(new Set())}
               actions={[
                 {
-                  label: 'Move to trash',
+                  label: t('adminHousekeeping.moveToTrash'),
                   icon: <Trash2 className="h-3.5 w-3.5" />,
                   tone: 'danger',
                   onClick: bulkTrashItems,
@@ -726,21 +791,23 @@ export function HousekeepingView({ bundle }: Props) {
 
       <Section
         icon={<Users className="h-4 w-4" />}
-        title={`Users quiet for ${summary.staleUserDays}+ days`}
-        empty="Nobody looks idle. Admins are deliberately excluded from this check so a break-glass account never shows up."
+        title={t('adminHousekeeping.sectionStaleUsersTitle', {
+          days: summary.staleUserDays,
+        })}
+        empty={t('adminHousekeeping.sectionStaleUsersEmpty')}
         count={staleUsers.length}
         defaultOpen={staleUsers.length > 0}
-        caption="Admins are excluded. Ticking a user who still owns items is fine: when you click Disable, we'll ask who to reassign their items to (defaults to you) before disabling the account."
+        caption={t('adminHousekeeping.sectionStaleUsersCaption')}
         bulkBar={
           selectedUsers.size > 0 ? (
             <BulkBar
               count={selectedUsers.size}
-              label="user"
+              selectionKind="users"
               busy={busy === 'users'}
               onClear={() => setSelectedUsers(new Set())}
               actions={[
                 {
-                  label: 'Disable sign-in',
+                  label: t('adminHousekeeping.disableSignIn'),
                   icon: <UserX className="h-3.5 w-3.5" />,
                   tone: 'warn',
                   onClick: bulkDisableUsers,
@@ -774,13 +841,14 @@ export function HousekeepingView({ bundle }: Props) {
 
       {pendingDisable ? (
         <ReassignOwnerDialog
-          heading={`Reassign items before disabling ${pendingDisable.userIds.length} user${pendingDisable.userIds.length === 1 ? '' : 's'}`}
-          subheading={(() => {
-            const lines = pendingDisable.ownersWithItems
+          heading={t('adminHousekeeping.reassignHeading', {
+            count: pendingDisable.userIds.length,
+          })}
+          subheading={t('adminHousekeeping.reassignSubheading', {
+            summary: pendingDisable.ownersWithItems
               .map((o) => `${o.label}: ${o.itemCount}`)
-              .join(' · ');
-            return `Items to reassign: ${lines}. Everything transfers to the new owner; the original users lose sign-in.`;
-          })()}
+              .join(' · '),
+          })}
           excludeUserIds={pendingDisable.userIds}
           saving={busy === 'users'}
           defaultOwner={
@@ -810,10 +878,10 @@ export function HousekeepingView({ bundle }: Props) {
           tagged so they can be cleaned up. */}
       <Section
         icon={<Layers className="h-4 w-4" />}
-        title="Storage by data layer"
-        empty="No data_layer scopes have feature observations yet."
+        title={t('adminHousekeeping.sectionDataLayersTitle')}
+        empty={t('adminHousekeeping.sectionDataLayersEmpty')}
         count={largestDataLayers.length}
-        caption="Top 50 data layers by approximate observation footprint. The 'approx' bytes column is prorated from the observation table's total size by row share, not measured per row, so it ranks layers reliably but should not be read as a literal disk number. Orphan rows belong to a permanently deleted item and can be cleaned up via the orphan-cleanup migration (#115)."
+        caption={t('adminHousekeeping.sectionDataLayersCaption')}
       >
         {largestDataLayers.length === 0 ? null : (
           <LargestDataLayersTable rows={largestDataLayers} />
@@ -843,13 +911,13 @@ async function runBatched<T>(
 /** Sticky bulk-action bar shown above the table when 1+ rows are ticked. */
 function BulkBar({
   count,
-  label,
+  selectionKind,
   busy,
   actions,
   onClear,
 }: {
   count: number;
-  label: string;
+  selectionKind: 'items' | 'users';
   busy: boolean;
   actions: Array<{
     label: string;
@@ -859,16 +927,15 @@ function BulkBar({
   }>;
   onClear: () => void;
 }) {
+  const t = useT();
+  const selectedLabel =
+    selectionKind === 'items'
+      ? t('adminHousekeeping.bulkItemsSelected', { count })
+      : t('adminHousekeeping.bulkUsersSelected', { count });
   return (
     <div className="flex items-center justify-between gap-3 border-b border-accent/20 bg-accent/5 px-4 py-2">
       <div className="flex items-center gap-2 text-xs">
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-2xs font-semibold text-white">
-          {count}
-        </span>
-        <span className="font-medium text-accent">
-          {label}
-          {count === 1 ? '' : 's'} selected
-        </span>
+        <span className="font-medium text-accent">{selectedLabel}</span>
         <button
           type="button"
           onClick={onClear}
@@ -876,7 +943,7 @@ function BulkBar({
           className="inline-flex items-center gap-1 text-muted hover:text-ink-1 disabled:opacity-50"
         >
           <X className="h-3 w-3" />
-          Clear
+          {t('adminHousekeeping.bulkClear')}
         </button>
       </div>
       <div className="flex items-center gap-2">
@@ -910,35 +977,45 @@ function SummaryBar({
 }: {
   summary: HousekeepingBundle['summary'];
 }) {
+  const fmt = useFormat();
+  const t = useT();
   return (
     <section className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <StatCard
         icon={<Archive className="h-4 w-4 text-muted" />}
-        label="Total items"
-        value={summary.totalItemCount.toLocaleString()}
+        label={t('adminHousekeeping.statTotalItems')}
+        value={fmt.number(summary.totalItemCount)}
       />
       <StatCard
         icon={<Clock className="h-4 w-4 text-warn" />}
-        label={`Stale (${summary.staleItemDays}d+ no activity, zero shares)`}
-        value={summary.staleItemCount.toLocaleString()}
+        label={t('adminHousekeeping.statStaleItems', {
+          days: summary.staleItemDays,
+        })}
+        value={fmt.number(summary.staleItemCount)}
         tone={summary.staleItemCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<UserIcon className="h-4 w-4 text-muted" />}
-        label={`Quiet users (${summary.staleUserDays}d+ no sign-in)`}
-        value={summary.staleUserCount.toLocaleString()}
+        label={t('adminHousekeeping.statQuietUsers', {
+          days: summary.staleUserDays,
+        })}
+        value={fmt.number(summary.staleUserCount)}
         tone={summary.staleUserCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<CalendarClock className="h-4 w-4 text-warn" />}
-        label={`Shares expiring (next ${summary.expiryWindowDays}d)`}
-        value={summary.expiringShareCount.toLocaleString()}
+        label={t('adminHousekeeping.statSharesExpiring', {
+          days: summary.expiryWindowDays,
+        })}
+        value={fmt.number(summary.expiringShareCount)}
         tone={summary.expiringShareCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<Timer className="h-4 w-4 text-warn" />}
-        label={`Users auto-disabling (next ${summary.expiryWindowDays}d)`}
-        value={summary.expiringUserCount.toLocaleString()}
+        label={t('adminHousekeeping.statUsersAutoDisabling', {
+          days: summary.expiryWindowDays,
+        })}
+        value={fmt.number(summary.expiringUserCount)}
         tone={summary.expiringUserCount > 0 ? 'warn' : 'ok'}
       />
     </section>
@@ -1078,6 +1155,8 @@ function StaleItemsTable({
   onToggle: (id: string) => void;
   onToggleAll: () => void;
 }) {
+  const fmt = useFormat();
+  const t = useT();
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <table className="w-full text-sm">
@@ -1089,18 +1168,13 @@ function StaleItemsTable({
               checked={allSelected}
               onChange={onToggleAll}
               className="h-3.5 w-3.5 cursor-pointer"
-              aria-label="Select all stale items"
+              aria-label={t('adminHousekeeping.selectAllStaleItems')}
             />
           </th>
-          <th className="px-4 py-2">Title</th>
-          <th className="px-4 py-2">Type</th>
-          <th className="px-4 py-2">Owner</th>
-          <th
-            className="px-4 py-2"
-            title="Most recent activity considered (item card OR feature edits)"
-          >
-            Last activity
-          </th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colTitle')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colType')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colOwner')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colLastActivity')}</th>
           <th className="px-4 py-2" />
         </tr>
       </thead>
@@ -1124,7 +1198,7 @@ function StaleItemsTable({
                   checked={isSelected}
                   onChange={() => onToggle(r.id)}
                   className="h-3.5 w-3.5 cursor-pointer"
-                  aria-label={`Select ${r.title}`}
+                  aria-label={t('adminHousekeeping.selectItem', { title: r.title })}
                 />
               </td>
               <td className="px-4 py-2">
@@ -1140,17 +1214,21 @@ function StaleItemsTable({
               <td className="px-4 py-2 text-muted">{r.ownerLabel}</td>
               <td
                 className="px-4 py-2 text-muted"
-                title={`Item updated: ${new Date(r.updatedAt).toLocaleString()}${
+                title={`${t('adminHousekeeping.itemUpdatedAt', {
+                  date: fmt.dateTime(r.updatedAt),
+                })}${
                   dataNewer
-                    ? `\n${
-                        r.lastActivitySource === 'usage'
-                          ? 'Last user request'
-                          : 'Feature data activity'
-                      }: ${new Date(r.lastActivityAt).toLocaleString()}`
+                    ? `\n${t('adminHousekeeping.lastActivitySourceAt', {
+                        source:
+                          r.lastActivitySource === 'usage'
+                            ? t('adminHousekeeping.activitySourceUsage')
+                            : t('adminHousekeeping.activitySourceData'),
+                        date: fmt.dateTime(r.lastActivityAt),
+                      })}`
                     : ''
                 }`}
               >
-                {new Date(r.lastActivityAt).toLocaleDateString()}
+                {fmt.date(r.lastActivityAt)}
                 {dataNewer && r.lastActivitySource !== 'item' ? (
                   <span className="ml-1 text-2xs uppercase text-muted/70">
                     ({r.lastActivitySource})
@@ -1162,7 +1240,7 @@ function StaleItemsTable({
                   href={`/items/${r.id}`}
                   className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                 >
-                  Review
+                  {t('adminHousekeeping.review')}
                   <ChevronRight className="h-3 w-3" />
                 </Link>
               </td>
@@ -1185,6 +1263,8 @@ function StaleUsersTable({
   onToggle: (id: string) => void;
   onToggleAll: () => void;
 }) {
+  const fmt = useFormat();
+  const t = useT();
   const allSelected = rows.length > 0 && rows.every((u) => selected.has(u.id));
   return (
     <table className="w-full text-sm">
@@ -1196,14 +1276,14 @@ function StaleUsersTable({
               checked={allSelected}
               onChange={onToggleAll}
               className="h-3.5 w-3.5 cursor-pointer"
-              aria-label="Select all users"
+              aria-label={t('adminHousekeeping.selectAllUsers')}
             />
           </th>
-          <th className="px-4 py-2">User</th>
-          <th className="px-4 py-2">Role</th>
-          <th className="px-4 py-2">Last seen</th>
-          <th className="px-4 py-2">Joined</th>
-          <th className="px-4 py-2">Owns items</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colUser')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colRole')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colLastSeen')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colJoined')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colOwnsItems')}</th>
           <th className="px-4 py-2" />
         </tr>
       </thead>
@@ -1218,7 +1298,9 @@ function StaleUsersTable({
                   checked={isSelected}
                   onChange={() => onToggle(r.id)}
                   className="h-3.5 w-3.5 cursor-pointer"
-                  title={`Select ${r.fullName?.trim() || r.username}`}
+                  title={t('adminHousekeeping.selectUser', {
+                    name: r.fullName?.trim() || r.username,
+                  })}
                 />
               </td>
               <td className="px-4 py-2">
@@ -1232,16 +1314,18 @@ function StaleUsersTable({
               <td className="px-4 py-2 text-muted">{r.orgRole}</td>
               <td className="px-4 py-2 text-muted">
                 {r.lastSeenAt
-                  ? new Date(r.lastSeenAt).toLocaleDateString()
-                  : 'Never signed in'}
+                  ? fmt.date(r.lastSeenAt)
+                  : t('adminHousekeeping.neverSignedIn')}
               </td>
               <td className="px-4 py-2 text-muted">
-                {new Date(r.createdAt).toLocaleDateString()}
+                {fmt.date(r.createdAt)}
               </td>
               <td className="px-4 py-2 text-muted">
                 {r.ownedItemCount > 0 ? (
                   <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn">
-                    {r.ownedItemCount} to reassign
+                    {t('adminHousekeeping.itemsToReassign', {
+                      count: r.ownedItemCount,
+                    })}
                   </span>
                 ) : (
                   '0'
@@ -1252,7 +1336,7 @@ function StaleUsersTable({
                   href="/admin/users"
                   className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
                 >
-                  Open
+                  {t('adminHousekeeping.open')}
                   <ChevronRight className="h-3 w-3" />
                 </Link>
               </td>
@@ -1280,6 +1364,8 @@ function StorageCard({
 }: {
   storage: HousekeepingBundle['storage'];
 }) {
+  const fmt = useFormat();
+  const t = useT();
   const host = storage.host;
   const usedBytes = host ? host.totalBytes - host.freeBytes : 0;
   const usedPct = host && host.totalBytes > 0
@@ -1295,25 +1381,28 @@ function StorageCard({
     <section className="rounded-md border border-border bg-surface-1">
       <header className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-2 text-xs font-medium text-ink-1">
         <HardDrive className="h-4 w-4 text-muted" />
-        <span>Storage usage</span>
+        <span>{t('adminHousekeeping.storageTitle')}</span>
       </header>
       <div className="space-y-3 p-4">
         {host ? (
           <div>
             <div className="mb-1 flex items-baseline justify-between text-xs">
               <span className="text-muted">
-                Host disk{' '}
+                {t('adminHousekeeping.storageHostDisk')}{' '}
                 <span className="font-mono text-2xs">
                   {host.mountPoint}
                 </span>
               </span>
               <span className="text-ink-0">
-                <span className="font-mono">{formatBytes(host.freeBytes)}</span>
-                <span className="text-muted"> free of </span>
-                <span className="font-mono">{formatBytes(host.totalBytes)}</span>
+                {t('adminHousekeeping.storageFreeOf', {
+                  free: formatBytes(host.freeBytes),
+                  total: formatBytes(host.totalBytes),
+                })}
                 <span className="text-muted">
                   {' '}
-                  ({usedPct.toFixed(0)}% used)
+                  {t('adminHousekeeping.storagePercentUsed', {
+                    percent: usedPct.toFixed(0),
+                  })}
                 </span>
               </span>
             </div>
@@ -1325,14 +1414,13 @@ function StorageCard({
             </div>
             {usedPct >= 75 ? (
               <p className="mt-1 text-2xs text-warn">
-                Free space is running low. Backups, MinIO uploads, and
-                Postgres autovacuum all need headroom on this volume.
+                {t('adminHousekeeping.storageLowSpaceWarning')}
               </p>
             ) : null}
           </div>
         ) : (
           <p className="text-xs text-muted">
-            Host disk metrics aren't available on this platform.
+            {t('adminHousekeeping.storageHostUnavailable')}
           </p>
         )}
 
@@ -1340,38 +1428,35 @@ function StorageCard({
           <div className="rounded-md border border-border bg-surface-0 p-3">
             <dt className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
               <Database className="h-3.5 w-3.5" />
-              Postgres
+              {t('adminHousekeeping.storagePostgres')}
             </dt>
             <dd className="mt-1 font-mono text-base text-ink-0">
               {formatBytes(storage.postgres.totalBytes)}
             </dd>
             <dd className="mt-0.5 text-2xs text-muted">
-              database{' '}
-              <span className="font-mono">{storage.postgres.databaseName}</span>{' '}
-              (heap + indexes + TOAST)
+              {t('adminHousekeeping.storagePostgresDetail', {
+                name: storage.postgres.databaseName,
+              })}
             </dd>
           </div>
           <div className="rounded-md border border-border bg-surface-0 p-3">
             <dt className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
               <Archive className="h-3.5 w-3.5" />
-              MinIO
+              {t('adminHousekeeping.storageMinio')}
             </dt>
             <dd className="mt-1 font-mono text-base text-ink-0">
               {storage.minio.unavailable
-                ? 'unavailable'
+                ? t('adminHousekeeping.storageMinioUnavailable')
                 : formatBytes(storage.minio.totalBytes)}
             </dd>
             <dd className="mt-0.5 text-2xs text-muted">
               {storage.minio.unavailable ? (
-                <>bucket couldn't be enumerated; check MinIO connectivity</>
+                t('adminHousekeeping.storageMinioEnumFailed')
               ) : (
-                <>
-                  bucket{' '}
-                  <span className="font-mono">{storage.minio.bucket}</span>
-                  {' · '}
-                  {storage.minio.objectCount.toLocaleString()} object
-                  {storage.minio.objectCount === 1 ? '' : 's'}
-                </>
+                t('adminHousekeeping.storageMinioDetail', {
+                  bucket: storage.minio.bucket,
+                  count: storage.minio.objectCount,
+                })
               )}
             </dd>
           </div>
@@ -1386,14 +1471,16 @@ function LargestDataLayersTable({
 }: {
   rows: HousekeepingBundle['largestDataLayers'];
 }) {
+  const fmt = useFormat();
+  const t = useT();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
-          <th className="px-4 py-2">Item</th>
-          <th className="px-4 py-2">Layer</th>
-          <th className="px-4 py-2">Approx size</th>
-          <th className="px-4 py-2">Rows</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colItem')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colLayer')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colApproxSize')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colRows')}</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -1402,7 +1489,7 @@ function LargestDataLayersTable({
             <span className="inline-flex items-center gap-2">
               <span className="italic text-muted">{r.itemTitle}</span>
               <span className="rounded border border-warn/30 bg-warn/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-warn">
-                orphan
+                {t('adminHousekeeping.orphanBadge')}
               </span>
             </span>
           ) : (
@@ -1438,10 +1525,12 @@ function LargestDataLayersTable({
               </td>
               <td className="px-4 py-2 font-mono text-ink-0">
                 {formatBytes(r.approxBytes)}
-                <span className="ml-1 text-2xs text-muted">approx</span>
+                <span className="ml-1 text-2xs text-muted">
+                  {t('adminHousekeeping.approxSuffix')}
+                </span>
               </td>
               <td className="px-4 py-2 font-mono text-muted">
-                {r.rows.toLocaleString()}
+                {fmt.number(r.rows)}
               </td>
             </tr>
           );
@@ -1467,15 +1556,19 @@ function ExpiringSharesTable({
   ) => void;
   onCancel: (row: HousekeepingBundle['expiringShares'][number]) => void;
 }) {
+  const fmt = useFormat();
+  const t = useT();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
-          <th className="px-4 py-2">Item</th>
-          <th className="px-4 py-2">Recipient</th>
-          <th className="px-4 py-2">Permission</th>
-          <th className="px-4 py-2">Expires</th>
-          <th className="px-4 py-2 text-right">Actions</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colItem')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colRecipient')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colPermission')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colExpires')}</th>
+          <th className="px-4 py-2 text-right">
+            {t('adminHousekeeping.colActions')}
+          </th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -1504,9 +1597,12 @@ function ExpiringSharesTable({
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
-                title={new Date(r.expiresAt).toLocaleString()}
+                title={fmt.dateTime(r.expiresAt)}
               >
-                {r.isExpired ? 'Expired' : 'In'} {formatRelativeShort(r.expiresAt)}
+                {r.isExpired
+                  ? t('adminHousekeeping.expired')
+                  : t('adminHousekeeping.expiryIn')}{' '}
+                {formatRelativeShort(r.expiresAt)}
               </span>
             </td>
             <td className="px-4 py-2 text-right">
@@ -1515,22 +1611,22 @@ function ExpiringSharesTable({
                   type="button"
                   onClick={() => onExtend(r, 30)}
                   className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
-                  title="Extend by 30 days"
+                  title={t('adminHousekeeping.extendShare30Title')}
                 >
-                  +30d
+                  {t('adminHousekeeping.extend30d')}
                 </button>
                 <button
                   type="button"
                   onClick={() => onCancel(r)}
                   className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs text-danger hover:bg-danger/10"
                 >
-                  Cancel
+                  {t('adminHousekeeping.cancel')}
                 </button>
                 <Link
                   href={`/items/${r.itemId}`}
                   className="ml-1 inline-flex items-center gap-1 text-2xs text-accent hover:underline"
                 >
-                  Open
+                  {t('adminHousekeeping.open')}
                   <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
@@ -1556,15 +1652,19 @@ function ExpiringUsersTable({
   onClear: (row: HousekeepingBundle['expiringUsers'][number]) => void;
   onDisableNow: (row: HousekeepingBundle['expiringUsers'][number]) => void;
 }) {
+  const fmt = useFormat();
+  const t = useT();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
-          <th className="px-4 py-2">User</th>
-          <th className="px-4 py-2">Role</th>
-          <th className="px-4 py-2">Auto-disables</th>
-          <th className="px-4 py-2">Owns items</th>
-          <th className="px-4 py-2 text-right">Actions</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colUser')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colRole')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colAutoDisables')}</th>
+          <th className="px-4 py-2">{t('adminHousekeeping.colOwnsItems')}</th>
+          <th className="px-4 py-2 text-right">
+            {t('adminHousekeeping.colActions')}
+          </th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -1586,9 +1686,11 @@ function ExpiringUsersTable({
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
-                title={new Date(r.autoDisableAt).toLocaleString()}
+                title={fmt.dateTime(r.autoDisableAt)}
               >
-                {r.isExpired ? 'Past due' : 'In'}{' '}
+                {r.isExpired
+                  ? t('adminHousekeeping.pastDue')
+                  : t('adminHousekeeping.expiryIn')}{' '}
                 {formatRelativeShort(r.autoDisableAt)}
               </span>
             </td>
@@ -1607,25 +1709,25 @@ function ExpiringUsersTable({
                   type="button"
                   onClick={() => onExtend(r, 30)}
                   className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
-                  title="Push the auto-disable date out by 30 days"
+                  title={t('adminHousekeeping.extendUser30Title')}
                 >
-                  +30d
+                  {t('adminHousekeeping.extend30d')}
                 </button>
                 <button
                   type="button"
                   onClick={() => onClear(r)}
                   className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
-                  title="Remove the auto-disable date entirely"
+                  title={t('adminHousekeeping.clearTimerTitle')}
                 >
-                  Cancel timer
+                  {t('adminHousekeeping.cancelTimer')}
                 </button>
                 <button
                   type="button"
                   onClick={() => onDisableNow(r)}
                   className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs text-danger hover:bg-danger/10"
-                  title="Disable sign-in immediately"
+                  title={t('adminHousekeeping.disableNowTitle')}
                 >
-                  Disable now
+                  {t('adminHousekeeping.disableNow')}
                 </button>
               </div>
             </td>

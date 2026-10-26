@@ -11,6 +11,9 @@ import {
   type Item,
   type ToolStep,
 } from '@gratis-gis/shared-types';
+import { formatNumber } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 
 /**
  * Read-only summary of a derived layer's recipe. Editing the recipe
@@ -30,6 +33,7 @@ export function DerivedLayerDetail({
 }: {
   data: DerivedLayerData;
 }) {
+  const locale = useLocale();
   const [sourceItem, setSourceItem] = useState<Item | null>(null);
   const [sourceErr, setSourceErr] = useState<string | null>(null);
 
@@ -123,7 +127,7 @@ export function DerivedLayerDetail({
                   </span>
                   <ArrowRight className="h-3 w-3 text-muted" />
                   <span className="text-xs text-muted">
-                    {summarizeStep(step)}
+                    {summarizeStep(step, locale)}
                   </span>
                 </span>
               </li>
@@ -159,7 +163,7 @@ export function DerivedLayerDetail({
       </div>
 
       <div className="text-2xs text-muted">
-        Feature limit: {data.featureLimit.toLocaleString()} features per
+        Feature limit: {formatNumber(data.featureLimit, locale)} features per
         read.
       </div>
     </section>
@@ -202,7 +206,7 @@ function labelForTool(step: ToolStep): string {
   }
 }
 
-function summarizeStep(step: ToolStep): string {
+function summarizeStep(step: ToolStep, locale: SupportedLocale): string {
   switch (step.tool) {
     case 'buffer': {
       const params = step.params;
@@ -212,11 +216,11 @@ function summarizeStep(step: ToolStep): string {
         // distance reads from, the unit it's interpreted in, and the
         // server-computed cap so a viewer understands the upper
         // bound at a glance.
-        const cap = formatCap(params.cachedMaxMeters);
+        const cap = formatCap(params.cachedMaxMeters, locale);
         return `${params.field} (${unitLabel}, max ~${cap})`;
       }
       // Fixed: simple distance + unit.
-      return `${params.distance.toLocaleString()} ${unitLabel}`;
+      return `${formatNumber(params.distance, locale)} ${unitLabel}`;
     }
     case 'dissolve':
       // v1 dissolve has no params worth surfacing; the label
@@ -232,27 +236,27 @@ function summarizeStep(step: ToolStep): string {
       return 'axis-aligned bounding rectangle';
     case 'simplify': {
       const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
-      return `tolerance ${step.params.tolerance.toLocaleString()} ${u}`;
+      return `tolerance ${formatNumber(step.params.tolerance, locale)} ${u}`;
     }
     case 'vertices':
       return 'one point per vertex';
     case 'densify': {
       const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
-      return `max ${step.params.maxSegmentLength.toLocaleString()} ${u} per segment`;
+      return `max ${formatNumber(step.params.maxSegmentLength, locale)} ${u} per segment`;
     }
     case 'top-n': {
       const dir = step.params.direction === 'asc' ? 'lowest' : 'highest';
-      return `${dir} ${step.params.n.toLocaleString()} by ${step.params.field}`;
+      return `${dir} ${formatNumber(step.params.n, locale)} by ${step.params.field}`;
     }
     case 'random-sample':
       return step.params.mode === 'percentage'
         ? `~${step.params.value}% of rows`
-        : `${step.params.value.toLocaleString()} rows`;
+        : `${formatNumber(step.params.value, locale)} rows`;
     case 'nearest-neighbor':
       return 'distance to closest neighbor (m)';
     case 'fishnet': {
       const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
-      return `${step.params.cellSize.toLocaleString()} ${u} cells (${step.params.output})`;
+      return `${formatNumber(step.params.cellSize, locale)} ${u} cells (${step.params.output})`;
     }
     case 'calculate-geometry': {
       const u =
@@ -271,12 +275,12 @@ function summarizeStep(step: ToolStep): string {
  * km above. Used by the field-mode buffer summary so the cap reads
  * naturally regardless of magnitude.
  */
-function formatCap(meters: number): string {
+function formatCap(meters: number, locale: SupportedLocale): string {
   if (!Number.isFinite(meters) || meters <= 0) return '0 m';
   if (meters >= 1000) {
-    return `${(meters / 1000).toLocaleString(undefined, {
+    return `${formatNumber(meters / 1000, locale, {
       maximumFractionDigits: 2,
     })} km`;
   }
-  return `${Math.round(meters).toLocaleString()} m`;
+  return `${formatNumber(Math.round(meters), locale)} m`;
 }

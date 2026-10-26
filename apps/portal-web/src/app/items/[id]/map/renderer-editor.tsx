@@ -15,6 +15,7 @@ import {
   sampleRamp,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   value: MapLayerRenderer;
@@ -46,6 +47,7 @@ interface Props {
 const MAX_AUTO_CATEGORIES = 24;
 
 export function RendererEditor({ value, metadata, layer, onChange }: Props) {
+  const t = useT();
   const isUnique = value.kind === 'unique-values';
 
   const isBreaks = value.kind === 'class-breaks';
@@ -103,9 +105,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
     }
     const src = layer.source;
     if (src.kind !== 'data-layer') {
-      setFillNote(
-        'This layer type does not report its values yet; add categories by hand.',
-      );
+      setFillNote(t('mapRendererEditor.layerTypeNoValues'));
       return;
     }
     setFilling(true);
@@ -127,7 +127,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
         const m = body?.message;
         throw new Error(
           (Array.isArray(m) ? m.join('; ') : m) ||
-            `Could not read values (HTTP ${res.status}).`,
+            t('mapRendererEditor.readValuesHttp', { status: res.status }),
         );
       }
       const data = (await res.json()) as {
@@ -138,18 +138,20 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
         .map((g) => g.key[field])
         .filter((v): v is string => typeof v === 'string' && v.length > 0);
       if (values.length === 0) {
-        setFillNote('No values found in this field.');
+        setFillNote(t('mapRendererEditor.noValuesInField'));
         return;
       }
       applyValues(field, values);
       if (data.truncated) {
         setFillNote(
-          `Showing the ${MAX_AUTO_CATEGORIES} most common values; the rest use the fallback colour.`,
+          t('mapRendererEditor.truncatedValues', { max: MAX_AUTO_CATEGORIES }),
         );
       }
     } catch (err) {
       setFillNote(
-        err instanceof Error ? err.message : 'Could not read values.',
+        err instanceof Error
+          ? err.message
+          : t('mapRendererEditor.couldNotReadValues'),
       );
     } finally {
       setFilling(false);
@@ -196,18 +198,18 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
         <ModeBtn
           active={value.kind === 'simple'}
           onClick={setSimple}
-          label="Single"
+          label={t('mapRendererEditor.modeSingle')}
         />
         <ModeBtn
           active={isUnique}
           onClick={() => setUnique()}
-          label="By category"
+          label={t('mapRendererEditor.modeByCategory')}
           Icon={Shuffle}
         />
         <ModeBtn
           active={isBreaks}
           onClick={() => setBreaks()}
-          label="By range"
+          label={t('mapRendererEditor.modeByRange')}
           Icon={BarChart3}
         />
       </div>
@@ -220,7 +222,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
         <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
           <div>
             <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-              Attribute
+              {t('mapRendererEditor.attribute')}
             </label>
             {metadata.fields.length > 0 ? (
               <div className="flex gap-2">
@@ -229,7 +231,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                   onChange={(e) => setUnique(e.target.value)}
                   className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
-                  <option value="">Pick a field...</option>
+                  <option value="">{t('mapFilterEditor.pickField')}</option>
                   {metadata.fields.map((f) => (
                     <option key={f} value={f}>
                       {f}
@@ -247,7 +249,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                   {filling ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : null}
-                  Auto fill
+                  {t('mapRendererEditor.autoFill')}
                 </button>
               </div>
             ) : (
@@ -255,13 +257,13 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                 type="text"
                 value={value.field}
                 onChange={(e) => setUnique(e.target.value)}
-                placeholder="field name"
+                placeholder={t('mapLayerPanel.search.fieldNamePlaceholder')}
                 className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               />
             )}
             {metadata.loading ? (
               <p className="mt-1 text-2xs text-muted">
-                Loading field options...
+                {t('mapRendererEditor.loadingFieldOptions')}
               </p>
             ) : metadata.error ? (
               <p className="mt-1 text-2xs text-warn">{metadata.error}</p>
@@ -274,19 +276,20 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-2xs uppercase tracking-wide text-muted">
-                  Categories
+                  {t('mapRendererEditor.categories')}
                 </span>
                 {value.field &&
                 (metadata.valuesByField[value.field]?.length ?? 0) >= 64 ? (
                   <span className="text-2xs text-warn">
-                    &gt; 64 unique values; showing first 64
+                    {t('mapRendererEditor.manyUniqueValues')}
                   </span>
                 ) : null}
               </div>
               {value.categories.length === 0 ? (
                 <div className="rounded border border-dashed border-border px-2 py-3 text-center text-2xs text-muted">
-                  No categories yet. Click <strong>Auto fill</strong> above or
-                  add rows manually.
+                  {t('mapRendererEditor.noCategoriesPrefix')}{' '}
+                  <strong>{t('mapRendererEditor.autoFill')}</strong>{' '}
+                  {t('mapRendererEditor.noCategoriesSuffix')}
                 </div>
               ) : (
                 <ul className="space-y-1">
@@ -306,7 +309,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                         onChange={(e) =>
                           patchCategory(i, { value: e.target.value })
                         }
-                        placeholder="value"
+                        placeholder={t('mapRendererEditor.valuePlaceholder')}
                         className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                       />
                       {/* #78: optional per-category icon override.
@@ -344,14 +347,14 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                           });
                           onChange({ ...value, categories: next });
                         }}
-                        placeholder="icon (optional)"
-                        title="Icon name to render features in this category. Leave empty to inherit the layer's icon."
+                        placeholder={t('mapRendererEditor.iconOptionalPlaceholder')}
+                        title={t('mapRendererEditor.iconOptionalTitle')}
                         className="h-7 w-28 shrink-0 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                       />
                       <button
                         type="button"
                         onClick={() => removeCategory(i)}
-                        aria-label="Remove category"
+                        aria-label={t('mapRendererEditor.removeCategoryAria')}
                         className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -366,11 +369,10 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                 className="mt-2 inline-flex h-7 items-center gap-1 rounded text-2xs text-accent hover:underline"
               >
                 <Plus className="h-3 w-3" />
-                Add category
+                {t('mapRendererEditor.addCategory')}
               </button>
               <p className="mt-1 text-2xs text-muted">
-                Features whose value isn&apos;t listed fall back to the single
-                color from the style editor below.
+                {t('mapRendererEditor.uniqueFallbackHint')}
               </p>
             </div>
           ) : null}
@@ -389,6 +391,7 @@ function ClassBreaksEditor({
   metadata: LayerMetadata;
   onChange: (next: MapLayerRenderer) => void;
 }) {
+  const t = useT();
   const numericFields = metadata.fields.filter((f) => {
     const vals = metadata.valuesByField[f] ?? [];
     if (vals.length === 0) return true; // can't tell; offer it
@@ -442,7 +445,7 @@ function ClassBreaksEditor({
     <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
       <div>
         <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-          Numeric field
+          {t('mapRendererEditor.numericField')}
         </label>
         {numericFields.length > 0 ? (
           <select
@@ -450,7 +453,7 @@ function ClassBreaksEditor({
             onChange={(e) => patch({ field: e.target.value })}
             className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
-            <option value="">Pick a field...</option>
+            <option value="">{t('mapFilterEditor.pickField')}</option>
             {numericFields.map((f) => (
               <option key={f} value={f}>
                 {f}
@@ -462,7 +465,7 @@ function ClassBreaksEditor({
             type="text"
             value={value.field}
             onChange={(e) => patch({ field: e.target.value })}
-            placeholder="field name"
+            placeholder={t('mapLayerPanel.search.fieldNamePlaceholder')}
             className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         )}
@@ -471,7 +474,7 @@ function ClassBreaksEditor({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-            Classes
+            {t('mapRendererEditor.classes')}
           </label>
           <select
             value={value.stops.length}
@@ -487,7 +490,7 @@ function ClassBreaksEditor({
         </div>
         <div>
           <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-            Color ramp
+            {t('mapRendererEditor.colorRamp')}
           </label>
           <select
             value={currentRamp === 'custom' ? '' : currentRamp}
@@ -496,7 +499,9 @@ function ClassBreaksEditor({
             }
             className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
-            {currentRamp === 'custom' ? <option value="">custom</option> : null}
+            {currentRamp === 'custom' ? (
+              <option value="">{t('mapRendererEditor.customRamp')}</option>
+            ) : null}
             {Object.keys(CLASS_BREAK_RAMPS).map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -509,15 +514,21 @@ function ClassBreaksEditor({
       <div>
         <div className="mb-1 flex items-center justify-between">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Breaks
+            {t('mapRendererEditor.breaks')}
           </span>
           <span className="text-2xs text-muted">
-            {value.colors.length} colors
+            {t('mapRendererEditor.colorsCount', { count: value.colors.length })}
           </span>
         </div>
         <ul className="space-y-1">
           <ClassRow
-            label={value.stops[0] !== undefined ? `< ${value.stops[0]}` : 'all'}
+            label={
+              value.stops[0] !== undefined
+                ? t('mapRendererEditor.classLabelLessThan', {
+                    value: value.stops[0],
+                  })
+                : t('mapRendererEditor.classLabelAll')
+            }
             color={value.colors[0] ?? '#000'}
             onColor={(c) => updateColor(0, c)}
             stop={null}
@@ -528,8 +539,11 @@ function ClassBreaksEditor({
               key={i}
               label={
                 i < value.stops.length - 1
-                  ? `${stop} to < ${value.stops[i + 1]}`
-                  : `â‰¥ ${stop}`
+                  ? t('mapRendererEditor.classLabelRange', {
+                      low: stop,
+                      high: value.stops[i + 1] ?? stop,
+                    })
+                  : t('mapRendererEditor.classLabelGte', { value: stop })
               }
               color={value.colors[i + 1] ?? '#000'}
               onColor={(c) => updateColor(i + 1, c)}
@@ -539,8 +553,7 @@ function ClassBreaksEditor({
           ))}
         </ul>
         <p className="mt-2 text-2xs text-muted">
-          Features whose value isn&apos;t numeric fall back to the single
-          color below.
+          {t('mapRendererEditor.breaksNonNumericFallback')}
         </p>
       </div>
     </div>

@@ -44,8 +44,8 @@ of the images we pull (notably `pramsey/pg_tileserv` and the
 default `mediagis/nominatim`) only publish amd64 builds; without
 Rosetta they fail to start with a `no matching manifest` error.
 The other infra images (`postgis/postgis`, `quay.io/keycloak/keycloak`,
-`minio/minio`) all have native arm64 builds and run at full
-speed.
+`pgsty/silo` — S3-compatible MinIO fork after `minio/minio` left
+Docker Hub) all have native arm64 builds and run at full speed.
 
 
 ## 2. Clone and install

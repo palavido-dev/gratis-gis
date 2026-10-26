@@ -16,6 +16,8 @@
 
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { parseApiError } from '@/lib/api-error';
+import { formatNumber } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 export type SearchResult =
   | {
@@ -608,7 +610,7 @@ function renderTemplate(
           return str.toLowerCase();
         case 'number': {
           const n = Number(str);
-          return Number.isNaN(n) ? str : n.toLocaleString();
+          return Number.isNaN(n) ? str : formatNumber(n, DEFAULT_LOCALE);
         }
         default:
           return str;

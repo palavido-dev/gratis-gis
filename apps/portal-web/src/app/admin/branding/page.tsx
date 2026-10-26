@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, Paintbrush } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { BrandingForm } from './branding-form';
 
 export interface BrandingConfig {
@@ -27,16 +29,22 @@ export default async function AdminBrandingPage() {
   }
   if (me.orgRole !== 'admin') redirect('/items');
 
+  const locale = await getServerLocale();
+
   let config: BrandingConfig;
   try {
     config = await apiFetch<BrandingConfig>('/api/admin/branding');
   } catch (err) {
     const msg =
-      err instanceof Error ? err.message : 'Could not load branding config.';
+      err instanceof Error
+        ? err.message
+        : t('adminBranding.errLoad', undefined, locale);
     return (
       <div className="mx-auto w-full max-w-4xl px-6 py-10">
         <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          <p className="font-medium">Could not load branding config</p>
+          <p className="font-medium">
+            {t('adminBranding.errLoadTitle', undefined, locale)}
+          </p>
           <p className="mt-1 text-danger/90">{msg}</p>
         </div>
       </div>
@@ -50,20 +58,21 @@ export default async function AdminBrandingPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminUsers.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Paintbrush className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Landing page
+            {t('nav.landingPage', undefined, locale)}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
-            What unauthenticated visitors see at the root of the portal.
-            Changes apply immediately.
+            {t('adminBranding.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>

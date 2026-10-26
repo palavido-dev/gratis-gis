@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import type { MapData } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Map-wide settings section (#74 follow-up). Consolidates pickers
@@ -48,6 +49,7 @@ export function MapSettingsSection({
   setDefaultExtentBoundaryId,
   setGeocoderId,
 }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(true);
 
   const clipValue = map.clipBoundaryId ?? '';
@@ -61,6 +63,8 @@ export function MapSettingsSection({
     map,
     geoBoundaries,
     availableGeocoders,
+    viewScopeLabel: t('mapSettings.viewScope'),
+    defaultExtentLabel: t('mapSettings.defaultExtent'),
   });
 
   return (
@@ -74,9 +78,11 @@ export function MapSettingsSection({
         <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <h3 className="text-sm font-semibold text-ink-0">Map settings</h3>
+            <h3 className="text-sm font-semibold text-ink-0">
+              {t('mapSettings.title')}
+            </h3>
             <span className="text-xs text-muted">
-              How this map presents itself and behaves when used.
+              {t('mapSettings.subtitle')}
             </span>
           </div>
           {!open ? (
@@ -93,7 +99,7 @@ export function MapSettingsSection({
       {open ? (
         <div className="flex flex-col gap-4 border-t border-border p-4">
           <SettingRow
-            label="View scope"
+            label={t('mapSettings.viewScope')}
             description={
               <>
                 Clip every layer in this map to a boundary so only
@@ -104,7 +110,7 @@ export function MapSettingsSection({
             }
             footerHint={
               geoBoundaries.length === 0
-                ? 'Create a boundary item to use it as a view scope.'
+                ? t('mapSettings.viewScopeEmpty')
                 : null
             }
           >
@@ -124,7 +130,7 @@ export function MapSettingsSection({
           </SettingRow>
 
           <SettingRow
-            label="Default extent"
+            label={t('mapSettings.defaultExtent')}
             description={
               <>
                 The frame the map opens to on first load. Falls back
@@ -148,7 +154,7 @@ export function MapSettingsSection({
           </SettingRow>
 
           <SettingRow
-            label="Search source"
+            label={t('mapSettings.searchSource')}
             description={
               <>
                 Where the search bar looks up addresses and places.
@@ -158,7 +164,7 @@ export function MapSettingsSection({
             }
             footerHint={
               availableGeocoders.length === 0
-                ? 'Create a Geocoding service item to search your own data here.'
+                ? t('mapSettings.searchSourceEmpty')
                 : null
             }
           >
@@ -223,22 +229,26 @@ function composeSummary({
   map,
   geoBoundaries,
   availableGeocoders,
+  viewScopeLabel,
+  defaultExtentLabel,
 }: {
   map: MapData;
   geoBoundaries: Array<{ id: string; title: string }>;
   availableGeocoders: Array<{ id: string; title: string }>;
+  viewScopeLabel: string;
+  defaultExtentLabel: string;
 }): string {
   const parts: string[] = [];
   const clipId = map.clipBoundaryId;
   const clipTitle = clipId
     ? (geoBoundaries.find((g) => g.id === clipId)?.title ?? '(deleted)')
     : 'none';
-  parts.push(`View scope: ${clipTitle}`);
+  parts.push(`${viewScopeLabel}: ${clipTitle}`);
   const extentId = map.defaultExtentBoundaryId;
   const extentTitle = extentId
     ? (geoBoundaries.find((g) => g.id === extentId)?.title ?? '(deleted)')
     : 'saved camera';
-  parts.push(`Default extent: ${extentTitle}`);
+  parts.push(`${defaultExtentLabel}: ${extentTitle}`);
   const geocoderId = map.search?.geocoderId;
   const geocoderTitle = geocoderId
     ? (availableGeocoders.find((g) => g.id === geocoderId)?.title ??

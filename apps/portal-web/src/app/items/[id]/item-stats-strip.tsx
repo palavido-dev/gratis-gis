@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { LayerGeometryType } from '@gratis-gis/shared-types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * The six-cell summary under an item's preview: uppercase micro label
@@ -47,26 +48,6 @@ type CountState =
   | { status: 'ready'; total: number }
   | { status: 'failed' };
 
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return '';
-  const seconds = Math.round((then - Date.now()) / 1000);
-  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ['year', 31536000],
-    ['month', 2592000],
-    ['day', 86400],
-    ['hour', 3600],
-    ['minute', 60],
-  ];
-  const fmt = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  for (const [unit, size] of units) {
-    if (Math.abs(seconds) >= size) {
-      return fmt.format(Math.round(seconds / size), unit);
-    }
-  }
-  return fmt.format(Math.round(seconds), 'second');
-}
-
 function Cell({
   label,
   children,
@@ -93,6 +74,7 @@ export function ItemStatsStrip({
   sourceSrs,
 }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const [count, setCount] = useState<CountState>({ status: 'loading' });
 
   // Primitive key, same reason the map preview beside this strip has
@@ -188,7 +170,7 @@ export function ItemStatsStrip({
             {t('itemDetail.statUnavailable')}
           </span>
         ) : (
-          count.total.toLocaleString()
+          fmt.number(count.total)
         )}
       </Cell>
       <Cell label={t('itemDetail.statGeometry')}>{geometryValue}</Cell>
@@ -199,10 +181,10 @@ export function ItemStatsStrip({
         EPSG:4326
       </Cell>
       <Cell label={t('itemDetail.statFields')}>
-        {fieldTotal.toLocaleString()}
+        {fmt.number(fieldTotal)}
       </Cell>
       <Cell label={t('itemDetail.statLayers')}>
-        {layers.length.toLocaleString()}
+        {fmt.number(layers.length)}
       </Cell>
       <Cell label={t('itemDetail.statUpdated')}>
         {/* Relative time is computed from the clock, so the server
@@ -210,11 +192,11 @@ export function ItemStatsStrip({
             by a tick. */}
         <time
           dateTime={updatedAt}
-          title={new Date(updatedAt).toLocaleString()}
+          title={fmt.dateTime(updatedAt)}
           suppressHydrationWarning
           className="text-base"
         >
-          {relativeTime(updatedAt)}
+          {fmt.relativeTime(updatedAt)}
         </time>
       </Cell>
     </dl>

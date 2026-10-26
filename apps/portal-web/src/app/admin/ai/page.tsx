@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Bot } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { AiSettingsForm, type AiSettings } from './ai-settings-form';
 
 const EMPTY: AiSettings = {
@@ -27,13 +29,17 @@ export default async function AdminAiPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   let settings: AiSettings = EMPTY;
   let error: string | null = null;
   try {
     settings = await apiFetch<AiSettings>('/api/admin/ai');
   } catch (err) {
-    error = err instanceof Error ? err.message : 'Could not load AI settings.';
+    error =
+      err instanceof Error
+        ? err.message
+        : t('adminAi.loadErrorFallback', undefined, locale);
   }
 
   return (
@@ -43,25 +49,30 @@ export default async function AdminAiPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminHousekeeping.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Bot className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
-          <h1 className="text-2xl font-semibold tracking-tight">AI</h1>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('nav.ai', undefined, locale)}
+          </h1>
           <p className="mt-0.5 text-sm text-muted">
-            Optionally connect ChatGPT, Claude, Grok, or a local
-            OpenAI-compatible server such as Ollama.
+            {t('adminAi.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>
 
       {error ? (
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          <p className="font-medium">Could not load AI settings</p>
+          <p className="font-medium">
+            {t('adminAi.loadErrorTitle', undefined, locale)}
+          </p>
           <p className="mt-1 text-danger/90">{error}</p>
         </div>
       ) : (

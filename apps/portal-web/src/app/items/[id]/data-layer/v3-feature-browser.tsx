@@ -25,6 +25,7 @@ import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import type {
   FeatureRecord,
   DataLayerSublayer,
@@ -32,6 +33,13 @@ import type {
 } from '@gratis-gis/shared-types';
 import { V3FeatureAttachments } from './v3-feature-attachments';
 import { useConfirm } from '@/components/dialog-provider';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Inline feature browser + editor for a single v3 layer.
@@ -79,6 +87,8 @@ export function V3FeatureBrowser({
   canDownload,
   onRefreshCounts,
 }: Props) {
+  const t = useT();
+  const fmt = useFormat();
   const [features, setFeatures] = useState<FeatureRecord[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -123,7 +133,7 @@ export function V3FeatureBrowser({
           signal ? { signal } : {},
         );
         if (!res.ok) {
-          setError(await parseApiError(res, 'Could not load features'));
+          setError(await parseApiError(res, t('featureBrowser.loadFailed')));
           return;
         }
         const body = (await res.json()) as {
@@ -136,12 +146,12 @@ export function V3FeatureBrowser({
         setTruncated(Boolean(body.truncated));
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
-        setError((err as Error).message || 'Could not load features');
+        setError((err as Error).message || t('featureBrowser.loadFailed'));
       } finally {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [itemId, layer.id],
+    [itemId, layer.id, t],
   );
 
   useEffect(() => {
@@ -174,7 +184,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(await parseApiError(res, 'Save failed'));
+        setError(await parseApiError(res, t('featureBrowser.saveFailed')));
         return;
       }
       setEditingId(null);
@@ -187,11 +197,10 @@ export function V3FeatureBrowser({
 
   async function remove(feature: FeatureRecord) {
     const ok = await confirm({
-      title: 'Delete this feature?',
-      message:
-        'This writes a tombstone (soft delete): the feature disappears from current queries but history is preserved.',
+      title: t('featureBrowser.deleteTitle'),
+      message: t('featureBrowser.deleteMessage'),
       variant: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t('featureBrowser.deleteConfirm'),
     });
     if (!ok) return;
     setError(null);
@@ -200,7 +209,7 @@ export function V3FeatureBrowser({
       { method: 'DELETE' },
     );
     if (!res.ok) {
-      setError(await parseApiError(res, 'Delete failed'));
+      setError(await parseApiError(res, t('featureBrowser.deleteFailed')));
       return;
     }
     await reload();
@@ -223,7 +232,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(await parseApiError(res, 'Add row failed'));
+        setError(await parseApiError(res, t('featureBrowser.addRowFailed')));
         return;
       }
       await reload();
@@ -264,7 +273,7 @@ export function V3FeatureBrowser({
     <div className="mt-2 rounded-md border border-border bg-surface-0">
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
         <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Features
+          {t('featureBrowser.featuresHeader')}
           {loading ? '' : ` · ${features.length}`}
         </p>
         <div className="flex items-center gap-1">
@@ -280,7 +289,7 @@ export function V3FeatureBrowser({
               ) : (
                 <Plus className="h-3 w-3" />
               )}
-              Add row
+              {t('featureBrowser.addRow')}
             </button>
           ) : null}
           <button
@@ -294,7 +303,7 @@ export function V3FeatureBrowser({
             ) : (
               <RefreshCw className="h-3 w-3" />
             )}
-            Refresh
+            {t('featureBrowser.refresh')}
           </button>
           {/* #107: export current feature set to CSV / XLSX.  Uses
               whatever's already loaded in `features` so there's no
@@ -325,7 +334,7 @@ export function V3FeatureBrowser({
         <div className="flex items-start gap-1.5 border-b border-border bg-warning/5 px-3 py-1.5 text-2xs text-warning">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
-            Showing the first {PAGE_LIMIT.toLocaleString()} rows. This layer
+            Showing the first {fmt.number(PAGE_LIMIT)} rows. This layer
             has more than that; open it in the map editor for the full feature
             set or use the Export button for the complete table.
           </span>
@@ -338,7 +347,7 @@ export function V3FeatureBrowser({
         </p>
       ) : features.length === 0 ? (
         <p className="px-3 py-6 text-center text-xs text-muted">
-          No features yet. Import a file or add a blank row.
+          {t('featureBrowser.empty')}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -412,7 +421,7 @@ export function V3FeatureBrowser({
                                 type="button"
                                 onClick={() => void saveEdit()}
                                 disabled={saving}
-                                title="Save"
+                                title={t('featureBrowser.save')}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1 text-accent hover:bg-accent/10 disabled:opacity-50"
                               >
                                 {saving ? (
@@ -425,7 +434,7 @@ export function V3FeatureBrowser({
                                 type="button"
                                 onClick={cancelEdit}
                                 disabled={saving}
-                                title="Cancel"
+                                title={t('featureBrowser.cancel')}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1 text-muted hover:bg-surface-2 disabled:opacity-50"
                               >
                                 <X className="h-3 w-3" />
@@ -441,7 +450,7 @@ export function V3FeatureBrowser({
                                       prev === f.id ? null : f.id,
                                     )
                                   }
-                                  title="Attachments"
+                                  title={t('featureBrowser.attachments')}
                                   className={`inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1 ${
                                     attachmentsOpenFor === f.id
                                       ? 'text-accent'
@@ -456,7 +465,7 @@ export function V3FeatureBrowser({
                                   <button
                                     type="button"
                                     onClick={() => startEdit(f)}
-                                    title="Edit"
+                                    title={t('featureBrowser.edit')}
                                     className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1 text-muted hover:bg-surface-2 hover:text-ink-1"
                                   >
                                     <Pencil className="h-3 w-3" />
@@ -464,7 +473,7 @@ export function V3FeatureBrowser({
                                   <button
                                     type="button"
                                     onClick={() => void remove(f)}
-                                    title="Delete"
+                                    title={t('featureBrowser.delete')}
                                     className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1 text-muted hover:bg-danger/10 hover:text-danger"
                                   >
                                     <Trash2 className="h-3 w-3" />
@@ -597,7 +606,7 @@ function ExportMenu({
       });
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : 'GeoParquet export failed',
+        err instanceof Error ? err.message : t('featureBrowser.geoParquetFailed'),
       );
     } finally {
       setParquetRunning(false);
@@ -658,7 +667,7 @@ function ExportMenu({
   async function runBundle(): Promise<void> {
     setBundleError(null);
     setBundleRunning(true);
-    setBundleProgress('Starting…');
+    setBundleProgress(t('featureBrowser.bundleStarting'));
     try {
       const result = await exportBundle({
         itemId,
@@ -714,12 +723,12 @@ function ExportMenu({
         className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         title={
           features.length === 0
-            ? 'No features to export'
-            : `Export ${features.length} feature(s)`
+            ? t('featureBrowser.noFeaturesExport')
+            : t('featureBrowser.exportCount', { count: features.length })
         }
       >
         <Download className="h-3 w-3" />
-        Export
+        {t('featureBrowser.export')}
       </button>
       {open ? (
         <>
@@ -734,14 +743,14 @@ function ExportMenu({
               onClick={() => run('xlsx')}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              Excel (.xlsx)
+              {t('featureBrowser.exportExcel')}
             </button>
             <button
               type="button"
               onClick={() => run('csv')}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              CSV
+              {t('featureBrowser.exportCsv')}
             </button>
             {/* exportFeaturesToGeoJson has existed in layer-export.ts
                 the whole time, is already in the ExportFormat union,
@@ -754,7 +763,7 @@ function ExportMenu({
               onClick={() => run('geojson')}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              GeoJSON
+              {t('featureBrowser.exportGeoJson')}
             </button>
             <button
               type="button"
@@ -762,7 +771,9 @@ function ExportMenu({
               disabled={parquetRunning}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:opacity-50"
             >
-              {parquetRunning ? 'GeoParquet (preparing…)' : 'GeoParquet'}
+              {parquetRunning
+                ? t('featureBrowser.exportGeoParquetPreparing')
+                : t('featureBrowser.exportGeoParquet')}
             </button>
             <div className="my-1 border-t border-border" />
             <button
@@ -778,7 +789,7 @@ function ExportMenu({
               }}
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
-              Bundle (.zip): Excel + related + attachments
+              {t('featureBrowser.exportBundle')}
             </button>
           </div>
         </>
@@ -849,28 +860,35 @@ function BundleExportModal({
   onCancel: () => void;
   onRun: () => void;
 }) {
+  const t = useT();
   // Pickable string-ish fields on the parent layer.  Used for the
   // attachment-prefix and attachment-split dropdowns.  Numeric
   // fields are allowed too since IDs are often numeric.
   const pickableFields = (layer.fields ?? []).filter((f) => {
-    const t = (f as { type?: string }).type ?? 'text';
-    return t === 'text' || t === 'integer' || t === 'double' || t === 'bigint';
+    const fieldType = (f as { type?: string }).type ?? 'text';
+    return (
+      fieldType === 'text' ||
+      fieldType === 'integer' ||
+      fieldType === 'double' ||
+      fieldType === 'bigint'
+    );
   });
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={running ? undefined : onCancel}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !running) onCancel();
+      }}
     >
-      <div
-        className="relative w-full max-w-md rounded-lg bg-surface-0 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold text-ink-0">Bundle export</h3>
-          <p className="mt-1 text-xs text-muted">
+      <DialogContent size="md" className="overflow-hidden bg-surface-0 p-0">
+        <header className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-ink-0">
+            Bundle export
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-xs text-muted">
             Pack {layer.label || layer.name} (and optionally its related
             tables + feature attachments) into a single ZIP.
-          </p>
+          </DialogDescription>
         </header>
         <div className="space-y-3 px-4 py-3 text-xs">
           {relatedLayerCount > 0 ? (
@@ -967,7 +985,7 @@ function BundleExportModal({
             {error ?? progress}
           </div>
         ) : null}
-        <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <DialogFooter>
           <button
             type="button"
             disabled={running}
@@ -987,11 +1005,13 @@ function BundleExportModal({
             ) : (
               <Download className="h-3 w-3" />
             )}
-            {running ? 'Building…' : 'Export bundle'}
+            {running
+              ? t('featureBrowser.bundleBuilding')
+              : t('featureBrowser.bundleExport')}
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

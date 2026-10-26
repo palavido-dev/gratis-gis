@@ -15,10 +15,23 @@ import {
   RotateCw,
   Save,
   Send,
-  X,
 } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  formatDate,
+  formatDateTime,
+  formatRelativeTime,
+  useFormat,
+} from '@/lib/i18n/format';
+import type { SupportedLocale } from '@/lib/i18n/locales';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface Stats {
   queueDepth: number;
@@ -121,6 +134,8 @@ export function NotificationsAdminView({
   initialDefaults,
   initialTemplateOverrides,
 }: Props) {
+  const t = useT();
+  const fmt = useFormat();
   const [stats, setStats] = useState<Stats>(initialStats);
   const [recent, setRecent] = useState<RecentRow[]>(initialRecent);
   const [refreshing, setRefreshing] = useState(false);
@@ -151,10 +166,14 @@ export function NotificationsAdminView({
       // Without these checks a 401 / 500 body would be parsed as if
       // it were stats and render NaN metrics instead of an error.
       if (!sRes.ok) {
-        throw new Error(`Could not refresh stats (${sRes.status})`);
+        throw new Error(
+          t('adminNotifications.errRefreshStats', { status: String(sRes.status) }),
+        );
       }
       if (!rRes.ok) {
-        throw new Error(`Could not refresh recent activity (${rRes.status})`);
+        throw new Error(
+          t('adminNotifications.errRefreshRecent', { status: String(rRes.status) }),
+        );
       }
       const s = (await sRes.json()) as Stats;
       const r = (await rRes.json()) as RecentRow[];
@@ -162,7 +181,9 @@ export function NotificationsAdminView({
       setRecent(r);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Refresh failed; try again.',
+        err instanceof Error
+          ? err.message
+          : t('adminNotifications.refreshFailed'),
       );
     } finally {
       setRefreshing(false);
@@ -192,7 +213,7 @@ export function NotificationsAdminView({
       // Only the retry POST itself rolls back the optimistic row.
       setRecent(prev);
       setError(
-        err instanceof Error ? err.message : 'Retry failed; try again.',
+        err instanceof Error ? err.message : t('adminNotifications.retryFailed'),
       );
       setRetryingId(null);
       return;
@@ -222,7 +243,9 @@ export function NotificationsAdminView({
       setPreview((await res.json()) as PreviewPayload);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Could not load preview.',
+        err instanceof Error
+          ? err.message
+          : t('adminNotifications.previewLoadFailed'),
       );
     }
   }
@@ -248,45 +271,47 @@ export function NotificationsAdminView({
           ) : (
             <RefreshCcw className="h-3.5 w-3.5" />
           )}
-          Refresh
+          {t('adminNotifications.refresh')}
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Metric
           icon={<Clock className="h-4 w-4" />}
-          label="Queue depth"
-          value={stats.queueDepth.toLocaleString()}
+          label={t('adminNotifications.metricQueueDepth')}
+          value={fmt.number(stats.queueDepth)}
           tone={stats.queueDepth > 100 ? 'warn' : 'normal'}
-          help="Queued + sending"
+          help={t('adminNotifications.metricQueueHelp')}
         />
         <Metric
           icon={<CheckCircle2 className="h-4 w-4" />}
-          label="Sent (24h)"
-          value={stats.sentLast24h.toLocaleString()}
+          label={t('adminNotifications.metricSent24h')}
+          value={fmt.number(stats.sentLast24h)}
           tone="normal"
         />
         <Metric
           icon={<AlertTriangle className="h-4 w-4" />}
-          label="Failed (24h)"
-          value={stats.failedLast24h.toLocaleString()}
+          label={t('adminNotifications.metricFailed24h')}
+          value={fmt.number(stats.failedLast24h)}
           tone={stats.failedLast24h > 0 ? 'warn' : 'normal'}
           help={
             stats.failedTotal > stats.failedLast24h
-              ? `${stats.failedTotal} total since launch`
+              ? t('adminNotifications.metricFailedTotalHelp', {
+                  total: fmt.number(stats.failedTotal),
+                })
               : undefined
           }
         />
         <Metric
           icon={<Clock className="h-4 w-4" />}
-          label="Avg latency"
+          label={t('adminNotifications.metricAvgLatency')}
           value={
             stats.avgLatencyMs === null
               ? '-'
-              : formatLatency(stats.avgLatencyMs)
+              : formatLatency(stats.avgLatencyMs, t)
           }
           tone="normal"
-          help="Create -> sent (24h)"
+          help={t('adminNotifications.metricLatencyHelp')}
         />
       </div>
 
@@ -306,25 +331,38 @@ export function NotificationsAdminView({
 
       <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
-          Recent activity
+          {t('adminNotifications.recentActivity')}
         </h2>
         {recent.length === 0 ? (
           <p className="text-sm text-muted">
-            No notifications yet. Once the platform fires a trigger,
-            rows will appear here.
+            {t('adminNotifications.recentEmpty')}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead className="text-muted">
                 <tr>
-                  <th className="pb-1 text-left font-medium">Type</th>
-                  <th className="pb-1 text-left font-medium">Address</th>
-                  <th className="pb-1 text-left font-medium">Status</th>
-                  <th className="pb-1 text-left font-medium">Created</th>
-                  <th className="pb-1 text-left font-medium">Sent</th>
-                  <th className="pb-1 text-left font-medium">Attempts</th>
-                  <th className="pb-1 text-right font-medium">Action</th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colType')}
+                  </th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colAddress')}
+                  </th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colStatus')}
+                  </th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colCreated')}
+                  </th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colSent')}
+                  </th>
+                  <th className="pb-1 text-left font-medium">
+                    {t('adminNotifications.colAttempts')}
+                  </th>
+                  <th className="pb-1 text-right font-medium">
+                    {t('adminNotifications.colAction')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -346,10 +384,10 @@ export function NotificationsAdminView({
                         ) : null}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
-                        {formatRel(row.createdAt)}
+                        {formatRel(row.createdAt, fmt.locale)}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
-                        {row.sentAt ? formatRel(row.sentAt) : '-'}
+                        {row.sentAt ? formatRel(row.sentAt, fmt.locale) : '-'}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
                         {row.attempts}
@@ -367,7 +405,7 @@ export function NotificationsAdminView({
                             ) : (
                               <RotateCw className="h-3 w-3" />
                             )}
-                            Retry
+                            {t('adminNotifications.retry')}
                           </button>
                         ) : null}
                       </td>
@@ -419,6 +457,7 @@ export function NotificationsAdminView({
 // ---- SMTP card ---------------------------------------------------
 
 function SmtpCard({ initial }: { initial: SmtpState }) {
+  const t = useT();
   const [form, setForm] = useState<SmtpState & { password: string }>({
     ...initial,
     password: '',
@@ -463,18 +502,21 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
       if (fresh.realmSyncWarning) {
         setMsg({
           kind: 'warn',
-          text: `SMTP saved, but Keycloak realm sync failed: ${fresh.realmSyncWarning}`,
+          text: t('adminNotifications.smtpSavedRealmWarning', {
+            warning: fresh.realmSyncWarning,
+          }),
         });
       } else {
         setMsg({
           kind: 'ok',
-          text: 'Saved. Worker will use new SMTP on next send.',
+          text: t('adminNotifications.smtpSavedOk'),
         });
       }
     } catch (err) {
       setMsg({
         kind: 'err',
-        text: err instanceof Error ? err.message : 'Save failed.',
+        text:
+          err instanceof Error ? err.message : t('adminNotifications.saveFailed'),
       });
     } finally {
       setSaving(false);
@@ -483,7 +525,10 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
 
   async function sendTest() {
     if (!testTo.includes('@')) {
-      setMsg({ kind: 'err', text: 'Enter a valid email address to test.' });
+      setMsg({
+        kind: 'err',
+        text: t('adminNotifications.testEmailInvalid'),
+      });
       return;
     }
     setTesting(true);
@@ -506,17 +551,21 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
       });
       const out = (await res.json()) as { ok: boolean; error?: string };
       if (out.ok) {
-        setMsg({ kind: 'ok', text: `Test sent to ${testTo}.` });
+        setMsg({
+          kind: 'ok',
+          text: t('adminNotifications.testSent', { email: testTo }),
+        });
       } else {
         setMsg({
           kind: 'err',
-          text: out.error ?? 'Test failed without a clear error.',
+          text: out.error ?? t('adminNotifications.testFailedUnclear'),
         });
       }
     } catch (err) {
       setMsg({
         kind: 'err',
-        text: err instanceof Error ? err.message : 'Test failed.',
+        text:
+          err instanceof Error ? err.message : t('adminNotifications.testFailed'),
       });
     } finally {
       setTesting(false);
@@ -527,7 +576,9 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
     <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
       <header className="mb-3 flex items-center gap-2">
         <Mail className="h-4 w-4 text-accent" />
-        <h2 className="text-sm font-medium tracking-tight">SMTP</h2>
+        <h2 className="text-sm font-medium tracking-tight">
+          {t('adminNotifications.smtpTitle')}
+        </h2>
         {form.host ? (
           <span
             className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-2xs uppercase tracking-wide ${
@@ -536,21 +587,24 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
                 : 'bg-surface-2 text-muted'
             }`}
           >
-            {form.enabled ? 'enabled' : 'paused'}
+            {form.enabled
+              ? t('adminNotifications.statusEnabled')
+              : t('adminNotifications.statusPaused')}
           </span>
         ) : (
           <span className="ml-2 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn">
-            not configured
+            {t('adminNotifications.statusNotConfigured')}
           </span>
         )}
       </header>
       <p className="mb-3 text-xs text-muted">
-        Same SMTP relay drives product notifications + Keycloak invite
-        / password-reset emails. Save here and the realm sync runs
-        automatically.
+        {t('adminNotifications.smtpIntro')}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Host" hint="e.g. smtp.example.org">
+        <Field
+          label={t('adminNotifications.labelHost')}
+          hint={t('adminNotifications.hintHost')}
+        >
           <input
             type="text"
             value={form.host}
@@ -558,7 +612,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             className={inputClass}
           />
         </Field>
-        <Field label="Port">
+        <Field label={t('adminNotifications.labelPort')}>
           <input
             type="number"
             value={form.port}
@@ -568,7 +622,10 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             className={inputClass}
           />
         </Field>
-        <Field label="From address" hint="appears in the From header">
+        <Field
+          label={t('adminNotifications.labelFromAddress')}
+          hint={t('adminNotifications.hintFromAddress')}
+        >
           <input
             type="email"
             value={form.fromAddress}
@@ -576,7 +633,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             className={inputClass}
           />
         </Field>
-        <Field label="From display name">
+        <Field label={t('adminNotifications.labelFromDisplayName')}>
           <input
             type="text"
             value={form.fromDisplayName}
@@ -586,7 +643,10 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             className={inputClass}
           />
         </Field>
-        <Field label="Username" hint="leave blank for unauthenticated relay">
+        <Field
+          label={t('adminNotifications.labelUsername')}
+          hint={t('adminNotifications.hintUsername')}
+        >
           <input
             type="text"
             value={form.user}
@@ -595,11 +655,11 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
           />
         </Field>
         <Field
-          label="Password"
+          label={t('adminNotifications.labelPassword')}
           hint={
             form.hasPassword && form.password.length === 0
-              ? 'A password is stored. Type to replace.'
-              : 'Stored encrypted at rest.'
+              ? t('adminNotifications.hintPasswordReplace')
+              : t('adminNotifications.hintPasswordStored')
           }
         >
           <div className="flex h-9 items-stretch">
@@ -610,7 +670,9 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
                 setForm({ ...form, password: e.target.value })
               }
               placeholder={
-                form.hasPassword ? '(unchanged)' : 'enter password'
+                form.hasPassword
+                  ? t('adminNotifications.placeholderPasswordUnchanged')
+                  : t('adminNotifications.placeholderPasswordEnter')
               }
               className={`${inputClass} flex-1 rounded-r-none`}
             />
@@ -619,7 +681,9 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
               onClick={() => setShowPassword((s) => !s)}
               className="rounded-r-md border border-l-0 border-border bg-surface-2 px-2 text-xs text-muted hover:text-ink-0"
             >
-              {showPassword ? 'hide' : 'show'}
+              {showPassword
+                ? t('adminNotifications.hidePassword')
+                : t('adminNotifications.showPassword')}
             </button>
           </div>
         </Field>
@@ -631,7 +695,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             checked={form.enabled}
             onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
           />
-          <span>Enabled</span>
+          <span>{t('adminNotifications.checkboxEnabled')}</span>
         </label>
         <label className="inline-flex items-center gap-1.5">
           <input
@@ -639,7 +703,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             checked={form.secure}
             onChange={(e) => setForm({ ...form, secure: e.target.checked })}
           />
-          <span>SSL / TLS on connect (port 465)</span>
+          <span>{t('adminNotifications.checkboxSslTls')}</span>
         </label>
       </div>
 
@@ -655,15 +719,15 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          Save
+          {t('common.save')}
         </button>
         <div className="ml-auto flex items-end gap-2">
-          <Field label="Send test to">
+          <Field label={t('adminNotifications.labelSendTestTo')}>
             <input
               type="email"
               value={testTo}
               onChange={(e) => setTestTo(e.target.value)}
-              placeholder="you@example.com"
+              placeholder={t('adminNotifications.placeholderTestEmail')}
               className={`${inputClass} w-56`}
             />
           </Field>
@@ -678,7 +742,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             ) : (
               <Send className="h-3.5 w-3.5" />
             )}
-            Send test
+            {t('adminNotifications.sendTest')}
           </button>
         </div>
       </div>
@@ -714,6 +778,8 @@ function DefaultsCard({
   onPreview: (type: string) => void;
   onCustomize: (row: DefaultsRow) => void;
 }) {
+  const t = useT();
+  const fmt = useFormat();
   const [rows, setRows] = useState<DefaultsRow[]>(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const statsLookup = new Map(statsByType.map((s) => [s.type, s] as const));
@@ -757,18 +823,32 @@ function DefaultsCard({
   return (
     <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
       <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
-        Notification types
+        {t('adminNotifications.notificationTypes')}
       </h2>
       <table className="min-w-full text-xs">
         <thead className="text-muted">
           <tr>
-            <th className="pb-1 text-left font-medium">Type</th>
-            <th className="pb-1 text-right font-medium">Queued</th>
-            <th className="pb-1 text-right font-medium">Sent</th>
-            <th className="pb-1 text-right font-medium">Failed</th>
-            <th className="pb-1 text-right font-medium">Default</th>
-            <th className="pb-1 text-right font-medium">Template</th>
-            <th className="pb-1 text-right font-medium">Preview</th>
+            <th className="pb-1 text-left font-medium">
+              {t('adminNotifications.colType')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colQueued')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colSent')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colFailed')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colDefault')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colTemplate')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('adminNotifications.colPreview')}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -781,22 +861,22 @@ function DefaultsCard({
                   {row.label}
                   {row.isOverride ? (
                     <span className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn">
-                      override
+                      {t('adminNotifications.badgeOverride')}
                     </span>
                   ) : null}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
-                  {(s?.queued ?? 0).toLocaleString()}
+                  {fmt.number(s?.queued ?? 0)}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
-                  {(s?.sent ?? 0).toLocaleString()}
+                  {fmt.number(s?.sent ?? 0)}
                 </td>
                 <td
                   className={`py-1.5 text-right tabular-nums ${
                     (s?.failed ?? 0) > 0 ? 'text-warn' : ''
                   }`}
                 >
-                  {(s?.failed ?? 0).toLocaleString()}
+                  {fmt.number(s?.failed ?? 0)}
                 </td>
                 <td className="py-1.5 text-right">
                   <label className="inline-flex items-center gap-1 text-2xs">
@@ -808,7 +888,11 @@ function DefaultsCard({
                         void setOverride(row, e.target.checked)
                       }
                     />
-                    <span>{row.effective ? 'on' : 'off'}</span>
+                    <span>
+                      {row.effective
+                        ? t('adminNotifications.toggleOn')
+                        : t('adminNotifications.toggleOff')}
+                    </span>
                   </label>
                 </td>
                 <td className="py-1.5 text-right">
@@ -821,12 +905,14 @@ function DefaultsCard({
                         className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                         title={
                           hasOverride
-                            ? 'Editing your saved template'
-                            : 'Override the default copy for this org'
+                            ? t('adminNotifications.templateEditTitle')
+                            : t('adminNotifications.templateCustomizeTitle')
                         }
                       >
                         <Pencil className="h-3 w-3" />
-                        {hasOverride ? 'Edit' : 'Customize'}
+                        {hasOverride
+                          ? t('adminNotifications.edit')
+                          : t('adminNotifications.customize')}
                         {hasOverride ? (
                           <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-warn" />
                         ) : null}
@@ -841,7 +927,7 @@ function DefaultsCard({
                     className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                   >
                     <Eye className="h-3 w-3" />
-                    Preview
+                    {t('adminNotifications.preview')}
                   </button>
                 </td>
               </tr>
@@ -850,11 +936,7 @@ function DefaultsCard({
         </tbody>
       </table>
       <p className="mt-2 text-2xs text-muted">
-        Off here mutes the type platform-wide for users who haven&apos;t
-        explicitly opted in. Per-user opt-ins still win. Customize
-        rewrites the email body for your org; saved templates
-        substitute mustache-style placeholders like {'{{itemTitle}}'}
-        and {'{{baseUrl}}'} from the trigger payload.
+        {t('adminNotifications.defaultsFootnote')}
       </p>
     </section>
   );
@@ -869,41 +951,33 @@ function PreviewModal({
   preview: PreviewPayload;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-surface-1 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted">
-              Preview
-            </p>
-            <p className="text-sm font-medium text-ink-0">{preview.label}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent size="lg" className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <p className="text-xs uppercase tracking-wide text-muted">
+            {t('adminNotifications.previewHeading')}
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {preview.label}
+          </DialogTitle>
         </div>
         <div className="space-y-3 px-4 py-3 text-xs">
           <div>
             <p className="text-2xs uppercase tracking-wide text-muted">
-              Subject
+              {t('adminNotifications.subject')}
             </p>
             <p className="mt-0.5 text-sm text-ink-0">{preview.subject}</p>
           </div>
           <div>
             <p className="text-2xs uppercase tracking-wide text-muted">
-              HTML
+              {t('adminNotifications.html')}
             </p>
             <div
               className="mt-0.5 max-h-80 overflow-auto rounded border border-border bg-surface-0 p-3 text-sm"
@@ -913,15 +987,15 @@ function PreviewModal({
           </div>
           <details>
             <summary className="cursor-pointer text-2xs uppercase tracking-wide text-muted">
-              Plain-text fallback
+              {t('adminNotifications.plainTextFallback')}
             </summary>
             <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-2xs text-ink-1">
               {preview.text}
             </pre>
           </details>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -959,6 +1033,7 @@ function TemplateEditModal({
    *  per-type table without a full refresh. */
   onSaved: (hasOverride: boolean) => void;
 }) {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
@@ -1045,7 +1120,9 @@ function TemplateEditModal({
       } catch (e) {
         if (!cancelled) {
           setLoadError(
-            e instanceof Error ? e.message : 'Could not load template.',
+            e instanceof Error
+              ? e.message
+              : t('adminNotifications.templateLoadFailed'),
           );
         }
       } finally {
@@ -1183,7 +1260,9 @@ function TemplateEditModal({
           );
           setErr(null);
         } catch (e) {
-          setErr(e instanceof Error ? e.message : 'Preview failed.');
+          setErr(
+            e instanceof Error ? e.message : t('adminNotifications.previewFailed'),
+          );
         } finally {
           setPreviewing(false);
         }
@@ -1208,7 +1287,7 @@ function TemplateEditModal({
       setHasOverride(true);
       onSaved(true);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed.');
+      setErr(e instanceof Error ? e.message : t('adminNotifications.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -1236,36 +1315,30 @@ function TemplateEditModal({
         setPreview(defaultPreview);
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Reset failed.');
+      setErr(e instanceof Error ? e.message : t('adminNotifications.resetFailed'));
     } finally {
       setResetting(false);
     }
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-surface-1 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="xl"
+        className="flex max-h-[92vh] !max-w-5xl flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted">
-              Edit template ({channel})
-            </p>
-            <p className="text-sm font-medium text-ink-0">{label}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <p className="text-xs uppercase tracking-wide text-muted">
+            {t('adminNotifications.editTemplateTitle', { channel })}
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {label}
+          </DialogTitle>
         </div>
 
         {loading ? (
@@ -1276,7 +1349,9 @@ function TemplateEditModal({
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-24 w-full" />
-            <span className="sr-only">Loading template...</span>
+            <span className="sr-only">
+              {t('adminNotifications.loadingTemplate')}
+            </span>
           </div>
         ) : loadError ? (
           <div className="px-4 py-6 text-xs text-danger">{loadError}</div>
@@ -1293,7 +1368,7 @@ function TemplateEditModal({
               {variables.length > 0 ? (
                 <div className="rounded-md border border-border bg-surface-0 p-2">
                   <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-                    Insert variable
+                    {t('adminNotifications.insertVariable')}
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {variables.map((v) => (
@@ -1303,7 +1378,11 @@ function TemplateEditModal({
                         onClick={() => insertVariable(v)}
                         title={
                           (v.description ? `${v.description}\n\n` : '') +
-                          (v.example ? `Example: ${v.example}` : '')
+                          (v.example
+                            ? t('adminNotifications.variableExample', {
+                                example: v.example,
+                              })
+                            : '')
                         }
                         className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                       >
@@ -1318,8 +1397,8 @@ function TemplateEditModal({
               ) : null}
 
               <Field
-                label="Subject"
-                hint="Mustache-lite. Use the variable buttons above to insert."
+                label={t('adminNotifications.labelSubject')}
+                hint={t('adminNotifications.hintSubject')}
               >
                 <input
                   ref={subjectRef}
@@ -1337,8 +1416,8 @@ function TemplateEditModal({
               </Field>
 
               <Field
-                label="HTML body"
-                hint="{{name}} escapes, {{{name}}} passes raw HTML."
+                label={t('adminNotifications.labelHtmlBody')}
+                hint={t('adminNotifications.hintHtmlBody')}
               >
                 <textarea
                   ref={bodyHtmlRef}
@@ -1356,8 +1435,8 @@ function TemplateEditModal({
               </Field>
 
               <Field
-                label="Plain-text body"
-                hint="Sent as the multipart/alternative fallback."
+                label={t('adminNotifications.labelPlainBody')}
+                hint={t('adminNotifications.hintPlainBody')}
               >
                 <div className="space-y-1">
                   <textarea
@@ -1378,7 +1457,7 @@ function TemplateEditModal({
                     onClick={derivePlainTextFromHtml}
                     className="text-2xs text-accent hover:underline"
                   >
-                    Generate from HTML body
+                    {t('adminNotifications.generateFromHtml')}
                   </button>
                 </div>
               </Field>
@@ -1392,20 +1471,20 @@ function TemplateEditModal({
 
             <div className="space-y-3">
               <p className="flex items-center gap-2 text-2xs uppercase tracking-wide text-muted">
-                Live preview
+                {t('adminNotifications.livePreview')}
                 {previewing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
               </p>
               <div>
                 <p className="text-2xs uppercase tracking-wide text-muted">
-                  Subject
+                  {t('adminNotifications.subject')}
                 </p>
                 <p className="mt-0.5 text-sm text-ink-0">
-                  {preview?.subject ?? '...'}
+                  {preview?.subject ?? t('adminNotifications.previewPlaceholder')}
                 </p>
               </div>
               <div>
                 <p className="text-2xs uppercase tracking-wide text-muted">
-                  HTML
+                  {t('adminNotifications.html')}
                 </p>
                 <div
                   className="mt-0.5 max-h-72 overflow-auto rounded border border-border bg-surface-0 p-3 text-sm"
@@ -1415,7 +1494,7 @@ function TemplateEditModal({
               </div>
               <details>
                 <summary className="cursor-pointer text-2xs uppercase tracking-wide text-muted">
-                  Plain-text fallback
+                  {t('adminNotifications.plainTextFallback')}
                 </summary>
                 <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-2xs text-ink-1">
                   {preview?.text ?? ''}
@@ -1425,7 +1504,7 @@ function TemplateEditModal({
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
+        <DialogFooter className="justify-between">
           <button
             type="button"
             disabled={!hasOverride || resetting}
@@ -1437,7 +1516,7 @@ function TemplateEditModal({
             ) : (
               <RotateCcw className="h-3.5 w-3.5" />
             )}
-            Reset to default
+            {t('adminNotifications.resetToDefault')}
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -1445,7 +1524,7 @@ function TemplateEditModal({
               onClick={onClose}
               className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -1458,12 +1537,12 @@ function TemplateEditModal({
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              Save override
+              {t('adminNotifications.saveOverride')}
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1524,6 +1603,7 @@ function Metric({
 }
 
 function StatusBadge({ status }: { status: RecentRow['status'] }) {
+  const t = useT();
   const tone =
     status === 'sent'
       ? 'bg-success/15 text-success'
@@ -1532,26 +1612,43 @@ function StatusBadge({ status }: { status: RecentRow['status'] }) {
         : status === 'sending'
           ? 'bg-info/15 text-info'
           : 'bg-surface-2 text-muted';
+  const label =
+    status === 'sent'
+      ? t('adminNotifications.statusSent')
+      : status === 'failed'
+        ? t('adminNotifications.statusFailed')
+        : status === 'sending'
+          ? t('adminNotifications.statusSending')
+          : t('adminNotifications.statusQueued');
   return (
     <span
       className={`inline-flex rounded-full px-1.5 py-0.5 text-2xs uppercase tracking-wide ${tone}`}
     >
-      {status}
+      {label}
     </span>
   );
 }
 
-function formatLatency(ms: number): string {
-  if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
-  return `${(ms / 60_000).toFixed(1)} min`;
+function formatLatency(
+  ms: number,
+  t: ReturnType<typeof useT>,
+): string {
+  if (ms < 1000) {
+    return t('adminNotifications.latencyMs', { value: String(ms) });
+  }
+  if (ms < 60_000) {
+    return t('adminNotifications.latencySeconds', {
+      value: (ms / 1000).toFixed(1),
+    });
+  }
+  return t('adminNotifications.latencyMinutes', {
+    value: (ms / 60_000).toFixed(1),
+  });
 }
 
-function formatRel(iso: string): string {
+function formatRel(iso: string, locale: SupportedLocale = 'en'): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return new Date(iso).toLocaleString();
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
-  return new Date(iso).toLocaleDateString();
+  if (ms < 0) return formatDateTime(iso, locale);
+  if (ms < 86_400_000) return formatRelativeTime(iso, locale);
+  return formatDate(iso, locale);
 }

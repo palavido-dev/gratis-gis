@@ -16,6 +16,7 @@ import type { OfflineMessageEnvelope } from '@gratis-gis/shared-types';
 
 import { formatBytes } from '@/lib/format-bytes';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import { formatOfflineMessage } from '@/lib/offline-message';
 import { useConfirm } from '@/components/dialog-provider';
 
@@ -255,6 +256,7 @@ function DeviceRow({
   disabled: boolean;
 }) {
   const t = useT();
+  const fmt = useFormat();
   const [expanded, setExpanded] = useState(false);
   const confirm = useConfirm();
   const stuck = countQueued(row);
@@ -324,7 +326,7 @@ function DeviceRow({
                   ? 'border-warn/30 bg-warn/10 text-warn'
                   : 'border-border bg-surface-2 text-muted'
               }`}
-              title={new Date(row.reportedAt).toLocaleString()}
+              title={fmt.dateTime(row.reportedAt)}
             >
               Last seen: {formatRelative(row.reportedAt)}
             </span>

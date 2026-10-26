@@ -25,6 +25,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, RefreshCw, Unlink } from 'lucide-react';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
+import { useT } from '@/lib/i18n/locale-context';
 import type { ItemType } from '@gratis-gis/shared-types';
 
 export interface DanglingReferencesReport {
@@ -45,6 +46,7 @@ interface Props {
 }
 
 export function DanglingReferencesCard({ initial }: Props) {
+  const t = useT();
   const [report, setReport] = useState<DanglingReferencesReport>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +62,9 @@ export function DanglingReferencesCard({ initial }: Props) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setReport((await res.json()) as DanglingReferencesReport);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed.');
+      setError(
+        err instanceof Error ? err.message : t('adminHousekeeping.errScanFailed'),
+      );
     } finally {
       setBusy(false);
     }
@@ -74,14 +78,11 @@ export function DanglingReferencesCard({ initial }: Props) {
             <Unlink className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold">Broken references</h2>
+            <h2 className="text-sm font-semibold">
+              {t('adminHousekeeping.brokenReferencesTitle')}
+            </h2>
             <p className="text-xs text-muted">
-              Things that point at items which no longer exist (or sit
-              in the trash), whether the pointer lives in an item or in
-              your portal settings. These break silently: a map just
-              stops drawing that layer, the landing page just skips
-              that featured item. Open each one to repoint or remove
-              the reference.
+              {t('adminHousekeeping.brokenReferencesIntro')}
             </p>
           </div>
         </div>
@@ -96,7 +97,7 @@ export function DanglingReferencesCard({ initial }: Props) {
           ) : (
             <RefreshCw className="h-3.5 w-3.5" />
           )}
-          Re-scan
+          {t('adminHousekeeping.orphanedRescan')}
         </button>
       </div>
 
@@ -108,8 +109,7 @@ export function DanglingReferencesCard({ initial }: Props) {
 
       {report.referrers.length === 0 ? (
         <p className="text-sm text-muted">
-          Every reference resolves: no item points at something that
-          is gone.
+          {t('adminHousekeeping.brokenReferencesEmpty')}
         </p>
       ) : (
         <ul className="divide-y divide-border/60 text-sm">
@@ -131,12 +131,16 @@ export function DanglingReferencesCard({ initial }: Props) {
                 </span>
                 {r.missing.length > 0 ? (
                   <span className="rounded-full border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs font-medium text-danger">
-                    {r.missing.length} missing
+                    {t('adminHousekeeping.badgeMissingCount', {
+                      count: r.missing.length,
+                    })}
                   </span>
                 ) : null}
                 {r.trashed.length > 0 ? (
                   <span className="rounded-full border border-warn/40 bg-warn/5 px-2 py-0.5 text-2xs font-medium text-warn">
-                    {r.trashed.length} in trash
+                    {t('adminHousekeeping.badgeInTrashCount', {
+                      count: r.trashed.length,
+                    })}
                   </span>
                 ) : null}
               </div>

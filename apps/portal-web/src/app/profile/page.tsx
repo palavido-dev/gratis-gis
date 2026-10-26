@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { Bell, Key, LogOut } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { SignOutButton } from '@/components/user-menu';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { AvatarEditor } from './avatar-editor';
 import { ProfileIdentityForm } from './profile-identity-form';
 
@@ -18,7 +20,10 @@ interface Me {
   avatarUrl: string | null;
 }
 
-export const metadata = { title: 'Profile' };
+export async function generateMetadata() {
+  const locale = await getServerLocale();
+  return { title: t('profile.metaTitle', undefined, locale) };
+}
 
 /**
  * Self-service profile page.
@@ -29,23 +34,28 @@ export const metadata = { title: 'Profile' };
  * they are without having to ask an admin.
  */
 export default async function ProfilePage() {
+  const locale = await getServerLocale();
   const me = await apiFetch<Me>('/api/users/me');
+  const org =
+    me.orgName ?? t('profile.thisOrganization', undefined, locale);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
       <header className="mb-8">
-        <p className="text-sm text-muted">You</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Profile</h1>
+        <p className="text-sm text-muted">
+          {t('profile.eyebrow', undefined, locale)}
+        </p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">
+          {t('nav.profile', undefined, locale)}
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Your identity in {me.orgName ?? 'this organization'}. Edit your name,
-          email, or profile photo here. Your username and role are managed by
-          an admin.
+          {t('profile.pageIntro', { org }, locale)}
         </p>
       </header>
 
       <section className="mb-8">
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Profile photo
+          {t('profile.profilePhoto', undefined, locale)}
         </label>
         <AvatarEditor
           userId={me.id}
@@ -64,11 +74,20 @@ export default async function ProfilePage() {
 
       <section className="mt-8 space-y-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
         <p className="text-xs font-medium uppercase tracking-wide text-muted">
-          Admin-managed
+          {t('profile.adminManaged', undefined, locale)}
         </p>
-        <Field label="Username" value={me.username} />
-        <Field label="Organization" value={me.orgName ?? '-'} />
-        <Field label="Role" value={me.orgRole} />
+        <Field
+          label={t('profile.fieldUsername', undefined, locale)}
+          value={me.username}
+        />
+        <Field
+          label={t('profile.fieldOrganization', undefined, locale)}
+          value={me.orgName ?? '-'}
+        />
+        <Field
+          label={t('profile.fieldRole', undefined, locale)}
+          value={me.orgRole}
+        />
       </section>
 
       <section className="mt-8 flex flex-wrap items-center gap-2">
@@ -77,14 +96,14 @@ export default async function ProfilePage() {
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
         >
           <Bell className="h-4 w-4" />
-          Notification preferences
+          {t('profile.linkNotificationPreferences', undefined, locale)}
         </Link>
         <Link
           href="/settings/api-keys"
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
         >
           <Key className="h-4 w-4" />
-          API keys
+          {t('profile.linkApiKeys', undefined, locale)}
         </Link>
         {/* Sign out must run the client-side flow (NextAuth
             signOut() first, then the Keycloak end-session hop).
@@ -93,7 +112,7 @@ export default async function ProfilePage() {
             still signed in to the portal. */}
         <SignOutButton className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2">
           <LogOut className="h-4 w-4" />
-          Sign out
+          {t('nav.signOut', undefined, locale)}
         </SignOutButton>
       </section>
     </div>

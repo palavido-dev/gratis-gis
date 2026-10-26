@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, ArrowRightLeft, CloudDownload, CloudUpload } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 
 /**
  * Admin-only migrations hub.
@@ -25,6 +27,7 @@ export default async function AdminMigrationsPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -33,19 +36,21 @@ export default async function AdminMigrationsPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminHousekeeping.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <ArrowRightLeft className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Migrations</h1>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('nav.migrations', undefined, locale)}
+          </h1>
           <p className="mt-0.5 text-sm text-muted">
-            Move data in and out of GratisGIS. Each migration is a
-            one-shot tool that walks an external system, previews
-            what will land, and creates portal items on your accept.
+            {t('adminMigrations.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>
@@ -54,34 +59,54 @@ export default async function AdminMigrationsPage() {
         <MigrationCard
           href="/admin/migrations/from-ago"
           icon={<CloudDownload className="h-5 w-5" />}
-          direction="Import"
-          title="From ArcGIS Online"
-          description="Mirror Web Maps, hosted services, tile layers, and file attachments from an AGO portal into GratisGIS. Folder layout and sharing scope are preserved. Apps, dashboards, and forms are not imported (their runtimes don't translate cleanly)."
+          direction={t('adminMigrations.directionImport', undefined, locale)}
+          title={t('adminMigrations.cardAgoImportTitle', undefined, locale)}
+          description={t(
+            'adminMigrations.cardAgoImportDescription',
+            undefined,
+            locale,
+          )}
           status="ready"
+          plannedLabel={t('adminMigrations.statusPlanned', undefined, locale)}
         />
         <MigrationCard
           href="#"
           icon={<CloudUpload className="h-5 w-5" />}
-          direction="Export"
-          title="To ArcGIS Online"
-          description="Push portal maps and data layers back out to AGO. Not yet implemented."
+          direction={t('adminMigrations.directionExport', undefined, locale)}
+          title={t('adminMigrations.cardAgoExportTitle', undefined, locale)}
+          description={t(
+            'adminMigrations.cardAgoExportDescription',
+            undefined,
+            locale,
+          )}
           status="planned"
+          plannedLabel={t('adminMigrations.statusPlanned', undefined, locale)}
         />
         <MigrationCard
           href="#"
           icon={<CloudDownload className="h-5 w-5" />}
-          direction="Import"
-          title="From QGIS project"
-          description="Read a .qgs / .qgz project file, recreate its layers and styles as portal items. Not yet implemented."
+          direction={t('adminMigrations.directionImport', undefined, locale)}
+          title={t('adminMigrations.cardQgisTitle', undefined, locale)}
+          description={t(
+            'adminMigrations.cardQgisDescription',
+            undefined,
+            locale,
+          )}
           status="planned"
+          plannedLabel={t('adminMigrations.statusPlanned', undefined, locale)}
         />
         <MigrationCard
           href="#"
           icon={<CloudDownload className="h-5 w-5" />}
-          direction="Import"
-          title="From external PostGIS"
-          description="Pull a schema or table from an external PostGIS database into a portal data_layer. Not yet implemented."
+          direction={t('adminMigrations.directionImport', undefined, locale)}
+          title={t('adminMigrations.cardPostgisTitle', undefined, locale)}
+          description={t(
+            'adminMigrations.cardPostgisDescription',
+            undefined,
+            locale,
+          )}
           status="planned"
+          plannedLabel={t('adminMigrations.statusPlanned', undefined, locale)}
         />
       </section>
     </div>
@@ -91,10 +116,11 @@ export default async function AdminMigrationsPage() {
 function MigrationCard(props: {
   href: string;
   icon: React.ReactNode;
-  direction: 'Import' | 'Export';
+  direction: string;
   title: string;
   description: string;
   status: 'ready' | 'planned';
+  plannedLabel: string;
 }) {
   const isReady = props.status === 'ready';
   const inner = (
@@ -120,7 +146,7 @@ function MigrationCard(props: {
         </div>
         {isReady ? null : (
           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-            Planned
+            {props.plannedLabel}
           </span>
         )}
       </div>

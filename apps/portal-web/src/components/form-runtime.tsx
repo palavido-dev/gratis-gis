@@ -2,6 +2,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   Camera,
   Check,
@@ -32,6 +33,7 @@ import {
   type ValidationError,
 } from '@gratis-gis/form-schema';
 import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Mobile-first runtime that renders any FormSchema and captures a
@@ -93,11 +95,13 @@ export function FormRuntime({
   form,
   initial,
   onSubmit,
-  submitLabel = 'Submit',
+  submitLabel,
   readOnly = false,
   formId,
   hideSubmitButton = false,
 }: FormRuntimeProps) {
+  const t = useT();
+  const resolvedSubmitLabel = submitLabel ?? t('formRuntime.submit');
   const [response, setResponse] = useState<Response>(() =>
     applyCalculations(form, initial ?? {}),
   );
@@ -176,7 +180,9 @@ export function FormRuntime({
       await onSubmit(pruneHidden(form, response));
       setSubmitted(true);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Submit failed.');
+      setSubmitError(
+        err instanceof Error ? err.message : t('formRuntime.submitFailed'),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -189,10 +195,10 @@ export function FormRuntime({
           <Check className="h-6 w-6" />
         </span>
         <h2 className="text-lg font-semibold tracking-tight text-ink-0">
-          Submitted
+          {t('formRuntime.submittedHeading')}
         </h2>
         <p className="text-sm text-muted">
-          Thanks. Your response has been recorded.
+          {t('formRuntime.submittedBody')}
         </p>
         <button
           type="button"
@@ -203,7 +209,7 @@ export function FormRuntime({
           }}
           className="mt-3 inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
         >
-          Submit another response
+          {t('formRuntime.submitAnother')}
         </button>
       </div>
     );
@@ -221,7 +227,10 @@ export function FormRuntime({
         {pages.length > 1 ? (
           <div className="mt-3 flex items-center justify-between">
             <p className="text-xs uppercase tracking-wide text-muted">
-              Page {pageIndex + 1} of {pages.length}
+              {t('formRuntime.pageProgress', {
+                current: pageIndex + 1,
+                total: pages.length,
+              })}
             </p>
             <div
               className="h-1 flex-1 ml-3 overflow-hidden rounded bg-surface-2"
@@ -276,18 +285,20 @@ export function FormRuntime({
               className="inline-flex h-11 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
             >
               <ChevronLeft className="h-4 w-4" />
-              Back
+              {t('formRuntime.back')}
             </button>
           ) : null}
           <div className="flex-1" />
           {readOnly ? (
-            <span className="text-xs text-muted">Preview mode</span>
+            <span className="text-xs text-muted">
+              {t('formRuntime.previewMode')}
+            </span>
           ) : pageIndex < pages.length - 1 ? (
             <button
               type="submit"
               className="inline-flex h-11 items-center gap-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:opacity-90"
             >
-              Next
+              {t('formRuntime.next')}
               <ChevronRight className="h-4 w-4" />
             </button>
           ) : hideSubmitButton ? (
@@ -299,7 +310,7 @@ export function FormRuntime({
             submitting ? (
               <span className="inline-flex items-center gap-1 text-xs text-muted">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Submitting...
+                {t('formRuntime.submitting')}
               </span>
             ) : null
           ) : (
@@ -311,7 +322,7 @@ export function FormRuntime({
               {submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
-              {submitLabel}
+              {resolvedSubmitLabel}
             </button>
           )}
         </div>
@@ -344,6 +355,7 @@ function QuestionField({
    */
   setValue?: (id: string, v: unknown) => void;
 }) {
+  const t = useT();
   if (!isVisible(q, response)) return null;
 
   if (q.type === 'page') return null;
@@ -399,7 +411,7 @@ function QuestionField({
       {q.guidanceHint ? (
         <details className="text-xs text-muted">
           <summary className="cursor-pointer text-accent hover:underline">
-            More info
+            {t('formRuntime.moreInfo')}
           </summary>
           <p className="mt-1 whitespace-pre-line text-muted">
             {q.guidanceHint}
@@ -449,6 +461,7 @@ function GroupField({
   onChange: (v: unknown) => void;
   setValue?: (id: string, v: unknown) => void;
 }) {
+  const t = useT();
   // Non-repeating group is purely a visual container. Children's
   // responses live at the TOP LEVEL of `response`, keyed by their
   // question id (matching pruneHidden + walkQuestions which only
@@ -505,7 +518,9 @@ function GroupField({
         {instances.map((inst, idx) => (
           <div key={idx} className="rounded-md border border-border bg-surface-1 p-3">
             <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted">
-              <span>Instance {idx + 1}</span>
+              <span>
+                {t('formRuntime.instanceLabel', { index: idx + 1 })}
+              </span>
               {!readOnly ? (
                 <button
                   type="button"
@@ -516,7 +531,7 @@ function GroupField({
                   }}
                 >
                   <Trash2 className="h-3 w-3" />
-                  Remove
+                  {t('formRuntime.removeInstance')}
                 </button>
               ) : null}
             </div>
@@ -609,6 +624,7 @@ function PackedRows({
  * "this is a preview, not interactive."
  */
 export function QuestionPreview({ q }: { q: Question }) {
+  const t = useT();
   // Pages, hidden, and group are structural -- nothing to render.
   // Note (text panel) and divider already render on their own.
   if (q.type === 'page' || q.type === 'hidden' || q.type === 'group') {
@@ -627,24 +643,18 @@ export function QuestionPreview({ q }: { q: Question }) {
     q.type === 'route' ||
     q.type === 'area-buffer'
   ) {
-    const label =
-      q.type === 'signature'
-        ? 'Signature pad'
-        : q.type === 'photo'
-          ? 'Photo capture'
-          : q.type === 'audio'
-            ? 'Audio capture'
-            : q.type === 'video'
-              ? 'Video capture'
-              : q.type === 'sketch'
-                ? 'Sketch canvas'
-                : q.type === 'pick-feature'
-                  ? 'Pick a feature'
-                  : q.type === 'route'
-                    ? 'Route'
-                    : q.type === 'area-buffer'
-                      ? 'Area (buffer)'
-                      : 'File upload';
+    const labelKey: Record<string, string> = {
+      signature: 'formRuntime.placeholders.signature',
+      photo: 'formRuntime.placeholders.photo',
+      audio: 'formRuntime.placeholders.audio',
+      video: 'formRuntime.placeholders.video',
+      sketch: 'formRuntime.placeholders.sketch',
+      'pick-feature': 'formRuntime.placeholders.pickFeature',
+      route: 'formRuntime.placeholders.route',
+      'area-buffer': 'formRuntime.placeholders.areaBuffer',
+      file: 'formRuntime.placeholders.file',
+    };
+    const label = t(labelKey[q.type] ?? 'formRuntime.placeholders.file');
     return (
       <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-2xs text-muted">
         {label}
@@ -674,6 +684,7 @@ function Input({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const baseClass =
     'block w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-base text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
@@ -809,8 +820,8 @@ function Input({
       return (
         <div className="flex gap-2">
           {[
-            { v: true, label: q.trueLabel ?? 'Yes' },
-            { v: false, label: q.falseLabel ?? 'No' },
+            { v: true, label: q.trueLabel ?? t('formRuntime.yes') },
+            { v: false, label: q.falseLabel ?? t('formRuntime.no') },
           ].map((opt) => (
             <button
               type="button"
@@ -1152,8 +1163,8 @@ function Input({
             ))}
           </div>
           <div className="mt-1 flex justify-between text-2xs text-muted">
-            <span>Not at all likely</span>
-            <span>Extremely likely</span>
+            <span>{t('formRuntime.npsLow')}</span>
+            <span>{t('formRuntime.npsHigh')}</span>
           </div>
         </div>
       );
@@ -1302,6 +1313,7 @@ function PhotoInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const photos = normalizePhotoValue(value);
   const max = q.maxCount ?? 1;
   const [busy, setBusy] = useState(false);
@@ -1321,7 +1333,7 @@ function PhotoInput({
                 type="button"
                 onClick={() => onChange(photos.filter((_, j) => j !== i))}
                 className="absolute right-0 top-0 rounded-bl bg-black/60 p-0.5 text-white"
-                aria-label="Remove photo"
+                aria-label={t('formRuntime.removePhotoAria')}
               >
                 <Trash2 className="h-3 w-3" />
               </button>
@@ -1335,7 +1347,7 @@ function PhotoInput({
             }`}
           >
             <Camera className="h-5 w-5" />
-            {busy ? 'Saving...' : 'Photo'}
+            {busy ? t('formRuntime.saving') : t('formRuntime.photo')}
             <input
               type="file"
               accept="image/*"
@@ -1367,7 +1379,7 @@ function PhotoInput({
                       setErr(
                         upErr instanceof Error
                           ? upErr.message
-                          : 'Upload failed; saved offline.',
+                          : t('formRuntime.uploadFailedOffline'),
                       );
                     }
                   }
@@ -1393,7 +1405,14 @@ function PhotoInput({
         <p className="text-2xs text-warn">{err}</p>
       ) : null}
       <p className="text-2xs text-muted">
-        {photos.length} of {max} {max === 1 ? 'photo' : 'photos'}
+        {t('formRuntime.photosOfMax', {
+          count: photos.length,
+          max,
+          unit:
+            max === 1
+              ? t('formRuntime.photoUnitOne')
+              : t('formRuntime.photoUnitOther'),
+        })}
       </p>
     </div>
   );
@@ -1430,6 +1449,8 @@ function MediaCaptureInput({
   onChange: (v: unknown) => void;
   kind: 'audio' | 'video';
 }) {
+  const t = useT();
+  const fmt = useFormat();
   // A captured clip is in one of two shapes (see PhotoEntry above for
   // the same pattern). Online capture: { ..., url, key }. Offline
   // capture: { ..., dataUrl }. The drain step uploads any pending
@@ -1465,7 +1486,16 @@ function MediaCaptureInput({
   const [err, setErr] = useState<string | null>(null);
   const max = q.maxCount ?? 1;
   const acceptMime = kind === 'audio' ? 'audio/*' : 'video/*';
-  const captureLabel = kind === 'audio' ? 'Audio' : 'Video';
+  const captureLabel =
+    kind === 'audio' ? t('formRuntime.audio') : t('formRuntime.video');
+  const unitOne =
+    kind === 'audio'
+      ? t('formRuntime.audioUnitOne')
+      : t('formRuntime.videoUnitOne');
+  const unitOther =
+    kind === 'audio'
+      ? t('formRuntime.audioUnitOther')
+      : t('formRuntime.videoUnitOther');
 
   function remove(index: number) {
     if (readOnly) return;
@@ -1518,7 +1548,7 @@ function MediaCaptureInput({
               <span className="truncate">
                 {c.name}
                 {' · '}
-                {Math.round(c.sizeBytes / 1024).toLocaleString()} KB
+                {fmt.number(Math.round(c.sizeBytes / 1024))} KB
                 {typeof c.durationSec === 'number'
                   ? ` · ${c.durationSec.toFixed(1)}s`
                   : null}
@@ -1528,7 +1558,9 @@ function MediaCaptureInput({
                   type="button"
                   onClick={() => remove(i)}
                   className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                  aria-label={`Remove ${kind}`}
+                  aria-label={t('formRuntime.removeMediaAria', {
+                    kind: captureLabel,
+                  })}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -1581,14 +1613,14 @@ function MediaCaptureInput({
                     setErr(
                       upErr instanceof Error
                         ? upErr.message
-                        : 'Upload failed; saved offline.',
+                        : t('formRuntime.uploadFailedOffline'),
                     );
                   }
                 }
                 const dataUrl = await fileToDataUrl(file);
                 const durationSec = await probeDuration(dataUrl);
                 const next: Clip = {
-                  name: file.name || captureLabel.toLowerCase(),
+                  name: file.name || kind,
                   mimeType: file.type || acceptMime,
                   sizeBytes: file.size,
                   dataUrl,
@@ -1606,10 +1638,13 @@ function MediaCaptureInput({
         <p className="text-2xs text-warn">{err}</p>
       ) : null}
       <p className="text-2xs text-muted">
-        {clips.length} of {max}{' '}
-        {max === 1 ? captureLabel.toLowerCase() : `${captureLabel.toLowerCase()}s`}
+        {t('formRuntime.clipsOfMax', {
+          count: clips.length,
+          max,
+          unit: max === 1 ? unitOne : unitOther,
+        })}
         {typeof q.maxDurationSec === 'number'
-          ? ` · suggested cap ${q.maxDurationSec}s per clip`
+          ? t('formRuntime.suggestedCap', { sec: q.maxDurationSec })
           : null}
       </p>
     </div>
@@ -1637,8 +1672,11 @@ function BarcodeInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const v = typeof value === 'string' ? value : '';
-  const formats = q.formats?.length ? q.formats.join(' / ') : 'any format';
+  const formats = q.formats?.length
+    ? q.formats.join(' / ')
+    : t('formRuntime.barcodeAnyFormat');
   return (
     <div className="space-y-1.5">
       <input
@@ -1651,14 +1689,12 @@ function BarcodeInput({
         spellCheck={false}
         value={v}
         disabled={readOnly}
-        placeholder="Scan or type the code"
+        placeholder={t('formRuntime.barcodePlaceholder')}
         onChange={(e) => onChange(e.target.value || null)}
         className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 font-mono text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
       <p className="text-2xs text-muted">
-        Hardware scanners (USB / Bluetooth) type into this field
-        like a keyboard. Camera-based scanning will be added in a
-        future release. Accepted: {formats}.
+        {t('formRuntime.barcodeHint', { formats })}
       </p>
     </div>
   );
@@ -1689,6 +1725,7 @@ function SketchInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const canvasRef = useMemo<{
     el: HTMLCanvasElement | null;
     drawing: boolean;
@@ -1828,7 +1865,7 @@ function SketchInput({
             className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Clear
+            {t('formRuntime.clear')}
           </button>
         </div>
       ) : null}
@@ -1863,6 +1900,8 @@ function AcknowledgeInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
+  const fmt = useFormat();
   const checked =
     typeof value === 'object' && value !== null && !Array.isArray(value)
       ? Boolean((value as { acknowledged?: unknown }).acknowledged)
@@ -1895,10 +1934,10 @@ function AcknowledgeInput({
           className="mt-0.5"
         />
         <span>
-          <span>{q.agreeLabel ?? 'I have read and agree.'}</span>
+          <span>{q.agreeLabel ?? t('formRuntime.agreeDefault')}</span>
           {checked && typeof at === 'string' ? (
             <span className="ml-2 text-2xs text-muted">
-              ({new Date(at).toLocaleString()})
+              ({fmt.dateTime(at)})
             </span>
           ) : null}
         </span>
@@ -1924,6 +1963,7 @@ function FileInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   // Same dual shape as PhotoInput / MediaCaptureInput. Uploaded
   // attachments carry url+key; offline-pending ones carry dataUrl.
   type Attachment =
@@ -1978,7 +2018,7 @@ function FileInput({
             setErr(
               upErr instanceof Error
                 ? upErr.message
-                : 'Upload failed; saved offline.',
+                : t('formRuntime.uploadFailedOffline'),
             );
           }
         }
@@ -2028,7 +2068,7 @@ function FileInput({
                   type="button"
                   onClick={() => remove(i)}
                   className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                  aria-label="Remove file"
+                  aria-label={t('formRuntime.removeFileAria')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -2044,7 +2084,9 @@ function FileInput({
           }`}
         >
           <Plus className="h-4 w-4 text-muted" />
-          <span>{busy ? 'Saving...' : 'Add file'}</span>
+          <span>
+            {busy ? t('formRuntime.saving') : t('formRuntime.addFile')}
+          </span>
           <input
             type="file"
             className="sr-only"
@@ -2056,7 +2098,14 @@ function FileInput({
       ) : null}
       {err ? <p className="text-2xs text-warn">{err}</p> : null}
       <p className="text-2xs text-muted">
-        {files.length} of {max} {max === 1 ? 'file' : 'files'} attached
+        {t('formRuntime.filesOfMax', {
+          count: files.length,
+          max,
+          unit:
+            max === 1
+              ? t('formRuntime.fileUnitOne')
+              : t('formRuntime.fileUnitOther'),
+        })}
       </p>
     </div>
   );
@@ -2178,6 +2227,7 @@ function ImageHotspotInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const points: { x: number; y: number }[] = Array.isArray(value)
     ? (value as { x: number; y: number }[]).filter(
         (p): p is { x: number; y: number } =>
@@ -2244,7 +2294,14 @@ function ImageHotspotInput({
       </div>
       <div className="flex items-center justify-between text-2xs text-muted">
         <span>
-          {points.length} of {max} {max === 1 ? 'point' : 'points'} placed
+          {t('formRuntime.pointsOfMax', {
+            count: points.length,
+            max,
+            unit:
+              max === 1
+                ? t('formRuntime.pointUnitOne')
+                : t('formRuntime.pointUnitOther'),
+          })}
         </span>
         {!readOnly && points.length > 0 ? (
           <button
@@ -2252,7 +2309,7 @@ function ImageHotspotInput({
             onClick={clearPoints}
             className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs hover:bg-surface-2"
           >
-            Clear
+            {t('formRuntime.clear')}
           </button>
         ) : null}
       </div>
@@ -2419,13 +2476,14 @@ function GeoPointInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const point = (value as { lat: number; lng: number; accuracy?: number } | null) ?? null;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   function capture() {
     if (!('geolocation' in navigator)) {
-      setErr('Geolocation not supported on this device.');
+      setErr(t('formRuntime.geolocationUnsupported'));
       return;
     }
     setBusy(true);
@@ -2461,7 +2519,7 @@ function GeoPointInput({
           ) : null}
         </div>
       ) : (
-        <p className="text-sm text-muted">No location captured yet.</p>
+        <p className="text-sm text-muted">{t('formRuntime.noLocationYet')}</p>
       )}
       {!readOnly &&
       (q.capture === 'auto' || q.capture === 'gps' || q.capture === undefined) ? (
@@ -2472,21 +2530,23 @@ function GeoPointInput({
           className="inline-flex h-11 items-center gap-2 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
-          {point ? 'Recapture' : 'Capture location'}
+          {point
+            ? t('formRuntime.recapture')
+            : t('formRuntime.captureLocation')}
         </button>
       ) : null}
       {!readOnly && q.capture === 'manual' ? (
         <div className="grid grid-cols-2 gap-2">
           <input
             type="number"
-            placeholder="Latitude"
+            placeholder={t('formRuntime.latitude')}
             value={point?.lat ?? ''}
             onChange={(e) => onChange({ ...(point ?? { lng: 0 }), lat: Number(e.target.value) })}
             className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <input
             type="number"
-            placeholder="Longitude"
+            placeholder={t('formRuntime.longitude')}
             value={point?.lng ?? ''}
             onChange={(e) => onChange({ ...(point ?? { lat: 0 }), lng: Number(e.target.value) })}
             className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
@@ -2977,6 +3037,7 @@ function RankingInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const t = useT();
   const ranked: string[] = Array.isArray(value)
     ? (value as string[]).filter(
         (v): v is string =>
@@ -3026,11 +3087,11 @@ function RankingInput({
     <div className="space-y-2">
       <div className="rounded-md border border-border bg-surface-1 p-2">
         <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-          Ranked
+          {t('formRuntime.ranked')}
         </p>
         {ranked.length === 0 ? (
           <p className="px-2 py-2 text-xs text-muted">
-            No items ranked yet. Tap an item below to add it.
+            {t('formRuntime.rankingEmpty')}
           </p>
         ) : (
           <ol className="space-y-1">
@@ -3058,7 +3119,7 @@ function RankingInput({
                     type="button"
                     onClick={() => unrank(v)}
                     className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                    aria-label="Remove from ranking"
+                    aria-label={t('formRuntime.removeFromRankingAria')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -3071,7 +3132,7 @@ function RankingInput({
       {unranked.length > 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-2">
           <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-            Available
+            {t('formRuntime.available')}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {unranked.map((c) => (

@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.gratisgis.field.FieldApplication
+import org.gratisgis.field.core.database.CollectionEntity
 import org.gratisgis.field.core.network.ItemSummary
 import org.gratisgis.field.core.network.PortalError
 import org.gratisgis.field.core.network.PortalClient
@@ -19,10 +21,11 @@ import org.gratisgis.field.feature.auth.AuthLauncher
 import org.gratisgis.field.feature.auth.SignInException
 
 /**
- * The skeleton's one screen: connect to a portal, sign in, list the
- * data_collection items the account can see. Everything here is
- * orchestration; the decisions (what a valid record is, what to sync)
- * live in the engine bundle and are not reached yet.
+ * Connect to a portal, sign in, list data_collection items.
+ *
+ * The network catalogue is merged with Room's offline cache so a
+ * force-stop / airplane-mode cold start still shows deployments the
+ * device already downloaded (with drafts and basemap packages intact).
  */
 data class HomeState(
   val portalUrl: String,
@@ -30,11 +33,17 @@ data class HomeState(
   val busy: Boolean = false,
   val signedInAs: String? = null,
   val collections: List<ItemSummary> = emptyList(),
+  /** Collection ids that have a Room download (offline-ready). */
+  val downloadedIds: Set<String> = emptySet(),
+  /** Draft counts keyed by collection id (from Room). */
+  val draftCounts: Map<String, Int> = emptyMap(),
   /** The collection whose screen is open, or null for the list. */
   val selected: ItemSummary? = null,
   val engineVersion: Int? = null,
   val engineError: String? = null,
   val error: String? = null,
+  /** True when the list is Room-only because the network call failed. */
+  val offlineCatalogue: Boolean = false,
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,6 +71,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
       if (app.auth.isSignedIn) {
         _state.update { it.copy(signedInAs = app.auth.tokens.value?.username) }
         loadCollections()
+      } else {
+        // Still surface Room offline copies so drafts/packages are reachable
+        // after a force-stop that left tokens expired.
+        viewModelScope.launch { showRoomCatalogue(networkError = "Sign in to refresh the catalogue") }
       }
     }
   }
@@ -113,25 +126,127 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
   fun signOut() {
     app.auth.signOut()
-    _state.update { it.copy(signedInAs = null, collections = emptyList(), selected = null, error = null) }
+    _state.update {
+      it.copy(signedInAs = null, collections = emptyList(), selected = null, error = null, offlineCatalogue = false)
+    }
+    // Keep Room data; re-show offline copies after sign-out so nothing
+    // looks "wiped" — user can sign in again to sync.
+    viewModelScope.launch { showRoomCatalogue(networkError = null) }
   }
 
   fun loadCollections() {
-    val client = app.portal ?: return
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null) }
+      val roomMeta = loadRoomMeta()
+      // Paint Room first so a slow/flaky network never hides offline work.
+      if (roomMeta.summaries.isNotEmpty()) {
+        _state.update {
+          it.copy(
+            collections = roomMeta.summaries,
+            downloadedIds = roomMeta.downloadedIds,
+            draftCounts = roomMeta.draftCounts,
+            offlineCatalogue = true,
+          )
+        }
+      }
+      val client = app.portal
+      if (client == null) {
+        showRoomCatalogue(networkError = "Not connected to a portal")
+        _state.update { it.copy(busy = false) }
+        return@launch
+      }
       try {
-        val rows = client.listCollections()
-        _state.update { it.copy(collections = rows) }
+        val network = client.listCollections()
+        val merged = mergeCatalogue(network, roomMeta.summaries)
+        _state.update {
+          it.copy(
+            collections = merged,
+            downloadedIds = roomMeta.downloadedIds,
+            draftCounts = roomMeta.draftCounts,
+            offlineCatalogue = false,
+            error = null,
+          )
+        }
       } catch (t: Throwable) {
         if (t is PortalError.Auth && !app.auth.isSignedIn) {
-          _state.update { it.copy(signedInAs = null, collections = emptyList()) }
+          _state.update { it.copy(signedInAs = null) }
         }
-        _state.update { it.copy(error = describe(t)) }
+        showRoomCatalogue(networkError = describe(t))
       } finally {
         _state.update { it.copy(busy = false) }
       }
     }
+  }
+
+  private suspend fun showRoomCatalogue(networkError: String?) {
+    val roomMeta = loadRoomMeta()
+    _state.update {
+      it.copy(
+        collections = roomMeta.summaries,
+        downloadedIds = roomMeta.downloadedIds,
+        draftCounts = roomMeta.draftCounts,
+        offlineCatalogue = roomMeta.summaries.isNotEmpty(),
+        error = networkError,
+      )
+    }
+  }
+
+  private data class RoomMeta(
+    val summaries: List<ItemSummary>,
+    val downloadedIds: Set<String>,
+    val draftCounts: Map<String, Int>,
+  )
+
+  private suspend fun loadRoomMeta(): RoomMeta {
+    val rows = app.db.collections().all()
+    val downloaded = rows.mapNotNull { r -> r.id.takeIf { r.downloadedAt != null } }.toSet()
+    val drafts = mutableMapOf<String, Int>()
+    for (r in rows) {
+      val n = app.db.drafts().forCollection(r.id).size
+      if (n > 0) drafts[r.id] = n
+    }
+    return RoomMeta(
+      summaries = rows.map { it.toSummary() },
+      downloadedIds = downloaded,
+      draftCounts = drafts,
+    )
+  }
+
+  private fun CollectionEntity.toSummary(): ItemSummary {
+    val data = runCatching { json.parseToJsonElement(dataJson).jsonObject }.getOrNull()
+    val offlineBit = when {
+      downloadedAt != null -> "On device · downloaded $downloadedAt"
+      else -> "On device (partial)"
+    }
+    return ItemSummary(
+      id = id,
+      title = title,
+      type = "data_collection",
+      description = offlineBit,
+      data = data,
+    )
+  }
+
+  /**
+   * Network rows win for title/description metadata; Room supplies
+   * `data` when the network list omitted it, and Room-only ids stay
+   * visible (still offline after the server removed the item).
+   */
+  private fun mergeCatalogue(network: List<ItemSummary>, room: List<ItemSummary>): List<ItemSummary> {
+    val roomById = room.associateBy { it.id }
+    val out = LinkedHashMap<String, ItemSummary>()
+    for (n in network) {
+      val cached = roomById[n.id]
+      out[n.id] = when {
+        cached == null -> n
+        n.data == null && cached.data != null -> n.copy(data = cached.data)
+        else -> n
+      }
+    }
+    for (r in room) {
+      if (!out.containsKey(r.id)) out[r.id] = r
+    }
+    return out.values.sortedBy { it.title.lowercase() }
   }
 
   private fun describe(t: Throwable): String = when (t) {

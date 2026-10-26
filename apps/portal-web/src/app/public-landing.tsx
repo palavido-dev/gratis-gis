@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { formatDate } from '@/lib/i18n/format';
+import { t } from '@/lib/i18n';
+import type { SupportedLocale } from '@/lib/i18n/locales';
+import { getServerLocale } from '@/lib/i18n/server';
 import Link from 'next/link';
 import {
   Bell,
@@ -121,13 +125,14 @@ interface Props {
   whatsNew?: WhatsNewEntry[];
 }
 
-export function PublicLanding({
+export async function PublicLanding({
   data,
   forceProjectSection,
   isAuthenticated,
   sessionStale,
   whatsNew,
 }: Props) {
+  const locale = await getServerLocale();
   const { org, items: rawItems } = data;
   // Filter to items that actually have an anonymous-accessible
   // surface so a visitor never gets bounced to Keycloak from the
@@ -145,7 +150,9 @@ export function PublicLanding({
   );
   const usableSession = isAuthenticated && !sessionStale;
   const ctaHref = usableSession ? '/items' : '/signin';
-  const ctaLabel = usableSession ? 'Open my items' : 'Sign in';
+  const ctaLabel = usableSession
+    ? t('landing.openMyItems', undefined, locale)
+    : t('nav.signIn', undefined, locale);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -156,7 +163,7 @@ export function PublicLanding({
           shell's signed-in badge. Hide it when isAuthenticated;
           unauthenticated visitors still see it as their only
           surface for the org name + sign-in entry. */}
-      {!isAuthenticated ? <TopBar orgName={org.name} /> : null}
+      {!isAuthenticated ? <TopBar orgName={org.name} locale={locale} /> : null}
 
       {/* #141: public-testing banner. Rendered when the deploy is
           in public-testing mode (NEXT_PUBLIC_PUBLIC_TESTING=1) so
@@ -164,7 +171,7 @@ export function PublicLanding({
           before anything else. Honest about the state of the
           instance: nothing they do persists past the next reset. */}
       {process.env.NEXT_PUBLIC_PUBLIC_TESTING === '1' ? (
-        <TestingBanner />
+        <TestingBanner locale={locale} />
       ) : null}
 
       {/* Schema.org JSON-LD so search engines / open-data
@@ -196,19 +203,17 @@ export function PublicLanding({
         <section className="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
           <div className="mb-6">
             <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-              See it running
+              {t('landing.publicItemsTitle', undefined, locale)}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Live dashboards, maps, and data {org.name} has shared
-              publicly. No account needed.
+              {t('landing.publicItemsIntro', { org: org.name }, locale)}
             </p>
           </div>
 
           {items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-surface-1 p-10 text-center">
               <p className="text-sm text-muted">
-                Nothing has been shared publicly yet. If you have a
-                portal account, sign in to see content shared with you.
+                {t('landing.publicItemsEmpty', undefined, locale)}
               </p>
               <Link
                 href={ctaHref}
@@ -267,11 +272,11 @@ export function PublicLanding({
           flips the flag on for the public alpha. */}
       {process.env.NEXT_PUBLIC_PROJECT_LANDING === '1' ||
       forceProjectSection ? (
-        <ProjectAboutSection />
+        <ProjectAboutSection locale={locale} />
       ) : null}
 
       {whatsNew && whatsNew.length > 0 ? (
-        <WhatsNewSection entries={whatsNew} />
+        <WhatsNewSection entries={whatsNew} locale={locale} />
       ) : null}
 
       {/* The footer opens HERE, after the content sections.
@@ -297,7 +302,7 @@ export function PublicLanding({
         )}{' '}
         &middot;{' '}
         <Link href="/credits" className="underline hover:text-ink-0">
-          Built on
+          {t('landing.builtOn', undefined, locale)}
         </Link>
       </footer>
     </div>
@@ -312,14 +317,20 @@ export function PublicLanding({
  * here.  See docs/changelog/user-visible.md for the format and the
  * tone we keep.
  */
-function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
+function WhatsNewSection({
+  entries,
+  locale,
+}: {
+  entries: WhatsNewEntry[];
+  locale: SupportedLocale;
+}) {
   return (
     <section className="mx-auto w-full max-w-6xl px-6 pt-10">
       <div className="rounded-lg border border-border bg-surface-1 p-6 shadow-card">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-accent" aria-hidden="true" />
           <h2 className="text-base font-semibold tracking-tight text-ink-0">
-            What&apos;s new
+            {t('landing.whatsNew', undefined, locale)}
           </h2>
         </div>
         <ul className="space-y-4">
@@ -333,7 +344,7 @@ function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
                   dateTime={e.date}
                   className="font-mono text-xs uppercase tracking-wide text-muted"
                 >
-                  {formatChangelogDate(e.date)}
+                  {formatChangelogDate(e.date, locale)}
                 </time>
                 <span className="text-sm font-medium text-ink-0">
                   {e.name}
@@ -357,10 +368,10 @@ function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
  * for one line would be overkill.  Falls back to the raw string if
  * the input doesn't parse, so a malformed entry still renders.
  */
-function formatChangelogDate(iso: string): string {
+function formatChangelogDate(iso: string, locale: SupportedLocale): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-US', {
+  return formatDate(d, locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -386,7 +397,7 @@ function formatChangelogDate(iso: string): string {
  * the primary route now, and the issue link is the escape hatch for
  * people who prefer it.
  */
-function ProjectAboutSection() {
+function ProjectAboutSection({ locale }: { locale: SupportedLocale }) {
   // GitHub coordinates. Pulled from env so a fork can swap them
   // without code changes, with sensible defaults to the upstream
   // repo for the canonical deployment.
@@ -399,50 +410,39 @@ function ProjectAboutSection() {
       <div className="mx-auto w-full max-w-5xl">
         <div className="mb-8 max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-wide text-accent">
-            Open source GIS portal
+            {t('landing.projectEyebrow', undefined, locale)}
           </p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-ink-0 sm:text-3xl">
-            A self-hosted portal, a field PWA, and QGIS
+            {t('landing.projectHeadline', undefined, locale)}
           </h2>
           <p className="mt-2 text-sm text-muted sm:text-base">
-            GratisGIS is for teams that want their data on their own
-            hardware and want out of ArcGIS Online seat licenses. What
-            is credible today is the portal, sharing, field collection,
-            and QGIS. It is not a full ArcGIS Online replacement, and
-            it is not a drop-in for Experience Builder, Survey123,
-            Field Maps, or enterprise identity depth. Built on open
-            components (PostGIS, MapLibre, Keycloak). No license fees;
-            your only cost is the hardware (or cloud bill) you choose
-            to run it on.
+            {t('landing.projectBody1', undefined, locale)}
           </p>
           <p className="mt-2 text-sm text-muted sm:text-base">
-            Dashboards ship as web-app layouts (KPI Dashboard and
-            Operations Board). Dedicated document report templates are
-            not built. Tool recipes exist; a node-graph builder does
-            not.
+            {t('landing.projectBody2', undefined, locale)}
           </p>
         </div>
 
         <ul className="mb-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <FeatureTile
             icon={Database}
-            title="Self-hosted on your own hardware"
-            body="PostGIS-backed datasets, web maps, and forms; bring data in from shapefiles, GeoJSON, GDB, or any OGR-supported format. Docker compose, single-command deploy, runs on a $20/month VPS. No license fees, no SaaS lock-in."
+            title={t('landing.featureSelfHostedTitle', undefined, locale)}
+            body={t('landing.featureSelfHostedBody', undefined, locale)}
           />
           <FeatureTile
             icon={Monitor}
-            title="First-class QGIS support"
-            body="An official plugin in the QGIS plugin repository: browse and search the portal, publish layers and whole projects from the canvas, take a layer to the field, and sync edits back. No plugin? Rasters appear in QGIS's built-in catalog browser and layers open over standard APIs, with an API key for private content."
+            title={t('landing.featureQgisTitle', undefined, locale)}
+            body={t('landing.featureQgisBody', undefined, locale)}
           />
           <FeatureTile
             icon={Smartphone}
-            title="Field-ready PWA"
-            body="A data-collection app that installs to the home screen, works offline, and syncs when you're back online."
+            title={t('landing.featureFieldPwaTitle', undefined, locale)}
+            body={t('landing.featureFieldPwaBody', undefined, locale)}
           />
           <FeatureTile
             icon={Globe}
-            title="Works with the tools you already use"
-            body="OGC API Features, Tiles, Styles, and Records; a STAC catalog; CSW 2.0.2; Schema.org JSON-LD; WMS / WFS service references. WebMap JSON export points at the portal's own layer URLs. Whether ArcGIS Pro, ArcGIS Online, or QGIS open that file depends on the importing tool. Importing a WebMap JSON file keeps FeatureServer URLs as live references; copying hosted features into the portal is a separate stage step."
+            title={t('landing.featureInteropTitle', undefined, locale)}
+            body={t('landing.featureInteropBody', undefined, locale)}
           />
         </ul>
 
@@ -455,29 +455,29 @@ function ProjectAboutSection() {
             what GratisGIS gives you out of the box." */}
         <div className="mb-10 max-w-3xl">
           <h3 className="text-xl font-semibold tracking-tight text-ink-0 sm:text-2xl">
-            Operational features the portal ships with
+            {t('landing.opsHeadline', undefined, locale)}
           </h3>
         </div>
         <ul className="mb-12 grid gap-6 sm:grid-cols-2">
           <FeatureTile
             icon={Brush}
-            title="Housekeeping that runs itself"
-            body="Stale items get flagged. Inactive users get auto-disabled. Expiring shares trigger warnings. Spatial extents get recomputed on a schedule. Admins get a dashboard, not a backlog."
+            title={t('landing.featureHousekeepingTitle', undefined, locale)}
+            body={t('landing.featureHousekeepingBody', undefined, locale)}
           />
           <FeatureTile
             icon={RefreshCw}
-            title="Sync that doesn't lose your work"
-            body="Offline edits go to a per-edit queue with isolated retries. A bad row doesn't poison the rest. Schema changes notify every device that has cached the deployment so the field crew rebuilds before they next sync."
+            title={t('landing.featureSyncTitle', undefined, locale)}
+            body={t('landing.featureSyncBody', undefined, locale)}
           />
           <FeatureTile
             icon={Bell}
-            title="Email notifications you actually control"
-            body="Built-in templates for shares, expirations, schema changes, form submissions, and field captures. Org admins customize the copy through a guided editor with click-to-insert variables. Routed through one SMTP, not a sprawl of webhooks."
+            title={t('landing.featureEmailTitle', undefined, locale)}
+            body={t('landing.featureEmailBody', undefined, locale)}
           />
           <FeatureTile
             icon={Users}
-            title="Sharing granularity that makes sense"
-            body="Share an item with a user, a group, or a folder. Folder shares cascade to every item in the folder. Per-share row scope ('all' vs 'own') and geographic clip (polygon) layer on top. View / download / edit / admin tiers, not a single 'shared' bit."
+            title={t('landing.featureSharingTitle', undefined, locale)}
+            body={t('landing.featureSharingBody', undefined, locale)}
           />
         </ul>
 
@@ -489,7 +489,7 @@ function ProjectAboutSection() {
             className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface-1 px-4 text-sm font-medium text-ink-1 hover:bg-surface-2"
           >
             <GithubMark className="h-4 w-4" />
-            View on GitHub
+            {t('landing.ctaGithub', undefined, locale)}
           </a>
           {/* #146: Send feedback goes to the in-portal /feedback
               form rather than GitHub Issues. The whole point of
@@ -502,7 +502,7 @@ function ProjectAboutSection() {
             className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
           >
             <MessageSquarePlus className="h-4 w-4" />
-            Send feedback
+            {t('landing.ctaFeedback', undefined, locale)}
           </Link>
           {/* #141: Discussions link for longer-form conversations
               that aren't bug reports. Requires a GitHub account
@@ -515,12 +515,10 @@ function ProjectAboutSection() {
             className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface-1 px-4 text-sm font-medium text-ink-1 hover:bg-surface-2"
           >
             <MessageCircle className="h-4 w-4" />
-            Discussions
+            {t('landing.ctaDiscussions', undefined, locale)}
           </a>
           <span className="text-xs text-muted sm:ml-2">
-            Send feedback goes to the maintainer&apos;s inbox; no
-            account required. Discussions is the GitHub place for
-            longer threads.
+            {t('landing.ctaHint', undefined, locale)}
           </span>
         </div>
       </div>
@@ -544,18 +542,17 @@ function ProjectAboutSection() {
  * "heads up, this is a sandbox" reads better in amber than the
  * danger red.
  */
-function TestingBanner() {
+function TestingBanner({ locale }: { locale: SupportedLocale }) {
   return (
     <div className="border-b border-warn/40 bg-warn/10 px-6 py-3 text-sm">
       <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
         <div className="flex-1 text-warn">
           <p className="font-medium">
-            This is a public test instance. Resets to a curated
-            golden state every day at 04:00 UTC.
+            {t('landing.testingTitle', undefined, locale)}
           </p>
           <p className="mt-1 leading-relaxed">
-            Sign in with{' '}
+            {t('landing.testingBodyBefore', undefined, locale)}{' '}
             <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               tester-admin
             </code>
@@ -571,7 +568,7 @@ function TestingBanner() {
             <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               Contributor123!
             </code>
-            , or{' '}
+            , {t('landing.testingBodyOr', undefined, locale)}{' '}
             <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               tester-viewer
             </code>
@@ -579,17 +576,14 @@ function TestingBanner() {
             <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               Viewer123!
             </code>
-            . Items, users, and edits you create vanish at the next
-            reset. Found a problem? Use the Feedback button in the
-            corner of any page. No account needed.
+            {t('landing.testingBodyAfter', undefined, locale)}
           </p>
           <p className="mt-1 leading-relaxed">
-            New here? Open the{' '}
-            <span className="font-medium">Sample: Randolph County</span>{' '}
-            folder after signing in: a complete demo workspace with
-            styled layers, a map, a form with responses, a field
-            survey, and public apps, all built on one small West
-            Virginia county.
+            {t('landing.testingSampleLead', undefined, locale)}{' '}
+            <span className="font-medium">
+              {t('landing.testingSampleName', undefined, locale)}
+            </span>{' '}
+            {t('landing.testingSampleTail', undefined, locale)}
           </p>
         </div>
       </div>
@@ -617,7 +611,13 @@ function FeatureTile({
   );
 }
 
-function TopBar({ orgName }: { orgName: string }) {
+function TopBar({
+  orgName,
+  locale,
+}: {
+  orgName: string;
+  locale: SupportedLocale;
+}) {
   // Same safe-area treatment as the AppShell top bar: viewport-fit=
   // cover (set in the root layout) puts the page under the iOS
   // status bar / dynamic island, so without an explicit inset the
@@ -636,7 +636,7 @@ function TopBar({ orgName }: { orgName: string }) {
         className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
       >
         <LogIn className="h-4 w-4" />
-        Sign in
+        {t('nav.signIn', undefined, locale)}
       </Link>
     </header>
   );

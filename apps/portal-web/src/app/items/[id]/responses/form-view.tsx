@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import type { FormSchema, Question } from '@gratis-gis/form-schema';
 import type { MapLayer, PickListData } from '@gratis-gis/shared-types';
+import { formatDateTime } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 
 /**
  * Lean attachment shape returned by /v3/attachments. Mirrors the
@@ -98,6 +101,7 @@ export function FormView({
   onNext,
   onClose,
 }: Props) {
+  const locale = useLocale();
   // Look up _submitted_at / _created_at and _submitted_by / _created_by
   // off the row. Forms write the canonical "submitted" pair via the
   // form-mirror path (#284) but feature-tracking columns also exist
@@ -272,7 +276,7 @@ export function FormView({
                     <div className="flex gap-2">
                       <dt className="text-muted">Submitted at</dt>
                       <dd className="font-medium text-ink-1">
-                        {formatDateTime(submittedAt)}
+                        {formatDateTime(submittedAt, locale)}
                       </dd>
                     </div>
                   )}
@@ -411,6 +415,7 @@ function QuestionAnswer({
   values: Record<string, unknown>;
   pickLists: Record<string, PickListData>;
 }) {
+  const locale = useLocale();
   // Page / group: render label as a section header + walk children.
   if (question.type === 'page' || question.type === 'group') {
     const children =
@@ -516,7 +521,7 @@ function QuestionAnswer({
     <div>
       <div className="text-xs text-muted">{question.label || question.id}</div>
       <div className="text-sm text-ink-0">
-        {renderValue(question, raw, pickLists)}
+        {renderValue(question, raw, pickLists, locale)}
       </div>
     </div>
   );
@@ -531,6 +536,7 @@ function renderValue(
   q: Question,
   value: unknown,
   pickLists: Record<string, PickListData>,
+  locale: SupportedLocale,
 ): JSX.Element {
   if (value === null || value === undefined || value === '') {
     return <span className="italic text-muted">No answer</span>;
@@ -590,7 +596,7 @@ function renderValue(
     case 'date':
     case 'time':
     case 'datetime':
-      return <span>{formatDateTime(String(value))}</span>;
+      return <span>{formatDateTime(String(value), locale)}</span>;
     case 'photo':
     case 'video':
     case 'audio':
@@ -722,8 +728,3 @@ function labelForCode(
   return null;
 }
 
-function formatDateTime(s: string): string {
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleString();
-}

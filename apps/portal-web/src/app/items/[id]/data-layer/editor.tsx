@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -58,6 +60,7 @@ function isV3(data: DataLayerData): data is DataLayerDataV3 {
  * for both storage types.
  */
 export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('upload');
   const [staged, setStaged] = useState<SpatialImportResult | null>(null);
@@ -255,12 +258,12 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
             Features
           </h3>
           <p className="mt-1 text-3xl font-semibold tabular-nums">
-            {currentFeatureCount.toLocaleString()}
+            {fmt.number(currentFeatureCount)}
           </p>
           <p className="mt-1 text-xs text-muted">
             Last updated{' '}
             {currentUpdatedAt
-              ? new Date(currentUpdatedAt).toLocaleString()
+              ? fmt.dateTime(currentUpdatedAt)
               : 'never'}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -407,6 +410,7 @@ function StagedReview({
   onSave: () => void;
   onDiscard: () => void;
 }) {
+  const fmt = useFormat();
   const fields = useMemo(
     () =>
       deriveFields(
@@ -426,7 +430,7 @@ function StagedReview({
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">
             Ready to save: {label} &middot;{' '}
-            <span className="tabular-nums">{staged.features.toLocaleString()}</span>{' '}
+            <span className="tabular-nums">{fmt.number(staged.features)}</span>{' '}
             feature{staged.features === 1 ? '' : 's'}
           </div>
           <div className="mt-1">

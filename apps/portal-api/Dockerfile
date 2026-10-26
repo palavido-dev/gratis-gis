@@ -16,7 +16,7 @@
 # a release with a fetch regression and broke prod writes). Bump
 # deliberately, both Dockerfiles together.
 
-FROM node:24.21.0-bookworm-slim AS base
+FROM node:24.22.1-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # Three things in one RUN to keep the layer count tight:
@@ -129,25 +129,21 @@ ARG PMTILES_VERSION=1.30.3
 # up on its own, and the assertion at the end of this stage is an
 # EXACT match on purpose (it is there to catch a downgrade), so the
 # recorded version has to be what actually lands in the binary.
-ARG PMTILES_XTEXT_VERSION=0.41.0
+# Floored at 0.41.0 for earlier CVEs; 0.42.0 is what golang.org/x/net
+# v0.60.0 pulls in, so assert the version that actually lands.
+ARG PMTILES_XTEXT_VERSION=0.42.0
 # CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
 # bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
-# Pinned here the same way as x/text so Trivy sees a patched version
-# embedded in the binary. Watch for go-pmtiles adopting >=0.56.0 itself,
-# at which point this pin can drop.
-# 0.57.0 rather than 0.56.0 for the same reason as x/text above.
-#
-# Now 0.58.0, dragged up again by the grpc bump to 1.83.2 below. The
-# assertion at the end of this stage is what caught it: the build failed
-# on the x/net check rather than quietly shipping a binary whose
-# recorded version disagreed with this line. That is the check earning
-# its keep, so leave it an exact match. Still well past the 0.56.0 that
-# fixes CVE-2026-46600.
-ARG PMTILES_XNET_VERSION=0.58.0
+# CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in 0.60.0.
+# Pin exact so the post-build `go version -m` assertion catches a
+# downgrade. Watch for go-pmtiles adopting >=0.60.0 itself, at which
+# point this pin can drop. Applied LAST in the go-get chain because
+# google.golang.org/grpc@1.83.2 otherwise downgrades it to 0.58.0.
+ARG PMTILES_XNET_VERSION=0.60.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
-# v0.53.0. Fixed upstream in 0.55.0. Same pin-and-assert treatment as
-# x/text and x/net above.
-ARG PMTILES_XCRYPTO_VERSION=0.55.0
+# v0.53.0. Fixed upstream in 0.55.0. 0.57.0 is what x/net v0.60.0
+# pulls; assert that so the pin and the binary agree.
+ARG PMTILES_XCRYPTO_VERSION=0.57.0
 # CVE-2026-84304, HIGH: google.golang.org/grpc v1.79.3 arrives through
 # gocloud.dev, which go-pmtiles uses for its remote-bucket support.
 # Fixed upstream in 1.83.1.
@@ -181,14 +177,18 @@ ENV CGO_ENABLED=0
 # The build and the four assertions sit outside the loop on purpose,
 # because a retry around an assertion could paper over a real
 # downgrade instead of failing on it.
+# Order matters: google.golang.org/grpc@1.83.2 pulls golang.org/x/net
+# v0.58.0 and will silently downgrade a earlier x/net pin (that is what
+# broke the v0.60.0 assertion for CVE-2026-78669). Pin text/crypto/grpc
+# first, then x/net last so the floor sticks through to `go build`.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
     && for attempt in 1 2 3 4 5; do \
          if go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
             && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
-            && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
             && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
-            && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}"; then \
+            && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
+            && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}"; then \
            break; \
          fi; \
          if [ "$attempt" -eq 5 ]; then \

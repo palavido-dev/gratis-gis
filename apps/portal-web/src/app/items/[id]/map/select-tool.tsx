@@ -9,6 +9,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export type SelectToolMode =
   | 'off'
@@ -54,39 +55,40 @@ export function SelectToolbar({
   selectedCount,
   onClearSelection,
 }: Props) {
+  const t = useT();
   return (
     <div className="absolute left-4 top-15 z-10 flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-1/95 p-1 shadow-raised backdrop-blur-xs max-md:bottom-14 max-md:left-1/2 max-md:top-auto max-md:max-w-[calc(100%-1.5rem)] max-md:-translate-x-1/2">
       <ToolButton
         icon={Hand}
-        label="Pan"
+        label={t('mapSelectTool.pan')}
         active={mode === 'off'}
         onClick={() => onChange('off')}
       />
       <div className="mx-1 h-5 w-px bg-border" />
       <ToolButton
         icon={MousePointer2}
-        label="Click select"
+        label={t('mapSelectTool.clickSelect')}
         active={mode === 'click'}
         onClick={() => onChange(mode === 'click' ? 'off' : 'click')}
         accent
       />
       <ToolButton
         icon={Square}
-        label="Rectangle select"
+        label={t('mapSelectTool.rectangleSelect')}
         active={mode === 'rectangle'}
         onClick={() => onChange(mode === 'rectangle' ? 'off' : 'rectangle')}
         accent
       />
       <ToolButton
         icon={Pentagon}
-        label="Polygon select"
+        label={t('mapSelectTool.polygonSelect')}
         active={mode === 'polygon'}
         onClick={() => onChange(mode === 'polygon' ? 'off' : 'polygon')}
         accent
       />
       <ToolButton
         icon={Spline}
-        label="Freehand select"
+        label={t('mapSelectTool.freehandSelect')}
         active={mode === 'lasso'}
         onClick={() => onChange(mode === 'lasso' ? 'off' : 'lasso')}
         accent
@@ -98,7 +100,7 @@ export function SelectToolbar({
             type="button"
             onClick={onClearSelection}
             className="inline-flex h-7 items-center gap-1 rounded px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-0"
-            title="Clear selection"
+            title={t('mapSelectTool.clearSelection')}
           >
             <X className="h-3 w-3" />
             <span className="tabular-nums">{selectedCount}</span>

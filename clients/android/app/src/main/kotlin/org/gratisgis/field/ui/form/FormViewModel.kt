@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.JsonArray
@@ -49,11 +51,17 @@ data class FormUiState(
   val validationOk: Boolean? = null,
   val validationDetail: String? = null,
   val error: String? = null,
+  /** True after any successful Room write this session. */
+  val dirtyPersisted: Boolean = false,
 )
 
 /**
  * A1: load a cached bound form, edit responses, validate via field-engine,
  * persist a Room draft that survives process death.
+ *
+ * Back / process death must not discard typed answers: [leave] and
+ * [onCleared] write the current response without requiring a separate
+ * "Save" tap (Save still runs validation for feedback).
  */
 class FormViewModel(
   application: Application,
@@ -108,6 +116,7 @@ class FormViewModel(
             fields = fields,
             values = values,
             savedAt = draft.updatedAt,
+            dirtyPersisted = true,
           )
         }
       } else {
@@ -124,60 +133,104 @@ class FormViewModel(
     _state.update { it.copy(values = it.values + (fieldId to value), validationOk = null) }
   }
 
+  /** Explicit save: validate via engine, then upsert (draft kept even if invalid). */
   fun saveDraft() {
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null) }
       try {
-        val sch = schema ?: error("Form not loaded")
-        val response = buildResponse(_state.value.values, _state.value.fields)
-        val engine = app.engine.await()
-        val args = buildJsonObject {
-          put("form", sch)
-          put("response", response)
-        }.toString()
-        val validated = engine.call("form.validate", args)
-        val ok = when (validated) {
-          is CallResult.Ok -> {
-            val detail = validated.result.toString()
-            _state.update { it.copy(validationDetail = detail.take(400)) }
-            val obj = validated.result as? JsonObject
-            when {
-              obj == null -> true
-              obj["ok"] is JsonPrimitive ->
-                runCatching { obj["ok"]!!.jsonPrimitive.boolean }.getOrElse {
-                  obj["ok"]!!.jsonPrimitive.content != "false"
-                }
-              obj["issues"] is JsonArray -> (obj["issues"] as JsonArray).isEmpty()
-              else -> true
-            }
-          }
-          is CallResult.Error -> {
-            _state.update { it.copy(validationOk = false, validationDetail = validated.message) }
-            false
-          }
-        }
-        val now = Instant.now().toString()
-        app.db.drafts().upsert(
-          DraftEntity(
-            id = _state.value.draftId,
-            collectionId = collectionId,
-            formId = formId,
-            layerKey = layer.layerKey,
-            dataLayerId = layer.dataLayerId,
-            responseJson = response.toString(),
-            updatedAt = now,
-          ),
-        )
-        _state.update {
-          it.copy(
-            savedAt = now,
-            validationOk = ok,
-            busy = false,
-          )
+        persistDraft(validate = true)
+      } catch (t: Throwable) {
+        _state.update { it.copy(error = t.message ?: t.toString()) }
+      } finally {
+        _state.update { it.copy(busy = false) }
+      }
+    }
+  }
+
+  /**
+   * Persist then invoke [onDone] (Back). Always writes current values when
+   * the form has loaded — no separate Save tap required to keep a draft.
+   */
+  fun leave(onDone: () -> Unit) {
+    viewModelScope.launch {
+      _state.update { it.copy(busy = true, error = null) }
+      try {
+        if (schema != null && _state.value.fields.isNotEmpty()) {
+          persistDraft(validate = false)
         }
       } catch (t: Throwable) {
-        _state.update { it.copy(busy = false, error = t.message ?: t.toString()) }
+        _state.update { it.copy(error = t.message ?: t.toString(), busy = false) }
+        return@launch
       }
+      _state.update { it.copy(busy = false) }
+      onDone()
+    }
+  }
+
+  override fun onCleared() {
+    // Last chance if the process is dying or the screen is torn down
+    // without leave() — block briefly so Room commits.
+    if (schema != null && _state.value.fields.isNotEmpty()) {
+      runBlocking {
+        withTimeoutOrNull(2_000) {
+          runCatching { persistDraft(validate = false) }
+        }
+      }
+    }
+    super.onCleared()
+  }
+
+  private suspend fun persistDraft(validate: Boolean) {
+    val sch = schema ?: error("Form not loaded")
+    val snapshot = _state.value
+    val response = buildResponse(snapshot.values, snapshot.fields)
+    var ok: Boolean? = null
+    var detail: String? = null
+    if (validate) {
+      val engine = app.engine.await()
+      val args = buildJsonObject {
+        put("form", sch)
+        put("response", response)
+      }.toString()
+      when (val validated = engine.call("form.validate", args)) {
+        is CallResult.Ok -> {
+          detail = validated.result.toString().take(400)
+          val obj = validated.result as? JsonObject
+          ok = when {
+            obj == null -> true
+            obj["ok"] is JsonPrimitive ->
+              runCatching { obj["ok"]!!.jsonPrimitive.boolean }.getOrElse {
+                obj["ok"]!!.jsonPrimitive.content != "false"
+              }
+            obj["issues"] is JsonArray -> (obj["issues"] as JsonArray).isEmpty()
+            else -> true
+          }
+        }
+        is CallResult.Error -> {
+          ok = false
+          detail = validated.message
+        }
+      }
+    }
+    val now = Instant.now().toString()
+    app.db.drafts().upsert(
+      DraftEntity(
+        id = snapshot.draftId,
+        collectionId = collectionId,
+        formId = formId,
+        layerKey = layer.layerKey,
+        dataLayerId = layer.dataLayerId,
+        responseJson = response.toString(),
+        updatedAt = now,
+      ),
+    )
+    _state.update {
+      it.copy(
+        savedAt = now,
+        validationOk = ok ?: it.validationOk,
+        validationDetail = detail ?: it.validationDetail,
+        dirtyPersisted = true,
+      )
     }
   }
 

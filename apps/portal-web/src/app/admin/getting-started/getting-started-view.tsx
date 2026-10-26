@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
+import type { Translator } from '@/lib/i18n';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface OnboardingItem {
   key: 'configure-email' | 'invite-team' | 'first-map' | 'admin-docs';
@@ -55,50 +57,52 @@ interface RowMeta {
   href: string;
 }
 
-const ROW_META: Record<OnboardingItem['key'], RowMeta> = {
-  'configure-email': {
-    icon: <Mail className="h-4 w-4" />,
-    title: 'Set up email',
-    description: () =>
-      'Connect an SMTP server so invitations, password setup links, and notifications can send. The portal works without it, but invited users will not get their sign-in email.',
-    actionLabel: 'Open notification settings',
-    href: '/admin/notifications',
-  },
-  'invite-team': {
-    icon: <UserPlus className="h-4 w-4" />,
-    title: 'Invite your team',
-    description: (item) => {
-      const n = typeof item.detail.memberCount === 'number' ? item.detail.memberCount : 1;
-      return n > 1
-        ? `Add teammates and choose their roles. Your organization has ${n} members.`
-        : 'Add teammates and choose their roles: viewers, contributors, or fellow admins.';
+function buildRowMeta(t: Translator): Record<OnboardingItem['key'], RowMeta> {
+  return {
+    'configure-email': {
+      icon: <Mail className="h-4 w-4" />,
+      title: t('gettingStarted.emailTitle'),
+      description: () => t('gettingStarted.emailDesc'),
+      actionLabel: t('gettingStarted.emailAction'),
+      href: '/admin/notifications',
     },
-    actionLabel: 'Open users',
-    href: '/admin/users',
-  },
-  'first-map': {
-    icon: <MapIcon className="h-4 w-4" />,
-    title: 'Make your first map',
-    description: () =>
-      'Create a map or upload data, or load the sample dataset for a ready-made scenario to explore and edit.',
-    actionLabel: 'Go to content',
-    href: '/items',
-  },
-  'admin-docs': {
-    icon: <BookOpen className="h-4 w-4" />,
-    title: 'Skim the admin guide',
-    description: () =>
-      'The built-in guide covers roles, backups, branding, and housekeeping. Ten minutes now saves surprises later.',
-    actionLabel: 'Open the guide',
-    href: '/help',
-  },
-};
+    'invite-team': {
+      icon: <UserPlus className="h-4 w-4" />,
+      title: t('gettingStarted.inviteTitle'),
+      description: (item) => {
+        const n =
+          typeof item.detail.memberCount === 'number' ? item.detail.memberCount : 1;
+        return n > 1
+          ? t('gettingStarted.inviteDescMany', { count: n })
+          : t('gettingStarted.inviteDescOne');
+      },
+      actionLabel: t('gettingStarted.inviteAction'),
+      href: '/admin/users',
+    },
+    'first-map': {
+      icon: <MapIcon className="h-4 w-4" />,
+      title: t('gettingStarted.mapTitle'),
+      description: () => t('gettingStarted.mapDesc'),
+      actionLabel: t('gettingStarted.mapAction'),
+      href: '/items',
+    },
+    'admin-docs': {
+      icon: <BookOpen className="h-4 w-4" />,
+      title: t('gettingStarted.docsTitle'),
+      description: () => t('gettingStarted.docsDesc'),
+      actionLabel: t('gettingStarted.docsAction'),
+      href: '/help',
+    },
+  };
+}
 
 export function GettingStartedView({
   initialStatus,
 }: {
   initialStatus: OnboardingStatus;
 }) {
+  const t = useT();
+  const rowMeta = buildRowMeta(t);
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -113,7 +117,7 @@ export function GettingStartedView({
       setStatus((await res.json()) as OnboardingStatus);
       window.dispatchEvent(new CustomEvent(ONBOARDING_CHANGED_EVENT));
     } catch {
-      toast.error('Could not update the checklist. Try again.');
+      toast.error(t('gettingStarted.updateFailed'));
     } finally {
       setBusyKey(null);
     }
@@ -126,7 +130,7 @@ export function GettingStartedView({
     if (item.kind === 'manual' && !item.done) {
       await mutate(item.key, 'complete');
     }
-    router.push(ROW_META[item.key].href);
+    router.push(rowMeta[item.key].href);
   }
 
   const visible = status.items.filter((i) => !i.dismissed);
@@ -138,22 +142,21 @@ export function GettingStartedView({
     <div className="flex flex-col gap-4">
       {allResolved ? (
         <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm text-ink-0">
-          <p className="font-medium">You&apos;re all set.</p>
-          <p className="mt-0.5 text-muted">
-            Every item is done or hidden, so this page has left the
-            sidebar. It stays reachable at /admin/getting-started.
-          </p>
+          <p className="font-medium">{t('gettingStarted.allSetTitle')}</p>
+          <p className="mt-0.5 text-muted">{t('gettingStarted.allSetBody')}</p>
         </div>
       ) : (
         <p className="text-sm text-muted">
-          {doneCount} of {visible.length} complete. Items check
-          themselves off as the underlying setup happens.
+          {t('gettingStarted.progress', {
+            done: doneCount,
+            total: visible.length,
+          })}
         </p>
       )}
 
       <ul className="flex flex-col gap-3">
         {visible.map((item) => {
-          const meta = ROW_META[item.key];
+          const meta = rowMeta[item.key];
           return (
             <li
               key={item.key}
@@ -179,7 +182,7 @@ export function GettingStartedView({
                   {meta.title}
                   {item.done ? (
                     <span className="rounded-full bg-success/10 px-2 py-0.5 text-2xs font-medium text-success">
-                      Done
+                      {t('gettingStarted.done')}
                     </span>
                   ) : null}
                 </p>
@@ -198,7 +201,7 @@ export function GettingStartedView({
                     {busyKey === `${item.key}:dismiss` ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      'Hide'
+                      t('gettingStarted.hide')
                     )}
                   </button>
                 ) : null}
@@ -223,7 +226,7 @@ export function GettingStartedView({
       {hidden.length > 0 ? (
         <div className="rounded-lg border border-border bg-surface-0 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            Hidden items
+            {t('gettingStarted.hiddenItems')}
           </p>
           <ul className="mt-2 flex flex-col gap-1.5">
             {hidden.map((item) => (
@@ -231,7 +234,7 @@ export function GettingStartedView({
                 key={item.key}
                 className="flex items-center justify-between text-sm text-muted"
               >
-                <span>{ROW_META[item.key].title}</span>
+                <span>{rowMeta[item.key].title}</span>
                 <button
                   type="button"
                   onClick={() => mutate(item.key, 'restore')}
@@ -243,7 +246,7 @@ export function GettingStartedView({
                   ) : (
                     <>
                       <RotateCcw className="h-3 w-3" />
-                      Restore
+                      {t('gettingStarted.restore')}
                     </>
                   )}
                 </button>

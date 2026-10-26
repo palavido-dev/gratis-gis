@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Image as ImageIcon,
   Loader2,
   Leaf,
   Mountain,
@@ -35,6 +36,7 @@ import {
   PresignUploadError,
   type PresignResponse,
 } from '@/lib/presign-upload';
+import { useFormat } from '@/lib/i18n/format';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -77,6 +79,7 @@ interface SourceDescriptor {
 }
 
 export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   const [data, setData] = useState<PointCloudData>(initial);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'submitting'>(
@@ -625,7 +628,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
                   label="Points"
                   value={
                     typeof data.pointCount === 'number'
-                      ? data.pointCount.toLocaleString()
+                      ? fmt.number(data.pointCount)
                       : 'Unknown'
                   }
                 />
@@ -743,6 +746,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
       </section>
 
       {ready && canEdit ? <HillshadeSection itemId={itemId} /> : null}
+      {ready && canEdit ? <ColorizeSection itemId={itemId} /> : null}
     </div>
   );
 }
@@ -799,7 +803,11 @@ function HillshadeSection({ itemId }: { itemId: string }) {
   // a second POST.
   const cancelInFlightRef = useRef<Set<string>>(new Set());
 
-  const active = jobs.some((j) => isActiveJobState(j.state));
+  // This panel owns the elevation/shading tools only; colorize has
+  // its own section so the two job lists do not cross-label.
+  const elevationKinds = new Set(['hillshade', 'elevation', 'heightmap']);
+  const elevationJobs = jobs.filter((j) => elevationKinds.has(j.kind));
+  const active = elevationJobs.some((j) => isActiveJobState(j.state));
 
   useEffect(() => {
     let cancelled = false;
@@ -1012,9 +1020,9 @@ function HillshadeSection({ itemId }: { itemId: string }) {
             {error}
           </div>
         ) : null}
-        {jobs.length > 0 ? (
+        {elevationJobs.length > 0 ? (
           <ul className="space-y-1.5">
-            {jobs.map((j) => (
+            {elevationJobs.map((j) => (
               <li
                 key={j.id}
                 className="flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-xs"
@@ -1040,6 +1048,256 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                     : j.kind === 'heightmap'
                       ? 'Height above ground: '
                       : 'Shaded relief: '}
+                  {j.state === 'queued'
+                    ? 'Waiting to start...'
+                    : j.state === 'cancel_requested'
+                      ? 'Stopping...'
+                      : j.state === 'cancelled'
+                        ? 'Cancelled'
+                        : isActiveJobState(j.state)
+                          ? `Working... ${j.progress}%`
+                          : j.state === 'done'
+                            ? 'Done'
+                            : (j.error ?? 'Failed')}
+                </span>
+                {j.state === 'queued' || j.state === 'running' ? (
+                  <button
+                    type="button"
+                    onClick={() => void cancelJob(j)}
+                    className="ml-auto shrink-0 rounded border border-border bg-surface-0 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                {j.state === 'done' && j.targetItemId ? (
+                  <Link
+                    href={`/items/${j.targetItemId}`}
+                    className="ml-auto inline-flex items-center gap-1 text-accent hover:underline"
+                  >
+                    Open result
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * #186 second half: paint the point cloud with RGB from an aerial
+ * or satellite imagery layer. PDAL colorization runs server-side;
+ * the result is a new RGB COPC the existing viewer can show.
+ */
+function ColorizeSection({ itemId }: { itemId: string }) {
+  const [rasterItemId, setRasterItemId] = useState('');
+  const [imageryOptions, setImageryOptions] = useState<
+    Array<{ id: string; title: string }>
+  >([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
+  const cancelInFlightRef = useRef<Set<string>>(new Set());
+
+  const colorizeJobs = jobs.filter((j) => j.kind === 'colorize');
+  const active = colorizeJobs.some((j) => isActiveJobState(j.state));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadImagery() {
+      try {
+        const res = await fetch('/api/portal/items?type=tile_layer&full=1');
+        if (!res.ok) return;
+        const items = (await res.json()) as Array<{
+          id: string;
+          title: string;
+          data?: {
+            dem?: boolean;
+            cogStorageKey?: string;
+            storageKey?: string;
+          } | null;
+        }>;
+        if (cancelled) return;
+        // Elevation (dem) layers have no RGB; require a file key so
+        // the create endpoint will not bounce an empty pick.
+        const opts = items
+          .filter((i) => {
+            if (i.data?.dem) return false;
+            return Boolean(i.data?.cogStorageKey || i.data?.storageKey);
+          })
+          .map((i) => ({ id: i.id, title: i.title }));
+        setImageryOptions(opts);
+        setRasterItemId((prev) =>
+          prev && opts.some((o) => o.id === prev) ? prev : (opts[0]?.id ?? ''),
+        );
+      } catch {
+        /* picker stays empty; submit surfaces the miss */
+      }
+    }
+    void loadImagery();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/portal/items/${itemId}/analysis/jobs`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as AnalysisJobRow[];
+        if (!cancelled) setJobs(rows);
+      } catch {
+        /* transient; next poll retries */
+      }
+    }
+    void load();
+    const id = window.setInterval(() => void load(), active ? 4000 : 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [itemId, active]);
+
+  async function submit() {
+    if (!rasterItemId) {
+      setError('Pick an imagery layer that covers this area.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${itemId}/analysis/colorize`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ rasterItemId }),
+        },
+      );
+      const body = (await res.json()) as {
+        message?: string;
+        job?: AnalysisJobRow;
+      };
+      if (!res.ok) {
+        setError(body.message ?? `Failed (HTTP ${res.status}).`);
+        return;
+      }
+      if (body.job) setJobs((prev) => [body.job!, ...prev]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function cancelJob(job: AnalysisJobRow) {
+    if (cancelInFlightRef.current.has(job.id)) return;
+    cancelInFlightRef.current.add(job.id);
+    try {
+      await fetch(`/api/portal/analysis-jobs/${job.id}/cancel`, {
+        method: 'POST',
+      });
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id && isActiveJobState(j.state)
+            ? {
+                ...j,
+                state: j.state === 'queued' ? 'cancelled' : 'cancel_requested',
+              }
+            : j,
+        ),
+      );
+    } catch {
+      /* transient; the next poll reconciles */
+    } finally {
+      cancelInFlightRef.current.delete(job.id);
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
+      <div className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-3">
+        <ImageIcon className="h-4 w-4 text-accent" aria-hidden="true" />
+        <h2 className="text-sm font-medium text-ink-0">
+          Colorize from imagery
+        </h2>
+      </div>
+      <div className="space-y-4 p-4">
+        <p className="max-w-md text-xs leading-relaxed text-muted">
+          Paint each point with the color of the aerial or satellite
+          image under it. Creates a new RGB point cloud; the original
+          stays as it is. Best when the imagery covers the same area.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[14rem] flex-1">
+            <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
+              Imagery layer
+            </span>
+            <select
+              value={rasterItemId}
+              onChange={(e) => setRasterItemId(e.target.value)}
+              disabled={imageryOptions.length === 0}
+              className="w-full rounded border border-border bg-surface-0 px-2 py-1.5 text-xs text-ink-0 disabled:opacity-60"
+            >
+              {imageryOptions.length === 0 ? (
+                <option value="">No imagery layers available</option>
+              ) : (
+                imageryOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.title}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={
+              submitting || active || !rasterItemId || imageryOptions.length === 0
+            }
+            className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ImageIcon className="h-3.5 w-3.5" />
+            )}
+            Create colored point cloud
+          </button>
+        </div>
+        {error ? (
+          <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+            {error}
+          </div>
+        ) : null}
+        {colorizeJobs.length > 0 ? (
+          <ul className="space-y-1.5">
+            {colorizeJobs.map((j) => (
+              <li
+                key={j.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-xs"
+              >
+                {isActiveJobState(j.state) ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : j.state === 'done' ? (
+                  <Check className="h-3.5 w-3.5 text-success" />
+                ) : j.state === 'cancelled' ? (
+                  <X className="h-3.5 w-3.5 text-muted" />
+                ) : (
+                  <span className="text-danger">!</span>
+                )}
+                <span
+                  className={
+                    j.state === 'cancelled' ? 'text-muted' : 'text-ink-1'
+                  }
+                >
+                  Colorize:{' '}
                   {j.state === 'queued'
                     ? 'Waiting to start...'
                     : j.state === 'cancel_requested'

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
 import { Plus, Users, Lock, Globe2, Building2 } from 'lucide-react';
-import type { Group } from '@gratis-gis/shared-types';
+import type { Group, GroupAccess } from '@gratis-gis/shared-types';
 import { EntityBadge } from '@gratis-gis/ui';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 
 const accessIcon = {
   private: <Lock className="h-3.5 w-3.5" />,
@@ -12,17 +14,28 @@ const accessIcon = {
   public: <Globe2 className="h-3.5 w-3.5" />,
 };
 
+const accessLabelKey: Record<GroupAccess, string> = {
+  private: 'groups.access.private',
+  org: 'groups.access.org',
+  public: 'groups.access.public',
+};
+
 export default async function GroupsPage() {
+  const locale = await getServerLocale();
   const groups = await apiFetch<Group[]>('/api/groups');
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
       <header className="mb-6 flex items-end justify-between">
         <div>
-          <p className="text-sm text-muted">Collaboration</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Groups</h1>
+          <p className="text-sm text-muted">
+            {t('groups.eyebrow', undefined, locale)}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+            {t('nav.groups', undefined, locale)}
+          </h1>
           <p className="mt-1 text-sm text-muted">
-            {groups.length} group{groups.length === 1 ? '' : 's'} visible to you
+            {t('groups.visibleCount', { count: groups.length }, locale)}
           </p>
         </div>
         <Link
@@ -30,22 +43,22 @@ export default async function GroupsPage() {
           className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
         >
           <Plus className="h-4 w-4" />
-          New group
+          {t('groups.newGroup', undefined, locale)}
         </Link>
       </header>
 
       {groups.length === 0 ? (
         <EmptyState
           icon={<Users className="h-5 w-5" />}
-          title="No groups yet"
-          description="Groups are how teams share items. Create one to get started."
+          title={t('groups.emptyTitle', undefined, locale)}
+          description={t('groups.emptyDescription', undefined, locale)}
           action={
             <Link
               href="/groups/new"
               className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
             >
               <Plus className="h-4 w-4" />
-              Create a group
+              {t('groups.createGroup', undefined, locale)}
             </Link>
           }
         />
@@ -74,7 +87,7 @@ export default async function GroupsPage() {
               </div>
               <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-muted">
                 {accessIcon[g.access]}
-                {g.access}
+                {t(accessLabelKey[g.access], undefined, locale)}
               </span>
             </Link>
           ))}

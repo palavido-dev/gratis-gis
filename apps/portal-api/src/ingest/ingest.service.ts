@@ -20,6 +20,12 @@ import {
   detectCsvCoordinates,
 } from './csv-smart-detect.js';
 import {
+  detectUsGeomatch,
+  featuresFromGeomatch,
+  planUsGeomatch,
+  type GeomatchPlan,
+} from './csv-geomatch.js';
+import {
   geocodeOne,
   geocodeQueries,
   localNominatimBase,
@@ -33,6 +39,11 @@ import {
   probeParquetFromPath,
   streamParquetFromPath,
 } from './parquet-reader.js';
+import {
+  applyGdalNetworkHardening,
+  assertAllowedGdalDriver,
+  assertSafeGdalOpenPath,
+} from './gdal-open-guard.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -129,6 +140,8 @@ export class IngestService {
           sourceSrs: 'EPSG:4326',
         };
       }
+      const geomatch = this.tryUsStateGeomatchBuffer(buffer, originalName);
+      if (geomatch) return geomatch;
       const addressed = await this.geocodeAddressBuffer(buffer, originalName);
       if (addressed) return addressed;
     }
@@ -149,9 +162,11 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, originalName, buffer);
 
     try {
       const ds = gdal.open(openPath);
+      this.assertGdalDriver(ds);
       try {
         const layers = ds.layers;
         const layerCount = layers.count();
@@ -308,6 +323,21 @@ export class IngestService {
         throw mapParquetError(err);
       }
     }
+    const geomatch = await this.tryUsGeomatchPlan(filePath);
+    if (geomatch) {
+      const built = featuresFromGeomatch(geomatch);
+      return {
+        driver: 'csv-geomatch',
+        layers: [
+          {
+            name: geomatch.layerName,
+            geometryType: 'polygon',
+            fields: built.fields,
+            featureCount: built.matched,
+          },
+        ],
+      };
+    }
     const addressed = await this.tryAddressPlan(filePath);
     if (addressed) {
       return {
@@ -326,6 +356,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = await this.openVector(gdal, openPath, filePath);
       try {
@@ -498,8 +529,10 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = gdal.open(openPath);
+      this.assertGdalDriver(ds);
       try {
         const layers = ds.layers;
         const count = layers.count();
@@ -670,6 +703,15 @@ export class IngestService {
       }
     }
     if (opts.isTable !== true) {
+      const geomatch = await this.tryUsGeomatchPlan(filePath);
+      if (geomatch) {
+        if (sourceLayer && sourceLayer !== geomatch.layerName) {
+          throw new BadRequestException(
+            `File has no layer named "${sourceLayer}".`,
+          );
+        }
+        return this.streamUsGeomatchLayer(geomatch, onBatch, batchSize);
+      }
       const addressed = await this.tryAddressPlan(filePath);
       if (addressed) {
         if (sourceLayer && sourceLayer !== addressed.layerName) {
@@ -684,6 +726,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     const ds = await this.openVector(gdal, openPath, filePath);
     try {
       const layers = ds.layers;
@@ -851,14 +894,18 @@ export class IngestService {
         // the attribute table as well. They are the user's data and
         // they asked for a faithful import; dropping them would also
         // make a re-export lossy.
-        return gdal.drivers.get('CSV').open(openPath, 'r', [
+        const csvDs = gdal.drivers.get('CSV').open(openPath, 'r', [
           `X_POSSIBLE_NAMES=${pair.lngColumn}`,
           `Y_POSSIBLE_NAMES=${pair.latColumn}`,
           'KEEP_GEOM_COLUMNS=YES',
         ]);
+        this.assertGdalDriver(csvDs);
+        return csvDs;
       }
     }
-    return gdal.open(openPath);
+    const ds = gdal.open(openPath);
+    this.assertGdalDriver(ds);
+    return ds;
   }
 
   /**
@@ -984,6 +1031,108 @@ export class IngestService {
    * still stops at ADDRESS_GEOCODE_LIMITS.MAX_ROWS.
    */
   private static readonly ADDRESS_READ_BYTES = 1024 * 1024;
+
+  private tryUsStateGeomatchBuffer(
+    buffer: Buffer,
+    originalName: string,
+  ): {
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: GeomatchPlan['fields'];
+    driver: string;
+    sourceSrs: string;
+  } | null {
+    let text = buffer
+      .subarray(0, Math.min(buffer.length, IngestService.ADDRESS_READ_BYTES))
+      .toString('utf8');
+    if (buffer.length > IngestService.ADDRESS_READ_BYTES) {
+      const lastBreak = text.lastIndexOf('\n');
+      text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
+    }
+    const detected = detectUsGeomatch(text);
+    if (detected.kind !== 'matched') {
+      this.log.debug(
+        `No US geomatch in ${originalName}: ${detected.reason}`,
+      );
+      return null;
+    }
+    this.log.log(
+      `Geomatch found ${detected.boundary} in ${originalName}: ` +
+        `column="${detected.column}", matched=${detected.matched}, ` +
+        `unmatched=${detected.unmatched}`,
+    );
+    return {
+      geojson: detected.geojson,
+      fields: detected.fields,
+      driver: 'csv-geomatch',
+      sourceSrs: 'EPSG:4326',
+    };
+  }
+
+  private async tryUsGeomatchPlan(
+    filePath: string,
+  ): Promise<(GeomatchPlan & { layerName: string }) | null> {
+    if (!looksLikeTabularText(filePath)) return null;
+    const text = await this.readDelimitedPrefix(filePath);
+    if (text === null) return null;
+    const plan = planUsGeomatch(text);
+    if (plan.kind === 'none') {
+      this.log.debug(
+        `No US geomatch in ${basename(filePath)}: ${plan.reason}`,
+      );
+      return null;
+    }
+    const dot = basename(filePath).lastIndexOf('.');
+    const layerName =
+      dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
+    return { ...plan, layerName };
+  }
+
+  private async streamUsGeomatchLayer(
+    plan: GeomatchPlan & { layerName: string },
+    onBatch: (
+      batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
+      progress: { processed: number; total: number },
+    ) => Promise<void>,
+    batchSize: number,
+  ): Promise<{
+    fields: GeomatchPlan['fields'];
+    driver: string;
+    layerName: string;
+    sourceSrs: string;
+    total: number;
+  }> {
+    const built = featuresFromGeomatch(plan);
+    if (built.matched === 0) {
+      throw new BadRequestException(
+        'No rows matched a US boundary name for geomatch.',
+      );
+    }
+    const total = built.geojson.features.length;
+    let processed = 0;
+    let batch: Array<{ geometry: unknown; properties: Record<string, unknown> }> =
+      [];
+    for (const feature of built.geojson.features) {
+      processed += 1;
+      batch.push({
+        geometry: feature.geometry,
+        properties: feature.properties,
+      });
+      if (batch.length >= batchSize) {
+        await onBatch(batch, { processed, total });
+        batch = [];
+      }
+    }
+    if (batch.length > 0) {
+      await onBatch(batch, { processed, total });
+    }
+    return {
+      fields: built.fields,
+      driver: 'csv-geomatch',
+      layerName: plan.layerName,
+      sourceSrs: 'EPSG:4326',
+      total,
+    };
+  }
 
   /**
    * Name an address column and confirm the local geocoder answers.
@@ -1154,12 +1303,57 @@ export class IngestService {
   private async loadGdal(): Promise<typeof import('gdal-async')> {
     try {
       const mod = await import('gdal-async');
-      return (mod as unknown as { default?: typeof import('gdal-async') }).default ?? mod;
+      const gdal =
+        (mod as unknown as { default?: typeof import('gdal-async') }).default ??
+        mod;
+      // #234: harden outbound HTTP before any user file is opened.
+      applyGdalNetworkHardening(gdal);
+      return gdal;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log.error(`gdal-async failed to load: ${msg}`);
       throw new InternalServerErrorException(
         'Server-side ingest is unavailable because GDAL is not installed. Install the gdal-async native binding or use the client-side upload flow for supported formats.',
+      );
+    }
+  }
+
+  /**
+   * #234: refuse /vsicurl/ (and VRT/XML that names it) before GDAL
+   * dials out past our safeFetch fence.
+   */
+  private assertGdalOpen(
+    openPath: string,
+    sourceName: string,
+    fileBytes?: Buffer | string | null,
+  ): void {
+    try {
+      assertSafeGdalOpenPath({
+        openPath,
+        sourceName,
+        ...(fileBytes !== undefined ? { fileBytes } : {}),
+      });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  /** #234: refuse datasets opened by a driver outside the allowlist. */
+  private assertGdalDriver(ds: {
+    driver?: { description?: string } | null;
+  }): void {
+    try {
+      assertAllowedGdalDriver(ds.driver?.description ?? '');
+    } catch (err) {
+      try {
+        (ds as { close?: () => void }).close?.();
+      } catch {
+        /* best-effort close before rejecting */
+      }
+      throw new BadRequestException(
+        err instanceof Error ? err.message : String(err),
       );
     }
   }

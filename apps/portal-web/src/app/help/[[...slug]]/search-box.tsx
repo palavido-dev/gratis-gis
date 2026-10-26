@@ -11,6 +11,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface IndexEntry {
   id: string;
@@ -23,6 +24,7 @@ interface IndexEntry {
 }
 
 export function HelpSearchBox({ index }: { index: IndexEntry[] }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -31,12 +33,12 @@ export function HelpSearchBox({ index }: { index: IndexEntry[] }) {
     const scored: Array<{ doc: IndexEntry; score: number }> = [];
     for (const doc of index) {
       let score = 0;
-      for (const t of terms) {
-        if (doc.title.toLowerCase().includes(t)) score += 5;
-        if (doc.summary.toLowerCase().includes(t)) score += 2;
-        if (doc.controls.some((c) => c.toLowerCase().includes(t)))
+      for (const term of terms) {
+        if (doc.title.toLowerCase().includes(term)) score += 5;
+        if (doc.summary.toLowerCase().includes(term)) score += 2;
+        if (doc.controls.some((c) => c.toLowerCase().includes(term)))
           score += 4;
-        if (doc.haystack.includes(t)) score += 1;
+        if (doc.haystack.includes(term)) score += 1;
       }
       if (score > 0) scored.push({ doc, score });
     }
@@ -51,7 +53,7 @@ export function HelpSearchBox({ index }: { index: IndexEntry[] }) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search help…"
+          placeholder={t('help.drawer.searchPlaceholder')}
           className="w-full rounded-md border border-border bg-surface-1 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
       </div>

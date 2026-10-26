@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, Shield } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { AdminUsersView } from './admin-users-view';
 
 /** Shape we expose to the client. Matches Keycloak's user rep plus
@@ -59,6 +61,7 @@ export default async function AdminUsersPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   // Ask the backend whether the Keycloak admin integration is
   // configured. Unconfigured = render a helpful banner pointing at
@@ -82,7 +85,7 @@ export default async function AdminUsersPage() {
       // not live in realm, service account missing a role, etc).
       listError =
         (err instanceof Error && err.message) ||
-        'Could not load users from Keycloak.';
+        t('adminUsers.listErrorFallback', undefined, locale);
     }
   }
 
@@ -93,33 +96,40 @@ export default async function AdminUsersPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminUsers.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Shield className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('nav.users', undefined, locale)}
+          </h1>
           <p className="mt-0.5 text-sm text-muted">
-            Manage the built-in user store: invite new users, reset
-            passwords, change roles, disable access.
+            {t('adminUsers.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>
 
       {!meta.configured ? (
         <div className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn">
-          <p className="font-medium">Admin API not configured</p>
+          <p className="font-medium">
+            {t('adminUsers.apiNotConfiguredTitle', undefined, locale)}
+          </p>
           <p className="mt-1">
-            Set <code className="font-mono">KEYCLOAK_ADMIN_CLIENT_ID</code>{' '}
-            and{' '}
+            {t('adminUsers.apiNotConfiguredBefore', undefined, locale)}{' '}
+            <code className="font-mono">KEYCLOAK_ADMIN_CLIENT_ID</code>{' '}
+            {t('adminUsers.apiNotConfiguredAnd', undefined, locale)}{' '}
             <code className="font-mono">KEYCLOAK_ADMIN_CLIENT_SECRET</code>{' '}
-            for the portal-api, and grant the service-account of the{' '}
-            <code className="font-mono">portal-api-admin</code> client the{' '}
+            {t('adminUsers.apiNotConfiguredForPortalApi', undefined, locale)}{' '}
+            <code className="font-mono">portal-api-admin</code>{' '}
+            {t('adminUsers.apiNotConfiguredClientThe', undefined, locale)}{' '}
             <code className="font-mono">realm-management / manage-users</code>{' '}
-            role in Keycloak.
+            {t('adminUsers.apiNotConfiguredRoleIn', undefined, locale)}
           </p>
         </div>
       ) : listError ? (
@@ -129,16 +139,18 @@ export default async function AdminUsersPage() {
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <p className="font-medium">Could not load users from Keycloak</p>
+            <p className="font-medium">
+              {t('adminUsers.listErrorTitle', undefined, locale)}
+            </p>
             <p className="mt-1 text-danger/90">{listError}</p>
             <p className="mt-2 text-xs text-danger/80">
-              Common causes: the{' '}
-              <code className="font-mono">portal-api-admin</code> client is
-              missing from the realm, its service-account isn&apos;t granted
+              {t('adminUsers.listErrorCommonBefore', undefined, locale)}{' '}
+              <code className="font-mono">portal-api-admin</code>{' '}
+              {t('adminUsers.listErrorCommonMid', undefined, locale)}
               <code className="ml-1 font-mono">
                 realm-management / manage-users
               </code>
-              , or the client secret in the portal-api env is stale.
+              {t('adminUsers.listErrorCommonAfter', undefined, locale)}
             </p>
           </div>
         </div>

@@ -4,6 +4,7 @@
 import { useEffect, useRef } from 'react';
 import type { MapLayerLabels } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   value: MapLayerLabels;
@@ -25,6 +26,7 @@ interface Props {
  * the label below a point marker, which is usually what you want.
  */
 export function LabelsEditor({ value, metadata, onChange }: Props) {
+  const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // "Along line" only makes sense for layers that actually contain line
@@ -70,7 +72,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
           onChange={(e) => patch({ enabled: e.target.checked })}
           className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
         />
-        <span className="text-ink-1">Show labels</span>
+        <span className="text-ink-1">{t('mapLabelsEditor.showLabels')}</span>
       </label>
 
       {value.enabled ? (
@@ -78,7 +80,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="block text-2xs uppercase tracking-wide text-muted">
-                Label text
+                {t('mapLabelsEditor.labelText')}
               </label>
               <div className="flex gap-1">
                 {metadata.fields.length > 0 ? (
@@ -90,7 +92,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                     }}
                     className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   >
-                    <option value="">+ field...</option>
+                    <option value="">{t('mapLabelsEditor.insertField')}</option>
                     {metadata.fields.map((f) => (
                       <option key={f} value={f}>
                         {f}
@@ -106,7 +108,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                   }}
                   className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
-                  <option value="">+ format...</option>
+                  <option value="">{t('mapLabelsEditor.insertFormat')}</option>
                   <option value="| upper">| upper</option>
                   <option value="| lower">| lower</option>
                   <option value="| number">| number</option>
@@ -117,20 +119,18 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               ref={textareaRef}
               value={value.template}
               onChange={(e) => patch({ template: e.target.value })}
-              placeholder={`{{name}}\nor: {{name}} ({{pop | number}})`}
+              placeholder={t('mapLabelsEditor.templatePlaceholder')}
               rows={2}
               className="w-full rounded border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
             <p className="mt-1 text-2xs text-muted">
-              Static text renders as-is; wrap fields in{' '}
-              <code className="rounded bg-surface-2 px-1">{`{{ }}`}</code>.
-              Formatters: upper, lower, number.
+              {t('mapLabelsEditor.templateHint')}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <Slider
-              label="Size"
+              label={t('mapLabelsEditor.size')}
               min={8}
               max={28}
               step={1}
@@ -139,17 +139,17 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               unit="px"
             />
             <Color
-              label="Color"
+              label={t('mapLayerPanel.symbology.color')}
               value={value.color}
               onChange={(c) => patch({ color: c })}
             />
             <Color
-              label="Halo"
+              label={t('mapLabelsEditor.halo')}
               value={value.haloColor}
               onChange={(c) => patch({ haloColor: c })}
             />
             <Slider
-              label="Halo width"
+              label={t('mapLabelsEditor.haloWidth')}
               min={0}
               max={4}
               step={0.25}
@@ -162,20 +162,20 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
           {hasLine ? (
             <div>
               <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-                Placement
+                {t('mapLabelsEditor.placement')}
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <ModeBtn
                   active={value.placement === 'auto'}
                   onClick={() => patch({ placement: 'auto' })}
-                  label="Point-anchored"
-                  hint="Centered on points and polygons."
+                  label={t('mapLabelsEditor.pointAnchored')}
+                  hint={t('mapLabelsEditor.pointAnchoredHint')}
                 />
                 <ModeBtn
                   active={value.placement === 'line'}
                   onClick={() => patch({ placement: 'line' })}
-                  label="Along line"
-                  hint="Labels follow line geometry."
+                  label={t('mapLabelsEditor.alongLine')}
+                  hint={t('mapLabelsEditor.alongLineHint')}
                 />
               </div>
             </div>
@@ -183,7 +183,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
 
           <div>
             <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-              Anchor
+              {t('mapLabelsEditor.anchor')}
             </label>
             <select
               value={value.anchor}
@@ -192,28 +192,27 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               }
               className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
-              <option value="center">center</option>
-              <option value="top">top</option>
-              <option value="bottom">bottom</option>
-              <option value="left">left</option>
-              <option value="right">right</option>
+              <option value="center">{t('mapLabelsEditor.anchorCenter')}</option>
+              <option value="top">{t('mapLabelsEditor.anchorTop')}</option>
+              <option value="bottom">{t('mapLabelsEditor.anchorBottom')}</option>
+              <option value="left">{t('mapLabelsEditor.anchorLeft')}</option>
+              <option value="right">{t('mapLabelsEditor.anchorRight')}</option>
             </select>
-            <p className="mt-1 text-2xs text-muted">
-              Anchor picks which part of the label sits on the feature
-              point; offsets below nudge it from there.
-            </p>
+            <p className="mt-1 text-2xs text-muted">{t('mapLabelsEditor.anchorHint')}</p>
           </div>
 
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="text-2xs uppercase tracking-wide text-muted">
-                Offset from anchor
+                {t('mapLabelsEditor.offsetFromAnchor')}
               </label>
-              <span className="text-2xs text-muted">em (multiples of size)</span>
+              <span className="text-2xs text-muted">
+                {t('mapLabelsEditor.offsetEmHint')}
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Slider
-                label="X"
+                label={t('mapLabelsEditor.offsetX')}
                 min={-4}
                 max={4}
                 step={0.1}
@@ -221,7 +220,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                 onChange={(n) => patch({ offsetX: n })}
               />
               <Slider
-                label="Y (↓ is positive)"
+                label={t('mapLabelsEditor.offsetY')}
                 min={-4}
                 max={4}
                 step={0.1}

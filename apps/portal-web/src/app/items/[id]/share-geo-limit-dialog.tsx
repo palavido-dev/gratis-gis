@@ -11,6 +11,13 @@ import {
   Shapes,
   Trash2,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Per-share "Restrict to area" editor.
@@ -209,26 +216,25 @@ export function ShareGeoLimitDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !saving) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl space-y-3 rounded-lg border border-border bg-surface-1 p-4 shadow-raised"
-      >
-        <div className="flex items-center gap-2">
-          <MapPin className="h-5 w-5 text-accent" />
-          <h2 className="text-lg font-semibold">Restrict to area</h2>
+      <DialogContent hideCloseButton size="lg">
+        <div className="flex items-center gap-2 px-5 pt-5">
+          <MapPin className="h-5 w-5 text-accent" aria-hidden="true" />
+          <DialogTitle>Restrict to area</DialogTitle>
         </div>
-        <p className="text-xs text-muted">
+        <DialogDescription className="px-5 pt-1">
           Limit what{' '}
           <span className="font-medium text-ink-1">{principalLabel}</span>{' '}
           can see on this item to features within a polygon. Items whose
           bbox doesn&apos;t intersect are also hidden. Admins are exempt.
-        </p>
+        </DialogDescription>
+
+        <div className="space-y-3 px-5 pt-3">
 
         <div className="inline-flex rounded border border-border bg-surface-2 p-0.5 text-xs">
           <button
@@ -358,11 +364,13 @@ export function ShareGeoLimitDialog({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 pt-1">
+        </div>
+
+        <DialogFooter className="mt-5 justify-between border-t-0 bg-transparent pb-5">
           {hasExisting ? (
             <button
               type="button"
-              onClick={clear}
+              onClick={() => void clear()}
               disabled={saving}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-50"
             >
@@ -383,7 +391,7 @@ export function ShareGeoLimitDialog({
             </button>
             <button
               type="button"
-              onClick={save}
+              onClick={() => void save()}
               disabled={saving || !validated || !validated.ok}
               className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
@@ -395,9 +403,9 @@ export function ShareGeoLimitDialog({
               Save
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

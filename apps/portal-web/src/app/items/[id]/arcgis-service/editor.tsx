@@ -21,6 +21,8 @@ import {
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
+import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 interface Props {
   itemId: string;
@@ -578,6 +580,7 @@ function CredentialsCard({
     updatedAt: string;
     updatedBy: string;
   } | { hasSecret: false };
+  const fmt = useFormat();
   const confirmDialog = useConfirm();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(false);
@@ -708,7 +711,7 @@ function CredentialsCard({
                 <strong>{meta.kind}</strong> credential set
               </span>
               <span className="text-muted">
-                last updated {new Date(meta.updatedAt).toLocaleString()}
+                last updated {fmt.dateTime(meta.updatedAt)}
               </span>
               {canEdit ? (
                 <div className="ml-auto flex items-center gap-1">
@@ -846,16 +849,13 @@ function CredentialsCard({
 }
 
 function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, {
+  return (
+    formatDateLocale(iso, DEFAULT_LOCALE, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
+    }) || iso
+  );
 }
 
 /**

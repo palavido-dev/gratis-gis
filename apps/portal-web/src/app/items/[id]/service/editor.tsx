@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -695,7 +698,7 @@ function formatRelative(iso: string): string {
     if (hr < 24) return `${hr}h ago`;
     const day = Math.round(hr / 24);
     if (day < 30) return `${day}d ago`;
-    return d.toLocaleDateString();
+    return formatDate(d, DEFAULT_LOCALE);
   } catch {
     return iso;
   }

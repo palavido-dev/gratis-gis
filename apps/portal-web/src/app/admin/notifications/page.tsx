@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Bell } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import {
   NotificationsAdminView,
   type Stats,
@@ -28,6 +30,7 @@ export default async function AdminNotificationsPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   let stats: Stats | null = null;
   let recent: RecentRow[] = [];
@@ -54,7 +57,7 @@ export default async function AdminNotificationsPage() {
     error =
       err instanceof Error
         ? err.message
-        : 'Could not load notifications data.';
+        : t('adminNotifications.loadErrorFallback', undefined, locale);
   }
 
   return (
@@ -64,28 +67,30 @@ export default async function AdminNotificationsPage() {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
+        {t('adminHousekeeping.backToPortal', undefined, locale)}
       </Link>
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Bell className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
+          <p className="text-xs text-muted">
+            {t('nav.admin', undefined, locale)}
+          </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Notifications
+            {t('nav.notifications', undefined, locale)}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
-            Email delivery health for the platform. Stuck rows can be
-            retried after fixing the underlying issue (typically SMTP
-            credentials).
+            {t('adminNotifications.pageIntro', undefined, locale)}
           </p>
         </div>
       </header>
 
       {error ? (
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          <p className="font-medium">Could not load notifications data</p>
+          <p className="font-medium">
+            {t('adminNotifications.loadErrorTitle', undefined, locale)}
+          </p>
           <p className="mt-1 text-danger/90">{error}</p>
         </div>
       ) : null}

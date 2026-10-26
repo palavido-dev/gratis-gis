@@ -265,11 +265,11 @@ export function SearchBar({
           placeholder={
             geocodingEnabled
               ? anyLayerSearchable
-                ? 'Search address or attributes...'
-                : 'Search address...'
+                ? t('mapSearch.placeholderAddressOrAttributes')
+                : t('mapSearch.placeholderAddress')
               : anyLayerSearchable
-                ? 'Search layer attributes...'
-                : 'Search is unconfigured for this map'
+                ? t('mapSearch.placeholderAttributes')
+                : t('mapSearch.placeholderUnconfigured')
           }
           onFocus={() => setOpen(true)}
           onChange={(e) => {
@@ -293,7 +293,7 @@ export function SearchBar({
               setGeocodeResults([]);
               inputRef.current?.focus();
             }}
-            aria-label="Clear search"
+            aria-label={t('mapSearch.clearAria')}
             className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-3.5 w-3.5" />
@@ -309,7 +309,7 @@ export function SearchBar({
           {layerResults.length > 0 ||
           arcgisResults.length > 0 ||
           v3Results.length > 0 ? (
-            <Section title="In this map">
+            <Section title={t('mapSearch.inThisMap')}>
               {layerResults.map((r, i) => (
                 <ResultRow
                   key={`l-${i}`}
@@ -351,7 +351,7 @@ export function SearchBar({
 
           {geocodingEnabled ? (
             geocodeResults.length > 0 ? (
-              <Section title="Places">
+              <Section title={t('mapSearch.places')}>
                 {geocodeResults.map((r, i) => (
                   <ResultRow
                     key={`g-${i}`}
@@ -365,7 +365,7 @@ export function SearchBar({
                   />
                 ))}
                 <div className="px-3 py-1 text-2xs text-muted">
-                  Places via © OpenStreetMap contributors (Nominatim)
+                  {t('mapSearch.placesAttribution')}
                 </div>
               </Section>
             ) : geocodeUnavailable && !geocodeLoading ? (
@@ -399,8 +399,8 @@ export function SearchBar({
           v3Results.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted">
               {anyLayerSearchable
-                ? 'No attribute matches. Geocoding is turned off for this map.'
-                : 'No layers in this map are searchable.'}
+                ? t('mapSearch.noAttributeMatches')
+                : t('mapSearch.noSearchableLayers')}
             </div>
           ) : null}
         </div>

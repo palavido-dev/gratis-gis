@@ -2,13 +2,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Layers, Loader2, X } from 'lucide-react';
+import { Layers, Loader2 } from 'lucide-react';
 import type {
   DataLayerData,
   DataLayerSublayer,
   Item,
   MapData,
 } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { PickMapDialog } from './pick-map-dialog';
 
 interface Props {
@@ -254,10 +261,9 @@ export function AddFromMapDialog({
     [candidates],
   );
 
-  if (!open) return null;
-
   // Step 1: picker open. The picker overlays itself on top of any
   // current dialog state so we don't need a wrapping shell here.
+  // PickMapDialog already uses the shared ui/dialog primitive.
   if (pickerOpen) {
     return (
       <PickMapDialog
@@ -268,9 +274,9 @@ export function AddFromMapDialog({
           // entirely instead of stranding them on an empty step 2.
           if (!map) handleClose();
         }}
-        onPick={(picked) => {
+        onPick={(pickedMap) => {
           setPickerOpen(false);
-          void loadMap(picked.id);
+          void loadMap(pickedMap.id);
         }}
         title="Pick a map to import from"
         subtitle="We'll list every editable layer in this map so you can pick which to expose."
@@ -279,35 +285,28 @@ export function AddFromMapDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) handleClose();
       }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-0">
-              {map ? `Add layers from "${map.title}"` : 'Add from map'}
-            </h2>
-            <p className="text-xs text-muted">
-              {map
-                ? 'Each picked layer becomes an editor target with default policies. Tweak after import.'
-                : 'Choose a map; we\'ll surface its editable layers as targets to import.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent
+        size="lg"
+        className="flex max-h-[80vh] flex-col overflow-hidden p-0"
+      >
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle>
+            {map ? `Add layers from "${map.title}"` : 'Add from map'}
+          </DialogTitle>
+          <DialogDescription className="mt-0.5">
+            {map
+              ? 'Each picked layer becomes an editor target with default policies. Tweak after import.'
+              : 'Choose a map; we\'ll surface its editable layers as targets to import.'}
+          </DialogDescription>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           {loading || candidates === null ? (
             <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -409,7 +408,7 @@ export function AddFromMapDialog({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+        <DialogFooter className="justify-between">
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
@@ -435,8 +434,8 @@ export function AddFromMapDialog({
               {picked.size === 1 ? '' : 's'}
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

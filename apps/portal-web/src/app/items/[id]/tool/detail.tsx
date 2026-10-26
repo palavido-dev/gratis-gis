@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 /**
  * Tool item detail editor (#90).
  *
@@ -42,6 +44,7 @@ interface Props {
 }
 
 export function ToolDetail({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   // Normalize legacy / undefined data into a fresh blob so the
   // controlled inputs always have a defined value.  Older drafts
   // saved as `null`; new tools land via emptyToolData().
@@ -406,7 +409,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
           </button>
           {savedAt ? (
             <span className="text-xs text-muted">
-              Saved {savedAt.toLocaleTimeString()}
+              Saved {fmt.dateTime(savedAt)}
             </span>
           ) : null}
         </div>

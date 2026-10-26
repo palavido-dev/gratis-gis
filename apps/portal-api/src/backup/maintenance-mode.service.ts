@@ -73,17 +73,24 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async activate(reason: string): Promise<void> {
-    if (this.active) {
+  async activate(
+    reason: string,
+    opts: { replaceReason?: boolean } = {},
+  ): Promise<void> {
+    if (this.active && !opts.replaceReason) {
       this.log.warn(
         `activate() called while maintenance mode was already on (reason: ${this.reason}); keeping original reason + timestamp`,
       );
     } else {
       // Reflect locally at once so the triggering replica is in
-      // maintenance before the next poll tick.
+      // maintenance before the next poll tick. replaceReason (#233)
+      // lets a failed restore rewrite the banner without a gap of
+      // deactivated maintenance.
       this.active = true;
       this.reason = reason;
-      this.startedAt = new Date();
+      if (!opts.replaceReason || !this.startedAt) {
+        this.startedAt = new Date();
+      }
       this.log.warn(`Maintenance mode ON: ${reason}`);
     }
     await this.write({

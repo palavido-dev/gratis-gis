@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Palette } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface ThemeStarterStatus {
   kind: string;
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function StarterThemesCard({ initial }: Props) {
+  const t = useT();
   const [starters, setStarters] = useState<ThemeStarterStatus[]>(initial);
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState<'all' | string | null>(null);
@@ -39,7 +41,11 @@ export function StarterThemesCard({ initial }: Props) {
       const body = (await res.json()) as { starters: ThemeStarterStatus[] };
       setStarters(body.starters);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not refresh.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('adminHousekeeping.errCouldNotRefresh'),
+      );
     }
   }
 
@@ -58,7 +64,9 @@ export function StarterThemesCard({ initial }: Props) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await refreshStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Restore failed.');
+      setError(
+        err instanceof Error ? err.message : t('adminHousekeeping.errRestoreFailed'),
+      );
     } finally {
       setBusy(null);
     }
@@ -91,17 +99,17 @@ export function StarterThemesCard({ initial }: Props) {
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="inline-flex items-center gap-2 text-base font-semibold text-ink-0">
-            Starter themes
+            {t('adminHousekeeping.starterThemesTitle')}
             {missingCount > 0 ? (
               <span className="inline-flex h-5 min-w-6 items-center justify-center rounded-full bg-warn/15 px-1.5 text-2xs font-medium text-warn">
-                {missingCount} missing
+                {t('adminHousekeeping.badgeMissingCount', {
+                  count: missingCount,
+                })}
               </span>
             ) : null}
           </h2>
           <p className="mt-0.5 text-sm text-muted">
-            Built-in color palettes seeded into your org. Edit them
-            like any other item, or use the restore button if any
-            have been deleted.
+            {t('adminHousekeeping.starterThemesIntro')}
           </p>
         </div>
       </button>
@@ -139,11 +147,11 @@ export function StarterThemesCard({ initial }: Props) {
                 href={`/items/${s.itemId}`}
                 className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success hover:underline"
               >
-                Present
+                {t('adminHousekeeping.starterPresent')}
               </Link>
             ) : (
               <span className="rounded-full bg-warn/10 px-2 py-0.5 text-xs font-medium text-warn">
-                Missing
+                {t('adminHousekeeping.starterMissing')}
               </span>
             )}
             <button
@@ -156,7 +164,9 @@ export function StarterThemesCard({ initial }: Props) {
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
               }`}
             >
-              {busy === s.kind ? 'Restoring...' : 'Restore'}
+              {busy === s.kind
+                ? t('adminHousekeeping.starterRestoring')
+                : t('adminHousekeeping.starterRestore')}
             </button>
           </li>
         ))}
@@ -170,8 +180,7 @@ export function StarterThemesCard({ initial }: Props) {
             onChange={(e) => setForce(e.target.checked)}
             disabled={busy !== null}
           />
-          Force-restore even when present (creates a date-suffixed
-          copy alongside existing customizations)
+          {t('adminHousekeeping.starterForceRestore')}
         </label>
         <button
           type="button"
@@ -184,10 +193,12 @@ export function StarterThemesCard({ initial }: Props) {
           }`}
         >
           {busy === 'all'
-            ? 'Restoring...'
+            ? t('adminHousekeeping.starterRestoring')
             : force
-              ? 'Restore all (fresh copies)'
-              : `Restore missing (${missingCount})`}
+              ? t('adminHousekeeping.starterRestoreAllFresh')
+              : t('adminHousekeeping.starterRestoreMissing', {
+                  count: missingCount,
+                })}
         </button>
       </div>
         </div>

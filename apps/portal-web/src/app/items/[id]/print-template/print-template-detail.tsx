@@ -33,6 +33,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { useFormat } from '@/lib/i18n/format';
 import {
   AlignCenter,
   AlignLeft,
@@ -771,6 +772,7 @@ function ImageElementBody({ element }: { element: PrintImageElement }) {
 }
 
 function MapElementPreview({ element }: { element: PrintMapElement }) {
+  const fmt = useFormat();
   const borderStyle: CSSProperties = element.border
     ? {
         border: `${element.border.widthPt ?? 0.75}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#444'}`,
@@ -782,7 +784,7 @@ function MapElementPreview({ element }: { element: PrintMapElement }) {
       style={borderStyle}
     >
       <MapIcon className="mr-1 h-4 w-4" /> Map
-      {element.scaleOverride ? ` · 1:${element.scaleOverride.toLocaleString()}` : ''}
+      {element.scaleOverride ? ` · 1:${fmt.number(element.scaleOverride)}` : ''}
     </div>
   );
 }

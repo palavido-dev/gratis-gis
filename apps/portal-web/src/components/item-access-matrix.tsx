@@ -8,11 +8,17 @@ import {
   Loader2,
   Search,
   ShieldCheck,
-  X,
 } from 'lucide-react';
 import type { ItemType } from '@gratis-gis/shared-types';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Generic principal x dependency-item access matrix.
@@ -175,28 +181,24 @@ export function ItemAccessMatrix({
     setBulkGranting(false);
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-surface-1 shadow-raised">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-ink-0">
-              {title}
-            </h2>
-            <p className="text-xs text-muted">
-              {t('accessMatrix.intro')}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t('common.close')}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent
+        size="xl"
+        className="flex max-h-[85vh] !max-w-5xl flex-col overflow-hidden p-0"
+      >
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="truncate text-sm font-semibold text-ink-0">
+            {title}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted">
+            {t('accessMatrix.intro')}
+          </DialogDescription>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface-2 px-4 py-2">
@@ -344,7 +346,7 @@ export function ItemAccessMatrix({
           </table>
         </div>
 
-        <div className="border-t border-border bg-surface-2 px-4 py-2 text-right">
+        <DialogFooter>
           <button
             type="button"
             onClick={onClose}
@@ -352,8 +354,8 @@ export function ItemAccessMatrix({
           >
             {t('accessMatrix.done')}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

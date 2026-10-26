@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/dialog-provider';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import { formatOfflineMessage } from '@/lib/offline-message';
 import type { QueueRecord } from '@/lib/offline-store';
 import { discardRejected, retryRejected } from '@/lib/offline-sync';
@@ -53,6 +54,7 @@ export function RejectedEditsDialog({
   onChanged,
 }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const confirm = useConfirm();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -122,7 +124,7 @@ export function RejectedEditsDialog({
                       dateTime={record.queuedAt}
                       className="shrink-0 text-2xs text-muted"
                     >
-                      {new Date(record.queuedAt).toLocaleString()}
+                      {fmt.dateTime(record.queuedAt)}
                     </time>
                   </div>
                   <p className="mt-1 text-xs text-danger">
