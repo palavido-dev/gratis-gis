@@ -1636,6 +1636,29 @@ export const fr: Partial<CatalogShape> = {
     prefixItemTileLayer: 'Tile caches',
     prefixItemPointCloud: 'Point clouds',
     prefixMapIcon: 'Map icons',
+    brokenReferencesTitle: 'Références cassées',
+    brokenReferencesIntro:
+      'Liens vers des éléments qui n’existent plus (ou à la corbeille), dans un élément ou dans les paramètres du portail. La panne est silencieuse : une carte n’affiche plus la couche, la page d’accueil ignore l’élément mis en avant. Ouvrez chaque entrée pour réaffecter ou supprimer la référence.',
+    brokenReferencesEmpty:
+      'Toutes les références sont valides : aucun élément ne pointe vers quelque chose d’absent.',
+    badgeMissingCount: '{count} manquants',
+    badgeInTrashCount: '{count} à la corbeille',
+    starterTemplatesTitle: 'Modèles d’application de départ',
+    starterTemplatesIntro:
+      'Modèles intégrés semés dans votre organisation. Modifiez-les comme tout autre élément ou restaurez ceux qui ont été supprimés.',
+    starterThemesTitle: 'Thèmes de départ',
+    starterThemesIntro:
+      'Palettes de couleurs intégrées semées dans votre organisation. Modifiez-les comme tout autre élément ou restaurez ceux qui ont été supprimés.',
+    starterPresent: 'Présent',
+    starterMissing: 'Manquant',
+    starterRestore: 'Restaurer',
+    starterRestoring: 'Restauration…',
+    starterForceRestore:
+      'Forcer la restauration même si présent (crée une copie datée à côté des personnalisations existantes)',
+    starterRestoreAllFresh: 'Tout restaurer (nouvelles copies)',
+    starterRestoreMissing: 'Restaurer les manquants ({count})',
+    errCouldNotRefresh: 'Impossible d’actualiser.',
+    errRestoreFailed: 'Échec de la restauration.',
   },
 
   /** Admin → Notifications (#162). */

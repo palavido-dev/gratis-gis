@@ -1715,6 +1715,29 @@ export const en = {
     prefixItemTileLayer: 'Tile caches',
     prefixItemPointCloud: 'Point clouds',
     prefixMapIcon: 'Map icons',
+    brokenReferencesTitle: 'Broken references',
+    brokenReferencesIntro:
+      'Things that point at items which no longer exist (or sit in the trash), whether the pointer lives in an item or in your portal settings. These break silently: a map just stops drawing that layer, the landing page just skips that featured item. Open each one to repoint or remove the reference.',
+    brokenReferencesEmpty:
+      'Every reference resolves: no item points at something that is gone.',
+    badgeMissingCount: '{count} missing',
+    badgeInTrashCount: '{count} in trash',
+    starterTemplatesTitle: 'Starter app templates',
+    starterTemplatesIntro:
+      'Built-in templates seeded into your org. Edit them like any other item, or use the restore button if any have been deleted.',
+    starterThemesTitle: 'Starter themes',
+    starterThemesIntro:
+      'Built-in color palettes seeded into your org. Edit them like any other item, or use the restore button if any have been deleted.',
+    starterPresent: 'Present',
+    starterMissing: 'Missing',
+    starterRestore: 'Restore',
+    starterRestoring: 'Restoring...',
+    starterForceRestore:
+      'Force-restore even when present (creates a date-suffixed copy alongside existing customizations)',
+    starterRestoreAllFresh: 'Restore all (fresh copies)',
+    starterRestoreMissing: 'Restore missing ({count})',
+    errCouldNotRefresh: 'Could not refresh.',
+    errRestoreFailed: 'Restore failed.',
   },
 
   /** Admin → Notifications (#162). */

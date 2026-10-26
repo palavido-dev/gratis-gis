@@ -1626,6 +1626,29 @@ export const ptBR: Partial<CatalogShape> = {
     prefixItemTileLayer: 'Tile caches',
     prefixItemPointCloud: 'Point clouds',
     prefixMapIcon: 'Map icons',
+    brokenReferencesTitle: 'Referências quebradas',
+    brokenReferencesIntro:
+      'Apontamentos para itens que não existem mais (ou estão na lixeira), em um item ou nas configurações do portal. A falha é silenciosa: um mapa para de desenhar a camada e a página inicial ignora o item em destaque. Abra cada um para redirecionar ou remover a referência.',
+    brokenReferencesEmpty:
+      'Todas as referências resolvem: nenhum item aponta para algo que sumiu.',
+    badgeMissingCount: '{count} faltando',
+    badgeInTrashCount: '{count} na lixeira',
+    starterTemplatesTitle: 'Modelos de aplicativo iniciais',
+    starterTemplatesIntro:
+      'Modelos integrados semeados na sua organização. Edite como qualquer outro item ou use Restaurar se algum foi excluído.',
+    starterThemesTitle: 'Temas iniciais',
+    starterThemesIntro:
+      'Paletas de cores integradas semeadas na sua organização. Edite como qualquer outro item ou use Restaurar se algum foi excluído.',
+    starterPresent: 'Presente',
+    starterMissing: 'Ausente',
+    starterRestore: 'Restaurar',
+    starterRestoring: 'Restaurando...',
+    starterForceRestore:
+      'Forçar restauração mesmo quando presente (cria uma cópia com data ao lado das personalizações existentes)',
+    starterRestoreAllFresh: 'Restaurar tudo (cópias novas)',
+    starterRestoreMissing: 'Restaurar ausentes ({count})',
+    errCouldNotRefresh: 'Não foi possível atualizar.',
+    errRestoreFailed: 'Falha na restauração.',
   },
 
   /** Admin → Notifications (#162). */

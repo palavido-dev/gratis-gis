@@ -1630,6 +1630,29 @@ export const es: Partial<CatalogShape> = {
     prefixItemTileLayer: 'Cachés de teselas',
     prefixItemPointCloud: 'Nubes de puntos',
     prefixMapIcon: 'Iconos de mapa',
+    brokenReferencesTitle: 'Referencias rotas',
+    brokenReferencesIntro:
+      'Enlaces a elementos que ya no existen (o están en la papelera), ya vivan en un elemento o en la configuración del portal. Fallan en silencio: un mapa deja de dibujar esa capa y la página de inicio omite ese elemento destacado. Abre cada uno para reasignar o quitar la referencia.',
+    brokenReferencesEmpty:
+      'Todas las referencias resuelven: ningún elemento apunta a algo que ya no existe.',
+    badgeMissingCount: '{count} faltantes',
+    badgeInTrashCount: '{count} en la papelera',
+    starterTemplatesTitle: 'Plantillas de aplicación iniciales',
+    starterTemplatesIntro:
+      'Plantillas integradas sembradas en tu organización. Edítalas como cualquier otro elemento o usa Restaurar si se eliminó alguna.',
+    starterThemesTitle: 'Temas iniciales',
+    starterThemesIntro:
+      'Paletas de color integradas sembradas en tu organización. Edítalas como cualquier otro elemento o usa Restaurar si se eliminó alguna.',
+    starterPresent: 'Presente',
+    starterMissing: 'Falta',
+    starterRestore: 'Restaurar',
+    starterRestoring: 'Restaurando...',
+    starterForceRestore:
+      'Forzar restauración aunque esté presente (crea una copia con fecha junto a las personalizaciones existentes)',
+    starterRestoreAllFresh: 'Restaurar todo (copias nuevas)',
+    starterRestoreMissing: 'Restaurar faltantes ({count})',
+    errCouldNotRefresh: 'No se pudo actualizar.',
+    errRestoreFailed: 'La restauración falló.',
   },
 
   /** Admin → Notifications (#162). */

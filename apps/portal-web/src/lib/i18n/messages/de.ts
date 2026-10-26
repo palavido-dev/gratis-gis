@@ -1645,6 +1645,29 @@ export const de: Partial<CatalogShape> = {
     prefixItemTileLayer: 'Tile caches',
     prefixItemPointCloud: 'Point clouds',
     prefixMapIcon: 'Map icons',
+    brokenReferencesTitle: 'Defekte Verweise',
+    brokenReferencesIntro:
+      'Verweise auf Elemente, die nicht mehr existieren (oder im Papierkorb liegen) – ob im Element selbst oder in den Portal-Einstellungen. Das bricht still: eine Karte zeichnet die Ebene nicht mehr, die Startseite überspringt das hervorgehobene Element. Öffne jeden Eintrag, um den Verweis umzubiegen oder zu entfernen.',
+    brokenReferencesEmpty:
+      'Alle Verweise sind gültig: kein Element zeigt auf etwas, das fehlt.',
+    badgeMissingCount: '{count} fehlend',
+    badgeInTrashCount: '{count} im Papierkorb',
+    starterTemplatesTitle: 'Starter-App-Vorlagen',
+    starterTemplatesIntro:
+      'Eingebaute Vorlagen in Ihrer Organisation. Bearbeiten wie jedes andere Element oder „Wiederherstellen“, wenn eine gelöscht wurde.',
+    starterThemesTitle: 'Starter-Themen',
+    starterThemesIntro:
+      'Eingebaute Farbpaletten in Ihrer Organisation. Bearbeiten wie jedes andere Element oder „Wiederherstellen“, wenn eine gelöscht wurde.',
+    starterPresent: 'Vorhanden',
+    starterMissing: 'Fehlt',
+    starterRestore: 'Wiederherstellen',
+    starterRestoring: 'Wird wiederhergestellt…',
+    starterForceRestore:
+      'Auch bei Vorhandensein wiederherstellen (legt eine Kopie mit Datums-Suffix neben bestehende Anpassungen an)',
+    starterRestoreAllFresh: 'Alle wiederherstellen (neue Kopien)',
+    starterRestoreMissing: 'Fehlende wiederherstellen ({count})',
+    errCouldNotRefresh: 'Aktualisierung fehlgeschlagen.',
+    errRestoreFailed: 'Wiederherstellung fehlgeschlagen.',
   },
 
   /** Admin → Notifications (#162). */
