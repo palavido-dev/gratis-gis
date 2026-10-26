@@ -1971,6 +1971,18 @@ export const en = {
       'Place search is unavailable right now ({reason}). Layer results above are unaffected.',
     noPlaces:
       "No places found for that. This portal's geocoder only covers the area it was set up with.",
+    placeholderAddressOrAttributes: 'Search address or attributes...',
+    placeholderAddress: 'Search address...',
+    placeholderAttributes: 'Search layer attributes...',
+    placeholderUnconfigured: 'Search is unconfigured for this map',
+    clearAria: 'Clear search',
+    inThisMap: 'In this map',
+    places: 'Places',
+    placesAttribution:
+      'Places via © OpenStreetMap contributors (Nominatim)',
+    noAttributeMatches:
+      'No attribute matches. Geocoding is turned off for this map.',
+    noSearchableLayers: 'No layers in this map are searchable.',
   },
   // /admin/field-queues: per device and per deployment queue health.
   adminFieldQueues: {

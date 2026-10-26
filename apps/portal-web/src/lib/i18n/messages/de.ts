@@ -1860,6 +1860,18 @@ export const de: Partial<CatalogShape> = {
       'Die Ortssuche ist gerade nicht verfügbar ({reason}). Die Layer-Ergebnisse oben sind davon nicht betroffen.',
     noPlaces:
       'Keine Orte dazu gefunden. Der Geocoder dieses Portals deckt nur das Gebiet ab, für das er eingerichtet wurde.',
+    placeholderAddressOrAttributes: 'Adresse oder Attribute suchen...',
+    placeholderAddress: 'Adresse suchen...',
+    placeholderAttributes: 'Layer-Attribute suchen...',
+    placeholderUnconfigured: 'Suche ist für diese Karte nicht konfiguriert',
+    clearAria: 'Suche löschen',
+    inThisMap: 'In dieser Karte',
+    places: 'Orte',
+    placesAttribution:
+      'Orte via © OpenStreetMap-Mitwirkende (Nominatim)',
+    noAttributeMatches:
+      'Keine Attributtreffer. Geokodierung ist für diese Karte ausgeschaltet.',
+    noSearchableLayers: 'Keine Layer in dieser Karte sind durchsuchbar.',
   },
   adminFieldQueues: {
     rejectedByServer: '{count} vom Server abgelehnt',

@@ -1849,6 +1849,18 @@ export const ptBR: Partial<CatalogShape> = {
       'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',
     noPlaces:
       'Nenhum lugar encontrado para isso. O geocodificador deste portal cobre apenas a área com a qual foi configurado.',
+    placeholderAddressOrAttributes: 'Buscar endereço ou atributos...',
+    placeholderAddress: 'Buscar endereço...',
+    placeholderAttributes: 'Buscar atributos da camada...',
+    placeholderUnconfigured: 'A busca não está configurada neste mapa',
+    clearAria: 'Limpar busca',
+    inThisMap: 'Neste mapa',
+    places: 'Lugares',
+    placesAttribution:
+      'Lugares via © colaboradores do OpenStreetMap (Nominatim)',
+    noAttributeMatches:
+      'Nenhuma correspondência de atributos. A geocodificação está desativada neste mapa.',
+    noSearchableLayers: 'Nenhuma camada neste mapa é pesquisável.',
   },
   adminFieldQueues: {
     rejectedByServer: '{count} recusados pelo servidor',

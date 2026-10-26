@@ -1857,6 +1857,18 @@ export const es: Partial<CatalogShape> = {
       'La búsqueda de lugares no está disponible ahora mismo ({reason}). Los resultados de capas de arriba no se ven afectados.',
     noPlaces:
       'No se encontraron lugares con eso. El geocodificador de este portal solo cubre el área con la que se configuró.',
+    placeholderAddressOrAttributes: 'Buscar dirección o atributos...',
+    placeholderAddress: 'Buscar dirección...',
+    placeholderAttributes: 'Buscar atributos de capa...',
+    placeholderUnconfigured: 'La búsqueda no está configurada en este mapa',
+    clearAria: 'Borrar búsqueda',
+    inThisMap: 'En este mapa',
+    places: 'Lugares',
+    placesAttribution:
+      'Lugares vía © colaboradores de OpenStreetMap (Nominatim)',
+    noAttributeMatches:
+      'Sin coincidencias de atributos. La geocodificación está desactivada en este mapa.',
+    noSearchableLayers: 'Ninguna capa de este mapa es buscable.',
   },
   adminFieldQueues: {
     rejectedByServer: '{count} rechazados por el servidor',

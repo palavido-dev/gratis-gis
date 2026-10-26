@@ -1861,6 +1861,18 @@ export const fr: Partial<CatalogShape> = {
       'La recherche de lieux est indisponible pour le moment ({reason}). Les résultats de couches ci-dessus ne sont pas affectés.',
     noPlaces:
       'Aucun lieu trouvé pour cela. Le géocodeur de ce portail ne couvre que la zone pour laquelle il a été configuré.',
+    placeholderAddressOrAttributes: 'Rechercher une adresse ou des attributs...',
+    placeholderAddress: 'Rechercher une adresse...',
+    placeholderAttributes: 'Rechercher des attributs de couche...',
+    placeholderUnconfigured: "La recherche n'est pas configurée pour cette carte",
+    clearAria: 'Effacer la recherche',
+    inThisMap: 'Dans cette carte',
+    places: 'Lieux',
+    placesAttribution:
+      'Lieux via © contributeurs OpenStreetMap (Nominatim)',
+    noAttributeMatches:
+      'Aucune correspondance d’attributs. Le géocodage est désactivé pour cette carte.',
+    noSearchableLayers: 'Aucune couche de cette carte n’est interrogeable.',
   },
   adminFieldQueues: {
     rejectedByServer: '{count} refusés par le serveur',
