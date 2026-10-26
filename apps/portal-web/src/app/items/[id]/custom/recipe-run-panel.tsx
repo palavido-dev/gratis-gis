@@ -43,6 +43,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Pencil, X } from 'lucide-react';
 import type * as maplibregl from 'maplibre-gl';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type {
   DistanceParameter,
   FeatureSourceParameter,
@@ -372,35 +379,21 @@ export function RecipeRunPanel({
     return createPortal(drawBanner, document.body);
   }
 
-  const modal = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="recipe-run-title"
-      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
-      onClick={(e) => {
-        // Click outside closes; click inside doesn't bubble.
-        if (e.target === e.currentTarget) onClose();
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !running) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-lg border border-border bg-surface-0 p-4 shadow-xl">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h2 id="recipe-run-title" className="text-sm font-medium text-ink-0">
-              {toolTitle}
-            </h2>
-            <p className="text-2xs text-muted">
-              Fill in the inputs below, then click Run.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-border bg-surface-1 p-1 text-muted hover:text-ink-1"
-            title="Cancel"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+      <DialogContent size="md" className="bg-surface-0 p-4">
+        <div className="mb-3 pr-8">
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {toolTitle}
+          </DialogTitle>
+          <DialogDescription className="text-2xs text-muted">
+            Fill in the inputs below, then click Run.
+          </DialogDescription>
         </div>
 
         <div className="space-y-3">
@@ -441,7 +434,7 @@ export function RecipeRunPanel({
           </div>
         ) : null}
 
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={onClose}
@@ -459,21 +452,19 @@ export function RecipeRunPanel({
             {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             Run
           </button>
-        </div>
-      </div>
-      {/* Shared <datalist> the OSM tag-filter rows reference via
-          list="osm-common-tag-keys".  Lives once at the modal root
-          so multiple filter rows share the same hint set without
-          re-rendering it per-row. */}
-      <datalist id="osm-common-tag-keys">
-        {OSM_COMMON_TAG_KEYS.map((k) => (
-          <option key={k} value={k} />
-        ))}
-      </datalist>
-    </div>
+        </DialogFooter>
+        {/* Shared <datalist> the OSM tag-filter rows reference via
+            list="osm-common-tag-keys".  Lives once at the modal root
+            so multiple filter rows share the same hint set without
+            re-rendering it per-row. */}
+        <datalist id="osm-common-tag-keys">
+          {OSM_COMMON_TAG_KEYS.map((k) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+      </DialogContent>
+    </Dialog>
   );
-
-  return createPortal(modal, document.body);
 }
 
 /**

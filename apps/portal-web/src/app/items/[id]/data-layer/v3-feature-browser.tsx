@@ -32,6 +32,13 @@ import type {
 } from '@gratis-gis/shared-types';
 import { V3FeatureAttachments } from './v3-feature-attachments';
 import { useConfirm } from '@/components/dialog-provider';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Inline feature browser + editor for a single v3 layer.
@@ -857,20 +864,21 @@ function BundleExportModal({
     return t === 'text' || t === 'integer' || t === 'double' || t === 'bigint';
   });
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={running ? undefined : onCancel}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !running) onCancel();
+      }}
     >
-      <div
-        className="relative w-full max-w-md rounded-lg bg-surface-0 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold text-ink-0">Bundle export</h3>
-          <p className="mt-1 text-xs text-muted">
+      <DialogContent size="md" className="overflow-hidden bg-surface-0 p-0">
+        <header className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-ink-0">
+            Bundle export
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-xs text-muted">
             Pack {layer.label || layer.name} (and optionally its related
             tables + feature attachments) into a single ZIP.
-          </p>
+          </DialogDescription>
         </header>
         <div className="space-y-3 px-4 py-3 text-xs">
           {relatedLayerCount > 0 ? (
@@ -967,7 +975,7 @@ function BundleExportModal({
             {error ?? progress}
           </div>
         ) : null}
-        <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <DialogFooter>
           <button
             type="button"
             disabled={running}
@@ -989,9 +997,9 @@ function BundleExportModal({
             )}
             {running ? 'Building…' : 'Export bundle'}
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
