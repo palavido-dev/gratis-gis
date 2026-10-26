@@ -7,12 +7,12 @@ settings:
 overrides:
   glob: ^11.0.0
   path-scurry: ^2.0.0
-  fast-uri: ^3.1.6
+  fast-uri: ^3.1.9
   fast-xml-builder: ^1.1.7
   lodash: ^4.18.0
   picomatch: ^4.0.4
   nanoid: ^3.3.17
-  undici: ^8.11.2
+  undici: ^8.12.3
   multer: ^2.5.0
   nodemailer: ^9.0.1
   brace-expansion: ^5.0.9
@@ -351,7 +351,7 @@ importers:
         specifier: ^1.5.0
         version: 1.5.0(maplibre-gl@6.16.0)(terra-draw@1.38.0)
       undici:
-        specifier: ^8.11.2
+        specifier: ^8.12.3
         version: 8.12.3
     devDependencies:
       '@tailwindcss/postcss':
