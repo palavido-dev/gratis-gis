@@ -1332,6 +1332,35 @@ export const ptBR: Partial<CatalogShape> = {
     errRemove: 'Não foi possível remover esse método de entrada.',
     errMfa: 'Não foi possível atualizar a configuração do autenticador.',
   },
+  adminBranding: {
+    pageIntro:
+      'O que visitantes não autenticados veem na raiz do portal. As alterações entram em vigor imediatamente.',
+    errLoadTitle: 'Não foi possível carregar a configuração de marca',
+    errLoad: 'Não foi possível carregar a configuração de marca.',
+    orgNameLabel: 'Nome da organização',
+    orgNamePlaceholder: 'Sua organização',
+    orgNameHint:
+      'O nome exibido em cabeçalhos, navegação, e-mails e em qualquer lugar em que sua organização é citada. Não pode ficar vazio.',
+    titleLabel: 'Título',
+    titleHint:
+      'Exibido como o título principal. Deixe em branco para usar o nome da organização (“{name}”).',
+    subtitleLabel: 'Subtítulo',
+    subtitlePlaceholder: 'Conteúdo geoespacial público para nossa comunidade',
+    subtitleHint: 'Slogan de uma linha abaixo do título. Opcional.',
+    heroImageLabel: 'Imagem de destaque',
+    heroImageUploaderLabel: 'Imagem de destaque da página inicial',
+    heroImageHint:
+      'Imagens largas funcionam melhor (pense em 1920×640 ou maior, jpg/png/webp/gif). Até 5 MB. Deixe vazio para um fundo neutro.',
+    showPublicItemsLabel: 'Mostrar itens públicos na página inicial',
+    showPublicItemsHint:
+      'Desativado, a página inicial mostra apenas o título, o destaque opcional e um botão de entrar. Escolha isso para uma página limpa só com o logotipo se não quiser a grade pública.',
+    featuredItemsLabel: 'Itens em destaque',
+    featuredItemsHint:
+      'Escolha os itens públicos a exibir na página inicial, na ordem desejada. A página inicial mostra apenas estes. Deixe a lista vazia para mostrar todos os itens públicos da organização, os mais recentes primeiro.',
+    errSaveFailed: 'Falha ao salvar: {status} {detail}',
+    openLandingPage: 'Abrir a página inicial em uma nova aba',
+    saved: 'Salvo',
+  },
   gettingStarted: {
     allSetTitle: 'Tudo pronto.',
     allSetBody:

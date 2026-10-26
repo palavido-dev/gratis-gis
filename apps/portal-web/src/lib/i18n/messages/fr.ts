@@ -1342,6 +1342,35 @@ export const fr: Partial<CatalogShape> = {
     errRemove: 'Impossible de supprimer cette méthode de connexion.',
     errMfa: 'Impossible de mettre à jour le paramètre d\'authentificateur.',
   },
+  adminBranding: {
+    pageIntro:
+      'Ce que voient les visiteurs non connectés à la racine du portail. Les changements sont appliqués immédiatement.',
+    errLoadTitle: 'Impossible de charger la configuration de marque',
+    errLoad: 'Impossible de charger la configuration de marque.',
+    orgNameLabel: 'Nom de l’organisation',
+    orgNamePlaceholder: 'Votre organisation',
+    orgNameHint:
+      'Le nom affiché dans les en-têtes, la navigation, les e-mails et partout où votre organisation est nommée. Ne peut pas être vide.',
+    titleLabel: 'Titre',
+    titleHint:
+      'Affiché comme titre principal. Laissez vide pour revenir au nom de l’organisation (« {name} »).',
+    subtitleLabel: 'Sous-titre',
+    subtitlePlaceholder: 'Contenu géospatial public pour notre communauté',
+    subtitleHint: 'Accroche d’une ligne sous le titre. Facultatif.',
+    heroImageLabel: 'Image d’en-tête',
+    heroImageUploaderLabel: 'Image d’en-tête de la page d’accueil',
+    heroImageHint:
+      'Les images larges conviennent le mieux (par ex. 1920×640 ou plus, jpg/png/webp/gif). Jusqu’à 5 Mo. Laissez vide pour un fond neutre.',
+    showPublicItemsLabel: 'Afficher les éléments publics sur la page d’accueil',
+    showPublicItemsHint:
+      'Désactivé, la page d’accueil affiche uniquement le titre, l’en-tête optionnel et un bouton de connexion. Choisissez ceci pour une page épurée avec seulement le logo si vous ne voulez pas la grille publique.',
+    featuredItemsLabel: 'Éléments mis en avant',
+    featuredItemsHint:
+      'Choisissez les éléments publics à afficher sur la page d’accueil, dans l’ordre souhaité. La page d’accueil n’affiche que ceux-ci. Laissez la liste vide pour afficher tous les éléments publics de l’organisation, les plus récents en premier.',
+    errSaveFailed: 'Échec de l’enregistrement : {status} {detail}',
+    openLandingPage: 'Ouvrir la page d’accueil dans un nouvel onglet',
+    saved: 'Enregistré',
+  },
   gettingStarted: {
     allSetTitle: 'Tout est prêt.',
     allSetBody:

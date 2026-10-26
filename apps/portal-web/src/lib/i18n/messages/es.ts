@@ -1336,6 +1336,35 @@ export const es: Partial<CatalogShape> = {
     errRemove: 'No se pudo eliminar ese método de inicio de sesión.',
     errMfa: 'No se pudo actualizar la configuración del autenticador.',
   },
+  adminBranding: {
+    pageIntro:
+      'Lo que ven los visitantes no autenticados en la raíz del portal. Los cambios se aplican de inmediato.',
+    errLoadTitle: 'No se pudo cargar la configuración de marca',
+    errLoad: 'No se pudo cargar la configuración de marca.',
+    orgNameLabel: 'Nombre de la organización',
+    orgNamePlaceholder: 'Su organización',
+    orgNameHint:
+      'El nombre visible en encabezados, navegación, correos y en cualquier lugar donde se nombre su organización. No puede quedar vacío.',
+    titleLabel: 'Título',
+    titleHint:
+      'Se muestra como encabezado principal. Déjelo en blanco para usar el nombre de la organización (“{name}”).',
+    subtitleLabel: 'Subtítulo',
+    subtitlePlaceholder: 'Contenido geoespacial público para nuestra comunidad',
+    subtitleHint: 'Eslogan de una línea bajo el título. Opcional.',
+    heroImageLabel: 'Imagen principal',
+    heroImageUploaderLabel: 'Imagen principal de la página de inicio',
+    heroImageHint:
+      'Las imágenes anchas funcionan mejor (p. ej. 1920×640 o más, jpg/png/webp/gif). Hasta 5 MB. Déjela vacía para un fondo neutro.',
+    showPublicItemsLabel: 'Mostrar elementos públicos en la página de inicio',
+    showPublicItemsHint:
+      'Si está desactivado, la página de inicio muestra solo el título, la imagen opcional y un botón de inicio de sesión. Elija esto para una página limpia solo con el logotipo si no quiere la cuadrícula pública.',
+    featuredItemsLabel: 'Elementos destacados',
+    featuredItemsHint:
+      'Elija los elementos públicos que se mostrarán en la página de inicio, en el orden deseado. La página de inicio muestra solo estos. Deje la lista vacía para mostrar todos los elementos públicos de la organización, los más recientes primero.',
+    errSaveFailed: 'Error al guardar: {status} {detail}',
+    openLandingPage: 'Abrir la página de inicio en una pestaña nueva',
+    saved: 'Guardado',
+  },
   gettingStarted: {
     allSetTitle: 'Todo listo.',
     allSetBody:

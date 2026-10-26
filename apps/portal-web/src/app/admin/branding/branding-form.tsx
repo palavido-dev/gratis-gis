@@ -13,6 +13,7 @@ import {
 import type { BrandingConfig } from './page';
 import { FeaturedItemsPicker } from './featured-items-picker';
 import { ImageUploader } from '@/components/image-uploader';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Admin form for the five Organization landing-page knobs.
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function BrandingForm({ initial }: Props) {
+  const t = useT();
   const router = useRouter();
   // Org name (#171). Required, so we render the value verbatim and
   // refuse empty saves. Drives every "Acme Corp" surface across the
@@ -108,7 +110,12 @@ export function BrandingForm({ initial }: Props) {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(
+          t('adminBranding.errSaveFailed', {
+            status: String(res.status),
+            detail: await res.text(),
+          }),
+        );
         return;
       }
       setSaved(true);
@@ -127,22 +134,20 @@ export function BrandingForm({ initial }: Props) {
             htmlFor="org-name"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Organization name
+            {t('adminBranding.orgNameLabel')}
           </label>
           <input
             id="org-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Your organization"
+            placeholder={t('adminBranding.orgNamePlaceholder')}
             maxLength={120}
             required
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
-            The display name used in headers, navigation, emails,
-            and anywhere else your organization is named. Cannot be
-            empty.
+            {t('adminBranding.orgNameHint')}
           </p>
         </div>
 
@@ -151,7 +156,7 @@ export function BrandingForm({ initial }: Props) {
             htmlFor="landing-title"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Title
+            {t('adminBranding.titleLabel')}
           </label>
           <input
             id="landing-title"
@@ -163,8 +168,7 @@ export function BrandingForm({ initial }: Props) {
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
-            Shown as the hero heading. Leave blank to fall back to the
-            organization name (&ldquo;{initial.name}&rdquo;).
+            {t('adminBranding.titleHint', { name: initial.name })}
           </p>
         </div>
 
@@ -173,35 +177,35 @@ export function BrandingForm({ initial }: Props) {
             htmlFor="landing-subtitle"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Subtitle
+            {t('adminBranding.subtitleLabel')}
           </label>
           <input
             id="landing-subtitle"
             type="text"
             value={subtitle}
             onChange={(e) => setSubtitle(e.target.value)}
-            placeholder="Public geospatial content for our community"
+            placeholder={t('adminBranding.subtitlePlaceholder')}
             maxLength={500}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
-            One-line tagline under the title. Optional.
+            {t('adminBranding.subtitleHint')}
           </p>
         </div>
 
         <div>
           <p className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
-            Hero image
+            {t('adminBranding.heroImageLabel')}
           </p>
           <ImageUploader
             kind="org-hero"
             value={heroImageUrl}
             onChange={setHeroImageUrl}
             seed={initial.id}
-            label="Landing page hero"
+            label={t('adminBranding.heroImageUploaderLabel')}
             size="xl"
             rounded="md"
-            hint="Wide images work best (think 1920x640 or larger, jpg/png/webp/gif). Up to 5 MB. Leave empty for a muted fill."
+            hint={t('adminBranding.heroImageHint')}
           />
         </div>
       </section>
@@ -216,19 +220,17 @@ export function BrandingForm({ initial }: Props) {
           />
           <span>
             <span className="font-medium text-ink-0">
-              Show public items on the landing page
+              {t('adminBranding.showPublicItemsLabel')}
             </span>
             <span className="mt-0.5 block text-2xs text-muted">
-              When off, the landing page shows only the title, optional
-              hero, and a Sign-in button. Pick this for a clean logo-only
-              page if you don&apos;t want the public browse grid.
+              {t('adminBranding.showPublicItemsHint')}
             </span>
           </span>
         </label>
 
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
-            Featured items
+            {t('adminBranding.featuredItemsLabel')}
           </p>
           {/* The API treats a non-empty list as a strict filter, not
               as a set of pins above everything else. The old wording
@@ -239,10 +241,7 @@ export function BrandingForm({ initial }: Props) {
               anonymous apps to render, and nobody wants those in a
               shop window. */}
           <p className="mb-2 text-2xs text-muted">
-            Pick the public items to show on the landing page, in the
-            order they should appear. The landing page shows only
-            these. Leave the list empty to show every public item in
-            the org, newest first.
+            {t('adminBranding.featuredItemsHint')}
           </p>
           <FeaturedItemsPicker
             value={featuredIds}
@@ -269,12 +268,12 @@ export function BrandingForm({ initial }: Props) {
           className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-1"
         >
           <ExternalLink className="h-3 w-3" />
-          Open landing page in a new tab
+          {t('adminBranding.openLandingPage')}
         </a>
         <div className="flex items-center gap-2">
           {saved ? (
             <span className="inline-flex items-center gap-1 text-xs text-success">
-              <Check className="h-3.5 w-3.5" /> Saved
+              <Check className="h-3.5 w-3.5" /> {t('adminBranding.saved')}
             </span>
           ) : null}
           <button
@@ -288,7 +287,7 @@ export function BrandingForm({ initial }: Props) {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save
+            {t('common.save')}
           </button>
         </div>
       </div>

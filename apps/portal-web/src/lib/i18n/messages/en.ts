@@ -1416,6 +1416,36 @@ export const en = {
     errRemove: 'Could not remove that sign-in method.',
     errMfa: 'Could not update the authenticator setting.',
   },
+  /** Admin → Landing page / branding (#162). */
+  adminBranding: {
+    pageIntro:
+      'What unauthenticated visitors see at the root of the portal. Changes apply immediately.',
+    errLoadTitle: 'Could not load branding config',
+    errLoad: 'Could not load branding config.',
+    orgNameLabel: 'Organization name',
+    orgNamePlaceholder: 'Your organization',
+    orgNameHint:
+      'The display name used in headers, navigation, emails, and anywhere else your organization is named. Cannot be empty.',
+    titleLabel: 'Title',
+    titleHint:
+      'Shown as the hero heading. Leave blank to fall back to the organization name (“{name}”).',
+    subtitleLabel: 'Subtitle',
+    subtitlePlaceholder: 'Public geospatial content for our community',
+    subtitleHint: 'One-line tagline under the title. Optional.',
+    heroImageLabel: 'Hero image',
+    heroImageUploaderLabel: 'Landing page hero',
+    heroImageHint:
+      'Wide images work best (think 1920×640 or larger, jpg/png/webp/gif). Up to 5 MB. Leave empty for a muted fill.',
+    showPublicItemsLabel: 'Show public items on the landing page',
+    showPublicItemsHint:
+      'When off, the landing page shows only the title, optional hero, and a Sign-in button. Pick this for a clean logo-only page if you don’t want the public browse grid.',
+    featuredItemsLabel: 'Featured items',
+    featuredItemsHint:
+      'Pick the public items to show on the landing page, in the order they should appear. The landing page shows only these. Leave the list empty to show every public item in the org, newest first.',
+    errSaveFailed: 'Save failed: {status} {detail}',
+    openLandingPage: 'Open landing page in a new tab',
+    saved: 'Saved',
+  },
   /** Admin → Getting started checklist (#162). */
   gettingStarted: {
     allSetTitle: "You're all set.",

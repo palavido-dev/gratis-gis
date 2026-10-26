@@ -1351,6 +1351,35 @@ export const de: Partial<CatalogShape> = {
     errRemove: 'Diese Anmeldemethode konnte nicht entfernt werden.',
     errMfa: 'Die Authenticator-Einstellung konnte nicht aktualisiert werden.',
   },
+  adminBranding: {
+    pageIntro:
+      'Was nicht angemeldete Besucher im Stammverzeichnis des Portals sehen. Änderungen gelten sofort.',
+    errLoadTitle: 'Branding-Konfiguration konnte nicht geladen werden',
+    errLoad: 'Branding-Konfiguration konnte nicht geladen werden.',
+    orgNameLabel: 'Organisationsname',
+    orgNamePlaceholder: 'Ihre Organisation',
+    orgNameHint:
+      'Der Anzeigename in Kopfzeilen, Navigation, E-Mails und überall, wo Ihre Organisation genannt wird. Darf nicht leer sein.',
+    titleLabel: 'Titel',
+    titleHint:
+      'Wird als Hero-Überschrift angezeigt. Leer lassen, um auf den Organisationsnamen („{name}“) zurückzufallen.',
+    subtitleLabel: 'Untertitel',
+    subtitlePlaceholder: 'Öffentliche Geodaten für unsere Community',
+    subtitleHint: 'Einzeiliger Slogan unter dem Titel. Optional.',
+    heroImageLabel: 'Hero-Bild',
+    heroImageUploaderLabel: 'Hero-Bild der Startseite',
+    heroImageHint:
+      'Breite Bilder eignen sich am besten (z. B. 1920×640 oder größer, jpg/png/webp/gif). Bis 5 MB. Leer lassen für eine neutrale Fläche.',
+    showPublicItemsLabel: 'Öffentliche Elemente auf der Startseite anzeigen',
+    showPublicItemsHint:
+      'Ausgeschaltet zeigt die Startseite nur Titel, optionales Hero-Bild und eine Anmelden-Schaltfläche. Wählen Sie dies für eine schlichte Logo-Seite, wenn Sie das öffentliche Raster nicht wollen.',
+    featuredItemsLabel: 'Hervorgehobene Elemente',
+    featuredItemsHint:
+      'Wählen Sie die öffentlichen Elemente für die Startseite in der gewünschten Reihenfolge. Die Startseite zeigt nur diese. Liste leer lassen, um alle öffentlichen Elemente der Organisation anzuzeigen, neueste zuerst.',
+    errSaveFailed: 'Speichern fehlgeschlagen: {status} {detail}',
+    openLandingPage: 'Startseite in neuem Tab öffnen',
+    saved: 'Gespeichert',
+  },
   gettingStarted: {
     allSetTitle: 'Alles erledigt.',
     allSetBody:
