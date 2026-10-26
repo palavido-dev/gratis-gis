@@ -3889,6 +3889,28 @@ export const es: Partial<CatalogShape> = {
     },
   },
 
+  /** AI draft panel on item detail (#162). */
+  aiDraft: {
+    title: 'Preguntar sobre este elemento',
+    checking: 'Comprobando si la IA está conectada…',
+    unconfigured:
+      'La IA no está configurada. Un administrador de la organización debe conectar un proveedor antes de que haya borradores disponibles.',
+    connectProvider: 'Conectar un proveedor',
+    intro:
+      'Pide un filtro de mapa, un resumen de capa o una lista de campos de formulario. Es un borrador que puedes copiar. No se guarda en el elemento.',
+    placeholder:
+      'Sugiere un filtro para inspecciones abiertas, o redacta campos para un inventario de árboles…',
+    draftButton: 'Borrador',
+    draftHeading: 'Borrador',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    suggestedFilter: 'Filtro sugerido · {layer}',
+    and: 'y',
+    or: 'o',
+    draftFailed: 'No se pudo redactar una sugerencia.',
+    copyFailed: 'No se pudo copiar el borrador.',
+  },
+
   profile: {
     metaTitle: 'Perfil',
     eyebrow: 'Tú',

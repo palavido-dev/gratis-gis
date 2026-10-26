@@ -3895,6 +3895,28 @@ export const fr: Partial<CatalogShape> = {
     },
   },
 
+  /** AI draft panel on item detail (#162). */
+  aiDraft: {
+    title: 'Demander à propos de cet élément',
+    checking: "Vérification de la connexion à l'IA…",
+    unconfigured:
+      "L'IA n'est pas configurée. Un administrateur de l'organisation doit connecter un fournisseur avant que les brouillons soient disponibles.",
+    connectProvider: 'Connecter un fournisseur',
+    intro:
+      "Demandez un filtre de carte, un résumé de couche ou une liste de champs de formulaire. C'est un brouillon que vous pouvez copier. Rien n'est enregistré sur l'élément.",
+    placeholder:
+      'Suggérez un filtre pour les inspections ouvertes, ou des champs pour un inventaire d\'arbres…',
+    draftButton: 'Brouillon',
+    draftHeading: 'Brouillon',
+    copy: 'Copier',
+    copied: 'Copié',
+    suggestedFilter: 'Filtre suggéré · {layer}',
+    and: 'et',
+    or: 'ou',
+    draftFailed: 'Impossible de rédiger une suggestion.',
+    copyFailed: 'Impossible de copier le brouillon.',
+  },
+
   profile: {
     metaTitle: 'Profil',
     eyebrow: 'Vous',

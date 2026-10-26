@@ -4004,6 +4004,28 @@ export const en = {
     },
   },
 
+  /** AI draft panel on item detail (#162). */
+  aiDraft: {
+    title: 'Ask about this item',
+    checking: 'Checking whether AI is connected…',
+    unconfigured:
+      'AI is not configured. An organization admin needs to connect a provider before drafts are available.',
+    connectProvider: 'Connect a provider',
+    intro:
+      'Ask for a map filter, a layer summary, or a form-field list. This is a draft you can copy. Nothing is saved to the item.',
+    placeholder:
+      'Suggest a filter for open inspections, or draft fields for a tree survey…',
+    draftButton: 'Draft',
+    draftHeading: 'Draft',
+    copy: 'Copy',
+    copied: 'Copied',
+    suggestedFilter: 'Suggested filter · {layer}',
+    and: 'and',
+    or: 'or',
+    draftFailed: 'Could not draft a suggestion.',
+    copyFailed: 'Could not copy the draft.',
+  },
+
   /** Self-service profile (#162). */
   profile: {
     metaTitle: 'Profile',

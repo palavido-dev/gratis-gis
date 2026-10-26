@@ -3904,6 +3904,28 @@ export const de: Partial<CatalogShape> = {
     },
   },
 
+  /** AI draft panel on item detail (#162). */
+  aiDraft: {
+    title: 'Zu diesem Element fragen',
+    checking: 'Prüfe, ob KI verbunden ist…',
+    unconfigured:
+      'KI ist nicht konfiguriert. Ein Organisationsadministrator muss einen Anbieter verbinden, bevor Entwürfe verfügbar sind.',
+    connectProvider: 'Anbieter verbinden',
+    intro:
+      'Fragen Sie nach einem Kartenfilter, einer Ebenen-Zusammenfassung oder einer Formularfeldliste. Das ist ein Entwurf zum Kopieren. Es wird nichts am Element gespeichert.',
+    placeholder:
+      'Schlagen Sie einen Filter für offene Inspektionen vor, oder Entwurfsfelder für eine Bauminventur…',
+    draftButton: 'Entwurf',
+    draftHeading: 'Entwurf',
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    suggestedFilter: 'Vorgeschlagener Filter · {layer}',
+    and: 'und',
+    or: 'oder',
+    draftFailed: 'Vorschlag konnte nicht erstellt werden.',
+    copyFailed: 'Entwurf konnte nicht kopiert werden.',
+  },
+
   profile: {
     metaTitle: 'Profil',
     eyebrow: 'Sie',

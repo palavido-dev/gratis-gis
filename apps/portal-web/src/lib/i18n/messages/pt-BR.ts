@@ -3885,6 +3885,28 @@ export const ptBR: Partial<CatalogShape> = {
     },
   },
 
+  /** AI draft panel on item detail (#162). */
+  aiDraft: {
+    title: 'Perguntar sobre este item',
+    checking: 'Verificando se a IA está conectada…',
+    unconfigured:
+      'A IA não está configurada. Um administrador da organização precisa conectar um provedor antes que rascunhos fiquem disponíveis.',
+    connectProvider: 'Conectar um provedor',
+    intro:
+      'Peça um filtro de mapa, um resumo de camada ou uma lista de campos de formulário. É um rascunho que você pode copiar. Nada é salvo no item.',
+    placeholder:
+      'Sugira um filtro para inspeções abertas, ou rascunhe campos para um inventário de árvores…',
+    draftButton: 'Rascunho',
+    draftHeading: 'Rascunho',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    suggestedFilter: 'Filtro sugerido · {layer}',
+    and: 'e',
+    or: 'ou',
+    draftFailed: 'Não foi possível redigir uma sugestão.',
+    copyFailed: 'Não foi possível copiar o rascunho.',
+  },
+
   profile: {
     metaTitle: 'Perfil',
     eyebrow: 'Você',
