@@ -131,7 +131,7 @@ export function ItemCard({
       </div>
     );
   } else if (fallbackIcon) {
-    const tileBg = typeTileBg[item.type] ?? 'bg-slate-500/90 text-white';
+    const tileBg = typeTileBg[item.type] ?? 'bg-muted text-surface-0';
     thumbnail = (
       <div
         className={cn(

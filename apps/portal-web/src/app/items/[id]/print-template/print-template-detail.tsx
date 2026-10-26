@@ -812,10 +812,10 @@ function ScalebarElementPreview({ element }: { element: PrintScalebarElement }) 
   return (
     <div className="flex h-full w-full flex-col justify-center text-2xs text-ink-1">
       <div className="flex h-2 w-full">
-        <div className="flex-1 bg-slate-900" />
-        <div className="flex-1 bg-white" />
-        <div className="flex-1 bg-slate-900" />
-        <div className="flex-1 bg-white" />
+        <div className="flex-1 bg-ink-0" />
+        <div className="flex-1 bg-surface-0" />
+        <div className="flex-1 bg-ink-0" />
+        <div className="flex-1 bg-surface-0" />
       </div>
       <div className="flex justify-between">
         <span>0</span>

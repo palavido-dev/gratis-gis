@@ -7,5 +7,15 @@
  *   import { toast } from '@/lib/toast';
  *   toast.success(t('items.moved'));
  *   toast.error(title, { description });
+ *
+ *   // Hook form (same API; preferred when a component wants a
+ *   // toast object rather than a module import):
+ *   const { toast } = useToast();
  */
-export { toast } from 'sonner';
+import { toast } from 'sonner';
+
+export { toast };
+
+export function useToast(): { toast: typeof toast } {
+  return { toast };
+}

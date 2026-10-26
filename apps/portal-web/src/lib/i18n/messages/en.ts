@@ -862,6 +862,20 @@ export const en = {
     terrainOffHint: '3D is off; the map renders flat. Your surfaces and their order are kept for when you turn it back on.',
     turnOff3d: 'Turn off 3D',
     turnOn3d: 'Turn on 3D',
+    carrierHasElevation: '"{title}" comes with its own elevation layer.',
+    carrierHasElevationDesc:
+      "Add it to this map's terrain so that area gets real ground height.",
+    addToTerrainAction: 'Add to terrain',
+    terrainOnUsing: '3D terrain is on, using "{title}".',
+    terrainOnDesc:
+      'Tilt the map (right-drag) to see it. Manage it in the 3D terrain section of the layers panel.',
+    alreadyInTerrain: '"{title}" is already part of this map\'s terrain.',
+    addedToTerrain: 'Added "{title}" to this map\'s terrain.',
+    addedToTerrainDesc:
+      'Where elevation layers overlap, the one nearer the top wins. Reorder in the 3D terrain section of the layers panel.',
+    elevationUnavailable: 'That elevation layer is not available.',
+    elevationNotReady: 'That elevation layer is not ready yet.',
+    elevationAddFailed: 'Could not add that elevation layer.',
   },
   scaledSymbology: {
     title: 'Scale classes',

@@ -833,6 +833,20 @@ export const es: Partial<CatalogShape> = {
     terrainOffHint: 'El 3D está desactivado; el mapa se muestra plano. Tus superficies y su orden se conservan para cuando lo vuelvas a activar.',
     turnOff3d: 'Desactivar 3D',
     turnOn3d: 'Activar 3D',
+    carrierHasElevation: '"{title}" trae su propia capa de elevación.',
+    carrierHasElevationDesc:
+      'Añádela al terreno de este mapa para que esa zona tenga altura real.',
+    addToTerrainAction: 'Añadir al terreno',
+    terrainOnUsing: 'El terreno 3D está activo, usando "{title}".',
+    terrainOnDesc:
+      'Inclina el mapa (clic derecho y arrastrar) para verlo. Gestiona el terreno en la sección Terreno 3D del panel de capas.',
+    alreadyInTerrain: '"{title}" ya forma parte del terreno de este mapa.',
+    addedToTerrain: 'Se añadió "{title}" al terreno de este mapa.',
+    addedToTerrainDesc:
+      'Donde se superponen capas de elevación, gana la que está más arriba. Reordena en la sección Terreno 3D del panel de capas.',
+    elevationUnavailable: 'Esa capa de elevación no está disponible.',
+    elevationNotReady: 'Esa capa de elevación aún no está lista.',
+    elevationAddFailed: 'No se pudo añadir esa capa de elevación.',
   },
   scaledSymbology: {
     title: 'Clases de escala',
