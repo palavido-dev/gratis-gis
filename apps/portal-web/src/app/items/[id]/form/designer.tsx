@@ -2112,19 +2112,15 @@ function QuestionRow({
                 warn authors instead of silently storing nothing. */}
             {isAttachmentGroup(q, layerSchema) ? (
               <p className="mb-2 rounded border border-success/30 bg-success/10 px-2 py-1 text-2xs text-success">
-                <span className="font-semibold">One attached file per
-                instance.</span> This group binds to the layer's
-                attachments and stores files only. Per-photo metadata
-                (caption, photographer, GPS-at-capture, etc.) is NOT
-                persisted alongside individual files. To capture that
-                kind of data, wrap your attachment in a related event
-                layer (one row per inspection / visit / observation,
-                with photos attached to each row).
+                <span className="font-semibold">
+                  {t('formDesigner.canvas.attachmentMetadataWarningLead')}
+                </span>{' '}
+                {t('formDesigner.canvas.attachmentMetadataWarningBody')}
               </p>
             ) : null}
             {q.children.length === 0 ? (
               <p className="px-2 py-3 text-center text-2xs text-muted">
-                Drop questions here.
+                {t('formDesigner.canvas.dropQuestionsHere')}
               </p>
             ) : (
               <QuestionList
@@ -5706,8 +5702,13 @@ function humanise(name: string): string {
  * "+ Photos" line.
  */
 function ImportPreview({ schema }: { schema: LayerSchema | null }) {
+  const t = useT();
   if (!schema) {
-    return <p className="text-xs text-muted">Loading layer schema...</p>;
+    return (
+      <p className="text-xs text-muted">
+        {t('formDesigner.properties.loadingLayerSchema')}
+      </p>
+    );
   }
   const visibleCols = schema.columns.filter(
     (c) => !SKIP_PREFIX_RE.test(c.name) && !SKIP_EXACT.has(c.name.toLowerCase()),
@@ -5719,12 +5720,11 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted">
-        Will generate {total} top-level{' '}
-        {total === 1 ? 'question' : 'questions'}.
+        {t('formDesigner.layerImport.preview.willGenerate', { total })}
       </p>
       <div className="rounded border border-border bg-surface-2/40 p-2 text-xs">
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          This layer
+          {t('formDesigner.layerImport.preview.thisLayer')}
         </p>
         <ul className="space-y-0.5">
           {visibleCols.map((c) => (
@@ -5734,13 +5734,17 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
             </li>
           ))}
           {visibleCols.length === 0 ? (
-            <li className="text-muted">(no editable columns)</li>
+            <li className="text-muted">
+              {t('formDesigner.layerImport.preview.noEditableColumns')}
+            </li>
           ) : null}
           {schema.attachmentsEnabled ? (
             <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
-              <span className="text-ink-1">+ Photos</span>
+              <span className="text-ink-1">
+                {t('formDesigner.layerImport.preview.photosLine')}
+              </span>
               <span className="text-2xs uppercase tracking-wide text-accent">
-                repeat
+                {t('formDesigner.canvas.repeatBadge')}
               </span>
             </li>
           ) : null}
@@ -5749,7 +5753,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
       {schema.related.length > 0 ? (
         <div className="space-y-2">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            Related tables (each becomes a repeat group)
+            {t('formDesigner.layerImport.preview.relatedTablesHeading')}
           </p>
           {schema.related.map((rel, i) => {
             const cols = rel.columns.filter(
@@ -5765,7 +5769,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
                 <p className="mb-1 flex items-center justify-between">
                   <span className="font-medium text-ink-0">{rel.label}</span>
                   <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
-                    repeat
+                    {t('formDesigner.canvas.repeatBadge')}
                   </span>
                 </p>
                 <ul className="space-y-0.5">
@@ -5777,9 +5781,11 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
                   ))}
                   {rel.attachmentsEnabled ? (
                     <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
-                      <span className="text-ink-1">+ Photos</span>
+                      <span className="text-ink-1">
+                        {t('formDesigner.layerImport.preview.photosLine')}
+                      </span>
                       <span className="text-2xs uppercase tracking-wide text-accent">
-                        repeat
+                        {t('formDesigner.canvas.repeatBadge')}
                       </span>
                     </li>
                   ) : null}

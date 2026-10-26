@@ -3131,6 +3131,10 @@ export const ptBR: Partial<CatalogShape> = {
       removeQuestionAria: "Remove question",
       attachmentGroupTitle: "This group binds to the layer's attachments. Each instance is one attached file. To capture per-photo metadata (caption, photographer, GPS, etc.) wrap your attachment in a related event layer instead.",
       oneFilePerAttachment: "One attached file per",
+      attachmentMetadataWarningLead: "One attached file per instance.",
+      attachmentMetadataWarningBody:
+        "This group binds to the layer's attachments and stores files only. Per-photo metadata (caption, photographer, GPS-at-capture, etc.) is NOT persisted alongside individual files. To capture that kind of data, wrap your attachment in a related event layer (one row per inspection / visit / observation, with photos attached to each row).",
+      dropQuestionsHere: "Drop questions here.",
       repeatBadge: "repeat",
       attachmentBadge: "attachment",
     },
@@ -3322,6 +3326,14 @@ export const ptBR: Partial<CatalogShape> = {
       noLayers: "No data layers in this org yet.",
       dataLayerBadge: "data layer",
       generate: "Generate questions",
+      preview: {
+        willGenerate:
+          "Will generate {total, plural, one {# top-level question} other {# top-level questions}}.",
+        thisLayer: "This layer",
+        noEditableColumns: "(no editable columns)",
+        photosLine: "+ Photos",
+        relatedTablesHeading: "Related tables (each becomes a repeat group)",
+      },
     },
     expressionBuilder: {
       title: "Expression builder",
