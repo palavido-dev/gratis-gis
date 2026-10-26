@@ -2,6 +2,7 @@
 'use client';
 
 import { formatDate } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
@@ -101,6 +102,7 @@ export function MarkupPanel({
   onDrawingsChange,
   initialDrawings,
 }: Props) {
+  const t = useT();
   const [drawings, setDrawings] = useState<DrawingSet[]>(initialDrawings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,9 +124,9 @@ export function MarkupPanel({
       setDrawings(fresh);
       onDrawingsChange(fresh);
     } catch (e) {
-      setError(message(e));
+      setError(message(e, t('mapMarkup.somethingWrong')));
     }
-  }, [mapId, onDrawingsChange]);
+  }, [mapId, onDrawingsChange, t]);
 
   const canEditSet = useCallback(
     (set: DrawingSet): boolean => {
@@ -152,11 +154,11 @@ export function MarkupPanel({
       setDrawings(next);
       onDrawingsChange(next);
     } catch (e) {
-      setError(message(e));
+      setError(message(e, t('mapMarkup.somethingWrong')));
     } finally {
       setBusy(false);
     }
-  }, [currentUser, drawings, mapId, onDrawingsChange]);
+  }, [currentUser, drawings, mapId, onDrawingsChange, t]);
 
   const dropPin = useCallback(
     async (setId: string) => {
@@ -186,12 +188,12 @@ export function MarkupPanel({
         setDrawings(nextSets);
         onDrawingsChange(nextSets);
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [drawings, canEditSet, mapId, onDrawingsChange],
+    [drawings, canEditSet, mapId, onDrawingsChange, t],
   );
 
   const toggleVisibility = useCallback(
@@ -223,10 +225,10 @@ export function MarkupPanel({
         // Roll back optimistic flip on failure.
         setDrawings(drawings);
         onDrawingsChange(drawings);
-        setError(message(e));
+        setError(message(e, t('mapMarkup.somethingWrong')));
       }
     },
-    [drawings, canEditSet, mapId, onDrawingsChange],
+    [drawings, canEditSet, mapId, onDrawingsChange, t],
   );
 
   const renameSet = useCallback(
@@ -246,12 +248,12 @@ export function MarkupPanel({
         onDrawingsChange(next);
         setEditingTitleId(null);
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [drawings, mapId, onDrawingsChange],
+    [drawings, mapId, onDrawingsChange, t],
   );
 
   const recolorSet = useCallback(
@@ -270,12 +272,12 @@ export function MarkupPanel({
         setDrawings(next);
         onDrawingsChange(next);
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [drawings, mapId, onDrawingsChange],
+    [drawings, mapId, onDrawingsChange, t],
   );
 
   const removeSet = useCallback(
@@ -296,12 +298,12 @@ export function MarkupPanel({
         setDrawings(next);
         onDrawingsChange(next);
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [drawings, canEditSet, mapId, onDrawingsChange],
+    [drawings, canEditSet, mapId, onDrawingsChange, t],
   );
 
   const sorted = useMemo(
@@ -313,19 +315,21 @@ export function MarkupPanel({
   return (
     <div
       role="dialog"
-      aria-label="Map markup"
+      aria-label={t('mapMarkup.panelAria')}
       className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <PencilLine className="h-4 w-4 text-muted" />
-          <h2 className="text-sm font-semibold text-ink-1">Markup</h2>
+          <h2 className="text-sm font-semibold text-ink-1">
+            {t('mapMarkup.title')}
+          </h2>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1"
-          aria-label="Close markup panel"
+          aria-label={t('mapMarkup.closeAria')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -334,7 +338,7 @@ export function MarkupPanel({
       <div className="overflow-y-auto px-2 py-2">
         {sorted.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">
-            No markup yet. Add a set, then drop pins to mark up the map.
+            {t('mapMarkup.empty')}
           </p>
         ) : (
           <ul className="space-y-1">
@@ -351,8 +355,14 @@ export function MarkupPanel({
                       type="button"
                       onClick={() => toggleVisibility(set.id)}
                       className="mt-1 rounded text-muted hover:text-ink-1"
-                      title={set.visible ? 'Hide' : 'Show'}
-                      aria-label={set.visible ? 'Hide markup' : 'Show markup'}
+                      title={
+                        set.visible ? t('mapMarkup.hide') : t('mapMarkup.show')
+                      }
+                      aria-label={
+                        set.visible
+                          ? t('mapMarkup.hideAria')
+                          : t('mapMarkup.showAria')
+                      }
                     >
                       {set.visible ? (
                         <Eye className="h-4 w-4" />
@@ -392,7 +402,9 @@ export function MarkupPanel({
                             setTitleDraft(set.title);
                           }}
                           className="block w-full truncate text-left text-sm font-medium text-ink-1 disabled:cursor-default"
-                          title={editable ? 'Click to rename' : set.title}
+                          title={
+                            editable ? t('mapMarkup.renameTitle') : set.title
+                          }
                         >
                           {set.title}
                         </button>
@@ -445,8 +457,8 @@ export function MarkupPanel({
                         onClick={() => removeSet(set.id)}
                         disabled={busy}
                         className="ml-auto rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
-                        aria-label="Delete markup"
-                        title="Delete markup"
+                        aria-label={t('mapMarkup.deleteAria')}
+                        title={t('mapMarkup.deleteAria')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -485,9 +497,9 @@ export function MarkupPanel({
   );
 }
 
-function message(e: unknown): string {
+function message(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
-  return 'Something went wrong';
+  return fallback;
 }
 
 /**

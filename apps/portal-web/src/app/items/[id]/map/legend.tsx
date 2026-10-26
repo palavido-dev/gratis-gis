@@ -3,6 +3,7 @@
 
 import { List, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 import { isTableLayer } from './layer-metadata';
 import type { GeometryFamily, LayerMetadata } from './layer-metadata';
 import { renderIconSvg } from './map-icons';
@@ -26,6 +27,7 @@ interface Props {
  * map is actually drawing.
  */
 export function Legend({ open, layers, metadata, onClose }: Props) {
+  const t = useT();
   if (!open) return null;
 
   // Group headers and non-spatial tables don't render anything on
@@ -56,12 +58,12 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
           <List className="h-3.5 w-3.5" />
-          Legend
+          {t('mapLegend.title')}
         </h3>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close legend"
+          aria-label={t('mapLegend.closeAria')}
           className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2"
         >
           <X className="h-3.5 w-3.5" />
@@ -69,7 +71,7 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
       </div>
       {visible.length === 0 ? (
         <div className="p-4 text-center text-xs text-muted">
-          No visible layers.
+          {t('mapLegend.empty')}
         </div>
       ) : (
         <ul className="flex-1 overflow-y-auto">
@@ -101,6 +103,11 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
       )}
     </div>
   );
+}
+
+function TileImageryLabel() {
+  const t = useT();
+  return <div className="text-xs text-muted">{t('mapLegend.imagery')}</div>;
 }
 
 function LayerSwatch({
@@ -151,7 +158,7 @@ function LayerSwatch({
   // #185: tile layers are prerendered imagery; there is no renderer
   // to legend, so a plain label keeps the entry honest.
   if (layer.source.kind === 'tile') {
-    return <div className="text-xs text-muted">Imagery</div>;
+    return <TileImageryLabel />;
   }
   const r = layer.renderer;
 
@@ -207,7 +214,7 @@ function LayerSwatch({
               i === 0
                 ? `< ${r.stops[0]}`
                 : i === r.colors.length - 1
-                  ? `â‰¥ ${r.stops[r.stops.length - 1]}`
+                  ? `\u2265 ${r.stops[r.stops.length - 1]}`
                   : `${r.stops[i - 1]} to < ${r.stops[i]}`;
             return (
               <li key={i} className="flex items-center gap-2">

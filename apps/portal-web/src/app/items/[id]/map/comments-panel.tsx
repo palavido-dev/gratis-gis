@@ -2,6 +2,7 @@
 'use client';
 
 import { formatDate } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
@@ -79,6 +80,7 @@ export function CommentsPanel({
   currentUser,
   canEditItem,
 }: Props) {
+  const t = useT();
   const [threads, setThreads] = useState<ThreadDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,11 +96,11 @@ export function CommentsPanel({
       const fresh = await api<ThreadDTO[]>(`/api/portal/items/${itemId}/comments`);
       setThreads(fresh);
     } catch (e) {
-      setError(message(e));
+      setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setLoading(false);
     }
-  }, [itemId]);
+  }, [itemId, t]);
 
   useEffect(() => {
     if (open) refresh();
@@ -123,11 +125,11 @@ export function CommentsPanel({
       setThreads((curr) => [...curr, created]);
       setDraftBody('');
     } catch (e) {
-      setError(message(e));
+      setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setBusy(false);
     }
-  }, [currentUser, draftBody, itemId]);
+  }, [currentUser, draftBody, itemId, t]);
 
   const sendReply = useCallback(
     async (threadId: string) => {
@@ -149,12 +151,12 @@ export function CommentsPanel({
         );
         setReplyDrafts((d) => ({ ...d, [threadId]: '' }));
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapComments.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [replyDrafts, itemId],
+    [replyDrafts, itemId, t],
   );
 
   const resolve = useCallback(
@@ -166,19 +168,21 @@ export function CommentsPanel({
           `/api/portal/items/${itemId}/comments/${threadId}`,
           { method: 'PATCH', body: JSON.stringify({ resolved }) },
         );
-        setThreads((curr) => curr.map((t) => (t.id === threadId ? updated : t)));
+        setThreads((curr) =>
+          curr.map((thread) => (thread.id === threadId ? updated : thread)),
+        );
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapComments.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [itemId],
+    [itemId, t],
   );
 
   const removeComment = useCallback(
     async (threadId: string, commentId: string) => {
-      if (!window.confirm('Delete this comment?')) return;
+      if (!window.confirm(t('mapComments.deleteConfirm'))) return;
       setBusy(true);
       setError(null);
       try {
@@ -188,12 +192,12 @@ export function CommentsPanel({
         );
         await refresh(); // simplest: re-fetch since deleting the last comment also deletes the thread
       } catch (e) {
-        setError(message(e));
+        setError(message(e, t('mapComments.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [itemId, refresh],
+    [itemId, refresh, t],
   );
 
   const canResolve = useCallback(
@@ -218,13 +222,15 @@ export function CommentsPanel({
   return (
     <div
       role="dialog"
-      aria-label="Map comments"
+      aria-label={t('mapComments.panelAria')}
       className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-96 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <MessageSquarePlus className="h-4 w-4 text-muted" />
-          <h2 className="text-sm font-semibold text-ink-1">Comments</h2>
+          <h2 className="text-sm font-semibold text-ink-1">
+            {t('mapComments.title')}
+          </h2>
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
           ) : null}
@@ -233,7 +239,7 @@ export function CommentsPanel({
           type="button"
           onClick={onClose}
           className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1"
-          aria-label="Close comments panel"
+          aria-label={t('mapComments.closeAria')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -246,11 +252,10 @@ export function CommentsPanel({
             checked={showResolved}
             onChange={(e) => setShowResolved(e.target.checked)}
           />
-          Show resolved
+          {t('mapComments.showResolved')}
         </label>
         <span className="text-xs text-muted">
-          {visibleThreads.length}{' '}
-          {visibleThreads.length === 1 ? 'thread' : 'threads'}
+          {t('mapComments.threads', { count: visibleThreads.length })}
         </span>
       </div>
 
@@ -258,33 +263,33 @@ export function CommentsPanel({
         {visibleThreads.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">
             {threads.length === 0
-              ? 'No comments yet. Start the conversation below.'
-              : 'No open threads. Toggle "Show resolved" to see closed ones.'}
+              ? t('mapComments.emptyOpen')
+              : t('mapComments.emptyResolved')}
           </p>
         ) : (
           <ul className="space-y-3">
-            {visibleThreads.map((t) => (
+            {visibleThreads.map((thread) => (
               <li
-                key={t.id}
+                key={thread.id}
                 className={`rounded border px-2 py-2 ${
-                  t.resolved
+                  thread.resolved
                     ? 'border-border bg-surface-2 opacity-75'
                     : 'border-border bg-surface-1'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-2xs text-muted">
-                    Thread opened {formatRelative(t.createdAt)}
-                    {t.resolved ? ' • Resolved' : null}
+                    Thread opened {formatRelative(thread.createdAt)}
+                    {thread.resolved ? ' • Resolved' : null}
                   </p>
-                  {canResolve(t) ? (
+                  {canResolve(thread) ? (
                     <button
                       type="button"
-                      onClick={() => resolve(t.id, !t.resolved)}
+                      onClick={() => resolve(thread.id, !thread.resolved)}
                       disabled={busy}
                       className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                     >
-                      {t.resolved ? (
+                      {thread.resolved ? (
                         <>
                           <Undo2 className="h-3 w-3" />
                           Reopen
@@ -299,7 +304,7 @@ export function CommentsPanel({
                   ) : null}
                 </div>
                 <ul className="mt-1 space-y-1.5">
-                  {t.comments.map((c) => (
+                  {thread.comments.map((c) => (
                     <li key={c.id} className="rounded bg-surface-2 px-2 py-1.5">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-2xs font-medium text-ink-1">
@@ -312,11 +317,11 @@ export function CommentsPanel({
                         {canDeleteComment(c) ? (
                           <button
                             type="button"
-                            onClick={() => removeComment(t.id, c.id)}
+                            onClick={() => removeComment(thread.id, c.id)}
                             disabled={busy}
                             className="rounded p-0.5 text-muted hover:bg-danger/10 hover:text-danger"
-                            aria-label="Delete comment"
-                            title="Delete comment"
+                            aria-label={t('mapComments.deleteAria')}
+                            title={t('mapComments.deleteAria')}
                           >
                             <Trash2 className="h-3 w-3" />
                           </button>
@@ -328,25 +333,26 @@ export function CommentsPanel({
                     </li>
                   ))}
                 </ul>
-                {!t.resolved && currentUser ? (
+                {!thread.resolved && currentUser ? (
                   <div className="mt-2 flex items-end gap-1">
                     <textarea
-                      value={replyDrafts[t.id] ?? ''}
+                      value={replyDrafts[thread.id] ?? ''}
                       onChange={(e) =>
                         setReplyDrafts((d) => ({
                           ...d,
-                          [t.id]: e.target.value,
+                          [thread.id]: e.target.value,
                         }))
                       }
-                      placeholder="Reply..."
+                      placeholder={t('mapComments.replyPlaceholder')}
                       rows={2}
                       className="flex-1 rounded border border-border bg-surface-1 px-2 py-1 text-xs text-ink-1"
                     />
                     <button
                       type="button"
-                      onClick={() => sendReply(t.id)}
+                      onClick={() => sendReply(thread.id)}
                       disabled={
-                        busy || (replyDrafts[t.id] ?? '').trim().length === 0
+                        busy ||
+                        (replyDrafts[thread.id] ?? '').trim().length === 0
                       }
                       className="rounded border border-border bg-accent px-2 py-1 text-xs text-accent-on hover:opacity-90 disabled:opacity-50"
                     >
@@ -366,7 +372,7 @@ export function CommentsPanel({
             <textarea
               value={draftBody}
               onChange={(e) => setDraftBody(e.target.value)}
-              placeholder="Start a new thread..."
+              placeholder={t('mapComments.newThreadPlaceholder')}
               rows={2}
               className="flex-1 rounded border border-border bg-surface-1 px-2 py-1 text-sm text-ink-1"
             />
@@ -393,9 +399,9 @@ export function CommentsPanel({
   );
 }
 
-function message(e: unknown): string {
+function message(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
-  return 'Something went wrong';
+  return fallback;
 }
 
 async function api<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
