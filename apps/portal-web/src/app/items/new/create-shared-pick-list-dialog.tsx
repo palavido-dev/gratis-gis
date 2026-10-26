@@ -11,6 +11,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * In-flow modal for creating a shared `pick_list` item without
@@ -41,6 +42,7 @@ export function CreateSharedPickListDialog({
   onClose,
   onCreated,
 }: Props) {
+  const t = useT();
   const [title, setTitle] = useState(defaultTitle);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -50,7 +52,7 @@ export function CreateSharedPickListDialog({
     e.preventDefault();
     setError(null);
     if (title.trim().length < 2) {
-      setError('Give the pick list a name (at least 2 characters).');
+      setError(t('sharedPickListDialog.nameTooShort'));
       return;
     }
 
@@ -86,14 +88,19 @@ export function CreateSharedPickListDialog({
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         setError(
-          `Create failed: ${res.status}${body ? `: ${body}` : ''}`,
+          t('sharedPickListDialog.createFailedStatus', {
+            status: String(res.status),
+            detail: body ? `: ${body}` : '',
+          }),
         );
         return;
       }
       const saved = (await res.json()) as Item;
       onCreated(saved.id, saved.title);
     } catch (err) {
-      setError((err as Error).message || 'Create failed');
+      setError(
+        (err as Error).message || t('sharedPickListDialog.createFailed'),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -112,42 +119,28 @@ export function CreateSharedPickListDialog({
             <ListChecks className="h-5 w-5 text-accent" aria-hidden="true" />
             <DialogTitle>
               {seedEntries.length > 0
-                ? 'Save as shared pick list'
-                : 'Create pick list'}
+                ? t('sharedPickListDialog.titlePromote')
+                : t('sharedPickListDialog.titleCreate')}
             </DialogTitle>
           </div>
           <DialogDescription className="px-5 pt-2">
-            {seedEntries.length > 0 ? (
-              <>
-                Promotes the{' '}
-                <span className="font-semibold">
-                  {seedEntries.length} value
-                  {seedEntries.length === 1 ? '' : 's'}
-                </span>{' '}
-                on this field into a shared <code>pick_list</code> item that
-                other fields, forms, and dashboards can reference. This field
-                will automatically switch to referencing the new list.
-              </>
-            ) : (
-              <>
-                Creates a new shared pick list in your organization and
-                associates this field with it. You can add entries here or
-                later on the list&apos;s detail page (manual, CSV, Excel, or
-                paste from clipboard all work).
-              </>
-            )}
+            {seedEntries.length > 0
+              ? t('sharedPickListDialog.descPromote', {
+                  count: seedEntries.length,
+                })
+              : t('sharedPickListDialog.descCreate')}
           </DialogDescription>
 
           <div className="space-y-3 px-5 pt-4">
             <label className="block text-xs">
               <span className="mb-1 block uppercase tracking-wide text-muted">
-                Name
+                {t('sharedPickListDialog.name')}
               </span>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Priority levels"
+                placeholder={t('sharedPickListDialog.namePlaceholder')}
                 required
                 maxLength={200}
                 autoFocus
@@ -157,12 +150,12 @@ export function CreateSharedPickListDialog({
 
             <label className="block text-xs">
               <span className="mb-1 block uppercase tracking-wide text-muted">
-                Description (optional)
+                {t('sharedPickListDialog.descriptionOptional')}
               </span>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="What's this list for? Who maintains it?"
+                placeholder={t('sharedPickListDialog.descriptionPlaceholder')}
                 maxLength={5000}
                 rows={2}
                 className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
@@ -172,7 +165,7 @@ export function CreateSharedPickListDialog({
             {seedEntries.length > 0 ? (
               <div className="rounded border border-border bg-surface-0 p-2 text-2xs">
                 <p className="mb-1 uppercase tracking-wide text-muted">
-                  Entries to be copied
+                  {t('sharedPickListDialog.entriesToCopy')}
                 </p>
                 <ul className="max-h-32 space-y-0.5 overflow-y-auto">
                   {seedEntries.slice(0, 12).map((e, i) => (
@@ -188,7 +181,9 @@ export function CreateSharedPickListDialog({
                   ))}
                   {seedEntries.length > 12 ? (
                     <li className="pt-1 text-muted">
-                      …and {seedEntries.length - 12} more.
+                      {t('sharedPickListDialog.andMore', {
+                        count: seedEntries.length - 12,
+                      })}
                     </li>
                   ) : null}
                 </ul>
@@ -209,7 +204,7 @@ export function CreateSharedPickListDialog({
               disabled={submitting}
               className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
-              Cancel
+              {t('sharedPickListDialog.cancel')}
             </button>
             <button
               type="submit"
@@ -222,8 +217,8 @@ export function CreateSharedPickListDialog({
                 <ListChecks className="h-3.5 w-3.5" />
               )}
               {seedEntries.length > 0
-                ? 'Save & use shared list'
-                : 'Create pick list'}
+                ? t('sharedPickListDialog.submitPromote')
+                : t('sharedPickListDialog.submitCreate')}
             </button>
           </DialogFooter>
         </form>

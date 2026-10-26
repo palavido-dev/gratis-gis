@@ -139,6 +139,7 @@ export function DataLayerBuilder({
   onChange,
   onPendingFileImport,
 }: Props) {
+  const t = useT();
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   // Monotonic counters that LayerCard observes to force-collapse /
@@ -146,6 +147,26 @@ export function DataLayerBuilder({
   // card simultaneously without lifting their open/closed state up here.
   const [collapseAllSignal, setCollapseAllSignal] = useState(0);
   const [expandAllSignal, setExpandAllSignal] = useState(0);
+
+  const fieldTypeOptions = useMemo(
+    () => [
+      { value: 'string' as const, label: t('layerBuilder.fieldTypeText') },
+      { value: 'number' as const, label: t('layerBuilder.fieldTypeNumber') },
+      { value: 'boolean' as const, label: t('layerBuilder.fieldTypeYesNo') },
+      { value: 'date' as const, label: t('layerBuilder.fieldTypeDate') },
+      { value: 'multi_select' as const, label: t('layerBuilder.fieldTypeMultiSelect') },
+    ],
+    [t],
+  );
+  const geometryOptions = useMemo(
+    () => [
+      { value: 'point' as const, label: t('layerBuilder.geomPoint'), Icon: Circle, short: t('layerBuilder.geomPointShort') },
+      { value: 'line' as const, label: t('layerBuilder.geomLine'), Icon: Spline, short: t('layerBuilder.geomLineShort') },
+      { value: 'polygon' as const, label: t('layerBuilder.geomPolygon'), Icon: Square, short: t('layerBuilder.geomPolygonShort') },
+      { value: null, label: t('layerBuilder.geomTable'), Icon: Table2, short: t('layerBuilder.geomTableShort') },
+    ],
+    [t],
+  );
 
   const layers = value.layers;
 
@@ -212,12 +233,10 @@ export function DataLayerBuilder({
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-ink-0">
-            Layers &amp; tables
+            {t('layerBuilder.sectionTitle')}
           </h2>
           <p className="text-xs text-muted">
-            Add one or more layers (point, line, polygon) and any related
-            tables. You can edit schema, toggle editing/attachments, and
-            link tables to a parent layer.
+            {t('layerBuilder.sectionIntro')}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -226,20 +245,20 @@ export function DataLayerBuilder({
               <button
                 type="button"
                 onClick={() => setCollapseAllSignal((v) => v + 1)}
-                title="Collapse all layers"
+                title={t('layerBuilder.collapseAllTitle')}
                 className="inline-flex h-8 items-center gap-1 bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
                 <ChevronUp className="h-3 w-3" />
-                Collapse all
+                {t('layerBuilder.collapseAll')}
               </button>
               <button
                 type="button"
                 onClick={() => setExpandAllSignal((v) => v + 1)}
-                title="Expand all layers"
+                title={t('layerBuilder.expandAllTitle')}
                 className="inline-flex h-8 items-center gap-1 border-l border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
                 <ChevronsUpDown className="h-3 w-3" />
-                Expand all
+                {t('layerBuilder.expandAll')}
               </button>
             </div>
           ) : null}
@@ -249,7 +268,7 @@ export function DataLayerBuilder({
             className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Upload className="h-3.5 w-3.5" />
-            Import
+            {t('layerBuilder.import')}
           </button>
           <div className="relative">
             <button
@@ -258,7 +277,7 @@ export function DataLayerBuilder({
               className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-medium text-accent-foreground hover:opacity-90"
             >
               <Plus className="h-3.5 w-3.5" />
-              Add layer
+              {t('layerBuilder.addLayer')}
               <ChevronDown className="h-3 w-3" />
             </button>
             {addOpen ? (
@@ -266,7 +285,7 @@ export function DataLayerBuilder({
                 role="menu"
                 className="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-md border border-border bg-surface-1 shadow-card"
               >
-                {GEOMETRY_OPTIONS.map(({ value: gt, label, Icon }) => (
+                {geometryOptions.map(({ value: gt, label, Icon }) => (
                   <button
                     key={String(gt)}
                     type="button"
@@ -307,9 +326,10 @@ export function DataLayerBuilder({
 
       {layers.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface-0 p-6 text-center text-xs text-muted">
-          No layers yet. Click <span className="font-medium">Add layer</span>{' '}
-          above to start, or <span className="font-medium">Import</span> from
-          a file.
+          {t('layerBuilder.emptyLayersHtml', {
+            addLayer: t('layerBuilder.addLayer'),
+            importBtn: t('layerBuilder.import'),
+          })}
         </div>
       ) : (
         <ul className="space-y-2">
