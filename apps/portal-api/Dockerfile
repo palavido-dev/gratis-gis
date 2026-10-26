@@ -174,14 +174,18 @@ ENV CGO_ENABLED=0
 # The build and the four assertions sit outside the loop on purpose,
 # because a retry around an assertion could paper over a real
 # downgrade instead of failing on it.
+# Order matters: google.golang.org/grpc@1.83.2 pulls golang.org/x/net
+# v0.58.0 and will silently downgrade a earlier x/net pin (that is what
+# broke the v0.60.0 assertion for CVE-2026-78669). Pin text/crypto/grpc
+# first, then x/net last so the floor sticks through to `go build`.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
     && for attempt in 1 2 3 4 5; do \
          if go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
             && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
-            && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
             && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
-            && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}"; then \
+            && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
+            && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}"; then \
            break; \
          fi; \
          if [ "$attempt" -eq 5 ]; then \
