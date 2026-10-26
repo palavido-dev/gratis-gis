@@ -110,10 +110,11 @@ export interface AggregateResult {
  */
 export function formatBinLabel(
   bin: { lower: number | null; upper: number | null } | undefined,
+  locale = 'en',
 ): string {
   if (!bin) return '—';
   const n = (v: number): string =>
-    new Intl.NumberFormat(undefined, { maximumSignificantDigits: 3 }).format(v);
+    new Intl.NumberFormat(locale, { maximumSignificantDigits: 3 }).format(v);
   if (bin.lower === null && bin.upper === null) return 'No value';
   if (bin.lower === null) return `under ${n(bin.upper!)}`;
   if (bin.upper === null) return `${n(bin.lower)} and up`;
@@ -208,6 +209,7 @@ export async function fetchAggregate(
 export function formatAggregateValue(
   value: number | null | undefined,
   fmt: NumberFormat | undefined,
+  locale = 'en',
 ): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return '—';
@@ -230,7 +232,7 @@ export function formatAggregateValue(
   } else {
     opts.maximumFractionDigits = 2;
   }
-  const body = new Intl.NumberFormat(undefined, opts).format(value);
+  const body = new Intl.NumberFormat(locale, opts).format(value);
   return `${fmt?.prefix ?? ''}${body}${fmt?.suffix ?? ''}`;
 }
 

@@ -91,16 +91,19 @@ export default function PointCloudViewer({
       ? ('dark' as const)
       : ('light' as const);
 
-    // Size-aware tuning. Every stream-update batch rebuilds the
-    // deck.gl layer data on the main thread, and on a ~200M-point
+    // Size-aware tuning (#183). Every stream-update batch rebuilds
+    // the deck.gl layer data on the main thread, and on a ~200M-point
     // cloud that measured as multi-second stalls (worst observed:
-    // 1.9s) during pan/zoom. Until the renderer appends nodes
-    // incrementally (tracked in the perf issue), the honest levers
-    // are: fewer points per rebuild, fewer rebuilds while the
-    // camera moves, and no picking buffers by default on huge
-    // clouds (the panel still exposes the toggle). Small clouds
-    // keep the snappier settings.
-    const isHuge = (data.pointCount ?? 0) > 20_000_000;
+    // 1.9s) during pan/zoom. Until maplibre-gl-lidar appends nodes
+    // incrementally (upstream + SSE LOD on the issue), the honest
+    // levers are: fewer points per rebuild, fewer rebuilds while the
+    // camera moves, fewer concurrent node fetches, and no picking
+    // buffers by default on huge clouds (the panel still exposes the
+    // toggle). Small clouds keep the snappier settings; "ultra"
+    // (>100M) is stricter than the 20M "huge" tier.
+    const pointCount = data.pointCount ?? 0;
+    const isUltra = pointCount > 100_000_000;
+    const isHuge = pointCount > 20_000_000;
     const control = new LidarControl({
       title: 'Point cloud',
       collapsed: true,
@@ -110,8 +113,13 @@ export default function PointCloudViewer({
       colorScheme: data.hasRgb ? 'rgb' : 'elevation',
       pickable: !isHuge,
       autoZoom: true,
-      streamingPointBudget: isHuge ? 1_500_000 : 4_000_000,
-      streamingViewportDebounceMs: isHuge ? 400 : 150,
+      streamingPointBudget: isUltra
+        ? 750_000
+        : isHuge
+          ? 1_500_000
+          : 4_000_000,
+      streamingViewportDebounceMs: isUltra ? 600 : isHuge ? 400 : 150,
+      streamingMaxConcurrentRequests: isUltra ? 2 : 4,
       // The share-URL affordance encodes the control's own state
       // into the address bar; inside the portal that fights the
       // Next router, so it stays off.
@@ -154,7 +162,7 @@ export default function PointCloudViewer({
     };
     // Re-create the whole viewer when the underlying file changes;
     // storageKey is the identity of the uploaded bytes.
-  }, [data.storageKey, data.dataUrl, data.hasRgb]);
+  }, [data.storageKey, data.dataUrl, data.hasRgb, data.pointCount]);
 
   return (
     <div>

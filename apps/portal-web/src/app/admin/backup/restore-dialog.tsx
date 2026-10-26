@@ -15,6 +15,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Confirmation dialog for the destructive restore flow. Two gates:
@@ -56,6 +57,7 @@ interface Props {
 }
 
 export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
+  const fmt = useFormat();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState('');
@@ -170,7 +172,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
               </dd>
               <dt className="text-muted">Created</dt>
               <dd className="text-ink-0">
-                {new Date(preview.manifest.createdAt).toLocaleString()}
+                {fmt.dateTime(preview.manifest.createdAt)}
               </dd>
               <dt className="text-muted">Trigger</dt>
               <dd className="text-ink-0">{preview.manifest.trigger}</dd>
@@ -178,7 +180,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
               <dd className="text-ink-0">{formatBytes(preview.sizeBytes)}</dd>
               <dt className="text-muted">Objects in backup</dt>
               <dd className="text-ink-0">
-                {preview.manifest.minio.objectCount.toLocaleString()}
+                {fmt.number(preview.manifest.minio.objectCount)}
               </dd>
               {preview.manifest.portalVersion ? (
                 <>

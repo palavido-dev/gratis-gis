@@ -8,6 +8,7 @@ import type { Item } from '@gratis-gis/shared-types';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 
 interface Props {
   item: Item;
@@ -22,6 +23,7 @@ interface Props {
  */
 export function TrashRow({ item, retentionDays }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const router = useRouter();
   const [pending, setPending] = useState<'restore' | 'purge' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export function TrashRow({ item, retentionDays }: Props) {
         </div>
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
-        {deletedAt ? deletedAt.toLocaleString() : ''}
+        {deletedAt ? fmt.dateTime(deletedAt) : ''}
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
         {daysLeft !== null ? (

@@ -24,6 +24,13 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  formatDate,
+  formatDateTime,
+  formatRelativeTime,
+  useFormat,
+} from '@/lib/i18n/format';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 
 export interface Stats {
   queueDepth: number;
@@ -126,6 +133,7 @@ export function NotificationsAdminView({
   initialDefaults,
   initialTemplateOverrides,
 }: Props) {
+  const fmt = useFormat();
   const [stats, setStats] = useState<Stats>(initialStats);
   const [recent, setRecent] = useState<RecentRow[]>(initialRecent);
   const [refreshing, setRefreshing] = useState(false);
@@ -261,20 +269,20 @@ export function NotificationsAdminView({
         <Metric
           icon={<Clock className="h-4 w-4" />}
           label="Queue depth"
-          value={stats.queueDepth.toLocaleString()}
+          value={fmt.number(stats.queueDepth)}
           tone={stats.queueDepth > 100 ? 'warn' : 'normal'}
           help="Queued + sending"
         />
         <Metric
           icon={<CheckCircle2 className="h-4 w-4" />}
           label="Sent (24h)"
-          value={stats.sentLast24h.toLocaleString()}
+          value={fmt.number(stats.sentLast24h)}
           tone="normal"
         />
         <Metric
           icon={<AlertTriangle className="h-4 w-4" />}
           label="Failed (24h)"
-          value={stats.failedLast24h.toLocaleString()}
+          value={fmt.number(stats.failedLast24h)}
           tone={stats.failedLast24h > 0 ? 'warn' : 'normal'}
           help={
             stats.failedTotal > stats.failedLast24h
@@ -351,10 +359,10 @@ export function NotificationsAdminView({
                         ) : null}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
-                        {formatRel(row.createdAt)}
+                        {formatRel(row.createdAt, fmt.locale)}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
-                        {row.sentAt ? formatRel(row.sentAt) : '-'}
+                        {row.sentAt ? formatRel(row.sentAt, fmt.locale) : '-'}
                       </td>
                       <td className="py-1.5 align-top tabular-nums">
                         {row.attempts}
@@ -719,6 +727,7 @@ function DefaultsCard({
   onPreview: (type: string) => void;
   onCustomize: (row: DefaultsRow) => void;
 }) {
+  const fmt = useFormat();
   const [rows, setRows] = useState<DefaultsRow[]>(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const statsLookup = new Map(statsByType.map((s) => [s.type, s] as const));
@@ -791,17 +800,17 @@ function DefaultsCard({
                   ) : null}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
-                  {(s?.queued ?? 0).toLocaleString()}
+                  {fmt.number(s?.queued ?? 0)}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
-                  {(s?.sent ?? 0).toLocaleString()}
+                  {fmt.number(s?.sent ?? 0)}
                 </td>
                 <td
                   className={`py-1.5 text-right tabular-nums ${
                     (s?.failed ?? 0) > 0 ? 'text-warn' : ''
                   }`}
                 >
-                  {(s?.failed ?? 0).toLocaleString()}
+                  {fmt.number(s?.failed ?? 0)}
                 </td>
                 <td className="py-1.5 text-right">
                   <label className="inline-flex items-center gap-1 text-2xs">
@@ -1537,11 +1546,9 @@ function formatLatency(ms: number): string {
   return `${(ms / 60_000).toFixed(1)} min`;
 }
 
-function formatRel(iso: string): string {
+function formatRel(iso: string, locale: SupportedLocale = 'en'): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return new Date(iso).toLocaleString();
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
-  return new Date(iso).toLocaleDateString();
+  if (ms < 0) return formatDateTime(iso, locale);
+  if (ms < 86_400_000) return formatRelativeTime(iso, locale);
+  return formatDate(iso, locale);
 }

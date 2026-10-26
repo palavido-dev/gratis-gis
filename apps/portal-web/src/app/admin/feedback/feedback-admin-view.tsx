@@ -11,6 +11,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
 
 export type FeedbackStatus = 'new' | 'handled' | 'spam';
 
@@ -49,6 +50,7 @@ const TABS: Array<{ key: FeedbackStatus | 'all'; label: string }> = [
 ];
 
 export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
+  const fmt = useFormat();
   const [page, setPage] = useState<FeedbackPage>(initial);
   const [tab, setTab] = useState<FeedbackStatus | 'all'>('new');
   const [offset, setOffset] = useState(0);
@@ -192,9 +194,9 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                 <time
                   dateTime={row.createdAt}
                   className="text-xs text-muted"
-                  title={new Date(row.createdAt).toLocaleString()}
+                  title={fmt.dateTime(row.createdAt)}
                 >
-                  {new Date(row.createdAt).toLocaleString()}
+                  {fmt.dateTime(row.createdAt)}
                 </time>
               </div>
 
