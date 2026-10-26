@@ -242,6 +242,11 @@ export interface TileLayerData {
   /** When the most recent pyramid build attempt started.  Used
    *  for the "stuck job" detector and the progress card timer. */
   tilingStartedAt?: ISODateString;
+  /** Liveness beat while `processingState === 'tiling'` (#232).
+   *  The worker stamps this every few seconds while a child process
+   *  runs; reclaim treats silence past the stale window as a dead
+   *  worker. Falls back to `tilingStartedAt` when absent. */
+  tilingHeartbeatAt?: ISODateString;
   /** When the most recent successful pyramid build completed.
    *  Set together with `processingState = 'pmtiles-ready'`. */
   tilingCompletedAt?: ISODateString;

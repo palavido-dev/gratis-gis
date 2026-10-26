@@ -55,14 +55,29 @@ import { StorageService } from '../storage/storage.service.js';
  * retry endpoint to flip back to 'cog-ready' for another pass.
  */
 /**
- * How many crashed build attempts an item gets before boot recovery
+ * How many crashed build attempts an item gets before reclaim
  * stops re-arming it and flips it to 'tiling-failed'.  Counted via
- * `tilingAttempts` in data_json: a stale 'tiling' row found at boot
- * means the previous attempt died mid-build (the worker never
- * reached its own success or markFailed patch), so each recovery
- * increments the counter.
+ * `tilingAttempts` in data_json: a stale 'tiling' row means the
+ * previous attempt died mid-build (the worker never reached its
+ * own success or markFailed patch), so each recovery increments
+ * the counter.
  */
 const MAX_TILING_ATTEMPTS = 3;
+
+/**
+ * #232: wall-clock ceiling for a single child process (gdalwarp /
+ * gdaladdo / pmtiles). Override with PYRAMID_CMD_TIMEOUT_SEC.
+ * Large county builds are legitimately multi-hour; the default is
+ * generous. A hung gdal* without this wedged all pyramids forever.
+ */
+const DEFAULT_CMD_TIMEOUT_SEC = 4 * 60 * 60;
+
+/**
+ * #232: silence window for reclaim. If tilingHeartbeatAt (or
+ * tilingStartedAt when no beat yet) is older than this, the claim
+ * is treated as abandoned by a dead worker.
+ */
+const STALE_HEARTBEAT_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class TileLayerPyramidWorker implements OnModuleInit {
@@ -72,83 +87,40 @@ export class TileLayerPyramidWorker implements OnModuleInit {
   // newly-uploaded item is invisible to the user, who's still
   // looking at the immediate COG-served version anyway.
   private readonly POLL_INTERVAL_MS = 10_000;
+  private readonly cmdTimeoutMs: number;
   private running = false;
+  private lastReclaimAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-  ) {}
+  ) {
+    const sec = Number(process.env['PYRAMID_CMD_TIMEOUT_SEC'] ?? '');
+    this.cmdTimeoutMs =
+      (Number.isFinite(sec) && sec > 0 ? sec : DEFAULT_CMD_TIMEOUT_SEC) * 1000;
+  }
 
   async onModuleInit() {
-    // Recover any 'tiling' rows abandoned by a prior worker
-    // process (container killed mid-build, oom, etc), bounded by
-    // an attempt budget.  Unconditional re-arming turned a crash-
-    // inducing item into a poison pill: claimNext picks oldest
-    // first, so the same item was re-claimed after every restart
-    // and everything behind it starved forever.  The budget is
-    // tracked as `tilingAttempts` in data_json: each recovery of a
-    // stale 'tiling' row counts one crashed attempt, and once
-    // MAX_TILING_ATTEMPTS crashed attempts have been observed the
-    // item flips to 'tiling-failed' with a clear error instead of
-    // re-arming.  A successful build (or the recovery fail-out
-    // itself) clears the counter, so an explicit admin retry gets
-    // a fresh budget.
-    try {
-      // NOTE: Prisma maps the model + several fields + the enum
-      // value to different underlying SQL identifiers:
-      //   model Item            -> table "item"            (@@map)
-      //   field data            -> column "data_json"      (@map)
-      //   field deletedAt       -> column "deleted_at"     (@map)
-      //   enum ItemType.tile_layer -> 'tile-layer'         (@map)
-      // Raw SQL must reference the underlying names or Postgres
-      // rejects the query (relation "Item" does not exist, or
-      // invalid input value for enum "ItemType": 'tile_layer').
-      // The explicit `::"ItemType"` cast mirrors items.service.ts.
-      //
-      // Two passes, fail-out first so the second pass only re-arms
-      // items still under budget.  This recovery is a boot-time,
-      // single-worker path today, so the tiny window between the
-      // statements cannot race another sweep.
-      const failed = await this.prisma.$executeRaw`
-        UPDATE "item"
-        SET "data_json" = ("data_json" - 'tilingAttempts') || jsonb_build_object(
-          'processingState', 'tiling-failed',
-          'tilingError',
-          'The tiling worker crashed repeatedly while building this pyramid (' || ${MAX_TILING_ATTEMPTS}::text || ' attempts). The layer still serves from its original file. Retry from the layer page, and check the worker logs if it keeps failing.'
-        )
-        WHERE type = 'tile-layer'::"ItemType"
-          AND "data_json"->>'processingState' = 'tiling'
-          AND COALESCE(("data_json"->>'tilingAttempts')::int, 0) >= ${MAX_TILING_ATTEMPTS - 1}
-      `;
-      const rearmed = await this.prisma.$executeRaw`
-        UPDATE "item"
-        SET "data_json" = "data_json" || jsonb_build_object(
-          'processingState', 'cog-ready',
-          'tilingAttempts', COALESCE(("data_json"->>'tilingAttempts')::int, 0) + 1
-        )
-        WHERE type = 'tile-layer'::"ItemType"
-          AND "data_json"->>'processingState' = 'tiling'
-      `;
-      if (failed > 0 || rearmed > 0) {
-        this.log.log(
-          `Stale 'tiling' recovery on boot: re-armed ${rearmed} row(s) to 'cog-ready', failed out ${failed} row(s) after ${MAX_TILING_ATTEMPTS} crashed attempts.`,
-        );
-      }
-    } catch (err) {
-      this.log.warn(
-        `Stale-tiling recovery on boot failed: ${err instanceof Error ? err.message : err}`,
-      );
-    }
+    // #232: reclaim is age-gated by heartbeat so a live build on
+    // another replica is not stolen. Boot still runs a sweep so a
+    // restart recovers abandoned claims without waiting for the
+    // first loop tick.
+    await this.reclaimStaleTilings('boot');
     this.running = true;
     void this.loop();
     this.log.log(
-      `Tile-layer pyramid worker started (${this.POLL_INTERVAL_MS}ms poll interval).`,
+      `Tile-layer pyramid worker started (${this.POLL_INTERVAL_MS}ms poll; cmd timeout ${this.cmdTimeoutMs / 1000}s).`,
     );
   }
 
   private async loop(): Promise<void> {
     while (this.running) {
       try {
+        // Periodic reclaim so a hung child without a container
+        // restart still gets swept (#232); boot-only was not enough.
+        if (Date.now() - this.lastReclaimAt >= 60_000) {
+          await this.reclaimStaleTilings('loop');
+        }
         const claim = await this.claimNext();
         if (claim) {
           await this.buildPyramid(claim).catch((err) => {
@@ -164,6 +136,58 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       }
       await new Promise<void>((resolve) =>
         setTimeout(resolve, this.POLL_INTERVAL_MS),
+      );
+    }
+  }
+
+  /**
+   * #232: fail-out / re-arm 'tiling' rows whose heartbeat went
+   * silent. Bounded by MAX_TILING_ATTEMPTS so a crash-inducing
+   * item cannot poison the queue forever.
+   */
+  private async reclaimStaleTilings(reason: 'boot' | 'loop'): Promise<void> {
+    this.lastReclaimAt = Date.now();
+    try {
+      const staleBefore = new Date(Date.now() - STALE_HEARTBEAT_MS);
+      // Fail-out first so the re-arm pass only touches under-budget
+      // rows. Heartbeat age uses COALESCE(tilingHeartbeatAt,
+      // tilingStartedAt) so pre-heartbeat claims still reclaim.
+      const failed = await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = ("data_json" - 'tilingAttempts' - 'tilingHeartbeatAt') || jsonb_build_object(
+          'processingState', 'tiling-failed',
+          'tilingError',
+          'The tiling worker crashed repeatedly while building this pyramid (' || ${MAX_TILING_ATTEMPTS}::text || ' attempts). The layer still serves from its original file. Retry from the layer page, and check the worker logs if it keeps failing.'
+        )
+        WHERE type = 'tile-layer'::"ItemType"
+          AND "data_json"->>'processingState' = 'tiling'
+          AND COALESCE(
+            ("data_json"->>'tilingHeartbeatAt')::timestamptz,
+            ("data_json"->>'tilingStartedAt')::timestamptz
+          ) < ${staleBefore}
+          AND COALESCE(("data_json"->>'tilingAttempts')::int, 0) >= ${MAX_TILING_ATTEMPTS - 1}
+      `;
+      const rearmed = await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = ("data_json" - 'tilingHeartbeatAt') || jsonb_build_object(
+          'processingState', 'cog-ready',
+          'tilingAttempts', COALESCE(("data_json"->>'tilingAttempts')::int, 0) + 1
+        )
+        WHERE type = 'tile-layer'::"ItemType"
+          AND "data_json"->>'processingState' = 'tiling'
+          AND COALESCE(
+            ("data_json"->>'tilingHeartbeatAt')::timestamptz,
+            ("data_json"->>'tilingStartedAt')::timestamptz
+          ) < ${staleBefore}
+      `;
+      if (failed > 0 || rearmed > 0) {
+        this.log.log(
+          `Stale 'tiling' recovery (${reason}): re-armed ${rearmed} row(s) to 'cog-ready', failed out ${failed} row(s) after ${MAX_TILING_ATTEMPTS} crashed attempts.`,
+        );
+      }
+    } catch (err) {
+      this.log.warn(
+        `Stale-tiling recovery (${reason}) failed: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -192,10 +216,10 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         FOR UPDATE SKIP LOCKED
       )
       UPDATE "item" i
-      SET "data_json" = jsonb_set(
-        jsonb_set(i."data_json", '{processingState}', '"tiling"'),
-        '{tilingStartedAt}',
-        to_jsonb(NOW()::text)
+      SET "data_json" = i."data_json" || jsonb_build_object(
+        'processingState', 'tiling',
+        'tilingStartedAt', NOW()::text,
+        'tilingHeartbeatAt', NOW()::text
       )
       FROM picked
       WHERE i.id = picked.id
@@ -210,6 +234,24 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     return { itemId: row.id, data: row.data };
   }
 
+  /** Stamp tilingHeartbeatAt so reclaim does not steal a live claim. */
+  private async beatHeartbeat(itemId: string): Promise<void> {
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = "data_json" || jsonb_build_object(
+          'tilingHeartbeatAt', NOW()::text
+        )
+        WHERE id = ${itemId}::uuid
+          AND "data_json"->>'processingState' = 'tiling'
+      `;
+    } catch (err) {
+      this.log.warn(
+        `tiling heartbeat failed for ${itemId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   /**
    * Run the full build pipeline for one claimed item.  On
    * success patches the item to 'pmtiles-ready'; on failure
@@ -221,16 +263,20 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     data: TileLayerData;
   }): Promise<void> {
     const { itemId, data } = claim;
-    const claimCog = { cogStorageKey: data.cogStorageKey ?? null };
+    // Ownership token for terminal stamps (#232 race with mosaic
+    // rebuild): only patch if the item is still 'tiling' with the
+    // same COG key we claimed.
+    const claimedCogKey = data.cogStorageKey ?? null;
     if (!data.cogStorageKey && !data.cogStorageUrl) {
       await this.markFailed(
         itemId,
         'COG storage reference is missing on the item.',
-        claimCog,
+        claimedCogKey,
       );
       return;
     }
     const maxZoom = data.maxZoom ?? 18;
+    const onBeat = () => this.beatHeartbeat(itemId);
 
     const workDir = await mkdtemp(join(tmpdir(), 'tile-pyramid-'));
     const cogPath = join(workDir, 'source.tif');
@@ -255,6 +301,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       } else {
         await this.downloadTo(data.cogStorageUrl!, cogPath);
       }
+      await onBeat();
 
       // #186: elevation (DEM) layers never get a PNG pyramid; the
       // re-encode would destroy the float elevation values. Their
@@ -286,7 +333,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         }>;
         coordinateSystem?: { wkt?: string };
         metadata?: { IMAGE_STRUCTURE?: { LAYOUT?: string } };
-      }>('gdalinfo', ['-json', cogPath]);
+      }>('gdalinfo', ['-json', cogPath], onBeat);
       const bands = info.bands ?? [];
       const isPhoto =
         bands.length === 3 &&
@@ -313,21 +360,16 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         isWebMercator &&
         info.metadata?.IMAGE_STRUCTURE?.LAYOUT === 'COG'
       ) {
-        const stamped = await this.applyPatch(
+        const applied = await this.applyPatch(
           itemId,
           {
             processingState: 'ready',
             tileType: 'jpg',
             tileUrl: `cog:///api/portal/tile-layer/${itemId}/file.cog`,
           } as Partial<TileLayerData>,
-          claimCog,
+          claimedCogKey,
         );
-        if (stamped) await this.clearTilingError(itemId);
-        else {
-          this.log.warn(
-            `Skipped ready stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
-          );
-        }
+        if (applied) await this.clearTilingError(itemId, claimedCogKey);
         this.log.log(
           `Item ${itemId} is a web-tiled photo COG; serving it directly (no pyramid).`,
         );
@@ -346,49 +388,56 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         return join(workDir, 'merc.tif');
       })();
       if (!isWebMercator) {
-        await this.runCommand('gdalwarp', [
-          '-t_srs',
-          'EPSG:3857',
-          '-r',
-          'bilinear',
-          '-of',
-          'GTiff',
-          '-co',
-          'COMPRESS=DEFLATE',
-          ...(isPhoto ? [] : ['-dstalpha']),
-          cogPath,
-          mbtilesInput,
-        ]);
+        await this.runCommand(
+          'gdalwarp',
+          [
+            '-t_srs',
+            'EPSG:3857',
+            '-r',
+            'bilinear',
+            '-of',
+            'GTiff',
+            '-co',
+            'COMPRESS=DEFLATE',
+            ...(isPhoto ? [] : ['-dstalpha']),
+            cogPath,
+            mbtilesInput,
+          ],
+          onBeat,
+        );
       }
       // 2) Base tiles at the raster's native zoom.
       const mbtilesPath = join(workDir, 'tiles.mbtiles');
-      await this.runCommand('gdal_translate', [
-        '-of',
-        'MBTILES',
-        '-co',
-        `TILE_FORMAT=${isPhoto ? 'JPEG' : 'PNG'}`,
-        ...(isPhoto ? ['-co', 'QUALITY=85'] : []),
-        mbtilesInput,
-        mbtilesPath,
-      ]);
+      await this.runCommand(
+        'gdal_translate',
+        [
+          '-of',
+          'MBTILES',
+          '-co',
+          `TILE_FORMAT=${isPhoto ? 'JPEG' : 'PNG'}`,
+          ...(isPhoto ? ['-co', 'QUALITY=85'] : []),
+          mbtilesInput,
+          mbtilesPath,
+        ],
+        onBeat,
+      );
       // 3) Overview levels down to z0: each power-of-two factor
       //    halves the zoom, so maxZoom factors cover the range.
       const factors: string[] = [];
       for (let z = 1; z <= maxZoom; z++) {
         factors.push(String(2 ** z));
       }
-      await this.runCommand('gdaladdo', [
-        '-r',
-        'bilinear',
-        mbtilesPath,
-        ...factors,
-      ]);
+      await this.runCommand(
+        'gdaladdo',
+        ['-r', 'bilinear', mbtilesPath, ...factors],
+        onBeat,
+      );
       // 4) Pack into PMTiles.
-      await this.runCommand('pmtiles', [
-        'convert',
-        mbtilesPath,
-        pmtilesPath,
-      ]);
+      await this.runCommand(
+        'pmtiles',
+        ['convert', mbtilesPath, pmtilesPath],
+        onBeat,
+      );
 
       const pmtilesStat = await stat(pmtilesPath);
 
@@ -419,25 +468,20 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         tileUrl: `pmtiles:///api/portal/tile-layer/${itemId}/file`,
         tileType: isPhoto ? 'jpg' : 'png',
       };
-      // jsonb_set only patches one path per call; do them one at
-      // a time so a misconfigured key doesn't blow away the
-      // whole data blob.
-      const stamped = await this.applyPatch(itemId, patch, claimCog);
-      if (stamped) {
-        // Clear tilingError if it was set from a previous failed
-        // attempt.
-        await this.clearTilingError(itemId);
+      const applied = await this.applyPatch(itemId, patch, claimedCogKey);
+      if (applied) {
+        await this.clearTilingError(itemId, claimedCogKey);
         this.log.log(
           `Pyramid build succeeded for item ${itemId}: ${pmtilesStat.size} bytes`,
         );
       } else {
         this.log.warn(
-          `Skipped pmtiles-ready stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
+          `Pyramid build for ${itemId} finished but ownership moved (mosaic/reclaim); dropping success stamp.`,
         );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await this.markFailed(itemId, msg, claimCog).catch((patchErr) => {
+      await this.markFailed(itemId, msg, claimedCogKey).catch((patchErr) => {
         this.log.error(
           `Failed to mark item ${itemId} as tiling-failed: ${patchErr instanceof Error ? patchErr.message : patchErr}`,
         );
@@ -450,86 +494,87 @@ export class TileLayerPyramidWorker implements OnModuleInit {
   }
 
   /**
-   * Patch TileLayerData fields onto Item.data via a single jsonb
-   * merge. Success and failure stamps are gated on the claim the
-   * worker actually held (#232): `processingState = 'tiling'` and,
-   * when the claim read a cogStorageKey, that key must still match.
-   * Without the guard a concurrent mosaic rebuild that flipped the
-   * item back to `cog-ready` (or rewrote the COG) could be clobbered
-   * by a late pmtiles-ready / tiling-failed write from this build.
-   * Predicate mirror: `pyramidClaimStillHeld` in pyramid-claim.ts.
+   * Patch TileLayerData fields onto Item.data. When `claimedCogKey`
+   * is passed (#232), only applies if the row is still `'tiling'`
+   * with that COG key — otherwise a concurrent mosaic rebuild would
+   * be clobbered by a finishing pyramid. Returns whether the patch
+   * landed.
    */
   private async applyPatch(
     itemId: string,
     patch: Partial<TileLayerData>,
-    claim?: { cogStorageKey?: string | null },
+    claimedCogKey?: string | null,
   ): Promise<boolean> {
-    // Cast through unknown to satisfy Prisma.JsonObject's index
-    // signature requirement; TileLayerData is a typed interface.
     const patchJson = patch as unknown as Prisma.JsonObject;
-    const expectedCog = claim?.cogStorageKey ?? null;
-    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+    if (claimedCogKey === undefined) {
+      const n = await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = "data_json" || ${patchJson}::jsonb
+        WHERE id = ${itemId}::uuid
+      `;
+      return n > 0;
+    }
+    const n = await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" || ${patchJson}::jsonb
+      SET "data_json" = ("data_json" - 'tilingHeartbeatAt') || ${patchJson}::jsonb
       WHERE id = ${itemId}::uuid
         AND "data_json"->>'processingState' = 'tiling'
-        AND (
-          ${expectedCog}::text IS NULL
-          OR "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${expectedCog}::text
-        )
-      RETURNING id
+        AND "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${claimedCogKey}
     `;
-    return rows.length > 0;
+    return n > 0;
   }
 
-  /** Remove the tilingError and tilingAttempts keys from
-   *  Item.data, if present.  Used after a successful build so the
-   *  error from a prior failed attempt doesn't linger and so the
-   *  crash-recovery attempt budget resets for any future re-tile. */
-  private async clearTilingError(itemId: string): Promise<void> {
+  /** Remove tilingError / tilingAttempts / heartbeat after success. */
+  private async clearTilingError(
+    itemId: string,
+    claimedCogKey?: string | null,
+  ): Promise<void> {
+    if (claimedCogKey === undefined) {
+      await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
+        WHERE id = ${itemId}::uuid
+      `;
+      return;
+    }
     await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts'
+      SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
       WHERE id = ${itemId}::uuid
-        AND "data_json"->>'processingState' IN ('pmtiles-ready', 'ready')
+        AND "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${claimedCogKey}
     `;
   }
 
-  /** Flip an item to tiling-failed with the given error message.
-   *  The item continues serving from its COG so the failure is
-   *  recoverable -- an admin can hit the retry endpoint to flip
-   *  back to cog-ready for another attempt. */
+  /** Flip an item to tiling-failed with the given error message. */
   private async markFailed(
     itemId: string,
     errorMessage: string,
-    claim?: { cogStorageKey?: string | null },
+    claimedCogKey?: string | null,
   ): Promise<void> {
-    const truncated = errorMessage.length > 2000
-      ? errorMessage.slice(0, 2000) + '...'
-      : errorMessage;
+    const truncated =
+      errorMessage.length > 2000
+        ? errorMessage.slice(0, 2000) + '...'
+        : errorMessage;
     const applied = await this.applyPatch(
       itemId,
       {
         processingState: 'tiling-failed',
         tilingError: truncated,
       },
-      claim,
+      claimedCogKey,
     );
     if (!applied) {
       this.log.warn(
-        `Skipped tiling-failed stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
+        `markFailed for ${itemId} skipped: ownership moved (mosaic/reclaim).`,
       );
       return;
     }
-    // A clean failure ends any crash streak: the worker survived to
-    // report it, so an explicit admin retry should start with the
-    // full MAX_TILING_ATTEMPTS crash-recovery budget rather than
-    // inheriting counts from before this terminal state.
+    // A clean failure ends any crash streak so an admin retry gets
+    // a fresh MAX_TILING_ATTEMPTS budget.
     await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" - 'tilingAttempts'
+      SET "data_json" = "data_json" - 'tilingAttempts' - 'tilingHeartbeatAt'
       WHERE id = ${itemId}::uuid
-        AND "data_json"->>'processingState' = 'tiling-failed'
     `;
   }
 
@@ -554,63 +599,112 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     );
   }
 
-  private runCommand(cmd: string, args: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
+  /**
+   * #232: spawn with wall-clock timeout and optional heartbeat.
+   * Polls every 10s; on deadline SIGKILL so a hung gdal* cannot
+   * wedge the whole pyramid queue.
+   */
+  private runCommand(
+    cmd: string,
+    args: string[],
+    onBeat?: () => Promise<void>,
+  ): Promise<void> {
+    return this.spawnWithTimeout(cmd, args, {
+      captureStdout: false,
+      ...(onBeat ? { onBeat } : {}),
+    }).then(() => undefined);
+  }
+
+  /** Run a command and JSON-parse its stdout (gdalinfo -json). */
+  private runCommandJson<T>(
+    cmd: string,
+    args: string[],
+    onBeat?: () => Promise<void>,
+  ): Promise<T> {
+    return this.spawnWithTimeout(cmd, args, {
+      captureStdout: true,
+      ...(onBeat ? { onBeat } : {}),
+    }).then((stdout) => {
+      try {
+        return JSON.parse(stdout) as T;
+      } catch {
+        throw new Error(`${cmd} produced unparseable JSON output`);
+      }
+    });
+  }
+
+  private spawnWithTimeout(
+    cmd: string,
+    args: string[],
+    opts: {
+      onBeat?: () => Promise<void>;
+      captureStdout: boolean;
+    },
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
       const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
       let stderr = '';
+      let settled = false;
+      const started = Date.now();
+      const pollMs = 10_000;
+
+      if (opts.captureStdout) {
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8');
+        });
+      } else {
+        child.stdout.resume();
+      }
       child.stderr.on('data', (chunk: Buffer) => {
         stderr += chunk.toString('utf8');
         if (stderr.length > 32 * 1024) {
           stderr = '...' + stderr.slice(-16 * 1024);
         }
       });
-      child.on('error', (err) => {
-        reject(new Error(`Failed to run ${cmd}: ${err.message}`));
-      });
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(
-            new Error(
-              `${cmd} exited with code ${code}${stderr ? `\n${stderr.trim()}` : ''}`,
-            ),
-          );
-        }
-      });
-    });
-  }
 
-  /** Run a command and JSON-parse its stdout (gdalinfo -json). */
-  private runCommandJson<T>(cmd: string, args: string[]): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const child = spawn(cmd, args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      let stdout = '';
-      let stderr = '';
-      child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-      child.on('error', (err) => {
-        reject(new Error(`Failed to run ${cmd}: ${err.message}`));
-      });
-      child.on('close', (code) => {
-        if (code !== 0) {
-          reject(
+      const finish = (err: Error | null) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(timer);
+        if (err) reject(err);
+        else resolve(stdout);
+      };
+
+      const timer = setInterval(() => {
+        if (settled) return;
+        if (Date.now() - started >= this.cmdTimeoutMs) {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* already gone */
+          }
+          finish(
             new Error(
-              `${cmd} exited with code ${code}${stderr ? `\n${stderr.trim()}` : ''}`,
+              `${cmd} exceeded ${this.cmdTimeoutMs / 1000}s wall-clock limit and was killed`,
             ),
           );
           return;
         }
-        try {
-          resolve(JSON.parse(stdout) as T);
-        } catch {
-          reject(new Error(`${cmd} produced unparseable JSON output`));
+        if (opts.onBeat) {
+          void opts.onBeat().catch(() => {
+            /* heartbeat is best-effort */
+          });
+        }
+      }, pollMs);
+
+      child.on('error', (err) => {
+        finish(new Error(`Failed to run ${cmd}: ${err.message}`));
+      });
+      child.on('close', (code) => {
+        if (code === 0) {
+          finish(null);
+        } else {
+          finish(
+            new Error(
+              `${cmd} exited with code ${code}${stderr ? `\n${stderr.trim()}` : ''}`,
+            ),
+          );
         }
       });
     });
