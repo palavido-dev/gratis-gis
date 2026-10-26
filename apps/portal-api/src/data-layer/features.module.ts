@@ -5,6 +5,7 @@ import { DataLayerFeaturesService } from './features.service.js';
 import { DataLayerFeaturesController } from './features.controller.js';
 import { DataLayerAttachmentsService } from './attachments.service.js';
 import { DataLayerAttachmentsController } from './attachments.controller.js';
+import { DataLayerLayerAttachmentsController } from './layer-attachments.controller.js';
 import { ItemsModule } from '../items/items.module.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
@@ -28,7 +29,11 @@ import { EngineModule } from '../engine/engine.module.js';
     EngineModule,
   ],
   providers: [DataLayerFeaturesService, DataLayerAttachmentsService],
-  controllers: [DataLayerFeaturesController, DataLayerAttachmentsController],
+  controllers: [
+    DataLayerFeaturesController,
+    DataLayerAttachmentsController,
+    DataLayerLayerAttachmentsController,
+  ],
   exports: [DataLayerFeaturesService, DataLayerAttachmentsService],
 })
 export class DataLayerFeaturesModule {}

@@ -4,6 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type {
+  FeatureAttachment,
+  FeatureAttachmentGroup,
+  RegisterFeatureAttachmentInput,
+} from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -22,23 +27,42 @@ import { DataLayerEngine } from '../engine/data-layer.js';
  */
 const ATTACHMENT_KEY_PREFIX = 'feature-attachment/';
 
-/**
- * Per-feature attachments for v3 feature-service items. Metadata lives
- * in the `feature_attachment` table; bytes live in MinIO at
- * `storageKey`. Writes go through presigned PUT to MinIO first, then
- * the client calls `register()` here to record the metadata. This
- * mirrors the thumbnail flow and keeps portal-api off the hot upload
- * path (no buffering 25 MB files through Node).
- */
-export interface RegisterAttachmentInput {
+/** Columns exposed on every public attachment record (#226). */
+const ATTACHMENT_PUBLIC_SELECT = {
+  id: true,
+  fileName: true,
+  mime: true,
+  sizeBytes: true,
+  storageUrl: true,
+  createdAt: true,
+  createdBy: true,
+} as const;
+
+type AttachmentRow = {
+  id: string;
   fileName: string;
   mime: string;
   sizeBytes: number;
-  /** MinIO object key returned from the presign step. */
-  storageKey: string;
-  /** Public URL returned from the presign step. */
   storageUrl: string;
+  createdAt: Date;
+  createdBy: string;
+};
+
+/** Prisma returns Date; the wire contract is an ISO string. */
+function toPublicAttachment(row: AttachmentRow): FeatureAttachment {
+  return {
+    id: row.id,
+    fileName: row.fileName,
+    mime: row.mime,
+    sizeBytes: row.sizeBytes,
+    storageUrl: row.storageUrl,
+    createdAt: row.createdAt.toISOString() as FeatureAttachment['createdAt'],
+    createdBy: row.createdBy,
+  };
 }
+
+/** Cap on `?featureIds=` entries so a typo cannot explode the IN list. */
+export const ATTACHMENT_BULK_FEATURE_ID_CAP = 500;
 
 @Injectable()
 export class DataLayerAttachmentsService {
@@ -48,29 +72,80 @@ export class DataLayerAttachmentsService {
     private readonly dataLayer: DataLayerEngine,
   ) {}
 
-  list(itemId: string, layerId: string, featureId: string) {
-    return this.prisma.featureAttachment.findMany({
+  async list(
+    itemId: string,
+    layerId: string,
+    featureId: string,
+  ): Promise<FeatureAttachment[]> {
+    const rows = await this.prisma.featureAttachment.findMany({
       where: { itemId, layerId, featureId },
       orderBy: { createdAt: 'asc' },
+      select: ATTACHMENT_PUBLIC_SELECT,
+    });
+    return rows.map(toPublicAttachment);
+  }
+
+  /**
+   * Layer-wide attachment inventory (#226). Pass `featureIds` to
+   * scope the query, or `all: true` for every attachment on the
+   * layer. Returns groups keyed by featureId so callers don't have
+   * to re-bucket a flat list.
+   */
+  async listForLayer(
+    itemId: string,
+    layerId: string,
+    opts: { featureIds?: string[]; all?: boolean },
+  ): Promise<FeatureAttachmentGroup[]> {
+    const featureIds = opts.featureIds ?? [];
+    if (!opts.all && featureIds.length === 0) {
+      throw new BadRequestException(
+        'Pass ?featureIds=id1,id2 or ?all=1',
+      );
+    }
+    if (featureIds.length > ATTACHMENT_BULK_FEATURE_ID_CAP) {
+      throw new BadRequestException(
+        `At most ${ATTACHMENT_BULK_FEATURE_ID_CAP} featureIds per request`,
+      );
+    }
+
+    const rows = await this.prisma.featureAttachment.findMany({
+      where: {
+        itemId,
+        layerId,
+        ...(opts.all ? {} : { featureId: { in: featureIds } }),
+      },
+      orderBy: [{ featureId: 'asc' }, { createdAt: 'asc' }],
       select: {
-        id: true,
-        fileName: true,
-        mime: true,
-        sizeBytes: true,
-        storageUrl: true,
-        createdAt: true,
-        createdBy: true,
+        ...ATTACHMENT_PUBLIC_SELECT,
+        featureId: true,
       },
     });
+
+    const byFeature = new Map<string, FeatureAttachment[]>();
+    // Preserve the caller's featureId order when scoped; for all=1
+    // fall through insertion order from the query.
+    if (!opts.all) {
+      for (const fid of featureIds) byFeature.set(fid, []);
+    }
+    for (const row of rows) {
+      const { featureId, ...att } = row;
+      const pub = toPublicAttachment(att);
+      const list = byFeature.get(featureId);
+      if (list) list.push(pub);
+      else byFeature.set(featureId, [pub]);
+    }
+    return Array.from(byFeature.entries()).map(
+      ([featureId, attachments]) => ({ featureId, attachments }),
+    );
   }
 
   async register(
     itemId: string,
     layerId: string,
     featureId: string,
-    input: RegisterAttachmentInput,
+    input: RegisterFeatureAttachmentInput,
     userId: string,
-  ) {
+  ): Promise<FeatureAttachment> {
     if (
       typeof input.storageKey !== 'string' ||
       !input.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)
@@ -107,7 +182,7 @@ export class DataLayerAttachmentsService {
       );
     }
 
-    return this.prisma.featureAttachment.create({
+    const row = await this.prisma.featureAttachment.create({
       data: {
         itemId,
         layerId,
@@ -119,16 +194,32 @@ export class DataLayerAttachmentsService {
         storageUrl: input.storageUrl,
         createdBy: userId,
       },
-      select: {
-        id: true,
-        fileName: true,
-        mime: true,
-        sizeBytes: true,
-        storageUrl: true,
-        createdAt: true,
-        createdBy: true,
-      },
+      select: ATTACHMENT_PUBLIC_SELECT,
     });
+    return toPublicAttachment(row);
+  }
+
+  /**
+   * Resolve an attachment for streaming (#226). Returns the stored
+   * key + display name; the controller streams via StorageService.
+   */
+  async getForDownload(
+    itemId: string,
+    layerId: string,
+    featureId: string,
+    attachmentId: string,
+  ): Promise<{ storageKey: string; fileName: string }> {
+    const row = await this.prisma.featureAttachment.findFirst({
+      where: { id: attachmentId, itemId, layerId, featureId },
+      select: { storageKey: true, fileName: true },
+    });
+    if (!row) throw new NotFoundException('Attachment not found');
+    if (!row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
+      // Pre-guard rows with arbitrary keys must not be streamed —
+      // same failure mode as remove().
+      throw new NotFoundException('Attachment not found');
+    }
+    return row;
   }
 
   /**
