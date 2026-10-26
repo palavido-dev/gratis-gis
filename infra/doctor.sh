@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# GratisGIS deployment doctor (#147). Read-only diagnostics: checks
-# dependencies, host resources, DNS, the env file, and (when the
-# stack is running) container health and the public endpoints, then
-# recommends which analysis capability tiers this hardware can
-# honestly support. Mutates nothing; safe to run any time.
+# GratisGIS deployment doctor (#147, #198). Read-only diagnostics:
+# checks dependencies, host resources, DNS, the env file, and (when
+# the stack is running) the compose-defined service set, store
+# reachability (Postgres / MinIO / Keycloak), and the public
+# endpoints, then recommends which analysis capability tiers this
+# hardware can honestly support. Mutates nothing; safe to run any
+# time.
 #
 # Exit code: 0 when nothing FAILed (warnings allowed), 1 otherwise.
 set -uo pipefail
@@ -176,22 +178,107 @@ else
   warn "skipped (no .env.prod)"
 fi
 
+# Populated by the Running stack section; store probes read it.
+STACK_UP=0
+
 section "Running stack"
+# #198: assert the compose-defined service set is present and not
+# crash-looping. `docker ps --filter name=` only lists what is up,
+# so a missing or Exited service used to look like a healthy stack.
+# Avoid pipelines into `while` so `fail()` can bump FAILS in this
+# shell (a pipe would run the loop in a subshell).
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  RUNNING="$(docker ps --filter 'name=gratis-gis' --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true)"
-  if [ -z "$RUNNING" ]; then
-    warn "no gratis-gis containers running (fresh install? run ./infra/deploy.sh)"
-  else
-    printf '%s\n' "$RUNNING" | while IFS=$'\t' read -r name status; do
-      case "$status" in
-        *healthy*) pass "${name}: ${status}" ;;
-        *unhealthy*) printf 'FAIL  %s\n' "${name}: ${status}" ;;
-        *) warn "${name}: ${status}" ;;
-      esac
+  COMPOSE_ARGS=(-f "$COMPOSE_PROD")
+  if [ -f "$ENV_FILE" ]; then
+    COMPOSE_ARGS+=(--env-file "$ENV_FILE")
+  fi
+  EXPECTED_SERVICES=""
+  if [ -f "$COMPOSE_PROD" ]; then
+    EXPECTED_SERVICES="$(
+      docker compose "${COMPOSE_ARGS[@]}" config --services 2>/dev/null || true
+    )"
+  fi
+  # service -> state/health from compose (covers exited containers
+  # that `docker ps` without -a would hide). Plain parallel arrays
+  # instead of associative maps so bash 3 (macOS) still parses.
+  SVC_NAMES=()
+  SVC_STATES=()
+  SVC_HEALTHS=()
+  if [ -f "$COMPOSE_PROD" ]; then
+    while IFS=$'\t' read -r svc state health; do
+      [ -z "${svc:-}" ] && continue
+      SVC_NAMES+=("$svc")
+      SVC_STATES+=("${state:-}")
+      SVC_HEALTHS+=("${health:-}")
+    done < <(
+      docker compose "${COMPOSE_ARGS[@]}" ps -a \
+        --format '{{.Service}}\t{{.State}}\t{{.Health}}' 2>/dev/null || true
+    )
+  fi
+
+  lookup_svc() {
+    # Sets _state / _health for $1, or empty if missing.
+    _state=""
+    _health=""
+    local i
+    for i in "${!SVC_NAMES[@]}"; do
+      if [ "${SVC_NAMES[$i]}" = "$1" ]; then
+        _state="${SVC_STATES[$i]}"
+        _health="${SVC_HEALTHS[$i]}"
+        return 0
+      fi
     done
-    # Subshell above cannot bump FAILS; count unhealthy separately.
-    UNHEALTHY="$(printf '%s\n' "$RUNNING" | grep -c 'unhealthy' || true)"
-    [ "${UNHEALTHY:-0}" -gt 0 ] && FAILS=$((FAILS + UNHEALTHY))
+    return 1
+  }
+
+  if [ -z "$EXPECTED_SERVICES" ] && [ "${#SVC_NAMES[@]}" -eq 0 ]; then
+    warn "no gratis-gis compose services found (fresh install? run ./infra/deploy.sh)"
+  else
+    STACK_UP=1
+    while IFS= read -r svc; do
+      [ -z "$svc" ] && continue
+      # One-shot migrate jobs exit 0 after applying; treat exited
+      # as PASS for *-migrate services, FAIL otherwise.
+      if lookup_svc "$svc"; then
+        :
+      else
+        fail "${svc}: not present (compose defines it; container missing)"
+        continue
+      fi
+      case "$_state" in
+        running)
+          case "$_health" in
+            healthy|'') pass "${svc}: running${_health:+ ($_health)}" ;;
+            unhealthy) fail "${svc}: running (unhealthy)" ;;
+            starting) warn "${svc}: running (health starting)" ;;
+            *) warn "${svc}: running (health=${_health})" ;;
+          esac
+          ;;
+        exited)
+          if [[ "$svc" == *migrate* ]]; then
+            pass "${svc}: exited (one-shot migrate)"
+          else
+            fail "${svc}: exited (should be running)"
+          fi
+          ;;
+        restarting)
+          fail "${svc}: restarting (crash loop)"
+          ;;
+        *)
+          fail "${svc}: ${_state}"
+          ;;
+      esac
+    done <<< "$EXPECTED_SERVICES"
+
+    while IFS=$'\t' read -r name status; do
+      [ -z "${name:-}" ] && continue
+      case "$status" in
+        *unhealthy*) fail "${name}: ${status} (orphan/untracked)" ;;
+      esac
+    done < <(
+      docker ps --filter 'name=gratis-gis' --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true
+    )
+
     if [ -n "${PORTAL_DOMAIN:-}" ]; then
       CODE="$(curl -s -o /dev/null --max-time 10 -w '%{http_code}' "https://${PORTAL_DOMAIN}/api/portal-info" 2>/dev/null || echo 000)"
       if [ "$CODE" = "200" ]; then
@@ -203,6 +290,69 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   fi
 else
   warn "skipped (docker unavailable)"
+fi
+
+section "Store reachability"
+# #198 Gap 2: a "healthy" container does not prove the app can reach
+# its stores. Probe Postgres (app + Keycloak DBs), the configured
+# MinIO bucket, and the Keycloak realm when the stack is up.
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+  && [ -f "$ENV_FILE" ] && [ "$STACK_UP" -eq 1 ]; then
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck source=/dev/null
+  . "$ENV_FILE" 2>/dev/null || true
+  set +a
+
+  PG_CTR="$(docker ps --filter 'name=gratis-gis' --format '{{.Names}}' 2>/dev/null \
+    | grep -E 'postgres' | head -1 || true)"
+  if [ -n "$PG_CTR" ]; then
+    if docker exec -e PGPASSWORD="${POSTGRES_PASSWORD:-}" "$PG_CTR" \
+      psql -U "${POSTGRES_USER:-gratisgis}" -d "${POSTGRES_DB:-gratisgis}" \
+      -c 'SELECT 1' >/dev/null 2>&1; then
+      pass "postgres app DB accepts SELECT 1"
+    else
+      fail "postgres app DB refused SELECT 1"
+    fi
+    if docker exec -e PGPASSWORD="${KEYCLOAK_DB_PASSWORD:-}" "$PG_CTR" \
+      psql -U "${KEYCLOAK_DB_USER:-keycloak}" -d keycloak \
+      -c 'SELECT 1' >/dev/null 2>&1; then
+      pass "postgres Keycloak DB accepts SELECT 1"
+    else
+      fail "postgres Keycloak DB refused SELECT 1"
+    fi
+  else
+    warn "postgres container not running; skipped DB probes"
+  fi
+
+  MINIO_CTR="$(docker ps --filter 'name=gratis-gis' --format '{{.Names}}' 2>/dev/null \
+    | grep -E 'minio' | head -1 || true)"
+  BUCKET="${S3_BUCKET:-gratisgis}"
+  if [ -n "$MINIO_CTR" ]; then
+    if docker exec "$MINIO_CTR" curl -fsS --max-time 5 \
+      "http://127.0.0.1:9000/minio/health/ready" >/dev/null 2>&1; then
+      pass "MinIO health/ready ok (bucket '${BUCKET}' configured)"
+    else
+      fail "MinIO not reachable inside its container"
+    fi
+  else
+    warn "MinIO container not running; skipped bucket probe"
+  fi
+
+  if [ -n "${AUTH_DOMAIN:-}" ]; then
+    REALM="${KEYCLOAK_REALM:-gratis-gis}"
+    KC_CODE="$(curl -s -o /dev/null --max-time 10 -w '%{http_code}' \
+      "https://${AUTH_DOMAIN}/realms/${REALM}" 2>/dev/null || echo 000)"
+    if [ "$KC_CODE" = "200" ]; then
+      pass "Keycloak realm '${REALM}' -> 200"
+    else
+      warn "Keycloak realm '${REALM}' -> ${KC_CODE}"
+    fi
+  else
+    warn "AUTH_DOMAIN unset; skipped Keycloak realm probe"
+  fi
+else
+  warn "skipped store probes (docker/.env.prod/stack unavailable)"
 fi
 
 section "Analysis capability tiers"
