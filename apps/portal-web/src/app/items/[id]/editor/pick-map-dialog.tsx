@@ -2,8 +2,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Map as MapIcon, Search, X } from 'lucide-react';
+import { Loader2, Map as MapIcon, Search } from 'lucide-react';
 import type { Item } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Props {
   open: boolean;
@@ -91,31 +98,23 @@ export function PickMapDialog({
     onClose();
   }
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) handleClose();
       }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-0">{title}</h2>
-            <p className="text-xs text-muted">{subtitle}</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent
+        size="lg"
+        className="flex max-h-[80vh] flex-col overflow-hidden p-0"
+        hideCloseButton={false}
+      >
+        <div className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="mt-0.5">{subtitle}</DialogDescription>
         </div>
-        <div className="border-b border-border px-4 py-2">
+        <div className="border-b border-border px-5 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-2.5 h-3.5 w-3.5 text-muted" />
             <input
@@ -127,7 +126,7 @@ export function PickMapDialog({
             />
           </div>
         </div>
-        <div className="flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           {loading && items.length === 0 ? (
             <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -135,7 +134,7 @@ export function PickMapDialog({
             </div>
           ) : items.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted">
-              No maps match "{q}".
+              No maps match &quot;{q}&quot;.
             </p>
           ) : (
             <ul className="divide-y divide-border">
@@ -166,7 +165,7 @@ export function PickMapDialog({
             </ul>
           )}
         </div>
-        <div className="flex items-center justify-end border-t border-border px-4 py-3">
+        <DialogFooter>
           <button
             type="button"
             onClick={handleClose}
@@ -174,8 +173,8 @@ export function PickMapDialog({
           >
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
