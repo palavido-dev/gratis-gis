@@ -10,6 +10,10 @@
   Cartographic Boundary 2023, 20 m) with `name`, `state_abbr`,
   `state_name`, and `geoid`. Public domain. ~1.7 MB.
 
-Used by `src/ingest/csv-geomatch.ts` when a CSV has a county or state
-name column and no coordinate pair. Counties are preferred when a
-county-like column validates; otherwise states.
+- `countries.geojson` — Natural Earth 110m admin-0 countries with
+  `name`, `iso2`, `iso3`, and common `aliases` (USA/UK/…). Public
+  domain. ~0.2 MB.
+
+Used by `src/ingest/csv-geomatch.ts` when a CSV has a county, country,
+or state name column and no coordinate pair. Preference order:
+counties → countries → states.

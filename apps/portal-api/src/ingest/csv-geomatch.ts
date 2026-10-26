@@ -2,16 +2,18 @@
 /**
  * #160 Smart upload Phase 2: boundary-name geomatch.
  *
- * When a CSV has no coordinate pair, look for a US county or state
- * name column and join each row to the vendored polygon set. Order
- * of preference: counties (more specific) → states. Success criteria
- * from the roadmap: "State"+"Population" → state polygons; county
- * (+ optional state) column → county polygons.
+ * When a CSV has no coordinate pair, look for a boundary-name column
+ * and join each row to a vendored polygon set. Order of preference:
+ * US counties → countries → US states. Success criteria from the
+ * roadmap: "State"+"Population" → state polygons; county (+ optional
+ * state) → county polygons; "Country"/"ISO" → country polygons.
  *
  * Boundaries live at `apps/portal-api/content/boundaries/`:
  * - `us-states.geojson` — name + abbr (PublicaMundi / CB lineage)
  * - `us-counties.geojson` — name + state_abbr + state_name + geoid
  *   (Census Cartographic Boundary 2023 20m; public domain)
+ * - `countries.geojson` — name + iso2 + iso3 (+ aliases)
+ *   (Natural Earth 110m admin-0; public domain)
  */
 
 import { readFileSync } from 'node:fs';
@@ -49,6 +51,18 @@ const COUNTY_COLUMN: Array<{ pattern: RegExp; score: number }> = [
   { pattern: /^geoid$/, score: 80 },
 ];
 
+const COUNTRY_COLUMN: Array<{ pattern: RegExp; score: number }> = [
+  { pattern: /^country$/, score: 100 },
+  { pattern: /^countryname$/, score: 100 },
+  { pattern: /^nation$/, score: 95 },
+  { pattern: /^countrycode$/, score: 95 },
+  { pattern: /^countryiso$/, score: 95 },
+  { pattern: /^iso2$/, score: 90 },
+  { pattern: /^iso3$/, score: 90 },
+  { pattern: /^iso$/, score: 85 },
+  { pattern: /^cc$/, score: 75 },
+];
+
 type FieldDef = {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'date';
@@ -72,7 +86,14 @@ export interface UsCountyGeomatchPlan extends GeomatchPlanBase {
   stateColumnIndex: number | null;
 }
 
-export type GeomatchPlan = UsStateGeomatchPlan | UsCountyGeomatchPlan;
+export interface CountryGeomatchPlan extends GeomatchPlanBase {
+  kind: 'countries';
+}
+
+export type GeomatchPlan =
+  | UsStateGeomatchPlan
+  | UsCountyGeomatchPlan
+  | CountryGeomatchPlan;
 
 export type GeomatchDetect =
   | GeomatchPlan
@@ -80,7 +101,7 @@ export type GeomatchDetect =
 
 export interface GeomatchResult {
   kind: 'matched';
-  boundary: 'us-states' | 'us-counties';
+  boundary: 'us-states' | 'us-counties' | 'countries';
   geojson: {
     type: 'FeatureCollection';
     features: Array<{
@@ -114,6 +135,13 @@ interface CountyBoundary {
   geometry: GeoJsonGeometry;
 }
 
+interface CountryBoundary {
+  name: string;
+  iso2: string;
+  iso3: string;
+  geometry: GeoJsonGeometry;
+}
+
 let cachedStates: StateBoundary[] | null = null;
 let cachedStateByKey: Map<string, StateBoundary> | null = null;
 
@@ -122,6 +150,9 @@ let cachedCounties: CountyBoundary[] | null = null;
 let cachedCountyByQualified: Map<string, CountyBoundary> | null = null;
 /** Unique nationwide county names (and geoids) only */
 let cachedCountyByUnique: Map<string, CountyBoundary> | null = null;
+
+let cachedCountries: CountryBoundary[] | null = null;
+let cachedCountryByKey: Map<string, CountryBoundary> | null = null;
 
 function boundariesDir(): string {
   // Dist: dist/ingest → ../../content/boundaries
@@ -192,6 +223,41 @@ export function loadUsCountyBoundaries(
     cachedCountyByUnique.set(normalizeKey(c.geoid), c);
   }
   return cachedCounties;
+}
+
+export function loadCountryBoundaries(
+  path = join(boundariesDir(), 'countries.geojson'),
+): CountryBoundary[] {
+  if (cachedCountries) return cachedCountries;
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+    features: Array<{
+      properties: {
+        name: string;
+        iso2: string;
+        iso3: string;
+        aliases?: string[];
+      };
+      geometry: GeoJsonGeometry;
+    }>;
+  };
+  cachedCountries = raw.features.map((f) => ({
+    name: f.properties.name,
+    iso2: f.properties.iso2,
+    iso3: f.properties.iso3,
+    geometry: f.geometry,
+  }));
+  cachedCountryByKey = new Map();
+  for (let i = 0; i < cachedCountries.length; i += 1) {
+    const c = cachedCountries[i]!;
+    const aliases = raw.features[i]?.properties.aliases ?? [];
+    cachedCountryByKey.set(normalizeKey(c.name), c);
+    if (c.iso2) cachedCountryByKey.set(normalizeKey(c.iso2), c);
+    if (c.iso3) cachedCountryByKey.set(normalizeKey(c.iso3), c);
+    for (const alias of aliases) {
+      cachedCountryByKey.set(normalizeKey(alias), c);
+    }
+  }
+  return cachedCountries;
 }
 
 function normalizeKey(value: string): string {
@@ -299,12 +365,14 @@ function rowProperties(
 }
 
 /**
- * Prefer counties over states when a county-like column validates.
- * Callers still own coords → geomatch → address ordering.
+ * Prefer counties → countries → states when the matching column
+ * validates. Callers still own coords → geomatch → address ordering.
  */
 export function planUsGeomatch(text: string): GeomatchDetect {
   const county = planUsCountyGeomatch(text);
   if (county.kind !== 'none') return county;
+  const country = planCountryGeomatch(text);
+  if (country.kind !== 'none') return country;
   return planUsStateGeomatch(text);
 }
 
@@ -322,11 +390,13 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
   if ('error' in parsed) return { kind: 'none', reason: parsed.error };
 
   const { header, rows } = parsed;
-  // A dedicated County column means state-only geomatch should defer —
-  // planUsGeomatch already prefers counties; this guard keeps the
-  // state planner from claiming county+state sheets as state polygons.
+  // Dedicated County/Country columns mean state-only geomatch should
+  // defer — planUsGeomatch already prefers those planners.
   if (bestColumn(header, COUNTY_COLUMN)) {
     return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
+  if (bestColumn(header, COUNTRY_COLUMN)) {
+    return { kind: 'none', reason: 'Country column present; defer to country geomatch' };
   }
   const col = bestColumn(header, STATE_COLUMN);
   if (!col) {
@@ -422,9 +492,63 @@ export function planUsCountyGeomatch(text: string): GeomatchDetect {
   };
 }
 
+export function planCountryGeomatch(text: string): GeomatchDetect {
+  const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (detectCsvColumnPair(clean).kind === 'detected') {
+    return { kind: 'none', reason: 'File already has coordinates' };
+  }
+  const parsed = readDelimitedSample(clean, GEOMATCH_LIMITS.MAX_ROWS);
+  if ('error' in parsed) return { kind: 'none', reason: parsed.error };
+
+  const { header, rows } = parsed;
+  if (bestColumn(header, COUNTY_COLUMN)) {
+    return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
+  const col = bestColumn(header, COUNTRY_COLUMN);
+  if (!col) {
+    return { kind: 'none', reason: 'No country / ISO column name detected' };
+  }
+
+  loadCountryBoundaries();
+  const sample = rows.slice(0, GEOMATCH_LIMITS.VALIDATION_SAMPLE_ROWS);
+  let hit = 0;
+  let seen = 0;
+  for (const row of sample) {
+    const raw = (row[col.idx] ?? '').trim();
+    if (!raw) continue;
+    seen += 1;
+    if (cachedCountryByKey!.has(normalizeKey(raw))) hit += 1;
+  }
+  if (seen === 0) {
+    return { kind: 'none', reason: 'Country column has no values to validate' };
+  }
+  const ratio = hit / seen;
+  if (ratio < GEOMATCH_LIMITS.MIN_VALIDATION_RATIO) {
+    return {
+      kind: 'none',
+      reason: `Country column values matched ${Math.round(ratio * 100)}% (need ${Math.round(GEOMATCH_LIMITS.MIN_VALIDATION_RATIO * 100)}%)`,
+    };
+  }
+
+  const fields = header.map((name, idx) => ({
+    name,
+    type: inferFieldType(rows, idx),
+  }));
+
+  return {
+    kind: 'countries',
+    column: header[col.idx]!,
+    columnIndex: col.idx,
+    header,
+    rows,
+    fields,
+  };
+}
+
 /** Join planned rows to boundary polygons. Unmatched rows are dropped. */
 export function featuresFromGeomatch(plan: GeomatchPlan): GeomatchResult {
   if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
+  if (plan.kind === 'countries') return featuresFromCountryGeomatch(plan);
   return featuresFromUsStateGeomatch(plan);
 }
 
@@ -433,6 +557,7 @@ export function featuresFromUsStateGeomatch(
   plan: UsStateGeomatchPlan | GeomatchPlan,
 ): GeomatchResult {
   if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
+  if (plan.kind === 'countries') return featuresFromCountryGeomatch(plan);
   loadUsStateBoundaries();
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
@@ -512,6 +637,47 @@ export function featuresFromUsCountyGeomatch(
   };
 }
 
+export function featuresFromCountryGeomatch(
+  plan: CountryGeomatchPlan,
+): GeomatchResult {
+  loadCountryBoundaries();
+  const features: GeomatchResult['geojson']['features'] = [];
+  let unmatched = 0;
+  for (const row of plan.rows) {
+    const raw = (row[plan.columnIndex] ?? '').trim();
+    const country = raw
+      ? cachedCountryByKey!.get(normalizeKey(raw))
+      : undefined;
+    if (!country) {
+      unmatched += 1;
+      continue;
+    }
+    features.push({
+      type: 'Feature',
+      properties: rowProperties(plan, row, [
+        ['country_name', country.name],
+        ['country_iso2', country.iso2],
+        ['country_iso3', country.iso3],
+      ]),
+      geometry: country.geometry,
+    });
+  }
+  return {
+    kind: 'matched',
+    boundary: 'countries',
+    geojson: { type: 'FeatureCollection', features },
+    fields: [
+      ...plan.fields,
+      { name: 'country_name', type: 'string' },
+      { name: 'country_iso2', type: 'string' },
+      { name: 'country_iso3', type: 'string' },
+    ],
+    column: plan.column,
+    matched: features.length,
+    unmatched,
+  };
+}
+
 /**
  * Reject header names that would be dangerous as object keys
  * (`__proto__`, `constructor`, `prototype`) or empty after trim.
@@ -538,13 +704,13 @@ export function detectUsGeomatch(
   if (plan.kind === 'none') return plan;
   const built = featuresFromGeomatch(plan);
   if (built.matched === 0) {
-    return {
-      kind: 'none',
-      reason:
-        plan.kind === 'us-counties'
-          ? 'No rows matched a US county name'
-          : 'No rows matched a US state name or abbreviation',
-    };
+    const reason =
+      plan.kind === 'us-counties'
+        ? 'No rows matched a US county name'
+        : plan.kind === 'countries'
+          ? 'No rows matched a country name or ISO code'
+          : 'No rows matched a US state name or abbreviation';
+    return { kind: 'none', reason };
   }
   return built;
 }

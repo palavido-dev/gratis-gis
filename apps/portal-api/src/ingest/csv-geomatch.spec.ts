@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   detectUsGeomatch,
+  planCountryGeomatch,
   planUsCountyGeomatch,
   planUsStateGeomatch,
 } from './csv-geomatch.js';
@@ -70,6 +71,22 @@ describe('planUsCountyGeomatch', () => {
   });
 });
 
+describe('planCountryGeomatch', () => {
+  it('detects a Country column of names and ISO codes', () => {
+    const plan = planCountryGeomatch(
+      'Country,Pop\nFrance,1\nDE,2\nUSA,3\n',
+    );
+    expect(plan.kind).toBe('countries');
+  });
+
+  it('defers when a County column is present', () => {
+    const plan = planCountryGeomatch(
+      'County,Country,Pop\nTravis,USA,1\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+});
+
 describe('detectUsGeomatch', () => {
   it('joins population rows to state polygons', () => {
     const result = detectUsGeomatch(
@@ -107,6 +124,18 @@ describe('detectUsGeomatch', () => {
     expect(result.kind).toBe('matched');
     if (result.kind !== 'matched') return;
     expect(result.boundary).toBe('us-counties');
+  });
+
+  it('joins country rows by name and ISO alias', () => {
+    const result = detectUsGeomatch(
+      'Country,Pop\nFrance,10\nDE,20\nUnited States,30\nAtlantis,1\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('countries');
+    expect(result.matched).toBe(3);
+    expect(result.unmatched).toBe(1);
+    expect(result.geojson.features[0]?.properties.country_iso2).toBe('FR');
   });
 
   it('drops forged __proto__ headers instead of polluting Object', () => {
