@@ -2,12 +2,19 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers, Loader2, Search, X } from 'lucide-react';
+import { Layers, Loader2, Search } from 'lucide-react';
 import type {
   DataLayerData,
   DataLayerSublayer,
   Item,
 } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Props {
   open: boolean;
@@ -160,8 +167,6 @@ export function AddTargetDialog({
     onClose();
   }
 
-  if (!open) return null;
-
   // Compute v3 layer list from the selected item. v1/v2 (inline
   // GeoJSON) data_layers are surfaced as "not eligible" rather
   // than hidden entirely so users see why their old layers
@@ -171,37 +176,32 @@ export function AddTargetDialog({
     data && data.version === 3 ? data.layers : null;
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) handleClose();
       }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-0">
-              {selected ? `Pick a layer in "${selected.title}"` : 'Add a target layer'}
-            </h2>
-            <p className="text-xs text-muted">
-              {selected
-                ? 'Each editor target points at one layer inside a data layer item.'
-                : 'Pick a data layer item; then choose the sublayer the editor will expose.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent
+        size="lg"
+        className="flex max-h-[80vh] flex-col overflow-hidden p-0"
+      >
+        <div className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle>
+            {selected
+              ? `Pick a layer in "${selected.title}"`
+              : 'Add a target layer'}
+          </DialogTitle>
+          <DialogDescription className="mt-0.5">
+            {selected
+              ? 'Each editor target points at one layer inside a data layer item.'
+              : 'Pick a data layer item; then choose the sublayer the editor will expose.'}
+          </DialogDescription>
         </div>
 
         {!selected ? (
           <>
-            <div className="border-b border-border px-4 py-2">
+            <div className="border-b border-border px-5 py-2">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2 top-2.5 h-3.5 w-3.5 text-muted" />
                 <input
@@ -213,7 +213,7 @@ export function AddTargetDialog({
                 />
               </div>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               {loading && items.length === 0 ? (
                 <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -221,7 +221,7 @@ export function AddTargetDialog({
                 </div>
               ) : items.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted">
-                  No data layers match "{q}".
+                  No data layers match &quot;{q}&quot;.
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
@@ -251,7 +251,7 @@ export function AddTargetDialog({
             </div>
           </>
         ) : (
-          <div className="flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             {selectedLoading ? (
               <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -265,7 +265,7 @@ export function AddTargetDialog({
                 </p>
                 <p className="text-xs text-muted">
                   The Editor targets v3 (multi-layer PostGIS) data layers.
-                  Open this item's detail page and migrate it to v3 to use
+                  Open this item&apos;s detail page and migrate it to v3 to use
                   it here.
                 </p>
               </div>
@@ -282,11 +282,12 @@ export function AddTargetDialog({
                   // Viewer (#259) passes allowNonEditable=true: the
                   // app reads, never writes, so the layer's
                   // editing toggle is irrelevant.
-                  const disabled = already || (!editable && !allowNonEditable);
+                  const disabled =
+                    already || (!editable && !allowNonEditable);
                   const tooltip = already
                     ? 'Already a target'
                     : !editable && !allowNonEditable
-                      ? 'Editing is disabled on this layer. Turn it on in the data layer\'s detail page first.'
+                      ? "Editing is disabled on this layer. Turn it on in the data layer's detail page first."
                       : '';
                   return (
                     <li key={layer.id}>
@@ -342,7 +343,7 @@ export function AddTargetDialog({
           </div>
         )}
 
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+        <DialogFooter className="justify-between">
           {selected ? (
             <button
               type="button"
@@ -361,8 +362,8 @@ export function AddTargetDialog({
           >
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
