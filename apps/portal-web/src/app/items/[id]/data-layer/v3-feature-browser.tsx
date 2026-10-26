@@ -860,12 +860,18 @@ function BundleExportModal({
   onCancel: () => void;
   onRun: () => void;
 }) {
+  const t = useT();
   // Pickable string-ish fields on the parent layer.  Used for the
   // attachment-prefix and attachment-split dropdowns.  Numeric
   // fields are allowed too since IDs are often numeric.
   const pickableFields = (layer.fields ?? []).filter((f) => {
-    const t = (f as { type?: string }).type ?? 'text';
-    return t === 'text' || t === 'integer' || t === 'double' || t === 'bigint';
+    const fieldType = (f as { type?: string }).type ?? 'text';
+    return (
+      fieldType === 'text' ||
+      fieldType === 'integer' ||
+      fieldType === 'double' ||
+      fieldType === 'bigint'
+    );
   });
   return (
     <Dialog
