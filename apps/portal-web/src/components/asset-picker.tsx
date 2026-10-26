@@ -46,6 +46,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /** Current asset reference. */
@@ -102,6 +103,7 @@ export function AssetPicker({
   hint,
   uploadKind = 'item-thumb',
 }: Props) {
+  const t = useT();
   // Active sub-mode: which input is the author currently typing
   // into. Defaults to 'preview' so the picker shows the current
   // asset (if any) plus three switcher buttons; clicking a button
@@ -135,13 +137,13 @@ export function AssetPicker({
   function commitUrl() {
     const trimmed = urlDraft.trim();
     if (!trimmed) {
-      setError('Paste a URL.');
+      setError(t('assetPicker.pasteUrlRequired'));
       return;
     }
     try {
       new URL(trimmed);
     } catch {
-      setError('Not a valid URL.');
+      setError(t('assetPicker.invalidUrl'));
       return;
     }
     setError(null);
@@ -260,12 +262,12 @@ export function AssetPicker({
               {value ? (
                 <>
                   <p className="truncate text-xs font-medium text-ink-0">
-                    {currentLabel ?? 'Asset'}
+                    {currentLabel ?? t('assetPicker.assetFallback')}
                   </p>
                   <p className="truncate text-2xs text-muted">
                     {value.kind === 'file-item' ? (
                       <>
-                        File item ·{' '}
+                        {t('assetPicker.fileItem')} ·{' '}
                         <a
                           href={`/items/${value.itemId}`}
                           target="_blank"
@@ -277,12 +279,14 @@ export function AssetPicker({
                         </a>
                       </>
                     ) : (
-                      <>External URL</>
+                      <>{t('assetPicker.externalUrl')}</>
                     )}
                   </p>
                 </>
               ) : (
-                <p className="text-xs italic text-muted">No asset selected.</p>
+                <p className="text-xs italic text-muted">
+                  {t('assetPicker.noneSelected')}
+                </p>
               )}
             </div>
             <div className="flex flex-wrap gap-1">
@@ -297,7 +301,7 @@ export function AssetPicker({
                 className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 <LinkIcon className="h-3 w-3" />
-                Paste URL
+                {t('assetPicker.pasteUrl')}
               </button>
               <button
                 type="button"
@@ -309,7 +313,7 @@ export function AssetPicker({
                 className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 <ImageIcon className="h-3 w-3" />
-                Pick file
+                {t('assetPicker.pickFile')}
               </button>
               <button
                 type="button"
@@ -322,7 +326,9 @@ export function AssetPicker({
                 ) : (
                   <Upload className="h-3 w-3" />
                 )}
-                {mode === 'uploading' ? 'Uploading…' : 'Upload'}
+                {mode === 'uploading'
+                  ? t('assetPicker.uploading')
+                  : t('assetPicker.upload')}
               </button>
               {value ? (
                 <button
@@ -335,7 +341,7 @@ export function AssetPicker({
                   className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
                 >
                   <Trash2 className="h-3 w-3" />
-                  Clear
+                  {t('assetPicker.clear')}
                 </button>
               ) : null}
             </div>
@@ -349,7 +355,7 @@ export function AssetPicker({
       {mode === 'paste-url' && (
         <div className="space-y-1.5 rounded-md border border-accent bg-surface-1 p-2">
           <label htmlFor={pasteId} className="block text-2xs font-medium text-muted">
-            URL
+            {t('assetPicker.urlLabel')}
           </label>
           <input
             id={pasteId}
@@ -375,7 +381,7 @@ export function AssetPicker({
               onClick={() => setMode('preview')}
               className="inline-flex h-7 items-center rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
-              Cancel
+              {t('assetPicker.cancel')}
             </button>
             <button
               type="button"
@@ -383,7 +389,7 @@ export function AssetPicker({
               className="inline-flex h-7 items-center gap-1 rounded bg-accent px-2 text-2xs font-medium text-accent-foreground hover:opacity-90"
             >
               <Check className="h-3 w-3" />
-              Use URL
+              {t('assetPicker.useUrl')}
             </button>
           </div>
         </div>
@@ -481,6 +487,7 @@ function FileItemPicker({
   onPick,
   onClose,
 }: FileItemPickerProps) {
+  const t = useT();
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -491,7 +498,10 @@ function FileItemPicker({
       try {
         const res = await fetch(FILE_LIST_ENDPOINT);
         if (!res.ok) {
-          if (!cancelled) setError(`Could not load files (HTTP ${res.status}).`);
+          if (!cancelled)
+            setError(
+              t('assetPicker.loadHttpFailed', { status: res.status }),
+            );
           return;
         }
         const raw = (await res.json()) as Item[];
@@ -516,13 +526,18 @@ function FileItemPicker({
         });
         setItems(filtered);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load files.');
+        if (!cancelled)
+          setError(
+            err instanceof Error
+              ? err.message
+              : t('assetPicker.loadFailed'),
+          );
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [acceptMimePrefixes]);
+  }, [acceptMimePrefixes, t]);
 
   const filtered = items?.filter((it) =>
     query ? it.title.toLowerCase().includes(query.toLowerCase()) : true,
@@ -542,7 +557,7 @@ function FileItemPicker({
         <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 pr-12">
           <ImageIcon className="h-4 w-4 text-muted" />
           <DialogTitle className="flex-1 text-sm font-semibold text-ink-0">
-            Pick a file item
+            {t('assetPicker.pickTitle')}
           </DialogTitle>
         </header>
         <div className="shrink-0 border-b border-border px-3 py-2">
@@ -550,7 +565,7 @@ function FileItemPicker({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by title…"
+            placeholder={t('assetPicker.filterPlaceholder')}
             className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs"
           />
         </div>
@@ -563,7 +578,9 @@ function FileItemPicker({
               {error}
             </p>
           ) : !items ? (
-            <p className="px-3 py-2 text-xs italic text-muted">Loading…</p>
+            <p className="px-3 py-2 text-xs italic text-muted">
+              {t('assetPicker.loading')}
+            </p>
           ) : filtered && filtered.length > 0 ? (
             <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
               {filtered.map((it) => {
@@ -584,7 +601,7 @@ function FileItemPicker({
                           {it.title}
                         </p>
                         <p className="truncate text-2xs text-muted">
-                          {data?.fileName ?? '(no filename)'}
+                          {data?.fileName ?? t('assetPicker.noFilename')}
                         </p>
                       </div>
                     </button>
@@ -594,7 +611,7 @@ function FileItemPicker({
             </ul>
           ) : (
             <p className="px-3 py-2 text-xs italic text-muted">
-              No matching file items in your org. Use Upload to add one.
+              {t('assetPicker.empty')}
             </p>
           )}
         </div>

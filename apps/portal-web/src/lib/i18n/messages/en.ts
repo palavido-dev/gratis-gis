@@ -91,6 +91,30 @@ export const en = {
       noMatches: 'No matches.',
     },
   },
+  assetPicker: {
+    assetFallback: 'Asset',
+    fileItem: 'File item',
+    externalUrl: 'External URL',
+    noneSelected: 'No asset selected.',
+    pasteUrl: 'Paste URL',
+    pickFile: 'Pick file',
+    upload: 'Upload',
+    uploading: 'Uploading…',
+    clear: 'Clear',
+    urlLabel: 'URL',
+    cancel: 'Cancel',
+    useUrl: 'Use URL',
+    pickTitle: 'Pick a file item',
+    filterPlaceholder: 'Filter by title…',
+    loading: 'Loading…',
+    noFilename: '(no filename)',
+    empty: 'No matching file items in your org. Use Upload to add one.',
+    loadFailed: 'Failed to load files.',
+    loadHttpFailed: 'Could not load files (HTTP {status}).',
+    pasteUrlRequired: 'Paste a URL.',
+    invalidUrl: 'Not a valid URL.',
+  },
+
   newItem: {
     pageTitle: 'Create a new item',
     pageIntro:
@@ -102,6 +126,22 @@ export const en = {
     detailsEyebrowFallback: 'item',
     viewerBlocked:
       'Your account has the Viewer role, which can open and download items but cannot create them. An organization admin can change your role, or grant you the publish capability on its own.',
+    titleLabel: 'Title',
+    titlePlaceholder: 'My layer, report, form...',
+    descriptionLabel: 'Description',
+    descriptionPlaceholder: "What is this, and who's it for?",
+    tagsLabel: 'Tags',
+    tagsPlaceholder: 'Comma separated, e.g. buildings, parcels, campus',
+    tagsHint: 'Used for search and filtering.',
+    visibilityLabel: 'Visibility',
+    titleRequired: 'Title is required.',
+    accessPrivateLabel: 'Private',
+    accessPrivateDesc: 'Only you and people you share with.',
+    accessOrgLabel: 'Your organization',
+    accessOrgDesc: 'Everyone with a login in your org.',
+    accessPublicLabel: 'Public',
+    accessPublicDesc: 'Anyone on the internet.',
+
   },
   // The job someone arrives with, in their words, shown above the
   // type description on the few new item picker tiles that have an

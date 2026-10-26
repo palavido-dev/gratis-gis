@@ -257,26 +257,32 @@ const TYPE_OPTIONS: TypeOption[] = TYPE_GROUPS.flatMap((g) => g.options);
 
 const ACCESS_OPTIONS: Array<{
   value: ItemAccess;
-  label: string;
-  desc: string;
+  labelKey:
+    | 'newItem.accessPrivateLabel'
+    | 'newItem.accessOrgLabel'
+    | 'newItem.accessPublicLabel';
+  descKey:
+    | 'newItem.accessPrivateDesc'
+    | 'newItem.accessOrgDesc'
+    | 'newItem.accessPublicDesc';
   Icon: LucideIcon;
 }> = [
   {
     value: 'private',
-    label: 'Private',
-    desc: 'Only you and people you share with.',
+    labelKey: 'newItem.accessPrivateLabel',
+    descKey: 'newItem.accessPrivateDesc',
     Icon: Lock,
   },
   {
     value: 'org',
-    label: 'Your organization',
-    desc: 'Everyone with a login in your org.',
+    labelKey: 'newItem.accessOrgLabel',
+    descKey: 'newItem.accessOrgDesc',
     Icon: Building2,
   },
   {
     value: 'public',
-    label: 'Public',
-    desc: 'Anyone on the internet.',
+    labelKey: 'newItem.accessPublicLabel',
+    descKey: 'newItem.accessPublicDesc',
     Icon: Globe2,
   },
 ];
@@ -956,7 +962,7 @@ export function NewItemWizard({
     if (!type) return;
     setError(null);
     if (title.trim().length === 0) {
-      setError('Title is required.');
+      setError(t('newItem.titleRequired'));
       return;
     }
 
@@ -1822,7 +1828,7 @@ export function NewItemWizard({
             htmlFor="title"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Title
+            {t('newItem.titleLabel')}
           </label>
           <input
             id="title"
@@ -1832,7 +1838,7 @@ export function NewItemWizard({
               userEditedTitleRef.current = true;
               setTitle(e.target.value);
             }}
-            placeholder="My layer, report, form..."
+            placeholder={t('newItem.titlePlaceholder')}
             maxLength={200}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
@@ -1843,7 +1849,7 @@ export function NewItemWizard({
             htmlFor="description"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Description
+            {t('newItem.descriptionLabel')}
           </label>
           <textarea
             id="description"
@@ -1852,7 +1858,7 @@ export function NewItemWizard({
               userEditedDescRef.current = true;
               setDescription(e.target.value);
             }}
-            placeholder="What is this, and who's it for?"
+            placeholder={t('newItem.descriptionPlaceholder')}
             maxLength={5000}
             rows={4}
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
@@ -1864,29 +1870,31 @@ export function NewItemWizard({
             htmlFor="tags"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Tags
+            {t('newItem.tagsLabel')}
           </label>
           <input
             id="tags"
             type="text"
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
-            placeholder="Comma separated, e.g. buildings, parcels, campus"
+            placeholder={t('newItem.tagsPlaceholder')}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-xs text-muted">
-            Used for search and filtering.
+            {t('newItem.tagsHint')}
           </p>
         </div>
       </section>
 
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Visibility
+          {t('newItem.visibilityLabel')}
         </label>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
-          {ACCESS_OPTIONS.map(({ value, label, desc, Icon }) => {
+          {ACCESS_OPTIONS.map(({ value, labelKey, descKey, Icon }) => {
             const selected = access === value;
+            const label = t(labelKey);
+            const desc = t(descKey);
             return (
               <button
                 key={value}
