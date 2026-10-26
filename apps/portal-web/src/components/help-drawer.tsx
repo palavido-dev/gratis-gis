@@ -40,6 +40,7 @@ import {
   Target,
   X,
 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface HelpIndexEntry {
   id: string;
@@ -303,6 +304,7 @@ function DrawerUI({
   togglePicking: () => void;
   feedbackEnabled: boolean;
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Focus the search box when the drawer opens in search mode.
   useEffect(() => {
@@ -318,14 +320,16 @@ function DrawerUI({
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <HelpCircle className="h-4 w-4 text-accent" />
-        <h2 className="flex-1 text-sm font-semibold text-ink-0">Help</h2>
+        <h2 className="flex-1 text-sm font-semibold text-ink-0">
+          {t('help.drawer.title')}
+        </h2>
         <button
           type="button"
           onClick={togglePicking}
           title={
             state.picking
-              ? 'Cancel pick-a-control'
-              : 'Pick a control on the page to open its help'
+              ? t('help.drawer.cancelPickTitle')
+              : t('help.drawer.pickTitle')
           }
           className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-2xs font-medium transition-colors ${
             state.picking
@@ -334,15 +338,17 @@ function DrawerUI({
           }`}
         >
           <Target className="h-3 w-3" />
-          {state.picking ? 'Cancel' : 'What is this?'}
+          {state.picking
+            ? t('help.drawer.cancel')
+            : t('help.drawer.whatIsThis')}
         </button>
         <Link
           href="/help"
           onClick={close}
           className="inline-flex h-6 items-center rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
-          title="Open full help in a new page"
+          title={t('help.drawer.openFullTitle')}
         >
-          Open full
+          {t('help.drawer.openFull')}
         </Link>
         {/* Someone who opens Help because something is broken is one
             of the likeliest people to have something worth telling
@@ -353,16 +359,16 @@ function DrawerUI({
             href="/feedback"
             onClick={close}
             className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
-            title="Report a problem or send feedback"
+            title={t('help.drawer.feedbackTitle')}
           >
             <MessageSquarePlus className="h-3 w-3" />
-            Feedback
+            {t('help.drawer.feedback')}
           </Link>
         ) : null}
         <button
           type="button"
           onClick={close}
-          aria-label="Close help"
+          aria-label={t('help.drawer.closeAria')}
           className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2"
         >
           <X className="h-3.5 w-3.5" />
@@ -370,8 +376,7 @@ function DrawerUI({
       </header>
       {state.picking ? (
         <div className="border-b border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
-          Click any control on the page to open its help.  Press Cancel
-          (or Escape) to back out.
+          {t('help.drawer.pickingBanner')}
         </div>
       ) : null}
       {state.slug ? (
@@ -382,11 +387,13 @@ function DrawerUI({
               onClick={back}
               className="text-2xs text-accent hover:underline"
             >
-              ← Back to search
+              {t('help.drawer.backToSearch')}
             </button>
           </div>
           {docLoading ? (
-            <p className="px-3 py-4 text-xs text-muted">Loading…</p>
+            <p className="px-3 py-4 text-xs text-muted">
+              {t('help.drawer.loading')}
+            </p>
           ) : docError ? (
             <p className="px-3 py-4 text-xs text-danger">{docError}</p>
           ) : doc ? (
@@ -412,20 +419,22 @@ function DrawerUI({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search help…"
+                placeholder={t('help.drawer.searchPlaceholder')}
                 className="w-full rounded-md border border-border bg-surface-0 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
               />
             </div>
           </div>
           {query.trim().length < 2 ? (
             <p className="px-3 py-4 text-xs text-muted">
-              Type to search the help system, or press <kbd>?</kbd>{' '}
-              anywhere in the portal to open this drawer.  Toggle{' '}
-              <strong>What is this?</strong> at the top right and click
-              any control to jump to its help.
+              {t('help.drawer.searchHintBefore')} <kbd>?</kbd>{' '}
+              {t('help.drawer.searchHintMid')}{' '}
+              <strong>{t('help.drawer.whatIsThis')}</strong>{' '}
+              {t('help.drawer.searchHintAfter')}
             </p>
           ) : results.length === 0 ? (
-            <p className="px-3 py-4 text-xs text-muted">No matches.</p>
+            <p className="px-3 py-4 text-xs text-muted">
+              {t('help.drawer.noMatches')}
+            </p>
           ) : (
             <ul className="divide-y divide-border">
               {results.map(({ doc }) => (
