@@ -1185,4 +1185,71 @@ export const en = {
     failed: 'Could not load sample data',
     dismiss: 'Dismiss welcome panel',
   },
+  /**
+   * Public apex landing (#162). Marketing + public-items chrome for
+   * anonymous and apex-domain visitors. Org title/subtitle/item
+   * copy stay CMS-driven and are not catalogued here.
+   */
+  landing: {
+    openMyItems: 'Open my items',
+    publicItemsTitle: 'See it running',
+    publicItemsIntro:
+      'Live dashboards, maps, and data {org} has shared publicly. No account needed.',
+    publicItemsEmpty:
+      'Nothing has been shared publicly yet. If you have a portal account, sign in to see content shared with you.',
+    whatsNew: "What's new",
+    builtOn: 'Built on',
+    projectEyebrow: 'Open source GIS portal',
+    projectHeadline: 'A self-hosted portal, a field PWA, and QGIS',
+    projectBody1:
+      'GratisGIS is for teams that want their data on their own hardware and want out of ArcGIS Online seat licenses. What is credible today is the portal, sharing, field collection, and QGIS. It is not a full ArcGIS Online replacement, and it is not a drop-in for Experience Builder, Survey123, Field Maps, or enterprise identity depth. Built on open components (PostGIS, MapLibre, Keycloak). No license fees; your only cost is the hardware (or cloud bill) you choose to run it on.',
+    projectBody2:
+      'Dashboards ship as web-app layouts (KPI Dashboard and Operations Board). Dedicated document report templates are not built. Tool recipes exist; a node-graph builder does not.',
+    opsHeadline: 'Operational features the portal ships with',
+    featureSelfHostedTitle: 'Self-hosted on your own hardware',
+    featureSelfHostedBody:
+      'PostGIS-backed datasets, web maps, and forms; bring data in from shapefiles, GeoJSON, GDB, or any OGR-supported format. Docker compose, single-command deploy, runs on a $20/month VPS. No license fees, no SaaS lock-in.',
+    featureQgisTitle: 'First-class QGIS support',
+    featureQgisBody:
+      "An official plugin in the QGIS plugin repository: browse and search the portal, publish layers and whole projects from the canvas, take a layer to the field, and sync edits back. No plugin? Rasters appear in QGIS's built-in catalog browser and layers open over standard APIs, with an API key for private content.",
+    featureFieldPwaTitle: 'Field-ready PWA',
+    featureFieldPwaBody:
+      "A data-collection app that installs to the home screen, works offline, and syncs when you're back online.",
+    featureInteropTitle: 'Works with the tools you already use',
+    featureInteropBody:
+      "OGC API Features, Tiles, Styles, and Records; a STAC catalog; CSW 2.0.2; Schema.org JSON-LD; WMS / WFS service references. WebMap JSON export points at the portal's own layer URLs. Whether ArcGIS Pro, ArcGIS Online, or QGIS open that file depends on the importing tool. Importing a WebMap JSON file keeps FeatureServer URLs as live references; copying hosted features into the portal is a separate stage step.",
+    featureHousekeepingTitle: 'Housekeeping that runs itself',
+    featureHousekeepingBody:
+      'Stale items get flagged. Inactive users get auto-disabled. Expiring shares trigger warnings. Spatial extents get recomputed on a schedule. Admins get a dashboard, not a backlog.',
+    featureSyncTitle: "Sync that doesn't lose your work",
+    featureSyncBody:
+      "Offline edits go to a per-edit queue with isolated retries. A bad row doesn't poison the rest. Schema changes notify every device that has cached the deployment so the field crew rebuilds before they next sync.",
+    featureEmailTitle: 'Email notifications you actually control',
+    featureEmailBody:
+      'Built-in templates for shares, expirations, schema changes, form submissions, and field captures. Org admins customize the copy through a guided editor with click-to-insert variables. Routed through one SMTP, not a sprawl of webhooks.',
+    featureSharingTitle: 'Sharing granularity that makes sense',
+    featureSharingBody:
+      "Share an item with a user, a group, or a folder. Folder shares cascade to every item in the folder. Per-share row scope ('all' vs 'own') and geographic clip (polygon) layer on top. View / download / edit / admin tiers, not a single 'shared' bit.",
+    ctaGithub: 'View on GitHub',
+    ctaFeedback: 'Send feedback',
+    ctaDiscussions: 'Discussions',
+    ctaHint:
+      "Send feedback goes to the maintainer's inbox; no account required. Discussions is the GitHub place for longer threads.",
+    testingTitle:
+      'This is a public test instance. Resets to a curated golden state every day at 04:00 UTC.',
+    testingBodyBefore: 'Sign in with',
+    testingBodyOr: 'or',
+    testingBodyAfter:
+      '. Items, users, and edits you create vanish at the next reset. Found a problem? Use the Feedback button in the corner of any page. No account needed.',
+    testingSampleLead: 'New here? Open the',
+    testingSampleName: 'Sample: Randolph County',
+    testingSampleTail:
+      'folder after signing in: a complete demo workspace with styled layers, a map, a form with responses, a field survey, and public apps, all built on one small West Virginia county.',
+  },
+  /** /signin redirect chrome (#162). */
+  auth: {
+    redirecting: 'Redirecting to sign in...',
+    redirectFallback: 'If nothing happens,',
+    continueToKeycloak: 'continue to Keycloak',
+  },
 } as const;

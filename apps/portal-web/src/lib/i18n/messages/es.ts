@@ -1113,4 +1113,65 @@ export const es: Partial<CatalogShape> = {
     failed: 'No se pudieron cargar los datos de ejemplo',
     dismiss: 'Descartar el panel de bienvenida',
   },
+  landing: {
+    openMyItems: 'Abrir mis elementos',
+    publicItemsTitle: 'Míralo en marcha',
+    publicItemsIntro:
+      'Paneles, mapas y datos que {org} ha compartido públicamente. No necesitas una cuenta.',
+    publicItemsEmpty:
+      'Aún no se ha compartido nada públicamente. Si tienes una cuenta del portal, inicia sesión para ver el contenido compartido contigo.',
+    whatsNew: 'Novedades',
+    builtOn: 'Construido sobre',
+    projectEyebrow: 'Portal GIS de código abierto',
+    projectHeadline: 'Un portal autoalojado, una PWA de campo y QGIS',
+    projectBody1:
+      'GratisGIS es para equipos que quieren sus datos en su propio hardware y salir de las licencias por puesto de ArcGIS Online. Lo creíble hoy es el portal, el uso compartido, la recolección de campo y QGIS. No es un reemplazo completo de ArcGIS Online, ni un sustituto de Experience Builder, Survey123, Field Maps o la profundidad de identidad empresarial. Construido sobre componentes abiertos (PostGIS, MapLibre, Keycloak). Sin cuotas de licencia; tu único coste es el hardware (o la factura en la nube) que elijas para ejecutarlo.',
+    projectBody2:
+      'Los paneles se entregan como diseños de aplicaciones web (KPI Dashboard y Operations Board). Las plantillas de informes de documentos dedicadas aún no existen. Hay recetas de herramientas; un constructor de grafos de nodos, no.',
+    opsHeadline: 'Funciones operativas que el portal incluye',
+    featureSelfHostedTitle: 'Autoalojado en tu propio hardware',
+    featureSelfHostedBody:
+      'Conjuntos de datos, mapas web y formularios respaldados por PostGIS; importa shapefiles, GeoJSON, GDB o cualquier formato compatible con OGR. Docker Compose, despliegue con un solo comando, funciona en un VPS de 20 $/mes. Sin cuotas de licencia ni dependencia de SaaS.',
+    featureQgisTitle: 'Soporte de primera clase para QGIS',
+    featureQgisBody:
+      'Un complemento oficial en el repositorio de QGIS: navega y busca el portal, publica capas y proyectos enteros desde el lienzo, lleva una capa al campo y sincroniza las ediciones. ¿Sin complemento? Los rásteres aparecen en el catálogo integrado de QGIS y las capas se abren por APIs estándar, con una clave API para contenido privado.',
+    featureFieldPwaTitle: 'PWA lista para el campo',
+    featureFieldPwaBody:
+      'Una app de recolección de datos que se instala en la pantalla de inicio, funciona sin conexión y se sincroniza cuando vuelves a estar en línea.',
+    featureInteropTitle: 'Funciona con las herramientas que ya usas',
+    featureInteropBody:
+      'OGC API Features, Tiles, Styles y Records; un catálogo STAC; CSW 2.0.2; Schema.org JSON-LD; referencias de servicio WMS / WFS. La exportación WebMap JSON apunta a las URL de capas del propio portal. Que ArcGIS Pro, ArcGIS Online o QGIS abran ese archivo depende de la herramienta de importación. Importar un WebMap JSON mantiene las URL FeatureServer como referencias en vivo; copiar entidades alojadas al portal es un paso aparte.',
+    featureHousekeepingTitle: 'Mantenimiento que se ejecuta solo',
+    featureHousekeepingBody:
+      'Los elementos obsoletos se marcan. Los usuarios inactivos se desactivan automáticamente. Las comparticiones que caducan disparan avisos. Las extensiones espaciales se recalculan según un horario. Los administradores reciben un panel, no una lista de pendientes.',
+    featureSyncTitle: 'Sincronización que no pierde tu trabajo',
+    featureSyncBody:
+      'Las ediciones sin conexión van a una cola por edición con reintentos aislados. Una fila mala no envenena el resto. Los cambios de esquema avisan a cada dispositivo que tiene la implementación en caché para que el equipo de campo reconstruya antes de la siguiente sincronización.',
+    featureEmailTitle: 'Notificaciones por correo que controlas de verdad',
+    featureEmailBody:
+      'Plantillas integradas para comparticiones, caducidades, cambios de esquema, envíos de formularios y capturas de campo. Los administradores de la organización personalizan el texto con un editor guiado y variables insertables. Todo pasa por un SMTP, no por un enjambre de webhooks.',
+    featureSharingTitle: 'Granularidad de compartición que tiene sentido',
+    featureSharingBody:
+      "Comparte un elemento con un usuario, un grupo o una carpeta. Las comparticiones de carpeta se propagan a cada elemento. El alcance por fila ('all' vs 'own') y el recorte geográfico (polígono) se suman encima. Niveles ver / descargar / editar / administrar, no un solo bit de 'compartido'.",
+    ctaGithub: 'Ver en GitHub',
+    ctaFeedback: 'Enviar comentarios',
+    ctaDiscussions: 'Discussions',
+    ctaHint:
+      'Enviar comentarios llega a la bandeja del mantenedor; no hace falta una cuenta. Discussions es el espacio de GitHub para hilos más largos.',
+    testingTitle:
+      'Esta es una instancia de prueba pública. Se restablece a un estado de referencia cada día a las 04:00 UTC.',
+    testingBodyBefore: 'Inicia sesión con',
+    testingBodyOr: 'o',
+    testingBodyAfter:
+      '. Los elementos, usuarios y ediciones que crees desaparecen en el siguiente restablecimiento. ¿Encontraste un problema? Usa el botón de comentarios en la esquina de cualquier página. No hace falta una cuenta.',
+    testingSampleLead: '¿Nuevo aquí? Abre la carpeta',
+    testingSampleName: 'Sample: Randolph County',
+    testingSampleTail:
+      'después de iniciar sesión: un espacio de trabajo de demostración completo con capas con estilo, un mapa, un formulario con respuestas, un levantamiento de campo y aplicaciones públicas, todo basado en un pequeño condado de West Virginia.',
+  },
+  auth: {
+    redirecting: 'Redirigiendo al inicio de sesión...',
+    redirectFallback: 'Si no ocurre nada,',
+    continueToKeycloak: 'continúa a Keycloak',
+  },
 };

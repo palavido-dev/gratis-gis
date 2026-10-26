@@ -1119,4 +1119,65 @@ export const fr: Partial<CatalogShape> = {
     failed: 'Impossible de charger les données d\'exemple',
     dismiss: 'Fermer le panneau de bienvenue',
   },
+  landing: {
+    openMyItems: 'Ouvrir mes éléments',
+    publicItemsTitle: 'Voyez-le en action',
+    publicItemsIntro:
+      'Tableaux de bord, cartes et données que {org} a partagés publiquement. Aucun compte requis.',
+    publicItemsEmpty:
+      'Rien n\'a encore été partagé publiquement. Si vous avez un compte portail, connectez-vous pour voir le contenu partagé avec vous.',
+    whatsNew: 'Nouveautés',
+    builtOn: 'Construit avec',
+    projectEyebrow: 'Portail SIG open source',
+    projectHeadline: 'Un portail auto-hébergé, une PWA de terrain et QGIS',
+    projectBody1:
+      'GratisGIS s\'adresse aux équipes qui veulent leurs données sur leur propre matériel et sortir des licences par siège d\'ArcGIS Online. Ce qui est crédible aujourd\'hui, c\'est le portail, le partage, la collecte terrain et QGIS. Ce n\'est pas un remplacement complet d\'ArcGIS Online, ni un substitut à Experience Builder, Survey123, Field Maps ou à la profondeur d\'identité d\'entreprise. Construit sur des composants ouverts (PostGIS, MapLibre, Keycloak). Pas de frais de licence ; votre seul coût est le matériel (ou la facture cloud) que vous choisissez pour l\'exécuter.',
+    projectBody2:
+      'Les tableaux de bord sont livrés comme des mises en page d\'applications web (KPI Dashboard et Operations Board). Les modèles de rapports documentaires dédiés n\'existent pas encore. Des recettes d\'outils existent ; un constructeur de graphe de nœuds, non.',
+    opsHeadline: 'Fonctions opérationnelles livrées avec le portail',
+    featureSelfHostedTitle: 'Auto-hébergé sur votre propre matériel',
+    featureSelfHostedBody:
+      'Jeux de données, cartes web et formulaires sous PostGIS ; importez des shapefiles, du GeoJSON, du GDB ou tout format pris en charge par OGR. Docker Compose, déploiement en une commande, tourne sur un VPS à 20 $/mois. Pas de frais de licence, pas de verrouillage SaaS.',
+    featureQgisTitle: 'Support QGIS de premier plan',
+    featureQgisBody:
+      'Un plugin officiel dans le dépôt QGIS : parcourez et recherchez le portail, publiez des couches et des projets entiers depuis le canevas, emmenez une couche sur le terrain et synchronisez les modifications. Sans plugin ? Les rasters apparaissent dans le navigateur de catalogue intégré de QGIS et les couches s\'ouvrent via des API standard, avec une clé API pour le contenu privé.',
+    featureFieldPwaTitle: 'PWA prête pour le terrain',
+    featureFieldPwaBody:
+      'Une application de collecte de données qui s\'installe sur l\'écran d\'accueil, fonctionne hors ligne et se synchronise quand vous êtes de nouveau en ligne.',
+    featureInteropTitle: 'Fonctionne avec les outils que vous utilisez déjà',
+    featureInteropBody:
+      'OGC API Features, Tiles, Styles et Records ; un catalogue STAC ; CSW 2.0.2 ; Schema.org JSON-LD ; références de services WMS / WFS. L\'export WebMap JSON pointe vers les URL de couches du portail. Que ArcGIS Pro, ArcGIS Online ou QGIS ouvrent ce fichier dépend de l\'outil d\'import. Importer un WebMap JSON conserve les URL FeatureServer comme références actives ; copier des entités hébergées dans le portail est une étape séparée.',
+    featureHousekeepingTitle: 'Une maintenance qui tourne toute seule',
+    featureHousekeepingBody:
+      'Les éléments obsolètes sont signalés. Les utilisateurs inactifs sont désactivés automatiquement. Les partages qui expirent déclenchent des alertes. Les emprises spatiales sont recalculées selon un planning. Les administrateurs ont un tableau de bord, pas une file d\'attente.',
+    featureSyncTitle: 'Une synchronisation qui ne perd pas votre travail',
+    featureSyncBody:
+      'Les modifications hors ligne vont dans une file par édition avec des nouvelles tentatives isolées. Une mauvaise ligne n\'empoisonne pas le reste. Les changements de schéma notifient chaque appareil qui a mis en cache le déploiement pour que l\'équipe terrain reconstruise avant la prochaine synchronisation.',
+    featureEmailTitle: 'Des notifications e-mail que vous contrôlez vraiment',
+    featureEmailBody:
+      'Modèles intégrés pour partages, expirations, changements de schéma, soumissions de formulaires et captures terrain. Les administrateurs d\'organisation personnalisent le texte via un éditeur guidé avec variables à insérer. Tout passe par un SMTP, pas par une nuée de webhooks.',
+    featureSharingTitle: 'Une granularité de partage qui a du sens',
+    featureSharingBody:
+      "Partagez un élément avec un utilisateur, un groupe ou un dossier. Les partages de dossier se propagent à chaque élément. La portée par ligne ('all' vs 'own') et le découpage géographique (polygone) s'ajoutent par-dessus. Niveaux voir / télécharger / modifier / administrer, pas un simple bit 'partagé'.",
+    ctaGithub: 'Voir sur GitHub',
+    ctaFeedback: 'Envoyer un avis',
+    ctaDiscussions: 'Discussions',
+    ctaHint:
+      'Envoyer un avis arrive dans la boîte du mainteneur ; aucun compte requis. Discussions est l\'espace GitHub pour les fils plus longs.',
+    testingTitle:
+      'Ceci est une instance de test publique. Elle revient à un état de référence chaque jour à 04:00 UTC.',
+    testingBodyBefore: 'Connectez-vous avec',
+    testingBodyOr: 'ou',
+    testingBodyAfter:
+      '. Les éléments, utilisateurs et modifications que vous créez disparaissent au prochain reset. Un problème ? Utilisez le bouton Commentaires dans le coin de chaque page. Aucun compte requis.',
+    testingSampleLead: 'Nouveau ici ? Ouvrez le dossier',
+    testingSampleName: 'Sample: Randolph County',
+    testingSampleTail:
+      'après connexion : un espace de démonstration complet avec des couches stylisées, une carte, un formulaire avec des réponses, un relevé de terrain et des applications publiques, le tout autour d\'un petit comté de West Virginia.',
+  },
+  auth: {
+    redirecting: 'Redirection vers la connexion...',
+    redirectFallback: 'Si rien ne se passe,',
+    continueToKeycloak: 'continuez vers Keycloak',
+  },
 };

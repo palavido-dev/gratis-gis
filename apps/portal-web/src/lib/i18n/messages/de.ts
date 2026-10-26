@@ -1128,4 +1128,65 @@ export const de: Partial<CatalogShape> = {
     failed: 'Beispieldaten konnten nicht geladen werden',
     dismiss: 'Willkommensbereich ausblenden',
   },
+  landing: {
+    openMyItems: 'Meine Elemente öffnen',
+    publicItemsTitle: 'Sehen Sie es live',
+    publicItemsIntro:
+      'Live-Dashboards, Karten und Daten, die {org} öffentlich freigegeben hat. Kein Konto nötig.',
+    publicItemsEmpty:
+      'Noch nichts öffentlich freigegeben. Wenn Sie ein Portal-Konto haben, melden Sie sich an, um mit Ihnen geteilte Inhalte zu sehen.',
+    whatsNew: 'Neuigkeiten',
+    builtOn: 'Aufgebaut auf',
+    projectEyebrow: 'Open-Source-GIS-Portal',
+    projectHeadline: 'Ein selbst gehostetes Portal, eine Field-PWA und QGIS',
+    projectBody1:
+      'GratisGIS ist für Teams, die ihre Daten auf eigener Hardware wollen und aus den Sitzplatzlizenzen von ArcGIS Online herauswollen. Was heute glaubwürdig ist, sind Portal, Freigabe, Felderfassung und QGIS. Es ist kein vollständiger ArcGIS-Online-Ersatz und kein Drop-in für Experience Builder, Survey123, Field Maps oder Unternehmensidentität. Aufgebaut auf offenen Komponenten (PostGIS, MapLibre, Keycloak). Keine Lizenzgebühren; Ihre einzigen Kosten sind die Hardware (oder die Cloud-Rechnung), auf der Sie es betreiben.',
+    projectBody2:
+      'Dashboards kommen als Web-App-Layouts (KPI Dashboard und Operations Board). Dedizierte Dokumentberichtsvorlagen gibt es noch nicht. Tool-Rezepte schon; einen Knotengraph-Builder nicht.',
+    opsHeadline: 'Betriebliche Funktionen, die das Portal mitbringt',
+    featureSelfHostedTitle: 'Selbst gehostet auf eigener Hardware',
+    featureSelfHostedBody:
+      'PostGIS-gestützte Datensätze, Webkarten und Formulare; importieren Sie Shapefiles, GeoJSON, GDB oder jedes von OGR unterstützte Format. Docker Compose, Ein-Befehl-Deploy, läuft auf einem VPS für 20 $/Monat. Keine Lizenzgebühren, kein SaaS-Lock-in.',
+    featureQgisTitle: 'Erstklassige QGIS-Unterstützung',
+    featureQgisBody:
+      'Ein offizielles Plugin im QGIS-Plugin-Repository: Portal durchsuchen, Layer und ganze Projekte aus der Zeichenfläche veröffentlichen, einen Layer ins Feld nehmen und Bearbeitungen zurücksynchronisieren. Kein Plugin? Raster erscheinen im eingebauten Katalogbrowser von QGIS und Layer öffnen sich über Standard-APIs, mit einem API-Schlüssel für private Inhalte.',
+    featureFieldPwaTitle: 'Field-taugliche PWA',
+    featureFieldPwaBody:
+      'Eine Datenerfassungs-App, die sich auf dem Startbildschirm installiert, offline arbeitet und synchronisiert, sobald Sie wieder online sind.',
+    featureInteropTitle: 'Funktioniert mit den Werkzeugen, die Sie schon nutzen',
+    featureInteropBody:
+      'OGC API Features, Tiles, Styles und Records; ein STAC-Katalog; CSW 2.0.2; Schema.org JSON-LD; WMS-/WFS-Dienstreferenzen. Der WebMap-JSON-Export zeigt auf die Layer-URLs des Portals. Ob ArcGIS Pro, ArcGIS Online oder QGIS die Datei öffnen, hängt vom Importwerkzeug ab. Beim Import eines WebMap-JSON bleiben FeatureServer-URLs als Live-Referenzen; gehostete Features in das Portal zu kopieren ist ein eigener Schritt.',
+    featureHousekeepingTitle: 'Wartung, die von allein läuft',
+    featureHousekeepingBody:
+      'Veraltete Elemente werden markiert. Inaktive Benutzer werden automatisch deaktiviert. Auslaufende Freigaben lösen Warnungen aus. Räumliche Ausdehnungen werden nach Zeitplan neu berechnet. Admins bekommen ein Dashboard, keinen Rückstau.',
+    featureSyncTitle: 'Sync, der Ihre Arbeit nicht verliert',
+    featureSyncBody:
+      'Offline-Bearbeitungen gehen in eine Warteschlange pro Bearbeitung mit isolierten Wiederholungen. Eine schlechte Zeile vergiftet nicht den Rest. Schemaänderungen benachrichtigen jedes Gerät mit zwischengespeicherter Bereitstellung, damit das Feldteam vor dem nächsten Sync neu aufbaut.',
+    featureEmailTitle: 'E-Mail-Benachrichtigungen, die Sie wirklich steuern',
+    featureEmailBody:
+      'Eingebaute Vorlagen für Freigaben, Ablaufdaten, Schemaänderungen, Formulareinsendungen und Felderfassungen. Organisationsadmins passen den Text über einen geführten Editor mit einfügbaren Variablen an. Alles über ein SMTP, nicht über einen Webhook-Wildwuchs.',
+    featureSharingTitle: 'Freigabegranularität, die Sinn ergibt',
+    featureSharingBody:
+      "Teilen Sie ein Element mit einem Benutzer, einer Gruppe oder einem Ordner. Ordnerfreigaben wirken auf jedes Element. Pro-Freigabe-Zeilenbereich ('all' vs 'own') und geografischer Ausschnitt (Polygon) kommen obendrauf. Stufen Anzeigen / Herunterladen / Bearbeiten / Admin, nicht ein einzelnes 'geteilt'-Bit.",
+    ctaGithub: 'Auf GitHub ansehen',
+    ctaFeedback: 'Feedback senden',
+    ctaDiscussions: 'Discussions',
+    ctaHint:
+      'Feedback senden geht in den Posteingang des Maintainers; kein Konto nötig. Discussions ist der GitHub-Ort für längere Threads.',
+    testingTitle:
+      'Dies ist eine öffentliche Testinstanz. Sie wird jeden Tag um 04:00 UTC auf einen kuratierten Ausgangszustand zurückgesetzt.',
+    testingBodyBefore: 'Melden Sie sich an mit',
+    testingBodyOr: 'oder',
+    testingBodyAfter:
+      '. Elemente, Benutzer und Bearbeitungen, die Sie anlegen, verschwinden beim nächsten Reset. Problem gefunden? Nutzen Sie die Feedback-Schaltfläche in der Ecke jeder Seite. Kein Konto nötig.',
+    testingSampleLead: 'Neu hier? Öffnen Sie den Ordner',
+    testingSampleName: 'Sample: Randolph County',
+    testingSampleTail:
+      'nach dem Anmelden: ein vollständiger Demo-Arbeitsbereich mit gestylten Layern, einer Karte, einem Formular mit Antworten, einer Felderhebung und öffentlichen Apps, alles rund um einen kleinen County in West Virginia.',
+  },
+  auth: {
+    redirecting: 'Weiterleitung zur Anmeldung...',
+    redirectFallback: 'Wenn nichts passiert,',
+    continueToKeycloak: 'weiter zu Keycloak',
+  },
 };
