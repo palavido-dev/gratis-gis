@@ -8,6 +8,7 @@ import type {
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   value: MapLayerFilter | null;
@@ -25,6 +26,7 @@ interface Props {
  * them, they can land as a v2.3 when we know the shape they need.
  */
 export function FilterEditor({ value, metadata, onChange }: Props) {
+  const t = useT();
   const active = value !== null;
 
   function start() {
@@ -66,7 +68,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            {active ? 'Clauses' : 'No filter'}
+            {active ? t('mapFilterEditor.clauses') : t('mapFilterEditor.noFilter')}
           </span>
           {active ? (
             <select
@@ -76,8 +78,8 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
               }
               className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
-              <option value="all">match ALL</option>
-              <option value="any">match ANY</option>
+              <option value="all">{t('mapFilterEditor.matchAll')}</option>
+              <option value="any">{t('mapFilterEditor.matchAny')}</option>
             </select>
           ) : null}
         </div>
@@ -88,7 +90,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
             className="inline-flex h-6 items-center gap-1 rounded text-2xs text-muted hover:text-danger"
           >
             <X className="h-3 w-3" />
-            Clear
+            {t('mapFilterEditor.clear')}
           </button>
         ) : (
           <button
@@ -97,7 +99,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
             className="inline-flex h-6 items-center gap-1 rounded text-2xs text-accent hover:underline"
           >
             <Plus className="h-3 w-3" />
-            Add filter
+            {t('mapFilterEditor.addFilter')}
           </button>
         )}
       </div>
@@ -119,10 +121,10 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
             className="inline-flex h-7 items-center gap-1 rounded text-2xs text-accent hover:underline"
           >
             <Plus className="h-3 w-3" />
-            Add clause
+            {t('mapFilterEditor.addClause')}
           </button>
           {metadata.loading ? (
-            <p className="text-2xs text-muted">Loading fields...</p>
+            <p className="text-2xs text-muted">{t('mapFilterEditor.loadingFields')}</p>
           ) : metadata.error ? (
             <p className="text-2xs text-warn">{metadata.error}</p>
           ) : null}
@@ -143,6 +145,7 @@ function Clause({
   onChange: (patch: Partial<MapLayerFilterClause>) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const needsValue = clause.op !== 'is-null' && clause.op !== 'is-not-null';
   const valueOptions = clause.field ? metadata.valuesByField[clause.field] ?? [] : [];
 
@@ -156,7 +159,7 @@ function Clause({
               onChange={(e) => onChange({ field: e.target.value })}
               className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
-              <option value="">Pick a field...</option>
+              <option value="">{t('mapFilterEditor.pickField')}</option>
               {metadata.fields.map((f) => (
                 <option key={f} value={f}>
                   {f}
@@ -168,7 +171,7 @@ function Clause({
               type="text"
               value={clause.field}
               onChange={(e) => onChange({ field: e.target.value })}
-              placeholder="field"
+              placeholder={t('mapFilterEditor.fieldPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           )}
@@ -184,9 +187,9 @@ function Clause({
               <option value=">=">&gt;=</option>
               <option value="<">&lt;</option>
               <option value="<=">&lt;=</option>
-              <option value="contains">contains</option>
-              <option value="is-null">is empty</option>
-              <option value="is-not-null">is not empty</option>
+              <option value="contains">{t('mapFilterEditor.opContains')}</option>
+              <option value="is-null">{t('mapFilterEditor.opIsEmpty')}</option>
+              <option value="is-not-null">{t('mapFilterEditor.opIsNotEmpty')}</option>
             </select>
             {needsValue ? (
               valueOptions.length > 0 &&
@@ -196,7 +199,7 @@ function Clause({
                   onChange={(e) => onChange({ value: e.target.value })}
                   className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
-                  <option value="">Pick a value...</option>
+                  <option value="">{t('mapFilterEditor.pickValue')}</option>
                   {valueOptions.map((v) => (
                     <option key={v} value={v}>
                       {v}
@@ -208,7 +211,7 @@ function Clause({
                   type="text"
                   value={clause.value}
                   onChange={(e) => onChange({ value: e.target.value })}
-                  placeholder="value"
+                  placeholder={t('mapFilterEditor.valuePlaceholder')}
                   className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               )
@@ -218,7 +221,7 @@ function Clause({
         <button
           type="button"
           onClick={onRemove}
-          aria-label="Remove clause"
+          aria-label={t('mapFilterEditor.removeClauseAria')}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
         >
           <Trash2 className="h-3.5 w-3.5" />
