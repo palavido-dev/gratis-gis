@@ -716,6 +716,7 @@ export const fr: Partial<CatalogShape> = {
     configure: 'Configurer',
     previewData: 'Aperçu des données',
     addToMap: 'Ajouter à une carte',
+    createAppFromMap: 'Créer une app à partir de cette carte',
     addLayerToMapTitle: 'Ajouter uniquement cette couche à une carte',
     moveToFolder: 'Déplacer vers un dossier',
     removeFromFolder: 'Retirer de ce dossier',

@@ -704,6 +704,7 @@ export const ptBR: Partial<CatalogShape> = {
     configure: 'Configurar',
     previewData: 'Pré-visualizar dados',
     addToMap: 'Adicionar ao mapa',
+    createAppFromMap: 'Criar app a partir deste mapa',
     addLayerToMapTitle: 'Adicionar apenas esta camada a um mapa',
     moveToFolder: 'Mover para pasta',
     removeFromFolder: 'Remover desta pasta',

@@ -610,10 +610,16 @@ export function NewItemWizard({
   // began with someone asking where the map picker was. 'none' stays
   // the default because a map is not mandatory, but the choice is on
   // the create form where the decision naturally happens.
+  // #189: `?type=custom&map=<id>` from a map's list menu or builder
+  // preseeds "use an existing map" so Create app from this map skips
+  // the picker hunt (mirrors print_template's ?map= stamp).
+  const customMapHint = searchParams?.get('map') ?? null;
   const [customMapChoice, setCustomMapChoice] = useState<
     'none' | 'new' | 'existing'
-  >('none');
-  const [customExistingMapId, setCustomExistingMapId] = useState('');
+  >(customMapHint ? 'existing' : 'none');
+  const [customExistingMapId, setCustomExistingMapId] = useState(
+    customMapHint ?? '',
+  );
   const [customMapOptions, setCustomMapOptions] = useState<Array<{
     id: string;
     title: string;

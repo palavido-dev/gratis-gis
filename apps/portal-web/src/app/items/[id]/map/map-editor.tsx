@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppWindow,
   Check,
   Eye,
   List,
@@ -1829,6 +1830,17 @@ export function MapEditor({
           container is harmless when nobody else is on the map. */}
       <div ref={setPresenceChipsSlot} className="flex items-center" />
       {canvasTogglePill}
+      {/* #189: Create app from this map — next to Save. Hidden in
+          scratch mode (no durable map id to bind). */}
+      {!scratch ? (
+        <a
+          href={`/items/new?type=custom&map=${itemId}`}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
+        >
+          <AppWindow className="h-4 w-4" />
+          Create app
+        </a>
+      ) : null}
       {canEdit ? (
         <>
           {saved ? (
