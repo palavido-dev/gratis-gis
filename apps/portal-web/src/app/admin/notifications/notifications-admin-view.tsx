@@ -15,7 +15,6 @@ import {
   RotateCw,
   Save,
   Send,
-  X,
 } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
