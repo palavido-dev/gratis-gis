@@ -4,6 +4,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Loader2, Save } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Initial {
   firstName: string;
@@ -24,6 +25,7 @@ interface Props {
  * a save error and nothing partial-saves.
  */
 export function ProfileIdentityForm({ initial }: Props) {
+  const t = useT();
   const router = useRouter();
   const [firstName, setFirstName] = useState(initial.firstName);
   const [lastName, setLastName] = useState(initial.lastName);
@@ -42,7 +44,7 @@ export function ProfileIdentityForm({ initial }: Props) {
     setError(null);
 
     if (!email.includes('@')) {
-      setError('Please enter a valid email address.');
+      setError(t('profile.form.invalidEmail'));
       return;
     }
 
@@ -61,7 +63,12 @@ export function ProfileIdentityForm({ initial }: Props) {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        setError(`Save failed: ${res.status}${text ? `: ${text}` : ''}`);
+        setError(
+          t('profile.form.saveFailedHttp', {
+            status: String(res.status),
+            detail: text ? `: ${text}` : '',
+          }),
+        );
         return;
       }
       setSaved(true);
@@ -70,7 +77,7 @@ export function ProfileIdentityForm({ initial }: Props) {
       // labels that depend on fullName pick up the change.
       startTransition(() => router.refresh());
     } catch (err) {
-      setError((err as Error).message || 'Save failed');
+      setError((err as Error).message || t('profile.form.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -80,11 +87,11 @@ export function ProfileIdentityForm({ initial }: Props) {
     <section className="space-y-4 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wide text-muted">
-          Editable
+          {t('profile.form.editable')}
         </p>
         {saved ? (
           <span className="inline-flex items-center gap-1 text-xs text-success">
-            <Check className="h-3.5 w-3.5" /> Saved
+            <Check className="h-3.5 w-3.5" /> {t('profile.form.saved')}
           </span>
         ) : null}
       </div>
@@ -92,7 +99,7 @@ export function ProfileIdentityForm({ initial }: Props) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            First name
+            {t('profile.form.firstName')}
           </span>
           <input
             type="text"
@@ -104,7 +111,7 @@ export function ProfileIdentityForm({ initial }: Props) {
         </label>
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Last name
+            {t('profile.form.lastName')}
           </span>
           <input
             type="text"
@@ -118,7 +125,7 @@ export function ProfileIdentityForm({ initial }: Props) {
 
       <label className="block text-xs">
         <span className="mb-1 block uppercase tracking-wide text-muted">
-          Email
+          {t('profile.form.email')}
         </span>
         <input
           type="email"
@@ -129,7 +136,7 @@ export function ProfileIdentityForm({ initial }: Props) {
         />
         {email.trim() !== initial.email ? (
           <span className="mt-1 block text-2xs text-warning">
-            Changing the email will require re-verification on next sign-in.
+            {t('profile.form.emailChangeWarning')}
           </span>
         ) : null}
       </label>
@@ -152,7 +159,7 @@ export function ProfileIdentityForm({ initial }: Props) {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save
+          {t('common.save')}
         </button>
       </div>
     </section>

@@ -3146,6 +3146,83 @@ export const en = {
     },
   },
 
+  /** Self-service profile (#162). */
+  profile: {
+    metaTitle: 'Profile',
+    eyebrow: 'You',
+    pageIntro:
+      'Your identity in {org}. Edit your name, email, or profile photo here. Your username and role are managed by an admin.',
+    thisOrganization: 'this organization',
+    profilePhoto: 'Profile photo',
+    adminManaged: 'Admin-managed',
+    fieldUsername: 'Username',
+    fieldOrganization: 'Organization',
+    fieldRole: 'Role',
+    linkNotificationPreferences: 'Notification preferences',
+    linkApiKeys: 'API keys',
+    form: {
+      editable: 'Editable',
+      saved: 'Saved',
+      firstName: 'First name',
+      lastName: 'Last name',
+      email: 'Email',
+      emailChangeWarning:
+        'Changing the email will require re-verification on next sign-in.',
+      invalidEmail: 'Please enter a valid email address.',
+      saveFailed: 'Save failed',
+      saveFailedHttp: 'Save failed: {status}{detail}',
+    },
+    avatar: {
+      saving: 'Saving…',
+      saveFailed: 'Save failed: {status} {detail}',
+    },
+  },
+
+  /** Public /credits attribution page (#162). */
+  credits: {
+    metaTitle: 'Built on',
+    metaDescription:
+      'The open-source projects GratisGIS is built on, with links to each.',
+    backToHome: 'Back to home',
+    headline: 'The open-source projects we stand on.',
+    intro:
+      'GratisGIS is built on the open-source projects below. Each row links to the project\'s home page; please consider supporting them directly.',
+    stackTitle: 'Stack at a glance',
+    columnLayer: 'Layer',
+    columnProjects: 'Project(s)',
+    poweredBy: 'Powered by GratisGIS',
+    layers: {
+      language: 'Language',
+      backendApi: 'Backend API',
+      database: 'Database',
+      ormMigrations: 'ORM / migrations',
+      authIdentity: 'Auth / identity',
+      authorization: 'Authorization',
+      objectStorage: 'Object storage',
+      httpEdge: 'HTTP edge',
+      tileServing: 'Tile serving',
+      webFrontend: 'Web frontend',
+      mapRendering: 'Map rendering',
+      drawingTools: 'Drawing tools',
+      tileBundles: 'Tile bundles',
+      spatialIndexing: 'Spatial indexing',
+      osmPresetCatalog: 'OSM preset catalog',
+      analysisEngine: 'Analysis engine',
+      lidarPointClouds: 'Lidar / point clouds',
+      imageryOnMaps: 'Imagery on maps',
+      imagerySegmentation: 'Imagery segmentation',
+      elevationReadouts: 'Elevation readouts',
+      analysisWorkerPackaging: 'Analysis worker packaging',
+      kmlGpxImport: 'KML / GPX import',
+      rasterVectorIo: 'Raster / vector I/O',
+      componentKit: 'Component kit',
+      charts: 'Charts',
+      icons: 'Icons',
+      styling: 'Styling',
+      monorepo: 'Monorepo',
+    },
+  },
+
   /** Settings → Notification preferences (#162). */
   settingsNotifications: {
     backToProfile: 'Back to profile',
