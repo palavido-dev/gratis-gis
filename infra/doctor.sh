@@ -282,10 +282,12 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     STACK_UP=1
     while IFS=$'\t' read -r name status; do
       [ -z "${name:-}" ] && continue
+      # Check unhealthy before healthy: the former is a substring of
+      # the latter in docker's "Up … (unhealthy)" status text.
       case "$status" in
-        *healthy*) pass "${name}: ${status}" ;;
         *unhealthy*) fail "${name}: ${status} (remediation: docker compose logs, or docker rm -f ${name})" ;;
-        *Restarting*) fail "${name}: ${status} (crash loop)" ;;
+        *\(healthy\)*) pass "${name}: ${status}" ;;
+        *Restarting*|*restarting*) fail "${name}: ${status} (crash loop)" ;;
         *) warn "${name}: ${status}" ;;
       esac
     done < <(
