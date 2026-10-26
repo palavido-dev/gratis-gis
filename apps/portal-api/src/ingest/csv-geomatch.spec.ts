@@ -4,6 +4,7 @@ import {
   planCountryGeomatch,
   planUsCountyGeomatch,
   planUsStateGeomatch,
+  planUsZctaGeomatch,
 } from './csv-geomatch.js';
 
 describe('planUsStateGeomatch', () => {
@@ -42,6 +43,13 @@ describe('planUsStateGeomatch', () => {
     );
     expect(plan.kind).toBe('none');
   });
+
+  it('defers when a ZIP column is present', () => {
+    const plan = planUsStateGeomatch(
+      'ZIP,State,Pop\n10001,NY,1\n90210,CA,2\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
 });
 
 describe('planUsCountyGeomatch', () => {
@@ -71,6 +79,46 @@ describe('planUsCountyGeomatch', () => {
   });
 });
 
+describe('planUsZctaGeomatch', () => {
+  it('detects a ZIP column of 5-digit codes', () => {
+    const plan = planUsZctaGeomatch(
+      'ZIP,Population\n10001,100\n90210,200\n60601,300\n',
+    );
+    expect(plan.kind).toBe('us-zctas');
+    if (plan.kind !== 'us-zctas') return;
+    expect(plan.column).toBe('ZIP');
+    expect(plan.rows).toHaveLength(3);
+  });
+
+  it('accepts ZIP+4 cells by stripping to ZCTA5', () => {
+    const plan = planUsZctaGeomatch(
+      'zip_code,n\n10001-1234,1\n90210-0001,2\n',
+    );
+    expect(plan.kind).toBe('us-zctas');
+  });
+
+  it('leaves a coordinate file alone', () => {
+    const plan = planUsZctaGeomatch(
+      'lat,lng,zip\n40.7,-74.0,10001\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+
+  it('rejects a zip-named column of junk values', () => {
+    const plan = planUsZctaGeomatch(
+      'zip,name\napple,Desk\nbanana,Lamp\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+
+  it('defers when a County column is present', () => {
+    const plan = planUsZctaGeomatch(
+      'County,ZIP,Pop\nTravis,78701,1\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+});
+
 describe('planCountryGeomatch', () => {
   it('detects a Country column of names and ISO codes', () => {
     const plan = planCountryGeomatch(
@@ -82,6 +130,13 @@ describe('planCountryGeomatch', () => {
   it('defers when a County column is present', () => {
     const plan = planCountryGeomatch(
       'County,Country,Pop\nTravis,USA,1\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+
+  it('defers when a ZIP column is present', () => {
+    const plan = planCountryGeomatch(
+      'ZIP,Country,Pop\n10001,USA,1\n',
     );
     expect(plan.kind).toBe('none');
   });
@@ -124,6 +179,29 @@ describe('detectUsGeomatch', () => {
     expect(result.kind).toBe('matched');
     if (result.kind !== 'matched') return;
     expect(result.boundary).toBe('us-counties');
+  });
+
+  it('joins ZIP rows to ZCTA polygons', () => {
+    const result = detectUsGeomatch(
+      'ZIP,Population\n10001,100\n00000,1\n90210,200\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('us-zctas');
+    expect(result.matched).toBe(2);
+    expect(result.unmatched).toBe(1);
+    expect(result.geojson.features[0]?.geometry.type).toMatch(/Polygon/);
+    expect(result.geojson.features[0]?.properties.Population).toBe(100);
+    expect(result.geojson.features[0]?.properties.zcta).toBe('10001');
+  });
+
+  it('prefers ZCTAs over states when both columns exist', () => {
+    const result = detectUsGeomatch(
+      'ZIP,State,Pop\n10001,NY,1\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('us-zctas');
   });
 
   it('joins country rows by name and ISO alias', () => {

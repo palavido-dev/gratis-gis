@@ -4,14 +4,17 @@
  *
  * When a CSV has no coordinate pair, look for a boundary-name column
  * and join each row to a vendored polygon set. Order of preference:
- * US counties → countries → US states. Success criteria from the
- * roadmap: "State"+"Population" → state polygons; county (+ optional
- * state) → county polygons; "Country"/"ISO" → country polygons.
+ * US counties → US ZCTAs → countries → US states. Success criteria
+ * from the roadmap: "State"+"Population" → state polygons; county
+ * (+ optional state) → county polygons; ZIP/ZCTA → ZCTA polygons;
+ * "Country"/"ISO" → country polygons.
  *
  * Boundaries live at `apps/portal-api/content/boundaries/`:
  * - `us-states.geojson` — name + abbr (PublicaMundi / CB lineage)
  * - `us-counties.geojson` — name + state_abbr + state_name + geoid
  *   (Census Cartographic Boundary 2023 20m; public domain)
+ * - `us-zctas.geojson` — zcta (Census CB 2020 ZCTA5 500k, simplified;
+ *   public domain)
  * - `countries.geojson` — name + iso2 + iso3 (+ aliases)
  *   (Natural Earth 110m admin-0; public domain)
  */
@@ -49,6 +52,17 @@ const COUNTY_COLUMN: Array<{ pattern: RegExp; score: number }> = [
   { pattern: /^borough$/, score: 85 },
   { pattern: /^fips$/, score: 80 },
   { pattern: /^geoid$/, score: 80 },
+];
+
+const ZCTA_COLUMN: Array<{ pattern: RegExp; score: number }> = [
+  { pattern: /^zcta$/, score: 100 },
+  { pattern: /^zcta5$/, score: 100 },
+  { pattern: /^zip$/, score: 100 },
+  { pattern: /^zipcode$/, score: 100 },
+  { pattern: /^zip_code$/, score: 100 },
+  { pattern: /^postalcode$/, score: 90 },
+  { pattern: /^postal$/, score: 85 },
+  { pattern: /^postcode$/, score: 85 },
 ];
 
 const COUNTRY_COLUMN: Array<{ pattern: RegExp; score: number }> = [
@@ -90,9 +104,14 @@ export interface CountryGeomatchPlan extends GeomatchPlanBase {
   kind: 'countries';
 }
 
+export interface UsZctaGeomatchPlan extends GeomatchPlanBase {
+  kind: 'us-zctas';
+}
+
 export type GeomatchPlan =
   | UsStateGeomatchPlan
   | UsCountyGeomatchPlan
+  | UsZctaGeomatchPlan
   | CountryGeomatchPlan;
 
 export type GeomatchDetect =
@@ -101,7 +120,7 @@ export type GeomatchDetect =
 
 export interface GeomatchResult {
   kind: 'matched';
-  boundary: 'us-states' | 'us-counties' | 'countries';
+  boundary: 'us-states' | 'us-counties' | 'us-zctas' | 'countries';
   geojson: {
     type: 'FeatureCollection';
     features: Array<{
@@ -142,6 +161,11 @@ interface CountryBoundary {
   geometry: GeoJsonGeometry;
 }
 
+interface ZctaBoundary {
+  zcta: string;
+  geometry: GeoJsonGeometry;
+}
+
 let cachedStates: StateBoundary[] | null = null;
 let cachedStateByKey: Map<string, StateBoundary> | null = null;
 
@@ -153,6 +177,9 @@ let cachedCountyByUnique: Map<string, CountyBoundary> | null = null;
 
 let cachedCountries: CountryBoundary[] | null = null;
 let cachedCountryByKey: Map<string, CountryBoundary> | null = null;
+
+let cachedZctas: ZctaBoundary[] | null = null;
+let cachedZctaByKey: Map<string, ZctaBoundary> | null = null;
 
 function boundariesDir(): string {
   // Dist: dist/ingest → ../../content/boundaries
@@ -258,6 +285,34 @@ export function loadCountryBoundaries(
     }
   }
   return cachedCountries;
+}
+
+export function loadUsZctaBoundaries(
+  path = join(boundariesDir(), 'us-zctas.geojson'),
+): ZctaBoundary[] {
+  if (cachedZctas) return cachedZctas;
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+    features: Array<{
+      properties: { zcta: string };
+      geometry: GeoJsonGeometry;
+    }>;
+  };
+  cachedZctas = raw.features.map((f) => ({
+    zcta: f.properties.zcta,
+    geometry: f.geometry,
+  }));
+  cachedZctaByKey = new Map();
+  for (const z of cachedZctas) {
+    cachedZctaByKey.set(normalizeZcta(z.zcta), z);
+  }
+  return cachedZctas;
+}
+
+/** Normalize ZIP / ZCTA cells to a 5-digit key (strips ZIP+4). */
+function normalizeZcta(value: string): string {
+  const digits = value.trim().replace(/\D/g, '');
+  if (digits.length >= 5) return digits.slice(0, 5);
+  return digits;
 }
 
 function normalizeKey(value: string): string {
@@ -371,6 +426,8 @@ function rowProperties(
 export function planUsGeomatch(text: string): GeomatchDetect {
   const county = planUsCountyGeomatch(text);
   if (county.kind !== 'none') return county;
+  const zcta = planUsZctaGeomatch(text);
+  if (zcta.kind !== 'none') return zcta;
   const country = planCountryGeomatch(text);
   if (country.kind !== 'none') return country;
   return planUsStateGeomatch(text);
@@ -394,6 +451,9 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
   // defer — planUsGeomatch already prefers those planners.
   if (bestColumn(header, COUNTY_COLUMN)) {
     return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
+  if (bestColumn(header, ZCTA_COLUMN)) {
+    return { kind: 'none', reason: 'ZIP / ZCTA column present; defer to ZCTA geomatch' };
   }
   if (bestColumn(header, COUNTRY_COLUMN)) {
     return { kind: 'none', reason: 'Country column present; defer to country geomatch' };
@@ -492,6 +552,60 @@ export function planUsCountyGeomatch(text: string): GeomatchDetect {
   };
 }
 
+export function planUsZctaGeomatch(text: string): GeomatchDetect {
+  const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (detectCsvColumnPair(clean).kind === 'detected') {
+    return { kind: 'none', reason: 'File already has coordinates' };
+  }
+  const parsed = readDelimitedSample(clean, GEOMATCH_LIMITS.MAX_ROWS);
+  if ('error' in parsed) return { kind: 'none', reason: parsed.error };
+
+  const { header, rows } = parsed;
+  if (bestColumn(header, COUNTY_COLUMN)) {
+    return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
+  const col = bestColumn(header, ZCTA_COLUMN);
+  if (!col) {
+    return { kind: 'none', reason: 'No ZIP / ZCTA column name detected' };
+  }
+
+  loadUsZctaBoundaries();
+  const sample = rows.slice(0, GEOMATCH_LIMITS.VALIDATION_SAMPLE_ROWS);
+  let hit = 0;
+  let seen = 0;
+  for (const row of sample) {
+    const raw = (row[col.idx] ?? '').trim();
+    if (!raw) continue;
+    seen += 1;
+    const key = normalizeZcta(raw);
+    if (key && cachedZctaByKey!.has(key)) hit += 1;
+  }
+  if (seen === 0) {
+    return { kind: 'none', reason: 'ZIP / ZCTA column has no values to validate' };
+  }
+  const ratio = hit / seen;
+  if (ratio < GEOMATCH_LIMITS.MIN_VALIDATION_RATIO) {
+    return {
+      kind: 'none',
+      reason: `ZIP / ZCTA column values matched ${Math.round(ratio * 100)}% (need ${Math.round(GEOMATCH_LIMITS.MIN_VALIDATION_RATIO * 100)}%)`,
+    };
+  }
+
+  const fields = header.map((name, idx) => ({
+    name,
+    type: inferFieldType(rows, idx),
+  }));
+
+  return {
+    kind: 'us-zctas',
+    column: header[col.idx]!,
+    columnIndex: col.idx,
+    header,
+    rows,
+    fields,
+  };
+}
+
 export function planCountryGeomatch(text: string): GeomatchDetect {
   const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   if (detectCsvColumnPair(clean).kind === 'detected') {
@@ -503,6 +617,9 @@ export function planCountryGeomatch(text: string): GeomatchDetect {
   const { header, rows } = parsed;
   if (bestColumn(header, COUNTY_COLUMN)) {
     return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
+  if (bestColumn(header, ZCTA_COLUMN)) {
+    return { kind: 'none', reason: 'ZIP / ZCTA column present; defer to ZCTA geomatch' };
   }
   const col = bestColumn(header, COUNTRY_COLUMN);
   if (!col) {
@@ -548,6 +665,7 @@ export function planCountryGeomatch(text: string): GeomatchDetect {
 /** Join planned rows to boundary polygons. Unmatched rows are dropped. */
 export function featuresFromGeomatch(plan: GeomatchPlan): GeomatchResult {
   if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
+  if (plan.kind === 'us-zctas') return featuresFromUsZctaGeomatch(plan);
   if (plan.kind === 'countries') return featuresFromCountryGeomatch(plan);
   return featuresFromUsStateGeomatch(plan);
 }
@@ -557,6 +675,7 @@ export function featuresFromUsStateGeomatch(
   plan: UsStateGeomatchPlan | GeomatchPlan,
 ): GeomatchResult {
   if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
+  if (plan.kind === 'us-zctas') return featuresFromUsZctaGeomatch(plan);
   if (plan.kind === 'countries') return featuresFromCountryGeomatch(plan);
   loadUsStateBoundaries();
   const features: GeomatchResult['geojson']['features'] = [];
@@ -637,6 +756,37 @@ export function featuresFromUsCountyGeomatch(
   };
 }
 
+export function featuresFromUsZctaGeomatch(
+  plan: UsZctaGeomatchPlan,
+): GeomatchResult {
+  loadUsZctaBoundaries();
+  const features: GeomatchResult['geojson']['features'] = [];
+  let unmatched = 0;
+  for (const row of plan.rows) {
+    const raw = (row[plan.columnIndex] ?? '').trim();
+    const key = raw ? normalizeZcta(raw) : '';
+    const zcta = key ? cachedZctaByKey!.get(key) : undefined;
+    if (!zcta) {
+      unmatched += 1;
+      continue;
+    }
+    features.push({
+      type: 'Feature',
+      properties: rowProperties(plan, row, [['zcta', zcta.zcta]]),
+      geometry: zcta.geometry,
+    });
+  }
+  return {
+    kind: 'matched',
+    boundary: 'us-zctas',
+    geojson: { type: 'FeatureCollection', features },
+    fields: [...plan.fields, { name: 'zcta', type: 'string' }],
+    column: plan.column,
+    matched: features.length,
+    unmatched,
+  };
+}
+
 export function featuresFromCountryGeomatch(
   plan: CountryGeomatchPlan,
 ): GeomatchResult {
@@ -707,9 +857,11 @@ export function detectUsGeomatch(
     const reason =
       plan.kind === 'us-counties'
         ? 'No rows matched a US county name'
-        : plan.kind === 'countries'
-          ? 'No rows matched a country name or ISO code'
-          : 'No rows matched a US state name or abbreviation';
+        : plan.kind === 'us-zctas'
+          ? 'No rows matched a US ZIP / ZCTA code'
+          : plan.kind === 'countries'
+            ? 'No rows matched a country name or ISO code'
+            : 'No rows matched a US state name or abbreviation';
     return { kind: 'none', reason };
   }
   return built;
