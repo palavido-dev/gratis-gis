@@ -12,10 +12,10 @@
  *   // toast object rather than a module import):
  *   const { toast } = useToast();
  */
-import { toast as sonnerToast } from 'sonner';
+import { toast } from 'sonner';
 
-export const toast = sonnerToast;
+export { toast };
 
-export function useToast() {
+export function useToast(): { toast: typeof toast } {
   return { toast };
 }
