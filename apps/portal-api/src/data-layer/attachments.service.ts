@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { StorageService } from '../storage/storage.service.js';
+import {
+  FEATURE_ATTACHMENT_MAX_BYTES,
+  StorageService,
+} from '../storage/storage.service.js';
+import { DataLayerEngine } from '../engine/data-layer.js';
 
 /**
  * Storage-key prefix the presign path mints for attachment uploads
@@ -41,6 +45,7 @@ export class DataLayerAttachmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly dataLayer: DataLayerEngine,
   ) {}
 
   list(itemId: string, layerId: string, featureId: string) {
@@ -74,6 +79,34 @@ export class DataLayerAttachmentsService {
         'storageKey is not an attachment upload',
       );
     }
+
+    // #224: refuse to parent an attachment to a feature that does
+    // not exist (orphans were invisible and never cleaned up).
+    const current = await this.dataLayer.listFeatures({
+      itemId,
+      layerId,
+      entity: featureId,
+    });
+    if (current.features.length === 0) {
+      throw new NotFoundException('Feature not found');
+    }
+
+    // #224: HeadObject for the real size; reject missing / over-cap
+    // objects so register cannot invent sizeBytes or point at a key
+    // that was never uploaded.
+    const realSize = await this.storage.headObjectSize(input.storageKey);
+    if (realSize === null) {
+      throw new BadRequestException(
+        'Uploaded object was not found; complete the presigned PUT before registering',
+      );
+    }
+    if (realSize > FEATURE_ATTACHMENT_MAX_BYTES) {
+      await this.storage.deleteObject(input.storageKey);
+      throw new BadRequestException(
+        `Attachment exceeds the ${FEATURE_ATTACHMENT_MAX_BYTES} byte limit`,
+      );
+    }
+
     return this.prisma.featureAttachment.create({
       data: {
         itemId,
@@ -81,7 +114,7 @@ export class DataLayerAttachmentsService {
         featureId,
         fileName: input.fileName,
         mime: input.mime,
-        sizeBytes: input.sizeBytes,
+        sizeBytes: realSize,
         storageKey: input.storageKey,
         storageUrl: input.storageUrl,
         createdBy: userId,

@@ -166,15 +166,17 @@ export class StorageController {
       });
       if (!att) throw new NotFoundException('Attachment not found');
       filename = att.fileName || key;
-      // ACL: read on the parent data_layer item. Anonymous callers
-      // are only allowed if the parent is access='public'.
+      // #224: attachments are binaries (site photos); honour the
+      // download tier the same way CSV / GeoParquet exports do.
+      // Anonymous callers are only allowed if the parent is
+      // access='public' (public implies download).
       if (user) {
         const item = await this.items.get(user, att.itemId);
         const shares = await this.prisma.itemShare.findMany({
           where: { itemId: att.itemId },
         });
-        if (!this.sharing.canRead(user, item, shares)) {
-          throw new ForbiddenException('Cannot read this attachment');
+        if (!this.sharing.canDownload(user, item, shares)) {
+          throw new ForbiddenException('Cannot download this attachment');
         }
       } else {
         const parent = await this.prisma.item.findFirst({
@@ -182,7 +184,7 @@ export class StorageController {
           select: { id: true },
         });
         if (!parent) {
-          throw new ForbiddenException('Cannot read this attachment');
+          throw new ForbiddenException('Cannot download this attachment');
         }
       }
     } else if (
