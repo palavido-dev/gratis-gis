@@ -1171,6 +1171,9 @@ export const ptBR: Partial<CatalogShape> = {
     continueToKeycloak: 'continue para o Keycloak',
   },
   adminSecurity: {
+    pageIntro:
+      'Adicione uma conta de trabalho que as pessoas já tenham e decida se o próximo login deve configurar um autenticador.',
+    errLoad: 'Não foi possível carregar as configurações de login.',
     authenticatorTitle: 'Autenticador',
     authenticatorIntro:
       'Quando isto estiver ativo, toda conta precisa configurar um autenticador na próxima vez que entrar, incluindo a sua.',
@@ -1265,6 +1268,23 @@ export const ptBR: Partial<CatalogShape> = {
   },
 
   adminUsers: {
+    backToPortal: 'Voltar ao portal',
+    pageIntro:
+      'Gerencie o armazenamento de usuários integrado: convide usuários, redefina senhas, altere papéis e desative o acesso.',
+    apiNotConfiguredTitle: 'API de administração não configurada',
+    apiNotConfiguredBefore: 'Defina',
+    apiNotConfiguredAnd: 'e',
+    apiNotConfiguredForPortalApi:
+      'para o portal-api e conceda à conta de serviço do cliente',
+    apiNotConfiguredClientThe: 'o papel',
+    apiNotConfiguredRoleIn: 'no Keycloak.',
+    listErrorTitle: 'Não foi possível carregar usuários do Keycloak',
+    listErrorFallback: 'Não foi possível carregar usuários do Keycloak.',
+    listErrorCommonBefore: 'Causas comuns: o cliente',
+    listErrorCommonMid:
+      'está ausente do realm, a conta de serviço não tem concedido',
+    listErrorCommonAfter:
+      ', ou o segredo do cliente no ambiente do portal-api está desatualizado.',
     searchPlaceholder: 'Buscar por nome, e-mail ou usuário...',
     inviteUser: 'Convidar usuário',
     colName: 'Nome',
@@ -1430,6 +1450,19 @@ export const ptBR: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         'Removido {username} de {count, plural, one {# grupo} other {# grupos}}.',
     },
+  },
+
+  settingsNotifications: {
+    backToProfile: 'Voltar ao perfil',
+    pageTitle: 'Preferências de notificação',
+    pageIntro:
+      'Escolha quais eventos enviam e-mail para você. O administrador do portal deve habilitar o envio de e-mail no nível da plataforma (NOTIFICATIONS_ENABLED) para que algum deles seja disparado.',
+    categorySharing: 'Compartilhamento',
+    categoryAccount: 'Conta',
+    categoryEditor: 'Atividade do editor',
+    channelEmail: 'e-mail',
+    defaultBadge: 'padrão',
+    errSaveChange: 'Não foi possível salvar a alteração.',
   },
 
 };

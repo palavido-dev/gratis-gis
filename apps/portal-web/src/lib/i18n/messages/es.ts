@@ -1175,6 +1175,9 @@ export const es: Partial<CatalogShape> = {
     continueToKeycloak: 'continúa a Keycloak',
   },
   adminSecurity: {
+    pageIntro:
+      'Añade una cuenta de trabajo que la gente ya tenga y decide si el próximo inicio de sesión debe configurar un autenticador.',
+    errLoad: 'No se pudieron cargar los ajustes de inicio de sesión.',
     authenticatorTitle: 'Autenticador',
     authenticatorIntro:
       'Cuando está activado, se pide a cada cuenta que configure un autenticador la próxima vez que inicie sesión, incluida la tuya.',
@@ -1269,6 +1272,23 @@ export const es: Partial<CatalogShape> = {
   },
 
   adminUsers: {
+    backToPortal: 'Volver al portal',
+    pageIntro:
+      'Gestiona el almacén de usuarios integrado: invita usuarios, restablece contraseñas, cambia roles y desactiva el acceso.',
+    apiNotConfiguredTitle: 'API de administración no configurada',
+    apiNotConfiguredBefore: 'Configura',
+    apiNotConfiguredAnd: 'y',
+    apiNotConfiguredForPortalApi:
+      'para portal-api, y concede a la cuenta de servicio del cliente',
+    apiNotConfiguredClientThe: 'el rol',
+    apiNotConfiguredRoleIn: 'en Keycloak.',
+    listErrorTitle: 'No se pudieron cargar los usuarios de Keycloak',
+    listErrorFallback: 'No se pudieron cargar los usuarios de Keycloak.',
+    listErrorCommonBefore: 'Causas habituales: falta el cliente',
+    listErrorCommonMid:
+      'en el realm, su cuenta de servicio no tiene concedido',
+    listErrorCommonAfter:
+      ', o el secreto del cliente en el entorno de portal-api está obsoleto.',
     searchPlaceholder: 'Buscar por nombre, correo o usuario...',
     inviteUser: 'Invitar usuario',
     colName: 'Nombre',
@@ -1434,6 +1454,19 @@ export const es: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         'Se quitó a {username} de {count, plural, one {# grupo} other {# grupos}}.',
     },
+  },
+
+  settingsNotifications: {
+    backToProfile: 'Volver al perfil',
+    pageTitle: 'Preferencias de notificaciones',
+    pageIntro:
+      'Elige qué eventos te envían correo. El administrador del portal debe activar el envío de correo a nivel de plataforma (NOTIFICATIONS_ENABLED) para que alguno de estos se dispare.',
+    categorySharing: 'Compartición',
+    categoryAccount: 'Cuenta',
+    categoryEditor: 'Actividad del editor',
+    channelEmail: 'correo',
+    defaultBadge: 'predeterminado',
+    errSaveChange: 'No se pudo guardar el cambio.',
   },
 
 };

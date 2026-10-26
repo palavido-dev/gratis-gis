@@ -1254,6 +1254,9 @@ export const en = {
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {
+    pageIntro:
+      'Add a work account people already have, and decide whether the next sign-in must set up an authenticator.',
+    errLoad: 'Could not load sign-in settings.',
     authenticatorTitle: 'Authenticator',
     authenticatorIntro:
       'When this is on, every account is asked to set up an authenticator the next time they sign in, including yours.',
@@ -1352,6 +1355,23 @@ export const en = {
 
   /** Admin → Users (#162). */
   adminUsers: {
+    backToPortal: 'Back to portal',
+    pageIntro:
+      'Manage the built-in user store: invite new users, reset passwords, change roles, disable access.',
+    apiNotConfiguredTitle: 'Admin API not configured',
+    apiNotConfiguredBefore: 'Set',
+    apiNotConfiguredAnd: 'and',
+    apiNotConfiguredForPortalApi:
+      'for the portal-api, and grant the service-account of the',
+    apiNotConfiguredClientThe: 'client the',
+    apiNotConfiguredRoleIn: 'role in Keycloak.',
+    listErrorTitle: 'Could not load users from Keycloak',
+    listErrorFallback: 'Could not load users from Keycloak.',
+    listErrorCommonBefore: 'Common causes: the',
+    listErrorCommonMid:
+      "client is missing from the realm, its service-account isn't granted",
+    listErrorCommonAfter:
+      ', or the client secret in the portal-api env is stale.',
     searchPlaceholder: 'Search by name, email, or username...',
     inviteUser: 'Invite user',
     colName: 'Name',
@@ -1517,6 +1537,20 @@ export const en = {
       toastRemovedFromGroups:
         'Removed {username} from {count, plural, one {# group} other {# groups}}.',
     },
+  },
+
+  /** Settings → Notification preferences (#162). */
+  settingsNotifications: {
+    backToProfile: 'Back to profile',
+    pageTitle: 'Notification preferences',
+    pageIntro:
+      'Choose which events email you. The portal admin must enable email delivery at the platform level (NOTIFICATIONS_ENABLED) for any of these to actually fire.',
+    categorySharing: 'Sharing',
+    categoryAccount: 'Account',
+    categoryEditor: 'Editor activity',
+    channelEmail: 'email',
+    defaultBadge: 'default',
+    errSaveChange: 'Could not save change.',
   },
 
 } as const;

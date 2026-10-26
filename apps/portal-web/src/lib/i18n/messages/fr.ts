@@ -1181,6 +1181,9 @@ export const fr: Partial<CatalogShape> = {
     continueToKeycloak: 'continuez vers Keycloak',
   },
   adminSecurity: {
+    pageIntro:
+      'Ajoutez un compte professionnel que les gens ont déjà, et décidez si la prochaine connexion doit configurer un authentificateur.',
+    errLoad: 'Impossible de charger les paramètres de connexion.',
     authenticatorTitle: 'Authentificateur',
     authenticatorIntro:
       'Quand c\'est activé, chaque compte doit configurer un authentificateur à la prochaine connexion, y compris le vôtre.',
@@ -1275,6 +1278,23 @@ export const fr: Partial<CatalogShape> = {
   },
 
   adminUsers: {
+    backToPortal: 'Retour au portail',
+    pageIntro:
+      'Gérez le magasin d’utilisateurs intégré : invitez des utilisateurs, réinitialisez les mots de passe, changez les rôles, désactivez l’accès.',
+    apiNotConfiguredTitle: 'API d’administration non configurée',
+    apiNotConfiguredBefore: 'Définissez',
+    apiNotConfiguredAnd: 'et',
+    apiNotConfiguredForPortalApi:
+      'pour portal-api, et accordez au compte de service du client',
+    apiNotConfiguredClientThe: 'le rôle',
+    apiNotConfiguredRoleIn: 'dans Keycloak.',
+    listErrorTitle: 'Impossible de charger les utilisateurs depuis Keycloak',
+    listErrorFallback: 'Impossible de charger les utilisateurs depuis Keycloak.',
+    listErrorCommonBefore: 'Causes courantes : le client',
+    listErrorCommonMid:
+      'est absent du realm, son compte de service n’a pas le rôle',
+    listErrorCommonAfter:
+      ', ou le secret client dans l’environnement portal-api est obsolète.',
     searchPlaceholder: 'Rechercher par nom, e-mail ou identifiant...',
     inviteUser: 'Inviter un utilisateur',
     colName: 'Nom',
@@ -1440,6 +1460,19 @@ export const fr: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         '{username} retiré de {count, plural, one {# groupe} other {# groupes}}.',
     },
+  },
+
+  settingsNotifications: {
+    backToProfile: 'Retour au profil',
+    pageTitle: 'Préférences de notification',
+    pageIntro:
+      'Choisissez quels événements vous envoient un e-mail. L’administrateur du portail doit activer l’envoi d’e-mails au niveau plateforme (NOTIFICATIONS_ENABLED) pour que l’un d’eux se déclenche réellement.',
+    categorySharing: 'Partage',
+    categoryAccount: 'Compte',
+    categoryEditor: 'Activité de l’éditeur',
+    channelEmail: 'e-mail',
+    defaultBadge: 'par défaut',
+    errSaveChange: 'Impossible d’enregistrer la modification.',
   },
 
 };

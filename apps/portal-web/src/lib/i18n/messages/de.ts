@@ -1190,6 +1190,9 @@ export const de: Partial<CatalogShape> = {
     continueToKeycloak: 'weiter zu Keycloak',
   },
   adminSecurity: {
+    pageIntro:
+      'Fügen Sie ein Arbeitskonto hinzu, das die Nutzer bereits haben, und legen Sie fest, ob bei der nächsten Anmeldung ein Authenticator eingerichtet werden muss.',
+    errLoad: 'Anmeldeeinstellungen konnten nicht geladen werden.',
     authenticatorTitle: 'Authenticator',
     authenticatorIntro:
       'Wenn das aktiv ist, muss jedes Konto beim nächsten Anmelden einen Authenticator einrichten – einschließlich Ihres eigenen.',
@@ -1284,6 +1287,23 @@ export const de: Partial<CatalogShape> = {
   },
 
   adminUsers: {
+    backToPortal: 'Zurück zum Portal',
+    pageIntro:
+      'Verwalten Sie den integrierten Benutzerspeicher: Benutzer einladen, Passwörter zurücksetzen, Rollen ändern, Zugriff deaktivieren.',
+    apiNotConfiguredTitle: 'Admin-API nicht konfiguriert',
+    apiNotConfiguredBefore: 'Setzen Sie',
+    apiNotConfiguredAnd: 'und',
+    apiNotConfiguredForPortalApi:
+      'für portal-api und gewähren Sie dem Service-Account des Clients',
+    apiNotConfiguredClientThe: 'die Rolle',
+    apiNotConfiguredRoleIn: 'in Keycloak.',
+    listErrorTitle: 'Benutzer konnten nicht aus Keycloak geladen werden',
+    listErrorFallback: 'Benutzer konnten nicht aus Keycloak geladen werden.',
+    listErrorCommonBefore: 'Häufige Ursachen: Der Client',
+    listErrorCommonMid:
+      'fehlt im Realm, seinem Service-Account ist nicht die Rolle',
+    listErrorCommonAfter:
+      ' zugewiesen, oder das Client-Geheimnis in der portal-api-Umgebung ist veraltet.',
     searchPlaceholder: 'Nach Name, E-Mail oder Benutzername suchen...',
     inviteUser: 'Benutzer einladen',
     colName: 'Name',
@@ -1449,6 +1469,19 @@ export const de: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         '{username} aus {count, plural, one {# Gruppe} other {# Gruppen}} entfernt.',
     },
+  },
+
+  settingsNotifications: {
+    backToProfile: 'Zurück zum Profil',
+    pageTitle: 'Benachrichtigungseinstellungen',
+    pageIntro:
+      'Wählen Sie, welche Ereignisse Ihnen E-Mails senden. Der Portal-Administrator muss den E-Mail-Versand auf Plattformebene aktivieren (NOTIFICATIONS_ENABLED), damit eines davon tatsächlich ausgelöst wird.',
+    categorySharing: 'Freigabe',
+    categoryAccount: 'Konto',
+    categoryEditor: 'Editor-Aktivität',
+    channelEmail: 'E-Mail',
+    defaultBadge: 'Standard',
+    errSaveChange: 'Änderung konnte nicht gespeichert werden.',
   },
 
 };

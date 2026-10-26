@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { NotificationPreferencesForm } from './notification-preferences-form';
 
 interface PreferencesPayload {
@@ -30,6 +32,7 @@ export const metadata = { title: 'Notification preferences' };
  * slow round-trip doesn't make the toggle feel laggy.
  */
 export default async function NotificationsSettingsPage() {
+  const locale = await getServerLocale();
   // apiFetch is the server-side helper; it talks to portal-api
   // directly, so the path it gets is the API's actual URL (no
   // `/api/portal/` BFF prefix). Other server components in this
@@ -48,15 +51,13 @@ export default async function NotificationsSettingsPage() {
           className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to profile
+          {t('settingsNotifications.backToProfile', undefined, locale)}
         </Link>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          Notification preferences
+          {t('settingsNotifications.pageTitle', undefined, locale)}
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Choose which events email you. The portal admin must enable
-          email delivery at the platform level (NOTIFICATIONS_ENABLED)
-          for any of these to actually fire.
+          {t('settingsNotifications.pageIntro', undefined, locale)}
         </p>
       </header>
 
