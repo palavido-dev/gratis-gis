@@ -17,7 +17,9 @@
 #   - 17 → 18 (#306): same dump/restore dance. The PG17 data dir is
 #     unreadable by the PG18 binary. Prefer pg_dumpall (or
 #     pg_upgrade with matching binaries) before swapping this image
-#     on any deployment that already has a volume.
+#     on any deployment that already has a volume. Compose mounts
+#     also move from /var/lib/postgresql/data → /var/lib/postgresql
+#     (docker-library/postgres#1259 major-version subdirs).
 #
 # Base OS: postgis/postgis:18-3.6 is Debian 13 (trixie). That retires
 # the bullseye archive.debian.org / apt-archive.postgresql.org
