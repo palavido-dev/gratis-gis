@@ -152,6 +152,13 @@ import {
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Custom Web App runtime client (#341). Renders a designed page's
@@ -3021,45 +3028,36 @@ function SessionSymbologyDialog({
   }, [layer.source]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Symbology for ${layer.title}`}
-      onClick={onClose}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
+      <DialogContent
+        size="md"
+        className="flex max-h-[85vh] flex-col overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-0 shadow-(--app-shadow-overlay)"
       >
-        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
-              Symbology
-            </h3>
-            <p className="truncate text-2xs text-[hsl(var(--app-muted))]">{layer.title}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-          >
-            <XIcon className="h-4 w-4" />
-          </button>
+        <div className="border-b border-[hsl(var(--app-border))] px-4 py-3 pr-12">
+          <DialogTitle className="truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
+            Symbology
+          </DialogTitle>
+          <DialogDescription className="truncate text-2xs text-[hsl(var(--app-muted))]">
+            {layer.title}
+          </DialogDescription>
         </div>
         <p className="border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-warn)/0.1)] px-4 py-2 text-2xs text-[hsl(var(--app-warn))]">
           Changes apply to this session only. Refresh the page to
           reset to the saved style.
         </p>
-        <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <StyleEditor
             value={layer.style}
             onChange={onPatchStyle}
             {...(geometryTypes ? { geometryTypes } : {})}
           />
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-[hsl(var(--app-border))] px-4 py-3">
+        <DialogFooter className="border-[hsl(var(--app-border))] bg-transparent">
           <button
             type="button"
             onClick={() => onPatchStyle(structuredClone(originalRef.current))}
@@ -3074,9 +3072,9 @@ function SessionSymbologyDialog({
           >
             Done
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3102,29 +3100,20 @@ function LayerPropertiesDialog({
       : null;
   const sourceLabel = describeSourceKind(layer.source.kind);
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${layer.title} properties`}
-      onClick={onClose}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
+      <DialogContent
+        size="sm"
+        className="overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-0 shadow-(--app-shadow-overlay)"
       >
-        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
-          <h3 className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
+        <div className="border-b border-[hsl(var(--app-border))] px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
             {layer.title}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-          >
-            <XIcon className="h-4 w-4" />
-          </button>
+          </DialogTitle>
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-4 py-3 text-xs">
           <dt className="text-[hsl(var(--app-muted))]">Source</dt>
@@ -3150,8 +3139,8 @@ function LayerPropertiesDialog({
           Properties shown here are session-only. Refreshing the
           page resets them.
         </p>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

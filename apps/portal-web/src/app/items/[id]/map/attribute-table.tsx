@@ -33,6 +33,13 @@ import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
@@ -2480,40 +2487,38 @@ function CalculateFieldModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-border bg-surface-1 shadow-raised">
-        <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-2 px-4 py-3">
-          <div>
-            <h3 className="text-sm font-medium text-ink-0">
-              Calculate Field
-            </h3>
-            <p className="flex items-center gap-1 text-xs text-muted">
-              Updates
-              <select
-                value={fieldName}
-                onChange={(e) => {
-                  setFieldName(e.target.value);
-                  setPreview(null);
-                }}
-                className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
-              >
-                {availableFields.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              across every row in scope.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-muted hover:bg-surface-1"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !submitting) onClose();
+      }}
+    >
+      <DialogContent
+        size="lg"
+        className="overflow-hidden p-0 shadow-raised"
+      >
+        <header className="border-b border-border bg-surface-2 px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            Calculate Field
+          </DialogTitle>
+          <DialogDescription className="flex items-center gap-1 text-xs text-muted">
+            Updates
+            <select
+              value={fieldName}
+              onChange={(e) => {
+                setFieldName(e.target.value);
+                setPreview(null);
+              }}
+              className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
+            >
+              {availableFields.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            across every row in scope.
+          </DialogDescription>
         </header>
 
         <div className="space-y-4 p-4">
@@ -2669,7 +2674,7 @@ function CalculateFieldModal({
           ) : null}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-4 py-3">
+        <DialogFooter className="bg-surface-2">
           <button
             type="button"
             onClick={onClose}
@@ -2705,9 +2710,9 @@ function CalculateFieldModal({
             ) : null}
             Apply
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

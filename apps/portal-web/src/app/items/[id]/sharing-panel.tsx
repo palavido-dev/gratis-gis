@@ -35,6 +35,13 @@ import {
 } from '@/components/principal-picker';
 import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   ShareGeoLimitDialog,
   type BoundaryOption,
   type ShareGeoLimitSave,
@@ -1436,73 +1443,83 @@ export function SharingPanel({
         />
       ) : null}
 
-      {pendingShare ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-surface-1 shadow-raised">
-            <div className="flex items-start gap-3 border-b border-border px-4 py-3">
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warn/15 text-warn">
-                <AlertTriangle className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-ink-0">
-                  Grant access to dependencies?
-                </h2>
-                <p className="mt-1 text-xs text-muted">
-                  <span className="font-medium text-ink-1">
-                    {pendingShare.principalName}
-                  </span>{' '}
-                  cannot see {pendingShare.missing.length} item
-                  {pendingShare.missing.length === 1 ? '' : 's'} this
-                  editor depends on. Without view access on each one,
-                  the editor will fail to load when they open it.
-                </p>
+      <Dialog
+        open={Boolean(pendingShare)}
+        onOpenChange={(next) => {
+          if (!next && !confirmingShare) setPendingShare(null);
+        }}
+      >
+        <DialogContent
+          size="md"
+          className="flex max-h-[80vh] max-w-lg flex-col overflow-hidden p-0"
+        >
+          {pendingShare ? (
+            <>
+              <div className="flex items-start gap-3 border-b border-border px-4 py-3 pr-12">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warn/15 text-warn">
+                  <AlertTriangle className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <DialogTitle className="text-sm font-semibold text-ink-0">
+                    Grant access to dependencies?
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 text-xs text-muted">
+                    <span className="font-medium text-ink-1">
+                      {pendingShare.principalName}
+                    </span>{' '}
+                    cannot see {pendingShare.missing.length} item
+                    {pendingShare.missing.length === 1 ? '' : 's'} this
+                    editor depends on. Without view access on each one,
+                    the editor will fail to load when they open it.
+                  </DialogDescription>
+                </div>
               </div>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-3">
-              <ul className="space-y-1.5">
-                {pendingShare.missing.map((dep) => (
-                  <li
-                    key={dep.id}
-                    className="rounded border border-warn/30 bg-warn/10 px-3 py-2"
-                  >
-                    <div className="text-sm font-medium text-ink-1">
-                      {dep.title}
-                    </div>
-                    <div className="text-2xs uppercase tracking-wide text-warn">
-                      {getItemTypeLabel(dep.type)}
-                      {dep.rationale ? ` · ${dep.rationale}` : ''}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+                <ul className="space-y-1.5">
+                  {pendingShare.missing.map((dep) => (
+                    <li
+                      key={dep.id}
+                      className="rounded border border-warn/30 bg-warn/10 px-3 py-2"
+                    >
+                      <div className="text-sm font-medium text-ink-1">
+                        {dep.title}
+                      </div>
+                      <div className="text-2xs uppercase tracking-wide text-warn">
+                        {getItemTypeLabel(dep.type)}
+                        {dep.rationale ? ` · ${dep.rationale}` : ''}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-4 py-3">
-              <button
-                type="button"
-                disabled={confirmingShare}
-                onClick={() => setPendingShare(null)}
-                className="inline-flex h-8 items-center rounded border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-              >
-                Cancel share
-              </button>
-              <button
-                type="button"
-                disabled={confirmingShare}
-                onClick={() => void confirmGrantAndShare()}
-                className="inline-flex h-8 items-center gap-1 rounded bg-warn px-3 text-xs font-medium text-white hover:bg-warn/80 disabled:opacity-50"
-              >
-                {confirmingShare ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                Share + grant view on {pendingShare.missing.length} item
-                {pendingShare.missing.length === 1 ? '' : 's'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+              <DialogFooter>
+                <button
+                  type="button"
+                  disabled={confirmingShare}
+                  onClick={() => setPendingShare(null)}
+                  className="inline-flex h-8 items-center rounded border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                >
+                  Cancel share
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmingShare}
+                  onClick={() => void confirmGrantAndShare()}
+                  className="inline-flex h-8 items-center gap-1 rounded bg-warn px-3 text-xs font-medium text-white hover:bg-warn/80 disabled:opacity-50"
+                >
+                  {confirmingShare ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Share + grant view on {pendingShare.missing.length} item
+                  {pendingShare.missing.length === 1 ? '' : 's'}
+                </button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* #310 cascade prompt: when the author flips this item to
           public, offer to flip every transitively-referenced
