@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 interface CollectionDao {
   @Upsert suspend fun upsert(row: CollectionEntity)
   @Query("SELECT * FROM collection WHERE id = :id") suspend fun get(id: String): CollectionEntity?
+  @Query("SELECT * FROM collection ORDER BY title") suspend fun all(): List<CollectionEntity>
   @Query("SELECT * FROM collection ORDER BY title") fun observeAll(): Flow<List<CollectionEntity>>
   @Query("DELETE FROM collection WHERE id = :id") suspend fun delete(id: String)
 }
