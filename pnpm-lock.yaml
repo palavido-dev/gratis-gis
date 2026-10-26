@@ -30,7 +30,7 @@ overrides:
   esbuild: ^0.28.1
   tar: ^7.5.21
   sharp: ^0.35.4
-  next: ^16.3.3
+  next: ^16.4.3
   valibot: ^1.4.2
   deepmerge-ts: ^8.0.0
   mysql2: ^3.22.0
@@ -5150,7 +5150,7 @@ packages:
     resolution: {integrity: sha512-NnjYtjrSOAx/TIVFGTX4IfI/9yHnNpi4B7FuLUwuV20v2Zxgr2OGP/YN0ynJuI7y8QOnTBPitfOdEXZrVvhIuA==}
     peerDependencies:
       '@auth/core': 0.34.3
-      next: ^16.3.3
+      next: ^16.4.3
       nodemailer: ^9.0.1
       react: ^17.0.2 || ^18 || ^19
       react-dom: ^17.0.2 || ^18 || ^19
