@@ -20,9 +20,9 @@ import {
   detectCsvCoordinates,
 } from './csv-smart-detect.js';
 import {
-  detectUsStateGeomatch,
-  featuresFromUsStateGeomatch,
-  planUsStateGeomatch,
+  detectUsGeomatch,
+  featuresFromGeomatch,
+  planUsGeomatch,
   type GeomatchPlan,
 } from './csv-geomatch.js';
 import {
@@ -321,9 +321,9 @@ export class IngestService {
         throw mapParquetError(err);
       }
     }
-    const geomatch = await this.tryUsStatePlan(filePath);
+    const geomatch = await this.tryUsGeomatchPlan(filePath);
     if (geomatch) {
-      const built = featuresFromUsStateGeomatch(geomatch);
+      const built = featuresFromGeomatch(geomatch);
       return {
         driver: 'csv-geomatch',
         layers: [
@@ -700,14 +700,14 @@ export class IngestService {
       }
     }
     if (opts.isTable !== true) {
-      const geomatch = await this.tryUsStatePlan(filePath);
+      const geomatch = await this.tryUsGeomatchPlan(filePath);
       if (geomatch) {
         if (sourceLayer && sourceLayer !== geomatch.layerName) {
           throw new BadRequestException(
             `File has no layer named "${sourceLayer}".`,
           );
         }
-        return this.streamUsStateGeomatchLayer(geomatch, onBatch, batchSize);
+        return this.streamUsGeomatchLayer(geomatch, onBatch, batchSize);
       }
       const addressed = await this.tryAddressPlan(filePath);
       if (addressed) {
@@ -1041,15 +1041,15 @@ export class IngestService {
       const lastBreak = text.lastIndexOf('\n');
       text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
     }
-    const detected = detectUsStateGeomatch(text);
+    const detected = detectUsGeomatch(text);
     if (detected.kind !== 'matched') {
       this.log.debug(
-        `No US-state geomatch in ${originalName}: ${detected.reason}`,
+        `No US geomatch in ${originalName}: ${detected.reason}`,
       );
       return null;
     }
     this.log.log(
-      `Geomatch found US states in ${originalName}: ` +
+      `Geomatch found ${detected.boundary} in ${originalName}: ` +
         `column="${detected.column}", matched=${detected.matched}, ` +
         `unmatched=${detected.unmatched}`,
     );
@@ -1061,16 +1061,16 @@ export class IngestService {
     };
   }
 
-  private async tryUsStatePlan(
+  private async tryUsGeomatchPlan(
     filePath: string,
   ): Promise<(GeomatchPlan & { layerName: string }) | null> {
     if (!looksLikeTabularText(filePath)) return null;
     const text = await this.readDelimitedPrefix(filePath);
     if (text === null) return null;
-    const plan = planUsStateGeomatch(text);
-    if (plan.kind !== 'us-states') {
+    const plan = planUsGeomatch(text);
+    if (plan.kind === 'none') {
       this.log.debug(
-        `No US-state geomatch in ${basename(filePath)}: ${plan.reason}`,
+        `No US geomatch in ${basename(filePath)}: ${plan.reason}`,
       );
       return null;
     }
@@ -1080,7 +1080,7 @@ export class IngestService {
     return { ...plan, layerName };
   }
 
-  private async streamUsStateGeomatchLayer(
+  private async streamUsGeomatchLayer(
     plan: GeomatchPlan & { layerName: string },
     onBatch: (
       batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
@@ -1094,10 +1094,10 @@ export class IngestService {
     sourceSrs: string;
     total: number;
   }> {
-    const built = featuresFromUsStateGeomatch(plan);
+    const built = featuresFromGeomatch(plan);
     if (built.matched === 0) {
       throw new BadRequestException(
-        'No rows matched a US state name or abbreviation for geomatch.',
+        'No rows matched a US boundary name for geomatch.',
       );
     }
     const total = built.geojson.features.length;

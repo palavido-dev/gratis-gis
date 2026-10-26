@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
-  detectUsStateGeomatch,
+  detectUsGeomatch,
+  planUsCountyGeomatch,
   planUsStateGeomatch,
 } from './csv-geomatch.js';
 
@@ -33,15 +34,50 @@ describe('planUsStateGeomatch', () => {
     );
     expect(plan.kind).toBe('none');
   });
+
+  it('defers when a County column is present', () => {
+    const plan = planUsStateGeomatch(
+      'County,State,Pop\nTravis,TX,1\nKing,WA,2\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
 });
 
-describe('detectUsStateGeomatch', () => {
+describe('planUsCountyGeomatch', () => {
+  it('detects County + State columns', () => {
+    const plan = planUsCountyGeomatch(
+      'County,State,Pop\nTravis,TX,100\nKing,WA,200\n',
+    );
+    expect(plan.kind).toBe('us-counties');
+    if (plan.kind !== 'us-counties') return;
+    expect(plan.column).toBe('County');
+    expect(plan.stateColumnIndex).not.toBeNull();
+  });
+
+  it('accepts "County, ST" composite cells without a state column', () => {
+    const plan = planUsCountyGeomatch(
+      'County,Pop\n"Travis, TX",1\n"King, WA",2\n"Los Angeles, CA",3\n',
+    );
+    expect(plan.kind).toBe('us-counties');
+  });
+
+  it('rejects ambiguous bare county names without state', () => {
+    // Washington County exists in many states — unique-name map must miss.
+    const plan = planUsCountyGeomatch(
+      'County,Pop\nWashington,1\nWashington,2\nWashington,3\n',
+    );
+    expect(plan.kind).toBe('none');
+  });
+});
+
+describe('detectUsGeomatch', () => {
   it('joins population rows to state polygons', () => {
-    const result = detectUsStateGeomatch(
+    const result = detectUsGeomatch(
       'State,Population\nCalifornia,39500000\nUnknownland,1\nTexas,29000000\n',
     );
     expect(result.kind).toBe('matched');
     if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('us-states');
     expect(result.matched).toBe(2);
     expect(result.unmatched).toBe(1);
     expect(result.geojson.features).toHaveLength(2);
@@ -50,8 +86,31 @@ describe('detectUsStateGeomatch', () => {
     expect(result.geojson.features[0]?.properties.state_abbr).toBe('CA');
   });
 
+  it('joins county rows with state disambiguation', () => {
+    const result = detectUsGeomatch(
+      'County,State,Population\nTravis,TX,100\nKing,WA,200\nNowhere,ZZ,1\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('us-counties');
+    expect(result.matched).toBe(2);
+    expect(result.unmatched).toBe(1);
+    expect(result.geojson.features[0]?.properties.county_name).toBe('Travis');
+    expect(result.geojson.features[0]?.properties.state_abbr).toBe('TX');
+    expect(result.geojson.features[0]?.properties.county_geoid).toMatch(/^\d{5}$/);
+  });
+
+  it('prefers counties over states when both columns exist', () => {
+    const result = detectUsGeomatch(
+      'County,State,Pop\nTravis,TX,1\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.boundary).toBe('us-counties');
+  });
+
   it('drops forged __proto__ headers instead of polluting Object', () => {
-    const result = detectUsStateGeomatch(
+    const result = detectUsGeomatch(
       'State,__proto__\nCalifornia,polluted\n',
     );
     expect(result.kind).toBe('matched');

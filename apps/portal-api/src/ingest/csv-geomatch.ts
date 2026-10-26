@@ -2,15 +2,16 @@
 /**
  * #160 Smart upload Phase 2: boundary-name geomatch.
  *
- * When a CSV has no coordinate pair (and is not an address file), look
- * for a column of US state names or abbreviations and join each row to
- * the vendored state polygon. Success criterion from the roadmap: a
- * "State" + "Population" spreadsheet becomes a state-polygon layer
- * without manual schema editing.
+ * When a CSV has no coordinate pair, look for a US county or state
+ * name column and join each row to the vendored polygon set. Order
+ * of preference: counties (more specific) → states. Success criteria
+ * from the roadmap: "State"+"Population" → state polygons; county
+ * (+ optional state) column → county polygons.
  *
- * Boundaries live at `apps/portal-api/content/boundaries/us-states.geojson`
- * (public-domain Cartographic Boundary / PublicaMundi-derived polygons
- * with `name` + `abbr` properties). Loaded once per process.
+ * Boundaries live at `apps/portal-api/content/boundaries/`:
+ * - `us-states.geojson` — name + abbr (PublicaMundi / CB lineage)
+ * - `us-counties.geojson` — name + state_abbr + state_name + geoid
+ *   (Census Cartographic Boundary 2023 20m; public domain)
  */
 
 import { readFileSync } from 'node:fs';
@@ -37,17 +38,41 @@ const STATE_COLUMN: Array<{ pattern: RegExp; score: number }> = [
   { pattern: /^region$/, score: 55 },
 ];
 
-export interface GeomatchPlan {
-  kind: 'us-states';
+const COUNTY_COLUMN: Array<{ pattern: RegExp; score: number }> = [
+  { pattern: /^county$/, score: 100 },
+  { pattern: /^countyname$/, score: 100 },
+  { pattern: /^county_name$/, score: 100 },
+  { pattern: /^cnty$/, score: 90 },
+  { pattern: /^parish$/, score: 90 },
+  { pattern: /^borough$/, score: 85 },
+  { pattern: /^fips$/, score: 80 },
+  { pattern: /^geoid$/, score: 80 },
+];
+
+type FieldDef = {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'date';
+};
+
+interface GeomatchPlanBase {
   column: string;
   columnIndex: number;
   header: string[];
   rows: string[][];
-  fields: Array<{
-    name: string;
-    type: 'string' | 'number' | 'boolean' | 'date';
-  }>;
+  fields: FieldDef[];
 }
+
+export interface UsStateGeomatchPlan extends GeomatchPlanBase {
+  kind: 'us-states';
+}
+
+export interface UsCountyGeomatchPlan extends GeomatchPlanBase {
+  kind: 'us-counties';
+  /** Optional companion state column for disambiguation. */
+  stateColumnIndex: number | null;
+}
+
+export type GeomatchPlan = UsStateGeomatchPlan | UsCountyGeomatchPlan;
 
 export type GeomatchDetect =
   | GeomatchPlan
@@ -55,6 +80,7 @@ export type GeomatchDetect =
 
 export interface GeomatchResult {
   kind: 'matched';
+  boundary: 'us-states' | 'us-counties';
   geojson: {
     type: 'FeatureCollection';
     features: Array<{
@@ -63,10 +89,7 @@ export interface GeomatchResult {
       geometry: GeoJsonGeometry;
     }>;
   };
-  fields: Array<{
-    name: string;
-    type: 'string' | 'number' | 'boolean' | 'date';
-  }>;
+  fields: FieldDef[];
   column: string;
   matched: number;
   unmatched: number;
@@ -83,17 +106,31 @@ interface StateBoundary {
   geometry: GeoJsonGeometry;
 }
 
-let cachedStates: StateBoundary[] | null = null;
-let cachedByKey: Map<string, StateBoundary> | null = null;
+interface CountyBoundary {
+  name: string;
+  stateAbbr: string;
+  stateName: string;
+  geoid: string;
+  geometry: GeoJsonGeometry;
+}
 
-function boundariesPath(): string {
+let cachedStates: StateBoundary[] | null = null;
+let cachedStateByKey: Map<string, StateBoundary> | null = null;
+
+let cachedCounties: CountyBoundary[] | null = null;
+/** `normalize(name)|normalize(abbr)` → county */
+let cachedCountyByQualified: Map<string, CountyBoundary> | null = null;
+/** Unique nationwide county names (and geoids) only */
+let cachedCountyByUnique: Map<string, CountyBoundary> | null = null;
+
+function boundariesDir(): string {
   // Dist: dist/ingest → ../../content/boundaries
   // Jest/src: src/ingest → ../../content/boundaries
-  return join(__dirname, '..', '..', 'content', 'boundaries', 'us-states.geojson');
+  return join(__dirname, '..', '..', 'content', 'boundaries');
 }
 
 export function loadUsStateBoundaries(
-  path = boundariesPath(),
+  path = join(boundariesDir(), 'us-states.geojson'),
 ): StateBoundary[] {
   if (cachedStates) return cachedStates;
   const raw = JSON.parse(readFileSync(path, 'utf8')) as {
@@ -107,24 +144,76 @@ export function loadUsStateBoundaries(
     abbr: f.properties.abbr,
     geometry: f.geometry,
   }));
-  cachedByKey = new Map();
+  cachedStateByKey = new Map();
   for (const s of cachedStates) {
-    cachedByKey.set(normalizeKey(s.name), s);
-    cachedByKey.set(normalizeKey(s.abbr), s);
+    cachedStateByKey.set(normalizeKey(s.name), s);
+    cachedStateByKey.set(normalizeKey(s.abbr), s);
   }
   return cachedStates;
+}
+
+export function loadUsCountyBoundaries(
+  path = join(boundariesDir(), 'us-counties.geojson'),
+): CountyBoundary[] {
+  if (cachedCounties) return cachedCounties;
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+    features: Array<{
+      properties: {
+        name: string;
+        state_abbr: string;
+        state_name: string;
+        geoid: string;
+      };
+      geometry: GeoJsonGeometry;
+    }>;
+  };
+  cachedCounties = raw.features.map((f) => ({
+    name: f.properties.name,
+    stateAbbr: f.properties.state_abbr,
+    stateName: f.properties.state_name,
+    geoid: f.properties.geoid,
+    geometry: f.geometry,
+  }));
+  cachedCountyByQualified = new Map();
+  const nameCounts = new Map<string, number>();
+  for (const c of cachedCounties) {
+    const bare = normalizeCountyName(c.name);
+    cachedCountyByQualified.set(`${bare}|${normalizeKey(c.stateAbbr)}`, c);
+    cachedCountyByQualified.set(`${bare}|${normalizeKey(c.stateName)}`, c);
+    cachedCountyByQualified.set(normalizeKey(c.geoid), c);
+    nameCounts.set(bare, (nameCounts.get(bare) ?? 0) + 1);
+  }
+  cachedCountyByUnique = new Map();
+  for (const c of cachedCounties) {
+    const bare = normalizeCountyName(c.name);
+    if ((nameCounts.get(bare) ?? 0) === 1) {
+      cachedCountyByUnique.set(bare, c);
+    }
+    cachedCountyByUnique.set(normalizeKey(c.geoid), c);
+  }
+  return cachedCounties;
 }
 
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+/** Strip trailing County/Parish/Borough so "Travis County" ≡ "Travis". */
+function normalizeCountyName(value: string): string {
+  const trimmed = value
+    .trim()
+    .replace(/\s+(county|parish|borough|census area|municipality|city and borough)$/i, '');
+  return normalizeKey(trimmed);
+}
+
 function bestColumn(
   header: string[],
   vocab: Array<{ pattern: RegExp; score: number }>,
+  excludeIdx?: number,
 ): { idx: number; score: number } | null {
   let best: { idx: number; score: number } | null = null;
   for (let i = 0; i < header.length; i += 1) {
+    if (i === excludeIdx) continue;
     const normalized = (header[i] ?? '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '');
@@ -155,6 +244,70 @@ function inferFieldType(
   return 'string';
 }
 
+function parseCountyCell(raw: string): { name: string; state: string | null } {
+  // "Travis, TX" / "Travis County, Texas"
+  const comma = raw.match(/^(.+?)\s*,\s*([A-Za-z .]+)$/);
+  if (comma) {
+    return { name: comma[1]!.trim(), state: comma[2]!.trim() };
+  }
+  return { name: raw, state: null };
+}
+
+function lookupCounty(
+  raw: string,
+  stateHint: string | null,
+): CountyBoundary | undefined {
+  loadUsCountyBoundaries();
+  const parsed = parseCountyCell(raw);
+  const state = stateHint ?? parsed.state;
+  const bare = normalizeCountyName(parsed.name);
+  if (!bare) return undefined;
+
+  // 5-digit GEOID shortcut
+  if (/^\d{5}$/.test(raw.trim())) {
+    return cachedCountyByQualified!.get(normalizeKey(raw));
+  }
+
+  if (state) {
+    const hit = cachedCountyByQualified!.get(`${bare}|${normalizeKey(state)}`);
+    if (hit) return hit;
+  }
+  return cachedCountyByUnique!.get(bare);
+}
+
+function rowProperties(
+  plan: GeomatchPlanBase,
+  row: string[],
+  extras: Array<[string, unknown]>,
+): Record<string, unknown> {
+  // Build via Map + fromEntries so we never assign `obj[userKey] = …`
+  // (CodeQL js/remote-property-injection).
+  const entries = new Map<string, unknown>();
+  for (let i = 0; i < plan.header.length; i += 1) {
+    const name = safePropertyName(plan.header[i]!);
+    if (name === null) continue;
+    const field = plan.fields[i];
+    const cell = (row[i] ?? '').trim();
+    if (field?.type === 'number' && cell !== '' && /^-?\d+(\.\d+)?$/.test(cell)) {
+      entries.set(name, Number(cell));
+    } else {
+      entries.set(name, cell);
+    }
+  }
+  for (const [k, v] of extras) entries.set(k, v);
+  return Object.fromEntries(entries) as Record<string, unknown>;
+}
+
+/**
+ * Prefer counties over states when a county-like column validates.
+ * Callers still own coords → geomatch → address ordering.
+ */
+export function planUsGeomatch(text: string): GeomatchDetect {
+  const county = planUsCountyGeomatch(text);
+  if (county.kind !== 'none') return county;
+  return planUsStateGeomatch(text);
+}
+
 /**
  * Detect a US-state name/abbr column. Skips files that already have
  * coordinates. Does not attempt address geocoding — callers decide
@@ -169,6 +322,12 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
   if ('error' in parsed) return { kind: 'none', reason: parsed.error };
 
   const { header, rows } = parsed;
+  // A dedicated County column means state-only geomatch should defer —
+  // planUsGeomatch already prefers counties; this guard keeps the
+  // state planner from claiming county+state sheets as state polygons.
+  if (bestColumn(header, COUNTY_COLUMN)) {
+    return { kind: 'none', reason: 'County column present; defer to county geomatch' };
+  }
   const col = bestColumn(header, STATE_COLUMN);
   if (!col) {
     return { kind: 'none', reason: 'No state / province column name detected' };
@@ -182,7 +341,7 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
     const raw = (row[col.idx] ?? '').trim();
     if (!raw) continue;
     seen += 1;
-    if (cachedByKey!.has(normalizeKey(raw))) hit += 1;
+    if (cachedStateByKey!.has(normalizeKey(raw))) hit += 1;
   }
   if (seen === 0) {
     return { kind: 'none', reason: 'State column has no values to validate' };
@@ -210,53 +369,142 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
   };
 }
 
-/** Join planned rows to state polygons. Unmatched rows are dropped. */
+export function planUsCountyGeomatch(text: string): GeomatchDetect {
+  const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (detectCsvColumnPair(clean).kind === 'detected') {
+    return { kind: 'none', reason: 'File already has coordinates' };
+  }
+  const parsed = readDelimitedSample(clean, GEOMATCH_LIMITS.MAX_ROWS);
+  if ('error' in parsed) return { kind: 'none', reason: parsed.error };
+
+  const { header, rows } = parsed;
+  const col = bestColumn(header, COUNTY_COLUMN);
+  if (!col) {
+    return { kind: 'none', reason: 'No county / parish column name detected' };
+  }
+  const stateCol = bestColumn(header, STATE_COLUMN, col.idx);
+
+  loadUsCountyBoundaries();
+  const sample = rows.slice(0, GEOMATCH_LIMITS.VALIDATION_SAMPLE_ROWS);
+  let hit = 0;
+  let seen = 0;
+  for (const row of sample) {
+    const raw = (row[col.idx] ?? '').trim();
+    if (!raw) continue;
+    seen += 1;
+    const stateHint = stateCol ? (row[stateCol.idx] ?? '').trim() || null : null;
+    if (lookupCounty(raw, stateHint)) hit += 1;
+  }
+  if (seen === 0) {
+    return { kind: 'none', reason: 'County column has no values to validate' };
+  }
+  const ratio = hit / seen;
+  if (ratio < GEOMATCH_LIMITS.MIN_VALIDATION_RATIO) {
+    return {
+      kind: 'none',
+      reason: `County column values matched ${Math.round(ratio * 100)}% (need ${Math.round(GEOMATCH_LIMITS.MIN_VALIDATION_RATIO * 100)}%)`,
+    };
+  }
+
+  const fields = header.map((name, idx) => ({
+    name,
+    type: inferFieldType(rows, idx),
+  }));
+
+  return {
+    kind: 'us-counties',
+    column: header[col.idx]!,
+    columnIndex: col.idx,
+    stateColumnIndex: stateCol ? stateCol.idx : null,
+    header,
+    rows,
+    fields,
+  };
+}
+
+/** Join planned rows to boundary polygons. Unmatched rows are dropped. */
+export function featuresFromGeomatch(plan: GeomatchPlan): GeomatchResult {
+  if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
+  return featuresFromUsStateGeomatch(plan);
+}
+
+/** @deprecated Prefer featuresFromGeomatch — kept for call-site compatibility. */
 export function featuresFromUsStateGeomatch(
-  plan: GeomatchPlan,
+  plan: UsStateGeomatchPlan | GeomatchPlan,
 ): GeomatchResult {
+  if (plan.kind === 'us-counties') return featuresFromUsCountyGeomatch(plan);
   loadUsStateBoundaries();
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
   for (const row of plan.rows) {
     const raw = (row[plan.columnIndex] ?? '').trim();
-    const state = raw ? cachedByKey!.get(normalizeKey(raw)) : undefined;
+    const state = raw ? cachedStateByKey!.get(normalizeKey(raw)) : undefined;
     if (!state) {
       unmatched += 1;
       continue;
     }
-    // Build via Map + fromEntries so we never assign `obj[userKey] = …`
-    // (CodeQL js/remote-property-injection). Deny dangerous names, then
-    // materialize a null-prototype record for GeoJSON consumers.
-    const entries = new Map<string, unknown>();
-    for (let i = 0; i < plan.header.length; i += 1) {
-      const name = safePropertyName(plan.header[i]!);
-      if (name === null) continue;
-      const field = plan.fields[i];
-      const cell = (row[i] ?? '').trim();
-      if (field?.type === 'number' && cell !== '' && /^-?\d+(\.\d+)?$/.test(cell)) {
-        entries.set(name, Number(cell));
-      } else {
-        entries.set(name, cell);
-      }
-    }
-    entries.set('state_name', state.name);
-    entries.set('state_abbr', state.abbr);
-    // fromEntries avoids the `obj[taintedKey]=` sink; dangerous names
-    // were already dropped by safePropertyName.
-    const properties = Object.fromEntries(entries) as Record<string, unknown>;
     features.push({
       type: 'Feature',
-      properties,
+      properties: rowProperties(plan, row, [
+        ['state_name', state.name],
+        ['state_abbr', state.abbr],
+      ]),
       geometry: state.geometry,
     });
   }
   return {
     kind: 'matched',
+    boundary: 'us-states',
     geojson: { type: 'FeatureCollection', features },
     fields: [
       ...plan.fields,
       { name: 'state_name', type: 'string' },
       { name: 'state_abbr', type: 'string' },
+    ],
+    column: plan.column,
+    matched: features.length,
+    unmatched,
+  };
+}
+
+export function featuresFromUsCountyGeomatch(
+  plan: UsCountyGeomatchPlan,
+): GeomatchResult {
+  loadUsCountyBoundaries();
+  const features: GeomatchResult['geojson']['features'] = [];
+  let unmatched = 0;
+  for (const row of plan.rows) {
+    const raw = (row[plan.columnIndex] ?? '').trim();
+    const stateHint =
+      plan.stateColumnIndex !== null
+        ? (row[plan.stateColumnIndex] ?? '').trim() || null
+        : null;
+    const county = raw ? lookupCounty(raw, stateHint) : undefined;
+    if (!county) {
+      unmatched += 1;
+      continue;
+    }
+    features.push({
+      type: 'Feature',
+      properties: rowProperties(plan, row, [
+        ['county_name', county.name],
+        ['state_name', county.stateName],
+        ['state_abbr', county.stateAbbr],
+        ['county_geoid', county.geoid],
+      ]),
+      geometry: county.geometry,
+    });
+  }
+  return {
+    kind: 'matched',
+    boundary: 'us-counties',
+    geojson: { type: 'FeatureCollection', features },
+    fields: [
+      ...plan.fields,
+      { name: 'county_name', type: 'string' },
+      { name: 'state_name', type: 'string' },
+      { name: 'state_abbr', type: 'string' },
+      { name: 'county_geoid', type: 'string' },
     ],
     column: plan.column,
     matched: features.length,
@@ -282,13 +530,28 @@ function safePropertyName(raw: string): string | null {
   return name;
 }
 
-/** Detect + join in one call for the buffer ingest path. */
-export function detectUsStateGeomatch(text: string): GeomatchResult | { kind: 'none'; reason: string } {
-  const plan = planUsStateGeomatch(text);
+/** Detect + join in one call for the buffer ingest path (counties → states). */
+export function detectUsGeomatch(
+  text: string,
+): GeomatchResult | { kind: 'none'; reason: string } {
+  const plan = planUsGeomatch(text);
   if (plan.kind === 'none') return plan;
-  const built = featuresFromUsStateGeomatch(plan);
+  const built = featuresFromGeomatch(plan);
   if (built.matched === 0) {
-    return { kind: 'none', reason: 'No rows matched a US state name or abbreviation' };
+    return {
+      kind: 'none',
+      reason:
+        plan.kind === 'us-counties'
+          ? 'No rows matched a US county name'
+          : 'No rows matched a US state name or abbreviation',
+    };
   }
   return built;
+}
+
+/** @deprecated Prefer detectUsGeomatch. */
+export function detectUsStateGeomatch(
+  text: string,
+): GeomatchResult | { kind: 'none'; reason: string } {
+  return detectUsGeomatch(text);
 }
