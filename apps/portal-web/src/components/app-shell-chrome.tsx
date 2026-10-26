@@ -4,7 +4,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import {
   Archive,
   ArrowRightLeft,
@@ -22,7 +21,6 @@ import {
   Sparkles,
   Trash2,
   Users,
-  X as CloseIcon,
 } from 'lucide-react';
 
 import { useSession } from 'next-auth/react';
@@ -35,6 +33,7 @@ import { HelpButton } from './help-button';
 import { FeedbackWidget } from './feedback-widget';
 import { UserMenu } from './user-menu';
 import { BrandWordmark } from './brand-mark';
+import { Sheet, SheetContent } from './ui/sheet';
 
 /**
  * Client wrapper that owns the conditional render of the global
@@ -470,93 +469,17 @@ function MobileNavTrigger({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Track when the component has mounted so the portal target
-  // (document.body) is available.  Without this guard the SSR
-  // pass calls createPortal with no document and crashes.
-  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Close on route change.  Navigating from inside the drawer fires
+  // Close on route change. Navigating from inside the drawer fires
   // onNavigate to set open=false, but a route change initiated
   // elsewhere (back button, deep link) should also dismiss.
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
-  // Close on Esc.  Standard accessibility convention for overlays.
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  // Prevent body scroll while the drawer is open so the underlying
-  // page doesn't jitter when the user swipes inside the drawer.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // The drawer itself is rendered through a portal to document.body
-  // so it escapes any ancestor that would otherwise act as a
-  // containing block for its `position: fixed` panel.  The sticky
-  // top bar uses `backdrop-blur-xs`, and per the CSS spec any element
-  // with a non-`none` `backdrop-filter` becomes the containing
-  // block for fixed descendants.  Without the portal the drawer
-  // ends up sized to the 56px header instead of the full viewport,
-  // which presents as "the drawer only shows one nav item at a
-  // time, the rest scrolls".
-  const drawer =
-    open && mounted
-      ? createPortal(
-          <div
-            className="fixed inset-0 z-50 md:hidden"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('shell.navigation')}
-          >
-            {/* Backdrop. Click to dismiss. */}
-            <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-xs"
-              onClick={() => setOpen(false)}
-            />
-            {/* Drawer panel.  Slide-in from the left. */}
-            <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-border bg-surface-1 px-3 py-4 shadow-xl">
-              <div className="flex items-center justify-between px-2 py-2">
-                <Link
-                  href="/"
-                  onClick={() => setOpen(false)}
-                  className="flex items-center gap-2"
-                >
-                  <BrandWordmark markSize={26} />
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label={t('shell.closeNavigation')}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-                >
-                  <CloseIcon className="h-4 w-4" />
-                </button>
-              </div>
-              <NavList orgRole={orgRole} onNavigate={() => setOpen(false)} />
-            </aside>
-          </div>,
-          document.body,
-        )
-      : null;
-
+  // Sheet portals to document.body (escapes the header's
+  // backdrop-filter containing block) and owns Escape + scroll lock.
   return (
     <>
       <button
@@ -567,7 +490,25 @@ function MobileNavTrigger({
       >
         <MenuIcon className="h-5 w-5" />
       </button>
-      {drawer}
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent
+          side="left"
+          size="sm"
+          className="gap-0 overflow-y-auto px-3 py-4 md:hidden"
+          srTitle={t('shell.navigation')}
+        >
+          <div className="flex items-center px-2 py-2 pr-10">
+            <Link
+              href="/"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2"
+            >
+              <BrandWordmark markSize={26} />
+            </Link>
+          </div>
+          <NavList orgRole={orgRole} onNavigate={() => setOpen(false)} />
+        </SheetContent>
+      </Sheet>
     </>
   );
 }

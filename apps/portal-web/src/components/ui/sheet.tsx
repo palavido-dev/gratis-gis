@@ -2,7 +2,7 @@
 'use client';
 
 /**
- * Shared side-panel primitive (#173). Sheets are modal drawers —
+ * Shared side/bottom-panel primitive (#173). Sheets are modal drawers —
  * same Radix Dialog focus trap / escape / scroll-lock contract as
  * `ui/dialog`, but anchored to an edge instead of centered.
  *
@@ -45,9 +45,9 @@ export const SheetOverlay = forwardRef<
 
 interface SheetContentProps
   extends ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
-  side?: 'right' | 'left';
-  /** Width preset for horizontal sheets. */
-  size?: 'md' | 'lg' | 'xl';
+  side?: 'right' | 'left' | 'bottom';
+  /** Width preset for left/right sheets. Ignored for `bottom`. */
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   srTitle?: string;
   hideCloseButton?: boolean;
 }
@@ -55,12 +55,15 @@ interface SheetContentProps
 const SIDE_CLASS: Record<NonNullable<SheetContentProps['side']>, string> = {
   right: 'inset-y-0 right-0 h-full border-l animate-sheet-in-right',
   left: 'inset-y-0 left-0 h-full border-r animate-sheet-in-left',
+  bottom:
+    'inset-x-0 bottom-0 max-h-[min(80dvh,36rem)] rounded-t-xl border-t animate-sheet-in-bottom',
 };
 
 const SIZE_CLASS: Record<NonNullable<SheetContentProps['size']>, string> = {
-  md: 'max-w-md',
-  lg: 'max-w-3xl',
-  xl: 'max-w-5xl',
+  sm: 'w-72 max-w-[85vw]',
+  md: 'w-full max-w-md',
+  lg: 'w-full max-w-3xl',
+  xl: 'w-full max-w-5xl',
 };
 
 export const SheetContent = forwardRef<
@@ -78,12 +81,13 @@ export const SheetContent = forwardRef<
   },
   ref,
 ) {
+  const widthClass = side === 'bottom' ? 'w-full' : SIZE_CLASS[size];
   return (
     <SheetPortal>
       <SheetOverlay />
       <DialogPrimitive.Content
         ref={ref}
-        className={`fixed z-40 flex w-full ${SIZE_CLASS[size]} ${SIDE_CLASS[side]} flex-col border-border bg-surface-1 text-ink-1 shadow-overlay focus:outline-hidden ${className}`}
+        className={`fixed z-40 flex ${widthClass} ${SIDE_CLASS[side]} flex-col border-border bg-surface-1 text-ink-1 shadow-overlay focus:outline-hidden ${className}`}
         {...props}
       >
         {srTitle ? (

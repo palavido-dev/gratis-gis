@@ -56,6 +56,7 @@
   --animate-dialog-in: dialog-in 180ms ease-out;
   --animate-sheet-in-right: sheet-in-right 180ms ease-out;
   --animate-sheet-in-left: sheet-in-left 180ms ease-out;
+  --animate-sheet-in-bottom: sheet-in-bottom 180ms ease-out;
 
   @keyframes fade-in {
     0% {
@@ -93,6 +94,16 @@
     100% {
       opacity: 1;
       transform: translateX(0);
+    }
+  }
+  @keyframes sheet-in-bottom {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 }
