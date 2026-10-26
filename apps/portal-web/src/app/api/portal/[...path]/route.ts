@@ -67,13 +67,19 @@ async function getLongRunningAgent(): Promise<unknown> {
   return _longRunningAgent;
 }
 
-/** Match v3 per-layer ingest, v2 ingest, the wizard probe path, and
- *  the per-layer GeoParquet export. Conservative: only widens for
- *  endpoints we know can take minutes. */
+/** Match v3 per-layer ingest, v2 ingest, the wizard probe path,
+ *  the per-layer GeoParquet export, and admin backup restore (#233).
+ *  Conservative: only widens for endpoints we know can take minutes. */
 function isLongRunningPath(suffix: string): boolean {
-  return (/^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
-  /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
-  /^items\/[^/]+\/ingest$/.test(suffix) || suffix === 'ingest/probe');
+  return (
+    /^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
+    /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
+    /^items\/[^/]+\/ingest$/.test(suffix) ||
+    suffix === 'ingest/probe' ||
+    // #233: pg_restore + full MinIO refill routinely exceeds undici's
+    // 30s default; without this the BFF aborts mid-restore.
+    /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix)
+  );
 }
 
 /**

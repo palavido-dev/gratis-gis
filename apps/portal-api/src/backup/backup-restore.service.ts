@@ -195,10 +195,11 @@ export class BackupRestoreService {
       });
       await this.runPgRestore(dumpPath);
 
-      // 3. Rebuild the MinIO bucket. Empty existing contents first
-      //    (batched delete); then PUT every file from the archive's
-      //    `minio/` directory preserving the relative path as the key.
-      await this.emptyBucket();
+      // 3. Rebuild the MinIO bucket. #233: PUT archive objects first
+      //    (overwrite in place), then delete keys that were not in
+      //    the archive. Emptying first left a half-empty bucket if
+      //    restoreMinio failed mid-way; this order keeps prior
+      //    objects until their replacements land.
       await this.restoreMinio(path.join(stageDir, 'minio'));
 
       // 4. Write the audit row on the restored DB. We know the
@@ -311,34 +312,12 @@ export class BackupRestoreService {
     }
   }
 
-  private async emptyBucket() {
-    let continuation: string | undefined;
-    do {
-      const res = await this.s3.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          ...(continuation ? { ContinuationToken: continuation } : {}),
-        }),
-      );
-      const keys = (res.Contents ?? [])
-        .map((o) => o.Key)
-        .filter((k): k is string => !!k);
-      if (keys.length) {
-        await this.s3.send(
-          new DeleteObjectsCommand({
-            Bucket: this.bucket,
-            Delete: { Objects: keys.map((Key) => ({ Key })) },
-          }),
-        );
-      }
-      continuation = res.IsTruncated ? res.NextContinuationToken : undefined;
-    } while (continuation);
-  }
-
   /**
    * Walk the staged `minio/` tree and PUT every file back into the
    * bucket, preserving relative paths as keys. Streams each file to
-   * keep memory bounded even for large attachments.
+   * keep memory bounded even for large attachments. After a full
+   * PUT pass, deletes bucket keys that were not in the archive so
+   * the live store matches the backup without a pre-empty (#233).
    */
   private async restoreMinio(srcDir: string) {
     const exists = await fs
@@ -351,6 +330,7 @@ export class BackupRestoreService {
       );
       return;
     }
+    const restoredKeys = new Set<string>();
     const walk = async (dir: string, prefix: string) => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const e of entries) {
@@ -368,10 +348,34 @@ export class BackupRestoreService {
               ContentLength: stat.size,
             }),
           );
+          restoredKeys.add(rel);
         }
       }
     };
     await walk(srcDir, '');
+
+    // Sweep keys the archive did not restore. Batched like emptyBucket.
+    let continuation: string | undefined;
+    do {
+      const res = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          ...(continuation ? { ContinuationToken: continuation } : {}),
+        }),
+      );
+      const stale = (res.Contents ?? [])
+        .map((o) => o.Key)
+        .filter((k): k is string => !!k && !restoredKeys.has(k));
+      if (stale.length) {
+        await this.s3.send(
+          new DeleteObjectsCommand({
+            Bucket: this.bucket,
+            Delete: { Objects: stale.map((Key) => ({ Key })) },
+          }),
+        );
+      }
+      continuation = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (continuation);
   }
 
   // ---------------------------------------------------------------
