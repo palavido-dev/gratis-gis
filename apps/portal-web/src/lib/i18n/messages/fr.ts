@@ -831,6 +831,20 @@ export const fr: Partial<CatalogShape> = {
     terrainOffHint: 'Le 3D est désactivé ; la carte est plate. Vos surfaces et leur ordre sont conservés pour la réactivation.',
     turnOff3d: 'Désactiver le 3D',
     turnOn3d: 'Activer le 3D',
+    carrierHasElevation: '« {title} » apporte sa propre couche d\'élévation.',
+    carrierHasElevationDesc:
+      'Ajoutez-la au relief de cette carte pour donner une hauteur réelle à cette zone.',
+    addToTerrainAction: 'Ajouter au relief',
+    terrainOnUsing: 'Le relief 3D est activé, avec « {title} ».',
+    terrainOnDesc:
+      'Inclinez la carte (clic droit-glisser) pour le voir. Gérez-le dans la section Relief 3D du panneau des couches.',
+    alreadyInTerrain: '« {title} » fait déjà partie du relief de cette carte.',
+    addedToTerrain: '« {title} » a été ajouté au relief de cette carte.',
+    addedToTerrainDesc:
+      'En cas de chevauchement, la couche d\'élévation la plus haute l\'emporte. Réordonnez dans la section Relief 3D du panneau des couches.',
+    elevationUnavailable: 'Cette couche d\'élévation n\'est pas disponible.',
+    elevationNotReady: 'Cette couche d\'élévation n\'est pas encore prête.',
+    elevationAddFailed: 'Impossible d\'ajouter cette couche d\'élévation.',
   },
   scaledSymbology: {
     title: 'Classes d\'échelle',

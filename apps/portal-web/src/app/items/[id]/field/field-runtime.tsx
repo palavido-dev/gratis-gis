@@ -3694,7 +3694,7 @@ function LayerVisibilityPanel({
             reads before deciding to drive out of signal, and it used
             to report a cache with holes in it as simply "Cached". */}
         {cachedDeployment?.partial ? (
-          <p className="mt-1 flex items-start gap-1 text-2xs text-amber-700 dark:text-amber-500">
+          <p className="mt-1 flex items-start gap-1 text-2xs text-warn">
             <AlertTriangle
               className="mt-px h-3 w-3 shrink-0"
               aria-hidden="true"

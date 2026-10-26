@@ -1198,16 +1198,20 @@ export function MapEditor({
       if (stack.length === 0) {
         await ensureElevationInStack(preferredId);
       } else {
-        toast(`"${carrier.title}" comes with its own elevation layer.`, {
-          description:
-            "Add it to this map's terrain so that area gets real ground height.",
-          action: {
-            label: 'Add to terrain',
-            onClick: () => {
-              void ensureElevationInStack(preferredId);
+        toast(
+          t('mapLayerPanel.terrain.carrierHasElevation', {
+            title: carrier.title,
+          }),
+          {
+            description: t('mapLayerPanel.terrain.carrierHasElevationDesc'),
+            action: {
+              label: t('mapLayerPanel.terrain.addToTerrainAction'),
+              onClick: () => {
+                void ensureElevationInStack(preferredId);
+              },
             },
           },
-        });
+        );
       }
       return;
     }
@@ -1255,10 +1259,12 @@ export function MapEditor({
       };
       setMap((m) => (m.terrain ? m : writeTerrainStack(m, [entry])));
       markDirty();
-      toast(`3D terrain is on, using "${match.title}".`, {
-        description:
-          'Tilt the map (right-drag) to see it. Manage it in the 3D terrain section of the layers panel.',
-      });
+      toast(
+        t('mapLayerPanel.terrain.terrainOnUsing', { title: match.title }),
+        {
+          description: t('mapLayerPanel.terrain.terrainOnDesc'),
+        },
+      );
     } catch {
       /* enhancement only; never block the add */
     }
@@ -1275,7 +1281,7 @@ export function MapEditor({
     try {
       const res = await fetch(`/api/portal/items/${demItemId}`);
       if (!res.ok) {
-        toast.error('That elevation layer is not available.');
+        toast.error(t('mapLayerPanel.terrain.elevationUnavailable'));
         return;
       }
       const item = (await res.json()) as {
@@ -1283,13 +1289,14 @@ export function MapEditor({
         data?: { dem?: boolean; tileUrl?: string; maxZoom?: number } | null;
       };
       if (!item.data?.dem || !item.data.tileUrl) {
-        toast.error('That elevation layer is not ready yet.');
+        toast.error(t('mapLayerPanel.terrain.elevationNotReady'));
         return;
       }
-      const title = item.title ?? 'Elevation layer';
+      const title =
+        item.title ?? t('mapLayerPanel.terrain.elevationLayerFallback');
       const current = effectiveTerrainStack(mapRefForProfile.current);
       if (current.some((e) => e.itemId === demItemId)) {
-        toast(`"${title}" is already part of this map's terrain.`);
+        toast(t('mapLayerPanel.terrain.alreadyInTerrain', { title }));
         return;
       }
       const hadTerrain = current.length > 0;
@@ -1302,16 +1309,16 @@ export function MapEditor({
       });
       toast(
         hadTerrain
-          ? `Added "${title}" to this map's terrain.`
-          : `3D terrain is on, using "${title}".`,
+          ? t('mapLayerPanel.terrain.addedToTerrain', { title })
+          : t('mapLayerPanel.terrain.terrainOnUsing', { title }),
         {
           description: hadTerrain
-            ? 'Where elevation layers overlap, the one nearer the top wins. Reorder in the 3D terrain section of the layers panel.'
-            : 'Tilt the map (right-drag) to see it. Manage it in the 3D terrain section of the layers panel.',
+            ? t('mapLayerPanel.terrain.addedToTerrainDesc')
+            : t('mapLayerPanel.terrain.terrainOnDesc'),
         },
       );
     } catch {
-      toast.error('Could not add that elevation layer.');
+      toast.error(t('mapLayerPanel.terrain.elevationAddFailed'));
     }
   }
 

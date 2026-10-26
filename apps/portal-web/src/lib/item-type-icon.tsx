@@ -311,11 +311,11 @@ export function getItemConfigureHref(item: { id: string }): string {
 }
 
 export function getItemTypeAccent(type: ItemType): string {
-  return ITEM_TYPE_ACCENT[type] ?? 'text-slate-600 dark:text-slate-400';
+  return ITEM_TYPE_ACCENT[type] ?? 'text-muted';
 }
 
 export function getItemTypeTileClasses(type: ItemType): string {
-  return ITEM_TYPE_TILE[type] ?? 'bg-slate-500/90 text-white';
+  return ITEM_TYPE_TILE[type] ?? 'bg-muted text-surface-0';
 }
 
 /**

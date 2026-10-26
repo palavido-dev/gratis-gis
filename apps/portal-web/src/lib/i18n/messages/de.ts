@@ -831,6 +831,20 @@ export const de: Partial<CatalogShape> = {
     terrainOffHint: '3D ist aus; die Karte wird flach gerendert. Oberflächen und Reihenfolge bleiben für die Reaktivierung erhalten.',
     turnOff3d: '3D ausschalten',
     turnOn3d: '3D einschalten',
+    carrierHasElevation: '„{title}“ bringt eine eigene Höhenebene mit.',
+    carrierHasElevationDesc:
+      'Fügen Sie sie dem Gelände dieser Karte hinzu, damit dieser Bereich echte Höhe erhält.',
+    addToTerrainAction: 'Zum Gelände hinzufügen',
+    terrainOnUsing: '3D-Gelände ist an und nutzt „{title}“.',
+    terrainOnDesc:
+      'Kippen Sie die Karte (Rechtsklick-Ziehen), um es zu sehen. Verwalten Sie es im Abschnitt 3D-Gelände der Ebenenliste.',
+    alreadyInTerrain: '„{title}“ ist bereits Teil des Geländes dieser Karte.',
+    addedToTerrain: '„{title}“ wurde dem Gelände dieser Karte hinzugefügt.',
+    addedToTerrainDesc:
+      'Bei überlappenden Höhenebenen gewinnt die weiter oben. Reihenfolge im Abschnitt 3D-Gelände der Ebenenliste ändern.',
+    elevationUnavailable: 'Diese Höhenebene ist nicht verfügbar.',
+    elevationNotReady: 'Diese Höhenebene ist noch nicht bereit.',
+    elevationAddFailed: 'Diese Höhenebene konnte nicht hinzugefügt werden.',
   },
   scaledSymbology: {
     title: 'Maßstabsklassen',
