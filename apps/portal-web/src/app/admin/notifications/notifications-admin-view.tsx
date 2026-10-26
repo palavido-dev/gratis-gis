@@ -19,6 +19,12 @@ import {
 } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export interface Stats {
   queueDepth: number;
@@ -870,29 +876,20 @@ function PreviewModal({
   onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-surface-1 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted">
-              Preview
-            </p>
-            <p className="text-sm font-medium text-ink-0">{preview.label}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent size="lg" className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <p className="text-xs uppercase tracking-wide text-muted">
+            Preview
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {preview.label}
+          </DialogTitle>
         </div>
         <div className="space-y-3 px-4 py-3 text-xs">
           <div>
@@ -920,8 +917,8 @@ function PreviewModal({
             </pre>
           </details>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1243,29 +1240,23 @@ function TemplateEditModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-surface-1 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="xl"
+        className="flex max-h-[92vh] !max-w-5xl flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted">
-              Edit template ({channel})
-            </p>
-            <p className="text-sm font-medium text-ink-0">{label}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <p className="text-xs uppercase tracking-wide text-muted">
+            Edit template ({channel})
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {label}
+          </DialogTitle>
         </div>
 
         {loading ? (
@@ -1425,7 +1416,7 @@ function TemplateEditModal({
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
+        <DialogFooter className="justify-between">
           <button
             type="button"
             disabled={!hasOverride || resetting}
@@ -1461,9 +1452,9 @@ function TemplateEditModal({
               Save override
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

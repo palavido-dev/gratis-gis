@@ -9,8 +9,13 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface AgoConnection {
   id: string;
@@ -227,26 +232,16 @@ function ConnectionModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-surface-0 p-6 shadow-card"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold">
-            {mode === 'create' ? 'Add AGO connection' : 'Edit AGO connection'}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted hover:text-ink-0"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+      <DialogContent size="lg" className="bg-surface-0 p-6">
+        <DialogTitle className="mb-4 pr-8 text-base font-semibold">
+          {mode === 'create' ? 'Add AGO connection' : 'Edit AGO connection'}
+        </DialogTitle>
 
         <div className="mb-4 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
           <p className="flex items-start gap-2 font-medium">
@@ -328,7 +323,7 @@ function ConnectionModal({
           </p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <DialogFooter className="mt-5 border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={onClose}
@@ -346,11 +341,11 @@ function ConnectionModal({
             onClick={save}
             className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             {mode === 'create' ? 'Add connection' : 'Save changes'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
