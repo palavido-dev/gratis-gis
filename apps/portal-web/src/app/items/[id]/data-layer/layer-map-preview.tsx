@@ -17,8 +17,8 @@ import type { LayerGeometryType } from '@gratis-gis/shared-types';
  * limits apply without a second access path.
  *
  * Deliberate choices from the issue:
- * - Grey/minimal basemap (Carto light_nolabels), not the org default —
- *   a busy backdrop competes with the geometry at this size.
+ * - Grey/minimal backdrop (solid fill, no raster tiles), not the org
+ *   default — a busy basemap competes with the geometry at this size.
  * - Generic paint, not the layer's saved style — the tab answers
  *   "did the geometry land in the right place?", not finished look.
  * - Empty layers get an empty state, not a world-view fallback that
@@ -30,20 +30,22 @@ import type { LayerGeometryType } from '@gratis-gis/shared-types';
  * bbox the attribute table uses for "zoom to filtered".
  */
 
-/** Muted grey basemap; labels omitted so they don't fight the overlay. */
+/**
+ * Solid grey backdrop — no external tiles. Carto's free light_* URLs
+ * now stamp "API KEY REQUIRED" across the canvas, which is worse than
+ * no basemap at preview size. A flat fill keeps geometry readable
+ * without competing labels or watermarks.
+ */
 const GREY_BASEMAP: maplibregl.StyleSpecification = {
   version: 8,
-  sources: {
-    basemap: {
-      type: 'raster',
-      tiles: [
-        'https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '(c) OpenStreetMap contributors (c) Carto',
+  sources: {},
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': '#e8eaed' },
     },
-  },
-  layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+  ],
 };
 
 /** ST_AsMVT names every layer 'features' (engine/data-layer.ts). */
