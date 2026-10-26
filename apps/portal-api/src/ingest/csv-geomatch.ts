@@ -224,22 +224,26 @@ export function featuresFromUsStateGeomatch(
       unmatched += 1;
       continue;
     }
-    // Null-prototype bag so a forged CSV header like `__proto__` cannot
-    // pollute Object.prototype (CodeQL js/remote-property-injection).
-    const properties: Record<string, unknown> = Object.create(null);
+    // Build via Map + fromEntries so we never assign `obj[userKey] = …`
+    // (CodeQL js/remote-property-injection). Deny dangerous names, then
+    // materialize a null-prototype record for GeoJSON consumers.
+    const entries = new Map<string, unknown>();
     for (let i = 0; i < plan.header.length; i += 1) {
       const name = safePropertyName(plan.header[i]!);
       if (name === null) continue;
       const field = plan.fields[i];
       const cell = (row[i] ?? '').trim();
       if (field?.type === 'number' && cell !== '' && /^-?\d+(\.\d+)?$/.test(cell)) {
-        properties[name] = Number(cell);
+        entries.set(name, Number(cell));
       } else {
-        properties[name] = cell;
+        entries.set(name, cell);
       }
     }
-    properties.state_name = state.name;
-    properties.state_abbr = state.abbr;
+    entries.set('state_name', state.name);
+    entries.set('state_abbr', state.abbr);
+    // fromEntries avoids the `obj[taintedKey]=` sink; dangerous names
+    // were already dropped by safePropertyName.
+    const properties = Object.fromEntries(entries) as Record<string, unknown>;
     features.push({
       type: 'Feature',
       properties,
