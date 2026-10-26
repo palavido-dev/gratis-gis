@@ -2263,6 +2263,74 @@ export const de: Partial<CatalogShape> = {
       'Das Verschieben in den Papierkorb entfernt die Referenz aus jedem davon. Sie können über Kürzlich gelöscht wiederherstellen, falls Sie es sich anders überlegen.',
     moreNotShown: '+{count} weitere nicht angezeigt.',
   },
+  mapSelectTool: {
+    pan: 'Verschieben',
+    clickSelect: 'Klickauswahl',
+    rectangleSelect: 'Rechteckauswahl',
+    polygonSelect: 'Polygonauswahl',
+    freehandSelect: 'Freihandauswahl',
+    clearSelection: 'Auswahl löschen',
+  },
+  mapLayerAccess: {
+    title: 'Ebenenzugriff',
+    description:
+      'Legen Sie fest, was jeder freigegebene Benutzer oder jede Gruppe auf dieser Karte sieht. Die Matrix schränkt den Zugriff ein; ein Warnabzeichen erscheint, wenn ein Principal keinen Elementzugriff auf die Quelldaten einer Ebene hat.',
+    filterPlaceholder: 'Ebenen filtern...',
+    countsSummary:
+      '{layers, plural, one {# Ebene} other {# Ebenen}} × {principals, plural, one {# Principal} other {# Principals}}',
+    grantMissingTitle:
+      'Ansichtsfreigaben auf jedem Quell-Element setzen, damit die Lücken verschwinden',
+    grantMissing:
+      'Fehlenden Elementzugriff gewähren ({count, plural, one {# Lücke} other {# Lücken}})',
+    shareFirst: 'Teilen Sie die Karte zuerst mit mindestens einem Benutzer oder einer Gruppe.',
+    shareFirstHint:
+      'Die Matrix zeigt nur Principals, die bereits Zugriff auf die Webkarte haben.',
+    noLayersMatch: 'Keine Ebenen passen zum Filter.',
+    layerHeader: 'Ebene',
+    noItemAccessBadge:
+      'Kein Zugriff auf das Quell-Element: aus dem Popover gewähren',
+    groupLabel: 'Gruppe',
+    userLabel: 'Benutzer',
+    hasItemAccess: 'Hat Elementzugriff auf das Quell-Element.',
+    noItemAccess: 'Kein Elementzugriff',
+    noItemAccessHint:
+      'Die Matrix-Flags greifen erst, wenn dieser Principal auf dem Quell-Element freigegeben ist.',
+    grantView: 'Ansicht gewähren',
+    noBackingItem:
+      'Kein Quell-Element: jeder Principal mit Kartenzugriff kann diese Ebene sehen.',
+    view: 'Ansicht',
+    viewDesc: 'Die Ebene auf der Karte sehen',
+    query: 'Abfrage',
+    queryDesc: 'Popups, Attributtabelle, Suche',
+    edit: 'Bearbeiten',
+    editDescAvailable: 'Features ändern (aktiviert, sobald die Bearbeitungs-UI kommt)',
+    editDescUnavailable: 'Nicht verfügbar: diese Ebene hat keine schreibbare Quelle',
+    editOnlyFeatureService:
+      'Bearbeiten ist nur für Feature-Service-Ebenen verfügbar. Remote-Quellen (ArcGIS REST, URL, inline) bleiben in der Matrix schreibgeschützt, damit keine wirkungslosen Berechtigungen angeboten werden.',
+  },
+  layerDataPanel: {
+    tablistAria: 'Ansichten von {label}',
+    attributesTab: 'Attribute',
+    attributesTabTitle: 'Attributtabelle',
+    mapTab: 'Karte',
+    mapTabTitle: 'Kartenvorschau der Geometrie',
+    analyzeTab: 'Analysieren',
+    analyzeTabTitle: 'Mit SQL im Browser analysieren',
+    importFeatures: 'Features importieren',
+    importReplaceTitle:
+      'Vorhandene Features durch den Inhalt einer neuen Datei ersetzen',
+    moreImportOptions: 'Weitere Importoptionen',
+    appendInstead: 'Stattdessen anhängen',
+    appendInsteadHint:
+      'Features der neuen Datei zu den vorhandenen Zeilen hinzufügen.',
+    appendingHeadline: 'Features werden angehängt',
+    importingHeadline: 'Features werden importiert',
+    appendingDesc:
+      'Datei wird geparst und neben vorhandenen Zeilen in PostGIS eingefügt. Große Ebenen können einige Minuten dauern.',
+    importingDesc:
+      'Datei wird geparst und als Bulk in PostGIS eingefügt. Große Ebenen (Parzellen auf County-Ebene) können einige Minuten dauern.',
+    uploadFailed: 'Upload fehlgeschlagen',
+  },
   accessMatrix: {
     intro:
       'Diese Elemente treiben dieses zusammengesetzte Element zur Laufzeit an. Jeder Empfänger braucht Lesezugriff auf jede Zeile, sonst sieht er beim Öffnen defekte Layer.',

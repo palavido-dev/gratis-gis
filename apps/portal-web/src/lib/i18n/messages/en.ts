@@ -2353,6 +2353,74 @@ export const en = {
       'Trashing removes the reference from each of them. You can restore from Recently deleted if you change your mind.',
     moreNotShown: '+{count} more not shown.',
   },
+  mapSelectTool: {
+    pan: 'Pan',
+    clickSelect: 'Click select',
+    rectangleSelect: 'Rectangle select',
+    polygonSelect: 'Polygon select',
+    freehandSelect: 'Freehand select',
+    clearSelection: 'Clear selection',
+  },
+  mapLayerAccess: {
+    title: 'Layer access',
+    description:
+      'Refine what each shared user or group sees on this map. The matrix narrows access; a warning badge appears when a principal has no item-level access to a layer\'s source data.',
+    filterPlaceholder: 'Filter layers...',
+    countsSummary:
+      '{layers, plural, one {# layer} other {# layers}} × {principals, plural, one {# principal} other {# principals}}',
+    grantMissingTitle:
+      'Add view-level shares on every backing item so the gaps below disappear',
+    grantMissing:
+      'Grant missing item access ({count, plural, one {# gap} other {# gaps}})',
+    shareFirst: 'Share the map with at least one user or group first.',
+    shareFirstHint:
+      'The matrix only shows principals that already have access to the webmap itself.',
+    noLayersMatch: 'No layers match the filter.',
+    layerHeader: 'Layer',
+    noItemAccessBadge:
+      'No access to the backing item: grant from the popover',
+    groupLabel: 'Group',
+    userLabel: 'User',
+    hasItemAccess: 'Has item-level access to the backing item.',
+    noItemAccess: 'No item-level access',
+    noItemAccessHint:
+      "The matrix flags below won't take effect until this principal is shared on the backing item.",
+    grantView: 'Grant view',
+    noBackingItem:
+      'No backing item: every principal with map access can see this layer.',
+    view: 'View',
+    viewDesc: 'See the layer on the map',
+    query: 'Query',
+    queryDesc: 'Popups, attribute table, search',
+    edit: 'Edit',
+    editDescAvailable: 'Modify features (enables once editing UI ships)',
+    editDescUnavailable: 'Not available: this layer has no writable source',
+    editOnlyFeatureService:
+      "Edit is only available for feature-service layers. Remote sources (ArcGIS REST, URL, inline) stay read-only in the matrix to avoid offering permissions that can't take effect.",
+  },
+  layerDataPanel: {
+    tablistAria: '{label} views',
+    attributesTab: 'Attributes',
+    attributesTabTitle: 'Attribute table',
+    mapTab: 'Map',
+    mapTabTitle: 'Map preview of the geometry',
+    analyzeTab: 'Analyze',
+    analyzeTabTitle: 'Analyze with SQL, in your browser',
+    importFeatures: 'Import features',
+    importReplaceTitle:
+      'Replace existing features with the contents of a new file',
+    moreImportOptions: 'More import options',
+    appendInstead: 'Append instead',
+    appendInsteadHint:
+      "Add the new file's features alongside the existing rows.",
+    appendingHeadline: 'Appending features',
+    importingHeadline: 'Importing features',
+    appendingDesc:
+      'Parsing the file and inserting into PostGIS alongside existing rows. Large layers can take a few minutes.',
+    importingDesc:
+      'Parsing the file and bulk-inserting into PostGIS. Large layers (county-scale parcels) can take a few minutes.',
+    uploadFailed: 'Upload failed',
+  },
   accessMatrix: {
     intro:
       'These items power this composite at runtime. Each sharee needs view access on every row, or they will see broken layers when they open it.',

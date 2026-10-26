@@ -2254,6 +2254,74 @@ export const fr: Partial<CatalogShape> = {
       "La mise à la corbeille supprime la référence dans chacun d'eux. Vous pouvez restaurer depuis Supprimés récemment si vous changez d'avis.",
     moreNotShown: '+{count} de plus non affichés.',
   },
+  mapSelectTool: {
+    pan: 'Déplacer',
+    clickSelect: 'Sélection par clic',
+    rectangleSelect: 'Sélection rectangle',
+    polygonSelect: 'Sélection polygone',
+    freehandSelect: 'Sélection à main levée',
+    clearSelection: 'Effacer la sélection',
+  },
+  mapLayerAccess: {
+    title: 'Accès aux couches',
+    description:
+      "Affinez ce que chaque utilisateur ou groupe partagé voit sur cette carte. La matrice restreint l'accès ; un badge d'avertissement apparaît lorsqu'un principal n'a pas d'accès au niveau de l'élément aux données source d'une couche.",
+    filterPlaceholder: 'Filtrer les couches...',
+    countsSummary:
+      '{layers, plural, one {# couche} other {# couches}} × {principals, plural, one {# principal} other {# principaux}}',
+    grantMissingTitle:
+      "Ajouter des partages en lecture sur chaque élément sous-jacent pour faire disparaître les écarts",
+    grantMissing:
+      "Accorder l'accès manquant ({count, plural, one {# écart} other {# écarts}})",
+    shareFirst: "Partagez d'abord la carte avec au moins un utilisateur ou un groupe.",
+    shareFirstHint:
+      "La matrice n'affiche que les principaux qui ont déjà accès à la carte web.",
+    noLayersMatch: 'Aucune couche ne correspond au filtre.',
+    layerHeader: 'Couche',
+    noItemAccessBadge:
+      "Pas d'accès à l'élément sous-jacent : accorder depuis le panneau",
+    groupLabel: 'Groupe',
+    userLabel: 'Utilisateur',
+    hasItemAccess: "A l'accès au niveau de l'élément sous-jacent.",
+    noItemAccess: "Pas d'accès au niveau de l'élément",
+    noItemAccessHint:
+      "Les indicateurs de la matrice n'auront d'effet qu'une fois ce principal partagé sur l'élément sous-jacent.",
+    grantView: 'Accorder la vue',
+    noBackingItem:
+      "Pas d'élément sous-jacent : tout principal ayant accès à la carte peut voir cette couche.",
+    view: 'Voir',
+    viewDesc: 'Voir la couche sur la carte',
+    query: 'Interroger',
+    queryDesc: 'Popups, table attributaire, recherche',
+    edit: 'Modifier',
+    editDescAvailable: "Modifier les entités (activé quand l'UI d'édition arrivera)",
+    editDescUnavailable: "Indisponible : cette couche n'a pas de source accessible en écriture",
+    editOnlyFeatureService:
+      "La modification n'est disponible que pour les couches de service d'entités. Les sources distantes (ArcGIS REST, URL, inline) restent en lecture seule dans la matrice pour éviter d'offrir des permissions sans effet.",
+  },
+  layerDataPanel: {
+    tablistAria: 'Vues de {label}',
+    attributesTab: 'Attributs',
+    attributesTabTitle: 'Table attributaire',
+    mapTab: 'Carte',
+    mapTabTitle: 'Aperçu cartographique de la géométrie',
+    analyzeTab: 'Analyser',
+    analyzeTabTitle: 'Analyser avec SQL, dans le navigateur',
+    importFeatures: 'Importer des entités',
+    importReplaceTitle:
+      "Remplacer les entités existantes par le contenu d'un nouveau fichier",
+    moreImportOptions: "Plus d'options d'import",
+    appendInstead: 'Ajouter plutôt',
+    appendInsteadHint:
+      "Ajouter les entités du nouveau fichier à côté des lignes existantes.",
+    appendingHeadline: 'Ajout des entités',
+    importingHeadline: 'Import des entités',
+    appendingDesc:
+      "Analyse du fichier et insertion dans PostGIS à côté des lignes existantes. Les grandes couches peuvent prendre quelques minutes.",
+    importingDesc:
+      "Analyse du fichier et insertion en masse dans PostGIS. Les grandes couches (parcelles à l'échelle d'un comté) peuvent prendre quelques minutes.",
+    uploadFailed: "Échec de l'envoi",
+  },
   accessMatrix: {
     intro:
       "Ces éléments alimentent ce composite à l'exécution. Chaque destinataire a besoin d'un accès en lecture sur chaque ligne, sinon il verra des couches cassées à l'ouverture.",

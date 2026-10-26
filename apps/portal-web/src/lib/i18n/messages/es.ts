@@ -2248,6 +2248,74 @@ export const es: Partial<CatalogShape> = {
       'Al enviarlo a la papelera se elimina la referencia en cada uno de ellos. Puedes restaurarlo desde Eliminados recientemente si cambias de opinión.',
     moreNotShown: '+{count} más no mostrados.',
   },
+  mapSelectTool: {
+    pan: 'Desplazar',
+    clickSelect: 'Selección por clic',
+    rectangleSelect: 'Selección rectangular',
+    polygonSelect: 'Selección poligonal',
+    freehandSelect: 'Selección a mano alzada',
+    clearSelection: 'Borrar selección',
+  },
+  mapLayerAccess: {
+    title: 'Acceso a las capas',
+    description:
+      'Ajusta lo que ve cada usuario o grupo compartido en este mapa. La matriz reduce el acceso; aparece una advertencia cuando un principal no tiene acceso a nivel de elemento a los datos de origen de una capa.',
+    filterPlaceholder: 'Filtrar capas...',
+    countsSummary:
+      '{layers, plural, one {# capa} other {# capas}} × {principals, plural, one {# principal} other {# principales}}',
+    grantMissingTitle:
+      'Añade permisos de vista en cada elemento de respaldo para que desaparezcan los huecos',
+    grantMissing:
+      'Conceder acceso de elemento faltante ({count, plural, one {# hueco} other {# huecos}})',
+    shareFirst: 'Comparte el mapa primero con al menos un usuario o grupo.',
+    shareFirstHint:
+      'La matriz solo muestra principales que ya tienen acceso al mapa web.',
+    noLayersMatch: 'Ninguna capa coincide con el filtro.',
+    layerHeader: 'Capa',
+    noItemAccessBadge:
+      'Sin acceso al elemento de respaldo: concede desde el panel',
+    groupLabel: 'Grupo',
+    userLabel: 'Usuario',
+    hasItemAccess: 'Tiene acceso a nivel de elemento al elemento de respaldo.',
+    noItemAccess: 'Sin acceso a nivel de elemento',
+    noItemAccessHint:
+      'Los indicadores de la matriz no tendrán efecto hasta que este principal esté compartido en el elemento de respaldo.',
+    grantView: 'Conceder vista',
+    noBackingItem:
+      'Sin elemento de respaldo: todo principal con acceso al mapa puede ver esta capa.',
+    view: 'Ver',
+    viewDesc: 'Ver la capa en el mapa',
+    query: 'Consultar',
+    queryDesc: 'Ventanas emergentes, tabla de atributos, búsqueda',
+    edit: 'Editar',
+    editDescAvailable: 'Modificar entidades (se habilita cuando llegue la UI de edición)',
+    editDescUnavailable: 'No disponible: esta capa no tiene origen editable',
+    editOnlyFeatureService:
+      'Editar solo está disponible en capas de servicio de entidades. Los orígenes remotos (ArcGIS REST, URL, en línea) quedan de solo lectura en la matriz para no ofrecer permisos que no pueden aplicarse.',
+  },
+  layerDataPanel: {
+    tablistAria: 'Vistas de {label}',
+    attributesTab: 'Atributos',
+    attributesTabTitle: 'Tabla de atributos',
+    mapTab: 'Mapa',
+    mapTabTitle: 'Vista previa del mapa de la geometría',
+    analyzeTab: 'Analizar',
+    analyzeTabTitle: 'Analizar con SQL, en el navegador',
+    importFeatures: 'Importar entidades',
+    importReplaceTitle:
+      'Reemplazar las entidades existentes con el contenido de un archivo nuevo',
+    moreImportOptions: 'Más opciones de importación',
+    appendInstead: 'Añadir en su lugar',
+    appendInsteadHint:
+      'Añade las entidades del archivo nuevo junto a las filas existentes.',
+    appendingHeadline: 'Añadiendo entidades',
+    importingHeadline: 'Importando entidades',
+    appendingDesc:
+      'Analizando el archivo e insertando en PostGIS junto a las filas existentes. Las capas grandes pueden tardar unos minutos.',
+    importingDesc:
+      'Analizando el archivo e insertando en bloque en PostGIS. Las capas grandes (parcelas a escala de condado) pueden tardar unos minutos.',
+    uploadFailed: 'Error al subir',
+  },
   accessMatrix: {
     intro:
       'Estos elementos alimentan este compuesto en tiempo de ejecución. Cada destinatario necesita acceso de visualización en cada fila, o verá capas rotas al abrirlo.',

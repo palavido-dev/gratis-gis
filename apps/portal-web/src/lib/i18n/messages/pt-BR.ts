@@ -2243,6 +2243,74 @@ export const ptBR: Partial<CatalogShape> = {
       'Mover para a lixeira remove a referência de cada um deles. Você pode restaurar em Excluídos recentemente se mudar de ideia.',
     moreNotShown: '+{count} a mais não exibidos.',
   },
+  mapSelectTool: {
+    pan: 'Mover',
+    clickSelect: 'Seleção por clique',
+    rectangleSelect: 'Seleção retangular',
+    polygonSelect: 'Seleção poligonal',
+    freehandSelect: 'Seleção à mão livre',
+    clearSelection: 'Limpar seleção',
+  },
+  mapLayerAccess: {
+    title: 'Acesso às camadas',
+    description:
+      'Ajuste o que cada usuário ou grupo compartilhado vê neste mapa. A matriz restringe o acesso; um aviso aparece quando um principal não tem acesso em nível de item aos dados de origem de uma camada.',
+    filterPlaceholder: 'Filtrar camadas...',
+    countsSummary:
+      '{layers, plural, one {# camada} other {# camadas}} × {principals, plural, one {# principal} other {# principais}}',
+    grantMissingTitle:
+      'Adicionar compartilhamentos de visualização em cada item de suporte para eliminar as lacunas',
+    grantMissing:
+      'Conceder acesso de item ausente ({count, plural, one {# lacuna} other {# lacunas}})',
+    shareFirst: 'Compartilhe o mapa primeiro com pelo menos um usuário ou grupo.',
+    shareFirstHint:
+      'A matriz só mostra principais que já têm acesso ao mapa web.',
+    noLayersMatch: 'Nenhuma camada corresponde ao filtro.',
+    layerHeader: 'Camada',
+    noItemAccessBadge:
+      'Sem acesso ao item de suporte: conceda pelo painel',
+    groupLabel: 'Grupo',
+    userLabel: 'Usuário',
+    hasItemAccess: 'Tem acesso em nível de item ao item de suporte.',
+    noItemAccess: 'Sem acesso em nível de item',
+    noItemAccessHint:
+      'Os indicadores da matriz só terão efeito depois que este principal for compartilhado no item de suporte.',
+    grantView: 'Conceder visualização',
+    noBackingItem:
+      'Sem item de suporte: todo principal com acesso ao mapa pode ver esta camada.',
+    view: 'Ver',
+    viewDesc: 'Ver a camada no mapa',
+    query: 'Consultar',
+    queryDesc: 'Pop-ups, tabela de atributos, pesquisa',
+    edit: 'Editar',
+    editDescAvailable: 'Modificar feições (habilita quando a UI de edição chegar)',
+    editDescUnavailable: 'Indisponível: esta camada não tem origem gravável',
+    editOnlyFeatureService:
+      'Editar só está disponível para camadas de serviço de feições. Origens remotas (ArcGIS REST, URL, inline) ficam somente leitura na matriz para não oferecer permissões sem efeito.',
+  },
+  layerDataPanel: {
+    tablistAria: 'Visualizações de {label}',
+    attributesTab: 'Atributos',
+    attributesTabTitle: 'Tabela de atributos',
+    mapTab: 'Mapa',
+    mapTabTitle: 'Prévia do mapa da geometria',
+    analyzeTab: 'Analisar',
+    analyzeTabTitle: 'Analisar com SQL, no navegador',
+    importFeatures: 'Importar feições',
+    importReplaceTitle:
+      'Substituir as feições existentes pelo conteúdo de um novo arquivo',
+    moreImportOptions: 'Mais opções de importação',
+    appendInstead: 'Acrescentar em vez disso',
+    appendInsteadHint:
+      'Adicionar as feições do novo arquivo junto às linhas existentes.',
+    appendingHeadline: 'Acrescentando feições',
+    importingHeadline: 'Importando feições',
+    appendingDesc:
+      'Analisando o arquivo e inserindo no PostGIS junto às linhas existentes. Camadas grandes podem levar alguns minutos.',
+    importingDesc:
+      'Analisando o arquivo e inserindo em lote no PostGIS. Camadas grandes (parcelas em escala de condado) podem levar alguns minutos.',
+    uploadFailed: 'Falha no upload',
+  },
   accessMatrix: {
     intro:
       'Estes itens alimentam este composto em tempo de execução. Cada destinatário precisa de acesso de visualização em cada linha, ou verá camadas quebradas ao abri-lo.',

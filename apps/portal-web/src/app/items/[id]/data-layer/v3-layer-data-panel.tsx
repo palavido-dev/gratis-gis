@@ -116,6 +116,7 @@ interface RowProps {
 }
 
 function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) {
+  const t = useT();
   const fmt = useFormat();
   const router = useRouter();
   // Busy carries the prominent upload-progress state. The previous
@@ -174,11 +175,14 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       // the wizard's "GDAL is listing layers" probe phase.
       copy: {
         reading: {
-          headline: mode === 'append' ? 'Appending features' : 'Importing features',
+          headline:
+            mode === 'append'
+              ? t('layerDataPanel.appendingHeadline')
+              : t('layerDataPanel.importingHeadline'),
           subhead:
             mode === 'append'
-              ? 'Parsing the file and inserting into PostGIS alongside existing rows. Large layers can take a few minutes.'
-              : 'Parsing the file and bulk-inserting into PostGIS. Large layers (county-scale parcels) can take a few minutes.',
+              ? t('layerDataPanel.appendingDesc')
+              : t('layerDataPanel.importingDesc'),
         },
       },
     });
@@ -225,7 +229,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       } else {
         setMessage({
           kind: 'error',
-          text: (err as Error).message || 'Upload failed',
+          text: (err as Error).message || t('layerDataPanel.uploadFailed'),
         });
       }
     } finally {
@@ -269,35 +273,35 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
             on the download tier (#175 GeoParquet path). */}
         <div
           role="tablist"
-          aria-label={`${layer.label} views`}
+          aria-label={t('layerDataPanel.tablistAria', { label: layer.label })}
           className="inline-flex h-8 overflow-hidden rounded-md border border-border"
         >
           <TabButton
             selected={activeTab === 'attributes'}
             onClick={() => selectTab('attributes')}
-            title="Attribute table"
+            title={t('layerDataPanel.attributesTabTitle')}
           >
             <Table2 className="h-3.5 w-3.5" />
-            Attributes
+            {t('layerDataPanel.attributesTab')}
           </TabButton>
           {hasGeometry ? (
             <TabButton
               selected={activeTab === 'map'}
               onClick={() => selectTab('map')}
-              title="Map preview of the geometry"
+              title={t('layerDataPanel.mapTabTitle')}
             >
               <MapIcon className="h-3.5 w-3.5" />
-              Map
+              {t('layerDataPanel.mapTab')}
             </TabButton>
           ) : null}
           {canDownload ? (
             <TabButton
               selected={activeTab === 'analyze'}
               onClick={() => selectTab('analyze')}
-              title="Analyze with SQL, in your browser"
+              title={t('layerDataPanel.analyzeTabTitle')}
             >
               <FlaskConical className="h-3.5 w-3.5" />
-              Analyze
+              {t('layerDataPanel.analyzeTab')}
             </TabButton>
           ) : null}
         </div>
@@ -430,6 +434,7 @@ function ImportButtonCluster({
   busy: boolean;
   onPickFile: (mode: 'replace' | 'append') => void;
 }) {
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
 
@@ -456,7 +461,7 @@ function ImportButtonCluster({
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
       >
         <Upload className="h-3.5 w-3.5" />
-        Import features
+        {t('layerDataPanel.importFeatures')}
       </button>
     );
   }
@@ -473,16 +478,16 @@ function ImportButtonCluster({
         onClick={() => onPickFile('replace')}
         disabled={busy}
         className="inline-flex h-8 items-center gap-1.5 rounded-l-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-        title="Replace existing features with the contents of a new file"
+        title={t('layerDataPanel.importReplaceTitle')}
       >
         <Upload className="h-3.5 w-3.5" />
-        Import features
+        {t('layerDataPanel.importFeatures')}
       </button>
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         disabled={busy}
-        aria-label="More import options"
+        aria-label={t('layerDataPanel.moreImportOptions')}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         className="inline-flex h-8 items-center justify-center rounded-r-md border border-l-0 border-border bg-surface-1 px-1 text-ink-1 hover:bg-surface-2 disabled:opacity-50"
@@ -506,10 +511,10 @@ function ImportButtonCluster({
             <Plus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
             <span className="min-w-0 flex-1">
               <span className="block font-medium text-ink-0">
-                Append instead
+                {t('layerDataPanel.appendInstead')}
               </span>
               <span className="block text-2xs text-muted">
-                Add the new file&apos;s features alongside the existing rows.
+                {t('layerDataPanel.appendInsteadHint')}
               </span>
             </span>
           </button>
