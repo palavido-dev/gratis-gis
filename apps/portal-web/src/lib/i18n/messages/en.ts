@@ -2004,6 +2004,35 @@ export const en = {
       'The elevation layer has no data along this line. Try a line inside its coverage area.',
     readFailed: 'Could not read the elevation layer.',
   },
+  mapVisibility: {
+    title: 'Visibility',
+    closeAria: 'Close visibility tool',
+    pickHint: 'Click the spot you want to look from.',
+    pickBody:
+      'Pick a spot on the map, then choose how high up and how far to look. The result shows the ground that can be seen from there.',
+    heightLabel: 'Height above the ground ({unit})',
+    distanceLabel: 'How far to look ({unit})',
+    unitFt: 'ft',
+    unitM: 'm',
+    unitMiles: 'miles',
+    unitKm: 'km',
+    pickDifferent: 'Pick a different spot',
+    seeVisible: "See what's visible",
+    working: 'Working it out... {progress}%',
+    workingHint:
+      "This can take a minute or two. The layer will drop onto the map when it's ready.",
+    done: 'Done. "{title}" was added to the map; green is the ground visible from that spot.',
+    tryAnother: 'Try another spot',
+    startOver: 'Start over',
+    needNumbers: 'Height and distance need to be numbers.',
+    noCoverage:
+      'No elevation layer covers this spot. Create one from a point cloud first (its page has a "Create elevation layer" button).',
+    startFailed: 'The visibility job could not be started.',
+    jobFailed: 'The visibility job failed.',
+    jobCancelled: 'The visibility job was cancelled.',
+    loadFailed: 'The result layer could not be loaded.',
+    resultTitle: 'Visible area',
+  },
   // /admin/field-queues: per device and per deployment queue health.
   adminFieldQueues: {
     rejectedByServer: '{count} rejected by the server',

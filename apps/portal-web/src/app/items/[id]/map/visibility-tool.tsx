@@ -21,6 +21,7 @@ import { Eye, Loader2, X } from 'lucide-react';
 
 import type { Item, MapLayer } from '@gratis-gis/shared-types';
 import type { DemRef } from '@/lib/dem-resolver';
+import { useT } from '@/lib/i18n/locale-context';
 import { buildTileLayer, fetchHydratedItem } from './portal-item-layers';
 
 const PICK_SOURCE = 'gg-visibility-pt';
@@ -70,6 +71,7 @@ export function VisibilityTool({
   resolveDemUrl,
   onLayerReady,
 }: VisibilityToolProps) {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>({ step: 'pick' });
   const [units, setUnits] = useState<Units>(loadUnits);
   // Height above ground and look distance, stored in the display
@@ -187,7 +189,7 @@ export function VisibilityTool({
     if (!Number.isFinite(height) || !Number.isFinite(dist)) {
       setPhase({
         step: 'error',
-        message: 'Height and distance need to be numbers.',
+        message: t('mapVisibility.needNumbers'),
       });
       return;
     }
@@ -198,8 +200,7 @@ export function VisibilityTool({
       if (!dem) {
         setPhase({
           step: 'error',
-          message:
-            'No elevation layer covers this spot. Create one from a point cloud first (its page has a "Create elevation layer" button).',
+          message: t('mapVisibility.noCoverage'),
         });
         return;
       }
@@ -220,7 +221,7 @@ export function VisibilityTool({
           : body?.message;
         setPhase({
           step: 'error',
-          message: msg || 'The visibility job could not be started.',
+          message: msg || t('mapVisibility.startFailed'),
         });
         return;
       }
@@ -240,10 +241,10 @@ export function VisibilityTool({
     } catch {
       setPhase({
         step: 'error',
-        message: 'The visibility job could not be started.',
+        message: t('mapVisibility.startFailed'),
       });
     }
-  }, [heightVal, distVal, units, resolveDemUrl]);
+  }, [heightVal, distVal, units, resolveDemUrl, t]);
 
   // ---- Poll the running job --------------------------------------
   useEffect(() => {
@@ -267,7 +268,7 @@ export function VisibilityTool({
         if (job.state === 'failed') {
           setPhase({
             step: 'error',
-            message: job.error || 'The visibility job failed.',
+            message: job.error || t('mapVisibility.jobFailed'),
           });
         } else if (job.state === 'cancelled') {
           // Cancelled from the item page (or reclaimed after a
@@ -275,19 +276,19 @@ export function VisibilityTool({
           // would poll a terminal job forever.
           setPhase({
             step: 'error',
-            message: 'The visibility job was cancelled.',
+            message: t('mapVisibility.jobCancelled'),
           });
         } else if (job.state === 'done') {
           const { item, error } = await fetchHydratedItem({
             id: targetItemId,
-            title: 'Visible area',
+            title: t('mapVisibility.resultTitle'),
             type: 'tile_layer',
           } as Item);
           if (cancelled) return;
           if (!item) {
             setPhase({
               step: 'error',
-              message: error || 'The result layer could not be loaded.',
+              message: error || t('mapVisibility.loadFailed'),
             });
             return;
           }
@@ -317,7 +318,7 @@ export function VisibilityTool({
     };
     // Keyed on the running job's id: a new run re-arms the poll,
     // and leaving 'running' tears it down via the cleanup.
-  }, [phase.step === 'running' ? phase.jobId : null]);
+  }, [phase.step === 'running' ? phase.jobId : null, t, onLayerReady]);
 
   function setUnitsPersist(u: Units) {
     // Convert current field values so the numbers keep meaning.
@@ -355,14 +356,14 @@ export function VisibilityTool({
           role="status"
           className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur-xs"
         >
-          Click the spot you want to look from.
+          {t('mapVisibility.pickHint')}
         </div>
       ) : null}
       <div className="absolute bottom-2 left-1/2 z-20 w-[min(26rem,calc(100%-1rem))] -translate-x-1/2 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs">
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <Eye className="h-4 w-4 text-accent" />
           <span className="text-sm font-medium text-ink-0">
-            Visibility
+            {t('mapVisibility.title')}
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <div className="flex overflow-hidden rounded-md border border-border text-2xs">
@@ -384,7 +385,7 @@ export function VisibilityTool({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close visibility tool"
+              aria-label={t('mapVisibility.closeAria')}
               className="rounded-md p-1 text-muted hover:bg-surface-1 hover:text-ink-0"
             >
               <X className="h-4 w-4" />
@@ -393,17 +394,17 @@ export function VisibilityTool({
         </div>
         <div className="px-3 py-2.5 text-sm">
           {phase.step === 'pick' ? (
-            <p className="text-muted">
-              Pick a spot on the map, then choose how high up and how
-              far to look. The result shows the ground that can be
-              seen from there.
-            </p>
+            <p className="text-muted">{t('mapVisibility.pickBody')}</p>
           ) : phase.step === 'configure' ? (
             <div className="space-y-2.5">
               <div className="grid grid-cols-2 gap-2.5">
                 <label className="block text-xs text-muted">
-                  Height above the ground (
-                  {units === 'imperial' ? 'ft' : 'm'})
+                  {t('mapVisibility.heightLabel', {
+                    unit:
+                      units === 'imperial'
+                        ? t('mapVisibility.unitFt')
+                        : t('mapVisibility.unitM'),
+                  })}
                   <input
                     type="number"
                     value={heightVal}
@@ -413,8 +414,12 @@ export function VisibilityTool({
                   />
                 </label>
                 <label className="block text-xs text-muted">
-                  How far to look (
-                  {units === 'imperial' ? 'miles' : 'km'})
+                  {t('mapVisibility.distanceLabel', {
+                    unit:
+                      units === 'imperial'
+                        ? t('mapVisibility.unitMiles')
+                        : t('mapVisibility.unitKm'),
+                  })}
                   <input
                     type="number"
                     value={distVal}
@@ -431,7 +436,7 @@ export function VisibilityTool({
                   onClick={() => setPhase({ step: 'pick' })}
                   className="text-xs text-muted underline-offset-2 hover:underline"
                 >
-                  Pick a different spot
+                  {t('mapVisibility.pickDifferent')}
                 </button>
                 <button
                   type="button"
@@ -439,7 +444,7 @@ export function VisibilityTool({
                   className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
                 >
                   <Eye className="h-3.5 w-3.5" />
-                  See what&apos;s visible
+                  {t('mapVisibility.seeVisible')}
                 </button>
               </div>
             </div>
@@ -447,25 +452,25 @@ export function VisibilityTool({
             <div className="flex items-center gap-2.5 py-1 text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
               <div className="min-w-0 flex-1">
-                <p>Working it out... {phase.progress}%</p>
-                <p className="text-2xs">
-                  This can take a minute or two. The layer will drop
-                  onto the map when it&apos;s ready.
+                <p>
+                  {t('mapVisibility.working', {
+                    progress: phase.progress,
+                  })}
                 </p>
+                <p className="text-2xs">{t('mapVisibility.workingHint')}</p>
               </div>
             </div>
           ) : phase.step === 'done' ? (
             <div className="space-y-1.5 py-0.5">
               <p className="text-ink-1">
-                Done. &quot;{phase.title}&quot; was added to the map;
-                green is the ground visible from that spot.
+                {t('mapVisibility.done', { title: phase.title })}
               </p>
               <button
                 type="button"
                 onClick={() => setPhase({ step: 'pick' })}
                 className="text-xs text-accent underline-offset-2 hover:underline"
               >
-                Try another spot
+                {t('mapVisibility.tryAnother')}
               </button>
             </div>
           ) : (
@@ -476,7 +481,7 @@ export function VisibilityTool({
                 onClick={() => setPhase({ step: 'pick' })}
                 className="text-xs text-accent underline-offset-2 hover:underline"
               >
-                Start over
+                {t('mapVisibility.startOver')}
               </button>
             </div>
           )}
