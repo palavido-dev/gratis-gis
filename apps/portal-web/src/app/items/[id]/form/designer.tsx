@@ -2036,15 +2036,15 @@ function QuestionRow({
               {q.type} · <span className="font-mono">{q.id}</span>
               {q.type === 'group' && q.repeat ? (
                 <span className="ml-1.5 inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
-                  repeat
+                  {t('formDesigner.canvas.repeatBadge')}
                 </span>
               ) : null}
               {q.type === 'group' && isAttachmentGroup(q, layerSchema) ? (
                 <span
-                  title="This group binds to the layer's attachments. Each instance is one attached file. To capture per-photo metadata (caption, photographer, GPS, etc.) wrap your attachment in a related event layer instead."
+                  title={t('formDesigner.canvas.attachmentGroupTitle')}
                   className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-success"
                 >
-                  attachment
+                  {t('formDesigner.canvas.attachmentBadge')}
                 </span>
               ) : null}
               <LinkStatusBadge status={questionLinkStatus(q, layerSchema, isLinked)} />
@@ -2070,7 +2070,7 @@ function QuestionRow({
                 onRemove(q.id);
               }}
               className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-              aria-label="Remove question"
+              aria-label={t('formDesigner.canvas.removeQuestionAria')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -2336,7 +2336,7 @@ function Properties({
       </Field>
 
       {question.type === 'note' ? null : (
-        <Field label="Hint">
+        <Field label={t('formDesigner.properties.hint')}>
           <textarea
             rows={2}
             value={question.hint ?? ''}
@@ -2352,14 +2352,14 @@ function Properties({
           the responder might want once but not on every render. */}
       {question.type === 'note' ? null : (
         <Field
-          label="Guidance hint"
-          hint="Longer help shown behind a More info toggle in the runtime."
+          label={t('formDesigner.properties.guidanceHint')}
+          hint={t('formDesigner.properties.guidanceHintDetail')}
         >
           <textarea
             rows={3}
             value={question.guidanceHint ?? ''}
             disabled={!canEdit}
-            placeholder="Expandable guidance text"
+            placeholder={t('formDesigner.properties.guidancePlaceholder')}
             onChange={(e) =>
               onChange({
                 guidanceHint: e.target.value || undefined,
@@ -2386,12 +2386,15 @@ function Properties({
             disabled={!canEdit}
             onChange={(e) => onChange({ required: e.target.checked })}
           />
-          <span>Required</span>
+          <span>{t('formDesigner.properties.required')}</span>
         </label>
       )}
 
       {question.type !== 'page' && question.type !== 'group' ? (
-        <Field label="Width" hint="Width on desktop. Mobile collapses to full.">
+        <Field
+          label={t('formDesigner.properties.width')}
+          hint={t('formDesigner.properties.widthHint')}
+        >
           <select
             value={question.layout?.width ?? 'full'}
             disabled={!canEdit}
@@ -2409,12 +2412,16 @@ function Properties({
             }}
             className={inputCls}
           >
-            <option value="full">Full</option>
-            <option value="half">1 / 2</option>
-            <option value="third">1 / 3</option>
-            <option value="two-thirds">2 / 3</option>
-            <option value="quarter">1 / 4</option>
-            <option value="three-quarters">3 / 4</option>
+            <option value="full">{t('formDesigner.properties.widthFull')}</option>
+            <option value="half">{t('formDesigner.properties.widthHalf')}</option>
+            <option value="third">{t('formDesigner.properties.widthThird')}</option>
+            <option value="two-thirds">
+              {t('formDesigner.properties.widthTwoThirds')}
+            </option>
+            <option value="quarter">{t('formDesigner.properties.widthQuarter')}</option>
+            <option value="three-quarters">
+              {t('formDesigner.properties.widthThreeQuarters')}
+            </option>
           </select>
         </Field>
       ) : null}
@@ -2446,13 +2453,13 @@ function Properties({
               onChange({ perRowRequired: e.target.checked } as Partial<Question>)
             }
           />
-          <span>Require an answer for every row</span>
+          <span>{t('formDesigner.properties.perRowRequired')}</span>
         </label>
       ) : null}
 
       {question.type === 'matrix-multi' ? (
         <div className="mb-2 grid grid-cols-2 gap-2">
-          <Field label="Min per row">
+          <Field label={t('formDesigner.properties.minPerRow')}>
             <input
               type="number"
               min={0}
@@ -2467,7 +2474,7 @@ function Properties({
               className={inputCls}
             />
           </Field>
-          <Field label="Max per row">
+          <Field label={t('formDesigner.properties.maxPerRow')}>
             <input
               type="number"
               min={0}
@@ -2502,7 +2509,7 @@ function Properties({
             onChange={(rows) => onChange({ rows } as Partial<Question>)}
           />
           <div className="mb-2 grid grid-cols-2 gap-2">
-            <Field label="Max stars">
+            <Field label={t('formDesigner.properties.maxStars')}>
               <input
                 type="number"
                 min={1}
@@ -2515,7 +2522,7 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Shape">
+            <Field label={t('formDesigner.properties.shape')}>
               <select
                 value={question.shape ?? 'star'}
                 disabled={!canEdit}
@@ -2526,9 +2533,9 @@ function Properties({
                 }
                 className={inputCls}
               >
-                <option value="star">Star</option>
-                <option value="heart">Heart</option>
-                <option value="thumb">Thumb</option>
+                <option value="star">{t('formDesigner.properties.shapeStar')}</option>
+                <option value="heart">{t('formDesigner.properties.shapeHeart')}</option>
+                <option value="thumb">{t('formDesigner.properties.shapeThumb')}</option>
               </select>
             </Field>
           </div>
@@ -2541,7 +2548,7 @@ function Properties({
                 onChange({ perRowRequired: e.target.checked } as Partial<Question>)
               }
             />
-            <span>Require an answer for every row</span>
+            <span>{t('formDesigner.properties.perRowRequired')}</span>
           </label>
         </>
       ) : null}
@@ -2554,7 +2561,7 @@ function Properties({
             onChange={(choices) => onChange({ choices } as Partial<Question>)}
           />
           <div className="mb-2 grid grid-cols-2 gap-2">
-            <Field label="Min ranked">
+            <Field label={t('formDesigner.properties.minRanked')}>
               <input
                 type="number"
                 min={0}
@@ -2569,7 +2576,7 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Max ranked">
+            <Field label={t('formDesigner.properties.maxRanked')}>
               <input
                 type="number"
                 min={0}
@@ -2596,7 +2603,7 @@ function Properties({
               want bounds like 0.5 or 99.99. step="any" lifts the
               integer constraint without locking a particular
               precision; integer keeps its explicit step={1}. */}
-          <Field label="Min">
+          <Field label={t('formDesigner.properties.min')}>
             <input
               type="number"
               step={question.type === 'number' ? 'any' : 1}
@@ -2610,7 +2617,7 @@ function Properties({
               className={inputCls}
             />
           </Field>
-          <Field label="Max">
+          <Field label={t('formDesigner.properties.max')}>
             <input
               type="number"
               step={question.type === 'number' ? 'any' : 1}
@@ -2630,7 +2637,7 @@ function Properties({
       {question.type === 'slider' ? (
         <>
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Min">
+            <Field label={t('formDesigner.properties.min')}>
               <input
                 type="number"
                 step="any"
@@ -2644,7 +2651,7 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Max">
+            <Field label={t('formDesigner.properties.max')}>
               <input
                 type="number"
                 step="any"
@@ -2658,7 +2665,10 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Step" hint="Granularity of each tick.">
+            <Field
+              label={t('formDesigner.properties.step')}
+              hint={t('formDesigner.properties.stepHint')}
+            >
               <input
                 type="number"
                 step="any"
@@ -2683,7 +2693,7 @@ function Properties({
                 onChange({ showValue: e.target.checked } as Partial<Question>)
               }
             />
-            <span>Show selected value next to the slider</span>
+            <span>{t('formDesigner.properties.showSliderValue')}</span>
           </label>
         </>
       ) : null}
@@ -2693,7 +2703,7 @@ function Properties({
       question.type === 'email' ||
       question.type === 'url' ||
       question.type === 'regex' ? (
-        <Field label="Max length">
+        <Field label={t('formDesigner.properties.maxLength')}>
           <input
             type="number"
             value={question.maxLength ?? ''}
@@ -2724,8 +2734,7 @@ function Properties({
           canEdit={canEdit}
           {...(hasAttachmentAncestor(form, question.id, layerSchema)
             ? {
-                lockedReason:
-                  "This group is inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support. Use this group as a non-repeating section instead.",
+                lockedReason: t('formDesigner.properties.repeatInAttachmentLocked'),
               }
             : {})}
           onChange={(repeat) => onChange({ repeat } as Partial<Question>)}
@@ -2734,7 +2743,10 @@ function Properties({
 
       {question.type === 'likert' ? (
         <>
-          <Field label="Number of points" hint="Common: 5 (default) or 7.">
+          <Field
+            label={t('formDesigner.properties.likertPoints')}
+            hint={t('formDesigner.properties.likertPointsHint')}
+          >
             <input
               type="number"
               min={2}
@@ -2748,7 +2760,7 @@ function Properties({
             />
           </Field>
           <div className="mb-2 grid grid-cols-2 gap-2">
-            <Field label="Left label">
+            <Field label={t('formDesigner.properties.leftLabel')}>
               <input
                 type="text"
                 value={question.leftLabel ?? ''}
@@ -2759,7 +2771,7 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Right label">
+            <Field label={t('formDesigner.properties.rightLabel')}>
               <input
                 type="text"
                 value={question.rightLabel ?? ''}
@@ -2771,7 +2783,10 @@ function Properties({
               />
             </Field>
           </div>
-          <Field label="Center label" hint="Optional middle anchor (e.g. Neutral).">
+          <Field
+            label={t('formDesigner.properties.centerLabel')}
+            hint={t('formDesigner.properties.centerLabelHint')}
+          >
             <input
               type="text"
               value={question.centerLabel ?? ''}
@@ -2786,7 +2801,10 @@ function Properties({
       ) : null}
 
       {question.type === 'nps' ? (
-        <Field label="Caption" hint='e.g. "How likely are you to recommend us?"'>
+        <Field
+          label={t('formDesigner.properties.caption')}
+          hint={t('formDesigner.properties.npsCaptionHint')}
+        >
           <input
             type="text"
             value={question.caption ?? ''}
@@ -2801,13 +2819,13 @@ function Properties({
 
       {question.type === 'name' ? (
         <ComponentToggleEditor
-          label="Components"
+          label={t('formDesigner.properties.components')}
           allComponents={[
-            { value: 'prefix', label: 'Prefix' },
-            { value: 'first', label: 'First name' },
-            { value: 'middle', label: 'Middle name' },
-            { value: 'last', label: 'Last name' },
-            { value: 'suffix', label: 'Suffix' },
+            { value: 'prefix', label: t('formDesigner.properties.namePrefix') },
+            { value: 'first', label: t('formDesigner.properties.nameFirst') },
+            { value: 'middle', label: t('formDesigner.properties.nameMiddle') },
+            { value: 'last', label: t('formDesigner.properties.nameLast') },
+            { value: 'suffix', label: t('formDesigner.properties.nameSuffix') },
           ]}
           components={question.components ?? ['first', 'last']}
           requiredComponents={question.requiredComponents}
@@ -2827,7 +2845,7 @@ function Properties({
       {question.type === 'file' ? (
         <>
           <div className="mb-2 grid grid-cols-2 gap-2">
-            <Field label="Max files">
+            <Field label={t('formDesigner.properties.maxFiles')}>
               <input
                 type="number"
                 min={1}
@@ -2841,7 +2859,7 @@ function Properties({
                 className={inputCls}
               />
             </Field>
-            <Field label="Max bytes">
+            <Field label={t('formDesigner.properties.maxBytes')}>
               <input
                 type="number"
                 min={0}
@@ -2857,7 +2875,10 @@ function Properties({
               />
             </Field>
           </div>
-          <Field label="Accept" hint='e.g. ".pdf,application/pdf"'>
+          <Field
+            label={t('formDesigner.properties.accept')}
+            hint={t('formDesigner.properties.acceptHint')}
+          >
             <input
               type="text"
               value={question.accept ?? ''}
@@ -2875,7 +2896,7 @@ function Properties({
 
       {question.type === 'audio' || question.type === 'video' ? (
         <div className="mb-2 grid grid-cols-3 gap-2">
-          <Field label="Max clips">
+          <Field label={t('formDesigner.properties.maxClips')}>
             <input
               type="number"
               min={1}
@@ -2889,7 +2910,7 @@ function Properties({
               className={inputCls}
             />
           </Field>
-          <Field label="Max bytes">
+          <Field label={t('formDesigner.properties.maxBytes')}>
             <input
               type="number"
               min={0}
@@ -2904,7 +2925,7 @@ function Properties({
               className={inputCls}
             />
           </Field>
-          <Field label="Max seconds">
+          <Field label={t('formDesigner.properties.maxSeconds')}>
             <input
               type="number"
               min={0}
@@ -2923,7 +2944,7 @@ function Properties({
       ) : null}
 
       {question.type === 'image-display' || question.type === 'image-hotspot' ? (
-        <Field label="Image URL">
+        <Field label={t('formDesigner.properties.imageUrl')}>
           <input
             type="url"
             value={question.imageUrl}
@@ -2937,7 +2958,7 @@ function Properties({
       ) : null}
 
       {question.type === 'image-display' ? (
-        <Field label="Caption">
+        <Field label={t('formDesigner.properties.caption')}>
           <input
             type="text"
             value={question.caption ?? ''}
@@ -2951,7 +2972,7 @@ function Properties({
       ) : null}
 
       {question.type === 'image-hotspot' ? (
-        <Field label="Max points">
+        <Field label={t('formDesigner.properties.maxPoints')}>
           <input
             type="number"
             min={1}
@@ -2967,7 +2988,7 @@ function Properties({
       ) : null}
 
       {question.type === 'divider' ? (
-        <Field label="Caption">
+        <Field label={t('formDesigner.properties.caption')}>
           <input
             type="text"
             value={question.caption ?? ''}
@@ -2982,7 +3003,10 @@ function Properties({
 
       {question.type === 'acknowledge' ? (
         <>
-          <Field label="Body" hint="Long-form text shown above the checkbox.">
+          <Field
+            label={t('formDesigner.properties.body')}
+            hint={t('formDesigner.properties.bodyHint')}
+          >
             <textarea
               rows={4}
               value={question.body}
@@ -2993,7 +3017,7 @@ function Properties({
               className={inputCls}
             />
           </Field>
-          <Field label="Agree label">
+          <Field label={t('formDesigner.properties.agreeLabel')}>
             <input
               type="text"
               value={question.agreeLabel ?? ''}
@@ -3010,7 +3034,10 @@ function Properties({
       ) : null}
 
       {question.type === 'hidden' ? (
-        <Field label="Default value" hint="Used when prefill / calculate doesn't set a value.">
+        <Field
+          label={t('formDesigner.properties.defaultValue')}
+          hint={t('formDesigner.properties.defaultValueHint')}
+        >
           <input
             type="text"
             value={
@@ -3040,7 +3067,7 @@ function Properties({
                 onChange({ multi: e.target.checked } as Partial<Question>)
               }
             />
-            <span>Allow multiple selections</span>
+            <span>{t('formDesigner.properties.allowMultipleSelections')}</span>
           </label>
           <ImageChoicesEditor
             choices={question.choices}
@@ -3052,14 +3079,14 @@ function Properties({
 
       {question.type === 'address' ? (
         <ComponentToggleEditor
-          label="Components"
+          label={t('formDesigner.properties.components')}
           allComponents={[
-            { value: 'street1', label: 'Street address' },
-            { value: 'street2', label: 'Apt / suite' },
-            { value: 'city', label: 'City' },
-            { value: 'region', label: 'State / region' },
-            { value: 'postal', label: 'Postal code' },
-            { value: 'country', label: 'Country' },
+            { value: 'street1', label: t('formDesigner.properties.addressStreet1') },
+            { value: 'street2', label: t('formDesigner.properties.addressStreet2') },
+            { value: 'city', label: t('formDesigner.properties.addressCity') },
+            { value: 'region', label: t('formDesigner.properties.addressRegion') },
+            { value: 'postal', label: t('formDesigner.properties.addressPostal') },
+            { value: 'country', label: t('formDesigner.properties.addressCountry') },
           ]}
           components={
             question.components ?? [
@@ -3086,7 +3113,9 @@ function Properties({
       ) : null}
 
       <details className="mt-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
-        <summary className="cursor-pointer text-muted">Conditional logic</summary>
+        <summary className="cursor-pointer text-muted">
+          {t('formDesigner.properties.conditionalLogic')}
+        </summary>
         <div className="mt-2 space-y-3">
           {/* `key` forces a fresh editor instance when the selected
               question changes. The editor holds local row state
@@ -3095,7 +3124,7 @@ function Properties({
               would leak across questions. */}
           <ExpressionEditor
             key={`${question.id}:visibleIf`}
-            label="Visible if"
+            label={t('formDesigner.properties.visibleIf')}
             value={question.visibleIf}
             // Exclude the current question. A "visible if Species
             // equals X" expression on the Species question itself is
@@ -3121,7 +3150,7 @@ function Properties({
               valid"). */}
           <ExpressionEditor
             key={`${question.id}:constraint`}
-            label="Valid if"
+            label={t('formDesigner.properties.validIf')}
             value={question.constraint}
             allFields={collectFieldRefs(form)}
             disabled={!canEdit}
@@ -3138,7 +3167,7 @@ function Properties({
           {isLayoutType(question.type) ? null : (
             <ExpressionEditor
               key={`${question.id}:calculate`}
-              label="Calculate (computed value)"
+              label={t('formDesigner.properties.calculate')}
               value={question.calculate}
               // Self-reference is allowed but pointless (would loop).
               // Filter the current question out to nudge authors
@@ -3180,21 +3209,22 @@ function ReverseDependentsPanel({
   form: FormSchema;
   questionId: QuestionId;
 }) {
+  const t = useT();
   const dependents = collectDependents(form, questionId);
   if (dependents.length === 0) return null;
   return (
     <div className="rounded border border-border bg-surface-2/30 p-2 text-2xs">
       <p className="mb-1 font-medium uppercase tracking-wide text-muted">
-        Referenced by ({dependents.length})
+        {t('formDesigner.dependents.heading', { count: dependents.length })}
       </p>
       <ul className="space-y-0.5">
         {dependents.map((d) => (
           <li key={`${d.id}:${d.usage}`} className="flex items-center gap-1.5">
             <span className="rounded bg-surface-1 px-1 py-px font-mono text-2xs text-muted">
-              {d.usage}
+              {t(`formDesigner.dependents.usage.${d.usage}`)}
             </span>
             <span className="truncate text-ink-1">
-              {d.label || '(unlabeled)'}
+              {d.label || t('formDesigner.expressionEditor.unlabeled')}
             </span>
             <span className="font-mono text-muted">{d.id}</span>
           </li>
@@ -3207,7 +3237,7 @@ function ReverseDependentsPanel({
 interface DependentRecord {
   id: string;
   label: string;
-  usage: 'visible if' | 'valid if' | 'calculate' | 'read only';
+  usage: 'visibleIf' | 'validIf' | 'calculate' | 'readOnly';
 }
 
 /** Walk the form, returning every question whose expression-shaped
@@ -3220,10 +3250,10 @@ function collectDependents(
   for (const q of walkAllQuestions(form.questions)) {
     if (q.id === target) continue;
     if (expressionRefs(q.visibleIf).has(target)) {
-      out.push({ id: q.id, label: q.label, usage: 'visible if' });
+      out.push({ id: q.id, label: q.label, usage: 'visibleIf' });
     }
     if (expressionRefs(q.constraint).has(target)) {
-      out.push({ id: q.id, label: q.label, usage: 'valid if' });
+      out.push({ id: q.id, label: q.label, usage: 'validIf' });
     }
     if (q.calculate && expressionRefs(q.calculate).has(target)) {
       out.push({ id: q.id, label: q.label, usage: 'calculate' });
@@ -3234,7 +3264,7 @@ function collectDependents(
       q.readOnly !== null &&
       expressionRefs(q.readOnly as Expression).has(target)
     ) {
-      out.push({ id: q.id, label: q.label, usage: 'read only' });
+      out.push({ id: q.id, label: q.label, usage: 'readOnly' });
     }
   }
   return out;
@@ -3382,6 +3412,7 @@ function GroupRepeatEditor({
   lockedReason?: string;
   onChange: (repeat: Extract<Question, { type: 'group' }>['repeat']) => void;
 }) {
+  const t = useT();
   const enabled = Boolean(q.repeat);
   const locked = Boolean(lockedReason);
   return (
@@ -3392,10 +3423,17 @@ function GroupRepeatEditor({
           checked={enabled}
           disabled={!canEdit || locked}
           onChange={(e) =>
-            onChange(e.target.checked ? { min: 0, addLabel: 'Add another' } : undefined)
+            onChange(
+              e.target.checked
+                ? {
+                    min: 0,
+                    addLabel: t('formDesigner.repeat.addAnotherPlaceholder'),
+                  }
+                : undefined,
+            )
           }
         />
-        <span>Repeat (capture multiple instances)</span>
+        <span>{t('formDesigner.repeat.toggle')}</span>
       </label>
       {locked ? (
         <p className="mt-1 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-2xs text-warn">
@@ -3404,7 +3442,7 @@ function GroupRepeatEditor({
       ) : null}
       {enabled && q.repeat ? (
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <Field label="Min instances">
+          <Field label={t('formDesigner.repeat.minInstances')}>
             <input
               type="number"
               min={0}
@@ -3419,7 +3457,7 @@ function GroupRepeatEditor({
               className={inputCls}
             />
           </Field>
-          <Field label="Max instances">
+          <Field label={t('formDesigner.repeat.maxInstances')}>
             <input
               type="number"
               min={0}
@@ -3435,12 +3473,12 @@ function GroupRepeatEditor({
             />
           </Field>
           <div className="col-span-2">
-            <Field label='"Add another" button label'>
+            <Field label={t('formDesigner.repeat.addAnotherLabel')}>
               <input
                 type="text"
                 value={q.repeat.addLabel ?? ''}
                 disabled={!canEdit}
-                placeholder="Add another"
+                placeholder={t('formDesigner.repeat.addAnotherPlaceholder')}
                 onChange={(e) =>
                   onChange({
                     ...q.repeat,
@@ -3453,10 +3491,7 @@ function GroupRepeatEditor({
           </div>
         </div>
       ) : (
-        <p className="mt-1 text-2xs text-muted">
-          Off: questions inside the group capture once. On: respondents can add
-          multiple instances (a "child rows" pattern).
-        </p>
+        <p className="mt-1 text-2xs text-muted">{t('formDesigner.repeat.offHint')}</p>
       )}
     </div>
   );
@@ -3494,16 +3529,19 @@ function ChoicesEditor({
   canEdit: boolean;
   onChange: (next: Choice[]) => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-2">
-      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Choices</p>
+      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
+        {t('formDesigner.choices.heading')}
+      </p>
       <div className="space-y-1">
         {choices.map((c, i) => (
           <div key={i} className="flex items-center gap-1">
             <input
               type="text"
               value={c.value}
-              placeholder="value"
+              placeholder={t('formDesigner.choices.valuePlaceholder')}
               disabled={!canEdit}
               onChange={(e) =>
                 onChange(
@@ -3517,7 +3555,7 @@ function ChoicesEditor({
             <input
               type="text"
               value={c.label}
-              placeholder="label"
+              placeholder={t('formDesigner.choices.labelPlaceholder')}
               disabled={!canEdit}
               onChange={(e) =>
                 onChange(
@@ -3533,7 +3571,7 @@ function ChoicesEditor({
                 type="button"
                 onClick={() => onChange(choices.filter((_, ii) => ii !== i))}
                 className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Remove choice"
+                aria-label={t('formDesigner.choices.removeAria')}
               >
                 <Trash2 className="h-3 w-3" />
               </button>
@@ -3546,13 +3584,18 @@ function ChoicesEditor({
             onClick={() =>
               onChange([
                 ...choices,
-                { value: `option_${choices.length + 1}`, label: `Option ${choices.length + 1}` },
+                {
+                  value: `option_${choices.length + 1}`,
+                  label: t('formDesigner.choices.defaultOption', {
+                    n: choices.length + 1,
+                  }),
+                },
               ])
             }
             className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
-            Add choice
+            {t('formDesigner.choices.add')}
           </button>
         ) : null}
       </div>
@@ -3573,11 +3616,12 @@ function MatrixEditor({
     patch: { rows?: typeof rows; columns?: typeof columns },
   ) => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-3 space-y-3">
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Rows
+          {t('formDesigner.matrix.rows')}
         </p>
         <div className="space-y-1">
           {rows.map((r, i) => (
@@ -3585,7 +3629,7 @@ function MatrixEditor({
               <input
                 type="text"
                 value={r.id}
-                placeholder="row id"
+                placeholder={t('formDesigner.matrix.rowIdPlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange({
@@ -3599,7 +3643,7 @@ function MatrixEditor({
               <input
                 type="text"
                 value={r.label}
-                placeholder="row label"
+                placeholder={t('formDesigner.matrix.rowLabelPlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange({
@@ -3617,7 +3661,7 @@ function MatrixEditor({
                     onChange({ rows: rows.filter((_, ii) => ii !== i) })
                   }
                   className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                  aria-label="Remove row"
+                  aria-label={t('formDesigner.matrix.removeRowAria')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -3633,7 +3677,9 @@ function MatrixEditor({
                     ...rows,
                     {
                       id: `row_${rows.length + 1}`,
-                      label: `Statement ${rows.length + 1}`,
+                      label: t('formDesigner.matrix.defaultStatement', {
+                        n: rows.length + 1,
+                      }),
                     },
                   ],
                 })
@@ -3641,7 +3687,7 @@ function MatrixEditor({
               className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
-              Add row
+              {t('formDesigner.matrix.addRow')}
             </button>
           ) : null}
         </div>
@@ -3649,7 +3695,7 @@ function MatrixEditor({
 
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Columns
+          {t('formDesigner.matrix.columns')}
         </p>
         <div className="space-y-1">
           {columns.map((c, i) => (
@@ -3657,7 +3703,7 @@ function MatrixEditor({
               <input
                 type="text"
                 value={c.value}
-                placeholder="value"
+                placeholder={t('formDesigner.choices.valuePlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange({
@@ -3671,7 +3717,7 @@ function MatrixEditor({
               <input
                 type="text"
                 value={c.label}
-                placeholder="label"
+                placeholder={t('formDesigner.choices.labelPlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange({
@@ -3691,7 +3737,7 @@ function MatrixEditor({
                     })
                   }
                   className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                  aria-label="Remove column"
+                  aria-label={t('formDesigner.matrix.removeColumnAria')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -3707,7 +3753,9 @@ function MatrixEditor({
                     ...columns,
                     {
                       value: `option_${columns.length + 1}`,
-                      label: `Option ${columns.length + 1}`,
+                      label: t('formDesigner.choices.defaultOption', {
+                        n: columns.length + 1,
+                      }),
                     },
                   ],
                 })
@@ -3715,7 +3763,7 @@ function MatrixEditor({
               className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
-              Add column
+              {t('formDesigner.matrix.addColumn')}
             </button>
           ) : null}
         </div>
@@ -3733,10 +3781,11 @@ function MatrixRowsEditor({
   canEdit: boolean;
   onChange: (next: typeof rows) => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-3">
       <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-        Rows
+        {t('formDesigner.matrix.rows')}
       </p>
       <div className="space-y-1">
         {rows.map((r, i) => (
@@ -3744,7 +3793,7 @@ function MatrixRowsEditor({
             <input
               type="text"
               value={r.id}
-              placeholder="row id"
+              placeholder={t('formDesigner.matrix.rowIdPlaceholder')}
               disabled={!canEdit}
               onChange={(e) =>
                 onChange(
@@ -3758,7 +3807,7 @@ function MatrixRowsEditor({
             <input
               type="text"
               value={r.label}
-              placeholder="row label"
+              placeholder={t('formDesigner.matrix.rowLabelPlaceholder')}
               disabled={!canEdit}
               onChange={(e) =>
                 onChange(
@@ -3774,7 +3823,7 @@ function MatrixRowsEditor({
                 type="button"
                 onClick={() => onChange(rows.filter((_, ii) => ii !== i))}
                 className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Remove row"
+                aria-label={t('formDesigner.matrix.removeRowAria')}
               >
                 <Trash2 className="h-3 w-3" />
               </button>
@@ -3789,14 +3838,16 @@ function MatrixRowsEditor({
                 ...rows,
                 {
                   id: `row_${rows.length + 1}`,
-                  label: `Item ${rows.length + 1}`,
+                  label: t('formDesigner.matrix.defaultItem', {
+                    n: rows.length + 1,
+                  }),
                 },
               ])
             }
             className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
-            Add row
+            {t('formDesigner.matrix.addRow')}
           </button>
         ) : null}
       </div>
@@ -3822,6 +3873,7 @@ function MatrixDropdownEditor({
     patch: { rows?: typeof rows; columns?: typeof columns },
   ) => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-3 space-y-3">
       <MatrixRowsEditor
@@ -3831,7 +3883,7 @@ function MatrixDropdownEditor({
       />
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-          Columns (each with its own choices)
+          {t('formDesigner.matrix.dropdownColumnsHeading')}
         </p>
         <div className="space-y-2">
           {columns.map((c, i) => (
@@ -3840,7 +3892,7 @@ function MatrixDropdownEditor({
                 <input
                   type="text"
                   value={c.value}
-                  placeholder="value"
+                  placeholder={t('formDesigner.choices.valuePlaceholder')}
                   disabled={!canEdit}
                   onChange={(e) =>
                     onChange({
@@ -3854,7 +3906,7 @@ function MatrixDropdownEditor({
                 <input
                   type="text"
                   value={c.label}
-                  placeholder="label"
+                  placeholder={t('formDesigner.choices.labelPlaceholder')}
                   disabled={!canEdit}
                   onChange={(e) =>
                     onChange({
@@ -3872,7 +3924,7 @@ function MatrixDropdownEditor({
                       onChange({ columns: columns.filter((_, ii) => ii !== i) })
                     }
                     className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                    aria-label="Remove column"
+                    aria-label={t('formDesigner.matrix.removeColumnAria')}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -3900,10 +3952,18 @@ function MatrixDropdownEditor({
                     ...columns,
                     {
                       value: `col_${columns.length + 1}`,
-                      label: `Column ${columns.length + 1}`,
+                      label: t('formDesigner.matrix.defaultColumn', {
+                        n: columns.length + 1,
+                      }),
                       choices: [
-                        { value: 'option_1', label: 'Option 1' },
-                        { value: 'option_2', label: 'Option 2' },
+                        {
+                          value: 'option_1',
+                          label: t('formDesigner.choices.defaultOption', { n: 1 }),
+                        },
+                        {
+                          value: 'option_2',
+                          label: t('formDesigner.choices.defaultOption', { n: 2 }),
+                        },
                       ],
                     },
                   ],
@@ -3912,7 +3972,7 @@ function MatrixDropdownEditor({
               className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
-              Add column
+              {t('formDesigner.matrix.addColumn')}
             </button>
           ) : null}
         </div>
@@ -3940,10 +4000,11 @@ function ImageChoicesEditor({
   canEdit: boolean;
   onChange: (next: typeof choices) => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-2">
       <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-        Image choices
+        {t('formDesigner.choices.imageHeading')}
       </p>
       <div className="space-y-2">
         {choices.map((c, i) => (
@@ -3952,7 +4013,7 @@ function ImageChoicesEditor({
               <input
                 type="text"
                 value={c.value}
-                placeholder="value"
+                placeholder={t('formDesigner.choices.valuePlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange(
@@ -3966,7 +4027,7 @@ function ImageChoicesEditor({
               <input
                 type="text"
                 value={c.label}
-                placeholder="label"
+                placeholder={t('formDesigner.choices.labelPlaceholder')}
                 disabled={!canEdit}
                 onChange={(e) =>
                   onChange(
@@ -3982,7 +4043,7 @@ function ImageChoicesEditor({
                   type="button"
                   onClick={() => onChange(choices.filter((_, ii) => ii !== i))}
                   className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                  aria-label="Remove choice"
+                  aria-label={t('formDesigner.choices.removeAria')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -3991,7 +4052,7 @@ function ImageChoicesEditor({
             <input
               type="url"
               value={c.imageUrl}
-              placeholder="https://example.com/image.jpg"
+              placeholder={t('formDesigner.choices.imageUrlPlaceholder')}
               disabled={!canEdit}
               onChange={(e) =>
                 onChange(
@@ -4012,7 +4073,9 @@ function ImageChoicesEditor({
                 ...choices,
                 {
                   value: `option_${choices.length + 1}`,
-                  label: `Option ${choices.length + 1}`,
+                  label: t('formDesigner.choices.defaultOption', {
+                    n: choices.length + 1,
+                  }),
                   imageUrl: '',
                 },
               ])
@@ -4020,7 +4083,7 @@ function ImageChoicesEditor({
             className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
-            Add choice
+            {t('formDesigner.choices.add')}
           </button>
         ) : null}
       </div>
@@ -4045,6 +4108,7 @@ function ComponentToggleEditor<T extends string>({
   onChangeComponents: (next: T[]) => void;
   onChangeRequired: (next: T[]) => void;
 }) {
+  const t = useT();
   const shown = new Set(components);
   const required = new Set(requiredComponents ?? []);
   return (
@@ -4078,7 +4142,7 @@ function ComponentToggleEditor<T extends string>({
                   }
                 }}
               />
-              <span>Show</span>
+              <span>{t('formDesigner.componentsEditor.show')}</span>
             </label>
             <label className="inline-flex items-center gap-1 text-2xs">
               <input
@@ -4095,7 +4159,7 @@ function ComponentToggleEditor<T extends string>({
                   }
                 }}
               />
-              <span>Required</span>
+              <span>{t('formDesigner.componentsEditor.required')}</span>
             </label>
           </div>
         ))}
@@ -4118,27 +4182,43 @@ function ComponentToggleEditor<T extends string>({
  * than us trying to guess based on field type, especially when a
  * "text" field actually holds numeric content.
  */
-const COMPARISON_OPERATORS: ReadonlyArray<{
-  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'between' | 'matches';
-  label: string;
-  /** True when the right-hand side is a single value, false when
-   *  this op uses a different shape (in: list-ish; between: min+max). */
+type ComparisonOp =
+  | 'eq'
+  | 'neq'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'in'
+  | 'between'
+  | 'matches';
+
+const COMPARISON_OPERATOR_SPECS: ReadonlyArray<{
+  op: ComparisonOp;
   rhsKind: 'value' | 'list' | 'range';
 }> = [
-  { op: 'eq', label: 'equals', rhsKind: 'value' },
-  { op: 'neq', label: 'does not equal', rhsKind: 'value' },
-  { op: 'gt', label: 'greater than', rhsKind: 'value' },
-  { op: 'gte', label: 'greater than or equal', rhsKind: 'value' },
-  { op: 'lt', label: 'less than', rhsKind: 'value' },
-  { op: 'lte', label: 'less than or equal', rhsKind: 'value' },
-  { op: 'in', label: 'contains', rhsKind: 'value' },
-  { op: 'between', label: 'between', rhsKind: 'range' },
-  // Slice 4 (#165): regex match. RHS is a regex pattern as a string;
-  // the evaluator anchors with implicit ^...$. The same row UI works
-  // because rhsKind = 'value' and we read the raw string.
-  { op: 'matches', label: 'matches pattern', rhsKind: 'value' },
+  { op: 'eq', rhsKind: 'value' },
+  { op: 'neq', rhsKind: 'value' },
+  { op: 'gt', rhsKind: 'value' },
+  { op: 'gte', rhsKind: 'value' },
+  { op: 'lt', rhsKind: 'value' },
+  { op: 'lte', rhsKind: 'value' },
+  { op: 'in', rhsKind: 'value' },
+  { op: 'between', rhsKind: 'range' },
+  { op: 'matches', rhsKind: 'value' },
 ];
-type ComparisonOp = (typeof COMPARISON_OPERATORS)[number]['op'];
+
+function useComparisonOperators() {
+  const t = useT();
+  return useMemo(
+    () =>
+      COMPARISON_OPERATOR_SPECS.map((spec) => ({
+        ...spec,
+        label: t(`formDesigner.expressionEditor.ops.${spec.op}`),
+      })),
+    [t],
+  );
+}
 
 /**
  * One row in the inline editor. Always references a question on the
@@ -4332,6 +4412,7 @@ function ExpressionEditor({
   disabled: boolean;
   onChange: (next: Expression | undefined) => void;
 }) {
+  const t = useT();
   // Local state for the row list. We can't derive this from `value`
   // on every render because composeExpression intentionally drops
   // rows whose `ref` is empty -- a freshly-added row has no ref yet,
@@ -4400,15 +4481,11 @@ function ExpressionEditor({
             onClick={() => setBuilderOpen(true)}
             className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
-            Builder
+            {t('formDesigner.expressionEditor.builder')}
           </button>
         </div>
         <div className="rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">
-          <p className="mb-1">
-            This expression uses features the inline editor can&apos;t
-            visualize yet (nested groups, functions). Open the Builder
-            to edit it visually, or clear and start over.
-          </p>
+          <p className="mb-1">{t('formDesigner.expressionEditor.complexFallback')}</p>
           <button
             type="button"
             disabled={disabled}
@@ -4420,7 +4497,7 @@ function ExpressionEditor({
             }}
             className="inline-flex items-center gap-1 rounded border border-warn/40 bg-white px-1.5 py-0.5 text-2xs hover:bg-warn/20 disabled:opacity-50"
           >
-            Clear and start over
+            {t('formDesigner.expressionEditor.clearAndStartOver')}
           </button>
         </div>
         {builderOpen ? (
@@ -4450,8 +4527,8 @@ function ExpressionEditor({
               }
               className="rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
             >
-              <option value="and">all match</option>
-              <option value="or">any match</option>
+              <option value="and">{t('formDesigner.expressionBuilder.matchAll')}</option>
+              <option value="or">{t('formDesigner.expressionBuilder.matchAny')}</option>
             </select>
           ) : null}
           <button
@@ -4460,14 +4537,14 @@ function ExpressionEditor({
             onClick={() => setBuilderOpen(true)}
             className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
-            Builder
+            {t('formDesigner.expressionEditor.builder')}
           </button>
         </div>
       </div>
       <ul className="space-y-1">
         {rows.length === 0 ? (
           <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-1.5 text-2xs text-muted">
-            No conditions. Always shown.
+            {t('formDesigner.expressionEditor.noConditions')}
           </li>
         ) : (
           rows.map((row, idx) => (
@@ -4498,7 +4575,7 @@ function ExpressionEditor({
         className="mt-1 inline-flex items-center gap-1 text-2xs text-accent hover:underline disabled:opacity-50"
       >
         <Plus className="h-3 w-3" />
-        Add condition
+        {t('formDesigner.expressionEditor.addCondition')}
       </button>
       {builderOpen ? (
         <ExpressionBuilderModal
@@ -4526,9 +4603,10 @@ function ConditionRowEditor({
   onChange: (next: ConditionRow) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
+  const comparisonOperators = useComparisonOperators();
   const opMeta =
-    COMPARISON_OPERATORS.find((o) => o.op === row.op) ??
-    COMPARISON_OPERATORS[0]!;
+    comparisonOperators.find((o) => o.op === row.op) ?? comparisonOperators[0]!;
   // Pick the matching field once so the value editor can specialize on
   // its question type (#290). Boolean questions get true / false;
   // select-one / select-many with inline choices get a dropdown of
@@ -4543,7 +4621,7 @@ function ConditionRowEditor({
         <input
           type="text"
           value={row.value}
-          placeholder="value"
+          placeholder={t('formDesigner.expressionEditor.valuePlaceholder')}
           disabled={disabled || !row.ref}
           onChange={(e) => onChange({ ...row, value: e.target.value })}
           className={inputCls}
@@ -4559,8 +4637,8 @@ function ConditionRowEditor({
           className={inputCls}
         >
           <option value="">--</option>
-          <option value="true">true</option>
-          <option value="false">false</option>
+          <option value="true">{t('formDesigner.expressionEditor.trueOption')}</option>
+          <option value="false">{t('formDesigner.expressionEditor.falseOption')}</option>
         </select>
       );
     }
@@ -4613,7 +4691,7 @@ function ConditionRowEditor({
           type="number"
           step={refField.type === 'integer' ? '1' : 'any'}
           value={row.value}
-          placeholder="value"
+          placeholder={t('formDesigner.expressionEditor.valuePlaceholder')}
           disabled={disabled}
           onChange={(e) => onChange({ ...row, value: e.target.value })}
           className={inputCls}
@@ -4624,7 +4702,7 @@ function ConditionRowEditor({
       <input
         type="text"
         value={row.value}
-        placeholder="value"
+        placeholder={t('formDesigner.expressionEditor.valuePlaceholder')}
         disabled={disabled || !row.ref}
         onChange={(e) => onChange({ ...row, value: e.target.value })}
         className={inputCls}
@@ -4649,7 +4727,7 @@ function ConditionRowEditor({
             }
             className="rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
           >
-            {COMPARISON_OPERATORS.map((o) => (
+            {comparisonOperators.map((o) => (
               <option key={o.op} value={o.op}>
                 {o.label}
               </option>
@@ -4660,7 +4738,7 @@ function ConditionRowEditor({
               <input
                 type="text"
                 value={row.min}
-                placeholder="min"
+                placeholder={t('formDesigner.expressionEditor.minPlaceholder')}
                 disabled={disabled || !row.ref}
                 onChange={(e) => onChange({ ...row, min: e.target.value })}
                 className={inputCls}
@@ -4668,7 +4746,7 @@ function ConditionRowEditor({
               <input
                 type="text"
                 value={row.max}
-                placeholder="max"
+                placeholder={t('formDesigner.expressionEditor.maxPlaceholder')}
                 disabled={disabled || !row.ref}
                 onChange={(e) => onChange({ ...row, max: e.target.value })}
                 className={inputCls}
@@ -4683,7 +4761,7 @@ function ConditionRowEditor({
         type="button"
         disabled={disabled}
         onClick={onRemove}
-        aria-label="Remove condition"
+        aria-label={t('formDesigner.expressionBuilder.removeConditionAria')}
         className="self-start rounded p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
       >
         <Minus className="h-3.5 w-3.5" />
@@ -4715,6 +4793,7 @@ function FieldPicker({
   disabled: boolean;
   onChange: (id: string) => void;
 }) {
+  const t = useT();
   // Group fields by parentPath. Top-level (parentPath === '') goes
   // first un-grouped; everything else gets an <optgroup>.
   const topLevel: FieldRef[] = [];
@@ -4729,7 +4808,8 @@ function FieldPicker({
   }
   const renderOption = (f: FieldRef) => (
     <option key={f.id} value={f.id}>
-      {(f.label || '(unlabeled)') + ` · ${f.type} · ${f.id}`}
+      {(f.label || t('formDesigner.expressionEditor.unlabeled')) +
+        ` · ${f.type} · ${f.id}`}
     </option>
   );
   return (
@@ -4739,7 +4819,7 @@ function FieldPicker({
       onChange={(e) => onChange(e.target.value)}
       className={inputCls}
     >
-      <option value="">Pick a question…</option>
+      <option value="">{t('formDesigner.expressionBuilder.pickQuestion')}</option>
       {topLevel.map(renderOption)}
       {Array.from(byPath.entries()).map(([path, fs]) => (
         <optgroup key={path} label={path}>
@@ -5052,14 +5132,14 @@ function ExpressionBuilderModal({
             onClick={onClose}
             className="rounded-md border border-border bg-surface-0 px-3 py-1 text-xs hover:bg-surface-2"
           >
-            Cancel
+            {t('formDesigner.expressionBuilder.cancel')}
           </button>
           <button
             type="button"
             onClick={() => onSave(treeToExpression(tree))}
             className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90"
           >
-            Save
+            {t('formDesigner.expressionBuilder.save')}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -5085,6 +5165,7 @@ function RuleTreeEditor({
   onChange: (next: RuleTree) => void;
   depth?: number;
 }) {
+  const t = useT();
   const update = (rules: Rule[], combinator = tree.combinator) => {
     onChange({ combinator, rules });
   };
@@ -5097,7 +5178,9 @@ function RuleTreeEditor({
       }
     >
       <div className="mb-2 flex items-center gap-2 text-2xs text-muted">
-        <span className="uppercase tracking-wide">When</span>
+        <span className="uppercase tracking-wide">
+          {t('formDesigner.expressionBuilder.when')}
+        </span>
         <select
           value={tree.combinator}
           onChange={(e) =>
@@ -5105,15 +5188,15 @@ function RuleTreeEditor({
           }
           className="rounded border border-border bg-surface-1 px-1 py-0.5"
         >
-          <option value="and">all match</option>
-          <option value="or">any match</option>
+          <option value="and">{t('formDesigner.expressionBuilder.matchAll')}</option>
+          <option value="or">{t('formDesigner.expressionBuilder.matchAny')}</option>
         </select>
-        <span>of:</span>
+        <span>{t('formDesigner.expressionBuilder.of')}</span>
       </div>
       <ul className="space-y-2">
         {tree.rules.length === 0 ? (
           <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-2 text-2xs text-muted">
-            No conditions in this group.
+            {t('formDesigner.expressionBuilder.noConditionsInGroup')}
           </li>
         ) : (
           tree.rules.map((rule, idx) => (
@@ -5160,7 +5243,7 @@ function RuleTreeEditor({
                       r.splice(idx, 1);
                       update(r);
                     }}
-                    aria-label="Remove group"
+                    aria-label={t('formDesigner.expressionBuilder.removeGroupAria')}
                     className="self-start rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
                   >
                     <Minus className="h-3.5 w-3.5" />
@@ -5181,7 +5264,7 @@ function RuleTreeEditor({
           className="inline-flex items-center gap-1 text-2xs text-accent hover:underline"
         >
           <Plus className="h-3 w-3" />
-          Condition
+          {t('formDesigner.expressionBuilder.addConditionButton')}
         </button>
         <button
           type="button"
@@ -5198,7 +5281,7 @@ function RuleTreeEditor({
           className="inline-flex items-center gap-1 text-2xs text-accent hover:underline"
         >
           <Plus className="h-3 w-3" />
-          Group
+          {t('formDesigner.expressionBuilder.addGroupButton')}
         </button>
       </div>
     </div>
@@ -5220,6 +5303,7 @@ function FieldsReferencePanel({
    *  the picked field at the end of the top-level rule list. (#291) */
   onPick: (fieldId: string) => void;
 }) {
+  const t = useT();
   const [q, setQ] = useState('');
   const filtered = q
     ? allFields.filter(
@@ -5234,15 +5318,17 @@ function FieldsReferencePanel({
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search fields..."
+        placeholder={t('formDesigner.expressionBuilder.searchFieldsPlaceholder')}
         className={inputCls}
       />
       <p className="mt-1 text-2xs text-muted">
-        Click a field to insert a new condition referencing it.
+        {t('formDesigner.expressionBuilder.fieldsInsertHint')}
       </p>
       <ul className="mt-2 space-y-1">
         {filtered.length === 0 ? (
-          <li className="px-2 py-1 text-2xs text-muted">No fields match.</li>
+          <li className="px-2 py-1 text-2xs text-muted">
+            {t('formDesigner.expressionBuilder.noFieldsMatch')}
+          </li>
         ) : (
           filtered.map((f) => (
             <li key={f.id}>
@@ -5256,7 +5342,7 @@ function FieldsReferencePanel({
                     {f.type}
                   </span>
                   <span className="truncate text-xs text-ink-0">
-                    {f.label || '(unlabeled)'}
+                    {f.label || t('formDesigner.expressionEditor.unlabeled')}
                   </span>
                 </div>
                 <p className="mt-0.5 truncate font-mono text-2xs text-muted">
@@ -5283,40 +5369,51 @@ function OperatorsReferencePanel({
    *  and remain informational. (#291) */
   onPick: (op: ComparisonOp) => void;
 }) {
-  const comparison: Array<{ op: ComparisonOp; label: string; hint: string }> = [
-    { op: 'eq', label: 'equals', hint: 'value matches another' },
-    { op: 'neq', label: 'does not equal', hint: 'value differs' },
-    { op: 'gt', label: 'greater than', hint: 'numeric / date comparison' },
-    { op: 'gte', label: 'greater than or equal', hint: 'numeric / date comparison' },
-    { op: 'lt', label: 'less than', hint: 'numeric / date comparison' },
-    { op: 'lte', label: 'less than or equal', hint: 'numeric / date comparison' },
-    { op: 'in', label: 'contains', hint: 'string or list contains a value' },
-    { op: 'between', label: 'between', hint: 'value falls in a range' },
-    { op: 'matches', label: 'matches pattern', hint: 'regex match' },
+  const t = useT();
+  const comparison: ComparisonOp[] = [
+    'eq',
+    'neq',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'in',
+    'between',
+    'matches',
   ];
-  const logical: Array<[string, string]> = [
-    ['all match (and)', 'every condition must hold'],
-    ['any match (or)', 'at least one condition holds'],
+  const logical: Array<{ name: string; hint: string }> = [
+    {
+      name: t('formDesigner.expressionBuilder.logicalAllMatch'),
+      hint: t('formDesigner.expressionBuilder.logicalAllMatchHint'),
+    },
+    {
+      name: t('formDesigner.expressionBuilder.logicalAnyMatch'),
+      hint: t('formDesigner.expressionBuilder.logicalAnyMatchHint'),
+    },
   ];
   return (
     <div className="space-y-3">
       <div>
         <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-          Comparison
+          {t('formDesigner.expressionBuilder.operatorsComparison')}
         </p>
         <p className="mb-1 text-2xs text-muted">
-          Click to insert a new condition using this operator.
+          {t('formDesigner.expressionBuilder.operatorsComparisonHint')}
         </p>
         <ul className="space-y-1">
-          {comparison.map((o) => (
-            <li key={o.op}>
+          {comparison.map((op) => (
+            <li key={op}>
               <button
                 type="button"
-                onClick={() => onPick(o.op)}
+                onClick={() => onPick(op)}
                 className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-hidden"
               >
-                <p className="text-xs text-ink-0">{o.label}</p>
-                <p className="text-2xs text-muted">{o.hint}</p>
+                <p className="text-xs text-ink-0">
+                  {t(`formDesigner.expressionEditor.ops.${op}`)}
+                </p>
+                <p className="text-2xs text-muted">
+                  {t(`formDesigner.expressionBuilder.opHints.${op}`)}
+                </p>
               </button>
             </li>
           ))}
@@ -5324,19 +5421,19 @@ function OperatorsReferencePanel({
       </div>
       <div>
         <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-          Logical
+          {t('formDesigner.expressionBuilder.operatorsLogical')}
         </p>
         <p className="mb-1 text-2xs text-muted">
-          Reference only. Set the combinator on the rule list above.
+          {t('formDesigner.expressionBuilder.operatorsLogicalHint')}
         </p>
         <ul className="space-y-1">
-          {logical.map(([name, hint]) => (
+          {logical.map((item) => (
             <li
-              key={name}
+              key={item.name}
               className="rounded border border-border bg-surface-0 px-2 py-1"
             >
-              <p className="text-xs text-ink-0">{name}</p>
-              <p className="text-2xs text-muted">{hint}</p>
+              <p className="text-xs text-ink-0">{item.name}</p>
+              <p className="text-2xs text-muted">{item.hint}</p>
             </li>
           ))}
         </ul>
@@ -5352,67 +5449,56 @@ function OperatorsReferencePanel({
  *  shaped). For visibleIf / constraint these are mainly informational
  *  context for the author. */
 function FunctionsReferencePanel() {
+  const t = useT();
   const groups: Array<{
     heading: string;
-    fns: Array<{ sig: string; hint: string }>;
+    fns: Array<{ sig: string; hintKey: string }>;
   }> = [
     {
-      heading: 'Date / time',
+      heading: t('formDesigner.expressionBuilder.fnGroups.dateTime'),
       fns: [
-        { sig: 'today()', hint: 'current date as YYYY-MM-DD' },
-        { sig: 'now()', hint: 'current ISO datetime' },
+        { sig: 'today()', hintKey: 'today' },
+        { sig: 'now()', hintKey: 'now' },
       ],
     },
     {
-      heading: 'Text',
+      heading: t('formDesigner.expressionBuilder.fnGroups.text'),
       fns: [
-        { sig: 'len(text)', hint: 'string length' },
-        { sig: 'lower(text)', hint: 'lowercase' },
-        { sig: 'upper(text)', hint: 'uppercase' },
-        { sig: 'trim(text)', hint: 'strip leading + trailing whitespace' },
-        { sig: 'contains(s, sub)', hint: 'does the string contain a substring?' },
-        { sig: 'starts_with(s, prefix)', hint: 'string starts with prefix' },
-        { sig: 'ends_with(s, suffix)', hint: 'string ends with suffix' },
-        {
-          sig: 'substring(s, start, end?)',
-          hint: '0-based slice; end omitted means to end',
-        },
+        { sig: 'len(text)', hintKey: 'len' },
+        { sig: 'lower(text)', hintKey: 'lower' },
+        { sig: 'upper(text)', hintKey: 'upper' },
+        { sig: 'trim(text)', hintKey: 'trim' },
+        { sig: 'contains(s, sub)', hintKey: 'contains' },
+        { sig: 'starts_with(s, prefix)', hintKey: 'starts_with' },
+        { sig: 'ends_with(s, suffix)', hintKey: 'ends_with' },
+        { sig: 'substring(s, start, end?)', hintKey: 'substring' },
       ],
     },
     {
-      heading: 'Numeric',
+      heading: t('formDesigner.expressionBuilder.fnGroups.numeric'),
       fns: [
-        { sig: 'sum(a, b, ...)', hint: 'numeric sum of refs / values' },
-        { sig: 'abs(n)', hint: 'absolute value' },
-        { sig: 'round(n, places?)', hint: 'rounds to `places` decimals (default 0)' },
-        { sig: 'floor(n)', hint: 'round down to integer' },
-        { sig: 'ceil(n)', hint: 'round up to integer' },
-        { sig: 'min_of(a, b, ...)', hint: 'smallest numeric arg, ignoring nulls' },
-        { sig: 'max_of(a, b, ...)', hint: 'largest numeric arg, ignoring nulls' },
+        { sig: 'sum(a, b, ...)', hintKey: 'sum' },
+        { sig: 'abs(n)', hintKey: 'abs' },
+        { sig: 'round(n, places?)', hintKey: 'round' },
+        { sig: 'floor(n)', hintKey: 'floor' },
+        { sig: 'ceil(n)', hintKey: 'ceil' },
+        { sig: 'min_of(a, b, ...)', hintKey: 'min_of' },
+        { sig: 'max_of(a, b, ...)', hintKey: 'max_of' },
       ],
     },
     {
-      heading: 'Selection / null',
+      heading: t('formDesigner.expressionBuilder.fnGroups.selection'),
       fns: [
-        {
-          sig: 'count(field)',
-          hint: 'number of selected choices in a select-many',
-        },
-        {
-          sig: 'selected(field, value)',
-          hint: 'true when `value` is among a select-many\'s choices',
-        },
-        { sig: 'coalesce(a, b, ...)', hint: 'first non-null / non-empty value' },
+        { sig: 'count(field)', hintKey: 'count' },
+        { sig: 'selected(field, value)', hintKey: 'selected' },
+        { sig: 'coalesce(a, b, ...)', hintKey: 'coalesce' },
       ],
     },
   ];
   return (
     <div className="space-y-3">
       <p className="text-2xs text-muted">
-        Reference for the calculate / default editor. Click a signature
-        to copy it to the clipboard. The row-based editor on the left
-        works in field-op-value form, so functions can't be inserted
-        into rules directly.
+        {t('formDesigner.expressionBuilder.functionsIntro')}
       </p>
       {groups.map((g) => (
         <div key={g.heading}>
@@ -5432,7 +5518,9 @@ function FunctionsReferencePanel() {
                   className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-hidden"
                 >
                   <p className="font-mono text-2xs text-ink-0">{f.sig}</p>
-                  <p className="text-2xs text-muted">{f.hint}</p>
+                  <p className="text-2xs text-muted">
+                    {t(`formDesigner.expressionBuilder.fnHints.${f.hintKey}`)}
+                  </p>
                 </button>
               </li>
             ))}
@@ -6035,6 +6123,7 @@ function containerIsInAttachmentSubtree(
 // ---- Link-status badge on each canvas row ----------------------
 
 function LinkStatusBadge({ status }: { status: LinkStatus }) {
+  const t = useT();
   if (status.kind === 'unbound') return null;
   if (status.kind === 'matched') {
     // Synthetic attachment match: surface "bound" with an attachment-
@@ -6042,33 +6131,38 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
     // attachment store rather than a regular column.
     const isAttachment = status.column.type === 'attachment';
     const tip = isAttachment
-      ? "Bound to the layer's attachments."
-      : `Bound to column "${status.column.name}" (${status.column.type})`;
+      ? t('formDesigner.properties.boundAttachments')
+      : t('formDesigner.linkedLayer.boundColumn', {
+          name: status.column.name,
+          type: status.column.type,
+        });
     return (
       <span
         title={tip}
         className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-success"
       >
-        bound
+        {t('formDesigner.linkedLayer.boundBadge')}
       </span>
     );
   }
   if (status.kind === 'will-add') {
     return (
       <span
-        title="No matching column on the layer yet. Will be added on save."
+        title={t('formDesigner.properties.newColumnTitle')}
         className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn"
       >
-        new column
+        {t('formDesigner.linkedLayer.newColumnBadge')}
       </span>
     );
   }
   return (
     <span
-      title={`The layer no longer has column "${status.column}". Submissions for this question won't reach the layer.`}
+      title={t('formDesigner.linkedLayer.orphanedTitle', {
+        column: status.column,
+      })}
       className="ml-1.5 inline-flex rounded-full bg-danger/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-danger"
     >
-      orphaned
+      {t('formDesigner.linkedLayer.orphanedBadge')}
     </span>
   );
 }
@@ -6086,10 +6180,11 @@ function LinkedLayerSummary({
   canEdit: boolean;
   onUnlinkLayer: () => void;
 }) {
+  const t = useT();
   const linkedTitle =
     typeof form.meta?.linkedLayerTitle === 'string'
       ? (form.meta.linkedLayerTitle as string)
-      : 'data layer';
+      : t('formDesigner.linkedLayer.defaultTitle');
   // Tally per-question status so the user sees at a glance how the
   // form lines up against the layer's current schema. The status
   // walker resolves each question against the right column set
@@ -6118,18 +6213,17 @@ function LinkedLayerSummary({
     <div className="mb-3 rounded-md border border-accent/40 bg-accent/5 p-2 text-xs">
       <div className="mb-1 flex items-center gap-1.5">
         <Database className="h-3.5 w-3.5 text-accent" />
-        <span className="font-medium text-ink-0">Linked to:</span>
+        <span className="font-medium text-ink-0">
+          {t('formDesigner.properties.linkedTo')}
+        </span>
         <span className="truncate text-ink-1">{linkedTitle}</span>
       </div>
       <p className="text-2xs text-muted">
         {layerSchema === null
-          ? 'Loading layer schema...'
-          : `${matched} matched · ${willAdd} new column${willAdd === 1 ? '' : 's'} on save`}
+          ? t('formDesigner.properties.loadingLayerSchema')
+          : t('formDesigner.linkedLayer.tally', { matched, willAdd })}
       </p>
-      <p className="mt-1 text-2xs text-muted">
-        Submissions go to this layer. New questions land as additive columns
-        the next time someone submits.
-      </p>
+      <p className="mt-1 text-2xs text-muted">{t('formDesigner.linkedLayer.body')}</p>
       {/* #346: respondent isolation. Owners + admins see every
           submission; everyone else (including org-public viewers
           via this layer's direct shares) is filtered to rows they
@@ -6138,18 +6232,10 @@ function LinkedLayerSummary({
           bypass row scoping by design. The form designer can't read
           the paired layer's access tier from here, so we phrase this
           as guidance + caveat. */}
-      <p className="mt-1 text-2xs text-success">
-        Privacy: respondents see only their own submissions in the
-        layer&apos;s map and attribute table. Owners and admins still
-        see everything. (Setting the linked layer to public access
-        will broadcast all submissions, so leave it private if that
-        matters.)
-      </p>
+      <p className="mt-1 text-2xs text-success">{t('formDesigner.linkedLayer.privacy')}</p>
       {geoCount > 1 ? (
         <p className="mt-1 text-2xs text-warn">
-          Multiple map questions on this form. Only the first one drives
-          the layer&apos;s geometry; the rest are stored as data on each
-          submission but won&apos;t plot on the map.
+          {t('formDesigner.linkedLayer.multiGeoWarning')}
         </p>
       ) : null}
       {canEdit ? (
@@ -6158,7 +6244,7 @@ function LinkedLayerSummary({
           onClick={onUnlinkLayer}
           className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
         >
-          Unlink
+          {t('formDesigner.linkedLayer.unlink')}
         </button>
       ) : null}
     </div>
@@ -6182,6 +6268,7 @@ function NotifySettings({
   canEdit: boolean;
   onUpdateForm: (patch: Partial<FormSchema>) => void;
 }) {
+  const t = useT();
   const cfg = form.notify ?? {};
   const notifyOwner = cfg.notifyOwner !== false;
   // Stored as a string[] but edited in a single textarea so authors
@@ -6214,7 +6301,7 @@ function NotifySettings({
   return (
     <div className="mb-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
       <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
-        Submission emails
+        {t('formDesigner.notify.heading')}
       </p>
       <label className="mb-2 flex items-start gap-2 text-xs text-ink-1">
         <input
@@ -6230,11 +6317,11 @@ function NotifySettings({
           }}
           className="mt-0.5"
         />
-        <span>Email me a receipt for each new submission</span>
+        <span>{t('formDesigner.properties.emailReceipt')}</span>
       </label>
       <Field
-        label="Also email"
-        hint="Extra addresses, one per line. They get the same rendered receipt."
+        label={t('formDesigner.notify.alsoEmail')}
+        hint={t('formDesigner.properties.emailReceiptHint')}
       >
         <textarea
           rows={2}
@@ -6242,7 +6329,7 @@ function NotifySettings({
           disabled={!canEdit}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit(draft)}
-          placeholder="team@example.com"
+          placeholder={t('formDesigner.properties.emailPlaceholder')}
           className={inputCls}
         />
       </Field>

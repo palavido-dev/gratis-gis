@@ -135,7 +135,26 @@ export function RegexQuestionFields({
  * and an example value the live-preview seeds with so the author
  * can see immediately whether the pattern matches what they expect.
  */
+type RegexPresetId =
+  | 'email'
+  | 'url'
+  | 'usPhone'
+  | 'e164Phone'
+  | 'usZip'
+  | 'caPostal'
+  | 'ukPostcode'
+  | 'isoDate'
+  | 'time24h'
+  | 'lettersOnly'
+  | 'alphanumeric'
+  | 'digitsOnly'
+  | 'positiveInt'
+  | 'decimal'
+  | 'uuid'
+  | 'hexColor';
+
 interface RegexPreset {
+  id: RegexPresetId;
   name: string;
   description: string;
   pattern: string;
@@ -143,108 +162,103 @@ interface RegexPreset {
   sample: string;
 }
 
-const REGEX_PRESETS: RegexPreset[] = [
+const REGEX_PRESET_DEFS: Array<
+  Pick<RegexPreset, 'id' | 'pattern' | 'flags' | 'sample'> & { flags?: string }
+> = [
   {
-    name: 'Email address',
-    description: 'Pragmatic email check (matches what most validators accept).',
+    id: 'email',
     pattern: '[^\\s@]+@[^\\s@]+\\.[^\\s@]+',
     sample: 'me@example.com',
   },
   {
-    name: 'URL (http / https)',
-    description: 'Full URL with optional path.',
+    id: 'url',
     pattern: 'https?://[^\\s/$.?#].[^\\s]*',
     sample: 'https://example.com/path?x=1',
   },
   {
-    name: 'US phone number',
-    description: 'Any common US format: 555-1234, (555) 555-1234, +1 555 555 1234.',
+    id: 'usPhone',
     pattern: '\\+?1?[\\s.-]?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}',
     sample: '(555) 867-5309',
   },
   {
-    name: 'International phone (E.164)',
-    description: 'Plus sign optional, 7-15 digits.',
+    id: 'e164Phone',
     pattern: '\\+?\\d{7,15}',
     sample: '+14155552671',
   },
   {
-    name: 'US ZIP code',
-    description: '5 digits, optional 4-digit extension.',
+    id: 'usZip',
     pattern: '\\d{5}(-\\d{4})?',
     sample: '94110-1234',
   },
   {
-    name: 'Canadian postal code',
-    description: 'A1A 1A1 (space optional, case-insensitive).',
+    id: 'caPostal',
     pattern: '[A-Za-z]\\d[A-Za-z][\\s-]?\\d[A-Za-z]\\d',
     flags: 'i',
     sample: 'K1A 0B1',
   },
   {
-    name: 'UK postcode',
-    description: 'Most common UK postcode formats.',
-    pattern:
-      '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s*\\d[A-Za-z]{2}',
+    id: 'ukPostcode',
+    pattern: '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s*\\d[A-Za-z]{2}',
     flags: 'i',
     sample: 'SW1A 1AA',
   },
   {
-    name: 'Date (YYYY-MM-DD)',
-    description: 'ISO 8601 date.',
+    id: 'isoDate',
     pattern: '\\d{4}-\\d{2}-\\d{2}',
     sample: '2026-04-28',
   },
   {
-    name: 'Time (HH:MM, 24h)',
-    description: '24-hour time, optional seconds.',
+    id: 'time24h',
     pattern: '[01]\\d|2[0-3]:[0-5]\\d(:[0-5]\\d)?',
     sample: '14:30',
   },
   {
-    name: 'Letters only',
-    description: 'Any alphabetic characters, with spaces.',
+    id: 'lettersOnly',
     pattern: '[A-Za-z\\s]+',
     sample: 'Maria Sanchez',
   },
   {
-    name: 'Letters + numbers',
-    description: 'Alphanumeric, no special characters.',
+    id: 'alphanumeric',
     pattern: '[A-Za-z0-9]+',
     sample: 'GIS2026Alpha',
   },
   {
-    name: 'Digits only',
-    description: 'Any number of digits.',
+    id: 'digitsOnly',
     pattern: '\\d+',
     sample: '40291',
   },
   {
-    name: 'Whole number (positive)',
-    description: 'Positive integer, no leading zero.',
+    id: 'positiveInt',
     pattern: '[1-9]\\d*',
     sample: '12345',
   },
   {
-    name: 'Decimal number',
-    description: 'Optional sign + integer + optional fractional part.',
+    id: 'decimal',
     pattern: '-?\\d+(\\.\\d+)?',
     sample: '-3.14',
   },
   {
-    name: 'UUID',
-    description: 'Standard 8-4-4-4-12 hex.',
+    id: 'uuid',
     pattern:
       '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
     sample: '550e8400-e29b-41d4-a716-446655440000',
   },
   {
-    name: 'Hex color',
-    description: '3- or 6-digit hex with optional leading #.',
+    id: 'hexColor',
     pattern: '#?([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})',
     sample: '#1a73e8',
   },
 ];
+
+function regexPresetsFromT(
+  t: (key: string) => string,
+): RegexPreset[] {
+  return REGEX_PRESET_DEFS.map((def) => ({
+    ...def,
+    name: t(`formDesigner.regex.presets.${def.id}.name`),
+    description: t(`formDesigner.regex.presets.${def.id}.description`),
+  }));
+}
 
 function RegexBuilderModal({
   initialPattern,
@@ -258,10 +272,11 @@ function RegexBuilderModal({
   onApply: (pattern: string, flags: string) => void;
 }) {
   const t = useT();
+  const presets = useMemo(() => regexPresetsFromT(t), [t]);
   const [pattern, setPattern] = useState(initialPattern);
   const [flags, setFlags] = useState(initialFlags);
   const [sample, setSample] = useState('');
-  const [pickedPreset, setPickedPreset] = useState<string | null>(null);
+  const [pickedPreset, setPickedPreset] = useState<RegexPresetId | null>(null);
 
   // Compile + test live as the author types. Bad patterns produce
   // an error string instead of throwing; the runtime makes the same
@@ -289,7 +304,7 @@ function RegexBuilderModal({
     setPattern(p.pattern);
     setFlags(p.flags ?? '');
     setSample(p.sample);
-    setPickedPreset(p.name);
+    setPickedPreset(p.id);
   }
 
   return (
@@ -322,19 +337,19 @@ function RegexBuilderModal({
               {t('formDesigner.regex.commonPatterns')}
             </p>
             <ul className="space-y-1">
-              {REGEX_PRESETS.map((p) => (
-                <li key={p.name}>
+              {presets.map((p) => (
+                <li key={p.id}>
                   <button
                     type="button"
                     onClick={() => applyPreset(p)}
                     className={`w-full rounded-md border px-2 py-1.5 text-left text-xs ${
-                      pickedPreset === p.name
+                      pickedPreset === p.id
                         ? 'border-accent bg-accent/5'
                         : 'border-border bg-surface-1 hover:bg-surface-2'
                     }`}
                   >
                     <div className="flex items-center gap-1.5">
-                      {pickedPreset === p.name ? (
+                      {pickedPreset === p.id ? (
                         <Check className="h-3 w-3 text-accent" />
                       ) : null}
                       <span className="font-medium text-ink-0">{p.name}</span>
