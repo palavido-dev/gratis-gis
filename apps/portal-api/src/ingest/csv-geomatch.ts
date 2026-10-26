@@ -224,9 +224,12 @@ export function featuresFromUsStateGeomatch(
       unmatched += 1;
       continue;
     }
-    const properties: Record<string, unknown> = {};
+    // Null-prototype bag so a forged CSV header like `__proto__` cannot
+    // pollute Object.prototype (CodeQL js/remote-property-injection).
+    const properties: Record<string, unknown> = Object.create(null);
     for (let i = 0; i < plan.header.length; i += 1) {
-      const name = plan.header[i]!;
+      const name = safePropertyName(plan.header[i]!);
+      if (name === null) continue;
       const field = plan.fields[i];
       const cell = (row[i] ?? '').trim();
       if (field?.type === 'number' && cell !== '' && /^-?\d+(\.\d+)?$/.test(cell)) {
@@ -255,6 +258,24 @@ export function featuresFromUsStateGeomatch(
     matched: features.length,
     unmatched,
   };
+}
+
+/**
+ * Reject header names that would be dangerous as object keys
+ * (`__proto__`, `constructor`, `prototype`) or empty after trim.
+ */
+function safePropertyName(raw: string): string | null {
+  const name = raw.trim();
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  if (
+    lower === '__proto__' ||
+    lower === 'constructor' ||
+    lower === 'prototype'
+  ) {
+    return null;
+  }
+  return name;
 }
 
 /** Detect + join in one call for the buffer ingest path. */

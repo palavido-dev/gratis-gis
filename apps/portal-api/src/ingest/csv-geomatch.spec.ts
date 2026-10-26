@@ -49,4 +49,17 @@ describe('detectUsStateGeomatch', () => {
     expect(result.geojson.features[0]?.properties.Population).toBe(39500000);
     expect(result.geojson.features[0]?.properties.state_abbr).toBe('CA');
   });
+
+  it('drops forged __proto__ headers instead of polluting Object', () => {
+    const result = detectUsStateGeomatch(
+      'State,__proto__\nCalifornia,polluted\n',
+    );
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(Object.prototype.hasOwnProperty.call(
+      result.geojson.features[0]?.properties ?? {},
+      '__proto__',
+    )).toBe(false);
+    expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+  });
 });
