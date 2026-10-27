@@ -449,11 +449,18 @@ Reads:
 GET /api/items?type=data_collection&full=1
 GET /api/items/{id}
 GET /api/items/{id}/layers/{layerKey}/geojson
+GET /api/items/{id}/layers/{layerKey}/delta?since=N
 GET /api/items/{id}/layers/{layerKey}/features?entity={globalId}
 GET /api/items/{id}/layers/{layerKey}/tile/{z}/{x}/{y}.mvt
 GET /api/items/{itemId}/offline-areas
 GET /api/items/{itemId}/offline-packages/{packageId}/file
 ```
+
+`delta?since=N` returns `{ syncVersion, since, changes[], truncated }`
+with change kinds `create|update|delete|derive|observe` and feature id
+`entity`. The field PWA offline refresh uses it when a local
+`syncVersion` cursor exists (full GeoJSON on first download, then
+incremental); the Android client should do the same once it lands.
 
 These are portal-api's own routes, reached directly. Verified in
 `infra/Caddyfile`: `/api/*` is routed straight to portal-api, with only

@@ -136,6 +136,14 @@ export interface CachedLayerSchema {
    *  Stored alongside the hash so the admin recovery console can
    *  show diffs without re-fetching the original. */
   fields: FeatureField[];
+  /**
+   * Layer syncVersion cursor for incremental offline refresh
+   * (`GET .../delta?since=N`). Set after a full GeoJSON pull seeds
+   * it, and advanced on every successful delta page. Absent on
+   * caches written before R3-field-delta-sync; those refresh with
+   * a full pull once, then start tracking.
+   */
+  syncVersion?: number;
 }
 
 /** Top-level manifest entry for one cached deployment. */
@@ -831,6 +839,24 @@ export async function putFeatures(rows: CachedFeature[]): Promise<void> {
   if (rows.length === 0) return;
   await withStore(STORES.features, 'readwrite', (s) => {
     for (const r of rows) s.put(r);
+  });
+}
+
+/**
+ * Drop cached feature rows by globalId. Used by the delta refresh
+ * path when the observation log carries `kind: 'delete'` tombstones.
+ */
+export async function deleteFeatures(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalIds: string[],
+): Promise<void> {
+  if (globalIds.length === 0) return;
+  await withStore(STORES.features, 'readwrite', (s) => {
+    for (const globalId of globalIds) {
+      s.delete([dataCollectionId, dataLayerId, layerKey, globalId]);
+    }
   });
 }
 

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Faster offline refresh in the field
+Refreshing a cached field deployment now downloads only what changed on each layer, instead of pulling the whole layer again. The first download is unchanged; later refreshes are quicker on big layers and weaker connections.
+
 ## 2026-10-27 - Reorder form questions on a phone
 The form designer now has up and down arrows on every question row, so you can reorder on a phone or tablet where drag-and-drop does not work. Desktop still has the grip handle for drag reorder.
 

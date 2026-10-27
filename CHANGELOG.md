@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field PWA offline refresh pulls layer changes via
+  `GET .../layers/:layerId/delta?since=N` when a local syncVersion
+  cursor exists, instead of re-downloading full GeoJSON every time
+  (R3-field-delta-sync; server contract from #328). First download
+  still uses GeoJSON and seeds the cursor.
 - Tile-layer editor error, progress, status, and retry strings are
   wired through the locale catalogs (en / es / fr / de / pt-BR)
   (#162 follow-up).

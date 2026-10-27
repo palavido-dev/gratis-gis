@@ -26,7 +26,9 @@ import {
   type CachedDeployment,
   type CachedFeature,
   type CachedLayerSchema,
+  deleteFeatures,
   deploymentSlug,
+  getDeployment,
   hashLayerSchema,
   putDeployment,
   putFeatures,
@@ -179,6 +181,34 @@ const ASSUMED_PREPARED_PACKAGE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_WARM_ZOOM: [number, number] = [12, 17];
 
 /**
+ * Page size for `GET .../delta`. Server max is 10_000; field refresh
+ * asks for the max so a single write batch rarely truncates mid-
+ * syncVersion. Truncation still advances `since` to the last change
+ * on the page (page-by-version) until `truncated` clears.
+ */
+const DELTA_PAGE_LIMIT = 10_000;
+
+/** One observation row from `GET .../delta` (R1-layer-delta-sync). */
+export interface LayerDeltaChange {
+  observationId: string;
+  /** Stable feature id; matches `_global_id` / IndexedDB `globalId`. */
+  entity: string;
+  kind: 'create' | 'update' | 'delete' | 'derive' | 'observe';
+  syncVersion: number;
+  txTime?: string;
+  authorSub?: string;
+  geometry: GeoJSON.Geometry | null;
+  properties: Record<string, unknown> | null;
+}
+
+export interface LayerDeltaResponse {
+  syncVersion: number;
+  since: number;
+  changes: LayerDeltaChange[];
+  truncated: boolean;
+}
+
+/**
  * Whether a thrown error is the browser refusing a write for space.
  *
  * Both IndexedDB and the Cache API surface this as a DOMException
@@ -306,19 +336,29 @@ export async function downloadDeployment(
 
   // Layer schemas: hash + capture every layer's field list now so
   // the deployment manifest carries the snapshot. Sync time uses
-  // these to detect schema drift (#199 / docs).
+  // these to detect schema drift (#199 / docs). Prior syncVersion
+  // cursors (when present) drive incremental delta refresh below.
+  const prior = await getDeployment(input.dataCollectionId);
   const layerSchemas: Record<string, CachedLayerSchema> = {};
   for (const l of input.layers) {
     const schemaHash = await hashLayerSchema(l.fields);
-    layerSchemas[`${l.dataLayerId}:${l.layerKey}`] = {
+    const key = `${l.dataLayerId}:${l.layerKey}`;
+    const schema: CachedLayerSchema = {
       dataLayerId: l.dataLayerId,
       layerKey: l.layerKey,
       schemaHash,
       fields: l.fields,
     };
+    const priorCursor = prior?.layerSchemas[key]?.syncVersion;
+    if (typeof priorCursor === 'number' && Number.isFinite(priorCursor)) {
+      schema.syncVersion = priorCursor;
+    }
+    layerSchemas[key] = schema;
   }
 
-  // Fetch features per layer, scoped to bbox when present.
+  // Fetch features per layer, scoped to bbox when present. When a
+  // syncVersion cursor already exists, pull O(changes) via delta
+  // instead of re-downloading the whole GeoJSON.
   progress.phase = 'fetching-features';
   let totalFeatureBytes = 0;
   for (const layer of input.layers) {
@@ -327,7 +367,27 @@ export async function downloadDeployment(
       params: { layer: layer.layerLabel },
     };
     onProgress({ ...progress });
+    const schemaKey = `${layer.dataLayerId}:${layer.layerKey}`;
+    const schema = layerSchemas[schemaKey]!;
+    const cursor = schema.syncVersion;
     try {
+      if (typeof cursor === 'number') {
+        const deltaResult = await pullLayerDelta({
+          dataCollectionId: input.dataCollectionId,
+          layer,
+          since: cursor,
+        });
+        totalFeatureBytes += deltaResult.bytes;
+        progress.featuresFetched += deltaResult.applied;
+        schema.syncVersion = deltaResult.syncVersion;
+        progress.message = {
+          code: 'download.layerCached',
+          params: { layer: layer.layerLabel, count: deltaResult.applied },
+        };
+        onProgress({ ...progress });
+        continue;
+      }
+
       const url = buildFeatureUrl(
         layer.dataLayerId,
         layer.layerKey,
@@ -363,28 +423,20 @@ export async function downloadDeployment(
         continue;
       }
       const features = body.features ?? [];
-      const rows: CachedFeature[] = features.map((f) => {
-        const props = (f.properties ?? {}) as Record<string, unknown>;
-        // _global_id is the universal feature id we stamp server-side
-        // so popups can recover it after MapLibre rewrites Feature.id
-        // into a generated integer. It's also the natural key for the
-        // cached-features store. Fall back to f.id when present, then
-        // to a stable hash of the feature so we never lose a row.
-        const globalId =
-          (typeof props._global_id === 'string' && props._global_id) ||
-          (typeof f.id === 'string' && f.id) ||
-          stableId(f);
-        return {
-          dataCollectionId: input.dataCollectionId,
-          dataLayerId: layer.dataLayerId,
-          layerKey: layer.layerKey,
-          globalId,
-          feature: f,
-          cachedAt: new Date().toISOString(),
-        };
-      });
+      const rows: CachedFeature[] = features.map((f) =>
+        featureToCachedRow(input.dataCollectionId, layer, f),
+      );
       await putFeatures(rows);
       progress.featuresFetched += features.length;
+      // Seed the syncVersion cursor so the next refresh can delta.
+      // GeoJSON does not return the layer counter; a limit=1 delta
+      // since=0 is enough to read head without applying changes
+      // (we already hold the full snapshot).
+      const seeded = await seedSyncVersionCursor(
+        layer.dataLayerId,
+        layer.layerKey,
+      );
+      if (seeded !== null) schema.syncVersion = seeded;
       progress.message = {
         code: 'download.layerCached',
         params: { layer: layer.layerLabel, count: features.length },
@@ -747,7 +799,7 @@ export async function downloadDeployment(
  * legacy item-level route (which now routes server-side to the
  * first spatial sublayer for v3 items per #194).
  */
-function buildFeatureUrl(
+export function buildFeatureUrl(
   dataLayerId: string,
   layerKey: string,
   bbox: [number, number, number, number] | undefined,
@@ -758,6 +810,212 @@ function buildFeatureUrl(
     bbox: bbox.join(','),
   });
   return `${base}?${qs.toString()}`;
+}
+
+/**
+ * Observation-log delta URL for incremental field offline refresh
+ * (R3-field-delta-sync / server #328).
+ */
+export function buildDeltaUrl(
+  dataLayerId: string,
+  layerKey: string,
+  since: number,
+  limit?: number,
+): string {
+  const qs = new URLSearchParams({ since: String(since) });
+  if (limit !== undefined) qs.set('limit', String(limit));
+  return `/api/portal/items/${dataLayerId}/layers/${encodeURIComponent(layerKey)}/delta?${qs.toString()}`;
+}
+
+/**
+ * Split a delta page into IndexedDB upserts and delete ids.
+ *
+ * Processed in array order so a later observation for the same
+ * entity wins. `delete` removes the row; create / update / derive /
+ * observe upsert a Feature keyed by `entity` (= `_global_id`).
+ *
+ * Exported for unit tests; `pullLayerDelta` is the runtime caller.
+ */
+export function applyDeltaChanges(
+  changes: LayerDeltaChange[],
+  ctx: {
+    dataCollectionId: string;
+    dataLayerId: string;
+    layerKey: string;
+    cachedAt: string;
+  },
+): { upserts: CachedFeature[]; deletes: string[] } {
+  // Last write per entity wins within the page. Track deletes
+  // separately so a create-then-delete in one page leaves no row.
+  const byEntity = new Map<
+    string,
+    { kind: 'upsert'; row: CachedFeature } | { kind: 'delete' }
+  >();
+  for (const change of changes) {
+    if (change.kind === 'delete') {
+      byEntity.set(change.entity, { kind: 'delete' });
+      continue;
+    }
+    const props: Record<string, unknown> = {
+      ...(change.properties ?? {}),
+      _global_id: change.entity,
+    };
+    // Geometry may be null on table rows / unlocated features; the
+    // project's GeoJSON.Feature typedef requires Geometry, so assert.
+    const feature = {
+      type: 'Feature' as const,
+      id: change.entity,
+      geometry: change.geometry,
+      properties: props,
+    } as GeoJSON.Feature;
+    byEntity.set(change.entity, {
+      kind: 'upsert',
+      row: {
+        dataCollectionId: ctx.dataCollectionId,
+        dataLayerId: ctx.dataLayerId,
+        layerKey: ctx.layerKey,
+        globalId: change.entity,
+        feature,
+        cachedAt: ctx.cachedAt,
+      },
+    });
+  }
+  const upserts: CachedFeature[] = [];
+  const deletes: string[] = [];
+  for (const [entity, entry] of byEntity) {
+    if (entry.kind === 'delete') deletes.push(entity);
+    else upserts.push(entry.row);
+  }
+  return { upserts, deletes };
+}
+
+/**
+ * Walk `GET .../delta` pages until `truncated` clears, applying each
+ * page to IndexedDB. Advances `since` to the last change's
+ * syncVersion while truncated (page-by-version); stores the layer
+ * head `syncVersion` when the walk completes.
+ */
+async function pullLayerDelta(args: {
+  dataCollectionId: string;
+  layer: DownloadLayer;
+  since: number;
+}): Promise<{ applied: number; syncVersion: number; bytes: number }> {
+  let since = args.since;
+  let applied = 0;
+  let bytes = 0;
+  let head = args.since;
+  // Cap the number of pages so a stuck truncated response cannot
+  // spin forever. 10_000 * 10_000 changes would already be absurd.
+  for (let page = 0; page < 100; page += 1) {
+    const url = buildDeltaUrl(
+      args.layer.dataLayerId,
+      args.layer.layerKey,
+      since,
+      DELTA_PAGE_LIMIT,
+    );
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(
+        `delta HTTP ${res.status} for layer ${args.layer.layerLabel}`,
+      );
+    }
+    const text = await res.text();
+    bytes += text.length;
+    let body: LayerDeltaResponse;
+    try {
+      body = JSON.parse(text) as LayerDeltaResponse;
+    } catch {
+      throw new Error(`delta malformed for layer ${args.layer.layerLabel}`);
+    }
+    if (!Array.isArray(body.changes)) {
+      throw new Error(`delta missing changes for layer ${args.layer.layerLabel}`);
+    }
+    const cachedAt = new Date().toISOString();
+    const { upserts, deletes } = applyDeltaChanges(body.changes, {
+      dataCollectionId: args.dataCollectionId,
+      dataLayerId: args.layer.dataLayerId,
+      layerKey: args.layer.layerKey,
+      cachedAt,
+    });
+    await putFeatures(upserts);
+    await deleteFeatures(
+      args.dataCollectionId,
+      args.layer.dataLayerId,
+      args.layer.layerKey,
+      deletes,
+    );
+    applied += upserts.length + deletes.length;
+
+    if (!body.truncated) {
+      head =
+        typeof body.syncVersion === 'number' && Number.isFinite(body.syncVersion)
+          ? body.syncVersion
+          : since;
+      break;
+    }
+    const last = body.changes[body.changes.length - 1];
+    if (!last) {
+      // Truncated with an empty page should not happen; treat as done.
+      head =
+        typeof body.syncVersion === 'number' && Number.isFinite(body.syncVersion)
+          ? body.syncVersion
+          : since;
+      break;
+    }
+    // Page-by-version: next request asks for syncVersion > last.
+    since = last.syncVersion;
+    head = since;
+  }
+  return { applied, syncVersion: head, bytes };
+}
+
+/**
+ * After a full GeoJSON pull, read the layer's current syncVersion
+ * via a cheap `delta?since=0&limit=1` so the next refresh can delta.
+ * Returns null when the endpoint is unavailable (older server, 404)
+ * so the manifest stays cursor-less and the next run retries a full
+ * pull + seed.
+ */
+async function seedSyncVersionCursor(
+  dataLayerId: string,
+  layerKey: string,
+): Promise<number | null> {
+  try {
+    const res = await fetch(buildDeltaUrl(dataLayerId, layerKey, 0, 1));
+    if (!res.ok) return null;
+    const body = (await res.json()) as { syncVersion?: unknown };
+    return typeof body.syncVersion === 'number' &&
+      Number.isFinite(body.syncVersion)
+      ? body.syncVersion
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function featureToCachedRow(
+  dataCollectionId: string,
+  layer: DownloadLayer,
+  f: GeoJSON.Feature,
+): CachedFeature {
+  const props = (f.properties ?? {}) as Record<string, unknown>;
+  // _global_id is the universal feature id we stamp server-side
+  // so popups can recover it after MapLibre rewrites Feature.id
+  // into a generated integer. It's also the natural key for the
+  // cached-features store. Fall back to f.id when present, then
+  // to a stable hash of the feature so we never lose a row.
+  const globalId =
+    (typeof props._global_id === 'string' && props._global_id) ||
+    (typeof f.id === 'string' && f.id) ||
+    stableId(f);
+  return {
+    dataCollectionId,
+    dataLayerId: layer.dataLayerId,
+    layerKey: layer.layerKey,
+    globalId,
+    feature: f,
+    cachedAt: new Date().toISOString(),
+  };
 }
 
 /**
