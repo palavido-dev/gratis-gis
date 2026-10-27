@@ -1,0 +1,230 @@
+{
+  "cycle": 4,
+  "researchedAt": "2026-10-27T17:42:55Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-3.json; R3 ship-without-input drained on origin/main through #353 (filter docs #352, conflict reapply #353, anon markup #351, field delta #350; mcp query_osm PR #354 in flight). Open issues still only #162/#183. Validated R3 leftovers still open in code (offline-sync lacks checkOnly; connecting-postgis.md still claims Phase 1.5 SRID/WHERE; markup-panel promotes but no GeoJSON download; DuckDB Analyze refuses meter buffers while derived_layer buffer recipe exists). New gap: Android OfflineDownloader still full-fetches after portal-web #350. Ethos filters applied; needs-maintainer carry-forward unchanged.",
+  "driverBcId": "bc-f4c15904-154d-5bf9-acbd-c18576cc3fdd",
+  "proposals": [
+    {
+      "id": "R4-offline-checkonly",
+      "title": "Field push uses checkOnly before transferring edits",
+      "summary": "API checkOnly on feature PATCH/DELETE already validates baseObservationId without writing (#329). portal-web offline-sync still posts full edits first and only learns about 409s after transfer. A cheap dry-run pass surfaces stale rows before bytes move, matching Mergin's check_only pattern and pairing with the field delta pull shipped in #350.",
+      "rationale": "Highest-leverage unfinished Mergin honesty slice after delta pull. Improves field reliability without UI invention; can ship as a thin follow-up to #350.",
+      "risk": "Extra round-trips on huge queues. Batch checkOnly per layer and skip when baseObservationId is absent (create-only).",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Field reliability on your hardware. Recoverable sync before silent overwrite.",
+      "sources": [
+        "apps/portal-web/src/lib/offline-sync.ts",
+        "apps/portal-api/src/data-layer/features.controller.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/329",
+        "https://github.com/palavido-dev/gratis-gis/pull/350",
+        "docs/research/ecosystem-alignment-2026-08-17.md"
+      ],
+      "suggestedFirstPR": "Before applying a queued update/delete, call the same path with checkOnly=true; on 409 record the conflict artifact path and mark the edit rejected with the server reason; then proceed with real writes for the rest; extend offline-sync specs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R4-postgis-help-schema-browser",
+      "title": "PostGIS help catch-up plus guided table picker on connect",
+      "summary": "connecting-postgis.md still says SRID reprojection and visual WHERE are Phase 1.5 coming next, but the API already reprojects non-4326 and FilterEditor compiles MapLayer.filter on the map layer panel. Meanwhile PostgisConnectionBuilder saves after a version-only test-connection with no table preview. Refresh help for honesty and extend test-connection (or a follow-up probe) to return a capped geometry-table inventory so authors see what will register before Save.",
+      "rationale": "Docs honesty is playbook-required; schema browser Phase 2 is the cheap UX bridge on an API that already inventories geometry_columns.",
+      "risk": "Large schemas can overwhelm the UI. Cap listed tables, show geometry tables only, and keep Save registering the same set the probe already uses.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Prefer PostGIS live-read over copying data into SaaS. Guided connection before raw connection strings.",
+      "sources": [
+        "apps/portal-web/content/help/getting-started/connecting-postgis.md",
+        "apps/portal-web/src/app/items/new/postgis-connection-builder.tsx",
+        "apps/portal-api/src/postgis-live/postgis-live.service.ts",
+        "docs/research/felt-carto-roadmap-2026-05-30.md"
+      ],
+      "suggestedFirstPR": "Update connecting-postgis.md Limitations to match shipped SRID/filter behavior; extend test-connection to return table inventory (name, SRID, row estimate); render a read-only capped table list in PostgisConnectionBuilder before Save.",
+      "relatedIssues": ["#158"]
+    },
+    {
+      "id": "R4-drawings-geojson-export",
+      "title": "Export a markup set as GeoJSON from the panel",
+      "summary": "Roadmap success criteria for drawings include a direct GeoJSON export link. Promote already copies to a data_layer (#330); anonymous markup shipped (#351). A Download GeoJSON action on a set (author or map editor) is a one-afternoon honesty win for handoff to QGIS without promote.",
+      "rationale": "Open formats out; reviewers should leave with standards-shaped files, not screenshots or network-tab scrapes.",
+      "risk": "Low. Cap feature count already enforced by DRAWING_LIMITS; no new write path. Prefer client-side blob from the loaded set unless a stable URL is needed for agents.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Open file formats throughout. Guided export before asking users to scrape the network tab.",
+      "sources": [
+        "docs/research/felt-carto-roadmap-2026-05-30.md",
+        "apps/portal-web/src/app/items/[id]/map/markup-panel.tsx",
+        "packages/shared-types/src/drawings.ts",
+        "https://github.com/palavido-dev/gratis-gis/issues/154"
+      ],
+      "suggestedFirstPR": "Add Download control on MarkupPanel that builds a FeatureCollection blob from the loaded set (or GET .../drawings/:id.geojson); mention in markup help + What's new.",
+      "relatedIssues": ["#154"]
+    },
+    {
+      "id": "R4-analyze-buffer-derived",
+      "title": "Guided Buffer shortcut that creates a derived-layer recipe",
+      "summary": "DuckDB Analyze correctly refuses meter buffers without PROJ in WASM. Server-side buffer tool and derived-layer builder already exist. Add a one-click Buffer this layer control on the data-layer Analyze or layer page that opens a guided distance/unit form and creates a derived_layer buffer recipe instead of lying in the browser.",
+      "rationale": "Wherever Esri meters buffer work, ship free on PostGIS. Guided parameters over raw recipe JSON. Closes the analysis honesty gap called out in the spatial-analysis workbench research.",
+      "risk": "Users may expect instant in-browser results. Label clearly as a server derived layer job and link to analysis tier availability.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Prefer PostGIS buffer over proprietary Spatial Analyst seats.",
+      "sources": [
+        "docs/research/spatial-analysis-workbench-2026-07-19.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-query-builder.tsx",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Add Buffer action that POSTs a single-step buffer derived_layer from the current layer id with guided meters/feet distance; reuse existing worker path; help + What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R4-android-field-delta",
+      "title": "Wire Android offline refresh to layer delta?since=N",
+      "summary": "portal-web offline refresh now uses GET .../delta?since=N (#350). Android OfflineDownloader still resolves layers and re-fetches full feature payloads on every take-offline / refresh, with no syncVersion cursor on OfflinePackageEntity. Persist syncVersion per layer package and refresh via the same delta endpoint (full geojson only on first package or unknown cursor).",
+      "rationale": "Keeps the field Android client honest with the Mergin-shaped sync story already paid for on the API and PWA. Without it, mobile crews keep paying O(n) after the web path stopped.",
+      "risk": "Delta semantics must honor deletes and share geo/row scope the same as features; corrupt or missing cursors need a full-resync fallback. Mirror portal-web offline-download behavior rather than inventing a third dialect.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Hardens the field Android app on open PostGIS data the portal already owns. Beats seat-metered Field Maps sync cost without a new pillar.",
+      "sources": [
+        "clients/android/feature/sync/src/main/kotlin/org/gratisgis/field/feature/sync/OfflineDownloader.kt",
+        "clients/android/core/database/src/main/kotlin/org/gratisgis/field/core/database/Entities.kt",
+        "apps/portal-web/src/lib/offline-download.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/350",
+        "docs/research/ecosystem-alignment-2026-08-17.md"
+      ],
+      "suggestedFirstPR": "Add syncVersion on OfflinePackageEntity / LayerEntity; on refresh call delta?since=N through PortalClient; apply upserts/deletes; on 410/unknown cursor fall back to full geojson once; unit-test the apply path.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R4-i18n-string-sweep-4",
+      "title": "Continue #162 i18n readiness on form designer chrome",
+      "summary": "After terrain (#335), chrome sweep (#346), tile-layer errors (#348), and comments/markup chrome on the smart-upload branch, keep extracting bounded hard-coded strings. Next surface: form designer chrome (actions row, import warnings, expression builder labels) into catalogs with t() calls. No Weblate, no RTL, no locale product choice.",
+      "rationale": "Only two open issues; #162 remains the finishable cross-cutting slice playbook already prioritizes.",
+      "risk": "Catalog churn across five locales. Keep the PR to one surface area; machine-translate non-en with the existing Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Mechanical readiness for the self-hosted EU/LATAM demo audience. No localization SaaS decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "docs/autonomy/PLAYBOOK.md",
+        "apps/portal-web/src/app/items/[id]/form/designer.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Extract form designer chrome strings (actions row, import banners, expression builder) into en/es/fr/de/pt-BR catalogs with t() calls.",
+      "relatedIssues": ["#162"]
+    },
+    {
+      "id": "R4-presence-crdt",
+      "title": "Live cursors Phase 2 CRDT on drawings (carry forward)",
+      "summary": "Unchanged: Yjs collaborative drawing edits need abuse controls and transport defaults. Presence WebSocket (#343) does not unlock CRDT.",
+      "rationale": "Felt differentiates here, but operational complexity stays a maintainer call.",
+      "risk": "Public-map abuse and reconnect semantics without explicit defaults.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Fits collaboration ethos eventually; defaults need a maintainer decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/156",
+        "docs/autonomy/QUEUE.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": ["#156", "#154"]
+    },
+    {
+      "id": "R4-comments-mentions",
+      "title": "Comments @-mentions (carry forward)",
+      "summary": "Unchanged from R2/R3: abuse and email defaults are maintainer calls.",
+      "rationale": "Notifications surface exists; product defaults do not.",
+      "risk": "Spam and email deliverability without explicit policy.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Fits collaboration ethos; blocked on abuse/email defaults.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/155",
+        "docs/autonomy/QUEUE.md"
+      ],
+      "suggestedFirstPR": "None until defaults chosen.",
+      "relatedIssues": ["#155"]
+    },
+    {
+      "id": "R4-tile3d-heavy-clouds",
+      "title": "COPC to 3D Tiles heavy-cloud path (carry forward)",
+      "summary": "Unchanged: #183 strategy phase B. Incremental lidar writeup shipped; issue stays open.",
+      "rationale": "Renderer and conversion pipeline choice is maintainer strategy.",
+      "risk": "Infra and storage implications beyond a 1-2 day PR.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Open 3D standards beat Scene Viewer lock-in; strategy is a maintainer call.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/183",
+        "docs/research/maplibre-gl-lidar-incremental-append-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": ["#183"]
+    },
+    {
+      "id": "R4-weblate-hosting",
+      "title": "Weblate vs Crowdin vs Tolgee (carry forward)",
+      "summary": "Unchanged Q-162b. String extraction continues; hosting/process does not.",
+      "rationale": "Playbook forbids community translation process without maintainer queue entry.",
+      "risk": "Picking a host locks contributor workflow.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Self-hosted Weblate fits ethos eventually; the choice is the maintainer's.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": ["#162"]
+    },
+    {
+      "id": "R4-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas as cycle-4 polish",
+      "summary": "Tool DAG runtime and linear canvas exist; a full branching node-graph editor is a multi-day pillar UI and README already says it is not built. Out of research-cycle scope.",
+      "rationale": "Exceeds 1-2 day agent bound; invents UX depth the playbook defers.",
+      "risk": "N/A (reject).",
+      "shipClass": "reject",
+      "classification": "reject",
+      "ethosFit": "Honest about what we are not (not a full ModelBuilder clone yet).",
+      "sources": [
+        "README.md",
+        "apps/portal-web/content/help/analysis/workflows.md",
+        "docs/research/felt-carto-roadmap-2026-05-30.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": []
+    },
+    {
+      "id": "R4-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "summary": "Carry forward R1/R2/R3 reject. Brand redesign fails the playbook brand test.",
+      "rationale": "No maintainer queue entry for brand work.",
+      "risk": "N/A (reject).",
+      "shipClass": "reject",
+      "classification": "reject",
+      "ethosFit": "Fails brand test.",
+      "sources": [
+        "docs/research/app-print-polish-proposal-2026-07-18.md",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": []
+    },
+    {
+      "id": "R4-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "summary": "Carry forward. Contradicts README ethos.",
+      "rationale": "Self-hosted, no per-seat SaaS cosplay.",
+      "risk": "N/A (reject).",
+      "shipClass": "reject",
+      "classification": "reject",
+      "ethosFit": "Fails ethos filter.",
+      "sources": [
+        "README.md",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": []
+    }
+  ]
+}

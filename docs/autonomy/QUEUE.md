@@ -6,12 +6,17 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-mcp-query-osm | research-cycle-3 / #161 | MCP `query_osm` over Overpass | PR #354 |
+| R4-drawings-geojson-export | research-cycle-4 / #154 | Markup panel GeoJSON download | PR #356 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R4-offline-checkonly | research-cycle-4 | Field push checkOnly before transfer | Pairs with #350 / #329 |
+| R4-postgis-help-schema-browser | research-cycle-4 | PostGIS help honesty + table picker | Follow-up to #158 |
+| R4-analyze-buffer-derived | research-cycle-4 | Guided Buffer → derived_layer recipe | Analyze honesty |
+| R4-android-field-delta | research-cycle-4 | Android offline refresh via delta?since=N | Mirror #350 |
+| R4-i18n-string-sweep-4 | research-cycle-4 | Form designer chrome i18n (#162) | No Weblate / RTL |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R3-mcp-query-osm | 2026-10-27 | Merged #354: MCP `query_osm` + capped `GET /api/osm/query` |
 | R3-sync-conflict-reapply | 2026-10-27 | Merged #353: re-apply losing syncConflicts from layer data panel |
 | R3-dashboard-filter-widget | 2026-10-27 | Merged #352: help for existing Filter widget + cross-filter |
 | R3-anonymous-markup | 2026-10-27 | Merged #351: anonymous markup when `allowAnonymousDrawings` |
