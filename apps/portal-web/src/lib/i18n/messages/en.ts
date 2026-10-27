@@ -2474,7 +2474,7 @@ export const en = {
     deleteAria: 'Delete markup',
     somethingWrong: 'Something went wrong',
     empty:
-      'No markup yet. Add a set, then draw pins, lines, or polygons on the map.',
+      'No markup yet. Add a set, then draw pins, lines, polygons, text, arrows, or circles on the map.',
     dropPin: 'Drop pin at map center',
     dropPinShort: 'Center',
     addMarkup: 'Add markup',
@@ -2488,11 +2488,19 @@ export const en = {
     toolPin: 'Draw pins',
     toolLine: 'Draw lines',
     toolPolygon: 'Draw polygons',
+    toolText: 'Place text',
+    toolArrow: 'Draw arrows',
+    toolCircle: 'Draw circles',
     hintPin: 'Click the map to drop a pin. Click the pin tool again to stop.',
     hintLine:
       'Click to add vertices; double-click or Enter to finish the line.',
     hintPolygon:
       'Click to add vertices; double-click or Enter to close the polygon.',
+    hintText: 'Click the map to place text, then type the label.',
+    hintArrow:
+      'Click to add vertices; double-click or Enter to finish the arrow.',
+    hintCircle: 'Click the center, then drag to set the radius.',
+    textPrompt: 'Text label',
     promote: 'Promote',
     promoteTitle: 'Save this markup as a data layer you own',
     promoting: 'Promoting…',

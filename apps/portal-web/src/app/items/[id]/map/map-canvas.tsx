@@ -234,10 +234,8 @@ interface Props {
    * toggles flip the layer's `visibility` paint property without
    * tearing the source down.
    *
-   * Future drawing kinds (line, polygon, arrow, text) will land
-   * as additional MapLibre layers on the same source; the
-   * sanitizer in DrawingsService restricts the geometry types
-   * accepted server-side so v1 only ever paints points.
+   * Pins, lines, polygons, text, arrows, and circles all share
+   * this source; syncDrawings owns the MapLibre layer set.
    */
   drawings?: DrawingSetForRender[];
   /**

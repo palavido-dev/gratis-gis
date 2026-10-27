@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { DrawingFeature } from '@gratis-gis/shared-types';
-import { flattenDrawingSets, type DrawingSetForRender } from './drawings-overlay';
+import {
+  arrowTip,
+  flattenDrawingSets,
+  type DrawingSetForRender,
+} from './drawings-overlay';
 
 const ts = '2026-10-27T00:00:00.000Z';
 
@@ -110,5 +114,66 @@ describe('flattenDrawingSets', () => {
       'p1',
       'p2',
     ]);
+  });
+
+  it('emits an arrow-head tip point for arrow features', () => {
+    const out = flattenDrawingSets([
+      set({
+        id: 'a',
+        features: [
+          feature({
+            id: 'arr1',
+            kind: 'arrow',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [0, 0],
+                [0, 1],
+              ],
+            },
+            label: 'go',
+          }),
+          feature({
+            id: 'txt1',
+            kind: 'text',
+            geometry: { type: 'Point', coordinates: [2, 2] },
+            label: 'Depot',
+          }),
+        ],
+      }),
+    ]);
+    expect(out.featureCollection.features.map((f) => f.id)).toEqual([
+      'arr1',
+      'arr1:tip',
+      'txt1',
+    ]);
+    const tip = out.featureCollection.features[1];
+    expect(tip?.properties).toMatchObject({
+      kind: 'arrow-head',
+      bearing: 0,
+    });
+    expect(tip?.geometry).toEqual({ type: 'Point', coordinates: [0, 1] });
+    expect(out.featureCollection.features[2]?.properties).toMatchObject({
+      kind: 'text',
+      label: 'Depot',
+    });
+  });
+});
+
+describe('arrowTip', () => {
+  it('returns null for non-lines', () => {
+    expect(arrowTip({ type: 'Point', coordinates: [0, 0] })).toBeNull();
+  });
+
+  it('computes bearing east as ~90', () => {
+    const tip = arrowTip({
+      type: 'LineString',
+      coordinates: [
+        [0, 0],
+        [1, 0],
+      ],
+    });
+    expect(tip?.coordinates).toEqual([1, 0]);
+    expect(tip?.bearing).toBeCloseTo(90, 5);
   });
 });

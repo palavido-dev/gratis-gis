@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | PR #341 on `cursor/mcp-write-tools-2838` |
+| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | PR #342 on `cursor/markup-annotation-kinds-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | |
 | R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | Not Yjs CRDT |
 | R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | |
 | R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | No Weblate |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-mcp-write-tools | 2026-10-27 | Merged #341: MCP run_tool + create_data_layer_from_geojson |
 | R2-mcp-api-key-auth | 2026-10-27 | Merged #340: MCP prefers ggk_ API keys; JWT soft-warn |
 | R2-sync-conflict-review-ui | 2026-10-27 | Merged #339: layer data panel lists syncConflicts |
 | R2-lidar-dep-bump | 2026-10-27 | Merged #338: maplibre-gl-lidar 0.21; local overlay patch dropped |

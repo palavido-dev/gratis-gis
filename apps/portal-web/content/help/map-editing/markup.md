@@ -1,7 +1,7 @@
 ---
 id: map-editing-markup
 title: Markup and redlining
-summary: Draw colored pins, lines, and polygons on a shared map to flag issues or call out places for the team to discuss, then promote a set into a real data layer when you are ready.
+summary: Draw colored pins, lines, polygons, text, arrows, and circles on a shared map to flag issues or call out places for the team to discuss, then promote a set into a real data layer when you are ready.
 category: map-editing
 order: 40
 complexity: basic
@@ -37,9 +37,17 @@ Click **Add markup**. A new markup set appears, named after you and
 today's date, with an auto-assigned color so two reviewers' markups
 don't clash. Each set is its own overlay of features.
 
-Use the pin, line, or polygon tools on a set, then click the map to
-draw. Pins place with a single click. Lines and polygons take
-vertices on each click; double-click or press Enter to finish.
+Use the tools on a set, then click the map to draw:
+
+- **Pin**: single click.
+- **Line**: click vertices; double-click or press Enter to finish.
+- **Polygon**: click vertices; double-click or Enter to close.
+- **Text**: click to place, then type the label when prompted.
+- **Arrow**: same as a line; the tip gets a chevron so direction
+  is obvious.
+- **Circle**: click the center, then drag to set the radius (stored
+  as a polygon outline).
+
 **Center** still drops a pin at the current map center when you just
 need a quick marker without switching tools.
 

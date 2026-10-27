@@ -2365,7 +2365,7 @@ export const ptBR: Partial<CatalogShape> = {
     deleteAria: 'Excluir anotação',
     somethingWrong: 'Algo deu errado',
     empty:
-      'Ainda não há anotações. Adicione um conjunto e desenhe pinos, linhas ou polígonos.',
+      'Ainda não há anotações. Adicione um conjunto e desenhe pinos, linhas, polígonos, texto, setas ou círculos.',
     dropPin: 'Colocar pino no centro do mapa',
     dropPinShort: 'Centro',
     addMarkup: 'Adicionar anotação',
@@ -2379,12 +2379,20 @@ export const ptBR: Partial<CatalogShape> = {
     toolPin: 'Desenhar pinos',
     toolLine: 'Desenhar linhas',
     toolPolygon: 'Desenhar polígonos',
+    toolText: 'Colocar texto',
+    toolArrow: 'Desenhar setas',
+    toolCircle: 'Desenhar círculos',
     hintPin:
       'Clique no mapa para soltar um pino. Clique de novo na ferramenta para parar.',
     hintLine:
       'Clique para adicionar vértices; clique duplo ou Enter para terminar a linha.',
     hintPolygon:
       'Clique para adicionar vértices; clique duplo ou Enter para fechar o polígono.',
+    hintText: 'Clique no mapa para colocar texto e digite o rótulo.',
+    hintArrow:
+      'Clique para adicionar vértices; clique duplo ou Enter para terminar a seta.',
+    hintCircle: 'Clique no centro e arraste para definir o raio.',
+    textPrompt: 'Rótulo de texto',
     promote: 'Promover',
     promoteTitle: 'Salvar esta anotação como camada de dados',
     promoting: 'Promovendo…',
