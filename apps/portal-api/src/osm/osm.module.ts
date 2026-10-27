@@ -10,6 +10,7 @@ import { OsmService } from './osm.service.js';
 import { OsmScrubService } from './osm-scrub.service.js';
 import { OsmSaveAsLayerService } from './save-as-layer.service.js';
 import { OsmSaveAsLayerController } from './save-as-layer.controller.js';
+import { OsmQueryController } from './osm-query.controller.js';
 
 /**
  * Wires the OSM overlay adapter (#OSM).  Exports OsmService so the
@@ -28,6 +29,10 @@ import { OsmSaveAsLayerController } from './save-as-layer.controller.js';
  * back a freshly-provisioned data_layer item id. Pulls in
  * ItemsModule + DataLayerFeaturesModule for the provisioning and
  * bulk-insert calls respectively.
+ *
+ * OsmQueryController (R3-mcp-query-osm / #161) exposes
+ * GET /osm/query as a capped facade over OsmService for MCP and
+ * scripts. GET so read-only API keys can call it.
  */
 @Module({
   imports: [PrismaModule, EngineModule, ItemsModule, DataLayerFeaturesModule],
@@ -37,7 +42,7 @@ import { OsmSaveAsLayerController } from './save-as-layer.controller.js';
     OsmScrubService,
     OsmSaveAsLayerService,
   ],
-  controllers: [OsmSaveAsLayerController],
+  controllers: [OsmSaveAsLayerController, OsmQueryController],
   exports: [OsmService],
 })
 export class OsmModule {}

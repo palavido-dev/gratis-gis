@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-sync-conflict-reapply | research-cycle-3 | Re-apply losing-side syncConflicts | PR #353 |
+| R3-mcp-query-osm | research-cycle-3 / #161 | MCP `query_osm` over Overpass | PR #354 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-mcp-query-osm | research-cycle-3 / #161 | MCP `query_osm` over Overpass | Thin facade; cap bbox/results |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R3-sync-conflict-reapply | 2026-10-27 | Merged #353: re-apply losing syncConflicts from layer data panel |
 | R3-dashboard-filter-widget | 2026-10-27 | Merged #352: help for existing Filter widget + cross-filter |
 | R3-anonymous-markup | 2026-10-27 | Merged #351: anonymous markup when `allowAnonymousDrawings` |
 | R3-field-delta-sync | 2026-10-27 | Merged #350: field offline pull via `delta?since=N` |

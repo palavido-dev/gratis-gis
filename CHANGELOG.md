@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- portal-mcp `query_osm` read tool over `GET /api/osm/query`
+  (thin facade on OsmService / Overpass). Requires a bbox;
+  caps area at 1 square degree and features at 5000 (default
+  1000); supports iD presets or relational near-queries; safe
+  with a read-only API key (R3-mcp-query-osm / #161).
 - Layer data panel SyncConflicts list can re-apply the losing-side
   edit (confirm compares losing vs current; PATCH with live
   `baseObservationId`, DELETE for delete conflicts, POST recreate

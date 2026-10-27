@@ -2,7 +2,7 @@
 
 A small [Model Context Protocol](https://modelcontextprotocol.io) server that
 exposes a GratisGIS portal to MCP clients (Claude Desktop, Cursor, custom
-agents). Connects over stdio. Phase 1 ships three read tools; Phase 2 adds
+agents). Connects over stdio. Phase 1 ships four read tools; Phase 2 adds
 two write tools.
 
 The server ships with the platform under AGPL-3.0-or-later and works
@@ -17,6 +17,11 @@ against any GratisGIS portal you can sign into.
 - `get_item`: full metadata for a single item by id.
 - `read_layer_features`: GeoJSON FeatureCollection for a `data_layer`,
   capped per call so a large layer cannot exhaust the model context.
+- `query_osm`: OpenStreetMap Overpass query via `GET /api/osm/query`.
+  Requires a WGS84 bbox; supports iD `presetIds` or relational
+  `anchorPresetId` + `conditions`. Caps: bbox ≤ 1 square degree, at most
+  5000 features (default 1000). Unbounded queries are refused. Uses the
+  org `osmOverpassEndpoint` when set. Safe with a read-only API key.
 
 ### Phase 2 (write)
 
