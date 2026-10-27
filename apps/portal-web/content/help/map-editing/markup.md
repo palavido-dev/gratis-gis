@@ -1,7 +1,7 @@
 ---
 id: map-editing-markup
 title: Markup and redlining
-summary: Draw colored pins, lines, polygons, text, arrows, and circles on a shared map to flag issues or call out places for the team to discuss, then promote a set into a real data layer when you are ready.
+summary: Draw colored pins, lines, polygons, text, arrows, and circles on a shared map to flag issues or call out places for the team to discuss, then download a set as GeoJSON or promote it into a real data layer when you are ready.
 category: map-editing
 order: 40
 complexity: basic
@@ -57,6 +57,15 @@ Use the tools on a set, then click the map to draw:
 **Center** still drops a pin at the current map center when you just
 need a quick marker without switching tools.
 
+## Download as GeoJSON
+
+Click **GeoJSON** on any markup set that has features. Your browser
+downloads a FeatureCollection with every pin, line, polygon, text,
+arrow, and circle in that set. Properties include kind, label, note,
+color, and which markup set / author they came from. Opens directly
+in QGIS, ArcGIS Pro, geojson.io, and similar tools. Anyone who can
+see the set can download it — no edit permission required.
+
 ## Promote to a data layer
 
 When a markup set is ready to become real GIS data, click
@@ -94,9 +103,10 @@ your own view; the set is still there for everyone else.
 
 - Drawings persist on the map item. A new visitor sees every set
   that's been added so far.
-- A markup set isn't a data layer until you promote it. Promote
-  when you want styling, sharing, OGC access, or derived-layer
-  pipelines on the result.
+- A markup set isn't a data layer until you promote it. Download
+  GeoJSON when you just need the sketches offline; promote when you
+  want styling, sharing, OGC access, or derived-layer pipelines on
+  the result.
 - Comments threaded against the map and against individual pins
   pair nicely with markup. See [Comments](map-editing-comments)
   for the conversation side.
