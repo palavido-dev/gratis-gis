@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Form designer up/down controls on each question row so authors can
+  reorder on touch devices where HTML5 drag-and-drop does not work
+  (desktop grip handle unchanged).
 - Bounded i18n chrome sweep (#162): route error boundary, form
   submission receipts, and the 3D terrain loading chip now use the
   locale catalogs (en / es / fr / de / pt-BR). Weblate hosting stays
