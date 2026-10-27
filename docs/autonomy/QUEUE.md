@@ -6,11 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-
-## in-progress
-
-| id | source | summary | notes |
-| --- | --- | --- | --- |
 | R3-sync-conflict-reapply | research-cycle-3 | Re-apply losing-side syncConflicts | PR #353 |
 
 ## queued (ship-without-input)
