@@ -1595,6 +1595,67 @@ export class DataLayerFeaturesService {
   }
 
   /**
+   * Drop one sync-conflict artifact by id from the layer JSON
+   * (R6-sync-conflict-dismiss). Caller must already have asserted
+   * edit permission. Clears a reviewed / re-applied card without
+   * rewriting other artifacts.
+   */
+  async dismissSyncConflict(args: {
+    itemId: string;
+    layerId: string;
+    conflictId: string;
+  }): Promise<{ dismissed: boolean }> {
+    const conflictId = args.conflictId.trim();
+    if (!conflictId) {
+      throw new BadRequestException('conflictId is required');
+    }
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const row = await this.prisma.item.findUnique({
+        where: { id: args.itemId },
+        select: { data: true, updatedAt: true, type: true },
+      });
+      if (!row) {
+        throw new NotFoundException('Item not found');
+      }
+      if (row.type !== 'data_layer') {
+        throw new BadRequestException('Sync conflicts only exist on data layers');
+      }
+      const data = row.data as {
+        version?: number;
+        layers?: Array<Record<string, unknown>>;
+      } | null;
+      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+        throw new BadRequestException('Sync conflicts require a v3 data layer');
+      }
+      const idx = data.layers.findIndex((l) => l.id === args.layerId);
+      if (idx < 0) {
+        throw new NotFoundException('Layer not found');
+      }
+      const layer = data.layers[idx]!;
+      const prev = Array.isArray(layer.syncConflicts)
+        ? (layer.syncConflicts as Array<{ id?: unknown }>)
+        : [];
+      const nextConflicts = prev.filter((c) => c?.id !== conflictId);
+      if (nextConflicts.length === prev.length) {
+        throw new NotFoundException('Sync conflict not found');
+      }
+      const nextLayers = data.layers.slice();
+      nextLayers[idx] = { ...layer, syncConflicts: nextConflicts };
+      const updated = await this.prisma.item.updateMany({
+        where: { id: args.itemId, updatedAt: row.updatedAt },
+        data: {
+          data: { ...(data as object), layers: nextLayers } as never,
+        },
+      });
+      if (updated.count === 1) return { dismissed: true };
+    }
+    throw new ConflictException(
+      'Could not dismiss that sync conflict; try again.',
+    );
+  }
+
+  /**
    * Bulk attribute calculation across a scope of features (#83).
    * Parses + validates the expression once, evaluates it per row
    * against current property values, and either returns a preview

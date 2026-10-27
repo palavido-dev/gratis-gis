@@ -2602,6 +2602,16 @@ export const ptBR: Partial<CatalogShape> = {
     syncConflictReapplyFailed: 'Nao foi possivel reaplicar esse conflito.',
     syncConflictReapplyUnavailable:
       'Este conflito nao tem edicao do lado perdedor para reaplicar.',
+    syncConflictDismissAction: 'Dispensar',
+    syncConflictDismissBusy: 'Dispensando…',
+    syncConflictDismissTitle: 'Dispensar este conflito de sincronização?',
+    syncConflictDismissMessage:
+      'Remover este cartão de conflito da camada. As feições ao vivo não mudam. Você não pode desfazer esta entrada da lista sem outro conflito.',
+    syncConflictDismissAfterReapply:
+      'A reaplicação foi bem-sucedida. Dispensar este cartão de conflito da lista?',
+    syncConflictDismissAfterNoop:
+      'Nada a escrever (já corresponde). Dispensar este cartão de conflito da lista?',
+    syncConflictDismissFailed: 'Não foi possível dispensar esse conflito.',
     syncConflictCompareLosing: 'Lado perdedor',
     syncConflictCompareCurrent: 'No momento do conflito (atual)',
     syncConflictSideDeleted: 'A feicao estava excluida.',

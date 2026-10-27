@@ -101,12 +101,13 @@ refusal parks that edit on the device with the server reason and
 does not transfer it; the conflict artifact is still recorded for
 review. New features (creates) upload without a dry-run.
 
-If you can edit the layer, each conflict offers **Re-apply**. Confirm
-shows the losing side next to what was current at conflict time.
-Re-apply writes the losing update onto the live feature (with the
-current observation id), deletes when the losing side was a delete,
-or recreates the feature when it is gone. Conflicts stay listed after
-a successful re-apply until a later dismiss path lands.
+If you can edit the layer, each conflict offers **Re-apply** and
+**Dismiss**. Confirm for Re-apply shows the losing side next to what
+was current at conflict time. Re-apply writes the losing update onto
+the live feature (with the current observation id), deletes when the
+losing side was a delete, or recreates the feature when it is gone.
+After a successful re-apply you can clear the card; **Dismiss** alone
+removes the list entry without changing live features.
 
 On the Android field app, rejected queue rows that parked a server
 `current` offer the same **Re-apply** (and Recreate when the feature
