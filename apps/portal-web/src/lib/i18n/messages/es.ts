@@ -2566,6 +2566,20 @@ export const es: Partial<CatalogShape> = {
       'Analizando el archivo e insertando en PostGIS junto a las filas existentes. Las capas grandes pueden tardar unos minutos.',
     importingDesc:
       'Analizando el archivo e insertando en bloque en PostGIS. Las capas grandes (parcelas a escala de condado) pueden tardar unos minutos.',
+    probingHeadline: 'Leyendo en el servidor',
+    probingDesc:
+      'GDAL está abriendo el archivo y listando capas. Puede tardar un minuto con una File Geodatabase a escala de condado.',
+    probeNoLayers: 'Ese archivo no tiene capas legibles.',
+    importJobEnqueueDesc:
+      'Encolando una importación en segundo plano desde el archivo preparado hacia esta capa.',
+    importJobQueued:
+      'Importación encolada para {sourceLayer} ({mode}). El progreso aparece en el banner de importación de esta página.',
+    importJobFailed: 'No se pudo encolar la importación ({status}).',
+    sourceLayerPickIntro:
+      '{fileName} tiene {count} capas ({driver}). Elija qué capa de origen importar en este destino.',
+    sourceLayerLabel: 'Capa de origen',
+    sourceLayerConfirm: 'Importar capa seleccionada',
+    sourceLayerCancel: 'Cancelar',
     uploadFailed: 'Error al subir',
     syncConflictsTitle:
       '{count, plural, one {# conflicto de sincronización} other {# conflictos de sincronización}}',
