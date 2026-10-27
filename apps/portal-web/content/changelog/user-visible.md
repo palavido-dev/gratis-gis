@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Copy ArcGIS FeatureServer layers into a data layer
+On an ArcGIS service item, **Copy selected layers to data layer** pulls the checked FeatureServer layers into a new portal data layer (WGS84). The live pointer stays; copies stop at 50,000 features. MapServer-only URLs are refused unless a FeatureServer twin exists.
+
 ## 2026-10-27 - Import File Geodatabase into an existing layer
 On a data layer's Import features control, drop a `.gdb.zip` (or `.gdb`) and the portal stages it with server GDAL the same way the create wizard does. If the archive has more than one layer, pick which source layer to load; a background import job fills the sublayer.
 

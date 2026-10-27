@@ -17,9 +17,17 @@ related:
 
 An **ArcGIS service** is an item that wraps a URL to an external
 ArcGIS REST endpoint: a feature service, a map service, or a
-tiled image service. The portal doesn't copy the bytes; it
-queries the upstream service at render time and stores only the
-URL plus auth details on this item.
+tiled image service. By default the portal does not copy the
+bytes; it queries the upstream service at render time and stores
+only the URL plus auth details on this item.
+
+When you want a local PostGIS copy, open the item and use
+**Copy selected layers to data layer** (FeatureServer URLs, or a
+MapServer that has a FeatureServer twin). That creates a new
+**data layer** with the selected sublayers; the ArcGIS service
+item stays a live pointer. Interactive copies stop at 50,000
+features — use **Admin → Migrations → From ArcGIS Online** for a
+full hosted-service cutover.
 
 ## When to use this vs. a data layer
 

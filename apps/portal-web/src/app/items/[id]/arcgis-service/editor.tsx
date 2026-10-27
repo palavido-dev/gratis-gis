@@ -5,6 +5,7 @@ import { useCallback, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Check,
+  Copy,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -25,6 +26,9 @@ import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import { useT } from '@/lib/i18n/locale-context';
 
+/** Interactive copy hard cap (mirrors portal-api ARCGIS_COPY_FEATURE_HARD_CAP). */
+const COPY_FEATURE_HARD_CAP = 50_000;
+
 interface Props {
   itemId: string;
   initial: ArcgisServiceData;
@@ -44,6 +48,7 @@ interface Props {
  */
 export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [data, setData] = useState<ArcgisServiceData>({
     ...DEFAULT_ARCGIS_SERVICE,
     ...initial,
@@ -54,6 +59,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     useState<ArcgisServiceDescription | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
   const [, startTransition] = useTransition();
@@ -284,6 +290,61 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
       startTransition(() => router.refresh());
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function copySelectedToDataLayer() {
+    const layerIds = [...effectiveSelected]
+      .map((s) => Number(s))
+      .filter((n) => Number.isFinite(n));
+    const ok = await confirm({
+      title: t('serviceEditors.copyToDataLayerConfirmTitle'),
+      message: t('serviceEditors.copyToDataLayerConfirmMessage', {
+        count: layerIds.length,
+        cap: COPY_FEATURE_HARD_CAP,
+      }),
+      confirmLabel: t('serviceEditors.copyToDataLayer'),
+    });
+    if (!ok) return;
+    setCopying(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${encodeURIComponent(itemId)}/copy-to-data-layer`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ layerIds }),
+        },
+      );
+      const body = (await res.json().catch(() => null)) as {
+        portalItemId?: string;
+        featuresInserted?: number;
+        truncated?: boolean;
+        warnings?: string[];
+        message?: string | string[];
+      } | null;
+      if (!res.ok) {
+        const msg = Array.isArray(body?.message)
+          ? body.message.join('; ')
+          : body?.message || `HTTP ${res.status}`;
+        throw new Error(typeof msg === 'string' ? msg : `HTTP ${res.status}`);
+      }
+      const id = body?.portalItemId;
+      if (!id) throw new Error(t('serviceEditors.copyToDataLayerFailed'));
+      // Navigate to the new data layer; keep the live pointer item.
+      startTransition(() => {
+        router.push(`/items/${id}`);
+        router.refresh();
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('serviceEditors.copyToDataLayerFailed'),
+      );
+    } finally {
+      setCopying(false);
     }
   }
 
@@ -521,11 +582,29 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
       ) : null}
 
       {canEdit ? (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {saved ? (
             <span className="inline-flex items-center gap-1 text-xs text-success">
               <Check className="h-3.5 w-3.5" /> {t('serviceEditors.saved')}
             </span>
+          ) : null}
+          {staged.layers.length > 0 && !hasChanges ? (
+            <button
+              type="button"
+              disabled={copying || effectiveSelected.size === 0}
+              onClick={() => void copySelectedToDataLayer()}
+              title={t('serviceEditors.copyToDataLayerTitle')}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            >
+              {copying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              {copying
+                ? t('serviceEditors.copyingToDataLayer')
+                : t('serviceEditors.copyToDataLayer')}
+            </button>
           ) : null}
           <button
             type="button"

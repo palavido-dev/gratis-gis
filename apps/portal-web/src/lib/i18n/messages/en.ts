@@ -1946,7 +1946,7 @@ export const en = {
     layerCount:
       '{count, plural, one {# layer} other {# layers}}',
     arcgisFootnote:
-      "The service must allow cross-origin requests from this portal. Paginated fetches cap at ~5000 features per viewport: zoom in for denser layers, or pull the data to a local copy from the layer's item page (coming next).",
+      'The service must allow cross-origin requests from this portal. Paginated fetches cap at ~5000 features per viewport: zoom in for denser layers, or open the ArcGIS service item and use Copy selected layers to data layer for a local PostGIS copy (FeatureServer; capped).',
     arcgisNoLayers:
       'Service reported no layers. Is this URL pointing at something other than a MapServer / FeatureServer?',
     arcgisGroupSuffix: '(group)',
@@ -4796,6 +4796,18 @@ export const en = {
     openServicePage: 'Open the service page',
     layersHint:
       "Check which layers this item exposes. Unchecked layers stay in the upstream service but won't appear when maps consume this item. Star the default layer.",
+    copyToDataLayer: 'Copy selected layers to data layer',
+    copyingToDataLayer: 'Copying…',
+    copyToDataLayerTitle:
+      'Create a portal data layer with the selected FeatureServer layers (capped copy)',
+    copyToDataLayerConfirmTitle: 'Copy to a data layer?',
+    copyToDataLayerConfirmMessage:
+      'Create a new data layer from {count, plural, one {# selected layer} other {# selected layers}}. Features are pulled with outSR=4326 and stop at {cap} rows total. The live ArcGIS pointer on this item is unchanged. Save any unsaved probe first.',
+    copyToDataLayerFailed: 'Could not copy those layers to a data layer.',
+    copyToDataLayerSuccess:
+      'Copied {inserted, plural, one {# feature} other {# features}} into a new data layer.',
+    copyToDataLayerTruncated:
+      'Copied {inserted, plural, one {# feature} other {# features}} (hit the {cap} feature cap). Open the new data layer, or use Admin → Migrations for a full import.',
   },
 
   /** Settings → Notification preferences (#162). */

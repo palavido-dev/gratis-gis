@@ -1832,7 +1832,7 @@ export const es: Partial<CatalogShape> = {
     pickLayerLabel: 'Elegir una capa',
     layerCount: '{count, plural, one {# capa} other {# capas}}',
     arcgisFootnote:
-      'El servicio debe permitir solicitudes de origen cruzado desde este portal. Las descargas paginadas se limitan a ~5000 entidades por vista: acerca el zoom en capas densas o copia los datos localmente desde la página del elemento de la capa (próximamente).',
+      'El servicio debe permitir solicitudes de origen cruzado desde este portal. Las lecturas paginadas se limitan a ~5000 entidades por vista: acerque el zoom en capas densas, o abra el elemento de servicio ArcGIS y use Copiar capas seleccionadas a capa de datos para una copia local en PostGIS (FeatureServer; con tope).',
     arcgisNoLayers:
       'El servicio no informó de capas. ¿Apunta esta URL a algo distinto de un MapServer / FeatureServer?',
     arcgisGroupSuffix: '(grupo)',
@@ -4674,6 +4674,18 @@ export const es: Partial<CatalogShape> = {
     openServicePage: "Abrir la página del servicio",
     layersHint:
       "Marca qué capas expone este elemento. Las no marcadas siguen en el servicio de origen pero no aparecen cuando los mapas lo consumen. Destaca la capa predeterminada.",
+    copyToDataLayer: 'Copiar capas seleccionadas a capa de datos',
+    copyingToDataLayer: 'Copiando…',
+    copyToDataLayerTitle:
+      'Crear una capa de datos del portal con las capas FeatureServer seleccionadas (copia con tope)',
+    copyToDataLayerConfirmTitle: '¿Copiar a una capa de datos?',
+    copyToDataLayerConfirmMessage:
+      'Crear una capa de datos nueva a partir de {count, plural, one {# capa seleccionada} other {# capas seleccionadas}}. Las entidades se traen con outSR=4326 y se detienen en {cap} filas en total. El puntero ArcGIS en vivo de este elemento no cambia. Guarde primero cualquier sondeo sin guardar.',
+    copyToDataLayerFailed: 'No se pudieron copiar esas capas a una capa de datos.',
+    copyToDataLayerSuccess:
+      'Se copiaron {inserted, plural, one {# entidad} other {# entidades}} a una capa de datos nueva.',
+    copyToDataLayerTruncated:
+      'Se copiaron {inserted, plural, one {# entidad} other {# entidades}} (se alcanzó el tope de {cap}). Abra la nueva capa de datos, o use Admin → Migraciones para una importación completa.',
   },
 
 

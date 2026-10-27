@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- ArcGIS service items gain **Copy selected layers to data layer**
+  (`POST /items/:id/copy-to-data-layer`), reusing hosted-fs
+  FeatureServer pagination (`outSR=4326`, page 2000) with a
+  50,000-feature hard cap. MapServer URLs need a FeatureServer
+  twin. The live pointer item is unchanged; map Add Layer
+  footnote drops "(coming next)" (R5-arcgis-pull-to-local).
 - v3 data layer **Import features** stages File Geodatabase
   (`.gdb` / `.gdb.zip`) via `POST /ingest/stage`, prompts for a
   source layer when the archive is multi-layer, and enqueues

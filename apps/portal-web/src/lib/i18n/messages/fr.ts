@@ -1836,7 +1836,7 @@ export const fr: Partial<CatalogShape> = {
     pickLayerLabel: 'Choisir une couche',
     layerCount: '{count, plural, one {# couche} other {# couches}}',
     arcgisFootnote:
-      'Le service doit autoriser les requêtes cross-origin depuis ce portail. Les chargements paginés plafonnent à ~5000 entités par vue : zoomez pour les couches denses ou copiez les données localement depuis la page de l’élément de la couche (bientôt).',
+      "Le service doit autoriser les requêtes cross-origin depuis ce portail. Les lectures paginées sont plafonnées à ~5000 entités par vue : zoomez pour les couches denses, ou ouvrez l'élément de service ArcGIS et utilisez Copier les couches sélectionnées vers une couche de données pour une copie PostGIS locale (FeatureServer ; plafonné).",
     arcgisNoLayers:
       'Le service n’a signalé aucune couche. Cette URL pointe-t-elle autre chose qu’un MapServer / FeatureServer ?',
     arcgisGroupSuffix: '(groupe)',
@@ -4680,6 +4680,18 @@ export const fr: Partial<CatalogShape> = {
     openServicePage: "Ouvrir la page du service",
     layersHint:
       "Cochez les couches exposées par cet élément. Les couches non cochées restent sur le service distant mais n'apparaissent pas quand les cartes consomment cet élément. Marquez d'une étoile la couche par défaut.",
+    copyToDataLayer: 'Copier les couches sélectionnées vers une couche de données',
+    copyingToDataLayer: 'Copie…',
+    copyToDataLayerTitle:
+      'Créer une couche de données du portail avec les couches FeatureServer sélectionnées (copie plafonnée)',
+    copyToDataLayerConfirmTitle: 'Copier vers une couche de données ?',
+    copyToDataLayerConfirmMessage:
+      "Créer une nouvelle couche de données à partir de {count, plural, one {# couche sélectionnée} other {# couches sélectionnées}}. Les entités sont tirées avec outSR=4326 et s'arrêtent à {cap} lignes au total. Le pointeur ArcGIS live de cet élément reste inchangé. Enregistrez d'abord tout sondage non enregistré.",
+    copyToDataLayerFailed: 'Impossible de copier ces couches vers une couche de données.',
+    copyToDataLayerSuccess:
+      '{inserted, plural, one {# entité copiée} other {# entités copiées}} dans une nouvelle couche de données.',
+    copyToDataLayerTruncated:
+      '{inserted, plural, one {# entité copiée} other {# entités copiées}} (plafond de {cap} atteint). Ouvrez la nouvelle couche de données, ou utilisez Admin → Migrations pour une import complète.',
   },
 
 
