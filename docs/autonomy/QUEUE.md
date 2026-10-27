@@ -6,14 +6,14 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | Branch `cursor/citation-export-2838` |
+| R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | Branch `cursor/i18n-chrome-sweep-2838`; no Weblate |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | No Weblate |
 | R2-form-touch-reorder | research-cycle-2 | Form designer up/down on touch | |
+| R2-i18n-tile-layer-errors | issue #162 follow-up | Tile-layer editor error/progress strings | Split from chrome sweep |
 
 ## queued (needs-maintainer)
 
@@ -28,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-citation-export | 2026-10-27 | Merged #345: BibTeX / RIS / JSON-LD citation export |
 | R2-presence-websocket | 2026-10-27 | Merged #343: Nest WS presence + HTTP fallback |
 | Q-docs-whats-new | 2026-10-27 | Merged #344: What's new + help + GitHub docs catch-up |
 | R2-ogc-records-auth-docs | 2026-10-27 | Help API Records + MetaSearch catalog path; Aardvark/DCAT noted |

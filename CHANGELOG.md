@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Bounded i18n chrome sweep (#162): route error boundary, form
+  submission receipts, and the 3D terrain loading chip now use the
+  locale catalogs (en / es / fr / de / pt-BR). Weblate hosting stays
+  needs-maintainer.
 - Citation export for public items: BibTeX, RIS, and Schema.org
   Dataset JSON-LD at `/api/public/ogc/citation/{id}.{bib|ris|jsonld}`,
   plus a Cite menu on the item Metadata tab (#116 follow-up).
