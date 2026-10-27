@@ -2143,6 +2143,7 @@ export function MapEditor({
                   competing for the BuilderShell right-panel slot. */}
               <MarkupPanel
                 mapId={itemId}
+                map={mapLibre}
                 open={markupOpen}
                 onClose={() => setMarkupOpen(false)}
                 currentUser={currentUser}
@@ -2150,6 +2151,40 @@ export function MapEditor({
                 mapCenter={map.center}
                 onDrawingsChange={setDrawings}
                 initialDrawings={drawings}
+                onDrawActiveChange={(active) => {
+                  if (active) {
+                    if (featureEditing.active) featureEditing.deactivate();
+                    if (selectTool !== 'off') setSelectTool('off');
+                  }
+                }}
+                onPromoted={(result) => {
+                  void (async () => {
+                    toast(
+                      t('mapMarkup.promoteDone', {
+                        count: result.inserted,
+                        title: result.title,
+                      }),
+                    );
+                    if (!canEdit) return;
+                    try {
+                      const res = await fetch(
+                        `/api/portal/items/${result.itemId}`,
+                      );
+                      if (!res.ok) return;
+                      const item = (await res.json()) as Item;
+                      const { layers: added, error: addError } =
+                        await layersForPortalItem(item, { t });
+                      if (addError || !added?.length) return;
+                      setMap((m) => ({
+                        ...m,
+                        layers: [...added, ...m.layers],
+                      }));
+                      markDirty();
+                    } catch {
+                      /* toast already confirmed the layer exists */
+                    }
+                  })();
+                }}
               />
               {/* #155 Comments panel. Same floating-overlay model as
                   the Markup pane so viewers (not just editors) can

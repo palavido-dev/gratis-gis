@@ -2370,14 +2370,34 @@ export const de: Partial<CatalogShape> = {
     renameTitle: 'Zum Umbenennen klicken',
     deleteAria: 'Markierung löschen',
     somethingWrong: 'Etwas ist schiefgelaufen',
-    empty: 'Noch keine Markierungen. Fügen Sie einen Satz hinzu und setzen Sie dann Pins auf die Karte.',
-    dropPin: 'Pin in der Mitte setzen',
+    empty:
+      'Noch keine Markierungen. Fügen Sie einen Satz hinzu und zeichnen Sie Pins, Linien oder Polygone.',
+    dropPin: 'Pin in der Kartenmitte setzen',
+    dropPinShort: 'Mitte',
     addMarkup: 'Markierung hinzufügen',
     signInToMarkup: 'Melden Sie sich an, um Markierungen hinzuzufügen.',
     pins: '{count, plural, one {# Pin} other {# Pins}}',
+    features:
+      '{count, plural, one {# Objekt} other {# Objekte}}',
     deleteConfirm:
       'Markierung „{title}“ löschen? Das kann nicht rückgängig gemacht werden.',
     setColorAria: 'Farbe {color} festlegen',
+    toolPin: 'Pins zeichnen',
+    toolLine: 'Linien zeichnen',
+    toolPolygon: 'Polygone zeichnen',
+    hintPin:
+      'Klicken Sie auf die Karte, um einen Pin zu setzen. Erneut auf das Pin-Werkzeug klicken zum Beenden.',
+    hintLine:
+      'Klicken Sie, um Stützpunkte hinzuzufügen; Doppelklick oder Enter beendet die Linie.',
+    hintPolygon:
+      'Klicken Sie, um Stützpunkte hinzuzufügen; Doppelklick oder Enter schließt das Polygon.',
+    promote: 'Übernehmen',
+    promoteTitle: 'Diese Markierung als Datenebene speichern',
+    promoting: 'Wird übernommen…',
+    promoteEmpty: 'Fügen Sie mindestens ein Objekt hinzu, bevor Sie übernehmen.',
+    promoteFailed: 'Markierung konnte nicht als Datenebene übernommen werden.',
+    promoteDone:
+      '{count, plural, one {# Objekt} other {# Objekte}} aus „{title}“ als Datenebene gespeichert.',
   },
   mapLegend: {
     title: 'Legende',

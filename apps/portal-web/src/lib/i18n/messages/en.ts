@@ -2460,14 +2460,33 @@ export const en = {
     renameTitle: 'Click to rename',
     deleteAria: 'Delete markup',
     somethingWrong: 'Something went wrong',
-    empty: 'No markup yet. Add a set, then drop pins to mark up the map.',
-    dropPin: 'Drop pin at center',
+    empty:
+      'No markup yet. Add a set, then draw pins, lines, or polygons on the map.',
+    dropPin: 'Drop pin at map center',
+    dropPinShort: 'Center',
     addMarkup: 'Add markup',
     signInToMarkup: 'Sign in to add markup to this map.',
     pins: '{count, plural, one {# pin} other {# pins}}',
+    features:
+      '{count, plural, one {# feature} other {# features}}',
     deleteConfirm:
       'Delete the "{title}" markup? This can\'t be undone.',
     setColorAria: 'Set color {color}',
+    toolPin: 'Draw pins',
+    toolLine: 'Draw lines',
+    toolPolygon: 'Draw polygons',
+    hintPin: 'Click the map to drop a pin. Click the pin tool again to stop.',
+    hintLine:
+      'Click to add vertices; double-click or Enter to finish the line.',
+    hintPolygon:
+      'Click to add vertices; double-click or Enter to close the polygon.',
+    promote: 'Promote',
+    promoteTitle: 'Save this markup as a data layer you own',
+    promoting: 'Promoting…',
+    promoteEmpty: 'Add at least one feature before promoting.',
+    promoteFailed: 'Could not promote this markup to a data layer.',
+    promoteDone:
+      'Saved {count, plural, one {# feature} other {# features}} from "{title}" as a data layer.',
   },
   mapLegend: {
     title: 'Legend',

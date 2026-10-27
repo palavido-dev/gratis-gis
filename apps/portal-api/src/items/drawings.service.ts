@@ -197,6 +197,23 @@ export class DrawingsService {
   }
 
   /**
+   * Load a drawing set and assert the author may write it. Used by
+   * Phase 1.5 promote so the promote module can reuse the same
+   * author-or-editor gate without reimplementing share lookups.
+   */
+  async requireWritableSet(
+    author: DrawingsAuthor,
+    mapId: string,
+    drawingId: string,
+  ): Promise<DrawingSet> {
+    const { data, item } = await this.loadMapForWrite(author, mapId);
+    const set = (data.drawings ?? []).find((s) => s.id === drawingId);
+    if (!set) throw new NotFoundException('Drawing set not found');
+    await this.assertCanWriteSet(author, item, set);
+    return set;
+  }
+
+  /**
    * Toggle the map's `allowAnonymousDrawings` flag. Gated on
    * canEdit (signed-in only). The flag is what unlocks the
    * manager-redline workflow for unauthenticated viewers; we

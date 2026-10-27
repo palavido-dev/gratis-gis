@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | Branch `cursor/drawings-lines-promote-2838` |
+| R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | PR open on `cursor/drawings-lines-promote-2838`; waiting CI |
 
 ## queued (ship-without-input)
 

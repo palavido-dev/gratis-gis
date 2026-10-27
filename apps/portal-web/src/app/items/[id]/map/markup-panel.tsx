@@ -6,40 +6,34 @@ import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
- * Markup panel (#154 Phase 1).
+ * Markup panel (#154 Phase 1 + 1.5).
  *
  * A floating overlay on the map editor that lets viewers (not just
- * editors) add their own markup — colored pins with optional notes —
- * to a shared map. The killer use case is the manager-redline
- * workflow: a non-GIS stakeholder opens a shared map, drops a pin
- * on the wrong parcel, types "this is the wrong boundary," and
- * ships the URL back to the team.
+ * editors) add their own markup — pins, lines, and polygons with
+ * optional notes — to a shared map. The killer use case is the
+ * manager-redline workflow: a non-GIS stakeholder opens a shared
+ * map, sketches the wrong boundary, types a note, and ships the
+ * URL back to the team.
  *
- * Phase 1 scope:
- *   - List existing drawing sets on the map
- *   - Add a new empty set with an auto-assigned color
- *   - Drop a pin into the active set (one pin at a time)
- *   - Rename / recolor / show-hide / delete a set
- *   - Per-set author label + timestamp
- *
- * Phase 1.5 follow-ups (not in this file):
- *   - Line / polygon / arrow / text drawing tools
- *   - Per-feature notes / labels
- *   - Anonymous markup (cookie-backed author token)
- *   - Promote a set to a real data layer
+ * Phase 1.5 adds:
+ *   - Line / polygon tools via terra-draw (click-to-place pins too)
+ *   - Promote a set to a real data_layer the author owns
  *
  * The panel manages its own server round-trips against
  * /api/portal/items/:mapId/drawings, so the parent map editor only
  * needs to know "the drawings on this map changed, refresh the
- * canvas overlay."
+ * canvas overlay" and optionally add a promoted layer to the map.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowUpFromLine,
   Eye,
   EyeOff,
+  Hexagon,
   MapPin,
   PencilLine,
   Plus,
+  Slash,
   Trash2,
   X,
 } from 'lucide-react';
@@ -49,10 +43,23 @@ import {
   type DrawingFeature,
   type DrawingSet,
 } from '@gratis-gis/shared-types';
+import type * as maplibregl from 'maplibre-gl';
+import {
+  drawModeFor,
+  setDrawMode,
+  startDraw,
+  useCrosshairCursor,
+  useTerraDraw,
+  type DrawGeometryType,
+} from './use-terra-draw';
+
+type MarkupTool = 'off' | DrawGeometryType;
 
 interface Props {
   /** UUID of the map item this panel is editing. */
   mapId: string;
+  /** Live MapLibre instance for terra-draw. Null until the canvas is ready. */
+  map: maplibregl.Map | null;
   /** Open / closed. Parent owns the toggle so the toolbar button
    *  can flip it. */
   open: boolean;
@@ -71,11 +78,8 @@ interface Props {
    */
   canEditMap: boolean;
   /**
-   * Current map center [lng, lat] used as the default position
-   * for newly-dropped pins. The parent map editor passes the
-   * live camera center so a pin lands somewhere useful even when
-   * the user hasn't clicked the map yet. Phase 1.5 will replace
-   * this with a "click the map to place a pin" interaction.
+   * Current map center [lng, lat] used as a fallback for the
+   * legacy "drop pin at center" quick action.
    */
   mapCenter: [number, number];
   /**
@@ -84,6 +88,21 @@ interface Props {
    * re-renders. Receives the full latest list.
    */
   onDrawingsChange: (drawings: DrawingSet[]) => void;
+  /**
+   * Fired after a successful promote. Parent may add the new
+   * data_layer to the map when the viewer can edit it.
+   */
+  onPromoted?: (result: {
+    itemId: string;
+    title: string;
+    inserted: number;
+  }) => void;
+  /**
+   * Fired when a draw tool activates / deactivates so the parent
+   * can stand down select / feature-edit tools that compete for
+   * map clicks.
+   */
+  onDrawActiveChange?: (active: boolean) => void;
   /**
    * Initial drawings, server-fetched by the parent before
    * mounting. The panel uses these as its initial state and
@@ -94,12 +113,15 @@ interface Props {
 
 export function MarkupPanel({
   mapId,
+  map,
   open,
   onClose,
   currentUser,
   canEditMap,
   mapCenter,
   onDrawingsChange,
+  onPromoted,
+  onDrawActiveChange,
   initialDrawings,
 }: Props) {
   const t = useT();
@@ -108,13 +130,92 @@ export function MarkupPanel({
   const [error, setError] = useState<string | null>(null);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState('');
+  const [activeSetId, setActiveSetId] = useState<string | null>(null);
+  const [tool, setTool] = useState<MarkupTool>('off');
+  const [promoteBusyId, setPromoteBusyId] = useState<string | null>(null);
   const mapCenterRef = useRef(mapCenter);
   mapCenterRef.current = mapCenter;
+  const drawingsRef = useRef(drawings);
+  drawingsRef.current = drawings;
+  const activeSetIdRef = useRef(activeSetId);
+  activeSetIdRef.current = activeSetId;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
 
   // Reset local state when the parent re-fetches from server.
   useEffect(() => {
     setDrawings(initialDrawings);
   }, [initialDrawings]);
+
+  // Closing the panel cancels an in-progress draw so terra-draw
+  // does not keep intercepting clicks after the pane is gone.
+  useEffect(() => {
+    if (!open && tool !== 'off') setTool('off');
+  }, [open, tool]);
+
+  const drawActive = open && tool !== 'off';
+  useEffect(() => {
+    onDrawActiveChange?.(drawActive);
+  }, [drawActive, onDrawActiveChange]);
+
+  // Mount terra-draw only while a markup tool is live so read-only
+  // viewers who never draw do not pay the dynamic-import cost, and
+  // so the instance does not contend with feature editing.
+  const { draw, ready } = useTerraDraw(drawActive ? map : null, {
+    snapping: true,
+  });
+  useCrosshairCursor(map, drawActive);
+
+  useEffect(() => {
+    if (!draw || !ready || tool === 'off') return;
+    startDraw(draw);
+    setDrawMode(draw, drawModeFor(tool));
+  }, [draw, ready, tool]);
+
+  // A finished sketch lands in the active drawing set.
+  useEffect(() => {
+    if (!draw || !ready || tool === 'off') return;
+    const handleFinish = (id: string | number) => {
+      const setId = activeSetIdRef.current;
+      if (!setId) return;
+      const f = draw.getSnapshot().find((x) => String(x.id) === String(id));
+      if (!f || !f.geometry) return;
+      const kind = kindForTool(toolRef.current);
+      if (!kind) return;
+      const now = new Date().toISOString();
+      const feature: DrawingFeature = {
+        id: cryptoRandomUuid(),
+        kind,
+        geometry: f.geometry,
+        createdAt: now,
+        updatedAt: now,
+      };
+      void appendFeature(setId, feature).finally(() => {
+        try {
+          if (draw.hasFeature(id)) draw.removeFeatures([id]);
+        } catch {
+          /* already gone */
+        }
+        // Point mode finishes per click; keep the tool armed so the
+        // reviewer can drop another pin without re-clicking the tool.
+        // Line / polygon re-arm the same mode after finish.
+        if (toolRef.current !== 'off') {
+          setDrawMode(draw, drawModeFor(toolRef.current));
+        }
+      });
+    };
+    draw.on('finish', handleFinish);
+    return () => {
+      try {
+        draw.off('finish', handleFinish);
+      } catch {
+        /* race on unmount */
+      }
+    };
+    // appendFeature is stable enough via refs; listing it would
+    // rebind the listener on every drawings change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draw, ready, tool]);
 
   const refresh = useCallback(async () => {
     try {
@@ -137,6 +238,35 @@ export function MarkupPanel({
     [currentUser, canEditMap],
   );
 
+  const appendFeature = useCallback(
+    async (setId: string, feature: DrawingFeature) => {
+      const set = drawingsRef.current.find((s) => s.id === setId);
+      if (!set || !canEditSet(set)) return;
+      const nextFeatures = [...set.features, feature];
+      setBusy(true);
+      setError(null);
+      try {
+        const updated = await portalJson<DrawingSet>(
+          `/api/portal/items/${mapId}/drawings/${setId}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ features: nextFeatures }),
+          },
+        );
+        const nextSets = drawingsRef.current.map((s) =>
+          s.id === setId ? updated : s,
+        );
+        setDrawings(nextSets);
+        onDrawingsChange(nextSets);
+      } catch (e) {
+        setError(message(e, t('mapMarkup.somethingWrong')));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [canEditSet, mapId, onDrawingsChange, t],
+  );
+
   const addSet = useCallback(async () => {
     if (!currentUser) return;
     setBusy(true);
@@ -153,6 +283,8 @@ export function MarkupPanel({
       const next = [...drawings, created];
       setDrawings(next);
       onDrawingsChange(next);
+      setActiveSetId(created.id);
+      setTool('point');
     } catch (e) {
       setError(message(e, t('mapMarkup.somethingWrong')));
     } finally {
@@ -160,40 +292,31 @@ export function MarkupPanel({
     }
   }, [currentUser, drawings, mapId, onDrawingsChange, t]);
 
-  const dropPin = useCallback(
+  const dropPinAtCenter = useCallback(
     async (setId: string) => {
       const set = drawings.find((s) => s.id === setId);
       if (!set || !canEditSet(set)) return;
       const [lng, lat] = mapCenterRef.current;
       const now = new Date().toISOString();
-      const feature: DrawingFeature = {
+      await appendFeature(setId, {
         id: cryptoRandomUuid(),
         kind: 'pin',
         geometry: { type: 'Point', coordinates: [lng, lat] },
         createdAt: now,
         updatedAt: now,
-      };
-      const nextFeatures = [...set.features, feature];
-      setBusy(true);
-      setError(null);
-      try {
-        const updated = await portalJson<DrawingSet>(
-          `/api/portal/items/${mapId}/drawings/${setId}`,
-          {
-            method: 'PATCH',
-            body: JSON.stringify({ features: nextFeatures }),
-          },
-        );
-        const nextSets = drawings.map((s) => (s.id === setId ? updated : s));
-        setDrawings(nextSets);
-        onDrawingsChange(nextSets);
-      } catch (e) {
-        setError(message(e, t('mapMarkup.somethingWrong')));
-      } finally {
-        setBusy(false);
-      }
+      });
     },
-    [drawings, canEditSet, mapId, onDrawingsChange, t],
+    [drawings, canEditSet, appendFeature],
+  );
+
+  const armTool = useCallback(
+    (setId: string, next: MarkupTool) => {
+      const set = drawings.find((s) => s.id === setId);
+      if (!set || !canEditSet(set)) return;
+      setActiveSetId(setId);
+      setTool((prev) => (prev === next && activeSetId === setId ? 'off' : next));
+    },
+    [drawings, canEditSet, activeSetId],
   );
 
   const toggleVisibility = useCallback(
@@ -297,19 +420,66 @@ export function MarkupPanel({
         const next = drawings.filter((s) => s.id !== setId);
         setDrawings(next);
         onDrawingsChange(next);
+        if (activeSetId === setId) {
+          setActiveSetId(null);
+          setTool('off');
+        }
       } catch (e) {
         setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [drawings, canEditSet, mapId, onDrawingsChange, t],
+    [drawings, canEditSet, mapId, onDrawingsChange, t, activeSetId],
+  );
+
+  const promoteSet = useCallback(
+    async (setId: string) => {
+      const set = drawings.find((s) => s.id === setId);
+      if (!set || !canEditSet(set)) return;
+      if (set.features.length === 0) {
+        setError(t('mapMarkup.promoteEmpty'));
+        return;
+      }
+      setPromoteBusyId(setId);
+      setError(null);
+      try {
+        const result = await portalJson<{
+          itemId: string;
+          inserted: number;
+        }>(`/api/portal/items/${mapId}/drawings/${setId}/promote`, {
+          method: 'POST',
+          body: JSON.stringify({ title: set.title }),
+        });
+        onPromoted?.({
+          itemId: result.itemId,
+          title: set.title,
+          inserted: result.inserted,
+        });
+      } catch (e) {
+        setError(message(e, t('mapMarkup.promoteFailed')));
+      } finally {
+        setPromoteBusyId(null);
+      }
+    },
+    [drawings, canEditSet, mapId, onPromoted, t],
   );
 
   const sorted = useMemo(
     () => [...drawings].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [drawings],
   );
+
+  // Keep activeSetId valid as sets come and go.
+  useEffect(() => {
+    if (activeSetId && drawings.some((s) => s.id === activeSetId)) return;
+    const firstEditable = drawings.find((s) => canEditSet(s));
+    setActiveSetId(firstEditable?.id ?? null);
+    if (!firstEditable) setTool('off');
+  }, [drawings, activeSetId, canEditSet]);
+
+  // Silence unused refresh warning (kept for future focus refetch).
+  void refresh;
 
   if (!open) return null;
   return (
@@ -327,13 +497,26 @@ export function MarkupPanel({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => {
+            setTool('off');
+            onClose();
+          }}
           className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1"
           aria-label={t('mapMarkup.closeAria')}
         >
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {tool !== 'off' ? (
+        <p className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs text-muted">
+          {tool === 'point'
+            ? t('mapMarkup.hintPin')
+            : tool === 'line'
+              ? t('mapMarkup.hintLine')
+              : t('mapMarkup.hintPolygon')}
+        </p>
+      ) : null}
 
       <div className="overflow-y-auto px-2 py-2">
         {sorted.length === 0 ? (
@@ -345,10 +528,15 @@ export function MarkupPanel({
             {sorted.map((set) => {
               const editable = canEditSet(set);
               const isRenaming = editingTitleId === set.id;
+              const isActive = activeSetId === set.id;
               return (
                 <li
                   key={set.id}
-                  className="rounded border border-transparent px-2 py-2 hover:border-border hover:bg-surface-2"
+                  className={`rounded border px-2 py-2 ${
+                    isActive
+                      ? 'border-accent/40 bg-accent/5'
+                      : 'border-transparent hover:border-border hover:bg-surface-2'
+                  }`}
                 >
                   <div className="flex items-start gap-2">
                     <button
@@ -412,7 +600,9 @@ export function MarkupPanel({
                       <p className="truncate text-2xs text-muted">
                         {set.authorDisplay} — {formatRelative(set.updatedAt)}
                         {' — '}
-                        {t('mapMarkup.pins', { count: set.features.length })}
+                        {t('mapMarkup.features', {
+                          count: set.features.length,
+                        })}
                       </p>
                       {editable ? (
                         <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -443,15 +633,51 @@ export function MarkupPanel({
                     </div>
                   </div>
                   {editable ? (
-                    <div className="mt-2 flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => dropPin(set.id)}
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                      <ToolButton
+                        active={isActive && tool === 'point'}
                         disabled={busy}
-                        className="flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-1 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        label={t('mapMarkup.toolPin')}
+                        onClick={() => armTool(set.id, 'point')}
                       >
                         <MapPin className="h-3 w-3" />
-                        {t('mapMarkup.dropPin')}
+                      </ToolButton>
+                      <ToolButton
+                        active={isActive && tool === 'line'}
+                        disabled={busy}
+                        label={t('mapMarkup.toolLine')}
+                        onClick={() => armTool(set.id, 'line')}
+                      >
+                        <Slash className="h-3 w-3" />
+                      </ToolButton>
+                      <ToolButton
+                        active={isActive && tool === 'polygon'}
+                        disabled={busy}
+                        label={t('mapMarkup.toolPolygon')}
+                        onClick={() => armTool(set.id, 'polygon')}
+                      >
+                        <Hexagon className="h-3 w-3" />
+                      </ToolButton>
+                      <button
+                        type="button"
+                        onClick={() => dropPinAtCenter(set.id)}
+                        disabled={busy}
+                        className="rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
+                        title={t('mapMarkup.dropPin')}
+                      >
+                        {t('mapMarkup.dropPinShort')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => promoteSet(set.id)}
+                        disabled={busy || promoteBusyId === set.id || set.features.length === 0}
+                        className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        title={t('mapMarkup.promoteTitle')}
+                      >
+                        <ArrowUpFromLine className="h-3 w-3" />
+                        {promoteBusyId === set.id
+                          ? t('mapMarkup.promoting')
+                          : t('mapMarkup.promote')}
                       </button>
                       <button
                         type="button"
@@ -496,6 +722,47 @@ export function MarkupPanel({
       </div>
     </div>
   );
+}
+
+function ToolButton({
+  active,
+  disabled,
+  label,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      title={label}
+      aria-label={label}
+      className={`rounded border px-1.5 py-1 disabled:opacity-50 ${
+        active
+          ? 'border-accent bg-accent/15 text-ink-1'
+          : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function kindForTool(
+  tool: MarkupTool,
+): DrawingFeature['kind'] | null {
+  if (tool === 'point') return 'pin';
+  if (tool === 'line') return 'line';
+  if (tool === 'polygon') return 'polygon';
+  return null;
 }
 
 function message(e: unknown, fallback: string): string {

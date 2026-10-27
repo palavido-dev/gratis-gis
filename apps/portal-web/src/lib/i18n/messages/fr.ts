@@ -2361,14 +2361,34 @@ export const fr: Partial<CatalogShape> = {
     renameTitle: 'Cliquer pour renommer',
     deleteAria: "Supprimer l'annotation",
     somethingWrong: "Une erreur s'est produite",
-    empty: 'Pas encore d\'annotations. Ajoutez un jeu, puis placez des épingles sur la carte.',
-    dropPin: 'Placer une épingle au centre',
+    empty:
+      'Pas encore d\'annotations. Ajoutez un jeu, puis dessinez des épingles, lignes ou polygones.',
+    dropPin: 'Placer une épingle au centre de la carte',
+    dropPinShort: 'Centre',
     addMarkup: 'Ajouter une annotation',
     signInToMarkup: 'Connectez-vous pour annoter cette carte.',
     pins: '{count, plural, one {# épingle} other {# épingles}}',
+    features:
+      '{count, plural, one {# entité} other {# entités}}',
     deleteConfirm:
       'Supprimer l\'annotation « {title} » ? Cette action est irréversible.',
     setColorAria: 'Choisir la couleur {color}',
+    toolPin: 'Dessiner des épingles',
+    toolLine: 'Dessiner des lignes',
+    toolPolygon: 'Dessiner des polygones',
+    hintPin:
+      'Cliquez sur la carte pour placer une épingle. Cliquez à nouveau sur l\'outil pour arrêter.',
+    hintLine:
+      'Cliquez pour ajouter des sommets ; double-clic ou Entrée pour terminer la ligne.',
+    hintPolygon:
+      'Cliquez pour ajouter des sommets ; double-clic ou Entrée pour fermer le polygone.',
+    promote: 'Promouvoir',
+    promoteTitle: 'Enregistrer cette annotation comme couche de données',
+    promoting: 'Promotion…',
+    promoteEmpty: 'Ajoutez au moins une entité avant de promouvoir.',
+    promoteFailed: 'Impossible de promouvoir cette annotation en couche.',
+    promoteDone:
+      '{count, plural, one {# entité enregistrée} other {# entités enregistrées}} depuis « {title} » comme couche de données.',
   },
   mapLegend: {
     title: 'Légende',
