@@ -35,7 +35,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
-  API_KEY_HOWTO,
+  TOKEN_SETUP_HINT,
   looksLikeJwt,
   looksLikePortalApiKey,
 } from './auth-token.js';
@@ -48,7 +48,7 @@ const USER_AGENT = 'gratis-gis-mcp/0.1';
 
 const MISSING_TOKEN_MESSAGE = [
   'GRATIS_GIS_TOKEN is not set.',
-  API_KEY_HOWTO,
+  TOKEN_SETUP_HINT,
   'Then:',
   '  export GRATIS_GIS_TOKEN=ggk_...',
   'Or configure it inside your MCP client (Claude Desktop, Cursor, etc.).',
@@ -56,7 +56,7 @@ const MISSING_TOKEN_MESSAGE = [
 
 const JWT_TOKEN_MESSAGE = [
   'GRATIS_GIS_TOKEN looks like a session JWT, not a portal API key.',
-  API_KEY_HOWTO,
+  TOKEN_SETUP_HINT,
 ].join('\n');
 
 if (!TOKEN) {
@@ -223,7 +223,7 @@ async function authedGet(path: string): Promise<unknown> {
     const body = await res.text().catch(() => '');
     const base = `GratisGIS ${res.status}: ${body || res.statusText}`;
     if (res.status === 401 || res.status === 403) {
-      throw new Error(`${base}\n${API_KEY_HOWTO}`);
+      throw new Error(`${base}\n${TOKEN_SETUP_HINT}`);
     }
     throw new Error(base);
   }

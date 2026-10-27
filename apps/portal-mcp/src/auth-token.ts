@@ -27,7 +27,8 @@ export function looksLikeJwt(value: string): boolean {
   return parts.every((p) => p.length > 0 && /^[A-Za-z0-9_-]+$/.test(p));
 }
 
-export const API_KEY_HOWTO = [
+/** Operator-facing setup hint. Not a credential; plain instructional text. */
+export const TOKEN_SETUP_HINT = [
   'Mint a portal API key at Profile / API keys (token starts with ggk_).',
   'Paste it into GRATIS_GIS_TOKEN. Do not paste a browser session JWT:',
   'those expire in minutes and will break MCP clients mid-session.',
