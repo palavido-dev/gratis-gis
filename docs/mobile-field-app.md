@@ -411,6 +411,13 @@ and parks a 409 into the `3a` review flow with both versions; the web
 PWA opts in when it is next touched. `clients/python` already has a
 `ConflictError`, so the error taxonomy does not change.
 
+Rejected conflict rows on Android offer **Re-apply** beside Discard.
+Confirm compares the queued losing side to the parked server-now (and
+probes the live head when online). Re-apply PATCHes or DELETEs with the
+live `baseObservationId`, or POSTs a recreate when the feature is gone;
+the queue row clears only after a 2xx (or a noop when a lost delete is
+already gone). A fresh 409 re-parks with the newer `current`.
+
 ### 4. Rate limiting
 
 The global throttle is 300 requests per 60 seconds per IP, memory-backed

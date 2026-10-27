@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Android field queue offers guided **Re-apply** / Recreate on
+  rejected conflict rows (parked `conflictCurrentJson`), mirroring
+  the portal-web SyncConflictsPanel path: PATCH / DELETE with a live
+  `baseObservationId`, or POST recreate when the feature is gone;
+  confirm required; queue row clears only after 2xx
+  (R5-android-conflict-reapply).
 - Connected service, ArcGIS service, and OGC service editor chrome
   (Connection / Probe / selection counts / Unsaved changes / Save)
   goes through the locale catalogs (en / es / fr / de / pt-BR)
