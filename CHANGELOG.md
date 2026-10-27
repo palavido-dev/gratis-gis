@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Connected service, ArcGIS service, and OGC service editor chrome
+  (Connection / Probe / selection counts / Unsaved changes / Save)
+  goes through the locale catalogs (en / es / fr / de / pt-BR)
+  (R5-i18n-service-editors / #162). Upstream probe error payloads
+  stay as returned. No Weblate or RTL.
 - Analyze **Clip this layer** guide creates a single-step
   `derived_layer` clip recipe (cookie-cutter data_layer) via
   `POST /api/portal/items`, reusing the existing PostGIS clip

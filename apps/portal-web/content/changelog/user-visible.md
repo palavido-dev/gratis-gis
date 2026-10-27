@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Service connection editors follow your language
+When you edit a connected service, ArcGIS service, or OGC (WMS/WFS) service, the Probe, layer selection, and Save chrome now follow the language you pick in the user menu (Spanish, French, German, or Brazilian Portuguese).
+
 ## 2026-10-27 - Clip a layer from Analyze without leaving the tab
 On a data layer's Analyze tab, **Clip this layer** lets you pick another data layer as the cookie-cutter and creates a derived layer that runs the clip on PostGIS. Same honest server path as Buffer; not an instant in-browser result.
 
