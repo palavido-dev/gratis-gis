@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-sync-conflict-review-ui | research-cycle-2 / #329 | Surface syncConflicts in portal UI | PR #339 on `cursor/sync-conflict-review-ui-2838` |
+| R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | Branch `cursor/mcp-api-key-auth-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | Before write tools |
 | R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | After API-key auth docs |
 | R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | |
 | R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | Not Yjs CRDT |
@@ -35,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-sync-conflict-review-ui | 2026-10-27 | Merged #339: layer data panel lists syncConflicts |
 | R2-lidar-dep-bump | 2026-10-27 | Merged #338: maplibre-gl-lidar 0.21; local overlay patch dropped |
 | Q-R2a / R2-drawings-in-print | 2026-10-27 | Merged #337: print PDF paints visible markup drawings |
 | Q-183a / R1-lidar-incremental-writeup | 2026-10-27 | Merged #336: research note; #183 stays open |

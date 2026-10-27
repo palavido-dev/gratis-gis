@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * GratisGIS MCP server (#161 Phase 1).
+ * GratisGIS MCP server (#161 Phase 1 + 1.5 auth).
  *
  * Exposes a read-only view of a GratisGIS portal to Model Context
  * Protocol clients (Claude Desktop, Cursor, etc.) over the
@@ -13,15 +13,15 @@
  *   - read_layer_features: the GeoJSON FeatureCollection of a
  *     data_layer, capped to a sane default
  *
- * Auth: a long-lived bearer token from the GRATIS_GIS_TOKEN env
- * var. Phase 1.5 will add a dedicated portal API-key model so
- * the user doesn't need to paste a Keycloak access token; for
- * now the simplest possible flow is the right one.
+ * Auth: GRATIS_GIS_TOKEN should be a portal API key (`ggk_...`)
+ * minted at Profile -> API keys (#219). Session JWTs still work
+ * on the API but expire quickly; we soft-detect them and point
+ * operators at API keys instead.
  *
  * Connectivity: GRATIS_GIS_BASE_URL points at the portal-api
  * deployment (default http://localhost:4000). The tool calls hit
  * the existing /api/items surface, so this server is genuinely
- * a thin facade — no business logic, just a typed MCP wrapper.
+ * a thin facade: no business logic, just a typed MCP wrapper.
  *
  * Felt and CARTO both gate their MCP integrations to Enterprise
  * tiers; shipping ours in the open is the positioning win.
@@ -34,6 +34,11 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import {
+  API_KEY_HOWTO,
+  looksLikeJwt,
+  looksLikePortalApiKey,
+} from './auth-token.js';
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
@@ -43,9 +48,15 @@ const USER_AGENT = 'gratis-gis-mcp/0.1';
 
 const MISSING_TOKEN_MESSAGE = [
   'GRATIS_GIS_TOKEN is not set.',
-  'Get a bearer token from your portal session and set it via:',
-  '  export GRATIS_GIS_TOKEN=<your-token>',
+  API_KEY_HOWTO,
+  'Then:',
+  '  export GRATIS_GIS_TOKEN=ggk_...',
   'Or configure it inside your MCP client (Claude Desktop, Cursor, etc.).',
+].join('\n');
+
+const JWT_TOKEN_MESSAGE = [
+  'GRATIS_GIS_TOKEN looks like a session JWT, not a portal API key.',
+  API_KEY_HOWTO,
 ].join('\n');
 
 if (!TOKEN) {
@@ -57,6 +68,9 @@ if (!TOKEN) {
   // and every tool call returns a readable error instead.
   // eslint-disable-next-line no-console
   console.error(MISSING_TOKEN_MESSAGE);
+} else if (looksLikeJwt(TOKEN) && !looksLikePortalApiKey(TOKEN)) {
+  // eslint-disable-next-line no-console
+  console.error(JWT_TOKEN_MESSAGE);
 }
 
 function requireToken(): string {
@@ -207,7 +221,11 @@ async function authedGet(path: string): Promise<unknown> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`GratisGIS ${res.status}: ${body || res.statusText}`);
+    const base = `GratisGIS ${res.status}: ${body || res.statusText}`;
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`${base}\n${API_KEY_HOWTO}`);
+    }
+    throw new Error(base);
   }
   return res.json();
 }
