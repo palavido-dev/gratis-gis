@@ -14,7 +14,7 @@
  *     data_layer, capped to a sane default
  *
  * Auth: GRATIS_GIS_TOKEN should be a portal API key (`ggk_...`)
- * minted at Profile -> API keys (#219). Session JWTs still work
+ * minted at Profile / API keys (#219). Session JWTs still work
  * on the API but expire quickly; we soft-detect them and point
  * operators at API keys instead.
  *

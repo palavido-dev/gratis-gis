@@ -5,7 +5,7 @@
  * Portal API keys look like `ggk_<43 base64url chars>`. Session JWTs
  * still work on /api/* today, but they expire in minutes and are a
  * footgun in Claude Desktop / Cursor configs. Soft-detect JWT shape
- * so we can point operators at Profile -> API keys.
+ * so we can point operators at Profile / API keys.
  */
 
 export const API_KEY_PREFIX = 'ggk_';
@@ -28,7 +28,7 @@ export function looksLikeJwt(value: string): boolean {
 }
 
 export const API_KEY_HOWTO = [
-  'Mint a portal API key at Profile -> API keys (token starts with ggk_).',
+  'Mint a portal API key at Profile / API keys (token starts with ggk_).',
   'Paste it into GRATIS_GIS_TOKEN. Do not paste a browser session JWT:',
   'those expire in minutes and will break MCP clients mid-session.',
 ].join('\n');
