@@ -1,7 +1,7 @@
 ---
 id: reference-mcp-server
 title: MCP server
-summary: A small Model Context Protocol server that lets MCP-compatible AI clients read your portal and, with a write-capable API key, run tools or create a data layer from GeoJSON.
+summary: A small Model Context Protocol server that lets MCP-compatible AI clients read your portal (including a capped OpenStreetMap query) and, with a write-capable API key, run tools or create a data layer from GeoJSON.
 category: reference
 order: 50
 complexity: advanced
@@ -33,6 +33,12 @@ Read tools (safe with a read-only API key):
 - **read_layer_features**: GeoJSON FeatureCollection for a
   data layer, capped per call so a large layer doesn't fill
   the model's context window.
+- **query_osm**: OpenStreetMap features for a required
+  bounding box, via the portal's Overpass path. Pass iD
+  preset ids (for example gas stations) or a relational
+  "near" query. The area must stay within about one square
+  degree, and results are capped (default 1000, max 5000)
+  so continent-scale or unbounded queries are refused.
 
 Write tools (need a key without the read-only flag):
 
@@ -105,6 +111,7 @@ portal:
 - "Show me the first 200 features from the `parcels` layer
   near Charleston, WV."
 - "Find all maps in my portal with `flood` in the title."
+- "Query OSM for gas stations inside this downtown bbox."
 - With a write-capable key: "Create a private layer from this
   GeoJSON of survey points."
 

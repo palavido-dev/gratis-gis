@@ -8,6 +8,7 @@
  *
  * Phase 1 (read):
  *   - list_items, get_item, read_layer_features
+ *   - query_osm: GET /api/osm/query (capped Overpass facade)
  * Phase 2 (write; needs a non-read-only API key):
  *   - run_tool: POST /api/tools/:id/run
  *   - create_data_layer_from_geojson: POST /api/items then
@@ -48,6 +49,15 @@ import {
   toAppendFeatures,
   type GeoJsonFeatureInput,
 } from './geojson-layer.js';
+import {
+  OSM_QUERY_DEFAULT_FEATURES,
+  OSM_QUERY_MAX_CONDITIONS,
+  OSM_QUERY_MAX_FEATURES,
+  OSM_QUERY_MAX_PRESETS,
+  buildOsmQueryPath,
+  clientRejectOsmQuery,
+  type OsmQueryArgs,
+} from './osm-query.js';
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
@@ -164,6 +174,47 @@ const createDataLayerSchema = z.object({
   geometryType: z.enum(['point', 'line', 'polygon']).nullable().optional(),
 });
 
+const osmTagFilterSchema = z.object({
+  key: z.string().min(1).max(80),
+  value: z.string().min(1).max(200),
+  op: z.enum(['equals', 'contains', 'regex']).optional(),
+});
+
+const queryOsmSchema = z.object({
+  bbox: z
+    .tuple([z.number(), z.number(), z.number(), z.number()])
+    .describe('WGS84 [west, south, east, north]. Required; unbounded queries are refused.'),
+  mode: z.enum(['presets', 'relational']).optional(),
+  presetIds: z.array(z.string().min(1).max(120)).max(OSM_QUERY_MAX_PRESETS).optional(),
+  tagFilters: z.array(osmTagFilterSchema).max(20).optional(),
+  anchorPresetId: z.string().min(1).max(120).optional(),
+  conditions: z
+    .array(
+      z.object({
+        presetId: z.string().min(1).max(120),
+        distanceMeters: z.number().positive().max(50_000),
+        tagFilters: z.array(osmTagFilterSchema).max(10).optional(),
+      }),
+    )
+    .max(OSM_QUERY_MAX_CONDITIONS)
+    .optional(),
+  negations: z
+    .array(
+      z.object({
+        presetId: z.string().min(1).max(120),
+        distanceMeters: z.number().positive().max(50_000),
+      }),
+    )
+    .max(OSM_QUERY_MAX_CONDITIONS)
+    .optional(),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(OSM_QUERY_MAX_FEATURES)
+    .optional(),
+});
+
 const TOOLS: Tool[] = [
   {
     name: 'list_items',
@@ -241,6 +292,78 @@ const TOOLS: Tool[] = [
         },
       },
       required: ['itemId'],
+    },
+  },
+  {
+    name: 'query_osm',
+    description:
+      'Query OpenStreetMap via the portal Overpass path ' +
+      '(GET /api/osm/query). Pass a required WGS84 bbox ' +
+      '[west, south, east, north] and either presetIds (mode=presets) ' +
+      'or anchorPresetId + conditions (mode=relational). Caps: bbox ' +
+      'area ≤ 1 square degree; at most 5000 features (default 1000). ' +
+      'Unbounded / continent-scale queries are refused. Uses the org ' +
+      'osmOverpassEndpoint when set. Returns a GeoJSON FeatureCollection ' +
+      'plus attribution. Safe with a read-only API key. Optional ' +
+      'follow-up: create_data_layer_from_geojson to persist results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bbox: {
+          type: 'array',
+          description:
+            'Required WGS84 bounding box [west, south, east, north]. ' +
+            'Max area 1 square degree.',
+          items: { type: 'number' },
+          minItems: 4,
+          maxItems: 4,
+        },
+        mode: {
+          type: 'string',
+          enum: ['presets', 'relational'],
+          description:
+            'presets (default): filter by iD preset ids. relational: ' +
+            'anchor near conditions (e.g. school near park).',
+        },
+        presetIds: {
+          type: 'array',
+          description:
+            'iD preset catalog ids for mode=presets (e.g. ' +
+            '"amenity_fuel", "leisure_park"). Max 10.',
+          items: { type: 'string' },
+        },
+        tagFilters: {
+          type: 'array',
+          description:
+            'Optional AND tag filters for mode=presets ' +
+            '({key, value, op?}).',
+          items: { type: 'object' },
+        },
+        anchorPresetId: {
+          type: 'string',
+          description: 'Anchor preset id for mode=relational.',
+        },
+        conditions: {
+          type: 'array',
+          description:
+            'Near-conditions for mode=relational: ' +
+            '[{presetId, distanceMeters, tagFilters?}]. Max 5.',
+          items: { type: 'object' },
+        },
+        negations: {
+          type: 'array',
+          description:
+            'Optional must-NOT-be-near rules for mode=relational.',
+          items: { type: 'object' },
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: OSM_QUERY_MAX_FEATURES,
+          description: `Cap on returned features. Defaults to ${OSM_QUERY_DEFAULT_FEATURES}.`,
+        },
+      },
+      required: ['bbox'],
     },
   },
   {
@@ -412,6 +535,13 @@ async function runTool(
         ? `/api/items/${args.itemId}/layers/${encodeURIComponent(args.layerKey)}/geojson?limit=${limit}`
         : `/api/items/${args.itemId}/geojson?limit=${limit}`;
       const out = await authedGet(path);
+      return toContent(out);
+    }
+    case 'query_osm': {
+      const args = queryOsmSchema.parse(rawArgs ?? {}) as OsmQueryArgs;
+      const reject = clientRejectOsmQuery(args);
+      if (reject) throw new Error(reject);
+      const out = await authedGet(buildOsmQueryPath(args));
       return toContent(out);
     }
     case 'run_tool': {
