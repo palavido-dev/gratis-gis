@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Derived-layer save, preview, and GeoJSON read now require
+  `canRead` on every pipeline `otherSource` (clip / erase /
+  spatial-join / spatial-filter), not only the primary source
+  chain. `extractDependencies` walks tool generators for those
+  edges (SEC-otherSource-acl).
+
 ### Changed
 
 - Analyze Buffer / Clip guides and Analyze panel chrome (boot
