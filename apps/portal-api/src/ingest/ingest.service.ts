@@ -8,7 +8,14 @@ import {
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from 'node:path';
 
 import {
   featuresFromAddresses,
@@ -1355,7 +1362,9 @@ export class IngestService {
   private async resolveGdalOpenPath(filePath: string): Promise<string> {
     if (!filePath.toLowerCase().endsWith('.zip')) return filePath;
     try {
-      await assertZipExpansionBudget(filePath);
+      // Contain the open to the upload's mkdtemp dir (parent of the
+      // staged file) so CodeQL path-injection stays closed.
+      await assertZipExpansionBudget(filePath, dirname(filePath));
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'Zip archive rejected',

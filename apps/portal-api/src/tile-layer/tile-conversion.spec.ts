@@ -279,7 +279,7 @@ describe('extractZipToDir', () => {
     await writeZip([{ name: '0/0/0.png', data: 'tile' }], {
       zip64EntryCount: MAX_ZIP_ENTRIES + 1,
     });
-    await expect(assertZipExpansionBudget(zipPath)).rejects.toThrow(
+    await expect(assertZipExpansionBudget(zipPath, workRoot)).rejects.toThrow(
       /entry ceiling/,
     );
   });
@@ -297,9 +297,21 @@ describe('extractZipToDir', () => {
         uncompressedSizeOverride: MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1,
       },
     ]);
-    await expect(assertZipExpansionBudget(zipPath)).rejects.toThrow(
+    await expect(assertZipExpansionBudget(zipPath, workRoot)).rejects.toThrow(
       /extraction ceiling/,
     );
+  });
+
+  it('assertZipExpansionBudget refuses a path outside the allowed root', async () => {
+    await writeZip([{ name: 'ok.bin', data: 'x' }]);
+    const other = await mkdtemp(join(tmpdir(), 'gg-zip-other-'));
+    try {
+      await expect(assertZipExpansionBudget(zipPath, other)).rejects.toThrow(
+        /outside allowed root/,
+      );
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
   });
 
   it('rejects a non-zip file', async () => {
