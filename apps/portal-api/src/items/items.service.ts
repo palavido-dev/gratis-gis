@@ -1466,11 +1466,46 @@ export class ItemsService {
       user,
       sourceRef.itemId,
     );
+    // SEC-otherSource-acl: pipeline tools (clip/erase/join/filter)
+    // may reference a second data_layer. Those ids must be readable
+    // too, or a shared derived layer becomes an IDOR oracle.
+    const pipelineDeps = extractDependencies({
+      type: 'derived_layer',
+      data: rawData,
+    });
+    for (const depId of pipelineDeps.itemIds) {
+      if (depId === sourceRef.itemId) continue;
+      await this.assertReadableDerivedLayerInput(user, depId);
+    }
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
     );
     return enriched as unknown as Prisma.JsonValue;
+  }
+
+  /**
+   * Assert the caller can read a derived-layer pipeline input
+   * (primary source chain or otherSource). Same existence-vs-access
+   * wording as assertReadableDerivedLayerChain.
+   */
+  private async assertReadableDerivedLayerInput(
+    user: AuthUser,
+    itemId: string,
+  ): Promise<void> {
+    const node = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      include: { shares: true },
+    });
+    if (
+      !node ||
+      node.deletedAt !== null ||
+      !this.sharing.canRead(user, node, node.shares)
+    ) {
+      throw new BadRequestException(
+        'derived_layer.source.itemId does not point at an accessible data layer',
+      );
+    }
   }
 
   /**
@@ -1611,6 +1646,18 @@ export class ItemsService {
       user,
       args.source.itemId,
     );
+    const previewDeps = extractDependencies({
+      type: 'derived_layer',
+      data: {
+        version: 1,
+        source: args.source,
+        pipeline: args.pipeline,
+      },
+    });
+    for (const depId of previewDeps.itemIds) {
+      if (depId === args.source.itemId) continue;
+      await this.assertReadableDerivedLayerInput(user, depId);
+    }
     // Coerce the inbound pipeline to the validator-friendly shape;
     // the validator inside DerivedLayersService.previewRecipe runs
     // each step's per-tool validate() so malformed entries surface
@@ -2622,6 +2669,26 @@ export class ItemsService {
         !this.sharing.canRead(user, source, source.shares)
       ) {
         return { type: 'FeatureCollection', features: [] };
+      }
+      // SEC-otherSource-acl: refuse to materialize when a pipeline
+      // otherSource is out of reach (same empty-FC degrade as source).
+      const pipelineDeps = extractDependencies({
+        type: 'derived_layer',
+        data: item.data,
+      });
+      for (const depId of pipelineDeps.itemIds) {
+        if (depId === sourceId) continue;
+        const other = await this.prisma.item.findUnique({
+          where: { id: depId },
+          include: { shares: true },
+        });
+        if (
+          !other ||
+          other.deletedAt !== null ||
+          !this.sharing.canRead(user, other, other.shares)
+        ) {
+          return { type: 'FeatureCollection', features: [] };
+        }
       }
       return this.derivedLayers.getGeoJson(item, source, opts);
     }

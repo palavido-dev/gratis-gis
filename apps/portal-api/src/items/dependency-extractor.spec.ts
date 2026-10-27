@@ -25,6 +25,37 @@ describe('extractDependencies for derived_layer', () => {
     expect(result.urls).toEqual([]);
   });
 
+  it('emits clip otherSource as a hard forward edge (SEC-otherSource-acl)', () => {
+    const result = extractDependencies({
+      type: 'derived_layer' as const,
+      data: {
+        version: 1,
+        source: {
+          kind: 'data_layer',
+          itemId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        },
+        pipeline: [
+          {
+            tool: 'clip',
+            params: {
+              otherSource: {
+                kind: 'data_layer',
+                itemId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+              },
+            },
+          },
+        ],
+        featureLimit: 1000,
+        outputSchema: [],
+        bbox: [],
+      },
+    });
+    expect(result.itemIds.sort()).toEqual([
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    ].sort());
+  });
+
   it('returns no edges when the source ref is missing', () => {
     const result = extractDependencies({
       type: 'derived_layer' as const,

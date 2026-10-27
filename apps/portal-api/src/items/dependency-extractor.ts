@@ -7,6 +7,8 @@ import {
   readEditorData,
 } from '@gratis-gis/shared-types';
 
+import { getGenerator } from '../derived-layers/tools/registry.js';
+
 /**
  * Walks an item's data payload and returns the references it holds to
  * other items. Two kinds of reference exist:
@@ -361,16 +363,39 @@ export function extractDependencies(
 
   if (item.type === 'derived_layer') {
     // A derived layer always references its source data_layer through
-    // `data.source.itemId`. Each step in `data.pipeline` may also
-    // reference items (a future intersect tool's second-input layer,
-    // a pickList referenced in a where clause). v1 buffer holds none.
-    // When a tool with item-typed params is added, give it a `case`
-    // branch here AND a matching `extractDependencies` on its
-    // generator (the latter for callers that want a single-tool view).
+    // `data.source.itemId`. Pipeline tools may also reference items
+    // (clip/erase/spatial-join/spatial-filter `otherSource`). Prefer
+    // each generator's extractDependencies; soft-scan otherSource
+    // when validate fails so ACL still sees the id.
     const sourceRef = (data as { source?: { itemId?: unknown } }).source;
     const sourceId = sourceRef?.itemId;
     if (typeof sourceId === 'string' && sourceId.length > 0) {
       itemIds.add(sourceId);
+    }
+    const pipeline = (data as { pipeline?: unknown }).pipeline;
+    if (Array.isArray(pipeline)) {
+      for (const rawStep of pipeline) {
+        if (!rawStep || typeof rawStep !== 'object') continue;
+        const step = rawStep as { tool?: unknown; params?: unknown };
+        if (typeof step.tool !== 'string' || step.tool.length === 0) continue;
+        try {
+          const gen = getGenerator(step.tool);
+          const validated = gen.validate(step.params);
+          const deps = gen.extractDependencies(validated);
+          for (const id of deps.itemIds) {
+            if (id) itemIds.add(id);
+          }
+        } catch {
+          const params = step.params as
+            | { otherSource?: { itemId?: unknown } }
+            | null
+            | undefined;
+          const otherId = params?.otherSource?.itemId;
+          if (typeof otherId === 'string' && otherId.length > 0) {
+            itemIds.add(otherId);
+          }
+        }
+      }
     }
   }
 
