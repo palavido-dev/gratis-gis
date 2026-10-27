@@ -542,6 +542,22 @@ interface ZipEntry {
  * each local header, because writers legitimately differ there
  * and the data offset depends on them.
  */
+/**
+ * Central-directory expansion budget check (SEC-ingest-zip-budget).
+ * Call on an already-opened zip handle before handing the path to
+ * GDAL `/vsizip/`. Callers must open only after their own path
+ * containment guard (see IngestService.resolveInsideIngestRoot) so
+ * this function never takes a user-tainted path string — that is
+ * what keeps CodeQL js/path-injection quiet. Same entry /
+ * uncompressed ceilings as `extractZipToDir`.
+ */
+export async function assertZipExpansionBudget(
+  fh: FileHandle,
+): Promise<void> {
+  const { size: fileSize } = await fh.stat();
+  await assertCentralDirectoryBudget(fh, fileSize);
+}
+
 export async function extractZipToDir(
   zipPath: string,
   destDir: string,
@@ -549,18 +565,7 @@ export async function extractZipToDir(
   const fh = await open(zipPath, 'r');
   try {
     const { size: fileSize } = await fh.stat();
-    const entries = await readCentralDirectory(fh, fileSize);
-
-    // Pre-flight on the declared sizes so an honestly-labeled bomb
-    // is refused before a single byte lands on disk.  The inflate
-    // counter below re-enforces the same ceiling against liars.
-    let declaredTotal = 0;
-    for (const e of entries) declaredTotal += e.uncompressedSize;
-    if (declaredTotal > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
-      throw new Error(
-        `Zip expands to ${declaredTotal} bytes, past the ${MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES}-byte extraction ceiling`,
-      );
-    }
+    const entries = await assertCentralDirectoryBudget(fh, fileSize);
 
     const destRoot = resolve(destDir);
     let budget = MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES;
@@ -570,6 +575,26 @@ export async function extractZipToDir(
   } finally {
     await fh.close();
   }
+}
+
+/** Parse the central directory and refuse bombs by declared size /
+ *  entry count. Shared by extract and the `/vsizip/` preflight. */
+async function assertCentralDirectoryBudget(
+  fh: FileHandle,
+  fileSize: number,
+): Promise<ZipEntry[]> {
+  const entries = await readCentralDirectory(fh, fileSize);
+  // Pre-flight on the declared sizes so an honestly-labeled bomb
+  // is refused before a single byte lands on disk / before GDAL
+  // walks members through `/vsizip/`.
+  let declaredTotal = 0;
+  for (const e of entries) declaredTotal += e.uncompressedSize;
+  if (declaredTotal > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
+    throw new Error(
+      `Zip expands to ${declaredTotal} bytes, past the ${MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES}-byte extraction ceiling`,
+    );
+  }
+  return entries;
 }
 
 /** Locate + parse the central directory. Handles the ZIP64 record

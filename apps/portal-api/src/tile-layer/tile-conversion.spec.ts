@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 
 import {
   MAX_ZIP_ENTRIES,
+  MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES,
+  assertZipExpansionBudget,
   extractZipToDir,
 } from './tile-conversion.js';
 
@@ -271,6 +280,43 @@ describe('extractZipToDir', () => {
     await expect(extractZipToDir(zipPath, destDir)).rejects.toThrow(
       /entry ceiling/,
     );
+  });
+
+  it('assertZipExpansionBudget shares the entry-count ceiling (SEC-ingest-zip-budget)', async () => {
+    await writeZip([{ name: '0/0/0.png', data: 'tile' }], {
+      zip64EntryCount: MAX_ZIP_ENTRIES + 1,
+    });
+    const fh = await open(zipPath, 'r');
+    try {
+      await expect(assertZipExpansionBudget(fh)).rejects.toThrow(
+        /entry ceiling/,
+      );
+    } finally {
+      await fh.close();
+    }
+  });
+
+  it('assertZipExpansionBudget refuses declared expansion past the byte ceiling', async () => {
+    // Honest central-directory size past the shared budget; no
+    // inflate needed — the /vsizip/ preflight must stop here.
+    // zip64 required: the ceiling is above the 32-bit size field.
+    await writeZip([
+      {
+        name: 'huge.bin',
+        data: 'x',
+        method: 0,
+        zip64: true,
+        uncompressedSizeOverride: MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1,
+      },
+    ]);
+    const fh = await open(zipPath, 'r');
+    try {
+      await expect(assertZipExpansionBudget(fh)).rejects.toThrow(
+        /extraction ceiling/,
+      );
+    } finally {
+      await fh.close();
+    }
   });
 
   it('rejects a non-zip file', async () => {
