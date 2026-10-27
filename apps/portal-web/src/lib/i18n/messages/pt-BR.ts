@@ -1824,7 +1824,7 @@ export const ptBR: Partial<CatalogShape> = {
     pickLayerLabel: 'Escolher uma camada',
     layerCount: '{count, plural, one {# camada} other {# camadas}}',
     arcgisFootnote:
-      'O serviço precisa permitir requisições de origem cruzada deste portal. Buscas paginadas limitam a ~5000 feições por visão: amplie para camadas densas ou copie os dados localmente na página do item da camada (em breve).',
+      'O serviço deve permitir solicitações de origem cruzada deste portal. Leituras paginadas limitam-se a ~5000 feições por vista: aproxime o zoom em camadas densas, ou abra o item de serviço ArcGIS e use Copiar camadas selecionadas para camada de dados para uma cópia local no PostGIS (FeatureServer; com limite).',
     arcgisNoLayers:
       'O serviço não reportou camadas. Esta URL aponta para algo que não é MapServer / FeatureServer?',
     arcgisGroupSuffix: '(grupo)',
@@ -4670,6 +4670,18 @@ export const ptBR: Partial<CatalogShape> = {
     openServicePage: "Abrir a página do serviço",
     layersHint:
       "Marque quais camadas este item expõe. As não marcadas permanecem no serviço de origem, mas não aparecem quando mapas consomem este item. Estrela a camada padrão.",
+    copyToDataLayer: 'Copiar camadas selecionadas para camada de dados',
+    copyingToDataLayer: 'Copiando…',
+    copyToDataLayerTitle:
+      'Criar uma camada de dados do portal com as camadas FeatureServer selecionadas (cópia com limite)',
+    copyToDataLayerConfirmTitle: 'Copiar para uma camada de dados?',
+    copyToDataLayerConfirmMessage:
+      'Criar uma nova camada de dados a partir de {count, plural, one {# camada selecionada} other {# camadas selecionadas}}. As feições são puxadas com outSR=4326 e param em {cap} linhas no total. O ponteiro ArcGIS ao vivo deste item não muda. Salve primeiro qualquer sondagem não salva.',
+    copyToDataLayerFailed: 'Não foi possível copiar essas camadas para uma camada de dados.',
+    copyToDataLayerSuccess:
+      'Copiou {inserted, plural, one {# feição} other {# feições}} para uma nova camada de dados.',
+    copyToDataLayerTruncated:
+      'Copiou {inserted, plural, one {# feição} other {# feições}} (atingiu o limite de {cap}). Abra a nova camada de dados, ou use Admin → Migrações para uma importação completa.',
   },
 
 

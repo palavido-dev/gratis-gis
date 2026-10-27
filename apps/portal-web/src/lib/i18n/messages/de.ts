@@ -1835,7 +1835,7 @@ export const de: Partial<CatalogShape> = {
     pickLayerLabel: 'Ebene wählen',
     layerCount: '{count, plural, one {# Ebene} other {# Ebenen}}',
     arcgisFootnote:
-      'Der Dienst muss Cross-Origin-Anfragen von diesem Portal erlauben. Paginierte Abrufe sind auf ~5000 Objekte pro Ansicht begrenzt: zoomen Sie für dichtere Ebenen oder holen Sie die Daten lokal von der Elementseite der Ebene (demnächst).',
+      'Der Dienst muss Cross-Origin-Anfragen von diesem Portal erlauben. Paginierte Abfragen sind auf ~5000 Features pro Ansicht begrenzt: zoomen Sie bei dichten Layern hinein, oder öffnen Sie das ArcGIS-Service-Element und nutzen Sie Ausgewählte Layer in Datenebene kopieren für eine lokale PostGIS-Kopie (FeatureServer; begrenzt).',
     arcgisNoLayers:
       'Der Dienst meldete keine Ebenen. Zeigt diese URL auf etwas anderes als MapServer / FeatureServer?',
     arcgisGroupSuffix: '(Gruppe)',
@@ -4689,6 +4689,18 @@ export const de: Partial<CatalogShape> = {
     openServicePage: "Dienstseite öffnen",
     layersHint:
       "Wählen Sie, welche Layer dieses Element freigibt. Nicht markierte bleiben im Upstream-Dienst, erscheinen aber nicht, wenn Karten dieses Element nutzen. Stern = Standard-Layer.",
+    copyToDataLayer: 'Ausgewählte Layer in Datenebene kopieren',
+    copyingToDataLayer: 'Kopieren…',
+    copyToDataLayerTitle:
+      'Portal-Datenebene aus den ausgewählten FeatureServer-Layern erstellen (begrenzte Kopie)',
+    copyToDataLayerConfirmTitle: 'In eine Datenebene kopieren?',
+    copyToDataLayerConfirmMessage:
+      'Neue Datenebene aus {count, plural, one {# ausgewähltem Layer} other {# ausgewählten Layern}} erstellen. Features werden mit outSR=4326 geladen und bei insgesamt {cap} Zeilen gestoppt. Der Live-ArcGIS-Zeiger dieses Elements bleibt unverändert. Speichern Sie zuerst ungespeicherte Probes.',
+    copyToDataLayerFailed: 'Diese Layer konnten nicht in eine Datenebene kopiert werden.',
+    copyToDataLayerSuccess:
+      '{inserted, plural, one {# Feature} other {# Features}} in eine neue Datenebene kopiert.',
+    copyToDataLayerTruncated:
+      '{inserted, plural, one {# Feature} other {# Features}} kopiert (Limit von {cap} erreicht). Öffnen Sie die neue Datenebene, oder nutzen Sie Admin → Migrationen für einen vollständigen Import.',
   },
 
 

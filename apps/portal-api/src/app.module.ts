@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { GroupsModule } from './groups/groups.module.js';
 import { ItemsModule } from './items/items.module.js';
+import { ArcgisCopyToDataLayerModule } from './items/arcgis-copy-to-data-layer.module.js';
 import { DrawingsPromoteModule } from './items/drawings-promote.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { PostgisLiveModule } from './postgis-live/postgis-live.module.js';
@@ -73,6 +74,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     GroupsModule,
     ItemsModule,
     DrawingsPromoteModule,
+    ArcgisCopyToDataLayerModule,
     StorageModule,
     IngestModule,
     ImportJobsModule,

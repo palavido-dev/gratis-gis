@@ -135,7 +135,13 @@ export interface HostedFsImportResult {
    * version of the AGO layer name).
    */
   agoLayerIdToSublayerKey: Record<number, string>;
+  /** True when pagination stopped because the feature hard cap was hit. */
+  truncated?: boolean;
 }
+
+/** Default hard cap for interactive "Copy to data layer" jobs.
+ *  Matches the OSM save-as-layer ceiling; admin AGO import stays uncapped. */
+export const ARCGIS_COPY_FEATURE_HARD_CAP = 50_000;
 
 // ----------------------------------------------------------------
 // Service
@@ -323,6 +329,167 @@ export class AgoHostedFsImportService {
     };
   }
 
+  /**
+   * Interactive / item-scoped copy used by arcgis_service
+   * "Copy selected layers to data layer". Same FeatureServer walk as
+   * {@link run}, but:
+   *   - only the requested REST layer ids
+   *   - no agoItemId provenance requirement
+   *   - hard feature cap (default {@link ARCGIS_COPY_FEATURE_HARD_CAP})
+   *   - attachments off by default
+   */
+  async runSelected(args: {
+    user: AuthUser;
+    serviceUrl: string;
+    title: string;
+    access: 'private' | 'org' | 'public';
+    token?: string;
+    layerIds: number[];
+    maxFeatures?: number;
+    copyAttachments?: boolean;
+  }): Promise<HostedFsImportResult> {
+    const warnings: string[] = [];
+    const cleanUrl = args.serviceUrl.replace(/\/+$/, '');
+    const maxFeatures = Math.min(
+      Math.max(1, args.maxFeatures ?? ARCGIS_COPY_FEATURE_HARD_CAP),
+      ARCGIS_COPY_FEATURE_HARD_CAP,
+    );
+    const wanted = new Set(args.layerIds);
+    if (wanted.size === 0) {
+      throw new Error('Select at least one layer to copy.');
+    }
+
+    await assertSafeOutboundUrl(`${cleanUrl}?f=json`);
+
+    const desc = await this.fetchJson<AgoServiceDescribe>(
+      `${cleanUrl}?f=json`,
+      args.token,
+    );
+    const layerStubs = [
+      ...(desc.layers ?? []),
+      ...(desc.tables ?? []).map((t) => ({ ...t, geometryType: undefined })),
+    ].filter((s) => wanted.has(s.id));
+    if (layerStubs.length === 0) {
+      throw new Error(
+        `None of the selected layer ids exist on ${cleanUrl}.`,
+      );
+    }
+    const missing = [...wanted].filter(
+      (id) => !layerStubs.some((s) => s.id === id),
+    );
+    for (const id of missing) {
+      warnings.push(`Layer id ${id} was not found on the service and was skipped.`);
+    }
+
+    const sublayers: DataLayerSublayer[] = [];
+    const perLayer: Array<{
+      stubId: number;
+      sublayer: DataLayerSublayer;
+      hasAttachments: boolean;
+      objectIdField: string;
+    }> = [];
+    for (const stub of layerStubs) {
+      const layer = await this.fetchJson<AgoLayerDescribe>(
+        `${cleanUrl}/${stub.id}?f=json`,
+        args.token,
+      );
+      const sublayer = this.layerToSublayer(layer, warnings);
+      sublayers.push(sublayer);
+      perLayer.push({
+        stubId: stub.id,
+        sublayer,
+        hasAttachments: Boolean(layer.hasAttachments),
+        objectIdField:
+          layer.objectIdField ?? layer.globalIdField ?? 'OBJECTID',
+      });
+    }
+
+    const data: DataLayerDataV3 = {
+      ...DEFAULT_DATA_LAYER_V3,
+      layers: sublayers,
+    };
+    const created = await this.items.create(args.user, {
+      type: 'data_layer',
+      title: args.title,
+      access: args.access,
+      data: data as unknown as Prisma.InputJsonValue,
+    });
+
+    let featuresInserted = 0;
+    let truncated = false;
+    let remaining = maxFeatures;
+    for (const layer of perLayer) {
+      if (remaining <= 0) {
+        truncated = true;
+        warnings.push(
+          `Stopped before layer ${layer.sublayer.label}: feature cap of ${maxFeatures} reached.`,
+        );
+        break;
+      }
+      try {
+        const inserted = await this.copyLayerFeatures({
+          user: args.user,
+          itemId: created.id,
+          serviceUrl: cleanUrl,
+          layer,
+          maxFeatures: remaining,
+          ...(args.token !== undefined ? { token: args.token } : {}),
+        });
+        featuresInserted += inserted;
+        remaining -= inserted;
+        if (remaining <= 0) {
+          truncated = true;
+          warnings.push(
+            `Reached the feature cap of ${maxFeatures}. Remaining layers were not copied; use Admin → Migrations for a full import, or copy fewer layers.`,
+          );
+        }
+      } catch (e) {
+        warnings.push(
+          `Layer ${layer.sublayer.label}: feature copy failed (${
+            e instanceof Error ? e.message : String(e)
+          }). Schema is in place; data can be re-pulled later.`,
+        );
+      }
+    }
+
+    let attachmentsCopied = 0;
+    if (args.copyAttachments && !truncated) {
+      for (const layer of perLayer) {
+        if (!layer.hasAttachments) continue;
+        try {
+          attachmentsCopied += await this.copyLayerAttachments({
+            user: args.user,
+            itemId: created.id,
+            serviceUrl: cleanUrl,
+            layer,
+            ...(args.token !== undefined ? { token: args.token } : {}),
+          });
+        } catch (e) {
+          warnings.push(
+            `Layer ${layer.sublayer.label}: attachment copy failed (${
+              e instanceof Error ? e.message : String(e)
+            }). Geometry + attributes already landed.`,
+          );
+        }
+      }
+    }
+
+    const agoLayerIdToSublayerKey: Record<number, string> = {};
+    for (const pl of perLayer) {
+      agoLayerIdToSublayerKey[pl.stubId] = pl.sublayer.id;
+    }
+
+    return {
+      portalItemId: created.id,
+      layerCount: sublayers.length,
+      featuresInserted,
+      attachmentsCopied,
+      warnings,
+      agoLayerIdToSublayerKey,
+      truncated,
+    };
+  }
+
   // ---- private helpers --------------------------------------------------
 
   /** Translate one AGO layer description into a DataLayerSublayer. */
@@ -402,10 +569,20 @@ export class AgoHostedFsImportService {
       objectIdField: string;
     };
     token?: string;
+    /** Stop after this many features (interactive copy hard cap). */
+    maxFeatures?: number;
   }): Promise<number> {
     let offset = 0;
     let total = 0;
+    const budget = args.maxFeatures;
     while (true) {
+      if (budget !== undefined && total >= budget) break;
+      const pageSize =
+        budget !== undefined
+          ? Math.min(this.PAGE_SIZE, budget - total)
+          : this.PAGE_SIZE;
+      if (pageSize <= 0) break;
+
       const url = new URL(
         `${args.serviceUrl}/${args.layer.stubId}/query`,
       );
@@ -414,7 +591,7 @@ export class AgoHostedFsImportService {
       url.searchParams.set('f', 'geojson');
       url.searchParams.set('outSR', '4326');
       url.searchParams.set('resultOffset', String(offset));
-      url.searchParams.set('resultRecordCount', String(this.PAGE_SIZE));
+      url.searchParams.set('resultRecordCount', String(pageSize));
       url.searchParams.set('orderByFields', args.layer.objectIdField);
       if (args.token) url.searchParams.set('token', args.token);
 
@@ -422,8 +599,11 @@ export class AgoHostedFsImportService {
         url.toString(),
         undefined, // token already in querystring
       );
-      const rows = page.features ?? [];
+      let rows = page.features ?? [];
       if (rows.length === 0) break;
+      if (budget !== undefined && total + rows.length > budget) {
+        rows = rows.slice(0, budget - total);
+      }
 
       // Insert in batches via the v3 features service.
       for (let i = 0; i < rows.length; i += this.INSERT_BATCH) {
@@ -440,13 +620,15 @@ export class AgoHostedFsImportService {
         total += batch.length;
       }
 
+      if (budget !== undefined && total >= budget) break;
+
       // exceededTransferLimit is the canonical "more pages" signal.
       const more =
         page.exceededTransferLimit ||
         page.properties?.exceededTransferLimit ||
-        rows.length === this.PAGE_SIZE;
+        (page.features?.length ?? 0) === pageSize;
       if (!more) break;
-      offset += rows.length;
+      offset += page.features?.length ?? rows.length;
     }
     return total;
   }

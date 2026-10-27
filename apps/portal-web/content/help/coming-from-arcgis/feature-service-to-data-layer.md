@@ -39,6 +39,15 @@ Pick one based on whether you want a copy or a live reference.
 You're cutting the dependency. Use this when GratisGIS will own
 the data from here on.
 
+**Shortcut.** If you already have an **ArcGIS service** item
+pointing at a FeatureServer, open it, select the layers you want,
+and click **Copy selected layers to data layer**. The portal
+creates a data layer (WGS84) and leaves the live pointer alone.
+Interactive copies stop at 50,000 features; for a full hosted
+service cutover use **Admin → Migrations → From ArcGIS Online**.
+
+**Manual file path** (same outcome when you prefer a file):
+
 1. **Export from AGO**. From the feature service's item page in
  AGO, click **Export Data** → **File geodatabase** or
  **Shapefile**. (GeoPackage is also fine if you have a tool that
