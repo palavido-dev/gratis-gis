@@ -289,6 +289,40 @@ function isAnonymousPostAllowed(suffix: string): boolean {
   return false;
 }
 
+const ITEM_UUID =
+  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+
+/**
+ * Anonymous markup writes (#154 / R3-anonymous-markup). When a map
+ * has `allowAnonymousDrawings` on, portal-api's drawings create /
+ * update / delete routes are @Public() and mint a stable anon
+ * cookie. The BFF must let those verbs through unauthenticated so
+ * the cookie session can reach portal-api.
+ *
+ * Strict shapes only:
+ *   - POST   items/<uuid>/drawings
+ *   - PATCH  items/<uuid>/drawings/<uuid>
+ *   - DELETE items/<uuid>/drawings/<uuid>
+ *
+ * Explicitly excluded (stay auth-gated):
+ *   - POST   .../drawings/<uuid>/promote
+ *   - PATCH  .../drawings/settings/allow-anonymous
+ */
+function isAnonymousDrawingMutationAllowed(
+  suffix: string,
+  method: string,
+): boolean {
+  if (method === 'POST') {
+    return new RegExp(`^items\\/${ITEM_UUID}\\/drawings$`).test(suffix);
+  }
+  if (method === 'PATCH' || method === 'DELETE') {
+    return new RegExp(
+      `^items\\/${ITEM_UUID}\\/drawings\\/${ITEM_UUID}$`,
+    ).test(suffix);
+  }
+  return false;
+}
+
 /**
  * True when a path segment would collapse during URL normalization:
  * empty (from '//'), a single dot, or a double dot. WHATWG URL (and
@@ -365,7 +399,19 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   const allowAnonymousPost =
     !accessToken && req.method === 'POST' && isAnonymousPostAllowed(suffix);
 
-  if (!accessToken && !publicRewrite && !allowAnonymousPost) {
+  // #154 / R3-anonymous-markup: anon create/edit/delete on drawing
+  // sets when the map opt-in flag is on. portal-api enforces the
+  // flag + cookie ownership; promote and the settings toggle stay
+  // out of this allowlist.
+  const allowAnonymousDrawingMutation =
+    !accessToken && isAnonymousDrawingMutationAllowed(suffix, req.method);
+
+  if (
+    !accessToken &&
+    !publicRewrite &&
+    !allowAnonymousPost &&
+    !allowAnonymousDrawingMutation
+  ) {
     // `code` lets clients distinguish "never signed in" from "your
     // sign-in decayed"; the session-expired banner keys off the
     // session object itself, but API consumers (QGIS plugin, tests)
@@ -388,6 +434,11 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   if (accessToken) {
     headers.authorization = `Bearer ${accessToken}`;
   }
+  // Forward Cookie so portal-api can mint/read the anon drawing
+  // session (`gg_anon_drawing`) on public markup writes. Harmless
+  // for other routes: portal-api ignores portal-web session cookies.
+  const cookie = req.headers.get('cookie');
+  if (cookie) headers.cookie = cookie;
   const ct = req.headers.get('content-type');
   if (ct) headers['content-type'] = ct;
   // Editor runtime sends `x-editor-id` on every write so the API can
@@ -504,51 +555,54 @@ async function forward(req: NextRequest, pathSegments: string[]) {
       revalidatePath(`/items/${idMatch[1]}/edit`);
     }
   }
+  const outHeaders = new Headers();
+  outHeaders.set(
+    'content-type',
+    upstream.headers.get('content-type') ?? 'application/json',
+  );
+  // No-cache + no-transform mirrors what portal-api set on the
+  // streaming response, so an intermediate Caddy or browser
+  // cache doesn't try to coalesce the chunks.
+  const cacheControl = upstream.headers.get('cache-control');
+  if (cacheControl) outHeaders.set('cache-control', cacheControl);
+  // Download endpoints (layer CSV / GeoParquet exports) mark
+  // themselves `attachment; filename=...`; without forwarding
+  // this the browser loses the server-chosen filename and
+  // save-as behavior.
+  const contentDisposition = upstream.headers.get('content-disposition');
+  if (contentDisposition) {
+    outHeaders.set('content-disposition', contentDisposition);
+  }
+  // Byte-serving headers for ranged reads (see the Range
+  // forwarding note on the request side). Status is already
+  // mirrored, so a 206 arrives as a 206; without Content-Range
+  // the client cannot place the slice, and without ETag /
+  // Accept-Ranges the reader disables range mode entirely.
+  const contentRange = upstream.headers.get('content-range');
+  if (contentRange) outHeaders.set('content-range', contentRange);
+  const acceptRanges = upstream.headers.get('accept-ranges');
+  if (acceptRanges) outHeaders.set('accept-ranges', acceptRanges);
+  const etag = upstream.headers.get('etag');
+  if (etag) outHeaders.set('etag', etag);
+  const contentLength = upstream.headers.get('content-length');
+  if (contentLength) outHeaders.set('content-length', contentLength);
+  // Paged list endpoints report the total row count here so the
+  // browser can page without an envelope around the JSON array.
+  const totalCount = upstream.headers.get('x-total-count');
+  if (totalCount) outHeaders.set('x-total-count', totalCount);
+  // #154: portal-api mints `gg_anon_drawing` on anon markup writes.
+  // Forward every Set-Cookie so the browser keeps the session.
+  const setCookies =
+    typeof upstream.headers.getSetCookie === 'function'
+      ? upstream.headers.getSetCookie()
+      : [];
+  for (const c of setCookies) {
+    outHeaders.append('set-cookie', c);
+  }
+
   return new NextResponse(upstream.body, {
     status: upstream.status,
-    headers: {
-      'content-type':
-        upstream.headers.get('content-type') ?? 'application/json',
-      // No-cache + no-transform mirrors what portal-api set on the
-      // streaming response, so an intermediate Caddy or browser
-      // cache doesn't try to coalesce the chunks.
-      ...(upstream.headers.get('cache-control')
-        ? { 'cache-control': upstream.headers.get('cache-control')! }
-        : {}),
-      // Download endpoints (layer CSV / GeoParquet exports) mark
-      // themselves `attachment; filename=...`; without forwarding
-      // this the browser loses the server-chosen filename and
-      // save-as behavior.
-      ...(upstream.headers.get('content-disposition')
-        ? {
-            'content-disposition': upstream.headers.get(
-              'content-disposition',
-            )!,
-          }
-        : {}),
-      // Byte-serving headers for ranged reads (see the Range
-      // forwarding note on the request side). Status is already
-      // mirrored, so a 206 arrives as a 206; without Content-Range
-      // the client cannot place the slice, and without ETag /
-      // Accept-Ranges the reader disables range mode entirely.
-      ...(upstream.headers.get('content-range')
-        ? { 'content-range': upstream.headers.get('content-range')! }
-        : {}),
-      ...(upstream.headers.get('accept-ranges')
-        ? { 'accept-ranges': upstream.headers.get('accept-ranges')! }
-        : {}),
-      ...(upstream.headers.get('etag')
-        ? { etag: upstream.headers.get('etag')! }
-        : {}),
-      ...(upstream.headers.get('content-length')
-        ? { 'content-length': upstream.headers.get('content-length')! }
-        : {}),
-      // Paged list endpoints report the total row count here so the
-      // browser can page without an envelope around the JSON array.
-      ...(upstream.headers.get('x-total-count')
-        ? { 'x-total-count': upstream.headers.get('x-total-count')! }
-        : {}),
-    },
+    headers: outHeaders,
   });
 }
 

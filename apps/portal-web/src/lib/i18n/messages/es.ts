@@ -2398,6 +2398,9 @@ export const es: Partial<CatalogShape> = {
     dropPinShort: 'Centro',
     addMarkup: 'Añadir anotación',
     signInToMarkup: 'Inicia sesión para añadir anotaciones a este mapa.',
+    anonymousHint:
+      'Estás añadiendo anotaciones como visitante. Promover a una capa de datos requiere iniciar sesión.',
+    anonymousReviewer: 'Anónimo',
     pins: '{count, plural, one {# pin} other {# pines}}',
     features:
       '{count, plural, one {# entidad} other {# entidades}}',
@@ -2443,6 +2446,12 @@ export const es: Partial<CatalogShape> = {
     defaultExtent: 'Extensión predeterminada',
     searchSource: 'Fuente de búsqueda',
     searchSourceEmpty: 'Crea un elemento de servicio de geocodificación para buscar tus propios datos aquí.',
+    allowAnonymous: 'Anotaciones anónimas',
+    allowAnonymousDesc:
+      'Permite que visitantes sin sesión añadan sus propias anotaciones en este mapa público. Desactivado por defecto. Promover a una capa de datos sigue exigiendo una cuenta.',
+    allowAnonymousOn: 'Permitido',
+    allowAnonymousOff: 'Desactivado (predeterminado)',
+    allowAnonymousError: 'No se pudo actualizar el ajuste de anotaciones anónimas.',
   },
   featureBrowser: {
     featuresHeader: 'Entidades',

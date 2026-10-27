@@ -28,6 +28,8 @@ import { useT } from '@/lib/i18n/locale-context';
  */
 interface Props {
   canEdit: boolean;
+  /** Map item UUID; required to persist the anonymous-markup toggle. */
+  mapId: string;
   map: MapData;
   geoBoundaries: Array<{ id: string; title: string }>;
   availableGeocoders: Array<{
@@ -38,23 +40,55 @@ interface Props {
   setClipBoundaryId: (id: string) => void;
   setDefaultExtentBoundaryId: (id: string) => void;
   setGeocoderId: (id: string | null) => void;
+  /** Flip allowAnonymousDrawings in local map state after a successful API write. */
+  setAllowAnonymousDrawings: (allowed: boolean) => void;
 }
 
 export function MapSettingsSection({
   canEdit,
+  mapId,
   map,
   geoBoundaries,
   availableGeocoders,
   setClipBoundaryId,
   setDefaultExtentBoundaryId,
   setGeocoderId,
+  setAllowAnonymousDrawings,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(true);
+  const [anonBusy, setAnonBusy] = useState(false);
+  const [anonError, setAnonError] = useState<string | null>(null);
 
   const clipValue = map.clipBoundaryId ?? '';
   const extentValue = map.defaultExtentBoundaryId ?? '';
   const geocoderValue = map.search?.geocoderId ?? '';
+  const allowAnonymous = map.allowAnonymousDrawings === true;
+
+  async function toggleAllowAnonymous(next: boolean) {
+    if (!canEdit || anonBusy) return;
+    setAnonBusy(true);
+    setAnonError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${mapId}/drawings/settings/allow-anonymous`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ allowed: next }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(body || res.statusText);
+      }
+      setAllowAnonymousDrawings(next);
+    } catch {
+      setAnonError(t('mapSettings.allowAnonymousError'));
+    } finally {
+      setAnonBusy(false);
+    }
+  }
 
   // Compose a one-line summary that shows next to the title when
   // the section is collapsed. Lets the author see the current
@@ -181,6 +215,33 @@ export function MapSettingsSection({
                 </option>
               ))}
             </select>
+          </SettingRow>
+
+          <SettingRow
+            label={t('mapSettings.allowAnonymous')}
+            description={t('mapSettings.allowAnonymousDesc')}
+          >
+            <label className="flex items-center gap-2 text-sm text-ink-1">
+              <input
+                type="checkbox"
+                checked={allowAnonymous}
+                disabled={!canEdit || anonBusy}
+                onChange={(e) => {
+                  void toggleAllowAnonymous(e.target.checked);
+                }}
+                className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <span>
+                {allowAnonymous
+                  ? t('mapSettings.allowAnonymousOn')
+                  : t('mapSettings.allowAnonymousOff')}
+              </span>
+            </label>
+            {anonError ? (
+              <p role="alert" className="text-2xs text-danger">
+                {anonError}
+              </p>
+            ) : null}
           </SettingRow>
         </div>
       ) : null}

@@ -6,13 +6,11 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-field-delta-sync | research-cycle-3 | Field offline pull via `delta?since=N` | PR #350 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-anonymous-markup | research-cycle-3 / #154 | Anonymous markup when `allowAnonymousDrawings` | Opt-in + rate limits; no promote |
 | R3-dashboard-filter-widget | research-cycle-3 | Dedicated dashboard filter widget | Reuses cross-filter context |
 | R3-sync-conflict-reapply | research-cycle-3 | Re-apply losing-side syncConflicts | Follow-up to #339 |
 | R3-mcp-query-osm | research-cycle-3 / #161 | MCP `query_osm` over Overpass | Thin facade; cap bbox/results |
@@ -30,6 +28,8 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R3-anonymous-markup | 2026-10-27 | Anonymous markup when `allowAnonymousDrawings` (opt-in, rate-limited, no promote) |
+| R3-field-delta-sync | 2026-10-27 | Merged #350: field offline pull via `delta?since=N` |
 | R2-i18n-tile-layer-errors | 2026-10-27 | Merged #348: tile-layer editor error/progress i18n |
 | R2-form-touch-reorder | 2026-10-27 | Merged #347: form designer up/down reorder for touch |
 | R2-i18n-chrome-sweep | 2026-10-27 | Merged #346: error / receipts / terrain-chip chrome i18n |

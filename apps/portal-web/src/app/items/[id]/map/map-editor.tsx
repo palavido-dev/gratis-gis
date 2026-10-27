@@ -1549,6 +1549,23 @@ export function MapEditor({
     markDirty();
   }
 
+  /**
+   * #154 / R3-anonymous-markup: flip the opt-in flag that lets
+   * logged-out visitors add their own markup. Persisted immediately
+   * via the drawings settings endpoint (not the map Save button),
+   * so we only mirror the successful write into local state here.
+   */
+  function setAllowAnonymousDrawings(allowed: boolean) {
+    setMap((m) => {
+      if (!allowed) {
+        const next = { ...m };
+        delete (next as Partial<MapData>).allowAnonymousDrawings;
+        return next as MapData;
+      }
+      return { ...m, allowAnonymousDrawings: true };
+    });
+  }
+
   function setLayers(next: MapLayer[]) {
     setMap((m) => ({ ...m, layers: next }));
     markDirty();
@@ -1673,7 +1690,16 @@ export function MapEditor({
       // reached via zoom-to-extent or a search fly-to would silently
       // save the previous camera without this.
       const cam = canvasRef.current?.getCamera();
-      const payload = cam ? { ...map, ...cam } : map;
+      // Prefer the live Markup-panel drawings state over whatever
+      // was hydrated into `map` at load; item PATCH replaces the
+      // whole data blob, so a stale map.drawings would clobber
+      // concurrent redlines. Anon ownership tokens are stripped
+      // from API responses and may be lost on this path; the
+      // service falls back to authorDisplay matching.
+      const payload = {
+        ...(cam ? { ...map, ...cam } : map),
+        drawings,
+      };
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -2050,12 +2076,14 @@ export function MapEditor({
   const rightPanel = canEdit ? (
     <MapSettingsSection
       canEdit={canEdit}
+      mapId={itemId}
       map={map}
       geoBoundaries={geoBoundaries}
       availableGeocoders={availableGeocoders}
       setClipBoundaryId={setClipBoundaryId}
       setDefaultExtentBoundaryId={setDefaultExtentBoundaryId}
       setGeocoderId={setGeocoderId}
+      setAllowAnonymousDrawings={setAllowAnonymousDrawings}
     />
   ) : null;
 
@@ -2212,6 +2240,7 @@ export function MapEditor({
                 open={markupOpen}
                 onClose={() => setMarkupOpen(false)}
                 currentUser={currentUser}
+                allowAnonymousDrawings={map.allowAnonymousDrawings === true}
                 canEditMap={canEdit}
                 mapCenter={map.center}
                 onDrawingsChange={setDrawings}

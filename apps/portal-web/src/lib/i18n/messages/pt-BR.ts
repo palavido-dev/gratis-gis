@@ -2393,6 +2393,9 @@ export const ptBR: Partial<CatalogShape> = {
     dropPinShort: 'Centro',
     addMarkup: 'Adicionar anotação',
     signInToMarkup: 'Entre para adicionar anotações a este mapa.',
+    anonymousHint:
+      'Você está adicionando anotações como visitante. Promover para uma camada de dados exige entrar.',
+    anonymousReviewer: 'Anônimo',
     pins: '{count, plural, one {# pino} other {# pinos}}',
     features:
       '{count, plural, one {# feição} other {# feições}}',
@@ -2438,6 +2441,12 @@ export const ptBR: Partial<CatalogShape> = {
     defaultExtent: 'Extensão padrão',
     searchSource: 'Fonte de pesquisa',
     searchSourceEmpty: 'Crie um item de serviço de geocodificação para pesquisar seus próprios dados aqui.',
+    allowAnonymous: 'Anotações anônimas',
+    allowAnonymousDesc:
+      'Permite que visitantes desconectados adicionem seus próprios conjuntos de anotações neste mapa público. Desligado por padrão. Promover para uma camada de dados ainda exige conta.',
+    allowAnonymousOn: 'Permitido',
+    allowAnonymousOff: 'Desligado (padrão)',
+    allowAnonymousError: 'Não foi possível atualizar a configuração de anotações anônimas.',
   },
   featureBrowser: {
     featuresHeader: 'Feições',
