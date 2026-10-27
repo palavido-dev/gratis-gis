@@ -95,11 +95,18 @@ function makeUser(): AuthUser {
 function makePrisma(fields: unknown[] | null) {
   // A real Prisma row always carries `updatedAt`; the schema memo
   // stamps the layer item with it, so the fixture has to as well.
-  const updatedAt = new Date('2026-03-01T00:00:00.000Z');
+  let updatedAt = new Date('2026-03-01T00:00:00.000Z');
+  let syncVersion = 0;
   const findUnique = jest.fn(async () => ({
     data: {
       version: 3,
-      layers: [{ id: LAYER_ID, ...(fields ? { fields } : {}) }],
+      layers: [
+        {
+          id: LAYER_ID,
+          syncVersion,
+          ...(fields ? { fields } : {}),
+        },
+      ],
     },
     updatedAt,
   }));
@@ -109,7 +116,13 @@ function makePrisma(fields: unknown[] | null) {
   const findMany = jest.fn(async (args: { where?: { id?: { in?: string[] } } }) =>
     (args.where?.id?.in ?? []).filter((id) => id === ITEM_ID).map((id) => ({ id, updatedAt })),
   );
-  return { item: { findUnique, findMany } };
+  // Optimistic bump used by insert/update/delete syncVersion stamping.
+  const updateMany = jest.fn(async () => {
+    syncVersion += 1;
+    updatedAt = new Date(updatedAt.getTime() + 1);
+    return { count: 1 };
+  });
+  return { item: { findUnique, findMany, updateMany } };
 }
 
 function makeService(fields: unknown[] | null = null) {
