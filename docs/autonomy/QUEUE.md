@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-lidar-dep-bump | research-cycle-2 / #183 | Bump maplibre-gl-lidar 0.21; drop local patch | Branch `cursor/lidar-dep-bump-2838` |
+| R2-lidar-dep-bump | research-cycle-2 / #183 | Bump maplibre-gl-lidar 0.21; drop local patch | PR #338 on `cursor/lidar-dep-bump-2838` |
 
 ## queued (ship-without-input)
 
