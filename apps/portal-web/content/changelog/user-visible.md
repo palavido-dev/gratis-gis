@@ -12,13 +12,11 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
-<<<<<<< HEAD
-## 2026-10-27 - Dismiss a sync conflict after you review it
-On a layer's data panel, each sync conflict now offers **Dismiss** next to Re-apply. Clear a card you have already recovered (or decided to drop) without changing the live features; after a successful re-apply you can clear it in one step.
-=======
 ## 2026-10-27 - Erase this layer from Analyze
 On a data layer's Analyze tab, **Erase this layer** creates a private PostGIS derived layer that keeps features outside a mask data layer you pick (same path as Create → Derived layer → Erase). Expect a short server job, not an instant browser result.
->>>>>>> c7c6a820 (feat(analyze): Erase this layer guided derived_layer shortcut)
+
+## 2026-10-27 - Dismiss a sync conflict after you review it
+On a layer's data panel, each sync conflict now offers **Dismiss** next to Re-apply. Clear a card you have already recovered (or decided to drop) without changing the live features; after a successful re-apply you can clear it in one step.
 
 ## 2026-10-27 - Copy ArcGIS FeatureServer layers into a data layer
 On an ArcGIS service item, **Copy selected layers to data layer** pulls the checked FeatureServer layers into a new portal data layer (WGS84). The live pointer stays; copies stop at 50,000 features. MapServer-only URLs are refused unless a FeatureServer twin exists.
