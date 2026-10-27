@@ -2819,3 +2819,4 @@ Everything is new in a first release. What ships, briefly:
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2
 [0.9.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.1
 [0.9.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.0
+
