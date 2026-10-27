@@ -41,20 +41,12 @@ overrides:
   '@deck.gl/core': ~9.4.0
   '@deck.gl/extensions': ~9.4.0
   '@deck.gl/layers': ~9.4.0
-  '@deck.gl/mapbox': ~9.4.0
   '@deck.gl/maplibre': ~9.4.0
   '@luma.gl/core': ~9.4.0
   '@luma.gl/engine': ~9.4.0
   '@luma.gl/gpgpu': ~9.4.0
   '@luma.gl/shadertools': ~9.4.0
   '@luma.gl/webgl': ~9.4.0
-
-packageExtensionsChecksum: e70f2be7cd85eaa9940cd1c3351bfcb8
-
-patchedDependencies:
-  maplibre-gl-lidar@0.16.2:
-    hash: nlyw6o2wuhbijn43urbv6czifa
-    path: patches/maplibre-gl-lidar@0.16.2.patch
 
 importers:
 
@@ -315,8 +307,8 @@ importers:
         specifier: ~6.16.0
         version: 6.16.0
       maplibre-gl-lidar:
-        specifier: ^0.16.2
-        version: 0.16.2(patch_hash=nlyw6o2wuhbijn43urbv6czifa)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(geotiff@3.0.5)(maplibre-gl@6.16.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: ^0.21.0
+        version: 0.21.0(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(geotiff@3.0.5)(maplibre-gl@6.16.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       next:
         specifier: ^16.4.3
         version: 16.4.3(@babel/core@7.29.7)(@playwright/test@1.64.1)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -780,13 +772,6 @@ packages:
       '@loaders.gl/core': ^4.4.3
       '@luma.gl/core': ~9.4.0
       '@luma.gl/engine': ~9.4.0
-
-  '@deck.gl/mapbox@9.4.0':
-    resolution: {integrity: sha512-otpLp3HgJKWl5KgeQ8J+8oraKAa/nOThtSB5w93KsZSN6Oq467o8vXaWjkas9aPOVoqHIM33GG/wCEYbPDuATQ==}
-    peerDependencies:
-      '@deck.gl/core': ~9.4.0
-      '@luma.gl/core': ~9.4.0
-      '@math.gl/web-mercator': ^4.1.0
 
   '@deck.gl/maplibre@9.4.0':
     resolution: {integrity: sha512-ck7Hxzt0t9M7iVgbVwelZiuUEx+e2HtmhGyPmZulURV0Ct5QtIjDYc6SWWUYZqASQnyDiBgFVaSaA9DisU8ziw==}
@@ -4985,10 +4970,10 @@ packages:
       react-dom:
         optional: true
 
-  maplibre-gl-lidar@0.16.2:
-    resolution: {integrity: sha512-HQZpqNPP01R6sLGv05nX2lMHNB79diJrKLjV6keeBMw1EfEla/gfyUNs7/aG8oE4xt9Owf0XLKRI7CYxaroYaA==}
+  maplibre-gl-lidar@0.21.0:
+    resolution: {integrity: sha512-yQo/jh0dXIph73IRcID+6sCIz60Y2yAfkb1N9fV4mL/+DcXBw1aGV395kX/0M4oJG1mK7EVbBNiOXR6CzbA0NA==}
     peerDependencies:
-      maplibre-gl: '>=3.0.0'
+      maplibre-gl: ^4.5.1 || ^5.0.0 || ^6.0.0
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
     peerDependenciesMeta:
@@ -7063,12 +7048,6 @@ snapshots:
       '@math.gl/web-mercator': 4.1.0
       '@types/geojson': 7946.0.16
       earcut: 2.2.4
-
-  '@deck.gl/mapbox@9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@math.gl/web-mercator@4.1.0)':
-    dependencies:
-      '@deck.gl/core': 9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
-      '@luma.gl/core': 9.4.2
-      '@math.gl/web-mercator': 4.1.0
 
   '@deck.gl/maplibre@9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(maplibre-gl@6.16.0)':
     dependencies:
@@ -11657,12 +11636,11 @@ snapshots:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
 
-  maplibre-gl-lidar@0.16.2(patch_hash=nlyw6o2wuhbijn43urbv6czifa)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(geotiff@3.0.5)(maplibre-gl@6.16.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  maplibre-gl-lidar@0.21.0(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(geotiff@3.0.5)(maplibre-gl@6.16.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       '@deck.gl/core': 9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
       '@deck.gl/extensions': 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
       '@deck.gl/layers': 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.2)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
-      '@deck.gl/mapbox': 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@math.gl/web-mercator@4.1.0)
       '@deck.gl/maplibre': 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(maplibre-gl@6.16.0)
       '@loaders.gl/core': 4.5.2
       '@loaders.gl/las': 4.5.2(@loaders.gl/core@4.5.2)
@@ -11677,7 +11655,6 @@ snapshots:
       - '@luma.gl/core'
       - '@luma.gl/engine'
       - '@luma.gl/webgpu'
-      - '@math.gl/web-mercator'
       - encoding
       - geotiff
 

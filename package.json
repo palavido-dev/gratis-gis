@@ -99,23 +99,12 @@
       "@deck.gl/core": "~9.4.0",
       "@deck.gl/extensions": "~9.4.0",
       "@deck.gl/layers": "~9.4.0",
-      "@deck.gl/mapbox": "~9.4.0",
       "@deck.gl/maplibre": "~9.4.0",
       "@luma.gl/core": "~9.4.0",
       "@luma.gl/engine": "~9.4.0",
       "@luma.gl/gpgpu": "~9.4.0",
       "@luma.gl/shadertools": "~9.4.0",
       "@luma.gl/webgl": "~9.4.0"
-    },
-    "patchedDependencies": {
-      "maplibre-gl-lidar@0.16.2": "patches/maplibre-gl-lidar@0.16.2.patch"
-    },
-    "packageExtensions": {
-      "maplibre-gl-lidar@0.16.2": {
-        "dependencies": {
-          "@deck.gl/maplibre": "~9.4.0"
-        }
-      }
     }
   }
 }

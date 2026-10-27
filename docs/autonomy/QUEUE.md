@@ -6,17 +6,16 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-R2a / R2-drawings-in-print | research-cycle-2 / #159 | Markup drawings on print/PDF | PR #337 on `cursor/drawings-in-print-2838` |
+| R2-lidar-dep-bump | research-cycle-2 / #183 | Bump maplibre-gl-lidar 0.21; drop local patch | PR #338 on `cursor/lidar-dep-bump-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-lidar-dep-bump | research-cycle-2 / #183 | Bump maplibre-gl-lidar 0.21; drop local patch | After drawings-in-print |
 | R2-sync-conflict-review-ui | research-cycle-2 / #329 | Surface syncConflicts in portal UI | Completes conflict artifacts |
 | R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | Before write tools |
 | R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | After API-key auth docs |
-| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | After drawings-in-print |
+| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | |
 | R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | Not Yjs CRDT |
 | R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | |
 | R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | No Weblate |
@@ -37,6 +36,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-R2a / R2-drawings-in-print | 2026-10-27 | Merged #337: print PDF paints visible markup drawings |
 | Q-183a / R1-lidar-incremental-writeup | 2026-10-27 | Merged #336: research note; #183 stays open |
 | Q-162a / R1-i18n-string-sweep | 2026-10-27 | Merged #335: terrain analysis panel i18n (`demAnalysis.*`) |
 | R1-zonal-stats-primitive | 2026-10-27 | Merged #334: zonal stats analysis job + elevation UI |
