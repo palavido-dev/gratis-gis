@@ -2616,6 +2616,16 @@ export const en = {
     importingDesc:
       'Parsing the file and bulk-inserting into PostGIS. Large layers (county-scale parcels) can take a few minutes.',
     uploadFailed: 'Upload failed',
+    syncConflictsTitle:
+      '{count, plural, one {# sync conflict} other {# sync conflicts}}',
+    syncConflictsIntro:
+      'These edits lost an optimistic-concurrency check (HTTP 409). The losing side is kept here so you can compare and re-apply. Newest first; the server keeps at most 50.',
+    syncConflictOpUpdate: 'Update lost',
+    syncConflictOpDelete: 'Delete lost',
+    syncConflictLosingDelete: 'Losing side was a delete.',
+    syncConflictLosingEmpty: 'Losing side had no attribute values.',
+    syncConflictLosingSummary: 'Losing attributes: {sample}',
+    syncConflictLosingMore: ' (+{count} more)',
   },
   accessMatrix: {
     intro:

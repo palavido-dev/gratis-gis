@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Layer data panel lists recent `syncConflicts` artifacts (losing-side
+  edits from optimistic-concurrency 409s) so field crews can review
+  them after sync (#329 follow-up).
 - Map print/PDF includes visible markup drawing sets (pins, lines,
   polygons) from the bound map, honoring saved per-set visibility
   (#159 Phase 3).

@@ -2528,6 +2528,16 @@ export const de: Partial<CatalogShape> = {
     importingDesc:
       'Datei wird geparst und als Bulk in PostGIS eingefügt. Große Ebenen (Parzellen auf County-Ebene) können einige Minuten dauern.',
     uploadFailed: 'Upload fehlgeschlagen',
+    syncConflictsTitle:
+      '{count, plural, one {# Sync-Konflikt} other {# Sync-Konflikte}}',
+    syncConflictsIntro:
+      'Diese Bearbeitungen haben eine optimistische Konkurrenzprufung (HTTP 409) verloren. Die verlierende Seite wird hier gehalten, damit Sie vergleichen und erneut anwenden konnen. Neueste zuerst; der Server behalt hochstens 50.',
+    syncConflictOpUpdate: 'Update verloren',
+    syncConflictOpDelete: 'Loschung verloren',
+    syncConflictLosingDelete: 'Die verlierende Seite war eine Loschung.',
+    syncConflictLosingEmpty: 'Die verlierende Seite hatte keine Attribute.',
+    syncConflictLosingSummary: 'Verlierende Attribute: {sample}',
+    syncConflictLosingMore: ' (+{count} weitere)',
   },
   accessMatrix: {
     intro:

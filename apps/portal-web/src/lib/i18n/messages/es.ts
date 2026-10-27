@@ -2513,6 +2513,16 @@ export const es: Partial<CatalogShape> = {
     importingDesc:
       'Analizando el archivo e insertando en bloque en PostGIS. Las capas grandes (parcelas a escala de condado) pueden tardar unos minutos.',
     uploadFailed: 'Error al subir',
+    syncConflictsTitle:
+      '{count, plural, one {# conflicto de sincronización} other {# conflictos de sincronización}}',
+    syncConflictsIntro:
+      'Estas ediciones perdieron una comprobación de concurrencia optimista (HTTP 409). Se guarda el lado perdedor para que puedas comparar y volver a aplicar. Más recientes primero; el servidor guarda como máximo 50.',
+    syncConflictOpUpdate: 'Actualización perdida',
+    syncConflictOpDelete: 'Eliminación perdida',
+    syncConflictLosingDelete: 'El lado perdedor era una eliminación.',
+    syncConflictLosingEmpty: 'El lado perdedor no tenía atributos.',
+    syncConflictLosingSummary: 'Atributos perdedores: {sample}',
+    syncConflictLosingMore: ' (+{count} más)',
   },
   accessMatrix: {
     intro:
