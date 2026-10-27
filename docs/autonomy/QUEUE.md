@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-dcat-themes-aardvark | research-cycle-1 | DCAT themes + Aardvark export | #116; branch `cursor/dcat-themes-aardvark-2838` |
+| R1-dcat-themes-aardvark | research-cycle-1 | DCAT themes + Aardvark export | PR #332 on `cursor/dcat-themes-aardvark-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
