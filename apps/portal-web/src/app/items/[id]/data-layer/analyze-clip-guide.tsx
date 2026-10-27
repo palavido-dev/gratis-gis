@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Scissors } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   buildClipDerivedLayerCreatePayload,
   defaultClipDerivedLayerTitle,
@@ -39,6 +40,7 @@ export function AnalyzeClipGuide({
   sourceLabel,
 }: Props) {
   const router = useRouter();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<ClipOption[]>([]);
   const [clipItemId, setClipItemId] = useState('');
@@ -52,10 +54,12 @@ export function AnalyzeClipGuide({
     void (async () => {
       setLoadError(null);
       try {
-        const res = await fetch('/api/portal/items?type=data_layer&lite=1&limit=100');
+        const res = await fetch(
+          '/api/portal/items?type=data_layer&lite=1&limit=100',
+        );
         if (!res.ok) {
           if (!cancelled) {
-            setLoadError('Could not load data layers to clip against.');
+            setLoadError(t('analyzeWorkbench.clipLoadFailed'));
           }
           return;
         }
@@ -68,14 +72,14 @@ export function AnalyzeClipGuide({
         );
       } catch {
         if (!cancelled) {
-          setLoadError('Could not load data layers to clip against.');
+          setLoadError(t('analyzeWorkbench.clipLoadFailed'));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, itemId]);
+  }, [open, itemId, t]);
 
   const clipLabel =
     options.find((o) => o.id === clipItemId)?.title || 'clip layer';
@@ -85,7 +89,12 @@ export function AnalyzeClipGuide({
     [sourceLabel, clipLabel],
   );
 
-  const validationError = validateClipOtherSource(clipItemId, itemId);
+  const rawValidation = validateClipOtherSource(clipItemId, itemId);
+  const validationError = !clipItemId.trim()
+    ? t('analyzeWorkbench.clipValidateEmpty')
+    : clipItemId.trim() === itemId.trim()
+      ? t('analyzeWorkbench.clipValidateSelf')
+      : rawValidation;
 
   async function createClipLayer(): Promise<void> {
     if (busy || validationError) return;
@@ -106,18 +115,19 @@ export function AnalyzeClipGuide({
       });
       if (!res.ok) {
         throw new Error(
-          `Could not create the derived layer (${res.status}): ${await res
-            .text()
-            .catch(() => '')}`,
+          t('analyzeWorkbench.bufferCreateFailed', {
+            status: res.status,
+            detail: await res.text().catch(() => ''),
+          }),
         );
       }
       const created = (await res.json()) as { id?: string };
       if (!created?.id) {
-        throw new Error(
-          'The derived layer was created but the response had no id.',
-        );
+        throw new Error(t('analyzeWorkbench.bufferMissingId'));
       }
-      toast.success(`Derived layer "${payload.title}" created`);
+      toast.success(
+        t('analyzeWorkbench.bufferCreatedToast', { title: payload.title }),
+      );
       router.push(`/items/${created.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -135,11 +145,11 @@ export function AnalyzeClipGuide({
           setTitle('');
           setClipItemId('');
         }}
-        title="Create a server-side derived layer clip (PostGIS) against another data layer."
+        title={t('analyzeWorkbench.clipActionTitle')}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
       >
         <Scissors className="h-3 w-3" aria-hidden />
-        Clip this layer
+        {t('analyzeWorkbench.clipAction')}
       </button>
     );
   }
@@ -149,19 +159,19 @@ export function AnalyzeClipGuide({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-xs font-medium text-ink-0">
-            Clip this layer (server derived layer)
+            {t('analyzeWorkbench.clipHeading')}
           </p>
           <p className="text-2xs text-muted">
-            Creates a private derived layer that runs{' '}
-            <span className="font-mono">ST_Intersection</span> on PostGIS
-            against another data layer you can read. Same recipe as{' '}
+            {t('analyzeWorkbench.clipIntroBefore')}{' '}
+            <span className="font-mono">ST_Intersection</span>{' '}
+            {t('analyzeWorkbench.clipIntroAfter')}{' '}
             <a
               href="/help/analysis/clip"
               className="underline underline-offset-2 hover:text-ink-1"
             >
-              Clip help
+              {t('analyzeWorkbench.clipHelpLink')}
             </a>
-            . Expect a short server job, not an instant browser result.
+            {t('analyzeWorkbench.clipIntroTail')}
           </p>
         </div>
         <button
@@ -170,13 +180,13 @@ export function AnalyzeClipGuide({
           disabled={busy}
           className="h-7 rounded-md border border-border bg-surface-0 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
-          Cancel
+          {t('analyzeWorkbench.cancel')}
         </button>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-[14rem] flex-1 flex-col gap-0.5 text-2xs text-ink-1">
-          <span>Clip by data layer</span>
+          <span>{t('analyzeWorkbench.clipByLabel')}</span>
           <select
             value={clipItemId}
             onChange={(e) => {
@@ -192,9 +202,9 @@ export function AnalyzeClipGuide({
             }}
             disabled={busy || Boolean(loadError)}
             className="h-7 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0 focus:border-accent focus:outline-hidden disabled:opacity-50"
-            aria-label="Clip by data layer"
+            aria-label={t('analyzeWorkbench.clipByLabel')}
           >
-            <option value="">Pick a layer…</option>
+            <option value="">{t('analyzeWorkbench.clipPickPlaceholder')}</option>
             {options.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.title}
@@ -203,7 +213,7 @@ export function AnalyzeClipGuide({
           </select>
         </label>
         <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-2xs text-ink-1">
-          <span>Title</span>
+          <span>{t('analyzeWorkbench.derivedTitle')}</span>
           <input
             type="text"
             value={title}
@@ -211,7 +221,7 @@ export function AnalyzeClipGuide({
             placeholder={suggestedTitle}
             disabled={busy}
             className="h-7 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0 focus:border-accent focus:outline-hidden disabled:opacity-50"
-            aria-label="Derived layer title"
+            aria-label={t('analyzeWorkbench.derivedTitleAria')}
           />
         </label>
         <button
@@ -221,7 +231,9 @@ export function AnalyzeClipGuide({
           className="inline-flex h-7 items-center gap-1.5 rounded-md bg-ink-1 px-2.5 text-xs font-medium text-surface-0 hover:opacity-90 disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {busy ? 'Creating…' : 'Create derived layer'}
+          {busy
+            ? t('analyzeWorkbench.creatingEllipsis')
+            : t('analyzeWorkbench.createDerivedLayer')}
         </button>
       </div>
 
@@ -235,8 +247,7 @@ export function AnalyzeClipGuide({
         </p>
       ) : (
         <p className="text-2xs text-muted">
-          Prefer a polygon layer as the cookie-cutter. You need read
-          access to it. Open the new item to map or refresh the result.
+          {t('analyzeWorkbench.clipHint')}
         </p>
       )}
     </div>

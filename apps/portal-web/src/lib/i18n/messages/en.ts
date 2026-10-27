@@ -4769,6 +4769,85 @@ export const en = {
   },
 
   /**
+   * Analyze workbench chrome + Buffer / Clip guides
+   * (#162 / R6-i18n-analyze-guides). Leave SQL snippets and column
+   * names as-is; DuckDB / API error payloads stay passthrough.
+   */
+  analyzeWorkbench: {
+    bootStartingEngine: 'Starting the in-browser engine',
+    bootDownloading: 'Downloading layer data',
+    bootNeedDownload:
+      'Analyzing needs download permission on this layer.',
+    bootFailed: 'Could not start the in-browser analysis engine.',
+    modeBuilder: 'Builder',
+    modeBuilderTitle: 'Guided builder (regenerates the SQL below)',
+    modeSql: 'SQL',
+    modeSqlTitle: 'Edit the SQL directly',
+    starterColumnProfile: 'Column profile',
+    starterGeometrySummary: 'Geometry summary',
+    browserOnlyHint: 'Runs in your browser. The server never sees a query.',
+    sqlAriaLabel: 'SQL query',
+    run: 'Run (Ctrl+Enter)',
+    saveAsLayer: 'Save as layer',
+    saveAsLayerTitle:
+      'Run this query server-free and keep the result as a new portal layer',
+    rowsInMs: '{rows} row{rows, plural, one {} other {s}} in {ms} ms',
+    showingFirst: '; showing first {cap}',
+    newLayerTitle: 'New layer title',
+    creating: 'Creating',
+    createLayer: 'Create layer',
+    cancel: 'Cancel',
+    saveAsLayerHint:
+      'The current query re-runs in your browser and the result becomes a private data layer you can share, map, and export like any other.',
+    defaultSaveTitle: '{label} analysis',
+    bufferAction: 'Buffer this layer',
+    bufferActionTitle:
+      'Create a server-side derived layer buffer (PostGIS). Meter buffers are not offered in the browser.',
+    bufferHeading: 'Buffer this layer (server derived layer)',
+    bufferIntroBefore:
+      'Creates a private derived layer that runs',
+    bufferIntroAfter:
+      'on PostGIS — geodesic meters, not a browser degree trap. Same recipe as',
+    bufferHelpLink: 'Buffer help',
+    bufferIntroTail:
+      '. Not gated on the optional server-heavy analysis tier.',
+    bufferDistance: 'Distance',
+    bufferDistanceAria: 'Buffer distance',
+    bufferUnit: 'Unit',
+    bufferUnitAria: 'Buffer distance unit',
+    derivedTitle: 'Title',
+    derivedTitleAria: 'Derived layer title',
+    creatingEllipsis: 'Creating…',
+    createDerivedLayer: 'Create derived layer',
+    bufferLimitHint:
+      'Up to {meters} m. Expect a short server job; open the new item to map or refresh the result.',
+    bufferCreatedToast: 'Derived layer "{title}" created',
+    bufferCreateFailed:
+      'Could not create the derived layer ({status}): {detail}',
+    bufferMissingId:
+      'The derived layer was created but the response had no id.',
+    clipAction: 'Clip this layer',
+    clipActionTitle:
+      'Create a server-side derived layer clip (PostGIS) against another data layer.',
+    clipHeading: 'Clip this layer (server derived layer)',
+    clipIntroBefore: 'Creates a private derived layer that runs',
+    clipIntroAfter:
+      'on PostGIS against another data layer you can read. Same recipe as',
+    clipHelpLink: 'Clip help',
+    clipIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    clipByLabel: 'Clip by data layer',
+    clipPickPlaceholder: 'Pick a layer…',
+    clipLoadFailed: 'Could not load data layers to clip against.',
+    clipHint:
+      'Prefer a polygon layer as the cookie-cutter. You need read access to it. Open the new item to map or refresh the result.',
+    clipValidateEmpty:
+      'Pick a clip layer (a polygon data layer you can read).',
+    clipValidateSelf:
+      'Pick a different layer to clip against; a layer cannot cookie-cut itself here.',
+  },
+
+  /**
    * Connected service / ArcGIS service / OGC service editor chrome
    * (#162 / R5-i18n-service-editors). Shared probe, selection, and
    * save footer strings; leave upstream probe error payloads alone.

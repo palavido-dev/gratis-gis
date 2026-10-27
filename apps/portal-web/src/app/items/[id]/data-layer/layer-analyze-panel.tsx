@@ -35,6 +35,7 @@ import type {
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import { toast } from '@/lib/toast';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   getDuckDb,
   isSpatialAvailable,
@@ -56,13 +57,14 @@ type Phase =
 
 export function LayerAnalyzePanel({ itemId, layer }: Props) {
   const fmt = useFormat();
+  const t = useT();
   // View name mirrors the layer's table name so queries read like
   // the schema the author already knows (SELECT * FROM facilities).
   const viewName = (layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
 
   const [phase, setPhase] = useState<Phase>({
     kind: 'booting',
-    step: 'Starting the in-browser engine',
+    step: '',
   });
   const [sql, setSql] = useState(`SELECT * FROM "${viewName}" LIMIT 100`);
   // Builder is the front door (casual users first); SQL mode is one
@@ -212,13 +214,19 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     let conn: AsyncDuckDBConnection | null = null;
     (async () => {
       try {
-        setPhase({ kind: 'booting', step: 'Starting the in-browser engine' });
+        setPhase({
+          kind: 'booting',
+          step: t('analyzeWorkbench.bootStartingEngine'),
+        });
         conn = await registerParquetView({
           fileName: `layer-${itemId}-${layer.id}.parquet`,
           viewName,
           bytes: async () => {
             if (!cancelled) {
-              setPhase({ kind: 'booting', step: 'Downloading layer data' });
+              setPhase({
+                kind: 'booting',
+                step: t('analyzeWorkbench.bootDownloading'),
+              });
             }
             const res = await fetch(
               `/api/portal/items/${itemId}/layers/${layer.id}/geoparquet`,
@@ -226,7 +234,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             if (!res.ok) {
               throw new Error(
                 res.status === 403
-                  ? 'Analyzing needs download permission on this layer.'
+                  ? t('analyzeWorkbench.bootNeedDownload')
                   : `Layer download failed (${res.status})`,
               );
             }
@@ -255,7 +263,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
       void conn?.close().catch(() => undefined);
     };
     // execute is stable (useCallback with no deps).
-  }, [itemId, layer.id, viewName, execute]);
+  }, [itemId, layer.id, viewName, execute, t]);
 
   const countField = firstTextField(layer);
   const spatial = isSpatialAvailable();
@@ -264,7 +272,10 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     // SUMMARIZE is DuckDB's built-in per-column profile: min / max /
     // distinct counts / null fraction in one click, the fastest
     // possible "what is in this layer" answer.
-    { label: 'Column profile', sql: `SUMMARIZE "${viewName}"` },
+    {
+      label: t('analyzeWorkbench.starterColumnProfile'),
+      sql: `SUMMARIZE "${viewName}"`,
+    },
     ...(countField !== null
       ? [
           {
@@ -282,7 +293,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     ...(spatial
       ? [
           {
-            label: 'Geometry summary',
+            label: t('analyzeWorkbench.starterGeometrySummary'),
             sql: `SELECT ST_GeometryType(geometry)::VARCHAR AS geometry_type,\n       count(*) AS features,\n       round(ST_XMin(ST_Extent_Agg(geometry)), 5) AS min_x,\n       round(ST_YMin(ST_Extent_Agg(geometry)), 5) AS min_y,\n       round(ST_XMax(ST_Extent_Agg(geometry)), 5) AS max_x,\n       round(ST_YMax(ST_Extent_Agg(geometry)), 5) AS max_y\nFROM "${viewName}"\nGROUP BY 1`,
           },
         ]
@@ -320,27 +331,27 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               type="button"
               onClick={() => setMode('builder')}
               aria-pressed={mode === 'builder'}
-              title="Guided builder (regenerates the SQL below)"
+              title={t('analyzeWorkbench.modeBuilderTitle')}
               className={`rounded px-2 py-0.5 text-2xs font-medium transition-colors ${
                 mode === 'builder'
                   ? 'bg-accent text-accent-foreground'
                   : 'text-ink-1 hover:bg-surface-2'
               }`}
             >
-              Builder
+              {t('analyzeWorkbench.modeBuilder')}
             </button>
             <button
               type="button"
               onClick={() => setMode('sql')}
               aria-pressed={mode === 'sql'}
-              title="Edit the SQL directly"
+              title={t('analyzeWorkbench.modeSqlTitle')}
               className={`rounded px-2 py-0.5 text-2xs font-medium transition-colors ${
                 mode === 'sql'
                   ? 'bg-accent text-accent-foreground'
                   : 'text-ink-1 hover:bg-surface-2'
               }`}
             >
-              SQL
+              {t('analyzeWorkbench.modeSql')}
             </button>
           </div>
           <Sparkles className="h-3.5 w-3.5 text-muted" aria-hidden />
@@ -362,7 +373,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             </button>
           ))}
           <span className="ml-auto text-2xs text-muted">
-            Runs in your browser. The server never sees a query.
+            {t('analyzeWorkbench.browserOnlyHint')}
           </span>
         </div>
         {/* Meter buffers need PROJ; DuckDB-WASM does not ship it
@@ -417,7 +428,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           className={`w-full resize-y rounded-md border border-border p-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 ${
             mode === 'builder' ? 'bg-surface-2/60' : 'bg-surface-1'
           }`}
-          aria-label="SQL query"
+          aria-label={t('analyzeWorkbench.sqlAriaLabel')}
         />
         <div className="flex items-center gap-2">
           <button
@@ -431,29 +442,37 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             ) : (
               <Play className="h-3 w-3" />
             )}
-            Run (Ctrl+Enter)
+            {t('analyzeWorkbench.run')}
           </button>
           {result ? (
             <button
               type="button"
               onClick={() => {
-                setSaveTitle(`${layer.label || layer.name} analysis`);
+                setSaveTitle(
+                  t('analyzeWorkbench.defaultSaveTitle', {
+                    label: layer.label || layer.name || 'Layer',
+                  }),
+                );
                 setSaveOpen((v) => !v);
               }}
               disabled={running || saveBusy}
               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-              title="Run this query server-free and keep the result as a new portal layer"
+              title={t('analyzeWorkbench.saveAsLayerTitle')}
             >
               <Save className="h-3 w-3" />
-              Save as layer
+              {t('analyzeWorkbench.saveAsLayer')}
             </button>
           ) : null}
           {result ? (
             <span className="text-2xs text-muted">
-              {fmt.number(result.rowCount)} row
-              {result.rowCount === 1 ? '' : 's'} in {result.elapsedMs} ms
+              {t('analyzeWorkbench.rowsInMs', {
+                rows: result.rowCount,
+                ms: result.elapsedMs,
+              })}
               {result.truncated
-                ? `; showing first ${fmt.number(RESULT_ROW_CAP)}`
+                ? t('analyzeWorkbench.showingFirst', {
+                    cap: fmt.number(RESULT_ROW_CAP),
+                  })
                 : ''}
             </span>
           ) : null}
@@ -461,7 +480,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
         {saveOpen ? (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-1 p-2">
             <label className="text-2xs font-medium text-ink-1" htmlFor="analyze-save-title">
-              New layer title
+              {t('analyzeWorkbench.newLayerTitle')}
             </label>
             <input
               id="analyze-save-title"
@@ -477,7 +496,9 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               className="inline-flex h-7 items-center gap-1.5 rounded-md bg-ink-1 px-2.5 text-xs font-medium text-surface-0 hover:opacity-90 disabled:opacity-50"
             >
               {saveBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              {saveBusy ? 'Creating' : 'Create layer'}
+              {saveBusy
+                ? t('analyzeWorkbench.creating')
+                : t('analyzeWorkbench.createLayer')}
             </button>
             <button
               type="button"
@@ -485,12 +506,10 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               disabled={saveBusy}
               className="h-7 rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
-              Cancel
+              {t('analyzeWorkbench.cancel')}
             </button>
             <p className="w-full text-2xs text-muted">
-              The current query re-runs in your browser and the result
-              becomes a private data layer you can share, map, and
-              export like any other.
+              {t('analyzeWorkbench.saveAsLayerHint')}
             </p>
           </div>
         ) : null}
