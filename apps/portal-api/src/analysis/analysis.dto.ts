@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Type } from 'class-transformer';
 import {
+  ArrayUnique,
+  IsArray,
   IsIn,
   IsNumber,
   IsOptional,
+  IsString,
+  IsUUID,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -83,4 +88,35 @@ export class ContoursBodyDto {
   @Min(0.5)
   @Max(500)
   intervalM?: number;
+}
+
+const ZONAL_STATS = ['mean', 'min', 'max', 'sum', 'count'] as const;
+export type ZonalStatName = (typeof ZONAL_STATS)[number];
+
+/**
+ * Zonal statistics: summarize a raster inside polygon zones
+ * from a data_layer. Source item on the route is the raster
+ * (tile_layer with a COG); zones come from zoneItemId.
+ */
+export class ZonalStatsBodyDto {
+  @IsUUID()
+  zoneItemId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  zoneLayerKey?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(16)
+  band?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn([...ZONAL_STATS], { each: true })
+  stats?: ZonalStatName[];
 }

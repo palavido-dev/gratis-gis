@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Zonal statistics analysis job: summarize a raster COG inside
+  polygon zones (mean / min / max / sum / count) into a new data
+  layer, with a guided control on elevation layer pages when the
+  server-heavy analysis tier is enabled.
 - Item detail responses include a server-computed `meta.ui` block
   (suggested map layers, downloads, thumbnail, landing path) so
   portal-web, QGIS, and MCP share one presentation contract

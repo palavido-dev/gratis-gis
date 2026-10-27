@@ -13,11 +13,23 @@ import { isPointCloudData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
+import { StorageService } from '../storage/storage.service.js';
+import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 import { assertGridBudget } from './grid-estimate.js';
 import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
+import type { ZonalStatName } from './analysis.dto.js';
+
+const MAX_ZONAL_ZONES = 2000;
+const DEFAULT_ZONAL_STATS: ZonalStatName[] = [
+  'mean',
+  'min',
+  'max',
+  'sum',
+  'count',
+];
 
 /**
  * Server-side analysis jobs (#184, workbench foundation). v1 ships
@@ -53,6 +65,8 @@ export class AnalysisService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly items: ItemsService,
+    private readonly storage: StorageService,
+    private readonly features: DataLayerFeaturesService,
     private readonly cfg: ConfigService,
   ) {}
 
@@ -697,6 +711,209 @@ export class AnalysisService {
    * are left alone; the conditional updates make the two flips
    * race-safe against a worker claiming or finishing concurrently.
    */
+  /**
+   * Zonal statistics: summarize a raster COG inside polygon zones
+   * from a data_layer. Output is a new data_layer (zone geometries
+   * plus zonal_* attributes) via the same contours GDAL→ingest
+   * bridge path.
+   */
+  async createZonalStatsJob(
+    user: AuthUser,
+    sourceItemId: string,
+    params: {
+      zoneItemId: string;
+      zoneLayerKey?: string;
+      band?: number;
+      stats?: ZonalStatName[];
+    },
+  ) {
+    this.assertServerTier();
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Deriving layers requires the contributor or admin role.',
+      );
+    }
+    const source = await this.items.get(user, sourceItemId);
+    if (source.type !== 'tile_layer') {
+      throw new BadRequestException(
+        'Zonal statistics run on a raster tile layer.',
+      );
+    }
+    const rasterData = source.data as {
+      cogStorageKey?: string;
+      storageKey?: string;
+      dem?: boolean;
+      kind?: string;
+    } | null;
+    const cogKey = rasterData?.cogStorageKey || rasterData?.storageKey;
+    if (!cogKey || rasterData?.kind === 'vector') {
+      throw new BadRequestException(
+        'Zonal statistics need a raster COG. Upload or derive a raster tile layer first.',
+      );
+    }
+
+    const zoneItem = await this.items.get(user, params.zoneItemId);
+    if (zoneItem.type !== 'data_layer') {
+      throw new BadRequestException(
+        'Zones must be a data layer with polygon features.',
+      );
+    }
+    const zoneData = zoneItem.data as {
+      version?: number;
+      layers?: Array<{
+        id: string;
+        label?: string;
+        geometryType?: string | null;
+      }>;
+    } | null;
+    let zoneLayerKey = params.zoneLayerKey;
+    if (!zoneLayerKey) {
+      if (zoneData?.version === 3 && Array.isArray(zoneData.layers)) {
+        const firstPoly = zoneData.layers.find((l) => {
+          const g = (l.geometryType ?? '').toLowerCase();
+          return g.includes('polygon') || g === 'multipolygon';
+        });
+        if (!firstPoly?.id) {
+          throw new BadRequestException(
+            'The zone layer has no polygon sublayer. Pick a polygon layer.',
+          );
+        }
+        zoneLayerKey = firstPoly.id;
+      } else {
+        // v1/v2 single-table: item-level geojson path.
+        zoneLayerKey = undefined;
+      }
+    } else if (zoneData?.version === 3 && Array.isArray(zoneData.layers)) {
+      const sub = zoneData.layers.find((l) => l.id === zoneLayerKey);
+      if (!sub) {
+        throw new BadRequestException(
+          'That zone sublayer was not found on the data layer.',
+        );
+      }
+      const g = (sub.geometryType ?? '').toLowerCase();
+      if (!(g.includes('polygon') || g === 'multipolygon')) {
+        throw new BadRequestException(
+          'The zone sublayer must be polygon geometry.',
+        );
+      }
+    }
+
+    const band = clampNumber(params.band, 1, 16, 1);
+    const stats = (
+      params.stats && params.stats.length > 0
+        ? params.stats
+        : DEFAULT_ZONAL_STATS
+    ).filter((s, i, arr) => arr.indexOf(s) === i);
+    if (!stats.includes('count')) stats.push('count');
+
+    let zonesFc: { type: 'FeatureCollection'; features: unknown[] };
+    if (zoneLayerKey) {
+      zonesFc = await this.features.listFeatures(
+        params.zoneItemId,
+        zoneLayerKey,
+        { limit: MAX_ZONAL_ZONES + 1 },
+      );
+    } else {
+      zonesFc = await this.items.getGeoJson(user, params.zoneItemId);
+    }
+    const features = Array.isArray(zonesFc.features) ? zonesFc.features : [];
+    if (features.length === 0) {
+      throw new BadRequestException(
+        'The zone layer has no features to summarize.',
+      );
+    }
+    if (features.length > MAX_ZONAL_ZONES) {
+      throw new BadRequestException(
+        `Zonal statistics support at most ${MAX_ZONAL_ZONES} zones in v1. Filter or dissolve the zone layer first.`,
+      );
+    }
+
+    // Stamp a stable integer FID so the worker can burn zone ids
+    // into a raster mask and join stats back without guessing.
+    const stamped = {
+      type: 'FeatureCollection' as const,
+      features: features.map((f, i) => {
+        const feat = f as {
+          type?: string;
+          properties?: Record<string, unknown> | null;
+          geometry?: unknown;
+        };
+        return {
+          type: 'Feature',
+          properties: {
+            ...(feat.properties && typeof feat.properties === 'object'
+              ? feat.properties
+              : {}),
+            _zonal_fid: i + 1,
+          },
+          geometry: feat.geometry ?? null,
+        };
+      }),
+    };
+    const zonesUpload = await this.storage.uploadBuffer(
+      'item-file',
+      Buffer.from(JSON.stringify(stamped)),
+      'application/geo+json',
+    );
+
+    const layerId = randomUUID();
+    const statFields = stats.map((s) => ({
+      name: `zonal_${s}`,
+      type: 'number' as const,
+      label: `Zonal ${s}`,
+      nullable: true,
+    }));
+    const target = await this.items.create(user, {
+      type: 'data_layer',
+      title: `Zonal stats (${source.title})`,
+      description: `Zonal ${stats.join('/')} of "${source.title}" inside zones from "${zoneItem.title}". Generated by the analysis worker.`,
+      tags: ['zonal-stats', 'derived', 'analysis'],
+      data: {
+        version: 3,
+        storageType: 'postgis',
+        layers: [
+          {
+            id: layerId,
+            label: 'Zonal statistics',
+            name: 'zonal_stats',
+            geometryType: 'polygon',
+            fields: [
+              {
+                name: 'zone_fid',
+                type: 'number',
+                label: 'Zone id',
+                nullable: false,
+              },
+              ...statFields,
+            ],
+            editingEnabled: false,
+            attachmentsEnabled: false,
+          },
+        ],
+      } as unknown as Prisma.InputJsonValue,
+    });
+
+    const job = await this.prisma.analysisJob.create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        kind: 'zonal-stats',
+        params: {
+          band,
+          stats,
+          layerId,
+          zoneItemId: params.zoneItemId,
+          ...(zoneLayerKey ? { zoneLayerKey } : {}),
+          zonesKey: zonesUpload.key,
+          zoneCount: features.length,
+        },
+        sourceItemId,
+        targetItemId: target.id,
+      },
+    });
+    return { job, targetItemId: target.id };
+  }
+
   async cancelJob(user: AuthUser, jobId: string) {
     const job = await this.prisma.analysisJob.findUnique({
       where: { id: jobId },

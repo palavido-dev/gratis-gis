@@ -63,11 +63,14 @@ function makePrisma(world: World): PrismaService {
 }
 
 function makeService(world: World): AnalysisService {
-  // cancelJob touches neither ItemsService nor ConfigService (on
-  // purpose: cancel must work with the analysis tier disabled).
+  // cancelJob touches neither ItemsService, Storage, Features, nor
+  // ConfigService (on purpose: cancel must work with the analysis
+  // tier disabled).
   return new AnalysisService(
     makePrisma(world),
     {} as ItemsService,
+    {} as import('../storage/storage.service.js').StorageService,
+    {} as import('../data-layer/features.service.js').DataLayerFeaturesService,
     {} as ConfigService,
   );
 }

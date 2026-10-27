@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-meta-ui-viewer-hint | research-cycle-1 | Server-computed `meta.ui` viewer hint | PR #333 on `cursor/meta-ui-viewer-hint-2838`; waiting CI |
+| R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics analysis job | branch `cursor/zonal-stats-primitive-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics recipe step | Analysis tier |
 | Q-162a / R1-i18n-string-sweep | issue #162 | Continue portal string extraction | Skip Weblate / locale switcher |
 | Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | Do not close #183 |
 
@@ -28,6 +27,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R1-meta-ui-viewer-hint | 2026-10-27 | Merged #333: server-computed `meta.ui` on item detail |
 | R1-dcat-themes-aardvark | 2026-10-27 | Merged #332: curated themes + Aardvark export |
 | R1-feature-anchored-comments | 2026-10-27 | Merged #331: feature- and markup-anchored comment threads |
 | R1-drawings-lines-promote | 2026-10-27 | Merged #330: markup line/polygon tools + promote to data_layer |

@@ -30,9 +30,9 @@ prisma/schema.prisma; keep the two in sync):
                     during long silent stretches (subprocess wait
                     loops, S3 transfers), so a live worker can never
                     look dead.
-  ingest/importing  vector kinds (contours) hand off to the API-side
-                    analysis bridge, which rides the import pipeline
-                    and settles the row.
+  ingest/importing  vector kinds (contours, zonal-stats) hand off to
+                    the API-side analysis bridge, which rides the
+                    import pipeline and settles the row.
   cancel_requested  the user asked a running job to stop. Every beat
                     piggybacks a state read (single UPDATE ...
                     RETURNING); when it comes back cancel_requested
@@ -1671,6 +1671,238 @@ def do_contours(conn, s3, job):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def compute_zonal_stats_arrays(values, fids, wanted):
+    """Pure zonal summary from parallel value / fid arrays.
+
+    `values` and `fids` are flat 1-D sequences of the same length.
+    Pixels with fid <= 0 or non-finite values are skipped. Returns
+    {fid: {stat: number}} for each positive fid that had at least
+    one valid pixel.
+    """
+    import numpy as np
+
+    values = np.asarray(values, dtype=np.float64).ravel()
+    fids = np.asarray(fids, dtype=np.int32).ravel()
+    if values.shape != fids.shape:
+        raise ValueError("values and fids must have the same length")
+    mask = (fids > 0) & np.isfinite(values)
+    if not np.any(mask):
+        return {}
+    values = values[mask]
+    fids = fids[mask]
+    out = {}
+    for fid in np.unique(fids):
+        cell = values[fids == fid]
+        if cell.size == 0:
+            continue
+        row = {}
+        if "count" in wanted:
+            row["count"] = int(cell.size)
+        if "mean" in wanted:
+            row["mean"] = float(cell.mean())
+        if "min" in wanted:
+            row["min"] = float(cell.min())
+        if "max" in wanted:
+            row["max"] = float(cell.max())
+        if "sum" in wanted:
+            row["sum"] = float(cell.sum())
+        out[int(fid)] = row
+    return out
+
+
+def do_zonal_stats(conn, s3, job):
+    """Zonal statistics: raster COG summarized inside polygon zones.
+
+    The API stages zone GeoJSON (with `_zonal_fid`) to MinIO. This
+    handler burns those FIDs into a mask matching the raster grid,
+    computes mean/min/max/sum/count per zone with numpy, writes a
+    FeatureCollection, and hands off to the analysis bridge the
+    same way contours does.
+    """
+    from osgeo import gdal, ogr
+
+    gdal.UseExceptions()
+    params = job["params"] or {}
+    band_i = int(params.get("band", 1))
+    wanted = params.get("stats") or ["mean", "min", "max", "sum", "count"]
+    wanted = [s for s in wanted if s in ("mean", "min", "max", "sum", "count")]
+    if "count" not in wanted:
+        wanted.append("count")
+    zones_key = params.get("zonesKey")
+    if not zones_key:
+        raise RuntimeError("The zone features were not staged for this job.")
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("The raster layer has no file.")
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        raster_path = work / "raster.tif"
+        zones_path = work / "zones.geojson"
+        log(f"  downloading raster {storage_key}")
+        transfer_file(s3, "download", storage_key, raster_path, job["id"])
+        log(f"  downloading zones {zones_key}")
+        transfer_file(s3, "download", zones_key, zones_path, job["id"])
+        set_progress(conn, job["id"], 20)
+
+        zones_doc = json.loads(zones_path.read_text())
+        zone_features = zones_doc.get("features") or []
+        if not zone_features:
+            raise RuntimeError("The zone layer has no features to summarize.")
+
+        ds = gdal.Open(str(raster_path))
+        if ds is None:
+            raise RuntimeError("Could not open the raster file.")
+        if band_i < 1 or band_i > ds.RasterCount:
+            raise RuntimeError(
+                f"Band {band_i} is not on this raster (it has {ds.RasterCount})."
+            )
+        band = ds.GetRasterBand(band_i)
+        values = band.ReadAsArray().astype("float64")
+        nodata = band.GetNoDataValue()
+        if nodata is not None:
+            import numpy as np
+
+            values = values.copy()
+            values[values == float(nodata)] = np.nan
+
+        # Reproject zones into the raster CRS so RasterizeLayer
+        # lines up with the value grid (zones arrive as WGS84).
+        zones_native = work / "zones-native.geojson"
+        raster_wkt = ds.GetProjection() or None
+        if raster_wkt:
+            run(
+                [
+                    "ogr2ogr",
+                    "-f",
+                    "GeoJSON",
+                    "-t_srs",
+                    raster_wkt,
+                    str(zones_native),
+                    str(zones_path),
+                ],
+                work,
+                conn,
+                job["id"],
+            )
+        else:
+            shutil.copyfile(zones_path, zones_native)
+
+        # Burn zone FIDs into a matching int32 mask.
+        mem_drv = gdal.GetDriverByName("MEM")
+        mask_ds = mem_drv.Create("", ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Int32)
+        mask_ds.SetGeoTransform(ds.GetGeoTransform())
+        mask_ds.SetProjection(ds.GetProjection())
+        mask_band = mask_ds.GetRasterBand(1)
+        mask_band.Fill(0)
+
+        zones_ds = ogr.Open(str(zones_native))
+        if zones_ds is None:
+            raise RuntimeError("Could not open the staged zone features.")
+        layer = zones_ds.GetLayer(0)
+
+        burn = gdal.RasterizeLayer(
+            mask_ds,
+            [1],
+            layer,
+            options=["ATTRIBUTE=_zonal_fid", "ALL_TOUCHED=TRUE"],
+        )
+        if burn != 0:
+            raise RuntimeError("Could not rasterize the zone polygons onto the grid.")
+        fids = mask_band.ReadAsArray()
+        set_progress(conn, job["id"], 55)
+
+        stats_by_fid = compute_zonal_stats_arrays(values, fids, wanted)
+        if not stats_by_fid:
+            raise RuntimeError(
+                "No zone overlapped the raster. Check that the zones "
+                "and the raster cover the same place."
+            )
+
+        out_features = []
+        for feat in zone_features:
+            props = dict(feat.get("properties") or {})
+            fid = props.get("_zonal_fid")
+            try:
+                fid_i = int(fid)
+            except (TypeError, ValueError):
+                continue
+            row = stats_by_fid.get(fid_i)
+            if not row:
+                continue
+            out_props = {"zone_fid": fid_i}
+            for s in wanted:
+                if s in row:
+                    out_props[f"zonal_{s}"] = row[s]
+            # Keep a short original attribute for context when present.
+            for keep in ("name", "label", "id", "title"):
+                if keep in props and props[keep] is not None:
+                    out_props[keep] = props[keep]
+                    break
+            out_features.append(
+                {
+                    "type": "Feature",
+                    "properties": out_props,
+                    "geometry": feat.get("geometry"),
+                }
+            )
+
+        if not out_features:
+            raise RuntimeError(
+                "No zone overlapped the raster. Check that the zones "
+                "and the raster cover the same place."
+            )
+
+        out_path = work / "zonal-stats.geojson"
+        out_path.write_text(
+            json.dumps(
+                {"type": "FeatureCollection", "features": out_features},
+                separators=(",", ":"),
+            )
+        )
+        set_progress(conn, job["id"], 72)
+
+        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        size = out_path.stat().st_size
+        log(f"  uploading {size} bytes ({len(out_features)} zones) to {key}")
+        transfer_file(
+            s3, "upload", key, out_path, job["id"],
+            ExtraArgs={"ContentType": "application/geo+json"},
+        )
+
+        new_params = dict(params)
+        new_params["artifactKey"] = key
+        new_params["featureCount"] = len(out_features)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE analysis_job
+                SET state = 'ingest', params = %s, progress = 80
+                WHERE id = %s AND state = 'running'
+                """,
+                (json.dumps(new_params), job["id"]),
+            )
+            flipped = cur.rowcount
+        conn.commit()
+        if flipped == 0:
+            try:
+                s3.delete_object(Bucket=BUCKET, Key=key)
+            except Exception:
+                pass
+            raise JobCancelled()
+        # Best-effort cleanup of the staged zones input.
+        try:
+            s3.delete_object(Bucket=BUCKET, Key=zones_key)
+        except Exception:
+            pass
+        return "handoff"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def do_steepness(conn, s3, job) -> None:
     """Steepness (slope) map from an elevation COG.
 
@@ -3049,6 +3281,7 @@ HANDLERS = {
     "elevation": do_elevation,
     "viewshed": do_viewshed,
     "contours": do_contours,
+    "zonal-stats": do_zonal_stats,
     "steepness": do_steepness,
     "heightmap": do_heightmap,
     "colorize": do_colorize,

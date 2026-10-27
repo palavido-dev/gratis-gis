@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { ItemsModule } from '../items/items.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
 import { AnalysisController } from './analysis.controller.js';
 import { AnalysisService } from './analysis.service.js';
 import { SamController } from './sam.controller.js';
@@ -15,7 +16,7 @@ import { SamController } from './sam.controller.js';
  * state / fetch) on the same job queue.
  */
 @Module({
-  imports: [ItemsModule, StorageModule],
+  imports: [ItemsModule, StorageModule, DataLayerFeaturesModule],
   controllers: [AnalysisController, SamController],
   providers: [AnalysisService],
 })
