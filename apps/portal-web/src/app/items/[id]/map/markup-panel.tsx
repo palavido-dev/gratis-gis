@@ -15,7 +15,8 @@ import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
  * shared map, sketches the wrong boundary, types a note, and ships
  * the URL back to the team.
  *
- * Also: promote a set to a real data_layer the author owns.
+ * Also: download a set as GeoJSON, or promote it to a data_layer
+ * the author owns.
  *
  * The panel manages its own server round-trips against
  * /api/portal/items/:mapId/drawings, so the parent map editor only
