@@ -12,6 +12,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Map print/PDF includes visible markup drawing sets (pins, lines,
   polygons) from the bound map, honoring saved per-set visibility
   (#159 Phase 3).
+
+### Changed
+
+- portal-web uses maplibre-gl-lidar ^0.21.0 and drops the local
+  MapLibreOverlay patch (upstream opengeos/maplibre-gl-lidar#93).
+  Size-aware streaming tiers and move-deferred rebuilds for #183
+  stay; the issue stays open for real per-node append / SSE.
 - Research note on maplibre-gl-lidar incremental per-node
   append/evict for huge COPC clouds (`docs/research/maplibre-gl-lidar-incremental-append-2026-10-27.md`);
   mitigations already shipped under #183 stay; issue stays open.
