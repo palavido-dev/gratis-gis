@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | Branch `cursor/presence-websocket-2838`; not Yjs |
+| R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | PR #343; not Yjs |
 
 ## queued (ship-without-input)
 
