@@ -9,6 +9,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Terrain analysis panel strings (contours, steepness, zonal
+  statistics) extracted into the i18n catalogs (#162).
 - Zonal statistics analysis job: summarize a raster COG inside
   polygon zones (mean / min / max / sum / count) into a new data
   layer, with a guided control on elevation layer pages when the

@@ -4451,6 +4451,34 @@ export const de: Partial<CatalogShape> = {
     },
   },
 
+  demAnalysis: {
+    title: 'Gelandanalyse',
+    intro:
+      'Verwandeln Sie diese Hohenlage in neue Layer. Jedes Ergebnis erscheint als eigenes Element in Ihrem Inhalt, bereit zum Karten und Teilen.',
+    intervalLabelM: 'Hoehe zwischen Linien (m)',
+    intervalLabelFt: 'Hoehe zwischen Linien (ft)',
+    drawContours: 'Hoehenlinien zeichnen',
+    makeSteepness: 'Steilheitskarte erstellen',
+    zoneLabel: 'Zonenpolygone (Datenlayer)',
+    zonePlaceholder: 'Polygonlayer waehlen…',
+    summarizeByZone: 'Hoehe nach Zone zusammenfassen',
+    zonalHint:
+      'Zonenstatistik schreibt Mittelwert, Min, Max, Summe und Anzahl dieser Hoehenflaeche in jedes Zonenpolygon als neuen Datenlayer.',
+    needContributor:
+      'Layer erstellen erfordert die Rolle Mitwirkender oder Administrator.',
+    jobStartFailed: 'Der Auftrag konnte nicht gestartet werden.',
+    intervalRequired: 'Geben Sie eine Hoehe zwischen den Linien ein.',
+    zoneRequired: 'Waehlen Sie einen Polygon-Datenlayer fuer die Zonen.',
+    labelContours: 'Hoehenlinien',
+    labelSteepness: 'Steilheitskarte',
+    labelZonal: 'Zonenstatistik',
+    queuedPrefix:
+      'Laeuft. {label} ist in wenigen Minuten bereit:',
+    viewNewItem: 'neues Element anzeigen',
+    mapToolsHint:
+      'Suchen Sie Hoehenprofil oder Sichtbarkeitstools? Die finden Sie in der Karten-Werkzeugleiste; oeffnen Sie eine Karte mit diesem Gelaende.',
+  },
+
   settingsNotifications: {
     backToProfile: 'Zurück zum Profil',
     pageTitle: 'Benachrichtigungseinstellungen',

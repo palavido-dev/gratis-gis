@@ -4432,6 +4432,34 @@ export const ptBR: Partial<CatalogShape> = {
     },
   },
 
+  demAnalysis: {
+    title: 'Analise do terreno',
+    intro:
+      'Transforme esta camada de elevacao em novas camadas. Cada resultado aparece como um item no seu conteudo, pronto para mapear e compartilhar.',
+    intervalLabelM: 'Altura entre linhas (m)',
+    intervalLabelFt: 'Altura entre linhas (ft)',
+    drawContours: 'Desenhar curvas de nivel',
+    makeSteepness: 'Criar mapa de inclinacao',
+    zoneLabel: 'Poligonos de zona (camada de dados)',
+    zonePlaceholder: 'Escolha uma camada de poligonos…',
+    summarizeByZone: 'Resumir elevacao por zona',
+    zonalHint:
+      'Estatisticas zonais gravam media, minimo, maximo, soma e contagem desta superficie em cada poligono de zona como uma nova camada de dados.',
+    needContributor:
+      'Criar camadas exige a funcao de colaborador ou administrador.',
+    jobStartFailed: 'Nao foi possivel iniciar o trabalho.',
+    intervalRequired: 'Informe uma altura entre as linhas.',
+    zoneRequired: 'Escolha uma camada de dados poligonal para as zonas.',
+    labelContours: 'Curvas de nivel',
+    labelSteepness: 'Mapa de inclinacao',
+    labelZonal: 'Estatisticas zonais',
+    queuedPrefix:
+      'Em andamento. {label} ficara pronto em alguns minutos:',
+    viewNewItem: 'ver o novo item',
+    mapToolsHint:
+      'Procurando o perfil de elevacao ou as ferramentas de visibilidade? Elas ficam na barra do mapa; abra qualquer mapa com este terreno.',
+  },
+
   settingsNotifications: {
     backToProfile: 'Voltar ao perfil',
     pageTitle: 'Preferências de notificação',
