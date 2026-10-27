@@ -90,6 +90,18 @@ Migrations are forward-only. Down migrations are not provided.
 
 Most releases need nothing beyond `deploy.sh`. The exceptions:
 
+**v0.9.118 Postgres 18 image (do not deploy onto an existing PG17
+volume).** The tip briefly pointed `infra/postgres` at PostGIS 18 and
+moved the compose mount to `/var/lib/postgresql`. Existing installs
+still store a PG17 cluster at the volume root. Booting the PG18 image
+against that volume fails with the docker-library "data in
+/var/lib/postgresql" error and takes the stack down. v0.9.119 restores
+PG17 and the `/var/lib/postgresql/data` mount. To move to PG18 later,
+run the dump/restore dance documented in `infra/postgres/Dockerfile`
+(pg_dumpall on 17, fresh 18 volume, restore) before flipping the image
+and mount. Fresh empty volumes can start on PG18 only after that
+documented cutover lands again.
+
 **v0.9.107 or later, on an install created before it.** The
 production compose file preloads `pg_stat_statements` so slow
 queries can be read off the server, and `infra/init-prod-db.sql`

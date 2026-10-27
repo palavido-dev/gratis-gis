@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.119] - 2026-10-27
+
+### Fixed
+
+- Production Postgres stays on PostGIS 17 / the `/var/lib/postgresql/data` volume mount. Deploying v0.9.118's PostGIS 18 image against an existing PG17 volume left postgres unhealthy; dump/restore is still required before any future PG18 cutover (#306).
+
 ## [0.9.118] - 2026-10-27
 
 ### Added

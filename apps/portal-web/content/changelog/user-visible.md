@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Demo database stays on the proven Postgres line
+A release that tried to jump the demo host to Postgres 18 without migrating the existing data volume was rolled back. The portal keeps running on Postgres 17 until a planned dump-and-restore upgrade is ready.
+
 ## 2026-10-27 - Smarter CSV uploads, and a quieter point-cloud pan
 Upload a spreadsheet and the portal looks for coordinate columns, US place names, and addresses it can geocode on your own Nominatim. Huge point clouds keep streaming while you pan, and only redraw when the camera settles, so a 200-million-point cloud no longer freezes the map mid-drag. Much of the portal chrome is also ready for Spanish, French, German, and Brazilian Portuguese when you switch locale.
 
