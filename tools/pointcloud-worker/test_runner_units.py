@@ -211,6 +211,22 @@ def test_pdal_bounds_str():
     )
 
 
+def test_compute_zonal_stats_arrays():
+    values = [1.0, 2.0, 3.0, float("nan"), 10.0, 20.0]
+    fids = [1, 1, 1, 1, 2, 0]
+    out = runner.compute_zonal_stats_arrays(
+        values, fids, ["mean", "min", "max", "sum", "count"]
+    )
+    assert out[1]["count"] == 3
+    assert out[1]["mean"] == 2.0
+    assert out[1]["min"] == 1.0
+    assert out[1]["max"] == 3.0
+    assert out[1]["sum"] == 6.0
+    assert out[2]["count"] == 1
+    assert out[2]["mean"] == 10.0
+    assert 0 not in out
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -221,4 +237,5 @@ if __name__ == "__main__":
     test_plan_grid_chunks_tiles_exactly()
     test_plan_grid_chunks_elkins_shape()
     test_pdal_bounds_str()
+    test_compute_zonal_stats_arrays()
     print("test_runner_units: all assertions passed")

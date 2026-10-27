@@ -226,7 +226,9 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         const obj = await this.storage.streamObject(params.artifactKey);
         const staged = await this.staging.stageStream({
           stream: obj.body,
-          originalName: 'contours.geojson',
+          // Kind-neutral name: contours, zonal-stats, and future
+          // vector analysis outputs all hand off GeoJSON here.
+          originalName: 'analysis-result.geojson',
           ownerId: job.userId,
         });
         const importJob = await this.importJobs.enqueue({

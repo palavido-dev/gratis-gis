@@ -19,6 +19,7 @@ import {
   HillshadeBodyDto,
   ResolutionBodyDto,
   ViewshedBodyDto,
+  ZonalStatsBodyDto,
 } from './analysis.dto.js';
 
 /**
@@ -76,6 +77,15 @@ export class AnalysisController {
     @Param('itemId') itemId: string,
   ) {
     return this.analysis.createSteepnessJob(user, itemId);
+  }
+
+  @Post('items/:itemId/analysis/zonal-stats')
+  createZonalStats(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() body: ZonalStatsBodyDto,
+  ) {
+    return this.analysis.createZonalStatsJob(user, itemId, body);
   }
 
   @Post('items/:itemId/analysis/heightmap')

@@ -13,15 +13,20 @@
  * inside maps; this section just points at them.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ChartSpline, Loader2, Mountain, Waves } from 'lucide-react';
+import { ChartSpline, Loader2, Mountain, Shapes, Waves } from 'lucide-react';
 
 const M_TO_FT = 3.28084;
 
 interface QueuedResult {
   targetItemId: string;
   label: string;
+}
+
+interface ZoneOption {
+  id: string;
+  title: string;
 }
 
 export function DemAnalysisSection({
@@ -35,12 +40,43 @@ export function DemAnalysisSection({
     typeof window !== 'undefined' &&
     window.localStorage.getItem('gg-profile-units') === 'metric';
   const [intervalVal, setIntervalVal] = useState(metric ? '3' : '10');
-  const [busy, setBusy] = useState<'contours' | 'steepness' | null>(null);
+  const [busy, setBusy] = useState<
+    'contours' | 'steepness' | 'zonal-stats' | null
+  >(null);
   const [queued, setQueued] = useState<QueuedResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [zoneOptions, setZoneOptions] = useState<ZoneOption[]>([]);
+  const [zoneItemId, setZoneItemId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          '/api/portal/items?type=data_layer&limit=100',
+        );
+        if (!res.ok || cancelled) return;
+        const rows = (await res.json()) as Array<{
+          id: string;
+          title: string;
+        }>;
+        if (!cancelled) {
+          setZoneOptions(
+            rows.map((r) => ({ id: r.id, title: r.title })),
+          );
+        }
+      } catch {
+        // Zone picker stays empty; the user still sees the empty
+        // state hint.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function queueJob(
-    kind: 'contours' | 'steepness',
+    kind: 'contours' | 'steepness' | 'zonal-stats',
     body: Record<string, unknown>,
     label: string,
   ) {
@@ -141,6 +177,52 @@ export function DemAnalysisSection({
             Make a steepness map
           </button>
         </div>
+        <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
+          <label className="block min-w-[12rem] flex-1 text-xs text-muted">
+            Zone polygons (data layer)
+            <select
+              value={zoneItemId}
+              onChange={(e) => setZoneItemId(e.target.value)}
+              disabled={!canEdit || busy !== null}
+              className="mt-1 block w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink-0 disabled:opacity-50"
+            >
+              <option value="">Pick a polygon layer…</option>
+              {zoneOptions.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              if (!zoneItemId) {
+                setError('Pick a polygon data layer for the zones.');
+                return;
+              }
+              void queueJob(
+                'zonal-stats',
+                { zoneItemId },
+                'Zonal statistics',
+              );
+            }}
+            disabled={!canEdit || busy !== null}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2 disabled:opacity-50"
+          >
+            {busy === 'zonal-stats' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Shapes className="h-4 w-4" />
+            )}
+            Summarize elevation by zone
+          </button>
+        </div>
+        <p className="text-xs text-muted">
+          Zonal statistics writes mean, min, max, sum, and count of
+          this elevation surface into each zone polygon as a new
+          data layer.
+        </p>
         {!canEdit ? (
           <p className="text-xs text-muted">
             Creating layers requires the contributor or admin role.
