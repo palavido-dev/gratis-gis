@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Buffer a layer from Analyze without faking meters
+On a data layer's Analyze tab, **Buffer this layer** opens a short distance and unit form and creates a derived layer that runs the buffer on PostGIS. The in-browser SQL builder still refuses meter buffers (no PROJ in that engine), so this is the honest path instead of a degree-unit trap.
+
 ## 2026-10-27 - See PostGIS tables before you save a connection
 When you connect a live PostgreSQL + PostGIS database, Test connection now lists the geometry tables it found (with SRID and a rough row count) so you can confirm the schema before Save.
 

@@ -38,6 +38,21 @@ verbatim.
 
 ## How to use it on its own
 
+### From Analyze (guided)
+
+1. Open a data layer and switch to the **Analyze** tab.
+2. Click **Buffer this layer**.
+3. Enter the distance and unit (meters, feet, kilometers, …).
+4. Click **Create derived layer**.
+
+That posts a single-step buffer recipe to the portal. The job runs
+on PostGIS on the server — geodesic meters, not an in-browser
+degree buffer. The Analyze SQL builder deliberately does **not**
+offer meter buffers in DuckDB-WASM (no PROJ data in that build),
+so this guide is the honest path.
+
+### From the new-item wizard
+
 1. Open the new-item wizard and pick **Derived layer**.
 2. Pick a **Source**. The layer you want to buffer.
 3. Add a **Buffer** step.
@@ -45,6 +60,9 @@ verbatim.
 5. Click **Save**.
 
 That's the whole single-step recipe. Nothing else is required.
+Derived-layer buffer is part of the always-on PostGIS analysis
+path; it is **not** gated on the optional `server-heavy`
+`ANALYSIS_TIERS` worker.
 
 ## Example
 

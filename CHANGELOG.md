@@ -9,6 +9,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Buffer this layer** guide creates a single-step
+  `derived_layer` buffer recipe (fixed distance + unit) via
+  `POST /api/portal/items`, reusing the existing PostGIS buffer
+  tool. Labeled as a server derived-layer job; DuckDB-WASM Analyze
+  still refuses meter buffers without PROJ rather than lying in the
+  browser (R4-analyze-buffer-derived). Not gated on
+  `ANALYSIS_TIERS=server-heavy`; not an offline path.
 - PostGIS connect wizard shows a capped geometry-table preview
   after Test connection (name, geometry kind, SRID, planner row
   estimate); Save still registers every geometry table in the

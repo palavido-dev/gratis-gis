@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R4-postgis-help-schema-browser | research-cycle-4 / #158 | PostGIS help honesty + table picker | PR #358 |
+| R4-analyze-buffer-derived | research-cycle-4 | Guided Buffer → derived_layer recipe | PR #359 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R4-analyze-buffer-derived | research-cycle-4 | Guided Buffer → derived_layer recipe | Analyze honesty |
 | R4-android-field-delta | research-cycle-4 | Android offline refresh via delta?since=N | Mirror #350 |
 | R4-i18n-string-sweep-4 | research-cycle-4 | Form designer chrome i18n (#162) | No Weblate / RTL |
 
@@ -29,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R4-postgis-help-schema-browser | 2026-10-27 | Merged #358: capped table preview + honest PostGIS help |
 | R4-offline-checkonly | 2026-10-27 | Merged #357: checkOnly before offline update/delete sync |
 | R4-drawings-geojson-export | 2026-10-27 | Merged #356: markup panel GeoJSON download |
 | R3-mcp-query-osm | 2026-10-27 | Merged #354: MCP `query_osm` + capped `GET /api/osm/query` |
