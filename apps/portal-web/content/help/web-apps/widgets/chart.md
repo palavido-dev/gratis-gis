@@ -13,6 +13,7 @@ tags:
   - chart
   - data-viz
 related:
+  - widget-filter
   - items-web-app
   - items-derived-layer
   - items-dashboard
