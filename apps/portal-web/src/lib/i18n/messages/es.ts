@@ -4509,6 +4509,66 @@ export const es: Partial<CatalogShape> = {
       'Buscas el perfil de elevacion o las herramientas de visibilidad? Estan en la barra del mapa; abre cualquier mapa con este terreno.',
   },
 
+  tileLayerEditor: {
+    errTpkRoadmap:
+      'TPK / TPKX support is on the roadmap. For now: export your tile cache to MBTiles (or convert from TPK with the pmtiles CLI) and upload that. Supported today: .pmtiles, .mbtiles, .zip, .tif / .tiff / .geotiff, .cog, .jp2.',
+    errProprietaryFormat:
+      "{format} ingest isn't supported (proprietary decoder license isn't AGPL-compatible). Convert to GeoTIFF locally with a GDAL build that includes the vendor SDK, then upload the .tif.",
+    errSupportedFormats:
+      'Supported formats: .pmtiles, .mbtiles, .zip (XYZ tile directory), .tif / .tiff / .geotiff, .cog, .jp2.',
+    errDiskSpace: 'Not enough free disk space.',
+    errUploadHttp: 'Upload failed (HTTP {status})',
+    errUploadNetwork: 'Upload network error',
+    errFinalizeHttp: 'Finalize failed (HTTP {status}).',
+    errUploadFailed: 'Upload failed.',
+    errCouldNotStartUpload: 'Could not start the upload.',
+    errMosaicNotImagery:
+      '"{name}" can\'t join a mosaic. Combining works with plain imagery (.tif / .tiff / .geotiff / .cog / .jp2); tile packages upload one at a time.',
+    errMosaicTooLarge:
+      'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
+    errPartialUpload:
+      '{failed} of {total} images did not upload ({names}).',
+    errMosaicStartHttp:
+      'Could not start the mosaic build (HTTP {status}).',
+    progressUploadingImages: 'Uploading {count} images...',
+    progressUploadedOf: 'Uploaded {done} of {total} images...',
+    progressUploadingPct: 'Uploading {pct}%...',
+    progressCombining: 'Combining {count} images into one mosaic...',
+    progressEstimated: 'Estimated: {eta}.',
+    progressKeepCurrent:
+      'The current version stays available until it finishes.',
+    progressPageUpdates:
+      'This page updates by itself when it finishes.',
+    statusMosaicFailedLead: 'The mosaic build failed.',
+    statusMosaicFailedFallback:
+      'Something went wrong while combining the images.',
+    statusMosaicFailedKept: 'Your uploaded images were kept.',
+    retryStarting: 'Starting...',
+    retryTryBuildAgain: 'Try the build again',
+    retryFailedImages: 'Retry the failed images',
+    retryStartWithUploaded: 'Start with the {count} uploaded',
+    statusReadyLead: 'Ready.',
+    statusReadyDemBody:
+      "This elevation layer is ready. Add it in the 3D terrain section of a map's layers panel to turn on 3D.",
+    statusReadyBody: 'This layer is ready to use on maps.',
+    statusWaitingLead: 'Waiting to start.',
+    statusWaitingBody:
+      'The speed-up will begin within a minute. Your layer already works on maps in the meantime.',
+    statusOptimizingLead: 'Optimizing...',
+    statusOptimizingBody:
+      'This can take several minutes for large images. Your layer already works on maps and will get faster automatically when this finishes.',
+    statusOptimizingStarted: ' Started {when}.',
+    statusOptimizedBody:
+      'This layer is optimized for fast map display{finished}. The original file is kept too ({size}).',
+    statusOptimizedFinished: ' (finished {when})',
+    statusSizeUnknown: 'size unknown',
+    statusSpeedupFailedLead: 'Speed-up failed.',
+    statusSpeedupFailedBody:
+      'Your layer still works on maps, just a little slower. Try again, or contact your administrator if it keeps failing.',
+    retryRetrying: 'Retrying...',
+    retryTryAgain: 'Try again',
+  },
+
   settingsNotifications: {
     backToProfile: 'Volver al perfil',
     pageTitle: 'Preferencias de notificaciones',

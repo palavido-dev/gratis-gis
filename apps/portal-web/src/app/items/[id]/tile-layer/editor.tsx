@@ -27,7 +27,7 @@ import {
 } from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatDateTime, formatRelativeTime } from '@/lib/i18n/format';
-import { useLocale } from '@/lib/i18n/locale-context';
+import { useLocale, useT } from '@/lib/i18n/locale-context';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 import { UploadError, fileKey, uploadBatch } from '@/lib/batch-upload';
 import {
@@ -91,6 +91,7 @@ interface Props {
 
 export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   const locale = useLocale();
+  const t = useT();
   const [data, setData] = useState<TileLayerData>(initial);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -227,17 +228,15 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       lower.endsWith('.jp2');
     if (!supported) {
       if (lower.endsWith('.tpk') || lower.endsWith('.tpkx')) {
-        setUploadError(
-          'TPK / TPKX support is on the roadmap. For now: export your tile cache to MBTiles (or convert from TPK with the pmtiles CLI) and upload that. Supported today: .pmtiles, .mbtiles, .zip, .tif / .tiff / .geotiff, .cog, .jp2.',
-        );
+        setUploadError(t('tileLayerEditor.errTpkRoadmap'));
       } else if (lower.endsWith('.ecw') || lower.endsWith('.sid')) {
         setUploadError(
-          `${lower.endsWith('.ecw') ? 'ECW' : 'MrSID'} ingest isn't supported (proprietary decoder license isn't AGPL-compatible). Convert to GeoTIFF locally with a GDAL build that includes the vendor SDK, then upload the .tif.`,
+          t('tileLayerEditor.errProprietaryFormat', {
+            format: lower.endsWith('.ecw') ? 'ECW' : 'MrSID',
+          }),
         );
       } else {
-        setUploadError(
-          'Supported formats: .pmtiles, .mbtiles, .zip (XYZ tile directory), .tif / .tiff / .geotiff, .cog, .jp2.',
-        );
+        setUploadError(t('tileLayerEditor.errSupportedFormats'));
       }
       return;
     }
@@ -262,7 +261,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
           reason?: string;
         };
         if (!body.ok) {
-          setUploadError(body.reason ?? 'Not enough free disk space.');
+          setUploadError(
+            body.reason ?? t('tileLayerEditor.errDiskSpace'),
+          );
           return;
         }
       }
@@ -305,10 +306,17 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
           } else {
-            reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+            reject(
+              new Error(
+                t('tileLayerEditor.errUploadHttp', {
+                  status: xhr.status,
+                }),
+              ),
+            );
           }
         };
-        xhr.onerror = () => reject(new Error('Upload network error'));
+        xhr.onerror = () =>
+          reject(new Error(t('tileLayerEditor.errUploadNetwork')));
         xhr.open('PUT', presign.uploadUrl);
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.send(file);
@@ -334,7 +342,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         },
       );
       if (!finalizeRes.ok) {
-        let msg = `Finalize failed (HTTP ${finalizeRes.status}).`;
+        let msg = t('tileLayerEditor.errFinalizeHttp', {
+          status: finalizeRes.status,
+        });
         try {
           const body = (await finalizeRes.json()) as { message?: unknown };
           if (typeof body.message === 'string') msg = body.message;
@@ -347,7 +357,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       const body = (await finalizeRes.json()) as { data: TileLayerData };
       setData(body.data);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed.');
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : t('tileLayerEditor.errUploadFailed'),
+      );
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -417,7 +431,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         throw new UploadError(err.message, err.retryable);
       }
       throw new UploadError(
-        err instanceof Error ? err.message : 'Could not start the upload.',
+        err instanceof Error
+          ? err.message
+          : t('tileLayerEditor.errCouldNotStartUpload'),
         true,
       );
     }
@@ -425,9 +441,15 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       const xhr = new XMLHttpRequest();
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) resolve();
-        else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        else
+          reject(
+            new Error(
+              t('tileLayerEditor.errUploadHttp', { status: xhr.status }),
+            ),
+          );
       };
-      xhr.onerror = () => reject(new Error('Upload network error'));
+      xhr.onerror = () =>
+        reject(new Error(t('tileLayerEditor.errUploadNetwork')));
       xhr.open('PUT', presign.uploadUrl);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.send(file);
@@ -446,9 +468,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     const bad = files.find((f) => !isMosaicSource(f.name));
     if (bad) {
       setUploadError(
-        `"${bad.name}" can't join a mosaic. Combining works with plain ` +
-          'imagery (.tif / .tiff / .geotiff / .cog / .jp2); tile packages ' +
-          'upload one at a time.',
+        t('tileLayerEditor.errMosaicNotImagery', { name: bad.name }),
       );
       return;
     }
@@ -460,16 +480,21 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       const sec = estimateMergeSeconds(bytes, tiles, limits);
       if (sec > limits.ceilingSec) {
         setUploadError(
-          `That is ${tiles} images totalling ${formatBytes(bytes)}. ` +
-            `Building the mosaic would take ${formatRoughDuration(sec)}, ` +
-            'beyond what this server allows in one job. Split it into ' +
-            'smaller mosaics.',
+          t('tileLayerEditor.errMosaicTooLarge', {
+            tiles,
+            bytes: formatBytes(bytes),
+            duration: formatRoughDuration(sec),
+          }),
         );
         return;
       }
     }
     setUploading(true);
-    setProgressLabel(`Uploading ${files.length} images...`);
+    setProgressLabel(
+      t('tileLayerEditor.progressUploadingImages', {
+        count: files.length,
+      }),
+    );
     try {
       const outcome = await uploadBatch(files, {
         uploadOne: mosaicUploadOne,
@@ -477,7 +502,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         concurrency: 3,
         retries: 3,
         onFileDone: (done, total) =>
-          setProgressLabel(`Uploaded ${done} of ${total} images...`),
+          setProgressLabel(
+            t('tileLayerEditor.progressUploadedOf', { done, total }),
+          ),
       });
       for (const s of outcome.succeeded) {
         uploadedRef.current.set(fileKey(s.file), s.descriptor);
@@ -488,8 +515,12 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
           .map((f) => `"${f.file.name}"`)
           .join(', ');
         setUploadError(
-          `${outcome.failed.length} of ${files.length} images did not ` +
-            `upload (${names}${outcome.failed.length > 3 ? ', ...' : ''}). ` +
+          t('tileLayerEditor.errPartialUpload', {
+            failed: outcome.failed.length,
+            total: files.length,
+            names: `${names}${outcome.failed.length > 3 ? ', ...' : ''}`,
+          }) +
+            ' ' +
             outcome.failed[0]!.error,
         );
         setPendingRetry({
@@ -524,7 +555,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       },
     );
     if (!res.ok) {
-      let msg = `Could not start the mosaic build (HTTP ${res.status}).`;
+      let msg = t('tileLayerEditor.errMosaicStartHttp', {
+        status: res.status,
+      });
       try {
         const body = (await res.json()) as { message?: unknown };
         if (typeof body.message === 'string') msg = body.message;
@@ -665,13 +698,16 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-info" />
               <span className="text-info/80">
                 <span className="font-medium text-info">
-                  Combining {data.sources?.length ?? ''} images into
-                  one mosaic...
+                  {t('tileLayerEditor.progressCombining', {
+                    count: data.sources?.length ?? '',
+                  })}
                 </span>{' '}
-                {buildEta ? `Estimated: ${buildEta}. ` : ''}
+                {buildEta
+                  ? `${t('tileLayerEditor.progressEstimated', { eta: buildEta })} `
+                  : ''}
                 {ready
-                  ? 'The current version stays available until it finishes.'
-                  : 'This page updates by itself when it finishes.'}
+                  ? t('tileLayerEditor.progressKeepCurrent')
+                  : t('tileLayerEditor.progressPageUpdates')}
               </span>
             </div>
           ) : null}
@@ -679,12 +715,12 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             <div className="space-y-2">
               <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium text-warn">
-                  The mosaic build failed.
+                  {t('tileLayerEditor.statusMosaicFailedLead')}
                 </span>
                 <span className="text-warn/80">
                   {data.processingError ??
-                    'Something went wrong while combining the images.'}{' '}
-                  Your uploaded images were kept.
+                    t('tileLayerEditor.statusMosaicFailedFallback')}{' '}
+                  {t('tileLayerEditor.statusMosaicFailedKept')}
                 </span>
               </div>
               {canEdit && (data.sources?.length ?? 0) > 0 ? (
@@ -694,7 +730,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   disabled={retrying || uploading}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
                 >
-                  {retrying ? 'Starting...' : 'Try the build again'}
+                  {retrying
+                    ? t('tileLayerEditor.retryStarting')
+                    : t('tileLayerEditor.retryTryBuildAgain')}
                 </button>
               ) : null}
             </div>
@@ -741,7 +779,10 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   <UploadIcon className="h-4 w-4" />
                 )}
                 {uploading
-                  ? (progressLabel ?? `Uploading ${uploadProgress}%...`)
+                  ? (progressLabel ??
+                    t('tileLayerEditor.progressUploadingPct', {
+                      pct: uploadProgress,
+                    }))
                   : ready
                     ? 'Replace file'
                     : 'Upload file'}
@@ -795,7 +836,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                 disabled={uploading}
                 className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
               >
-                Retry the failed images
+                {t('tileLayerEditor.retryFailedImages')}
               </button>
               {pendingRetry.uploadedCount > 0 ? (
                 <button
@@ -804,7 +845,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   disabled={uploading}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
                 >
-                  Start with the {pendingRetry.uploadedCount} uploaded
+                  {t('tileLayerEditor.retryStartWithUploaded', {
+                    count: pendingRetry.uploadedCount,
+                  })}
                 </button>
               ) : null}
             </div>
@@ -830,34 +873,37 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
           <div className="space-y-2 p-4 text-sm">
             {data.processingState === 'ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-ink-1">
-                <span className="font-medium text-success">Ready.</span>
+                <span className="font-medium text-success">
+                  {t('tileLayerEditor.statusReadyLead')}
+                </span>
                 <span className="text-success/80">
                   {data.dem
-                    ? "This elevation layer is ready. Add it in the 3D terrain section of a map's layers panel to turn on 3D."
-                    : 'This layer is ready to use on maps.'}
+                    ? t('tileLayerEditor.statusReadyDemBody')
+                    : t('tileLayerEditor.statusReadyBody')}
                 </span>
               </div>
             ) : null}
             {data.processingState === 'cog-ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-1">
-                <span className="font-medium">Waiting to start.</span>
+                <span className="font-medium">
+                  {t('tileLayerEditor.statusWaitingLead')}
+                </span>
                 <span className="text-muted">
-                  The speed-up will begin within a minute. Your
-                  layer already works on maps in the meantime.
+                  {t('tileLayerEditor.statusWaitingBody')}
                 </span>
               </div>
             ) : null}
             {data.processingState === 'tiling' ? (
               <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium text-info">
-                  Optimizing...
+                  {t('tileLayerEditor.statusOptimizingLead')}
                 </span>
                 <span className="text-info/80">
-                  This can take several minutes for large images.
-                  Your layer already works on maps and will get
-                  faster automatically when this finishes.
+                  {t('tileLayerEditor.statusOptimizingBody')}
                   {data.tilingStartedAt
-                    ? ` Started ${humanDate(data.tilingStartedAt, locale)}.`
+                    ? t('tileLayerEditor.statusOptimizingStarted', {
+                        when: humanDate(data.tilingStartedAt, locale),
+                      })
                     : ''}
                 </span>
               </div>
@@ -865,18 +911,23 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             {data.processingState === 'pmtiles-ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium text-success">
-                  Ready.
+                  {t('tileLayerEditor.statusReadyLead')}
                 </span>
                 <span className="text-success/80">
-                  This layer is optimized for fast map display
-                  {data.tilingCompletedAt
-                    ? ` (finished ${humanDate(data.tilingCompletedAt, locale)})`
-                    : ''}
-                  . The original file is kept too (
-                  {data.cogSizeBytes !== undefined
-                    ? formatBytes(data.cogSizeBytes)
-                    : 'size unknown'}
-                  ).
+                  {t('tileLayerEditor.statusOptimizedBody', {
+                    finished: data.tilingCompletedAt
+                      ? t('tileLayerEditor.statusOptimizedFinished', {
+                          when: humanDate(
+                            data.tilingCompletedAt,
+                            locale,
+                          ),
+                        })
+                      : '',
+                    size:
+                      data.cogSizeBytes !== undefined
+                        ? formatBytes(data.cogSizeBytes)
+                        : t('tileLayerEditor.statusSizeUnknown'),
+                  })}
                 </span>
               </div>
             ) : null}
@@ -884,12 +935,10 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               <div className="space-y-2">
                 <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink-1">
                   <span className="font-medium text-warn">
-                    Speed-up failed.
+                    {t('tileLayerEditor.statusSpeedupFailedLead')}
                   </span>
                   <span className="text-warn/80">
-                    Your layer still works on maps, just a little
-                    slower. Try again, or contact your
-                    administrator if it keeps failing.
+                    {t('tileLayerEditor.statusSpeedupFailedBody')}
                   </span>
                 </div>
                 {data.tilingError ? (
@@ -904,7 +953,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                     disabled={retrying}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
                   >
-                    {retrying ? 'Retrying...' : 'Try again'}
+                    {retrying
+                      ? t('tileLayerEditor.retryRetrying')
+                      : t('tileLayerEditor.retryTryAgain')}
                   </button>
                 ) : null}
               </div>

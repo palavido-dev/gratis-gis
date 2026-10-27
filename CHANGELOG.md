@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Tile-layer editor error, progress, status, and retry strings are
+  wired through the locale catalogs (en / es / fr / de / pt-BR)
+  (#162 follow-up).
 - Form designer up/down controls on each question row so authors can
   reorder on touch devices where HTML5 drag-and-drop does not work
   (desktop grip handle unchanged).
