@@ -154,7 +154,9 @@ class PortalClient(
   /** `PATCH .../features/{globalId}`. Geometry omitted when null: an
    *  attribute-only edit must not erase the position. With
    *  `baseObservationId` the server refuses a stale edit with a 409
-   *  (`PortalError.Conflict` carrying `current`). */
+   *  (`PortalError.Conflict` carrying `current`). Pass `checkOnly =
+   *  true` for a dry run that validates without writing (portal-web
+   *  offline-sync does the same before a real transfer). */
   suspend fun patchFeature(
     dataLayerId: String,
     layerKey: String,
@@ -162,11 +164,13 @@ class PortalClient(
     properties: JsonObject,
     geometry: kotlinx.serialization.json.JsonElement?,
     baseObservationId: String? = null,
+    checkOnly: Boolean = false,
   ) {
     val body = buildJsonObject {
       put("properties", properties)
       if (geometry != null && geometry !is kotlinx.serialization.json.JsonNull) put("geometry", geometry)
       if (baseObservationId != null) put("baseObservationId", baseObservationId)
+      if (checkOnly) put("checkOnly", true)
     }
     http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
       contentType(ContentType.Application.Json)
@@ -174,17 +178,24 @@ class PortalClient(
     }
   }
 
-  /** `DELETE .../features/{globalId}`, with the same optional guard. */
+  /** `DELETE .../features/{globalId}`, with the same optional guard
+   *  and optional `checkOnly` dry run. */
   suspend fun deleteFeature(
     dataLayerId: String,
     layerKey: String,
     globalId: String,
     baseObservationId: String? = null,
+    checkOnly: Boolean = false,
   ) {
     http.delete("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
-      if (baseObservationId != null) {
+      if (baseObservationId != null || checkOnly) {
         contentType(ContentType.Application.Json)
-        setBody(buildJsonObject { put("baseObservationId", baseObservationId) })
+        setBody(
+          buildJsonObject {
+            if (baseObservationId != null) put("baseObservationId", baseObservationId)
+            if (checkOnly) put("checkOnly", true)
+          },
+        )
       }
     }
   }

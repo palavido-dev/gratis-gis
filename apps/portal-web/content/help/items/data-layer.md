@@ -90,6 +90,12 @@ as a **sync conflict**. Open the **Layer data** panel on the item
 page to review recent conflicts after a sync, so a field crew can
 see what did not land and decide what to retry.
 
+Field offline push dry-runs each queued **update** and **delete**
+with `checkOnly=true` before the real write. A conflict or schema
+refusal parks that edit on the device with the server reason and
+does not transfer it; the conflict artifact is still recorded for
+review. New features (creates) upload without a dry-run.
+
 If you can edit the layer, each conflict offers **Re-apply**. Confirm
 shows the losing side next to what was current at conflict time.
 Re-apply writes the losing update onto the live feature (with the

@@ -141,14 +141,30 @@ class QueueDrain(
           r.dataLayerId, r.layerKey,
           InsertFeaturesRequest(listOf(FeatureInsert(r.globalId, geometry ?: JsonNull, properties))),
         )
-        "update" -> portal.patchFeature(
-          r.dataLayerId, r.layerKey, r.globalId, properties, geometry,
-          baseObservationId = r.baseObservationId,
-        )
-        "delete" -> portal.deleteFeature(
-          r.dataLayerId, r.layerKey, r.globalId,
-          baseObservationId = r.baseObservationId,
-        )
+        "update" -> {
+          // Dry-run first so a conflict / schema refusal parks the
+          // row without applying (mirrors portal-web offline-sync).
+          portal.patchFeature(
+            r.dataLayerId, r.layerKey, r.globalId, properties, geometry,
+            baseObservationId = r.baseObservationId,
+            checkOnly = true,
+          )
+          portal.patchFeature(
+            r.dataLayerId, r.layerKey, r.globalId, properties, geometry,
+            baseObservationId = r.baseObservationId,
+          )
+        }
+        "delete" -> {
+          portal.deleteFeature(
+            r.dataLayerId, r.layerKey, r.globalId,
+            baseObservationId = r.baseObservationId,
+            checkOnly = true,
+          )
+          portal.deleteFeature(
+            r.dataLayerId, r.layerKey, r.globalId,
+            baseObservationId = r.baseObservationId,
+          )
+        }
         else -> return Replay.Refused(message("sync.unknownOp", "op" to JsonPrimitive(r.op)), terminal = true)
       }
       Replay.Done

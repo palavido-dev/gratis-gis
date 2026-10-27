@@ -762,10 +762,11 @@ function claimRow(db, storeName, key, canClaim, patch) {
 /**
  * Replay one feature-queue record against the live API. Mirrors
  * src/lib/offline-sync.ts replayRecord (lockstep!): same endpoints,
- * same bodies, same 404-on-delete forgiveness. Returns 'done' on
- * success, {reason} on an HTTP rejection, and THROWS only when fetch
- * itself fails (i.e. we are still offline), which the caller turns
- * into "leave the row pending and let the browser re-fire the sync".
+ * same bodies, same checkOnly dry-run before update/delete, same
+ * 404-on-delete forgiveness. Returns 'done' on success, {reason} on
+ * an HTTP rejection, and THROWS only when fetch itself fails (i.e. we
+ * are still offline), which the caller turns into "leave the row
+ * pending and let the browser re-fire the sync".
  */
 async function replayFeatureRecord(r) {
   const layerPath =
@@ -776,6 +777,7 @@ async function replayFeatureRecord(r) {
     '/features';
   let res;
   if (r.op === 'insert') {
+    // POST has no checkOnly on the API; creates go straight through.
     res = await fetch(layerPath, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -790,19 +792,44 @@ async function replayFeatureRecord(r) {
       }),
     });
   } else if (r.op === 'update') {
+    const patchBody = Object.assign(
+      { properties: r.properties || {} },
+      r.geometry !== null && r.geometry !== undefined
+        ? { geometry: r.geometry }
+        : {},
+    );
+    const checkRes = await fetch(layerPath + '/' + r.globalId, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, patchBody, { checkOnly: true })),
+    });
+    const checkOutcome = replayOutcomeForStatus(checkRes.status, r.op);
+    if (checkOutcome !== 'done') {
+      const checkBody = await checkRes.text().catch(() => '');
+      return {
+        terminal: checkOutcome === 'rejected',
+        reason: messageFromBody(checkBody, checkRes.status),
+      };
+    }
     res = await fetch(layerPath + '/' + r.globalId, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(
-        Object.assign(
-          { properties: r.properties || {} },
-          r.geometry !== null && r.geometry !== undefined
-            ? { geometry: r.geometry }
-            : {},
-        ),
-      ),
+      body: JSON.stringify(patchBody),
     });
   } else if (r.op === 'delete') {
+    const checkRes = await fetch(layerPath + '/' + r.globalId, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ checkOnly: true }),
+    });
+    const checkOutcome = replayOutcomeForStatus(checkRes.status, r.op);
+    if (checkOutcome !== 'done') {
+      const checkBody = await checkRes.text().catch(() => '');
+      return {
+        terminal: checkOutcome === 'rejected',
+        reason: messageFromBody(checkBody, checkRes.status),
+      };
+    }
     res = await fetch(layerPath + '/' + r.globalId, { method: 'DELETE' });
   } else {
     // Only a row written by a newer client can get here; retrying

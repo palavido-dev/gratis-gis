@@ -462,6 +462,13 @@ with change kinds `create|update|delete|derive|observe` and feature id
 `syncVersion` cursor exists (full GeoJSON on first download, then
 incremental); the Android client should do the same once it lands.
 
+Feature `PATCH` / `DELETE` accept `checkOnly=true` for a dry run that
+validates `baseObservationId` and schema without writing (#329). The
+field PWA offline drain and Android `QueueDrain` call that dry run
+before each queued update/delete so a 409 or schema refusal parks the
+row before the real transfer (R4-offline-checkonly). Creates have no
+create-side dry-run and still POST directly.
+
 These are portal-api's own routes, reached directly. Verified in
 `infra/Caddyfile`: `/api/*` is routed straight to portal-api, with only
 `/api/auth/*`, `/api/portal/*`, `/api/geocode/*` and `/api/locale`
