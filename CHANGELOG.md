@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public OGC Records list endpoints (`/records`, catalog
+  `/collections/catalog/items`) cap in-memory `?bbox=` scans at
+  5,000 rows (`MAX_RECORDS_BBOX_SCAN`) and throttle at 60/min per
+  IP (global default is 300/min). item.bbox is JSON, not PostGIS,
+  so numberMatched reflects the filtered slice of that scan
+  (SEC-records-bbox-throttle).
 - Ingest refuses zip archives whose central directory declares
   more than 100k entries or more than 10 GiB uncompressed before
   GDAL opens them via `/vsizip/` (same ceilings as tile zip

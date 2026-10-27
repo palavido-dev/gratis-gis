@@ -8,6 +8,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -15,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { absoluteBase } from './url.js';
 import {
   ITEM_SELECT,
+  MAX_RECORDS_BBOX_SCAN,
   UUID_RE,
   buildRecord,
   buildRecordsPage,
@@ -52,6 +54,9 @@ export class OgcRecordsController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Tighter than the global 300/min: bbox scans are heavier
+  // (SEC-records-bbox-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   async records(
     @Req() req: Request,
@@ -83,6 +88,7 @@ export class OgcRecordsController {
         where,
         select: ITEM_SELECT,
         orderBy,
+        take: MAX_RECORDS_BBOX_SCAN,
       })) as ItemRow[];
       return filterAndPageRecords(rows, base, selfBase, params, rootHref);
     }

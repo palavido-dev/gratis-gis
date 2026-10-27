@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   CATALOG_COLLECTION_ID,
+  MAX_RECORDS_BBOX_SCAN,
   bboxesIntersect,
   buildRecord,
   catalogCollectionDoc,
@@ -156,5 +157,38 @@ describe('records-core', () => {
         }),
       ]),
     );
+  });
+
+  it('exports a hard ceiling for in-memory bbox scans', () => {
+    // Controllers pass take: MAX_RECORDS_BBOX_SCAN so a public
+    // ?bbox= cannot pull every public item into Node heap
+    // (SEC-records-bbox-throttle).
+    expect(MAX_RECORDS_BBOX_SCAN).toBe(5_000);
+  });
+
+  it('numberMatched reflects only the capped scan slice', () => {
+    // Simulate a controller that already applied the scan cap:
+    // matches beyond the loaded window are invisible, and
+    // numberMatched must not invent a larger catalogue count.
+    const capped = Array.from({ length: 3 }, (_, i) =>
+      row({
+        id: `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa${i}`,
+        title: `Hit ${i}`,
+        bbox: [-80.2, 39.1, -80.0, 39.3],
+      }),
+    );
+    const page = filterAndPageRecords(
+      capped,
+      'http://portal.test',
+      'http://portal.test/api/public/ogc/records',
+      {
+        limit: 10,
+        offset: 0,
+        bbox: '-80.5,39.0,-80.0,39.5',
+      },
+      'http://portal.test/api/public/ogc/',
+    );
+    expect(page.numberMatched).toBe(capped.length);
+    expect(page.numberReturned).toBe(capped.length);
   });
 });

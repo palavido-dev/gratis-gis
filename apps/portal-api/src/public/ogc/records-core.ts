@@ -24,6 +24,18 @@ import {
  *  it never collides with a Features collection id. */
 export const CATALOG_COLLECTION_ID = 'catalog';
 
+/**
+ * Hard ceiling on rows loaded for in-memory `?bbox=` filtering
+ * (SEC-records-bbox-throttle). item.bbox is JSON, not a PostGIS
+ * column, so we cannot push the intersect into SQL yet; without a
+ * take() a public bbox query would scan every public item into
+ * Node heap. Callers must pass `take: MAX_RECORDS_BBOX_SCAN`.
+ * numberMatched then reflects the filtered slice of that scan, not
+ * the whole catalogue — honest for the cap, incomplete for the
+ * portal until a spatial index lands.
+ */
+export const MAX_RECORDS_BBOX_SCAN = 5_000;
+
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -427,7 +439,9 @@ export function buildRecordsPage(
  * Apply a CRS84 bbox filter in memory, then page. Used when `?bbox=`
  * is present: item.bbox is JSON, not a PostGIS column, so a raw-SQL
  * index path is deferred until catalogues are large enough to need
- * it. numberMatched stays honest for the filtered set.
+ * it. Callers must already have capped the input with
+ * `MAX_RECORDS_BBOX_SCAN`. numberMatched stays honest for the
+ * filtered set of that scan.
  */
 export function filterAndPageRecords(
   rows: ItemRow[],
