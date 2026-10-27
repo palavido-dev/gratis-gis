@@ -41,6 +41,7 @@ import {
 } from '../engine/tile-cache.service.js';
 import { requestAbortSignal } from '../common/request-signal.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
+import { withMetaUi } from '../items/meta-ui.js';
 import {
   PUBLIC_TIER_SELECT,
   publicTierGeoLimit,
@@ -265,7 +266,10 @@ export class PublicController {
     // public web-app whose thumbnail was authored in the designer
     // came back with thumbnailUrl=null and the landing card fell
     // through to the generic type-icon tile.
-    return synthesizeThumbnailUrl(item);
+    // meta.ui is the shared presentation contract for web / QGIS /
+    // MCP (docs/meta-ui.md); computed here so anon detail matches
+    // the authenticated GET /api/items/:id shape.
+    return withMetaUi(synthesizeThumbnailUrl(item));
   }
 
   /**

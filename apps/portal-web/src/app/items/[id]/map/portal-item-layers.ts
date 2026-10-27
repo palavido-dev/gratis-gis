@@ -18,7 +18,13 @@
  * Everything here is pure or fetch-only; no React state. Errors
  * come back as plain-language strings for the caller to surface.
  */
-import type { Item, MapLayer, MapLayerSource } from '@gratis-gis/shared-types';
+import type {
+  Item,
+  ItemMeta,
+  MapLayer,
+  MapLayerSource,
+  MetaUi,
+} from '@gratis-gis/shared-types';
 import type { Translator } from '@/lib/i18n';
 import {
   DEFAULT_LAYER_ACCESS,
@@ -300,6 +306,47 @@ export function buildTileLayer(
  * are not on the map. A key that no longer exists is an error, not a
  * silent fall back to everything.
  */
+/**
+ * Prefer server-computed meta.ui when the detail GET already
+ * stamped it. Falls through (null) so callers keep the local
+ * builders for lite list rows that never fetched meta.
+ */
+export function layersFromMetaUi(
+  ui: MetaUi,
+  opts: { layerKey?: string; itemTitle: string; t: Translator },
+): { layers?: MapLayer[]; error?: string } | null {
+  if (!ui.layers || ui.layers.length === 0) return null;
+  if (opts.layerKey !== undefined) {
+    const match = ui.layers.find(
+      (l) =>
+        l.source.kind === 'data-layer' &&
+        'layerKey' in l.source &&
+        l.source.layerKey === opts.layerKey,
+    );
+    if (!match) {
+      return {
+        error: opts.t('addToMap.layerGone', {
+          item: opts.itemTitle,
+          layerKey: opts.layerKey,
+        }),
+      };
+    }
+    return { layers: [makeLayer(match.title, match.source)] };
+  }
+  if (ui.layers.length === 1) {
+    const only = ui.layers[0]!;
+    return { layers: [makeLayer(only.title, only.source)] };
+  }
+  // Multi-sublayer: mirror buildDataLayerLayers group mode.
+  const header = makeLayer(opts.itemTitle, { kind: 'group' });
+  const children = ui.layers.map((l) => {
+    const layer = makeLayer(l.title, l.source);
+    layer.groupId = header.id;
+    return layer;
+  });
+  return { layers: [header, ...children] };
+}
+
 export async function layersForPortalItem(
   input: Item,
   opts: {
@@ -321,21 +368,40 @@ export async function layersForPortalItem(
         'Connected services are added from inside a map: open the map, choose Add layer, and pick it from the Portal tab.',
     };
   }
+  const tryMeta = (item: Item) => {
+    const stamped = (item as Item & { meta?: ItemMeta }).meta?.ui;
+    if (!stamped) return null;
+    return layersFromMetaUi(stamped, {
+      itemTitle: item.title,
+      t,
+      ...(opts.layerKey !== undefined ? { layerKey: opts.layerKey } : {}),
+    });
+  };
+  {
+    const fromMeta = tryMeta(input);
+    if (fromMeta) return fromMeta;
+  }
   if (input.type === 'point_cloud') {
     const { item, error } = await fetchHydratedItem(input);
     if (!item) return { error: error ?? `Could not load ${input.title}.` };
+    const fromMeta = tryMeta(item);
+    if (fromMeta) return fromMeta;
     const built = buildPointCloudLayer(item);
     return built.layer ? { layers: [built.layer] } : { error: built.error };
   }
   if (input.type === 'tile_layer') {
     const { item, error } = await fetchHydratedItem(input);
     if (!item) return { error: error ?? `Could not load ${input.title}.` };
+    const fromMeta = tryMeta(item);
+    if (fromMeta) return fromMeta;
     const built = buildTileLayer(item);
     return built.layer ? { layers: [built.layer] } : { error: built.error };
   }
   if (input.type === 'arcgis_service') {
     const { item, error } = await fetchHydratedItem(input);
     if (!item) return { error: error ?? `Could not load ${input.title}.` };
+    const fromMeta = tryMeta(item);
+    if (fromMeta) return fromMeta;
     const subs = arcgisSublayers(item);
     if (!subs.ordered) return { error: subs.error };
     const layers = buildArcgisLayers(
@@ -359,6 +425,8 @@ export async function layersForPortalItem(
     if (!sublayers) {
       const { item, error } = await fetchHydratedItem(input);
       if (!item) return { error: error ?? `Could not load ${input.title}.` };
+      const fromMeta = tryMeta(item);
+      if (fromMeta) return fromMeta;
       const d = item.data as {
         version?: number;
         layers?: Array<{

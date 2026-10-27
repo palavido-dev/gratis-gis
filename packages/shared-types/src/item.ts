@@ -43,6 +43,11 @@ export interface Item<TData = unknown> {
    * See /docs/soft-delete.md.
    */
   deletedAt: ISODateString | null;
+  /**
+   * Server-computed presentation block on detail GET only
+   * (never persisted). See meta-ui.ts / docs/meta-ui.md.
+   */
+  meta?: import('./meta-ui.js').ItemMeta;
 }
 
 export interface ItemShare {
