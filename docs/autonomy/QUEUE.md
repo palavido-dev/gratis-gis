@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-R2a / R2-drawings-in-print | research-cycle-2 / #159 | Markup drawings on print/PDF | Branch `cursor/drawings-in-print-2838` |
+| Q-R2a / R2-drawings-in-print | research-cycle-2 / #159 | Markup drawings on print/PDF | PR #337 on `cursor/drawings-in-print-2838` |
 
 ## queued (ship-without-input)
 

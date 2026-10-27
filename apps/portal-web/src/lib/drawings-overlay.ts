@@ -210,7 +210,7 @@ export function syncDrawings(
   }
 }
 
-/** Raise every drawings layer above data overlays (bottom → top). */
+/** Raise every drawings layer above data overlays (bottom to top). */
 export function raiseDrawingsLayers(m: maplibregl.Map): void {
   for (const id of DRAWINGS_LAYER_IDS) {
     if (!m.getLayer(id)) continue;
