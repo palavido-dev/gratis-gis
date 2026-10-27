@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Android field offline refresh pulls layer changes via
+  `GET .../layers/:layerId/delta?since=N` when a per-layer
+  `syncVersion` cursor is stored on `LayerEntity`, mirroring the
+  portal-web path from #350. First download still uses full GeoJSON
+  and seeds the cursor; a broken or unknown cursor falls back to a
+  full pull once (R4-android-field-delta).
 - Analyze **Buffer this layer** guide creates a single-step
   `derived_layer` buffer recipe (fixed distance + unit) via
   `POST /api/portal/items`, reusing the existing PostGIS buffer

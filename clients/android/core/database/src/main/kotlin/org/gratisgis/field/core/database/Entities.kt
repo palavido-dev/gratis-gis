@@ -44,6 +44,13 @@ data class LayerEntity(
   val editingPolicy: String,
   val addable: Boolean,
   val boundFormItemId: String?,
+  /**
+   * Layer observation-log cursor for incremental offline refresh
+   * (`GET .../delta?since=N`). Null until a full GeoJSON pull seeds
+   * it (or an older package predates the column). Mirrors
+   * `CachedLayerSchema.syncVersion` in portal-web offline-store.
+   */
+  val syncVersion: Long? = null,
 )
 
 /** A cached feature. `featureJson` is the GeoJSON Feature verbatim. */

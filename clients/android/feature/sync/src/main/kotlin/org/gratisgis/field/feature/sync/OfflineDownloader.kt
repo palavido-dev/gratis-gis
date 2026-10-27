@@ -21,6 +21,7 @@ import org.gratisgis.field.core.database.OfflinePackageEntity
 import org.gratisgis.field.core.engine.FieldEngine
 import org.gratisgis.field.core.network.ItemSummary
 import org.gratisgis.field.core.network.PortalClient
+import org.gratisgis.field.core.network.PortalError
 import java.io.File
 import java.time.Instant
 
@@ -43,6 +44,11 @@ data class DownloadProgress(
  * apps/portal-web/src/lib/offline-download.ts, minus pick lists and
  * attachments for now.
  *
+ * Feature refresh uses `GET .../delta?since=N` when a per-layer
+ * `syncVersion` cursor is already stored (portal-web #350 /
+ * R4-android-field-delta). First package (or unknown / broken cursor)
+ * still pulls full GeoJSON, then seeds the cursor.
+ *
  * Layer resolution follows apps/portal-web/src/app/items/[id]/field/page.tsx:
  * a map layer with `source.kind === 'data-layer'` names a data_layer
  * item and optionally a v3 sublayer key; the sublayer's `fields`,
@@ -64,9 +70,17 @@ class OfflineDownloader(
     val data = collection.data ?: error("Collection ${collection.id} has no data")
     val mapId = data["mapId"]?.jsonPrimitive?.contentOrNull ?: error("Collection has no mapId")
 
+    // Keep prior syncVersion cursors across the layer wipe+reupsert so
+    // a refresh can delta instead of re-pulling every feature.
+    val priorCursors = db.layers().forCollection(collection.id)
+      .associate { "${it.dataLayerId}:${it.layerKey}" to it.syncVersion }
+
     // Editable layers.
     val map = portal.getItem(mapId)
-    val layers = resolveLayers(collection, map)
+    val layers = resolveLayers(collection, map).map { layer ->
+      val prior = priorCursors["${layer.dataLayerId}:${layer.layerKey}"]
+      if (prior != null) layer.copy(syncVersion = prior) else layer
+    }
     db.collections().upsert(
       CollectionEntity(
         id = collection.id,
@@ -80,26 +94,32 @@ class OfflineDownloader(
     db.layers().upsertAll(layers)
     report(progress.copy(phase = "features", layers = layers.size))
 
-    // Features, per layer, whole layer (the bbox scoping the web
-    // runtime does comes with the map viewport later).
     val now = Instant.now().toString()
     var featureCount = 0
-    for (layer in layers) {
+    val layersAfter = layers.toMutableList()
+    for ((index, layer) in layers.withIndex()) {
       report(progress.copy(detail = layer.label))
       try {
-        val text = portal.getLayerGeoJson(layer.dataLayerId, layer.layerKey)
-        val features = json.parseToJsonElement(text).jsonObject["features"]?.jsonArray ?: JsonArray(emptyList())
-        val rows = features.map { f ->
-          val obj = f.jsonObject
-          val props = obj["properties"] as? JsonObject
-          val globalId = props?.get("_global_id")?.jsonPrimitive?.contentOrNull
-            ?: obj["id"]?.jsonPrimitive?.contentOrNull
-            ?: stableId(obj)
-          FeatureEntity(collection.id, layer.dataLayerId, layer.layerKey, globalId, obj.toString(), now)
+        val cursor = layer.syncVersion
+        val updated = if (cursor != null) {
+          try {
+            pullLayerDelta(collection.id, layer, cursor, now)
+          } catch (t: Throwable) {
+            // Corrupt / unknown cursor, older server, or transient
+            // delta failure: fall back to a full GeoJSON once and
+            // re-seed (research R4-android-field-delta).
+            if (shouldFallbackToFull(t)) {
+              pullFullAndSeed(collection.id, layer, now)
+            } else {
+              throw t
+            }
+          }
+        } else {
+          pullFullAndSeed(collection.id, layer, now)
         }
-        db.features().deleteForLayer(collection.id, layer.dataLayerId, layer.layerKey)
-        db.features().insertAll(rows)
-        featureCount += rows.size
+        layersAfter[index] = updated.layer
+        db.layers().upsertAll(listOf(updated.layer))
+        featureCount += updated.applied
         report(progress.copy(features = featureCount))
       } catch (t: Throwable) {
         shortfalls += "${layer.label}: ${t.message}"
@@ -110,7 +130,7 @@ class OfflineDownloader(
     // Bound forms.
     report(progress.copy(phase = "forms"))
     var formCount = 0
-    for (formId in layers.mapNotNull { it.boundFormItemId }.distinct()) {
+    for (formId in layersAfter.mapNotNull { it.boundFormItemId }.distinct()) {
       try {
         val form = portal.getItem(formId)
         val schema = form.data ?: error("form has no schema")
@@ -162,6 +182,105 @@ class OfflineDownloader(
       CollectionEntity(collection.id, collection.title, mapId, data.toString(), downloadedAt = now),
     )
     report(progress.copy(phase = "done", detail = ""))
+  }
+
+  private data class LayerPull(val layer: LayerEntity, val applied: Int)
+
+  /**
+   * Walk `GET .../delta` pages until `truncated` clears, applying each
+   * page (upsert + delete). Advances `since` to the last change's
+   * syncVersion while truncated (page-by-version); stores the layer
+   * head when the walk completes. Mirrors portal-web `pullLayerDelta`.
+   */
+  private suspend fun pullLayerDelta(
+    collectionId: String,
+    layer: LayerEntity,
+    sinceStart: Long,
+    cachedAt: String,
+  ): LayerPull {
+    var since = sinceStart
+    var applied = 0
+    var head = sinceStart
+    for (page in 0 until 100) {
+      val body = portal.getLayerDelta(
+        layer.dataLayerId,
+        layer.layerKey,
+        since,
+        LayerDeltaApply.DELTA_PAGE_LIMIT,
+      )
+      val (upserts, deletes) = LayerDeltaApply.applyDeltaChanges(
+        body.changes,
+        collectionId,
+        layer.dataLayerId,
+        layer.layerKey,
+        cachedAt,
+      )
+      if (upserts.isNotEmpty()) db.features().insertAll(upserts)
+      if (deletes.isNotEmpty()) {
+        db.features().deleteByGlobalIds(
+          collectionId,
+          layer.dataLayerId,
+          layer.layerKey,
+          deletes,
+        )
+      }
+      applied += upserts.size + deletes.size
+
+      if (!body.truncated) {
+        head = body.syncVersion
+        break
+      }
+      val last = body.changes.lastOrNull()
+      if (last == null) {
+        head = body.syncVersion
+        break
+      }
+      since = last.syncVersion
+      head = since
+    }
+    return LayerPull(layer.copy(syncVersion = head), applied)
+  }
+
+  /** Full GeoJSON replace + seed syncVersion via `delta?since=0&limit=1`. */
+  private suspend fun pullFullAndSeed(
+    collectionId: String,
+    layer: LayerEntity,
+    now: String,
+  ): LayerPull {
+    val text = portal.getLayerGeoJson(layer.dataLayerId, layer.layerKey)
+    val features = json.parseToJsonElement(text).jsonObject["features"]?.jsonArray
+      ?: JsonArray(emptyList())
+    val rows = features.map { f ->
+      val obj = f.jsonObject
+      val props = obj["properties"] as? JsonObject
+      val globalId = props?.get("_global_id")?.jsonPrimitive?.contentOrNull
+        ?: obj["id"]?.jsonPrimitive?.contentOrNull
+        ?: stableId(obj)
+      FeatureEntity(collectionId, layer.dataLayerId, layer.layerKey, globalId, obj.toString(), now)
+    }
+    db.features().deleteForLayer(collectionId, layer.dataLayerId, layer.layerKey)
+    db.features().insertAll(rows)
+    val seeded = seedSyncVersionCursor(layer.dataLayerId, layer.layerKey)
+    return LayerPull(layer.copy(syncVersion = seeded), rows.size)
+  }
+
+  /**
+   * After a full GeoJSON pull, read the layer head via a cheap
+   * `delta?since=0&limit=1`. Null when the endpoint is unavailable so
+   * the next run retries a full pull + seed.
+   */
+  private suspend fun seedSyncVersionCursor(dataLayerId: String, layerKey: String): Long? =
+    try {
+      portal.getLayerDelta(dataLayerId, layerKey, since = 0, limit = 1).syncVersion
+    } catch (_: Throwable) {
+      null
+    }
+
+  private fun shouldFallbackToFull(t: Throwable): Boolean {
+    val err = t as? PortalError ?: return true
+    // 4xx on delta (Gone / Not Found / bad cursor) → full once.
+    // 5xx / auth / rate-limit stay as shortfalls so we don't thrash.
+    return err.status in 400..499 && err !is PortalError.Auth && err !is PortalError.RateLimit
   }
 
   private suspend fun downloadPackage(

@@ -37,6 +37,16 @@ interface FeatureDao {
   suspend fun firstForLayer(collectionId: String, dataLayerId: String, layerKey: String): FeatureEntity?
   @Query("DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey")
   suspend fun deleteForLayer(collectionId: String, dataLayerId: String, layerKey: String)
+  @Query(
+    "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
+      "AND layerKey = :layerKey AND globalId IN (:globalIds)",
+  )
+  suspend fun deleteByGlobalIds(
+    collectionId: String,
+    dataLayerId: String,
+    layerKey: String,
+    globalIds: List<String>,
+  )
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)
 }
 

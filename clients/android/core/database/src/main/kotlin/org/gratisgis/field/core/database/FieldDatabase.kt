@@ -19,7 +19,7 @@ import androidx.sqlite.execSQL
     QueueEntity::class,
     DraftEntity::class,
   ],
-  version = 3,
+  version = 4,
   exportSchema = true,
 )
 abstract class FieldDatabase : RoomDatabase() {
@@ -34,7 +34,7 @@ abstract class FieldDatabase : RoomDatabase() {
   companion object {
     fun open(context: Context): FieldDatabase =
       Room.databaseBuilder(context.applicationContext, FieldDatabase::class.java, "gratisgis-field.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
         // Survive abrupt process death after a draft upsert / package write.
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()
@@ -69,6 +69,15 @@ abstract class FieldDatabase : RoomDatabase() {
         connection.execSQL(
           "CREATE INDEX IF NOT EXISTS `index_draft_collectionId_formId` ON `draft` (`collectionId`, `formId`)",
         )
+      }
+    }
+
+    /** v4: per-layer syncVersion cursor for `delta?since=N` refresh
+     *  (R4-android-field-delta / portal-web #350). Null on existing
+     *  rows → next download still takes the full GeoJSON path once. */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+      override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL("ALTER TABLE layer ADD COLUMN syncVersion INTEGER")
       }
     }
   }

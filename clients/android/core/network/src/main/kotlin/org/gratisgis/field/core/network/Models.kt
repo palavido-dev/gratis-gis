@@ -98,3 +98,28 @@ data class ItemSummary(
   val ownerId: String? = null,
   val data: JsonObject? = null,
 )
+
+/**
+ * One observation from `GET .../layers/{key}/delta?since=N`
+ * (R1-layer-delta-sync / #328). `entity` is the stable feature id
+ * (`_global_id`); `kind` is create|update|delete|derive|observe.
+ */
+@Serializable
+data class LayerDeltaChange(
+  val observationId: String,
+  val entity: String,
+  val kind: String,
+  val syncVersion: Long,
+  val txTime: String? = null,
+  val authorSub: String? = null,
+  val geometry: kotlinx.serialization.json.JsonElement? = null,
+  val properties: JsonObject? = null,
+)
+
+@Serializable
+data class LayerDeltaResponse(
+  val syncVersion: Long,
+  val since: Long,
+  val changes: List<LayerDeltaChange> = emptyList(),
+  val truncated: Boolean = false,
+)
