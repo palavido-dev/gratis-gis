@@ -38,6 +38,7 @@ import {
   syncDrawings,
 } from '@/lib/drawings-overlay';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
+import { t } from '@/lib/i18n';
 import { getCachedUserName } from '@/lib/user-name-cache';
 import { formatDateTime, formatNumber } from '@/lib/i18n/format';
 import { useLocale } from '@/lib/i18n/locale-context';
@@ -2565,13 +2566,30 @@ const terrainChips = new WeakMap<
   { el: HTMLDivElement; cleanup: () => void }
 >();
 
+function documentLocale(): SupportedLocale {
+  const lang = document.documentElement.lang;
+  if (
+    lang === 'es' ||
+    lang === 'fr' ||
+    lang === 'de' ||
+    lang === 'pt-BR'
+  ) {
+    return lang;
+  }
+  return DEFAULT_LOCALE;
+}
+
 function showTerrainChip(m: maplibregl.Map): void {
   if (terrainChips.has(m)) return;
   const el = document.createElement('div');
   el.className =
     'pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-raised backdrop-blur-xs';
   el.setAttribute('role', 'status');
-  el.textContent = 'Getting the 3D ground ready...';
+  el.textContent = t(
+    'mapLayerPanel.terrain.gettingReady',
+    undefined,
+    documentLocale(),
+  );
   m.getContainer().appendChild(el);
   const hide = () => hideTerrainChip(m);
   m.once('idle', hide);

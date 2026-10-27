@@ -845,6 +845,7 @@ export const fr: Partial<CatalogShape> = {
     elevationUnavailable: 'Cette couche d\'élévation n\'est pas disponible.',
     elevationNotReady: 'Cette couche d\'élévation n\'est pas encore prête.',
     elevationAddFailed: 'Impossible d\'ajouter cette couche d\'élévation.',
+    gettingReady: 'Préparation du terrain 3D...',
   },
   scaledSymbology: {
     title: 'Classes d\'échelle',
@@ -1147,6 +1148,21 @@ export const fr: Partial<CatalogShape> = {
     notFound: 'Introuvable',
     sessionExpired:
       'Votre session a expiré. Reconnectez-vous pour retrouver tout ce à quoi vous avez accès.',
+    apiUnreachable:
+      'Impossible de joindre le serveur API. Vérifiez que portal-api tourne sur le port 4000, puis réessayez.',
+    unexpected: 'Une erreur inattendue est survenue.',
+    tryAgain: 'Réessayer',
+    digest: 'Digest : {digest}',
+  },
+  submissionReceipts: {
+    title: 'Reçus',
+    intro: 'Un PDF texte de chaque envoi. Les 20 plus récents sont listés ici.',
+    empty:
+      "Aucun envoi pour l'instant. Les reçus apparaissent ici après une soumission.",
+    loadFailed: 'Impossible de charger les envois.',
+    downloadFailed: 'Impossible de télécharger le reçu.',
+    downloadPdf: 'Télécharger le PDF',
+    preparing: 'Préparation…',
   },
   errorReason: {
     unknown: 'erreur inconnue',

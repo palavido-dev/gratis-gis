@@ -876,6 +876,7 @@ export const en = {
     elevationUnavailable: 'That elevation layer is not available.',
     elevationNotReady: 'That elevation layer is not ready yet.',
     elevationAddFailed: 'Could not add that elevation layer.',
+    gettingReady: 'Getting the 3D ground ready...',
   },
   scaledSymbology: {
     title: 'Scale classes',
@@ -1182,6 +1183,21 @@ export const en = {
     notFound: 'Not found',
     sessionExpired:
       'Your sign-in expired. Sign in again to see everything you have access to.',
+    apiUnreachable:
+      'Could not reach the API server. Make sure portal-api is running on port 4000, then retry.',
+    unexpected: 'An unexpected error occurred.',
+    tryAgain: 'Try again',
+    digest: 'Digest: {digest}',
+  },
+  submissionReceipts: {
+    title: 'Receipts',
+    intro: 'A text PDF of each submission. The latest 20 are listed here.',
+    empty:
+      'No submissions yet. Receipts appear here after someone submits the form.',
+    loadFailed: 'Submissions could not be loaded.',
+    downloadFailed: 'The receipt could not be downloaded.',
+    downloadPdf: 'Download PDF',
+    preparing: 'Preparing…',
   },
   // Lower case: interpolated as the {reason} of another sentence when
   // a thrown value carries no message of its own.

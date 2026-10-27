@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { AlertTriangle, RefreshCcw } from 'lucide-react';
 import { SignOutButton } from '@/components/user-menu';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Route-level error boundary. When a server component throws (most
@@ -19,6 +20,7 @@ export default function RouteError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useT();
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.error('Route error:', error);
@@ -33,12 +35,12 @@ export default function RouteError({
       <div className="rounded-lg border border-danger/30 bg-danger/5 p-6">
         <div className="flex items-center gap-2 text-danger">
           <AlertTriangle className="h-5 w-5" />
-          <h1 className="text-lg font-semibold">Something went wrong</h1>
+          <h1 className="text-lg font-semibold">{t('errors.generic')}</h1>
         </div>
         <p className="mt-3 text-sm text-ink-1">
           {apiDown
-            ? 'Could not reach the API server. Make sure portal-api is running on port 4000, then retry.'
-            : error.message || 'An unexpected error occurred.'}
+            ? t('errors.apiUnreachable')
+            : error.message || t('errors.unexpected')}
         </p>
         <div className="mt-6 flex items-center gap-2">
           <button
@@ -47,7 +49,7 @@ export default function RouteError({
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
           >
             <RefreshCcw className="h-4 w-4" />
-            Try again
+            {t('errors.tryAgain')}
           </button>
           {/* Sign out must run the full client-side flow (NextAuth
               signOut() first, then the Keycloak end-session hop).
@@ -55,11 +57,13 @@ export default function RouteError({
               NextAuth cookie alive, which for a dead session means
               the user lands right back on this error screen. */}
           <SignOutButton className="inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2">
-            Sign out
+            {t('nav.signOut')}
           </SignOutButton>
         </div>
         {error.digest ? (
-          <p className="mt-4 text-xs text-muted">Digest: {error.digest}</p>
+          <p className="mt-4 text-xs text-muted">
+            {t('errors.digest', { digest: error.digest })}
+          </p>
         ) : null}
       </div>
     </div>

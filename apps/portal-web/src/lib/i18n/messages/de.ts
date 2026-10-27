@@ -845,6 +845,7 @@ export const de: Partial<CatalogShape> = {
     elevationUnavailable: 'Diese Höhenebene ist nicht verfügbar.',
     elevationNotReady: 'Diese Höhenebene ist noch nicht bereit.',
     elevationAddFailed: 'Diese Höhenebene konnte nicht hinzugefügt werden.',
+    gettingReady: '3D-Gelände wird vorbereitet...',
   },
   scaledSymbology: {
     title: 'Maßstabsklassen',
@@ -1148,6 +1149,21 @@ export const de: Partial<CatalogShape> = {
     notFound: 'Nicht gefunden',
     sessionExpired:
       'Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an, um wieder alles zu sehen, worauf Sie Zugriff haben.',
+    apiUnreachable:
+      'Der API-Server ist nicht erreichbar. Stellen Sie sicher, dass portal-api auf Port 4000 läuft, und versuchen Sie es erneut.',
+    unexpected: 'Ein unerwarteter Fehler ist aufgetreten.',
+    tryAgain: 'Erneut versuchen',
+    digest: 'Digest: {digest}',
+  },
+  submissionReceipts: {
+    title: 'Belege',
+    intro: 'Ein Text-PDF jeder Einsendung. Die neuesten 20 sind hier aufgeführt.',
+    empty:
+      'Noch keine Einsendungen. Belege erscheinen hier, sobald jemand das Formular absendet.',
+    loadFailed: 'Einsendungen konnten nicht geladen werden.',
+    downloadFailed: 'Der Beleg konnte nicht heruntergeladen werden.',
+    downloadPdf: 'PDF herunterladen',
+    preparing: 'Wird vorbereitet…',
   },
   errorReason: {
     unknown: 'unbekannter Fehler',
