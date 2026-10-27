@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | Branch `cursor/markup-annotation-kinds-2838` |
+| R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | PR #342 on `cursor/markup-annotation-kinds-2838` |
 
 ## queued (ship-without-input)
 
