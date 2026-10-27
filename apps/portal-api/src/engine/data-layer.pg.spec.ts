@@ -2491,20 +2491,31 @@ d('observation-log read paths against real PostGIS', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';
 
-    const makeService = () =>
-      new DataLayerFeaturesService(
-        // The service reads the layer's declared field schema off the
-        // `item` row to validate writes (schema validator). This suite's throwaway
-        // database carries only the observation table, so `item` is
-        // stubbed to "no such item", which makes the validator a
-        // no-op. That is the right shape here: what this scenario
-        // pins is the write path underneath validation, and the
-        // validator's own rules are covered in
-        // packages/shared-types/src/feature-validate.spec.ts.
+    const makeService = () => {
+      // Observation-only throwaway DB: stub the item row so schema
+      // validation stays a no-op (no fields) while syncVersion bumps
+      // still succeed. Validator rules are covered in
+      // packages/shared-types/src/feature-validate.spec.ts.
+      let syncVersion = 0;
+      let updatedAt = new Date('2026-03-01T00:00:00.000Z');
+      const itemRow = () => ({
+        data: {
+          version: 3 as const,
+          layers: [{ id: layerId, syncVersion }],
+        },
+        updatedAt,
+        ownerId: 'itest-user',
+      });
+      return new DataLayerFeaturesService(
         {
           item: {
-            findUnique: async () => null,
+            findUnique: async () => itemRow(),
             findMany: async () => [],
+            updateMany: async () => {
+              syncVersion += 1;
+              updatedAt = new Date(updatedAt.getTime() + 1);
+              return { count: 1 };
+            },
           },
         } as unknown as PrismaService,
         stub<DerivedLayerCacheRefreshService>({
@@ -2518,6 +2529,7 @@ d('observation-log read paths against real PostGIS', () => {
         stub<SharingService>({ visibleWhere: () => ({}) }),
         stub<AuthSyncService>({ principalForUserId: async () => null }),
       );
+    };
 
     const user = { id: 'itest-user', username: 'itest' } as AuthUser;
 
