@@ -6,8 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-expr-field-allowlist | security-deep-dive-2026-10-27 | Allowlist field names in expressions + ingest | This PR |
-| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | #374 CI |
+| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | This PR |
 
 ## queued (ship-without-input)
 
@@ -36,6 +35,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-expr-field-allowlist | 2026-10-27 | Merged #377: allowlist expression + ingest field names |
 | R6-i18n-field-status-chrome | 2026-10-27 | Merged #373: field PWA Add-feature and status chrome i18n |
 | SEC-otherSource-acl | 2026-10-27 | Merged #376: ACL-check derived-layer pipeline otherSource |
 | Q-security-sentinel-ops | 2026-10-27 | Merged #375: Security Sentinel + hardenings queue |

@@ -22,6 +22,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Print help lists text, arrow, and circle markup on the sheet
+  (not only pins / lines / polygons), matching what
+  `syncDrawings` paints into the PDF (R6-print-markup-kinds-help).
 - Field PWA Add-feature sheet and More-menu status chrome
   (Connection / Last cached / Storage / Online states) go through
   `fieldRuntime.*` catalogs (en / es / fr / de / pt-BR)

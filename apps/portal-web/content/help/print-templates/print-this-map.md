@@ -54,15 +54,15 @@ preview in the designer.
 
 ## Markup on the sheet
 
-Print includes the map's markup overlays (pins, lines, polygons)
-when those drawing sets are visible on the saved map. Toggle a
-set off in the Markup pane and save before printing if you want
-it omitted from the PDF. Viewer-only local hide toggles that are
-not saved do not change the print.
+Print includes the map's markup overlays (pins, lines, polygons,
+text, arrows, and circles) when those drawing sets are visible
+on the saved map. Toggle a set off in the Markup pane and save
+before printing if you want it omitted from the PDF. Viewer-only
+local hide toggles that are not saved do not change the print.
 
-Server-side Puppeteer render (Phase 2) is the path Print uses
-today: text stays text and map markup paints through the same
-MapLibre overlay the editor uses.
+Server-side Puppeteer render is the path Print uses today: map
+markup paints through the same MapLibre overlay the editor uses
+(`syncDrawings`), including text labels, arrows, and circles.
 
 ## Related
 
