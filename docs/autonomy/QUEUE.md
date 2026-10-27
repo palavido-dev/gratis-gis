@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | PR in flight on `cursor/layer-delta-sync-2838` |
+| R1-sync-conflict-artifact | research-cycle-1 | `checkOnly` dry run + recoverable conflict artifacts | Branch `cursor/sync-conflict-artifact-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-sync-conflict-artifact | research-cycle-1 | `checkOnly` dry run + recoverable conflict artifacts | Depends lightly on delta work |
 | R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | #154 |
 | R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | #155; after drawings kinds help |
 | R1-dcat-themes-aardvark | research-cycle-1 | DCAT themes + Aardvark export | #116 |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R1-layer-delta-sync | 2026-10-27 | Merged #328: layer syncVersion + GET .../delta?since=N |
 | R1-records-metasearch | 2026-10-27 | Merged #327: `/collections/catalog` searchable-catalog for MetaSearch |
 | Q-rel-09118 | 2026-10-27 | Tagged v0.9.118; app images on prod. PG18 boot failed; host rolled back to PG17 |
 | Q-hotfix-pg17 | 2026-10-27 | Prod restored (site 200, PG 17.5). Tagged v0.9.119 on main |

@@ -264,10 +264,40 @@ export interface DataLayerSublayer {
    * return O(changes) instead of a full GeoJSON pull. Absent means 0.
    */
   syncVersion?: number;
+  /**
+   * Recent sync conflicts (losing-side edits) kept on the layer so a
+   * field crew can reopen them after a 409. Capped server-side; oldest
+   * drop first. Mergin-shaped recoverability without a second store.
+   */
+  syncConflicts?: SyncConflictArtifact[];
   /** Provenance of the most recent ingest into this layer. Per-layer
    *  because different layers in one v3 item might be sourced from
    *  different files. */
   source?: DataLayerSource;
+}
+
+/** One losing-side edit kept after an optimistic-concurrency 409. */
+export interface SyncConflictArtifact {
+  id: string;
+  at: ISODateString;
+  featureId: string;
+  op: 'update' | 'delete';
+  /** Observation id the client thought was head. */
+  baseObservationId?: string;
+  /** Losing-side GeoJSON Feature (update) or null (delete). */
+  losingSide: {
+    type: 'Feature';
+    id: string;
+    geometry: unknown;
+    properties: Record<string, unknown>;
+  } | null;
+  /** Head feature at conflict time, or null if it was deleted. */
+  current: {
+    type: 'Feature';
+    id: string;
+    geometry: unknown;
+    properties: Record<string, unknown>;
+  } | null;
 }
 
 export interface DataLayerDataV3 {

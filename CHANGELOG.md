@@ -19,6 +19,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   returns observation-log changes (including deletes) under the same
   share geo and row-scope limits as feature reads, for O(changes)
   field / QGIS sync.
+- Feature PATCH/DELETE accept `checkOnly` to validate
+  `baseObservationId` and schema without writing. Optimistic-concurrency
+  409 responses include the losing-side edit and persist a capped
+  `syncConflicts` artifact on the layer for later review.
 
 ## [0.9.119] - 2026-10-27
 
