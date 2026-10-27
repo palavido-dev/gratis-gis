@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | Branch `cursor/lidar-incremental-writeup-2838`; do not close #183 |
+| Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | PR #336 on `cursor/lidar-incremental-writeup-2838`; do not close #183 |
 
 ## queued (ship-without-input)
 
