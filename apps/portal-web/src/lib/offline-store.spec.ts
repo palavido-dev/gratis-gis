@@ -40,6 +40,7 @@ import {
   OFFLINE_DB_NAME,
   purgeCachedReadData,
   putFeatures,
+  deleteFeatures,
   putPendingBlob,
   removeForeignOfflineData,
   setOfflineIdentity,
@@ -301,6 +302,75 @@ describe('pending attachments', () => {
     expect(await countUnsyncedEdits(USER)).toBe(1);
     await enqueueEdit(edit());
     expect(await countUnsyncedEdits(USER)).toBe(2);
+  });
+});
+
+describe('deleteFeatures', () => {
+  it('removes only the named globalIds for a layer', async () => {
+    await putFeatures([
+      {
+        dataCollectionId: DC,
+        dataLayerId: LAYER.dataLayerId,
+        layerKey: LAYER.layerKey,
+        globalId: 'keep',
+        feature: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [0, 0] },
+          properties: { _global_id: 'keep' },
+        },
+        cachedAt: new Date().toISOString(),
+      },
+      {
+        dataCollectionId: DC,
+        dataLayerId: LAYER.dataLayerId,
+        layerKey: LAYER.layerKey,
+        globalId: 'drop',
+        feature: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 1] },
+          properties: { _global_id: 'drop' },
+        },
+        cachedAt: new Date().toISOString(),
+      },
+    ]);
+
+    await deleteFeatures(DC, LAYER.dataLayerId, LAYER.layerKey, ['drop']);
+
+    const { listFeaturesForLayer } = await import('./offline-store');
+    const left = await listFeaturesForLayer(
+      DC,
+      LAYER.dataLayerId,
+      LAYER.layerKey,
+    );
+    expect(left).toHaveLength(1);
+    expect((left[0]!.properties as { _global_id?: string })._global_id).toBe(
+      'keep',
+    );
+  });
+
+  it('round-trips syncVersion on a deployment manifest', async () => {
+    const { putDeployment, getDeployment } = await import('./offline-store');
+    await putDeployment({
+      dataCollectionId: DC,
+      title: 'Cursor',
+      slug: 'cursor',
+      mapId: 'map-1',
+      layerSchemas: {
+        [`${LAYER.dataLayerId}:${LAYER.layerKey}`]: {
+          dataLayerId: LAYER.dataLayerId,
+          layerKey: LAYER.layerKey,
+          schemaHash: 'abc',
+          fields: [],
+          syncVersion: 17,
+        },
+      },
+      cachedAt: new Date().toISOString(),
+      estimatedSize: 0,
+    });
+    const dep = await getDeployment(DC);
+    expect(
+      dep!.layerSchemas[`${LAYER.dataLayerId}:${LAYER.layerKey}`]?.syncVersion,
+    ).toBe(17);
   });
 });
 
