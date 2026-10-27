@@ -6,15 +6,13 @@ import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
- * Comments panel (#155 Phase 1).
+ * Comments panel (#155 Phase 1 + 2).
  *
  * A floating overlay on the map editor that lets viewers (not just
- * editors) leave threaded comments on a map. Pairs with the markup
- * panel: a reviewer who drops a redline pin can also leave a
- * threaded conversation about it. Phase 1 ships map-level threads
- * only; Phase 2 will anchor threads to specific features and
- * drawing pins via the polymorphic (parentKind, parentId) the
- * server already persists.
+ * editors) leave threaded comments on a map. Phase 2 anchors
+ * threads to a selected feature or drawing feature via the
+ * polymorphic (parentKind, parentId) the server already persists.
+ * Map-level threads remain the default when no compose anchor is set.
  *
  * Permission posture:
  *   - Any signed-in viewer can read every thread, open new ones,
@@ -31,12 +29,14 @@ import {
   Check,
   ChevronDown,
   Loader2,
+  MapPin,
   MessageSquarePlus,
   Send,
   Trash2,
   Undo2,
   X,
 } from 'lucide-react';
+import type { CommentAnchor } from './comment-anchors';
 
 interface CommentDTO {
   id: string;
@@ -48,7 +48,7 @@ interface CommentDTO {
   editedAt: string | null;
 }
 
-interface ThreadDTO {
+export interface ThreadDTO {
   id: string;
   itemId: string;
   parentKind: 'map' | 'layer' | 'feature' | 'drawing';
@@ -62,6 +62,8 @@ interface ThreadDTO {
   comments: CommentDTO[];
 }
 
+export type CommentThreadDTO = ThreadDTO;
+
 interface Props {
   itemId: string;
   open: boolean;
@@ -71,6 +73,22 @@ interface Props {
    *  see resolve / delete actions on every thread; viewers see
    *  them only for their own. */
   canEditItem: boolean;
+  /**
+   * Optional compose target from the map (selected feature).
+   * When set, new threads post with that parentKind / parentId.
+   * Cleared by the parent when the selection empties, or locally
+   * when the user chooses map-level / a markup feature.
+   */
+  composeAnchor?: CommentAnchor | null;
+  onComposeAnchorChange?: (anchor: CommentAnchor | null | undefined) => void;
+  /** Drawing features available to anchor a new thread to. */
+  drawingOptions?: Array<{ id: string; label: string }>;
+  /** Highlight a thread (e.g. after clicking a map pin). */
+  focusThreadId?: string | null;
+  /** Notify parent when the thread list changes so pins can refresh. */
+  onThreadsChange?: (threads: ThreadDTO[]) => void;
+  /** Fired when the user picks a thread in the list (e.g. to fly to pin). */
+  onSelectThread?: (thread: ThreadDTO) => void;
 }
 
 export function CommentsPanel({
@@ -79,6 +97,12 @@ export function CommentsPanel({
   onClose,
   currentUser,
   canEditItem,
+  composeAnchor = null,
+  onComposeAnchorChange,
+  drawingOptions = [],
+  focusThreadId = null,
+  onThreadsChange,
+  onSelectThread,
 }: Props) {
   const t = useT();
   const [threads, setThreads] = useState<ThreadDTO[]>([]);
@@ -95,12 +119,13 @@ export function CommentsPanel({
     try {
       const fresh = await api<ThreadDTO[]>(`/api/portal/items/${itemId}/comments`);
       setThreads(fresh);
+      onThreadsChange?.(fresh);
     } catch (e) {
       setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setLoading(false);
     }
-  }, [itemId, t]);
+  }, [itemId, t, onThreadsChange]);
 
   useEffect(() => {
     if (open) refresh();
@@ -108,7 +133,7 @@ export function CommentsPanel({
 
   const visibleThreads = useMemo(() => {
     if (showResolved) return threads;
-    return threads.filter((t) => !t.resolved);
+    return threads.filter((th) => !th.resolved);
   }, [threads, showResolved]);
 
   const startThread = useCallback(async () => {
@@ -118,18 +143,31 @@ export function CommentsPanel({
     setBusy(true);
     setError(null);
     try {
+      const payload: {
+        body: string;
+        parentKind?: string;
+        parentId?: string;
+      } = { body };
+      if (composeAnchor) {
+        payload.parentKind = composeAnchor.parentKind;
+        payload.parentId = composeAnchor.parentId;
+      }
       const created = await api<ThreadDTO>(
         `/api/portal/items/${itemId}/comments`,
-        { method: 'POST', body: JSON.stringify({ body }) },
+        { method: 'POST', body: JSON.stringify(payload) },
       );
-      setThreads((curr) => [...curr, created]);
+      setThreads((curr) => {
+        const next = [...curr, created];
+        onThreadsChange?.(next);
+        return next;
+      });
       setDraftBody('');
     } catch (e) {
       setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setBusy(false);
     }
-  }, [currentUser, draftBody, itemId, t]);
+  }, [currentUser, draftBody, itemId, t, composeAnchor, onThreadsChange]);
 
   const sendReply = useCallback(
     async (threadId: string) => {
@@ -168,16 +206,20 @@ export function CommentsPanel({
           `/api/portal/items/${itemId}/comments/${threadId}`,
           { method: 'PATCH', body: JSON.stringify({ resolved }) },
         );
-        setThreads((curr) =>
-          curr.map((thread) => (thread.id === threadId ? updated : thread)),
-        );
+        setThreads((curr) => {
+          const next = curr.map((thread) =>
+            thread.id === threadId ? updated : thread,
+          );
+          onThreadsChange?.(next);
+          return next;
+        });
       } catch (e) {
         setError(message(e, t('mapComments.somethingWrong')));
       } finally {
         setBusy(false);
       }
     },
-    [itemId, t],
+    [itemId, t, onThreadsChange],
   );
 
   const removeComment = useCallback(
@@ -272,20 +314,36 @@ export function CommentsPanel({
               <li
                 key={thread.id}
                 className={`rounded border px-2 py-2 ${
-                  thread.resolved
-                    ? 'border-border bg-surface-2 opacity-75'
-                    : 'border-border bg-surface-1'
+                  focusThreadId === thread.id
+                    ? 'border-accent/50 bg-accent/5'
+                    : thread.resolved
+                      ? 'border-border bg-surface-2 opacity-75'
+                      : 'border-border bg-surface-1'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-2xs text-muted">
+                  <button
+                    type="button"
+                    onClick={() => onSelectThread?.(thread)}
+                    className="min-w-0 flex-1 text-left text-2xs text-muted hover:text-ink-1"
+                  >
+                    {thread.parentKind !== 'map' ? (
+                      <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-surface-2 px-1 py-0.5 text-2xs text-ink-1">
+                        <MapPin className="h-2.5 w-2.5" />
+                        {thread.parentKind === 'feature'
+                          ? t('mapComments.anchorFeature')
+                          : thread.parentKind === 'drawing'
+                            ? t('mapComments.anchorDrawing')
+                            : t('mapComments.anchorLayer')}
+                      </span>
+                    ) : null}
                     {t('mapComments.threadOpened', {
                       when: formatRelative(thread.createdAt),
                     })}
                     {thread.resolved
                       ? t('mapComments.resolvedSuffix')
                       : null}
-                  </p>
+                  </button>
                   {canResolve(thread) ? (
                     <button
                       type="button"
@@ -374,23 +432,76 @@ export function CommentsPanel({
 
       <div className="border-t border-border px-3 py-2">
         {currentUser ? (
-          <div className="flex items-end gap-1">
-            <textarea
-              value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
-              placeholder={t('mapComments.newThreadPlaceholder')}
-              rows={2}
-              className="flex-1 rounded border border-border bg-surface-1 px-2 py-1 text-sm text-ink-1"
-            />
-            <button
-              type="button"
-              onClick={startThread}
-              disabled={busy || draftBody.trim().length === 0}
-              className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
-            >
-              <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
-              {t('mapComments.post')}
-            </button>
+          <div className="space-y-1.5">
+            {composeAnchor ? (
+              <div className="flex items-center gap-1.5 text-2xs text-ink-1">
+                <MapPin className="h-3 w-3 text-accent" />
+                <span className="min-w-0 flex-1 truncate">
+                  {t('mapComments.composeOn', { label: composeAnchor.label })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onComposeAnchorChange?.(null)}
+                  className="rounded px-1 text-muted hover:bg-surface-2 hover:text-ink-1"
+                >
+                  {t('mapComments.composeMapLevel')}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted">
+                <span>{t('mapComments.composeHint')}</span>
+                {drawingOptions.length > 0 ? (
+                  <select
+                    className="max-w-[12rem] truncate rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs text-ink-1"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const opt = drawingOptions.find((d) => d.id === id);
+                      if (!opt) return;
+                      onComposeAnchorChange?.({
+                        parentKind: 'drawing',
+                        parentId: opt.id,
+                        label: opt.label,
+                      });
+                      e.target.value = '';
+                    }}
+                    aria-label={t('mapComments.anchorDrawingPick')}
+                  >
+                    <option value="">
+                      {t('mapComments.anchorDrawingPick')}
+                    </option>
+                    {drawingOptions.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+            )}
+            <div className="flex items-end gap-1">
+              <textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                placeholder={
+                  composeAnchor
+                    ? t('mapComments.newAnchoredPlaceholder')
+                    : t('mapComments.newThreadPlaceholder')
+                }
+                rows={2}
+                className="flex-1 rounded border border-border bg-surface-1 px-2 py-1 text-sm text-ink-1"
+              />
+              <button
+                type="button"
+                onClick={startThread}
+                disabled={busy || draftBody.trim().length === 0}
+                className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+              >
+                <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+                {t('mapComments.post')}
+              </button>
+            </div>
           </div>
         ) : (
           <p className="text-xs text-muted">

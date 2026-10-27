@@ -2349,6 +2349,16 @@ export const fr: Partial<CatalogShape> = {
     threadOpened: 'Fil ouvert {when}',
     resolvedSuffix: ' • Résolu',
     editedSuffix: ' (modifié)',
+    newAnchoredPlaceholder: 'Commenter la sélection…',
+    composeHint:
+      'Sélectionnez une entité sur la carte pour ancrer un fil, ou publiez au niveau carte.',
+    composeOn: 'Sur {label}',
+    composeMapLevel: 'Niveau carte',
+    anchorFeature: 'Entité',
+    anchorDrawing: 'Annotation',
+    anchorLayer: 'Couche',
+    anchorDrawingPick: 'Ancrer à une annotation…',
+
   },
   mapMarkup: {
     title: 'Annotations',

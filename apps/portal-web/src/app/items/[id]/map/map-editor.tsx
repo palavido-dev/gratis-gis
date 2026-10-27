@@ -58,7 +58,15 @@ import { MarkupPanel } from './markup-panel';
 import { ElevationProfileTool } from './elevation-profile';
 import { VisibilityTool } from './visibility-tool';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
-import { CommentsPanel } from './comments-panel';
+import {
+  CommentsPanel,
+  type CommentThreadDTO,
+} from './comments-panel';
+import { CommentPinsOverlay } from './comment-pins-overlay';
+import {
+  singleSelectionAnchor,
+  type CommentAnchor,
+} from './comment-anchors';
 import { PresenceOverlay } from './presence-overlay';
 import { PrintThisMapDialog } from './print-this-map-dialog';
 import type { DrawingSet } from '@gratis-gis/shared-types';
@@ -442,6 +450,32 @@ export function MapEditor({
   // and pushes updates back through `setDrawings`.
   const [markupOpen, setMarkupOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentThreads, setCommentThreads] = useState<CommentThreadDTO[]>(
+    [],
+  );
+  const [commentFocusId, setCommentFocusId] = useState<string | null>(null);
+  // undefined = follow selection; null = force map-level; object = explicit
+  const [composeAnchorOverride, setComposeAnchorOverride] = useState<
+    CommentAnchor | null | undefined
+  >(undefined);
+
+  // Keep comment pins on the map even when the panel is closed.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${itemId}/comments`);
+        if (!res.ok || cancelled) return;
+        const list = (await res.json()) as CommentThreadDTO[];
+        if (!cancelled) setCommentThreads(list);
+      } catch {
+        /* pins are best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
   // #159: "Print this map" chooser. Opens a thin dialog that
   // lets the author either pick an existing print template or
   // create a new one pre-bound to this map.
@@ -493,6 +527,37 @@ export function MapEditor({
       ),
     [selection],
   );
+
+  // Phase 2: a single selected feature becomes the compose target
+  // for a new comment thread. An explicit override (markup pick or
+  // clear-to-map-level) wins over the live selection.
+  const selectionComposeAnchor = useMemo(
+    () => singleSelectionAnchor(selection, map.layers),
+    [selection, map.layers],
+  );
+  const composeAnchor =
+    composeAnchorOverride === undefined
+      ? selectionComposeAnchor
+      : composeAnchorOverride;
+
+  // When the live selection changes, drop an explicit override so the
+  // new selection becomes the compose target again.
+  useEffect(() => {
+    setComposeAnchorOverride(undefined);
+  }, [selectionComposeAnchor?.parentId]);
+
+  const drawingCommentOptions = useMemo(() => {
+    const out: Array<{ id: string; label: string }> = [];
+    for (const set of drawings) {
+      for (const f of set.features) {
+        out.push({
+          id: f.id,
+          label: `${set.title} · ${f.kind}${f.label ? ` · ${f.label}` : ''}`,
+        });
+      }
+    }
+    return out;
+  }, [drawings]);
 
   // Access matrix: open state + all the data the modal renders.
   // We lazy-fetch on open so the overhead (a request per backing
@@ -2195,6 +2260,27 @@ export function MapEditor({
                 onClose={() => setCommentsOpen(false)}
                 currentUser={currentUser}
                 canEditItem={canEdit}
+                composeAnchor={composeAnchor}
+                onComposeAnchorChange={setComposeAnchorOverride}
+                drawingOptions={drawingCommentOptions}
+                focusThreadId={commentFocusId}
+                onThreadsChange={setCommentThreads}
+                onSelectThread={(thread) => {
+                  setCommentFocusId(thread.id);
+                  setCommentsOpen(true);
+                }}
+              />
+              <CommentPinsOverlay
+                map={mapLibre}
+                threads={commentThreads}
+                drawings={drawings}
+                featuresByLayer={featuresByLayer}
+                showResolved={false}
+                focusThreadId={commentFocusId}
+                onSelectThreadId={(id) => {
+                  setCommentFocusId(id);
+                  setCommentsOpen(true);
+                }}
               />
               {/* #156 Live presence overlay. Renders avatar chips at
                   top-right of the canvas + per-viewer cursor markers

@@ -2343,6 +2343,16 @@ export const es: Partial<CatalogShape> = {
     threadOpened: 'Hilo abierto {when}',
     resolvedSuffix: ' • Resuelto',
     editedSuffix: ' (editado)',
+    newAnchoredPlaceholder: 'Comentar la selección…',
+    composeHint:
+      'Selecciona una entidad en el mapa para anclar un hilo, o publica a nivel de mapa.',
+    composeOn: 'En {label}',
+    composeMapLevel: 'Nivel de mapa',
+    anchorFeature: 'Entidad',
+    anchorDrawing: 'Anotación',
+    anchorLayer: 'Capa',
+    anchorDrawingPick: 'Anclar a anotación…',
+
   },
   mapMarkup: {
     title: 'Anotaciones',

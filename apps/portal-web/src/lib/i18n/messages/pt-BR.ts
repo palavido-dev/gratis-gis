@@ -2338,6 +2338,16 @@ export const ptBR: Partial<CatalogShape> = {
     threadOpened: 'Tópico aberto {when}',
     resolvedSuffix: ' • Resolvido',
     editedSuffix: ' (editado)',
+    newAnchoredPlaceholder: 'Comentar a seleção…',
+    composeHint:
+      'Selecione uma feição no mapa para ancorar um tópico, ou publique no nível do mapa.',
+    composeOn: 'Em {label}',
+    composeMapLevel: 'Nível do mapa',
+    anchorFeature: 'Feição',
+    anchorDrawing: 'Anotação',
+    anchorLayer: 'Camada',
+    anchorDrawingPick: 'Ancorar na anotação…',
+
   },
   mapMarkup: {
     title: 'Anotações',

@@ -1,7 +1,7 @@
 ---
 id: map-editing-comments
 title: Comments and conversations
-summary: Threaded comments scoped to a map so reviewers can have a conversation about what they're seeing.
+summary: Threaded comments on a map, optionally anchored to a selected feature or markup sketch so reviewers can talk about a specific place.
 category: map-editing
 order: 41
 complexity: basic
@@ -17,8 +17,7 @@ related:
 Comments let you have a real conversation about a map without
 leaving the map. Open a thread, reply, resolve it when the
 question is answered. Pairs naturally with [markup](map-editing-markup):
-drop a pin to flag a specific spot, then open a comment thread
-about it.
+draw a redline, then open a comment thread about it.
 
 ## Opening the Comments panel
 
@@ -28,10 +27,19 @@ thread on the map.
 
 ## Starting a thread
 
-Type into the **Start a new thread** box at the bottom and click
-**Post**. The thread appears in the panel with your name and a
-timestamp. Anyone else viewing the map (including over a public
-share link) sees the thread on their next refresh.
+Type into the box at the bottom and click **Post**. The thread
+appears in the panel with your name and a timestamp. Anyone else
+viewing the map (including over a public share link) sees the
+thread on their next refresh.
+
+## Anchoring to a feature or markup
+
+Select exactly one feature on the map before you post: the compose
+box switches to that feature and the new thread is pinned to it.
+Blue pins on the map mark open feature- or markup-anchored threads;
+click a pin to open that conversation. You can also pick a markup
+sketch from the **Anchor to markup** list when no feature is
+selected. Use **Map-level** to post without an anchor.
 
 ## Replying
 
@@ -58,23 +66,7 @@ stay around as a record; nothing is permanently deleted.
 |---|---|
 | Read all comments | Anyone who can view the map |
 | Open a new thread | Any signed-in viewer |
-| Reply to an open thread | Any signed-in viewer |
-| Edit your own comment | The author, within 15 minutes |
-| Delete your own comment | The author, any time |
-| Edit any comment | Map editor |
-| Delete any comment | Map editor |
-| Resolve a thread | Thread opener or map editor |
-
-## What ships in Phase 1
-
-Phase 1 threads are scoped to the whole map. Phase 2 will add
-threads anchored to a specific layer, a specific feature, or a
-specific markup pin, with the thread rendered as a small pin on
-the map. The conversation primitive itself stays the same.
-
-## Related
-
-- [Markup](map-editing-markup) for redlining a map alongside the
-  conversation.
-- [Live presence](map-editing-presence) to see who else is in
-  the map right now.
+| Reply | Any signed-in viewer |
+| Edit own comment | Author (within 15 minutes) or map editor |
+| Resolve / reopen | Thread opener or map editor |
+| Delete a comment | Author or map editor |

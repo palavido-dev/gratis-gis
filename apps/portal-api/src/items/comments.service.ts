@@ -112,11 +112,11 @@ export class CommentsService {
     const body = this.sanitizeBody(input.body);
     const item = await this.loadItem(itemId);
     await this.assertCanRead(user, item);
-    const parentKind = input.parentKind ?? 'map';
-    const parentId =
-      input.parentId && input.parentId.length > 0
-        ? input.parentId.slice(0, 200)
-        : itemId;
+    const { parentKind, parentId } = normalizeParentRef(
+      itemId,
+      input.parentKind,
+      input.parentId,
+    );
     const created = await this.prisma.commentThread.create({
       data: {
         itemId,
@@ -426,4 +426,43 @@ export class CommentsService {
       editedAt: c.editedAt ? c.editedAt.toISOString() : null,
     };
   }
+}
+
+/**
+ * Normalize and validate a comment parent ref. Map-level threads
+ * default parentId to the item id. Feature anchors must use the
+ * `<mapLayerId>:<featureId>` composite so OBJECTIDs do not collide
+ * across layers. Drawing anchors are the DrawingFeature UUID.
+ * Layer anchors are a MapLayer.id. Empty / missing parentId with a
+ * non-map kind is refused rather than silently falling back to the
+ * map, so a buggy client cannot create fake map threads.
+ */
+function normalizeParentRef(
+  itemId: string,
+  kind: 'map' | 'layer' | 'feature' | 'drawing' | undefined,
+  rawId: string | undefined,
+): { parentKind: 'map' | 'layer' | 'feature' | 'drawing'; parentId: string } {
+  const parentKind = kind ?? 'map';
+  const trimmed =
+    typeof rawId === 'string' && rawId.trim().length > 0
+      ? rawId.trim().slice(0, 200)
+      : '';
+  if (parentKind === 'map') {
+    return { parentKind: 'map', parentId: trimmed.length > 0 ? trimmed : itemId };
+  }
+  if (trimmed.length === 0) {
+    throw new BadRequestException(
+      `parentId is required when parentKind is '${parentKind}'`,
+    );
+  }
+  if (parentKind === 'feature') {
+    // Composite encoding: mapLayerId:featureId
+    const sep = trimmed.indexOf(':');
+    if (sep <= 0 || sep === trimmed.length - 1) {
+      throw new BadRequestException(
+        "parentId for feature comments must be '<mapLayerId>:<featureId>'",
+      );
+    }
+  }
+  return { parentKind, parentId: trimmed };
 }

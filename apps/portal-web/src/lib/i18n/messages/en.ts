@@ -2438,6 +2438,7 @@ export const en = {
     deleteAria: 'Delete comment',
     replyPlaceholder: 'Reply...',
     newThreadPlaceholder: 'Start a new thread...',
+    newAnchoredPlaceholder: 'Comment on the selected feature...',
     somethingWrong: 'Something went wrong',
     showResolved: 'Show resolved',
     threads: '{count, plural, one {# thread} other {# threads}}',
@@ -2448,6 +2449,14 @@ export const en = {
     threadOpened: 'Thread opened {when}',
     resolvedSuffix: ' • Resolved',
     editedSuffix: ' (edited)',
+    composeHint:
+      'Select one feature on the map to anchor a thread, or post map-level below.',
+    composeOn: 'On {label}',
+    composeMapLevel: 'Map-level',
+    anchorFeature: 'Feature',
+    anchorDrawing: 'Markup',
+    anchorLayer: 'Layer',
+    anchorDrawingPick: 'Anchor to markup…',
   },
   mapMarkup: {
     title: 'Markup',

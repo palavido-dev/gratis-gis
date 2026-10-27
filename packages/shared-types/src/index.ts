@@ -17,6 +17,7 @@ export * from './capabilities';
 export * from './item';
 export * from './map';
 export * from './drawings';
+export * from './comments';
 export * from './data-layer';
 export * from './feature-validate';
 export * from './submission-stamp';
