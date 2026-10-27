@@ -6,14 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-analyze-erase-shortcut | research-cycle-6 | Analyze Erase → PostGIS derived_layer | This PR |
-| R6-sync-conflict-dismiss | research-cycle-6 | Dismiss syncConflicts after review / re-apply | #370 CI |
+| R6-i18n-analyze-guides | research-cycle-6 | Buffer/Clip Analyze chrome i18n (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-i18n-analyze-guides | research-cycle-6 | Buffer/Clip Analyze chrome i18n (#162) | Bound |
 | R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | Bound |
 | R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | Docs |
 | R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
@@ -33,6 +31,8 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R6-analyze-erase-shortcut | 2026-10-27 | Merged #371: Analyze Erase → PostGIS derived_layer |
+| R6-sync-conflict-dismiss | 2026-10-27 | Merged #370: Dismiss syncConflicts after review / re-apply |
 | Q-research-cycle-6 | 2026-10-27 | Merged #369: research-cycle-6 refill ship-without-input queue |
 | R5-arcgis-pull-to-local | 2026-10-27 | Merged #368: Copy selected FeatureServer layers to data_layer (50k cap) |
 | R5-gdb-editor-server-ingest | 2026-10-27 | Merged #367: v3 Import stages .gdb via /ingest/stage |
