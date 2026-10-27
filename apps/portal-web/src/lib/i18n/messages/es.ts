@@ -2607,6 +2607,16 @@ export const es: Partial<CatalogShape> = {
     syncConflictReapplyFailed: 'No se pudo reaplicar ese conflicto.',
     syncConflictReapplyUnavailable:
       'Este conflicto no tiene una edición del lado perdedor para reaplicar.',
+    syncConflictDismissAction: 'Descartar',
+    syncConflictDismissBusy: 'Descartando…',
+    syncConflictDismissTitle: '¿Descartar este conflicto de sincronización?',
+    syncConflictDismissMessage:
+      'Quitar esta tarjeta de conflicto de la capa. Las entidades en vivo no cambian. No puede deshacer esta entrada de la lista sin otro conflicto.',
+    syncConflictDismissAfterReapply:
+      'La reaplicación se realizó correctamente. ¿Descartar esta tarjeta de conflicto de la lista?',
+    syncConflictDismissAfterNoop:
+      'Nada que escribir (ya coincide). ¿Descartar esta tarjeta de conflicto de la lista?',
+    syncConflictDismissFailed: 'No se pudo descartar ese conflicto.',
     syncConflictCompareLosing: 'Lado perdedor',
     syncConflictCompareCurrent: 'En el momento del conflicto (actual)',
     syncConflictSideDeleted: 'La entidad estaba eliminada.',

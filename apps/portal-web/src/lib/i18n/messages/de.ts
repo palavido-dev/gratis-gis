@@ -2622,6 +2622,16 @@ export const de: Partial<CatalogShape> = {
     syncConflictReapplyFailed: 'Konflikt konnte nicht erneut angewendet werden.',
     syncConflictReapplyUnavailable:
       'Dieser Konflikt hat keine verlierende Bearbeitung zum erneuten Anwenden.',
+    syncConflictDismissAction: 'Verwerfen',
+    syncConflictDismissBusy: 'Verwerfen…',
+    syncConflictDismissTitle: 'Diesen Sync-Konflikt verwerfen?',
+    syncConflictDismissMessage:
+      'Diese Konfliktkarte von der Ebene entfernen. Live-Features bleiben unverändert. Diesen Listeneintrag können Sie ohne einen neuen Konflikt nicht rückgängig machen.',
+    syncConflictDismissAfterReapply:
+      'Erneutes Anwenden erfolgreich. Diese Konfliktkarte aus der Liste verwerfen?',
+    syncConflictDismissAfterNoop:
+      'Nichts zu schreiben (bereits übereinstimmend). Diese Konfliktkarte aus der Liste verwerfen?',
+    syncConflictDismissFailed: 'Dieser Konflikt konnte nicht verworfen werden.',
     syncConflictCompareLosing: 'Verlierende Seite',
     syncConflictCompareCurrent: 'Zum Konfliktzeitpunkt (aktuell)',
     syncConflictSideDeleted: 'Feature war geloscht.',

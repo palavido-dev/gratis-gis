@@ -2613,6 +2613,16 @@ export const fr: Partial<CatalogShape> = {
     syncConflictReapplyFailed: 'Impossible de reappliquer ce conflit.',
     syncConflictReapplyUnavailable:
       "Ce conflit n'a pas de modification perdante a reappliquer.",
+    syncConflictDismissAction: 'Ignorer',
+    syncConflictDismissBusy: 'Ignore…',
+    syncConflictDismissTitle: 'Ignorer ce conflit de synchronisation ?',
+    syncConflictDismissMessage:
+      'Retirer cette carte de conflit de la couche. Les entités live ne changent pas. Vous ne pouvez pas annuler cette entrée de liste sans un autre conflit.',
+    syncConflictDismissAfterReapply:
+      'La réapplication a réussi. Ignorer cette carte de conflit de la liste ?',
+    syncConflictDismissAfterNoop:
+      'Rien à écrire (déjà conforme). Ignorer cette carte de conflit de la liste ?',
+    syncConflictDismissFailed: 'Impossible d\'ignorer ce conflit.',
     syncConflictCompareLosing: 'Cote perdant',
     syncConflictCompareCurrent: 'Au moment du conflit (actuel)',
     syncConflictSideDeleted: "L'entite etait supprimee.",

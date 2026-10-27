@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Layer data panel **Dismiss** for syncConflicts (and optional clear
+  after a successful re-apply): `DELETE
+  /items/:id/layers/:layerId/sync-conflicts/:conflictId` drops one
+  artifact by id for editors (R6-sync-conflict-dismiss).
 - ArcGIS service items gain **Copy selected layers to data layer**
   (`POST /items/:id/copy-to-data-layer`), reusing hosted-fs
   FeatureServer pagination (`outSR=4326`, page 2000) with a

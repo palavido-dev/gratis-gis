@@ -3,16 +3,24 @@
 
 /**
  * Surfaces layer.syncConflicts artifacts (#329 / #339) and lets editors
- * re-apply the losing side (R3-sync-conflict-reapply).
+ * re-apply the losing side (R3-sync-conflict-reapply) or dismiss a
+ * reviewed card (R6-sync-conflict-dismiss).
  *
  * Optimistic-concurrency 409s stamp a capped ring buffer on the layer
  * JSON. Re-apply PATCHes / DELETEs with the live baseObservationId, or
- * POSTs a recreate when the feature is gone. Artifacts stay after
- * success until a dismiss API exists (v1).
+ * POSTs a recreate when the feature is gone. Dismiss drops one
+ * artifact by id after confirm (and after a successful re-apply when
+ * the editor accepts).
  */
 import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import type { SyncConflictArtifact } from '@gratis-gis/shared-types';
 import { useConfirm } from '@/components/dialog-provider';
 import { parseApiError } from '@/lib/api-error';
@@ -232,23 +240,82 @@ export function SyncConflictsPanel({
     if (!ok) return;
 
     if (plan.method === 'noop') {
-      router.refresh();
+      const clear = await confirm({
+        title: t('layerDataPanel.syncConflictDismissTitle'),
+        message: t('layerDataPanel.syncConflictDismissAfterNoop'),
+        confirmLabel: t('layerDataPanel.syncConflictDismissAction'),
+      });
+      if (clear) {
+        await dismiss(c.id);
+      } else {
+        router.refresh();
+      }
       return;
     }
 
     setBusyId(c.id);
     try {
       await executePlan(plan);
-      router.refresh();
+      setBusyId(null);
+      const clear = await confirm({
+        title: t('layerDataPanel.syncConflictDismissTitle'),
+        message: t('layerDataPanel.syncConflictDismissAfterReapply'),
+        confirmLabel: t('layerDataPanel.syncConflictDismissAction'),
+      });
+      if (clear) {
+        await dismiss(c.id);
+      } else {
+        router.refresh();
+      }
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : t('layerDataPanel.syncConflictReapplyFailed'),
       );
+      setBusyId(null);
+    }
+  }
+
+  async function dismiss(conflictId: string) {
+    if (!canEdit) return;
+    setError(null);
+    setBusyId(conflictId);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerId)}/sync-conflicts/${encodeURIComponent(conflictId)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        throw new Error(
+          await parseApiError(
+            res,
+            t('layerDataPanel.syncConflictDismissFailed'),
+          ),
+        );
+      }
+      router.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('layerDataPanel.syncConflictDismissFailed'),
+      );
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function confirmDismiss(c: SyncConflictArtifact) {
+    if (!canEdit || busyId) return;
+    const ok = await confirm({
+      title: t('layerDataPanel.syncConflictDismissTitle'),
+      message: t('layerDataPanel.syncConflictDismissMessage'),
+      confirmLabel: t('layerDataPanel.syncConflictDismissAction'),
+      variant: 'danger',
+    });
+    if (!ok) return;
+    await dismiss(c.id);
   }
 
   return (
@@ -317,7 +384,7 @@ export function SyncConflictsPanel({
                   })}
                 </p>
                 {canEdit ? (
-                  <div className="mt-1.5">
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     <button
                       type="button"
                       disabled={busyId !== null}
@@ -328,6 +395,17 @@ export function SyncConflictsPanel({
                       {busyId === c.id
                         ? t('layerDataPanel.syncConflictReapplyBusy')
                         : t('layerDataPanel.syncConflictReapplyAction')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void confirmDismiss(c)}
+                      className="inline-flex items-center gap-1 rounded border border-border bg-surface-0 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-60"
+                    >
+                      <X className="h-3 w-3" />
+                      {busyId === c.id
+                        ? t('layerDataPanel.syncConflictDismissBusy')
+                        : t('layerDataPanel.syncConflictDismissAction')}
                     </button>
                   </div>
                 ) : null}

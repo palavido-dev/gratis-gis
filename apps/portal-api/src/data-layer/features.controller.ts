@@ -1883,6 +1883,22 @@ export class DataLayerFeaturesController {
   }
 
   /**
+   * Drop one reviewed sync-conflict artifact from the layer JSON
+   * (R6-sync-conflict-dismiss). Requires edit; does not rewrite
+   * other artifacts or feature data.
+   */
+  @Delete('sync-conflicts/:conflictId')
+  async dismissSyncConflict(
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Param('conflictId') conflictId: string,
+  ) {
+    await this.assertV3Layer(user, itemId, layerId, 'write');
+    return this.v3.dismissSyncConflict({ itemId, layerId, conflictId });
+  }
+
+  /**
    * Authorize a relate and turn it into the engine's shape.
    *
    * A relate reads a SECOND layer, one the request never named in its

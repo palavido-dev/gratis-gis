@@ -2710,6 +2710,16 @@ export const en = {
     syncConflictReapplyFailed: 'Could not re-apply that conflict.',
     syncConflictReapplyUnavailable:
       'This conflict has no losing-side edit to re-apply.',
+    syncConflictDismissAction: 'Dismiss',
+    syncConflictDismissBusy: 'Dismissing…',
+    syncConflictDismissTitle: 'Dismiss this sync conflict?',
+    syncConflictDismissMessage:
+      'Remove this conflict card from the layer. The live features are unchanged. You cannot undo this list entry without another conflict.',
+    syncConflictDismissAfterReapply:
+      'Re-apply succeeded. Dismiss this conflict card from the list?',
+    syncConflictDismissAfterNoop:
+      'Nothing to write (already matches). Dismiss this conflict card from the list?',
+    syncConflictDismissFailed: 'Could not dismiss that conflict.',
     syncConflictCompareLosing: 'Losing side',
     syncConflictCompareCurrent: 'At conflict time (current)',
     syncConflictSideDeleted: 'Feature was deleted.',
