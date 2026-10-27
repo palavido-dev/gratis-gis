@@ -7,6 +7,25 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.118] - 2026-10-27
+
+### Added
+
+- CSV smart upload detects coordinate pairs, matches US states / counties / ZCTAs to boundaries, and can geocode address columns through the portal's own Nominatim (#160).
+- Portal UI strings across admin, map editor, forms, help, and related chrome are wired for en / es / fr / de / pt-BR catalogs (#162). Locale switcher and community translation workflow remain follow-ups.
+- Shared Radix Dialog primitive migration for hand-rolled modals, plus `useToast` beside the existing sonner toast helper (#173).
+- Point-cloud streaming uses shared default / huge / ultra tiers on both the item viewer and map overlays, and defers deck.gl rebuilds until pan/zoom settle (#183).
+
+### Changed
+
+- Dependencies and stack bumps landed via the clean-slate integration, including Next.js, NestJS, MapLibre, and related packages.
+- Production Postgres path tracks the PostGIS 18 line used by the compose stack.
+
+### Fixed
+
+- GDAL opens from user uploads are restricted to an allowlisted driver set (#234).
+- Remaining raw slate/amber palette call sites in portal-web and `@gratis-gis/ui` now use semantic tokens (#173).
+
 ## [0.9.117] - 2026-10-03
 
 ### Changed
