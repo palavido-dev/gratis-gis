@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-records-metasearch | research-cycle-1 | OGC API Records at `/collections/...` for QGIS MetaSearch | PR #327 on `cursor/records-metasearch-2838` |
+| R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | Branch `cursor/layer-delta-sync-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | Field/QGIS sync O(changes) |
 | R1-sync-conflict-artifact | research-cycle-1 | `checkOnly` dry run + recoverable conflict artifacts | Depends lightly on delta work |
 | R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | #154 |
 | R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | #155; after drawings kinds help |
