@@ -78,6 +78,7 @@ import {
   csvHeaderRow,
   type CsvExportOptions,
 } from './csv-export.js';
+import { parseDeltaLimit, parseSinceParam } from './layer-delta.js';
 import { parsePagingParams } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
@@ -1101,6 +1102,43 @@ export class DataLayerFeaturesController {
     return { bbox };
   }
 
+  /**
+   * Observation-log delta for field / QGIS sync (R1-layer-delta-sync).
+   *
+   * `GET .../delta?since=N` returns every observation stamped with
+   * syncVersion > N under the caller's share geo limit and row scope,
+   * including delete tombstones. The response `syncVersion` is the
+   * layer's current counter; store it and pass it as `since` next time.
+   * Cap with `limit` (default 1000, max 10000); `truncated: true` means
+   * call again with the same since until clear (or advance since to
+   * the last change's syncVersion once clients want page-by-version).
+   */
+  @Get('delta')
+  async delta(
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('since') sinceParam?: string,
+    @Query('limit') limitParam?: string,
+  ) {
+    const since = parseSinceParam(sinceParam);
+    const limit = parseDeltaLimit(limitParam);
+    const { geoLimit, rowScope, isTable } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'read',
+    );
+    return this.v3.listDelta(itemId, layerId, since, {
+      limit,
+      ...(geoLimit ? { geoLimit: geoLimit as GeoJsonGeometry } : {}),
+      ...(rowScope === 'own'
+        ? { ownRowsOnly: true, userId: user.id }
+        : {}),
+      ...(isTable ? { isTable: true } : {}),
+    });
+  }
+
   /** GeoJSON view of a single layer: the map editor's overlay source
    *  hits this per-layer URL for v3 items, the same way v2 items use
    *  /items/:id/geojson. */
@@ -2085,3 +2123,4 @@ function pickFeatureSummary(
   }
   return '(no attributes)';
 }
+

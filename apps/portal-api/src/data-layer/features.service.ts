@@ -37,8 +37,10 @@ import {
   type AggregateBin,
   type AggregateVia,
   type CreateFeatureArgs,
+  type DeltaChange,
   type TileResult,
 } from '../engine/data-layer.js';
+import { syncVersionSource } from './layer-delta.js';
 
 /**
  * A relate as the engine takes it: the parent layer's identity plus
@@ -210,6 +212,74 @@ export class DataLayerFeaturesService {
    */
   private scheduleBboxRefresh(itemId: string, notice: FeatureWriteNotice): void {
     this.bboxRefresh.noteFeatureWrite(itemId, notice);
+  }
+
+  /**
+   * Atomically bump `data.layers[i].syncVersion` and return the new
+   * value. Optimistic on `item.updatedAt` so concurrent writers retry
+   * instead of clobbering each other. Used by write paths that stamp
+   * the version onto observation.source.details before insert.
+   */
+  async bumpLayerSyncVersion(
+    itemId: string,
+    layerId: string,
+  ): Promise<number> {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const row = await this.prisma.item.findUnique({
+        where: { id: itemId },
+        select: { data: true, updatedAt: true },
+      });
+      if (!row) throw new NotFoundException('Item not found');
+      const data = row.data as {
+        version?: number;
+        layers?: Array<Record<string, unknown>>;
+      } | null;
+      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+        throw new BadRequestException(
+          'syncVersion is only defined on v3 data_layer items.',
+        );
+      }
+      const idx = data.layers.findIndex((l) => l.id === layerId);
+      if (idx < 0) throw new NotFoundException('Layer not found');
+      const current = data.layers[idx]!;
+      const prev =
+        typeof current.syncVersion === 'number' &&
+        Number.isFinite(current.syncVersion)
+          ? Math.max(0, Math.floor(current.syncVersion))
+          : 0;
+      const next = prev + 1;
+      const nextLayers = data.layers.slice();
+      nextLayers[idx] = { ...current, syncVersion: next };
+      const updated = await this.prisma.item.updateMany({
+        where: { id: itemId, updatedAt: row.updatedAt },
+        data: {
+          data: { ...(data as object), layers: nextLayers } as never,
+        },
+      });
+      if (updated.count === 1) return next;
+    }
+    throw new ConflictException(
+      'Could not bump layer syncVersion; try the write again.',
+    );
+  }
+
+  /** Current syncVersion for a v3 layer, or 0 when absent. */
+  async readLayerSyncVersion(
+    itemId: string,
+    layerId: string,
+  ): Promise<number> {
+    const row = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { data: true },
+    });
+    const data = row?.data as {
+      version?: number;
+      layers?: Array<{ id?: string; syncVersion?: number }>;
+    } | null;
+    if (!data || data.version !== 3 || !Array.isArray(data.layers)) return 0;
+    const layer = data.layers.find((l) => l.id === layerId);
+    const v = layer?.syncVersion;
+    return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
   }
 
   /**
@@ -746,10 +816,13 @@ export class DataLayerFeaturesService {
     // required field the caller omitted entirely is caught here rather
     // than surfacing later as an empty column nobody can explain.
     const validated = await this.validateAll(itemId, layerId, inputs, 'create', user);
+    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
+    const source = syncVersionSource(syncVersion);
     const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
       itemId,
       layerId,
       principal,
+      source,
       ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
       ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
       ...(f.geometry !== undefined
@@ -1252,11 +1325,13 @@ export class DataLayerFeaturesService {
         : existing.geometry;
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
+    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
     const written = await this.dataLayer.writeFeatureUpdate({
       itemId,
       layerId,
       globalId: featureId,
       principal,
+      source: syncVersionSource(syncVersion),
       properties: nextProps,
       geometry: nextGeometry,
       ...(opts.baseObservationId !== undefined
@@ -1323,11 +1398,13 @@ export class DataLayerFeaturesService {
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
+    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
     const written = await this.dataLayer.writeFeatureDelete({
       itemId,
       layerId,
       globalId: featureId,
       principal,
+      source: syncVersionSource(syncVersion),
       ...(opts.baseObservationId !== undefined
         ? { expectedHeadObservationId: opts.baseObservationId }
         : {}),
@@ -1551,12 +1628,18 @@ export class DataLayerFeaturesService {
       sub: args.user.id,
       displayName: args.user.username ?? '',
     };
+    const syncVersion = await this.bumpLayerSyncVersion(
+      args.itemId,
+      args.layerId,
+    );
+    const source = syncVersionSource(syncVersion);
     await this.dataLayer.writeFeaturesUpdate(
       updates.map((u) => ({
         itemId: args.itemId,
         layerId: args.layerId,
         globalId: u.id,
         principal,
+        source,
         properties: u.newProperties,
         geometry: u.geometry,
       })),
@@ -1577,6 +1660,47 @@ export class DataLayerFeaturesService {
     });
 
     return { totalRows: total, appliedRows: updates.length, sample, errors };
+  }
+
+  /**
+   * Delta pull for field / QGIS sync. Returns observation rows with
+   * syncVersion > `since`, under the same geo / own-rows clips the
+   * caller already resolved. `syncVersion` in the response is the
+   * layer's current counter (what the client should store next).
+   */
+  async listDelta(
+    itemId: string,
+    layerId: string,
+    since: number,
+    opts: {
+      limit?: number;
+      geoLimit?: GeoJsonGeometry;
+      ownRowsOnly?: boolean;
+      isTable?: boolean;
+      userId?: string;
+    } = {},
+  ): Promise<{
+    syncVersion: number;
+    since: number;
+    changes: DeltaChange[];
+    truncated: boolean;
+  }> {
+    const limit = opts.limit ?? 1000;
+    const changes = await this.dataLayer.listDeltaSince({
+      itemId,
+      layerId,
+      since,
+      limit: limit + 1, // probe one past so we can set truncated
+      ...(opts.geoLimit !== undefined ? { geoLimit: opts.geoLimit } : {}),
+      ...(opts.ownRowsOnly === true && opts.userId
+        ? { ownRowsOnly: { userId: opts.userId } }
+        : {}),
+      ...(opts.isTable === true ? { isTable: true } : {}),
+    });
+    const truncated = changes.length > limit;
+    const page = truncated ? changes.slice(0, limit) : changes;
+    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+    return { syncVersion, since, changes: page, truncated };
   }
 }
 

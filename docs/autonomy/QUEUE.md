@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | Branch `cursor/layer-delta-sync-2838` |
+| R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | PR in flight on `cursor/layer-delta-sync-2838` |
 
 ## queued (ship-without-input)
 

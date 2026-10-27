@@ -14,6 +14,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   catalogue. `/records` stays as an alias; conformance declares
   `searchable-catalog`. Data-layer records include a `FILE:GEO`
   GeoJSON enclosure for MetaSearch Add Data (#116).
+- v3 data layers carry a monotonic `syncVersion` bumped on accepted
+  feature write batches, and `GET /api/items/:id/layers/:layerId/delta?since=N`
+  returns observation-log changes (including deletes) under the same
+  share geo and row-scope limits as feature reads, for O(changes)
+  field / QGIS sync.
 
 ## [0.9.119] - 2026-10-27
 

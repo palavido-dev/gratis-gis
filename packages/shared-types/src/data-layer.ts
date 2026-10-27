@@ -257,6 +257,13 @@ export interface DataLayerSublayer {
   featureCount?: number;
   bbox?: [number, number, number, number] | null;
   updatedAt?: ISODateString;
+  /**
+   * Monotonic write-batch counter for field / QGIS delta sync.
+   * Bumped on every accepted create / update / delete batch; stamped
+   * onto each written observation so `GET .../delta?since=N` can
+   * return O(changes) instead of a full GeoJSON pull. Absent means 0.
+   */
+  syncVersion?: number;
   /** Provenance of the most recent ingest into this layer. Per-layer
    *  because different layers in one v3 item might be sourced from
    *  different files. */

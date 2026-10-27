@@ -106,6 +106,18 @@ export type GuardedWriteResult =
   | { observationId: string }
   | { conflict: true; headObservationId: string | null };
 
+/** One observation row from `listDeltaSince` for field / QGIS sync. */
+export interface DeltaChange {
+  observationId: string;
+  entity: string;
+  kind: 'create' | 'update' | 'delete' | 'derive' | 'observe';
+  syncVersion: number;
+  txTime: string;
+  authorSub: string;
+  geometry: GeoJsonGeometry | null;
+  properties: Record<string, unknown> | null;
+}
+
 export interface ListFeaturesArgs {
   itemId: string;
   layerId: string;
@@ -1411,6 +1423,102 @@ export class DataLayerEngine {
       },
       args.expectedHeadObservationId,
     );
+  }
+
+  /**
+   * Observation-log delta since a layer `syncVersion` cursor.
+   *
+   * Returns every observation in this scope whose
+   * `source.details.syncVersion` is strictly greater than `since`,
+   * including tombstones (`kind='delete'`). Share geo limits and
+   * own-rows filters match the listFeatures candidate rules so a
+   * field client cannot learn about edits outside its clip.
+   *
+   * Observations written before syncVersion stamping (pre-delta
+   * rollout) have no stamp and never appear here; clients that
+   * still hold `since=0` after upgrading should fall back to a
+   * full GeoJSON pull once, then track the integer cursor.
+   */
+  async listDeltaSince(args: {
+    itemId: string;
+    layerId: string;
+    since: number;
+    limit?: number;
+    geoLimit?: GeoJsonGeometry;
+    ownRowsOnly?: { userId: string };
+    isTable?: boolean;
+  }): Promise<DeltaChange[]> {
+    const scope = this.scope(args.itemId, args.layerId);
+    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10000);
+    validateGeoJson(args.geoLimit);
+
+    const filters: Prisma.Sql[] = [
+      Prisma.sql`scope = ${scope}`,
+      Prisma.sql`COALESCE((source->'details'->>'syncVersion')::bigint, 0) > ${args.since}`,
+    ];
+    if (args.ownRowsOnly !== undefined) {
+      filters.push(Prisma.sql`author_sub = ${args.ownRowsOnly.userId}`);
+    }
+    if (args.isTable !== true && args.geoLimit !== undefined) {
+      const json = JSON.stringify(args.geoLimit);
+      // Null geom (deletes, tables) passes the clip so tombstones
+      // still reach the client; spatial creates/updates must intersect.
+      filters.push(
+        Prisma.sql`(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+      );
+    }
+
+    const where = Prisma.join(filters, ' AND ');
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        entity: string;
+        kind: string;
+        tx_time: Date;
+        attrs: Record<string, unknown> | null;
+        geom_json: string | null;
+        author_sub: string;
+        sync_version: number | bigint | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        id::text AS id,
+        entity::text AS entity,
+        kind,
+        tx_time,
+        attrs,
+        CASE WHEN geom IS NULL THEN NULL
+             ELSE ST_AsGeoJSON(geom)::text END AS geom_json,
+        author_sub,
+        COALESCE((source->'details'->>'syncVersion')::bigint, 0) AS sync_version
+      FROM observation
+      WHERE ${where}
+      ORDER BY COALESCE((source->'details'->>'syncVersion')::bigint, 0) ASC,
+               tx_time ASC,
+               id ASC
+      LIMIT ${limit}
+    `);
+
+    return rows.map((r) => {
+      let geometry: GeoJsonGeometry | null = null;
+      if (r.geom_json) {
+        try {
+          geometry = JSON.parse(r.geom_json) as GeoJsonGeometry;
+        } catch {
+          geometry = null;
+        }
+      }
+      return {
+        observationId: r.id,
+        entity: r.entity,
+        kind: r.kind as DeltaChange['kind'],
+        syncVersion: Number(r.sync_version ?? 0),
+        txTime: r.tx_time.toISOString(),
+        authorSub: r.author_sub,
+        geometry,
+        properties: r.attrs ?? null,
+      };
+    });
   }
 
   /**
