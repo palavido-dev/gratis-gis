@@ -19,9 +19,14 @@ Clients:
 | `qgis-plugin` | public (PKCE, native redirect, `offline_access`) | QGIS plugin; reconciled by `infra/deploy.sh` |
 | `field-app` | public (PKCE, native redirect `gratisgis://auth-callback`, `offline_access`) | Android field app (`docs/mobile-field-app.md`). Redirect list is reconciled by `deploy.sh` / `restore-golden.sh` to the native scheme only |
 
-`portal-api` checks issuer and signature only, not `aud`, so a token
-from any realm client is accepted. If audience checking is ever added,
-every client above has to be in the accepted set.
+`portal-api` checks issuer, signature, and `azp` (authorized party /
+client id) against an allowlist of the portal fronts above
+(`portal-web`, `field-app`, `qgis-plugin`). Keycloak omits `aud` on
+access tokens by default, so passport-jwt audience checking is not
+used. Operators can override the list with `JWT_ALLOWED_AZP`
+(comma-separated). Service-account clients such as `portal-api-admin`
+are not on the default list; they talk to Keycloak's admin API, not
+portal-api as a user JWT.
 
 ## Token Flow
 

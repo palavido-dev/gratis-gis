@@ -278,10 +278,10 @@ track. Sequence it that way.
 The first draft said none of the mobile auth existed in code. That was
 wrong, and it is the good kind of wrong. Verified 2026-09-13:
 
-- `apps/portal-api/src/auth/jwt.strategy.ts` validates any RS256 token
-  issued by the realm, with `audience: undefined`. A token from any
-  realm client is accepted. portal-api needs no change to accept a
-  mobile client's token.
+- `apps/portal-api/src/auth/jwt.strategy.ts` validates RS256 tokens
+  issued by the realm. `aud` is not checked (Keycloak omits it by
+  default); `azp` must be on the allowlist, which includes
+  `field-app` by default (SEC-jwt-aud).
 - `infra/keycloak/realm-gratis-gis.prod.json.tmpl` already defines a
   `qgis-plugin` client: public, standard flow, PKCE S256, a native
   redirect scheme (`gratisgis-qgis://auth-callback`) plus a loopback

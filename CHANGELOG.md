@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- portal-api JWT auth allowlists Keycloak `azp` (authorized party)
+  to `portal-web`, `field-app`, and `qgis-plugin` by default
+  (override with `JWT_ALLOWED_AZP`). Keycloak omits `aud` on access
+  tokens, so passport-jwt audience checking stays off
+  (SEC-jwt-aud).
 - Security workflow Trivy image matrix now builds and scans
   `pointcloud-worker` and `script-runner` (script-runner builds
   portal-api as its `PORTAL_API_IMAGE` base first) alongside
