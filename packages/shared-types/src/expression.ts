@@ -174,10 +174,27 @@ export function toSqlSafeFieldName(raw: string, used?: Set<string>): string {
   if (isSqlSafeFieldName(trimmed)) {
     base = trimmed;
   } else {
-    base = trimmed
-      .replace(/[^A-Za-z0-9_]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    if (!base || /^[0-9]/.test(base)) {
+    // Character walk (no regex) so CodeQL does not flag ReDoS on
+    // pathological underscore runs from a crafted CSV header.
+    let slug = '';
+    let lastUnderscore = false;
+    for (let i = 0; i < trimmed.length; i += 1) {
+      const code = trimmed.charCodeAt(i);
+      const isAz =
+        (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+      const isDigit = code >= 48 && code <= 57;
+      const isUnderscore = code === 95;
+      if (isAz || isDigit || isUnderscore) {
+        slug += trimmed[i]!;
+        lastUnderscore = isUnderscore;
+      } else if (slug.length > 0 && !lastUnderscore) {
+        slug += '_';
+        lastUnderscore = true;
+      }
+    }
+    if (slug.endsWith('_')) slug = slug.slice(0, -1);
+    base = slug;
+    if (!base || (base.charCodeAt(0) >= 48 && base.charCodeAt(0) <= 57)) {
       base = `f_${base || 'field'}`;
     }
     if (base.length > MAX_SQL_SAFE_FIELD_NAME_LENGTH) {

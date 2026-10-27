@@ -32,7 +32,10 @@
  * detection logic is unit-testable in isolation.
  */
 
-import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
+import {
+  isSqlSafeFieldName,
+  toSqlSafeFieldName,
+} from '@gratis-gis/shared-types';
 
 export interface SmartDetectResult {
   kind: 'detected';
@@ -490,15 +493,20 @@ function emitPoints(
     const lng = parseCoordinate(row[lngIdx] ?? '');
     if (lat === null || lng === null) continue;
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-    const props: Record<string, unknown> = {};
+    // Map + fromEntries so we never assign `obj[userKey] = …`
+    // (CodeQL js/remote-property-injection). Keys are allowlisted
+    // identifiers produced above.
+    const entries = new Map<string, unknown>();
     for (let c = 0; c < header.length; c += 1) {
       if (c === latIdx || c === lngIdx) continue;
-      props[safeNames[c]!] = row[c] ?? '';
+      const key = safeNames[c]!;
+      if (!isSqlSafeFieldName(key)) continue;
+      entries.set(key, row[c] ?? '');
     }
     out.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [lng, lat] },
-      properties: props,
+      properties: Object.fromEntries(entries) as Record<string, unknown>,
     });
   }
   return out;
