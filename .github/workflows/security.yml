@@ -3,8 +3,8 @@
 # What this runs:
 #   - pnpm audit (json) gated to fail on High/Critical only
 #   - Trivy filesystem scan of the working tree
-#   - Trivy image scan of the locally built portal-api and portal-web
-#     images
+#   - Trivy image scan of the locally built portal-api, portal-web,
+#     pointcloud-worker, and script-runner images
 #   - CodeQL for typescript
 #
 # Why "High/Critical only" gates the workflow:
@@ -15,10 +15,9 @@
 #   show up in the summary, just non-blocking.
 #
 # Things to confirm before merging:
-#   - The Docker image build steps assume the existing Dockerfiles
-#     under apps/portal-api and apps/portal-web build cleanly with a
-#     plain `docker build .` from each app dir. If they need build
-#     args or a different context (e.g. monorepo root), adjust.
+#   - Image builds use the monorepo root as context (same as compose).
+#   - script-runner is FROM portal-api, so that matrix entry builds
+#     portal-api first and passes PORTAL_API_IMAGE.
 #   - CodeQL "security-and-quality" is the broader suite. If it's too
 #     noisy, downgrade to "security-extended" or "default".
 
@@ -116,9 +115,12 @@ jobs:
           category: trivy-fs
 
   trivy-images:
-    name: Trivy image scan
+    name: Trivy image scan (${{ matrix.image.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # pointcloud-worker pulls a conda-forge stack; script-runner
+    # rebuilds portal-api as its base. 25m was enough for the two
+    # portal images alone (SEC-trivy-workers).
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -127,11 +129,44 @@ jobs:
             dockerfile: ./apps/portal-api/Dockerfile
           - name: portal-web
             dockerfile: ./apps/portal-web/Dockerfile
+          - name: pointcloud-worker
+            dockerfile: ./tools/pointcloud-worker/Dockerfile
+          # script-executor image: FROM portal-api + Python venv.
+          # Claimer service reuses portal-api; this Dockerfile is the
+          # one that was missing from Trivy (SEC-trivy-workers).
+          - name: script-runner
+            dockerfile: ./infra/script-runner/Dockerfile
+            portal_api_base: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # script-runner is FROM ${PORTAL_API_IMAGE}. Build that base
+      # into the local daemon under the same tag the portal-api
+      # matrix entry uses, then pass it as a build-arg.
+      - name: Build portal-api base for script-runner
+        if: matrix.image.portal_api_base
+        id: base1
+        continue-on-error: true
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./apps/portal-api/Dockerfile
+          push: false
+          load: true
+          tags: gratisgis-portal-api:ci
+
+      - name: Build portal-api base for script-runner (retry)
+        if: matrix.image.portal_api_base && steps.base1.outcome == 'failure'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./apps/portal-api/Dockerfile
+          push: false
+          load: true
+          tags: gratisgis-portal-api:ci
 
       # One retry on the image build. The portal-api Dockerfile
       # builds go-pmtiles from source, and that stage's `go get`
@@ -140,8 +175,14 @@ jobs:
       # A red Security badge that means "the proxy hiccupped" trains
       # everyone to ignore real failures, so the first attempt may
       # fail quietly and only a second consecutive failure is real.
+      #
+      # script-runner is skipped here: buildx's docker-container
+      # driver cannot resolve a locally --load'ed base image and
+      # tries docker.io/library/gratisgis-portal-api:ci (pull
+      # denied). Classic `docker build` sees the daemon tag.
       - name: Build ${{ matrix.image.name }} image
         id: build1
+        if: ${{ !matrix.image.portal_api_base }}
         continue-on-error: true
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -155,7 +196,7 @@ jobs:
           tags: gratisgis-${{ matrix.image.name }}:ci
 
       - name: Build ${{ matrix.image.name }} image (retry)
-        if: steps.build1.outcome == 'failure'
+        if: ${{ !matrix.image.portal_api_base && steps.build1.outcome == 'failure' }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -163,6 +204,15 @@ jobs:
           push: false
           load: true
           tags: gratisgis-${{ matrix.image.name }}:ci
+
+      - name: Build script-runner from local portal-api
+        if: matrix.image.portal_api_base
+        run: |
+          docker build \
+            --build-arg PORTAL_API_IMAGE=gratisgis-portal-api:ci \
+            -f ./infra/script-runner/Dockerfile \
+            -t gratisgis-script-runner:ci \
+            .
 
       - name: Trivy scan ${{ matrix.image.name }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -176,7 +226,7 @@ jobs:
           limit-severities-for-sarif: "true"
 
       - name: Upload SARIF to code scanning
-        if: always()
+        if: always() && hashFiles(format('trivy-{0}.sarif', matrix.image.name)) != ''
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: trivy-${{ matrix.image.name }}.sarif

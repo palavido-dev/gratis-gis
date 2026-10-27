@@ -92,6 +92,20 @@ RUN "$SCRIPT_VENV/bin/python" -m ipykernel install \
       --sys-prefix --name python3 --display-name "Python 3"
 ENV SCRIPT_PAPERMILL=/opt/script-venv/bin/papermill
 
+# Runtime never calls pip (see dependency policy above). Leave a
+# patched setuptools in the venv, drop pip itself (its vendored
+# msgpack/urllib3 fail Trivy HIGH), and purge the Debian pip /
+# setuptools packages that seeded the venv (SEC-trivy-workers).
+RUN "$SCRIPT_VENV/bin/pip" install --no-cache-dir --upgrade \
+      "setuptools>=78.1.1" \
+ && "$SCRIPT_VENV/bin/pip" uninstall -y pip \
+ && apt-get purge -y \
+      python3-pip \
+      python3-pip-whl \
+      python3-setuptools \
+      python3-setuptools-whl \
+ && rm -rf /var/lib/apt/lists/*
+
 # The runner spawns this interpreter, not the system one.
 ENV SCRIPT_PYTHON=/opt/script-venv/bin/python3
 # Scripts get a writable HOME they do not share with the app user's,

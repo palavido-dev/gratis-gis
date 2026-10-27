@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Security workflow Trivy image matrix now builds and scans
+  `pointcloud-worker` and `script-runner` (script-runner builds
+  portal-api as its `PORTAL_API_IMAGE` base first) alongside
+  portal-api / portal-web. Worker images drop unused `pip`,
+  patch venv `setuptools`, and apt-upgrade / purge seed packages
+  so HIGH/CRITICAL findings clear (SEC-trivy-workers).
 - Public OGC Records list endpoints (`/records`, catalog
   `/collections/catalog/items`) cap in-memory `?bbox=` scans at
   5,000 rows (`MAX_RECORDS_BBOX_SCAN`) and throttle at 60/min per
