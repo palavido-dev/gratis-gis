@@ -193,6 +193,98 @@ describe('CommentsService', () => {
       expect(callArg.data.parentKind).toBe('map');
       expect(callArg.data.parentId).toBe('item-1');
     });
+
+    it('persists a feature-anchored thread with composite parentId', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.create.mockResolvedValue({
+        id: 'thread-2',
+        itemId: 'item-1',
+        parentKind: 'feature',
+        parentId: 'lyr-a:feat-9',
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdBy: 'author-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        comments: [
+          {
+            id: 'c-2',
+            threadId: 'thread-2',
+            authorId: 'author-1',
+            body: 'boundary looks wrong',
+            createdAt: new Date(),
+            editedAt: null,
+          },
+        ],
+      });
+      const svc = makeService(prisma);
+      const out = await svc.createThread(makeUser(), 'item-1', {
+        body: 'boundary looks wrong',
+        parentKind: 'feature',
+        parentId: 'lyr-a:feat-9',
+      });
+      expect(out.parentKind).toBe('feature');
+      expect(out.parentId).toBe('lyr-a:feat-9');
+      const callArg = prisma.commentThread.create.mock.calls[0]![0]!;
+      expect(callArg.data.parentKind).toBe('feature');
+      expect(callArg.data.parentId).toBe('lyr-a:feat-9');
+    });
+
+    it('refuses feature anchors without a composite parentId', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      const svc = makeService(prisma);
+      await expect(
+        svc.createThread(makeUser(), 'item-1', {
+          body: 'oops',
+          parentKind: 'feature',
+          parentId: 'missing-colon',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('persists a drawing-feature anchor', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.create.mockResolvedValue({
+        id: 'thread-3',
+        itemId: 'item-1',
+        parentKind: 'drawing',
+        parentId: '11111111-1111-4111-8111-111111111111',
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdBy: 'author-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        comments: [
+          {
+            id: 'c-3',
+            threadId: 'thread-3',
+            authorId: 'author-1',
+            body: 'see this pin',
+            createdAt: new Date(),
+            editedAt: null,
+          },
+        ],
+      });
+      const svc = makeService(prisma);
+      const out = await svc.createThread(makeUser(), 'item-1', {
+        body: 'see this pin',
+        parentKind: 'drawing',
+        parentId: '11111111-1111-4111-8111-111111111111',
+      });
+      expect(out.parentKind).toBe('drawing');
+      expect(out.parentId).toBe('11111111-1111-4111-8111-111111111111');
+    });
   });
 
   describe('reply', () => {

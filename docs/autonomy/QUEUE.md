@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | PR #330 on `cursor/drawings-lines-promote-2838`; waiting CI |
+| R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | PR #331 on `cursor/feature-anchored-comments-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | #155; after drawings kinds help |
 | R1-dcat-themes-aardvark | research-cycle-1 | DCAT themes + Aardvark export | #116 |
 | R1-meta-ui-viewer-hint | research-cycle-1 | Server-computed `meta.ui` viewer hint | Web + QGIS alignment |
 | R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics recipe step | Analysis tier |
@@ -31,6 +30,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R1-drawings-lines-promote | 2026-10-27 | Merged #330: markup line/polygon tools + promote to data_layer |
 | R1-sync-conflict-artifact | 2026-10-27 | Merged #329: checkOnly + layer syncConflicts artifacts |
 | R1-layer-delta-sync | 2026-10-27 | Merged #328: layer syncVersion + GET .../delta?since=N |
 | R1-records-metasearch | 2026-10-27 | Merged #327: `/collections/catalog` searchable-catalog for MetaSearch |

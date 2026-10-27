@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Map comments Phase 2: threads can anchor to a selected feature or
+  markup sketch; open feature/drawing threads paint as pins on the
+  map and open the comments panel on click (#155).
 - Map markup Phase 1.5: pin / line / polygon tools via terra-draw,
   overlay rendering for lines and polygons, and **Promote** which
   copies a drawing set into a private data_layer (splitting mixed

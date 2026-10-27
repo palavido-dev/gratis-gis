@@ -2358,6 +2358,16 @@ export const de: Partial<CatalogShape> = {
     threadOpened: 'Thread geöffnet {when}',
     resolvedSuffix: ' • Erledigt',
     editedSuffix: ' (bearbeitet)',
+    newAnchoredPlaceholder: 'Kommentar zur Auswahl…',
+    composeHint:
+      'Wählen Sie ein Objekt auf der Karte, um einen Thread zu verankern, oder posten Sie kartenweit.',
+    composeOn: 'Zu {label}',
+    composeMapLevel: 'Kartenweit',
+    anchorFeature: 'Objekt',
+    anchorDrawing: 'Markierung',
+    anchorLayer: 'Ebene',
+    anchorDrawingPick: 'An Markierung anbinden…',
+
   },
   mapMarkup: {
     title: 'Markierungen',
