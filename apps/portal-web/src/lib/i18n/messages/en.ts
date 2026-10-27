@@ -4744,6 +4744,46 @@ export const en = {
     retryTryAgain: 'Try again',
   },
 
+  /**
+   * Connected service / ArcGIS service / OGC service editor chrome
+   * (#162 / R5-i18n-service-editors). Shared probe, selection, and
+   * save footer strings; leave upstream probe error payloads alone.
+   */
+  serviceEditors: {
+    connection: 'Connection',
+    serviceEndpoint: 'Service endpoint',
+    probe: 'Probe',
+    reProbe: 'Re-probe',
+    probing: 'Probing...',
+    probedNotYet: 'not yet',
+    probedPrefix: 'probed {when}',
+    lastProbed: 'last probed {when}',
+    unsavedChanges: 'Unsaved changes.',
+    discard: 'Discard',
+    discardProbe: 'Discard probe',
+    discardProbeTitle: 'Discard probe result',
+    save: 'Save',
+    saving: 'Saving...',
+    saved: 'Saved',
+    saveFailed: 'Save failed.',
+    selectAll: 'Select all',
+    selectAllShort: 'All',
+    selectNoneShort: 'None',
+    clear: 'Clear',
+    spatialOnly: 'Spatial only',
+    spatialOnlyTitle: 'Only layers with geometry',
+    selectedCount: '{selected} of {total} selected',
+    layersHeading: 'Layers',
+    featureTypesHeading: 'Feature types',
+    noLayersYet:
+      'No {layerWord}s captured yet. Re-probe to load the list from the server.',
+    openGetCapabilitiesTitle: 'Open GetCapabilities in a new tab',
+    openServiceRootTitle: 'Open service root JSON in a new tab',
+    openServicePage: 'Open the service page',
+    layersHint:
+      "Check which layers this item exposes. Unchecked layers stay in the upstream service but won't appear when maps consume this item. Star the default layer.",
+  },
+
   /** Settings → Notification preferences (#162). */
   settingsNotifications: {
     backToProfile: 'Back to profile',
