@@ -89,3 +89,10 @@ optimistic concurrency check, the losing edit is kept on the layer
 as a **sync conflict**. Open the **Layer data** panel on the item
 page to review recent conflicts after a sync, so a field crew can
 see what did not land and decide what to retry.
+
+If you can edit the layer, each conflict offers **Re-apply**. Confirm
+shows the losing side next to what was current at conflict time.
+Re-apply writes the losing update onto the live feature (with the
+current observation id), deletes when the losing side was a delete,
+or recreates the feature when it is gone. Conflicts stay listed after
+a successful re-apply until a later dismiss path lands.

@@ -9,9 +9,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Layer data panel SyncConflicts list can re-apply the losing-side
+  edit (confirm compares losing vs current; PATCH with live
+  `baseObservationId`, DELETE for delete conflicts, POST recreate
+  when the feature is gone). Gated on `canEdit`; artifacts stay after
+  success until a dismiss API exists (R3-sync-conflict-reapply /
+  #339 follow-up).
 - Help article for the dashboard Filter widget (category
   cross-filter against charts, maps, and tables).
-
 - Anonymous markup on public maps when `allowAnonymousDrawings` is
   enabled (default off): logged-out visitors get a cookie session
   and can create/edit/delete their own drawing sets; promote stays

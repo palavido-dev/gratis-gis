@@ -2558,6 +2558,27 @@ export const ptBR: Partial<CatalogShape> = {
     syncConflictLosingEmpty: 'O lado perdedor nao tinha atributos.',
     syncConflictLosingSummary: 'Atributos perdedores: {sample}',
     syncConflictLosingMore: ' (+{count} a mais)',
+    syncConflictReapplyAction: 'Reaplicar',
+    syncConflictReapplyBusy: 'Reaplicando…',
+    syncConflictReapplyTitle: 'Reaplicar a edicao perdida?',
+    syncConflictReapplyMessage:
+      'Sobrescrever a feicao atual com a edicao do lado perdedor. Usa o id de observacao atual para que uma mudanca mais nova ainda conflite de forma honesta.',
+    syncConflictReapplyDeleteAction: 'Excluir feicao',
+    syncConflictReapplyDeleteMessage:
+      'Excluir a feicao atual para honrar a exclusao do lado perdedor.',
+    syncConflictRecreateAction: 'Recriar feicao',
+    syncConflictRecreateMessage:
+      'A feicao sumiu. Recrie-a a partir da edicao do lado perdedor.',
+    syncConflictAlreadyDeletedMessage:
+      'A feicao ja sumiu, entao a exclusao perdida ja coincide com a camada. Atualize para continuar revisando outros conflitos.',
+    syncConflictReapplyFailed: 'Nao foi possivel reaplicar esse conflito.',
+    syncConflictReapplyUnavailable:
+      'Este conflito nao tem edicao do lado perdedor para reaplicar.',
+    syncConflictCompareLosing: 'Lado perdedor',
+    syncConflictCompareCurrent: 'No momento do conflito (atual)',
+    syncConflictSideDeleted: 'A feicao estava excluida.',
+    syncConflictSideEmpty: 'Sem valores de atributo.',
+    syncConflictSideSummary: '{sample}',
   },
   accessMatrix: {
     intro:

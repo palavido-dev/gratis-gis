@@ -350,7 +350,12 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           {message.text}
         </p>
       ) : null}
-      <SyncConflictsPanel conflicts={layer.syncConflicts ?? []} />
+      <SyncConflictsPanel
+        conflicts={layer.syncConflicts ?? []}
+        itemId={itemId}
+        layerId={layer.id}
+        canEdit={canEdit}
+      />
       {activeTab === 'attributes' ? (
         <div role="tabpanel" className="mt-2">
           <V3FeatureBrowser

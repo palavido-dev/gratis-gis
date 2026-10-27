@@ -2563,6 +2563,27 @@ export const es: Partial<CatalogShape> = {
     syncConflictLosingEmpty: 'El lado perdedor no tenía atributos.',
     syncConflictLosingSummary: 'Atributos perdedores: {sample}',
     syncConflictLosingMore: ' (+{count} más)',
+    syncConflictReapplyAction: 'Reaplicar',
+    syncConflictReapplyBusy: 'Reaplicando…',
+    syncConflictReapplyTitle: '¿Reaplicar la edición perdida?',
+    syncConflictReapplyMessage:
+      'Sobrescribir la entidad actual con la edición del lado perdedor. Usa el id de observación actual para que un cambio más nuevo siga conflictuando de forma honesta.',
+    syncConflictReapplyDeleteAction: 'Eliminar entidad',
+    syncConflictReapplyDeleteMessage:
+      'Eliminar la entidad actual para respetar la eliminación del lado perdedor.',
+    syncConflictRecreateAction: 'Recrear entidad',
+    syncConflictRecreateMessage:
+      'La entidad ya no existe. Recréala a partir de la edición del lado perdedor.',
+    syncConflictAlreadyDeletedMessage:
+      'La entidad ya no existe, así que la eliminación perdida ya coincide con la capa. Actualiza para seguir revisando otros conflictos.',
+    syncConflictReapplyFailed: 'No se pudo reaplicar ese conflicto.',
+    syncConflictReapplyUnavailable:
+      'Este conflicto no tiene una edición del lado perdedor para reaplicar.',
+    syncConflictCompareLosing: 'Lado perdedor',
+    syncConflictCompareCurrent: 'En el momento del conflicto (actual)',
+    syncConflictSideDeleted: 'La entidad estaba eliminada.',
+    syncConflictSideEmpty: 'Sin valores de atributo.',
+    syncConflictSideSummary: '{sample}',
   },
   accessMatrix: {
     intro:

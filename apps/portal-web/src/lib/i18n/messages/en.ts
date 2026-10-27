@@ -2666,6 +2666,27 @@ export const en = {
     syncConflictLosingEmpty: 'Losing side had no attribute values.',
     syncConflictLosingSummary: 'Losing attributes: {sample}',
     syncConflictLosingMore: ' (+{count} more)',
+    syncConflictReapplyAction: 'Re-apply',
+    syncConflictReapplyBusy: 'Re-applying…',
+    syncConflictReapplyTitle: 'Re-apply losing edit?',
+    syncConflictReapplyMessage:
+      'Overwrite the current feature with the losing-side edit. Uses the live observation id so a newer change still conflicts honestly.',
+    syncConflictReapplyDeleteAction: 'Delete feature',
+    syncConflictReapplyDeleteMessage:
+      'Delete the current feature to honor the losing-side delete.',
+    syncConflictRecreateAction: 'Recreate feature',
+    syncConflictRecreateMessage:
+      'The feature is gone. Recreate it from the losing-side edit.',
+    syncConflictAlreadyDeletedMessage:
+      'The feature is already gone, so the losing delete already matches the layer. Refresh to keep reviewing other conflicts.',
+    syncConflictReapplyFailed: 'Could not re-apply that conflict.',
+    syncConflictReapplyUnavailable:
+      'This conflict has no losing-side edit to re-apply.',
+    syncConflictCompareLosing: 'Losing side',
+    syncConflictCompareCurrent: 'At conflict time (current)',
+    syncConflictSideDeleted: 'Feature was deleted.',
+    syncConflictSideEmpty: 'No attribute values.',
+    syncConflictSideSummary: '{sample}',
   },
   accessMatrix: {
     intro:
