@@ -136,7 +136,7 @@ export function buildBufferDerivedLayerCreatePayload(args: {
     access: 'private',
     data: buildFixedBufferDerivedLayerData({
       sourceItemId: args.sourceItemId,
-      layerKey: args.layerKey,
+      ...(args.layerKey ? { layerKey: args.layerKey } : {}),
       distance: args.distance,
       unit: args.unit,
     }),
