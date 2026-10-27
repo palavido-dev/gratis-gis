@@ -59,12 +59,13 @@ immediately for everyone else.
 - Phase 1 is signed-in only. Anonymous public-link visitors do
   not appear in the avatar strip.
 
-## What ships in Phase 1
+## How the connection works
 
-Phase 1 uses periodic polling. Phase 1.5 will switch to a live
-WebSocket connection so cursors track each other at sub-second
-latency. The visible UX stays identical; only the smoothness of
-cursor motion changes.
+The editor prefers a live WebSocket so cursors update quickly.
+If the socket cannot open (proxy, firewall, brief outage), it
+falls back to the original HTTP heartbeat poll. Avatar chips and
+cursor markers look the same either way; only the smoothness of
+motion changes.
 
 ## Related
 

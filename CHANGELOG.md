@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Presence Phase 1.5: Nest WebSocket transport for live cursors with
+  HTTP heartbeat fallback. Ticket mint over the BFF keeps session
+  JWTs off the WS URL (#156).
 - Map markup text, arrow, and circle tools (terra-draw circle mode;
   arrow tip + text symbol layers on the drawings overlay) (#154).
 - portal-mcp Phase 2 write tools: `run_tool` and
