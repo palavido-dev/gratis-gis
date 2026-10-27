@@ -614,8 +614,8 @@ export function MarkupPanel({
                         </button>
                       )}
                       <p className="truncate text-2xs text-muted">
-                        {set.authorDisplay} — {formatRelative(set.updatedAt)}
-                        {' — '}
+                        {set.authorDisplay} - {formatRelative(set.updatedAt)}
+                        {' - '}
                         {t('mapMarkup.features', {
                           count: set.features.length,
                         })}
