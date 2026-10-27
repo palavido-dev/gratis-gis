@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R4-android-field-delta | research-cycle-4 | Android offline refresh via delta?since=N | PR #360 |
+| R4-i18n-string-sweep-4 | research-cycle-4 | Form designer paired-layer notice i18n (#162) | PR #361 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R4-i18n-string-sweep-4 | research-cycle-4 | Form designer chrome i18n (#162) | No Weblate / RTL |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R4-android-field-delta | 2026-10-27 | Merged #360: Android offline refresh via delta?since=N |
 | R4-analyze-buffer-derived | 2026-10-27 | Merged #359: Analyze Buffer → PostGIS derived_layer recipe |
 | R4-postgis-help-schema-browser | 2026-10-27 | Merged #358: capped table preview + honest PostGIS help |
 | R4-offline-checkonly | 2026-10-27 | Merged #357: checkOnly before offline update/delete sync |

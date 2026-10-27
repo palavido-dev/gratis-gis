@@ -4086,6 +4086,21 @@ export const en = {
       submissionsLayer: "Submissions data layer",
       submissionsLayerTitle: "Open the auto-created data layer where submissions land",
     },
+    pairedLayer: {
+      heading: "Responses are stored in a paired data layer",
+      emptyBody:
+        "This form hasn't saved its paired data layer yet. Save the form with at least one question to materialize it; once it exists, control who can view submissions by managing the paired layer's sharing.",
+      unreadableLead:
+        "The paired layer is unreadable from here (it may be owned by another user). Open it directly to manage who can view responses:",
+      layerLink: "Paired data layer",
+      additionalShares: "+ {count, plural, one {# additional share} other {# additional shares}}",
+      dualAclHint:
+        "The settings above control who can open the form and submit a response. The paired layer's settings (linked at right) control who can view submitted responses. By default the layer is private, so only you can see what people submit.",
+      manageAccess: "Manage responses access",
+      accessPublic: "Public (anyone with the link)",
+      accessOrg: "Everyone in your organization",
+      accessPrivate: "Private (owner + explicit shares)",
+    },
     regex: {
       pattern: "Pattern",
       patternBuilder: "Pattern builder",

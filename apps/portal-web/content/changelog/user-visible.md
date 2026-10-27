@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Form response-sharing reminder follows your language
+The notice above the form designer that explains how form sharing differs from who can see submitted responses now follows the language you pick in the user menu (Spanish, French, German, or Brazilian Portuguese).
+
 ## 2026-10-27 - Faster offline refresh on the Android field app
 Taking a collection offline again on Android now downloads only what changed on each layer when a previous download left a sync cursor, instead of pulling the whole layer every time. The first download is unchanged.
 

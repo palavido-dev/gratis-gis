@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Form designer paired-layer sharing notice strings go through the
+  locale catalogs (en / es / fr / de / pt-BR), so the dual-ACL
+  reminder above the canvas follows the user's language choice
+  (R4-i18n-string-sweep-4 / #162). Actions row, import warnings,
+  and expression builder were already extracted; this closes the
+  remaining form-chrome gap without Weblate or RTL.
 - Android field offline refresh pulls layer changes via
   `GET .../layers/:layerId/delta?since=N` when a per-layer
   `syncVersion` cursor is stored on `LayerEntity`, mirroring the

@@ -3988,6 +3988,21 @@ export const de: Partial<CatalogShape> = {
       submissionsLayer: "Submissions data layer",
       submissionsLayerTitle: "Open the auto-created data layer where submissions land",
     },
+    pairedLayer: {
+      heading: "Antworten werden in einer verknüpften Datenebene gespeichert",
+      emptyBody:
+        "Dieses Formular hat seine verknüpfte Datenebene noch nicht angelegt. Speichern Sie das Formular mit mindestens einer Frage, um sie zu materialisieren; danach steuern Sie über die Freigabe dieser Ebene, wer Einsendungen sehen kann.",
+      unreadableLead:
+        "Die verknüpfte Ebene ist von hier aus nicht lesbar (sie gehört möglicherweise einem anderen Benutzer). Öffnen Sie sie direkt, um zu verwalten, wer Antworten sehen kann:",
+      layerLink: "Verknüpfte Datenebene",
+      additionalShares: "+ {count, plural, one {# zusätzliche Freigabe} other {# zusätzliche Freigaben}}",
+      dualAclHint:
+        "Die Einstellungen oben steuern, wer das Formular öffnen und eine Antwort senden kann. Die Einstellungen der verknüpften Ebene (Link rechts) steuern, wer eingereichte Antworten sehen kann. Standardmäßig ist die Ebene privat, sodass nur Sie sehen, was eingereicht wird.",
+      manageAccess: "Antwortzugriff verwalten",
+      accessPublic: "Öffentlich (jeder mit dem Link)",
+      accessOrg: "Alle in Ihrer Organisation",
+      accessPrivate: "Privat (Eigentümer + explizite Freigaben)",
+    },
     regex: {
       pattern: "Pattern",
       patternBuilder: "Pattern builder",

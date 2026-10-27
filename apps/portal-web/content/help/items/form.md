@@ -62,6 +62,19 @@ Approval workflows (queue submissions for a reviewer before
 publishing) are a separate item type, **Form review queue**, layered
 on top.
 
+## Form sharing vs response sharing
+
+The form item's sharing controls who can **open** the form and
+submit. The paired data layer (created when you save a form with at
+least one question) has its **own** sharing, and that is what
+controls who can **view** submitted responses. By default the layer
+is private to you.
+
+The form designer shows a short notice above the canvas with the
+paired layer's current access tier and a link to manage it. Sharing
+the form publicly to collect answers does not automatically make
+responses public.
+
 ## Importing an existing form
 
 The form designer's **Import** button accepts:

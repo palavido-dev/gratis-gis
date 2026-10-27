@@ -3969,6 +3969,21 @@ export const ptBR: Partial<CatalogShape> = {
       submissionsLayer: "Submissions data layer",
       submissionsLayerTitle: "Open the auto-created data layer where submissions land",
     },
+    pairedLayer: {
+      heading: "As respostas são armazenadas em uma camada de dados associada",
+      emptyBody:
+        "Este formulário ainda não criou sua camada de dados associada. Salve o formulário com pelo menos uma pergunta para materializá-la; depois controle quem pode ver os envios gerenciando o compartilhamento dessa camada.",
+      unreadableLead:
+        "A camada associada não pode ser lida daqui (pode pertencer a outro usuário). Abra-a diretamente para gerenciar quem pode ver as respostas:",
+      layerLink: "Camada de dados associada",
+      additionalShares: "+ {count, plural, one {# compartilhamento adicional} other {# compartilhamentos adicionais}}",
+      dualAclHint:
+        "As configurações acima controlam quem pode abrir o formulário e enviar uma resposta. As configurações da camada associada (link à direita) controlam quem pode ver as respostas enviadas. Por padrão a camada é privada, então só você vê o que as pessoas enviam.",
+      manageAccess: "Gerenciar acesso às respostas",
+      accessPublic: "Público (qualquer pessoa com o link)",
+      accessOrg: "Todos na sua organização",
+      accessPrivate: "Privado (proprietário + compartilhamentos explícitos)",
+    },
     regex: {
       pattern: "Pattern",
       patternBuilder: "Pattern builder",
