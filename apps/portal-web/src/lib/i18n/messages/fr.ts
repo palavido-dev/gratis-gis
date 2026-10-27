@@ -2519,6 +2519,16 @@ export const fr: Partial<CatalogShape> = {
     importingDesc:
       "Analyse du fichier et insertion en masse dans PostGIS. Les grandes couches (parcelles à l'échelle d'un comté) peuvent prendre quelques minutes.",
     uploadFailed: "Échec de l'envoi",
+    syncConflictsTitle:
+      '{count, plural, one {# conflit de sync} other {# conflits de sync}}',
+    syncConflictsIntro:
+      "Ces modifications ont perdu une verification de concurrence optimiste (HTTP 409). Le cote perdant est conserve pour comparer et reappliquer. Plus recents d abord ; le serveur en garde au plus 50.",
+    syncConflictOpUpdate: 'Mise a jour perdue',
+    syncConflictOpDelete: 'Suppression perdue',
+    syncConflictLosingDelete: 'Le cote perdant etait une suppression.',
+    syncConflictLosingEmpty: "Le cote perdant n'avait aucun attribut.",
+    syncConflictLosingSummary: 'Attributs perdants : {sample}',
+    syncConflictLosingMore: ' (+{count} de plus)',
   },
   accessMatrix: {
     intro:

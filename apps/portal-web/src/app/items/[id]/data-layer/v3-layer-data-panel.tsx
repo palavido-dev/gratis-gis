@@ -25,6 +25,7 @@ import {
 } from '@/components/upload-progress-panel';
 import { useT } from '@/lib/i18n/locale-context';
 import { V3FeatureBrowser } from './v3-feature-browser';
+import { SyncConflictsPanel } from './sync-conflicts-panel';
 import { AddToMapButton } from '../add-to-map-button';
 
 // Analyze (#175) lazy-loads: the DuckDB-WASM chunk is multiple MB
@@ -349,6 +350,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           {message.text}
         </p>
       ) : null}
+      <SyncConflictsPanel conflicts={layer.syncConflicts ?? []} />
       {activeTab === 'attributes' ? (
         <div role="tabpanel" className="mt-2">
           <V3FeatureBrowser
