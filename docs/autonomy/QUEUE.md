@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics analysis job | PR #334 on `cursor/zonal-stats-primitive-2838`; waiting CI |
+| Q-162a / R1-i18n-string-sweep | issue #162 | Terrain analysis i18n extraction | PR #335 on `cursor/i18n-string-sweep-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-162a / R1-i18n-string-sweep | issue #162 | Continue portal string extraction | Skip Weblate / locale switcher |
 | Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | Do not close #183 |
 
 ## queued (needs-maintainer)
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R1-zonal-stats-primitive | 2026-10-27 | Merged #334: zonal stats analysis job + elevation UI |
 | R1-meta-ui-viewer-hint | 2026-10-27 | Merged #333: server-computed `meta.ui` on item detail |
 | R1-dcat-themes-aardvark | 2026-10-27 | Merged #332: curated themes + Aardvark export |
 | R1-feature-anchored-comments | 2026-10-27 | Merged #331: feature- and markup-anchored comment threads |

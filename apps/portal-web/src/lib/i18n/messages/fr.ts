@@ -4442,6 +4442,34 @@ export const fr: Partial<CatalogShape> = {
     },
   },
 
+  demAnalysis: {
+    title: 'Analyse du terrain',
+    intro:
+      'Transformez cette couche d elevation en nouvelles couches. Chaque resultat apparait comme un element dans votre contenu, pret a cartographier et partager.',
+    intervalLabelM: 'Hauteur entre les lignes (m)',
+    intervalLabelFt: 'Hauteur entre les lignes (ft)',
+    drawContours: 'Tracer les courbes de niveau',
+    makeSteepness: 'Creer une carte de pente',
+    zoneLabel: 'Polygones de zone (couche de donnees)',
+    zonePlaceholder: 'Choisir une couche polygone…',
+    summarizeByZone: 'Resumer l elevation par zone',
+    zonalHint:
+      'Les statistiques zonales ecrivent moyenne, min, max, somme et nombre de cette surface dans chaque polygone de zone sous forme de nouvelle couche de donnees.',
+    needContributor:
+      'La creation de couches exige le role contributeur ou administrateur.',
+    jobStartFailed: 'Le travail n a pas pu demarrer.',
+    intervalRequired: 'Indiquez une hauteur entre les lignes.',
+    zoneRequired: 'Choisissez une couche de donnees polygone pour les zones.',
+    labelContours: 'Courbes de niveau',
+    labelSteepness: 'Carte de pente',
+    labelZonal: 'Statistiques zonales',
+    queuedPrefix:
+      'En cours. {label} sera pret dans quelques minutes :',
+    viewNewItem: 'voir le nouvel element',
+    mapToolsHint:
+      'Vous cherchez le profil d elevation ou les outils de visibilite ? Ils sont dans la barre d outils de la carte ; ouvrez une carte avec ce terrain.',
+  },
+
   settingsNotifications: {
     backToProfile: 'Retour au profil',
     pageTitle: 'Préférences de notification',

@@ -4551,6 +4551,34 @@ export const en = {
     },
   },
 
+  /** Elevation tile_layer → Terrain analysis panel (#162 sweep). */
+  demAnalysis: {
+    title: 'Terrain analysis',
+    intro:
+      'Turn this elevation layer into new layers. Each result shows up as its own item in your content, ready to add to maps and share.',
+    intervalLabelM: 'Height between lines (m)',
+    intervalLabelFt: 'Height between lines (ft)',
+    drawContours: 'Draw contour lines',
+    makeSteepness: 'Make a steepness map',
+    zoneLabel: 'Zone polygons (data layer)',
+    zonePlaceholder: 'Pick a polygon layer…',
+    summarizeByZone: 'Summarize elevation by zone',
+    zonalHint:
+      'Zonal statistics writes mean, min, max, sum, and count of this elevation surface into each zone polygon as a new data layer.',
+    needContributor:
+      'Creating layers requires the contributor or admin role.',
+    jobStartFailed: 'The job could not be started.',
+    intervalRequired: 'Enter a height between lines.',
+    zoneRequired: 'Pick a polygon data layer for the zones.',
+    labelContours: 'Contour lines',
+    labelSteepness: 'Steepness map',
+    labelZonal: 'Zonal statistics',
+    queuedPrefix: 'Working on it. {label} will be ready in a few minutes:',
+    viewNewItem: 'view the new item',
+    mapToolsHint:
+      'Looking for the elevation profile or visibility tools? They live in the map toolbar; open any map with this terrain.',
+  },
+
   /** Settings → Notification preferences (#162). */
   settingsNotifications: {
     backToProfile: 'Back to profile',

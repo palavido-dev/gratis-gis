@@ -4436,6 +4436,34 @@ export const es: Partial<CatalogShape> = {
     },
   },
 
+  demAnalysis: {
+    title: 'Analisis del terreno',
+    intro:
+      'Convierte esta capa de elevacion en capas nuevas. Cada resultado aparece como un elemento en tu contenido, listo para mapear y compartir.',
+    intervalLabelM: 'Altura entre lineas (m)',
+    intervalLabelFt: 'Altura entre lineas (ft)',
+    drawContours: 'Dibujar curvas de nivel',
+    makeSteepness: 'Crear mapa de pendiente',
+    zoneLabel: 'Poligonos de zona (capa de datos)',
+    zonePlaceholder: 'Elige una capa de poligonos…',
+    summarizeByZone: 'Resumir elevacion por zona',
+    zonalHint:
+      'Las estadisticas zonales escriben media, minimo, maximo, suma y conteo de esta superficie en cada poligono de zona como una capa de datos nueva.',
+    needContributor:
+      'Crear capas requiere el rol de colaborador o administrador.',
+    jobStartFailed: 'No se pudo iniciar el trabajo.',
+    intervalRequired: 'Indica una altura entre lineas.',
+    zoneRequired: 'Elige una capa de datos poligonal para las zonas.',
+    labelContours: 'Curvas de nivel',
+    labelSteepness: 'Mapa de pendiente',
+    labelZonal: 'Estadisticas zonales',
+    queuedPrefix:
+      'En marcha. {label} estara listo en unos minutos:',
+    viewNewItem: 'ver el elemento nuevo',
+    mapToolsHint:
+      'Buscas el perfil de elevacion o las herramientas de visibilidad? Estan en la barra del mapa; abre cualquier mapa con este terreno.',
+  },
+
   settingsNotifications: {
     backToProfile: 'Volver al perfil',
     pageTitle: 'Preferencias de notificaciones',
