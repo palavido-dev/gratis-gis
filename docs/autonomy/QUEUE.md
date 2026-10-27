@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | Branch `cursor/mcp-api-key-auth-2838` |
+| R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | PR #340 on `cursor/mcp-api-key-auth-2838` |
 
 ## queued (ship-without-input)
 
