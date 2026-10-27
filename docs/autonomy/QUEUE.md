@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-sync-conflict-review-ui | research-cycle-2 / #329 | Surface syncConflicts in portal UI | Branch `cursor/sync-conflict-review-ui-2838` |
+| R2-sync-conflict-review-ui | research-cycle-2 / #329 | Surface syncConflicts in portal UI | PR #339 on `cursor/sync-conflict-review-ui-2838` |
 
 ## queued (ship-without-input)
 
