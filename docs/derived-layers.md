@@ -224,19 +224,20 @@ the layer without a view extent).
 ## Sharing
 
 A derived layer has its own `ItemShare` rows like any other item. The
-read check is the **intersection** of the derived layer's ACL and the
-source layer's ACL: a user can read the derived layer iff they can
-read both.
+read check is the **intersection** of the derived layer's ACL, the
+primary source layer's ACL, and every pipeline `otherSource`
+(clip / erase / spatial-join / spatial-filter): a user can read the
+derived layer iff they can read all of those inputs.
 
-Implemented as a delegated check inside `sharing.service.ts` (the
-"bedrock", per CONTRIBUTING). When `getGeoJson` resolves a derived
-layer, it calls the existing sharing check on the source as the
-calling user before running the SQL. If the source check fails, the
-read fails closed regardless of who shared the derived layer.
+When `getGeoJson` (and save / preview) resolves a derived layer, it
+runs the existing sharing check on the source chain and on each
+`otherSource` as the calling user before running SQL. If any check
+fails, the read fails closed (empty FeatureCollection on map read)
+regardless of who shared the derived layer.
 
-This propagates revocation for free: when the source is unshared, the
-derived layer stops returning rows on the next read with no background
-job.
+This propagates revocation for free: when a source or mask is
+unshared, the derived layer stops returning rows on the next read
+with no background job.
 
 ## v1 buffer tool
 
