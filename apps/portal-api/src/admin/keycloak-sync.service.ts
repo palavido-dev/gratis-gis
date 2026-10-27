@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { OrgRole } from '@prisma/client';
 
+import { AuthSyncService } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   KeycloakAdminService,
@@ -101,6 +102,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kc: KeycloakAdminService,
+    private readonly authSync: AuthSyncService,
   ) {}
 
   /**
@@ -314,6 +316,10 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         data: { deletedAt: now },
       });
       softDeleted += result.count;
+      // Drop cached JWT principals so a soft-deleted user cannot
+      // keep calling the API for the rest of the auth-sync TTL
+      // (SEC-jwt-deletedAt).
+      for (const u of stale) this.authSync.invalidate(u.id);
       this.log.log(
         `reconcileAll: soft-deleted ${result.count} stale users in org ${orgId}: ${stale
           .map((u) => u.username)

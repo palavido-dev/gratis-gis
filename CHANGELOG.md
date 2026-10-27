@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- portal-api JWT auth refuses soft-deleted users (`user.deletedAt`),
+  matching the API-key path. Keycloak reconcile soft-deletes also
+  invalidate the auth-sync principal cache (SEC-jwt-deletedAt).
 - portal-api JWT auth allowlists Keycloak `azp` (authorized party)
   to `portal-web`, `field-app`, and `qgis-plugin` by default
   (override with `JWT_ALLOWED_AZP`). Keycloak omits `aud` on access

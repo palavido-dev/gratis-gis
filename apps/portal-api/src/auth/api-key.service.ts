@@ -66,11 +66,10 @@ export class ApiKeyService {
     }
 
     const user = row.user;
-    // Account lockout. The JWT path leans on Keycloak to stop a
-    // deleted or disabled user at the SSO gate, but a long-lived key
-    // never revisits Keycloak, so both checks have to live here or a
-    // key would outlive the account that owns it. `deletedAt` in
-    // particular is NOT checked on the JWT path at all.
+    // Account lockout. A long-lived key never revisits Keycloak, so
+    // deletedAt and auto-disable have to live here or a key would
+    // outlive the account that owns it. The JWT path mirrors
+    // deletedAt in AuthSyncService.buildFromClaims (SEC-jwt-deletedAt).
     if (user.deletedAt !== null) {
       throw new UnauthorizedException('Invalid API key.');
     }
