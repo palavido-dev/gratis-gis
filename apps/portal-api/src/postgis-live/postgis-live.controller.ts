@@ -33,6 +33,8 @@ class TestConnectionDto {
   @IsString() @MinLength(1) @MaxLength(255) database!: string;
   @IsString() @MinLength(1) @MaxLength(255) role!: string;
   @IsString() @MaxLength(1024) password!: string;
+  /** Optional schema for the capped geometry-table preview. */
+  @IsOptional() @IsString() @MaxLength(63) defaultSchema?: string;
 }
 
 class CreateConnectionDto {
@@ -102,6 +104,7 @@ export class PostgisLiveController {
       database: dto.database,
       role: dto.role,
       password: dto.password,
+      ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
     });
     if (!test.ok) {
       throw new BadRequestException(

@@ -11,6 +11,9 @@
  * stores the password as a credential, and runs the probe to
  * populate the table list.
  *
+ * Test connection also returns a capped geometry-table inventory
+ * so authors see what Save will register before committing.
+ *
  * No UUIDs to copy, no raw JSON. The author types what they'd
  * type into a psql command line and lands on a working service
  * item.
@@ -30,9 +33,21 @@ interface Props {
   canSave: boolean;
 }
 
+interface TablePreview {
+  name: string;
+  geometryColumn: string;
+  geometryKind: string;
+  srid: number;
+  rowEstimate: number | null;
+}
+
 interface TestResult {
   ok: true;
   postgisVersion: string;
+  schema: string;
+  tables: TablePreview[];
+  tablesTruncated: boolean;
+  tableCount: number;
 }
 interface TestError {
   ok: false;
@@ -66,7 +81,14 @@ export function PostgisConnectionBuilder({
       const res = await fetch(`/api/portal/postgis-live/test-connection`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host, port, database, role, password }),
+        body: JSON.stringify({
+          host,
+          port,
+          database,
+          role,
+          password,
+          defaultSchema: defaultSchema || undefined,
+        }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -223,6 +245,61 @@ export function PostgisConnectionBuilder({
           </span>
         ) : null}
       </div>
+      {testResult?.ok ? (
+        <div className="mt-3 rounded-md border border-border bg-surface-0 p-3">
+          <p className="text-xs font-medium text-ink-0">
+            {t('postgisConnectionBuilder.tablesHeading', {
+              schema: testResult.schema,
+              count: testResult.tableCount,
+            })}
+          </p>
+          <p className="mt-0.5 text-2xs text-muted">
+            {t('postgisConnectionBuilder.tablesHint')}
+          </p>
+          {testResult.tables.length === 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              {t('postgisConnectionBuilder.tablesEmpty')}
+            </p>
+          ) : (
+            <ul
+              className="mt-2 max-h-48 overflow-y-auto divide-y divide-border text-xs"
+              aria-label={t('postgisConnectionBuilder.tablesHeading', {
+                schema: testResult.schema,
+                count: testResult.tableCount,
+              })}
+            >
+              {testResult.tables.map((table) => (
+                <li
+                  key={`${table.name}.${table.geometryColumn}`}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-1.5"
+                >
+                  <span className="font-mono text-ink-0">{table.name}</span>
+                  <span className="text-2xs text-muted">
+                    {t('postgisConnectionBuilder.tableMeta', {
+                      kind: table.geometryKind,
+                      srid: table.srid,
+                      rows:
+                        table.rowEstimate == null
+                          ? t('postgisConnectionBuilder.rowEstimateUnknown')
+                          : t('postgisConnectionBuilder.rowEstimate', {
+                              count: table.rowEstimate,
+                            }),
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {testResult.tablesTruncated ? (
+            <p className="mt-2 text-2xs text-muted">
+              {t('postgisConnectionBuilder.tablesTruncated', {
+                shown: testResult.tables.length,
+                total: testResult.tableCount,
+              })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-3">
         <button
           type="button"

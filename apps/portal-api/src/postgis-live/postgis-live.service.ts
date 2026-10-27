@@ -18,6 +18,17 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CredentialService } from '../items/credential.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import {
+  listGeometryTablesPreview,
+  MAX_TEST_CONNECTION_TABLES,
+  type PostgisTablePreview,
+} from './postgis-table-preview.js';
+
+export {
+  listGeometryTablesPreview,
+  MAX_TEST_CONNECTION_TABLES,
+  type PostgisTablePreview,
+} from './postgis-table-preview.js';
 
 /**
  * #158 PostGIS live-read.
@@ -44,8 +55,10 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  *   - Output rows are bounded by a hard cap so a wide bbox over
  *     a dense table can't fill the browser.
  *
- * Phase 1.5 will add server-side reprojection for non-WGS84
- * geometry columns; Phase 1 only serves SRID 4326 tables.
+ * Non-WGS84 geometry columns are reprojected with ST_Transform
+ * on read (bbox into the source SRID for the GiST index; geometry
+ * out to 4326 for GeoJSON). Structured MapLayer.filter compiles
+ * to parameterized SQL on the same path.
  */
 const MAX_FEATURES_PER_REQUEST = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 10_000;
@@ -314,7 +327,9 @@ export class PostgisLiveService_ {
   /**
    * Test a connection without saving the service item. Used by
    * the create wizard's "Test connection" button so the author
-   * gets a clean error before committing.
+   * gets a clean error before committing. On success also returns
+   * a capped inventory of geometry tables in the default schema
+   * so the wizard can preview what Save will register.
    */
   async testConnection(args: {
     host: string;
@@ -322,9 +337,29 @@ export class PostgisLiveService_ {
     database: string;
     role: string;
     password: string;
-  }): Promise<{ ok: true; postgisVersion: string } | { ok: false; error: string }> {
+    defaultSchema?: string;
+  }): Promise<
+    | {
+        ok: true;
+        postgisVersion: string;
+        schema: string;
+        tables: PostgisTablePreview[];
+        tablesTruncated: boolean;
+        tableCount: number;
+      }
+    | { ok: false; error: string }
+  > {
     if (!args.host || !args.database || !args.role) {
       return { ok: false, error: 'host, database, and role are required' };
+    }
+    const schema = args.defaultSchema?.trim() || 'public';
+    if (!IDENTIFIER_RE.test(schema)) {
+      return {
+        ok: false,
+        error:
+          `Invalid schema name "${schema}". Schemas must match ` +
+          `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
+      };
     }
     const port = Number.isFinite(args.port) && args.port > 0 ? args.port : 5432;
     const pool = new Pool({
@@ -344,7 +379,19 @@ export class PostgisLiveService_ {
         const res = await client.query<{ v: string }>(
           `SELECT postgis_lib_version() AS v`,
         );
-        return { ok: true, postgisVersion: res.rows[0]?.v ?? 'unknown' };
+        const inventory = await listGeometryTablesPreview(
+          client,
+          schema,
+          MAX_TEST_CONNECTION_TABLES,
+        );
+        return {
+          ok: true,
+          postgisVersion: res.rows[0]?.v ?? 'unknown',
+          schema,
+          tables: inventory.tables,
+          tablesTruncated: inventory.truncated,
+          tableCount: inventory.total,
+        };
       } finally {
         client.release();
       }

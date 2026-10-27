@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- PostGIS connect wizard shows a capped geometry-table preview
+  after Test connection (name, geometry kind, SRID, planner row
+  estimate); Save still registers every geometry table in the
+  default schema. Help for live PostGIS now documents shipped
+  SRID reprojection and the layer-panel Filter tab instead of
+  Phase 1.5 placeholders (R4-postgis-help-schema-browser / #158).
 - Field offline push dry-runs feature updates and deletes with
   `checkOnly=true` before the real write, so schema refusals and
   optimistic-concurrency 409s park the queue row without transferring

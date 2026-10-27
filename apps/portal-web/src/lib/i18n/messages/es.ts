@@ -698,6 +698,17 @@ export const es: Partial<CatalogShape> = {
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
+  tablesHeading:
+    '{count, plural, =0 {No geometry tables in {schema}} one {# geometry table in {schema}} other {# geometry tables in {schema}}}',
+  tablesHint:
+    'Save registers every geometry table in this schema. The list below is a preview.',
+  tablesEmpty:
+    'No tables with a geometry column were found in this schema. Check the schema name or GRANT SELECT on the tables you want.',
+  tablesTruncated:
+    'Showing the first {shown} of {total} geometry tables. Save still registers all of them.',
+  tableMeta: '{kind} · SRID {srid} · {rows}',
+  rowEstimate: '{count, plural, one {~# row} other {~# rows}}',
+  rowEstimateUnknown: 'row count unknown',
   saveConnection: 'Save connection',
   testFirst: 'Run "Test connection" first.',
 },
