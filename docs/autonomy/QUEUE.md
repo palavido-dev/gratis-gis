@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-security-sentinel-ops | security-deep-dive-2026-10-27 | PLAYBOOK Security Sentinel + digest + research note | This PR |
+| SEC-otherSource-acl | security-deep-dive-2026-10-27 | ACL-check derived-layer pipeline otherSource | This PR |
 | R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | #373 CI |
 | R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | #374 CI |
 
@@ -14,7 +14,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-otherSource-acl | security-deep-dive-2026-10-27 | ACL-check derived-layer pipeline otherSource | High |
 | SEC-expr-field-allowlist | security-deep-dive-2026-10-27 | Allowlist field names in expressions + ingest | High |
 | SEC-ingest-zip-budget | security-deep-dive-2026-10-27 | Zip expansion budget before /vsizip/ | Medium |
 | SEC-records-bbox-throttle | security-deep-dive-2026-10-27 | Records bbox scan cap + throttle | Medium |
@@ -39,6 +38,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-security-sentinel-ops | 2026-10-27 | Merged #375: Security Sentinel + hardenings queue |
 | R6-i18n-analyze-guides | 2026-10-27 | Merged #372: Buffer/Clip Analyze chrome i18n (#162) |
 | R6-analyze-erase-shortcut | 2026-10-27 | Merged #371: Analyze Erase → PostGIS derived_layer |
 | R6-sync-conflict-dismiss | 2026-10-27 | Merged #370: Dismiss syncConflicts after review / re-apply |
