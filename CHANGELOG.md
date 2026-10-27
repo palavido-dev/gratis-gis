@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- portal-mcp Phase 2 write tools: `run_tool` and
+  `create_data_layer_from_geojson` (thin facades over existing
+  `/api/tools/:id/run` and `/api/items` + layer feature append). Needs
+  a non-read-only API key (#161).
 - Layer data panel lists recent `syncConflicts` artifacts (losing-side
   edits from optimistic-concurrency 409s) so field crews can review
   them after sync (#329 follow-up).
@@ -58,7 +62,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 ### Changed
 
 - portal-mcp documents and prefers portal API keys (`ggk_...` from
-  Profile -> API keys) for `GRATIS_GIS_TOKEN`; warns when the value
+  Profile / API keys) for `GRATIS_GIS_TOKEN`; warns when the value
   looks like a session JWT and reminds on 401/403 (#219 / #161).
 - portal-web uses maplibre-gl-lidar ^0.21.0 and drops the local
   MapLibreOverlay patch (upstream opengeos/maplibre-gl-lidar#93).

@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-api-key-auth | research-cycle-2 / #219 | MCP docs/examples use ggk_ API keys | PR #340 on `cursor/mcp-api-key-auth-2838` |
+| R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | Branch `cursor/mcp-write-tools-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | After API-key auth docs |
 | R2-markup-annotation-kinds | research-cycle-2 / #154 | text / arrow / circle markup tools | |
 | R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | Not Yjs CRDT |
 | R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | |
@@ -26,7 +25,7 @@ Driver-owned. Newest proposals at the top of each section.
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
 | Q-162b | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| Q-183b / R1-tile3d-heavy-clouds | issue #183 | COPC → 3D Tiles heavy-cloud path | Strategy phase B |
+| Q-183b / R1-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
 | R1-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
 | R2-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
 
@@ -34,6 +33,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-mcp-api-key-auth | 2026-10-27 | Merged #340: MCP prefers ggk_ API keys; JWT soft-warn |
 | R2-sync-conflict-review-ui | 2026-10-27 | Merged #339: layer data panel lists syncConflicts |
 | R2-lidar-dep-bump | 2026-10-27 | Merged #338: maplibre-gl-lidar 0.21; local overlay patch dropped |
 | Q-R2a / R2-drawings-in-print | 2026-10-27 | Merged #337: print PDF paints visible markup drawings |

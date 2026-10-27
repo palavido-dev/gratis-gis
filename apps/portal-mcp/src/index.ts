@@ -1,27 +1,27 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * GratisGIS MCP server (#161 Phase 1 + 1.5 auth).
+ * GratisGIS MCP server (#161 Phase 1 + Phase 2 write tools).
  *
- * Exposes a read-only view of a GratisGIS portal to Model Context
- * Protocol clients (Claude Desktop, Cursor, etc.) over the
- * standard stdio transport. Phase 1 ships three tools:
+ * Exposes a GratisGIS portal to Model Context Protocol clients
+ * (Claude Desktop, Cursor, etc.) over the standard stdio transport.
  *
- *   - list_items: paginated browse of items the caller can read,
- *     filtered by item type and free-text query
- *   - get_item: full metadata for a single item by id
- *   - read_layer_features: the GeoJSON FeatureCollection of a
- *     data_layer, capped to a sane default
+ * Phase 1 (read):
+ *   - list_items, get_item, read_layer_features
+ * Phase 2 (write; needs a non-read-only API key):
+ *   - run_tool: POST /api/tools/:id/run
+ *   - create_data_layer_from_geojson: POST /api/items then
+ *     POST /api/items/:id/layers/:layerKey/features
  *
  * Auth: GRATIS_GIS_TOKEN should be a portal API key (`ggk_...`)
  * minted at Profile / API keys (#219). Session JWTs still work
  * on the API but expire quickly; we soft-detect them and point
- * operators at API keys instead.
+ * operators at API keys instead. Read-only keys work for Phase 1
+ * and are refused by portal-api on Phase 2 POSTs.
  *
  * Connectivity: GRATIS_GIS_BASE_URL points at the portal-api
- * deployment (default http://localhost:4000). The tool calls hit
- * the existing /api/items surface, so this server is genuinely
- * a thin facade: no business logic, just a typed MCP wrapper.
+ * deployment (default http://localhost:4000). Thin facade over
+ * existing HTTP surfaces; no Nest business logic lives here.
  *
  * Felt and CARTO both gate their MCP integrations to Enterprise
  * tiers; shipping ours in the open is the positioning win.
@@ -39,6 +39,15 @@ import {
   looksLikeJwt,
   looksLikePortalApiKey,
 } from './auth-token.js';
+import {
+  APPEND_BATCH_SIZE,
+  buildV3LayerData,
+  chunk,
+  inferFields,
+  inferGeometryType,
+  toAppendFeatures,
+  type GeoJsonFeatureInput,
+} from './geojson-layer.js';
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
@@ -130,6 +139,31 @@ const readLayerFeaturesSchema = z.object({
   limit: z.number().int().min(1).max(5000).optional(),
 });
 
+const runToolSchema = z.object({
+  toolId: z.string().uuid(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
+});
+
+const geoJsonFeatureSchema = z.object({
+  type: z.literal('Feature').optional(),
+  id: z.union([z.string(), z.number()]).optional(),
+  geometry: z.unknown().optional(),
+  properties: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+const createDataLayerSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(4000).optional(),
+  access: z.enum(['private', 'org', 'public']).optional(),
+  tags: z.array(z.string().max(80)).max(50).optional(),
+  /** Reuse an existing data_layer. Public create cannot mint a
+   *  custom UUID; a missing id returns a clear error. */
+  itemId: z.string().uuid().optional(),
+  layerKey: z.string().min(1).max(80).optional(),
+  features: z.array(geoJsonFeatureSchema).min(1).max(50_000),
+  geometryType: z.enum(['point', 'line', 'polygon']).nullable().optional(),
+});
+
 const TOOLS: Tool[] = [
   {
     name: 'list_items',
@@ -209,25 +243,137 @@ const TOOLS: Tool[] = [
       required: ['itemId'],
     },
   },
+  {
+    name: 'run_tool',
+    description:
+      'Execute a portal Tool recipe (POST /api/tools/:id/run). Pass ' +
+      'toolId and a parameters map matching the tool item\'s ' +
+      'data.action.parameters. Use get_item first to discover parameter ' +
+      'names and kinds. Requires a non-read-only API key. Returns ' +
+      '{ output: { kind, ... } }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        toolId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Tool item UUID.',
+        },
+        parameters: {
+          type: 'object',
+          additionalProperties: true,
+          description:
+            'Keyed by recipe parameter name. Value shapes depend on ' +
+            'the tool (feature-source, distance meters, OSM preset ' +
+            'input, point lng/lat, text, etc.).',
+        },
+      },
+      required: ['toolId'],
+    },
+  },
+  {
+    name: 'create_data_layer_from_geojson',
+    description:
+      'Create a v3 data_layer from GeoJSON features (POST /api/items, ' +
+      'then batched POST /api/items/:id/layers/:layerKey/features), or ' +
+      'append into an existing itemId for reuse. Public create cannot ' +
+      'set a custom item UUID. Pass stable Feature.id UUIDs for ' +
+      'feature-level idempotency. Requires a non-read-only API key. ' +
+      'At most 50_000 features; append batches of 5000.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Item title (required when creating).',
+        },
+        description: { type: 'string' },
+        access: {
+          type: 'string',
+          enum: ['private', 'org', 'public'],
+          description: 'Sharing tier. Defaults to private.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        itemId: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Existing data_layer to append into. If omitted, a new ' +
+            'item is created.',
+        },
+        layerKey: {
+          type: 'string',
+          description:
+            'Sublayer id. Defaults to "default" on create, or the ' +
+            'first sublayer when appending.',
+        },
+        features: {
+          type: 'array',
+          description: 'GeoJSON Feature objects (homogeneous geometry).',
+          items: { type: 'object' },
+        },
+        geometryType: {
+          type: 'string',
+          enum: ['point', 'line', 'polygon'],
+          description:
+            'Override inferred geometry type. Omit to infer from features.',
+        },
+      },
+      required: ['title', 'features'],
+    },
+  },
 ];
 
-async function authedGet(path: string): Promise<unknown> {
+async function authedFetch(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
   const res = await fetch(`${BASE_URL}${path}`, {
+    method,
     headers: {
       authorization: `Bearer ${requireToken()}`,
       accept: 'application/json',
       'user-agent': USER_AGENT,
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
     },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const base = `GratisGIS ${res.status}: ${body || res.statusText}`;
+    const text = await res.text().catch(() => '');
+    const base = `GratisGIS ${res.status}: ${text || res.statusText}`;
     if (res.status === 401 || res.status === 403) {
       throw new Error(`${base}\n${TOKEN_SETUP_HINT}`);
     }
     throw new Error(base);
   }
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text) as unknown;
+}
+
+async function authedGet(path: string): Promise<unknown> {
+  return authedFetch('GET', path);
+}
+
+async function authedPost(path: string, body: unknown): Promise<unknown> {
+  return authedFetch('POST', path, body);
+}
+
+function firstSublayerId(item: unknown): string | undefined {
+  if (!item || typeof item !== 'object') return undefined;
+  const data = (item as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return undefined;
+  const layers = (data as { layers?: unknown }).layers;
+  if (!Array.isArray(layers) || layers.length === 0) return undefined;
+  const first = layers[0];
+  if (!first || typeof first !== 'object') return undefined;
+  const id = (first as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
 }
 
 function toContent(json: unknown): { content: Array<{ type: 'text'; text: string }> } {
@@ -267,6 +413,104 @@ async function runTool(
         : `/api/items/${args.itemId}/geojson?limit=${limit}`;
       const out = await authedGet(path);
       return toContent(out);
+    }
+    case 'run_tool': {
+      const args = runToolSchema.parse(rawArgs ?? {});
+      const out = await authedPost(`/api/tools/${args.toolId}/run`, {
+        parameters: args.parameters ?? {},
+      });
+      return toContent(out);
+    }
+    case 'create_data_layer_from_geojson': {
+      const args = createDataLayerSchema.parse(rawArgs ?? {});
+      const features = args.features as GeoJsonFeatureInput[];
+      const geometryType =
+        args.geometryType !== undefined
+          ? args.geometryType
+          : inferGeometryType(features);
+      const fields = inferFields(features);
+      const appendPayload = toAppendFeatures(features);
+
+      let itemId = args.itemId;
+      let layerKey = args.layerKey;
+      let created = false;
+
+      if (itemId) {
+        let existing: unknown;
+        try {
+          existing = await authedGet(`/api/items/${itemId}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes('GratisGIS 404')) {
+            throw new Error(
+              `No data_layer with id ${itemId}. The public create API cannot mint a custom item UUID; omit itemId to create a new layer, or pass an existing id.`,
+            );
+          }
+          throw err;
+        }
+        const type =
+          existing && typeof existing === 'object'
+            ? (existing as { type?: unknown }).type
+            : undefined;
+        if (type !== 'data_layer') {
+          throw new Error(
+            `Item ${itemId} has type ${String(type)}; create_data_layer_from_geojson only appends to data_layer items.`,
+          );
+        }
+        if (!layerKey) {
+          layerKey = firstSublayerId(existing);
+        }
+        if (!layerKey) {
+          throw new Error(
+            `Item ${itemId} has no sublayers; pass layerKey or recreate the item.`,
+          );
+        }
+      } else {
+        layerKey = layerKey ?? 'default';
+        const data = buildV3LayerData({
+          layerId: layerKey,
+          label: args.title,
+          geometryType,
+          fields,
+        });
+        const createdItem = (await authedPost('/api/items', {
+          type: 'data_layer',
+          title: args.title,
+          ...(args.description !== undefined
+            ? { description: args.description }
+            : {}),
+          access: args.access ?? 'private',
+          ...(args.tags !== undefined ? { tags: args.tags } : {}),
+          data,
+        })) as { id?: string };
+        if (typeof createdItem?.id !== 'string') {
+          throw new Error('Create item response missing id.');
+        }
+        itemId = createdItem.id;
+        created = true;
+      }
+
+      let inserted = 0;
+      let deduplicated = 0;
+      const batches = chunk(appendPayload, APPEND_BATCH_SIZE);
+      for (const batch of batches) {
+        const res = (await authedPost(
+          `/api/items/${itemId}/layers/${encodeURIComponent(layerKey!)}/features`,
+          { features: batch },
+        )) as { inserted?: number; deduplicated?: number } | null;
+        inserted += res?.inserted ?? batch.length;
+        deduplicated += res?.deduplicated ?? 0;
+      }
+
+      return toContent({
+        itemId,
+        layerId: layerKey,
+        created,
+        inserted,
+        deduplicated,
+        batches: batches.length,
+        featureCount: features.length,
+      });
     }
     default:
       throw new Error(`Unknown tool: ${name}`);

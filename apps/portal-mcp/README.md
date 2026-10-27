@@ -1,13 +1,16 @@
 # GratisGIS MCP server
 
 A small [Model Context Protocol](https://modelcontextprotocol.io) server that
-exposes a read-only view of a GratisGIS portal to MCP clients (Claude Desktop,
-Cursor, custom agents). Connects over stdio. Phase 1 ships three tools.
+exposes a GratisGIS portal to MCP clients (Claude Desktop, Cursor, custom
+agents). Connects over stdio. Phase 1 ships three read tools; Phase 2 adds
+two write tools.
 
 The server ships with the platform under AGPL-3.0-or-later and works
 against any GratisGIS portal you can sign into.
 
-## Tools shipped in Phase 1
+## Tools
+
+### Phase 1 (read)
 
 - `list_items`: paginated browse of items the caller can read, filtered by
   type and free-text query.
@@ -15,7 +18,17 @@ against any GratisGIS portal you can sign into.
 - `read_layer_features`: GeoJSON FeatureCollection for a `data_layer`,
   capped per call so a large layer cannot exhaust the model context.
 
-Phase 2 will add write tools (`run_tool`, `create_data_layer_from_geojson`).
+### Phase 2 (write)
+
+Requires a **non-read-only** portal API key (and `can_publish_items` for
+creates). Read-only keys still work for Phase 1; portal-api returns 403
+on these POSTs.
+
+- `run_tool`: execute a Tool recipe (`POST /api/tools/:id/run`). Use
+  `get_item` first to discover `data.action.parameters`.
+- `create_data_layer_from_geojson`: create a v3 `data_layer` from GeoJSON
+  features, or append into an existing `itemId`. Feature `id` values that
+  are UUIDs become idempotent `globalId`s. Batches of at most 5000.
 
 ## Quick start
 
@@ -73,7 +86,7 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The three tools appear under the MCP server name in
+Restart Claude Desktop. The tools appear under the MCP server name in
 the tool palette.
 
 ## Cursor setup
@@ -88,7 +101,8 @@ Session tokens expire in minutes and will break MCP mid-conversation.
 
 1. Sign into the portal.
 2. Open **Profile / API keys** (`/settings/api-keys`).
-3. Mint a key (choose read-only unless you need writes later).
+3. Mint a key. Choose read-only for Phase 1 only; leave read-only off if
+   you need `run_tool` or `create_data_layer_from_geojson`.
 4. Copy the `ggk_...` secret once and set `GRATIS_GIS_TOKEN` to it.
 
 Keys authenticate as `Authorization: Bearer <token>` against portal-api
