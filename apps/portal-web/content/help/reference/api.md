@@ -13,6 +13,7 @@ tags:
 related:
   - reference-python-client
   - reference-api-keys
+  - getting-started-qgis-stac
 ---
 
 Everything in the portal goes through one HTTP API, and an API key
@@ -147,8 +148,11 @@ GET /api/public/ogc/collections
 GET /api/public/ogc/collections/{id}/items?bbox=&limit=&offset=
 ```
 
-Core, GeoJSON, and CRS conformance classes. No CQL filtering and
-`sortby` is rejected; both are planned.
+Core, GeoJSON, and CRS conformance classes. CQL2 filtering is not
+on the roadmap for v1 (parked for a later major). `sortby` is
+intentionally rejected with HTTP 400 until a real `ORDER BY` path
+exists; items stay in stable feature-id order for paging. Do not
+treat either as "coming soon."
 
 ### OGC API Tiles
 
@@ -196,7 +200,8 @@ Cite menu.
 
 A full STAC API root at `/api/public/stac`, with collections and both
 GET and POST item search. This is the endpoint newer QGIS releases use
-to browse rasters without a plugin.
+to browse rasters without a plugin. Step-by-step setup is in
+**Browse public rasters from QGIS with STAC**.
 
 ### CSW 2.0.2
 

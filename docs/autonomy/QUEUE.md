@@ -6,12 +6,19 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
+=======
+| R5-stac-ogc-help-honesty | research-cycle-5 | STAC QGIS help + honest OGC Features scope | This PR |
+>>>>>>> cc715222 (docs(help): QGIS STAC getting-started + honest OGC Features scope)
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
 | R5-stac-ogc-help-honesty | research-cycle-5 | STAC QGIS help + honest OGC Features scope | Docs first |
+=======
+>>>>>>> cc715222 (docs(help): QGIS STAC getting-started + honest OGC Features scope)
 | R5-analyze-clip-shortcut | research-cycle-5 | Guided Clip → derived_layer (mirror Buffer) | |
 | R5-i18n-service-editors | research-cycle-5 | Service / ArcGIS / OGC editor chrome i18n (#162) | No Weblate / RTL |
 | R5-android-conflict-reapply | research-cycle-5 | Android re-apply rejected sync conflicts | After #360 |
