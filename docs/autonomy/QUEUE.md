@@ -31,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-form-touch-reorder | 2026-10-27 | Merged #347: form designer up/down reorder for touch |
 | R2-i18n-chrome-sweep | 2026-10-27 | Merged #346: error / receipts / terrain-chip chrome i18n |
 | R2-citation-export | 2026-10-27 | Merged #345: BibTeX / RIS / JSON-LD citation export |
 | R2-presence-websocket | 2026-10-27 | Merged #343: Nest WS presence + HTTP fallback |
