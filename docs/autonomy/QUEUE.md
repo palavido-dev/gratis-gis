@@ -4,13 +4,14 @@ Driver-owned. Newest proposals at the top of each section.
 
 ## in-progress
 
-_(none)_
+| id | source | summary | notes |
+| --- | --- | --- | --- |
+| R1-records-metasearch | research-cycle-1 | OGC API Records at `/collections/...` for QGIS MetaSearch | PR #327 on `cursor/records-metasearch-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-records-metasearch | research-cycle-1 | OGC API Records at `/collections/...` for QGIS MetaSearch | Highest QGIS reach win; related #116 |
 | R1-layer-delta-sync | research-cycle-1 | Monotonic layer version + observation-log delta endpoint | Field/QGIS sync O(changes) |
 | R1-sync-conflict-artifact | research-cycle-1 | `checkOnly` dry run + recoverable conflict artifacts | Depends lightly on delta work |
 | R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | #154 |
@@ -34,7 +35,7 @@ _(none)_
 | id | when | result |
 | --- | --- | --- |
 | Q-rel-09118 | 2026-10-27 | Tagged v0.9.118; app images on prod. PG18 boot failed; host rolled back to PG17 |
-| Q-hotfix-pg17 | 2026-10-27 | Prod restored (site 200, PG 17.5). Repo hotfix v0.9.119 in flight |
+| Q-hotfix-pg17 | 2026-10-27 | Prod restored (site 200, PG 17.5). Tagged v0.9.119 on main |
 
 ## rejected
 
