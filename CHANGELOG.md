@@ -9,10 +9,18 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+<<<<<<< HEAD
 - Layer data panel **Dismiss** for syncConflicts (and optional clear
   after a successful re-apply): `DELETE
   /items/:id/layers/:layerId/sync-conflicts/:conflictId` drops one
   artifact by id for editors (R6-sync-conflict-dismiss).
+=======
+- Analyze **Erase this layer** guide creates a single-step
+  `derived_layer` erase recipe (mask data_layer) via
+  `POST /api/portal/items`, reusing the existing PostGIS erase
+  tool. Help page `analysis/erase`. Labeled as a server
+  derived-layer job; mirrors Clip (R6-analyze-erase-shortcut).
+>>>>>>> c7c6a820 (feat(analyze): Erase this layer guided derived_layer shortcut)
 - ArcGIS service items gain **Copy selected layers to data layer**
   (`POST /items/:id/copy-to-data-layer`), reusing hosted-fs
   FeatureServer pagination (`outSR=4326`, page 2000) with a
