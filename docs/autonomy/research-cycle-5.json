@@ -1,0 +1,231 @@
+{
+  "cycle": 5,
+  "researchedAt": "2026-10-27T18:51:05Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-4.json; R4 ship-without-input drained on origin/main through #359 (checkOnly #357, drawings GeoJSON #356, PostGIS preview #358, Buffer derived #359; Android delta #360 and form i18n #361 in flight). Open issues still only #162/#183. Scanned help/API honesty leftovers, service/add-layer copy path, data-layer .gdb upload vs server ingest, Android conflict queue vs web #353 re-apply, service-editor i18n chrome, STAC discoverability vs api.md CQL/sortby wording, Analyze Clip gap after Buffer shortcut. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph and brand/print redesign rejected again.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "proposals": [
+    {
+      "id": "R5-arcgis-pull-to-local",
+      "title": "Copy ArcGIS service layers into a portal data layer",
+      "summary": "Map add-layer and i18n still tell authors to pull a dense ArcGIS FeatureServer to a local copy from the layer item page (coming next), but arcgis_service detail only probes and saves the live pointer. Admin import-ago already copies hosted FeatureServers via hosted-fs. Expose a guided Copy to data layer on the arcgis_service item (selected sublayers, FeatureServer query path) that creates a portal data_layer and drops the coming-next footnote once the path works.",
+      "rationale": "Highest-visibility honesty gap left after R4. README and migration help describe staging hosted features as a separate step; the UI still promises a button that does not exist. Closes the AGO cutover loop without a new pillar.",
+      "risk": "Huge services and MapServer-only endpoints. Cap feature count or require bbox, refuse MapServer without a queryable FeatureServer twin, reuse hosted-fs pagination and outSR=4326, and keep the live pointer until the author switches map layers.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Prefer owning data on your PostGIS over perpetual AGO seats. Guided copy before asking users to export shapefiles by hand.",
+      "sources": [
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "apps/portal-web/src/app/items/[id]/arcgis-service/editor.tsx",
+        "apps/portal-api/src/import-ago/hosted-fs.ts",
+        "apps/portal-web/content/help/coming-from-arcgis/feature-service-to-data-layer.md",
+        "apps/portal-web/content/help/items/arcgis-service.md"
+      ],
+      "suggestedFirstPR": "Add Copy selected layers to data layer on ArcgisServiceEditor for FeatureServer URLs; call a thin portal-api path that reuses hosted-fs probe/paginate/insert (or a single-URL variant); rewrite the arcgisFootnote string to point at the new control; help + What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-gdb-editor-server-ingest",
+      "title": "Route File Geodatabase uploads through server GDAL ingest",
+      "summary": "The data-layer item editor advertises File Geodatabase (server-side GDAL) and accepts .gdb, but importSpatialFile still throws that GDAL is not wired. The new-item wizard already stages the same files via /api/portal/ingest/stage with OpenFileGDB allowed. Wire the editor (and geo-boundary upload if it shares the helper) onto the server ingest path, or stop advertising .gdb until that lands.",
+      "rationale": "Classic honesty bug: UI offers a format the client refuses. Server ingest already paid for GDAL; the editor just never switched over.",
+      "risk": "Large .gdb zips and multi-layer picks. Reuse the wizard probe/stage UX (capped layer list, explicit layer choice) rather than inventing a second dialect; keep client-side GeoJSON/KML/shapefile paths unchanged.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Open file formats in and out. Guided upload before forcing a Pro/QGIS round-trip export.",
+      "sources": [
+        "apps/portal-web/src/lib/spatial-import.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/editor.tsx",
+        "apps/portal-web/src/app/items/new/data-layer-builder.tsx",
+        "apps/portal-api/src/ingest/gdal-open-guard.ts",
+        "apps/portal-api/src/ingest/ingest.service.ts"
+      ],
+      "suggestedFirstPR": "On .gdb (and other OGR-only) picks in the data-layer editor, POST /api/portal/ingest/stage + probe like the wizard; remove or rewrite the spatial-import fgdb throw; keep browser parsers for GeoJSON/KML; help note if the format list changes.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-android-conflict-reapply",
+      "title": "Android queue can re-apply rejected sync conflicts",
+      "summary": "portal-web SyncConflictsPanel gained Re-apply / Recreate (#353). Android QueueDrain already parks conflictCurrentJson on rejected rows and CollectionScreen only offers Discard. Add a guided Re-apply that PATCHes the queued losing-side geometry/properties with the current baseObservationId (and Recreate for deletes), mirroring the web honesty path after Android delta (#360).",
+      "rationale": "Field Android would otherwise remain the weak link of the Mergin-shaped conflict story after checkOnly and delta pull land on both clients.",
+      "risk": "Blind re-apply can overwrite newer good edits. Require confirm, show server-now vs queued side, refuse when the feature id is gone unless Recreate, and clear conflictCurrentJson only after 2xx.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Recoverable field UX on the operator's hardware. Guided recovery over silent discard.",
+      "sources": [
+        "clients/android/app/src/main/kotlin/org/gratisgis/field/ui/collection/CollectionScreen.kt",
+        "clients/android/feature/sync/src/main/kotlin/org/gratisgis/field/feature/sync/QueueDrain.kt",
+        "apps/portal-web/src/app/items/[id]/data-layer/sync-conflicts-panel.tsx",
+        "https://github.com/palavido-dev/gratis-gis/pull/353",
+        "https://github.com/palavido-dev/gratis-gis/pull/360"
+      ],
+      "suggestedFirstPR": "On rejected queue rows with conflictCurrentJson, add Re-apply (PATCH with queued body + fresh baseObservationId) and Recreate for deletes; unit-test the apply path; mention in mobile-field-app docs if user-visible.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-i18n-service-editors",
+      "title": "Continue #162 i18n on service connection editors",
+      "summary": "Form designer paired-layer notice is in flight (#361). Next bounded chrome: hard-coded English in service, arcgis-service, and ogc-service editors (Connection, Probe, Unsaved changes, Select all / none, layer counts). Extract into catalogs with t() calls. No Weblate, no RTL, no locale product choice.",
+      "rationale": "Only two open issues; #162 remains the finishable cross-cutting slice the playbook prioritizes. Service editors are a clear untranslated surface after form chrome.",
+      "risk": "Catalog churn across five locales. Keep the PR to the three editors; machine-translate non-en with the existing Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Mechanical readiness for the self-hosted EU/LATAM demo audience. No localization SaaS decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "docs/autonomy/PLAYBOOK.md",
+        "apps/portal-web/src/app/items/[id]/service/editor.tsx",
+        "apps/portal-web/src/app/items/[id]/arcgis-service/editor.tsx",
+        "apps/portal-web/src/app/items/[id]/ogc-service/editor.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Extract service / arcgis-service / ogc-service editor chrome strings into en/es/fr/de/pt-BR catalogs with t() calls; leave probe error payloads from upstream services as-is when they are server text.",
+      "relatedIssues": [
+        "#162"
+      ]
+    },
+    {
+      "id": "R5-stac-ogc-help-honesty",
+      "title": "STAC QGIS help plus honest OGC Features scope",
+      "summary": "Public STAC at /api/public/stac already unlocks stock QGIS 3.42+ Data Source Manager, but help only buries it under reference/api.md. Meanwhile api.md still says CQL filtering and sortby are both planned even though CQL2 was parked for v2 (R2 reject) and Features sortby is deliberately 400 until an ORDER BY hook exists. Add a short getting-started or QGIS help page for the STAC URL, and rewrite the Features limitations to match shipped behavior.",
+      "rationale": "Docs honesty is playbook-required. Free QGIS reach already shipped in code; operators cannot find it. Over-promising planned filters repeats the over-declared conformsTo failure mode research already called out.",
+      "risk": "Low. Keep the page short; link api.md; do not claim CITE certification or private-catalog MetaSearch auth that QGIS cannot send.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Open standards discoverability for self-hosted rasters. Honest OGC scope over aspirational checklists.",
+      "sources": [
+        "apps/portal-api/src/public/stac/stac.controller.ts",
+        "apps/portal-web/content/help/reference/api.md",
+        "docs/research/ecosystem-alignment-2026-08-17.md",
+        "docs/autonomy/research-cycle-2.json",
+        "docs/ogc-api-strategy.md"
+      ],
+      "suggestedFirstPR": "Add help page (getting-started or reference) for connecting QGIS STAC to /api/public/stac; fix api.md Features sentence so CQL is not planned and sortby stays rejected-with-reason; What's new + CHANGELOG for the discoverability note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-analyze-clip-shortcut",
+      "title": "Guided Clip shortcut that creates a derived-layer recipe",
+      "summary": "Buffer this layer now opens a guided form and POSTs a PostGIS derived_layer (#359). Clip (and erase) generators already exist on the server and in the derived-layer builder, but Analyze still has no one-click Clip this layer. Add the same guided pattern: pick a cookie-cutter layer, create a single-step clip recipe, label it as a server job.",
+      "rationale": "Wherever Esri clip/erase burn Spatial Analyst seats, ship free on PostGIS. Finishes the next atomic primitive after Buffer without inventing a node-graph canvas.",
+      "risk": "Users may expect instant in-browser results. Label as a server derived layer job; require a polygon clip layer the caller can read; reuse existing worker path and analysis tier gating.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Prefer PostGIS clip over proprietary Spatial Analyst seats.",
+      "sources": [
+        "docs/research/spatial-analysis-workbench-2026-07-19.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-buffer-guide.tsx",
+        "apps/portal-api/src/derived-layers/tools/clip.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx",
+        "https://github.com/palavido-dev/gratis-gis/pull/359"
+      ],
+      "suggestedFirstPR": "Mirror analyze-buffer-guide for Clip: guided clip-layer picker + POST single-step clip derived_layer; help page or section + What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-presence-crdt",
+      "title": "Live cursors Phase 2 CRDT on drawings (carry forward)",
+      "summary": "Unchanged: Yjs collaborative drawing edits need abuse controls and transport defaults. Presence WebSocket (#343) does not unlock CRDT.",
+      "rationale": "Felt differentiates here, but operational complexity stays a maintainer call.",
+      "risk": "Public-map abuse and reconnect semantics without explicit defaults.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Fits collaboration ethos eventually; defaults need a maintainer decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/156",
+        "docs/autonomy/QUEUE.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": [
+        "#156",
+        "#154"
+      ]
+    },
+    {
+      "id": "R5-comments-mentions",
+      "title": "Comments @-mentions (carry forward)",
+      "summary": "Unchanged from R2/R3/R4: abuse and email defaults are maintainer calls.",
+      "rationale": "Notifications surface exists; product defaults do not.",
+      "risk": "Spam and email deliverability without explicit policy.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Fits collaboration ethos; blocked on abuse/email defaults.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/155",
+        "docs/autonomy/QUEUE.md"
+      ],
+      "suggestedFirstPR": "None until defaults chosen.",
+      "relatedIssues": [
+        "#155"
+      ]
+    },
+    {
+      "id": "R5-tile3d-heavy-clouds",
+      "title": "COPC to 3D Tiles heavy-cloud path (carry forward)",
+      "summary": "Unchanged: #183 strategy phase B. Incremental lidar writeup shipped; issue stays open. needs-maintainer slices already queued.",
+      "rationale": "Renderer and conversion pipeline choice is maintainer strategy.",
+      "risk": "Infra and storage implications beyond a 1-2 day PR.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Open 3D standards beat Scene Viewer lock-in; strategy is a maintainer call.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/183",
+        "docs/research/maplibre-gl-lidar-incremental-append-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": [
+        "#183"
+      ]
+    },
+    {
+      "id": "R5-weblate-hosting",
+      "title": "Weblate vs Crowdin vs Tolgee (carry forward)",
+      "summary": "Unchanged Q-162b. String extraction continues; hosting/process does not. needs-maintainer slice already queued on #162.",
+      "rationale": "Playbook forbids community translation process without maintainer queue entry.",
+      "risk": "Picking a host locks contributor workflow.",
+      "shipClass": "needs-maintainer",
+      "classification": "needs-maintainer",
+      "ethosFit": "Self-hosted Weblate fits ethos eventually; the choice is the maintainer's.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": [
+        "#162"
+      ]
+    },
+    {
+      "id": "R5-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas as cycle-5 polish",
+      "summary": "Tool DAG runtime and linear canvas exist; a full branching node-graph editor is a multi-day pillar UI and README already says it is not built. Out of research-cycle scope. Prefer R5-analyze-clip-shortcut on the existing derived-layer path instead.",
+      "rationale": "Exceeds 1-2 day agent bound; invents UX depth the playbook defers.",
+      "risk": "N/A (reject).",
+      "shipClass": "reject",
+      "classification": "reject",
+      "ethosFit": "Honest about what we are not (not a full ModelBuilder clone yet).",
+      "sources": [
+        "README.md",
+        "apps/portal-web/content/help/analysis/workflows.md",
+        "docs/research/felt-carto-roadmap-2026-05-30.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": []
+    },
+    {
+      "id": "R5-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "summary": "Carry forward R1-R4 reject. Brand redesign fails the playbook brand test. Print markup already ships (#337); chrome kit does not.",
+      "rationale": "No maintainer queue entry for brand work.",
+      "risk": "N/A (reject).",
+      "shipClass": "reject",
+      "classification": "reject",
+      "ethosFit": "Fails brand test.",
+      "sources": [
+        "docs/research/app-print-polish-proposal-2026-07-18.md",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "None",
+      "relatedIssues": []
+    }
+  ]
+}
