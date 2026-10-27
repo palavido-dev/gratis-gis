@@ -26,9 +26,9 @@ Phase 2 will add write tools (`run_tool`, `create_data_layer_from_geojson`).
 pnpm install
 pnpm --filter @gratis-gis/portal-mcp build
 
-# Set the portal base URL + a bearer token
+# Set the portal base URL + a portal API key (ggk_...)
 export GRATIS_GIS_BASE_URL="https://gratisgis.org"
-export GRATIS_GIS_TOKEN="<your-keycloak-access-token>"
+export GRATIS_GIS_TOKEN="ggk_..."
 
 # Run directly to test
 node apps/portal-mcp/dist/index.js
@@ -66,7 +66,7 @@ Add this to your `claude_desktop_config.json`:
       "args": ["/absolute/path/to/gratis-gis/apps/portal-mcp/dist/index.js"],
       "env": {
         "GRATIS_GIS_BASE_URL": "https://your-portal.example",
-        "GRATIS_GIS_TOKEN": "your-bearer-token"
+        "GRATIS_GIS_TOKEN": "ggk_..."
       }
     }
   }
@@ -81,20 +81,23 @@ the tool palette.
 Edit your Cursor MCP settings to add the server with the same `command` /
 `args` / `env` shape.
 
-## Getting a bearer token (Phase 1)
+## Getting a portal API key
 
-Phase 1 uses a long-lived Keycloak access token from your portal session.
-This is intentionally minimal so the MCP server ships without dragging in a
-whole API-key UX. Phase 1.5 swaps to a dedicated portal API key.
+Use a personal portal API key (`ggk_...`), not a browser session JWT.
+Session tokens expire in minutes and will break MCP mid-conversation.
 
-1. Sign into the portal in your browser.
-2. Open DevTools → Application → Cookies; find the `next-auth.session-token`
-   cookie or whichever access-token cookie your portal uses.
-3. Copy the JWT body and paste into `GRATIS_GIS_TOKEN`.
+1. Sign into the portal.
+2. Open **Profile / API keys** (`/settings/api-keys`).
+3. Mint a key (choose read-only unless you need writes later).
+4. Copy the `ggk_...` secret once and set `GRATIS_GIS_TOKEN` to it.
 
-Tokens expire (typically minutes to hours). When the token expires the MCP
-server will start returning 401 errors; sign back in and refresh the env
-var. This is the rough edge Phase 1.5 smooths out.
+Keys authenticate as `Authorization: Bearer <token>` against portal-api
+the same way a JWT would; sharing and geo limits still apply as the key
+owner. See `docs/auth-model.md` for storage and restrictions.
+
+If `GRATIS_GIS_TOKEN` looks like a JWT (three dotted segments), the server
+prints a warning at startup. On 401/403 responses it reminds you to mint
+an API key.
 
 ## Why stdio transport
 
