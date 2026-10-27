@@ -2578,6 +2578,27 @@ export const de: Partial<CatalogShape> = {
     syncConflictLosingEmpty: 'Die verlierende Seite hatte keine Attribute.',
     syncConflictLosingSummary: 'Verlierende Attribute: {sample}',
     syncConflictLosingMore: ' (+{count} weitere)',
+    syncConflictReapplyAction: 'Erneut anwenden',
+    syncConflictReapplyBusy: 'Wird erneut angewendet…',
+    syncConflictReapplyTitle: 'Verlorene Bearbeitung erneut anwenden?',
+    syncConflictReapplyMessage:
+      'Das aktuelle Feature mit der verlierenden Bearbeitung uberschreiben. Nutzt die aktuelle Observation-ID, damit neuere Anderungen weiter ehrlich kollidieren.',
+    syncConflictReapplyDeleteAction: 'Feature loschen',
+    syncConflictReapplyDeleteMessage:
+      'Das aktuelle Feature loschen, um die verlierende Loschung umzusetzen.',
+    syncConflictRecreateAction: 'Feature neu anlegen',
+    syncConflictRecreateMessage:
+      'Das Feature fehlt. Legen Sie es aus der verlierenden Bearbeitung neu an.',
+    syncConflictAlreadyDeletedMessage:
+      'Das Feature fehlt bereits, die verlierende Loschung passt also schon zur Ebene. Aktualisieren Sie, um weitere Konflikte zu prüfen.',
+    syncConflictReapplyFailed: 'Konflikt konnte nicht erneut angewendet werden.',
+    syncConflictReapplyUnavailable:
+      'Dieser Konflikt hat keine verlierende Bearbeitung zum erneuten Anwenden.',
+    syncConflictCompareLosing: 'Verlierende Seite',
+    syncConflictCompareCurrent: 'Zum Konfliktzeitpunkt (aktuell)',
+    syncConflictSideDeleted: 'Feature war geloscht.',
+    syncConflictSideEmpty: 'Keine Attributwerte.',
+    syncConflictSideSummary: '{sample}',
   },
   accessMatrix: {
     intro:

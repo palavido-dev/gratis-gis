@@ -2569,6 +2569,27 @@ export const fr: Partial<CatalogShape> = {
     syncConflictLosingEmpty: "Le cote perdant n'avait aucun attribut.",
     syncConflictLosingSummary: 'Attributs perdants : {sample}',
     syncConflictLosingMore: ' (+{count} de plus)',
+    syncConflictReapplyAction: 'Reappliquer',
+    syncConflictReapplyBusy: 'Reapplication…',
+    syncConflictReapplyTitle: 'Reappliquer la modification perdue ?',
+    syncConflictReapplyMessage:
+      "Ecraser l'entite actuelle avec la modification du cote perdant. Utilise l'id d'observation actuel pour qu'un changement plus recent reste un conflit honnete.",
+    syncConflictReapplyDeleteAction: "Supprimer l'entite",
+    syncConflictReapplyDeleteMessage:
+      "Supprimer l'entite actuelle pour honorer la suppression du cote perdant.",
+    syncConflictRecreateAction: "Recreer l'entite",
+    syncConflictRecreateMessage:
+      "L'entite a disparu. Recreez-la a partir de la modification du cote perdant.",
+    syncConflictAlreadyDeletedMessage:
+      "L'entite a deja disparu, donc la suppression perdue correspond deja a la couche. Actualisez pour continuer a examiner les autres conflits.",
+    syncConflictReapplyFailed: 'Impossible de reappliquer ce conflit.',
+    syncConflictReapplyUnavailable:
+      "Ce conflit n'a pas de modification perdante a reappliquer.",
+    syncConflictCompareLosing: 'Cote perdant',
+    syncConflictCompareCurrent: 'Au moment du conflit (actuel)',
+    syncConflictSideDeleted: "L'entite etait supprimee.",
+    syncConflictSideEmpty: "Aucune valeur d'attribut.",
+    syncConflictSideSummary: '{sample}',
   },
   accessMatrix: {
     intro:

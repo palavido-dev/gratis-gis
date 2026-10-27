@@ -68,7 +68,9 @@ Feature `PATCH` / `DELETE` accept `checkOnly=true` to validate
 optimistic concurrency (`baseObservationId`) and schema without
 writing. A `409` conflict response includes the losing-side edit;
 the portal also keeps a capped `syncConflicts` list on the layer
-for later review in the Layer data panel.
+for later review in the Layer data panel. Editors can re-apply a
+losing edit from that list (PATCH / DELETE with a live
+`baseObservationId`, or POST recreate when the feature is gone).
 
 Read parameters: `limit`, `cursor`, `at`, `bbox`, `parentFk` +
 `parentId`, `timeField` + `timeFrom` + `timeTo`.
