@@ -11,12 +11,19 @@ describe('anon-drawing-session (client)', () => {
     );
   });
 
-  it('reads the cookie from document.cookie', () => {
+  it('reads the cookie from document.cookie when present', () => {
     const token = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-    Object.defineProperty(document, 'cookie', {
-      configurable: true,
-      get: () => `gg_anon_drawing=${token}; other=1`,
-    });
-    expect(readAnonDrawingDisplay()).toBe('Anonymous aaaaaa');
+    const doc = { cookie: `gg_anon_drawing=${token}; other=1` };
+    (globalThis as { document?: unknown }).document = doc;
+    try {
+      expect(readAnonDrawingDisplay()).toBe('Anonymous aaaaaa');
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
+  it('returns null when document is unavailable', () => {
+    delete (globalThis as { document?: unknown }).document;
+    expect(readAnonDrawingDisplay()).toBeNull();
   });
 });

@@ -23,19 +23,17 @@ describe('DrawingsPromoteController', () => {
     expect(methodPublic).toBeUndefined();
   });
 
-  it('refuses a null user before calling the promote service', async () => {
+  it('refuses a null user before calling the promote service', () => {
     const promoteSvc = { promote: jest.fn() };
     const ctrl = new DrawingsPromoteController(promoteSvc as never);
-    await expect(
-      Promise.resolve(
-        ctrl.promote(
-          null as never,
-          '11111111-1111-1111-1111-111111111111',
-          '22222222-2222-2222-2222-222222222222',
-          {},
-        ),
+    expect(() =>
+      ctrl.promote(
+        null as never,
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        {},
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).toThrow(BadRequestException);
     expect(promoteSvc.promote).not.toHaveBeenCalled();
   });
 });
