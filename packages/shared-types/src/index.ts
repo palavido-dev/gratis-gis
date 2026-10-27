@@ -18,6 +18,7 @@ export * from './item';
 export * from './map';
 export * from './drawings';
 export * from './comments';
+export * from './dcat-themes';
 export * from './data-layer';
 export * from './feature-validate';
 export * from './submission-stamp';

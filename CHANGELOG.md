@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Curated Aardvark / DCAT themes (21-value `dcat_theme_sm`) on item
+  create/edit, split from free-form keywords in OGC Records and the
+  public catalog, plus `GET /api/public/ogc/aardvark/{id}.json` for
+  GeoBlacklight / OpenGeoMetadata harvest (#116).
 - Map comments Phase 2: threads can anchor to a selected feature or
   markup sketch; open feature/drawing threads paint as pins on the
   map and open the comments panel on click (#155).

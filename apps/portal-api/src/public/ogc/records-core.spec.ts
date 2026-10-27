@@ -38,6 +38,23 @@ describe('records-core', () => {
     );
   });
 
+  it('splits curated themes from free-form keywords', () => {
+    const rec = buildRecord(
+      row({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        title: 'Parcels',
+        tags: ['Boundaries', 'campus', 'Property'],
+      }),
+      'http://portal.test',
+    );
+    const props = rec.properties as {
+      keywords: string[];
+      themes?: string[];
+    };
+    expect(props.themes).toEqual(['Boundaries', 'Property']);
+    expect(props.keywords).toEqual(['campus']);
+  });
+
   it('emits FILE:GEO enclosure and owner provider on data_layer records', () => {
     const rec = buildRecord(
       row({

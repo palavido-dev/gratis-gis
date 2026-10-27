@@ -8,6 +8,7 @@ import { OgcStylesController } from './ogc/styles.controller.js';
 import { OgcTilesController } from './ogc/tiles.controller.js';
 import { OgcRecordsController } from './ogc/records.controller.js';
 import { OgcRecordsCatalogController } from './ogc/records-catalog.controller.js';
+import { OgcAardvarkController } from './ogc/aardvark.controller.js';
 import { PublicStacController } from './stac/stac.controller.js';
 import { OgcProblemJsonFilter } from './ogc/problem-json.filter.js';
 import { PublicCswController } from './public-csw.controller.js';
@@ -42,6 +43,7 @@ import { ItemsModule } from '../items/items.module.js';
     OgcStylesController,
     OgcTilesController,
     OgcRecordsController,
+    OgcAardvarkController,
     PublicStacController,
     PublicCswController,
     PublicProxyController,

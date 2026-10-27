@@ -27,7 +27,10 @@ import {
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
-import type { MapLayerFilter } from '@gratis-gis/shared-types';
+import {
+  themesFromTags,
+  type MapLayerFilter,
+} from '@gratis-gis/shared-types';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
@@ -180,9 +183,13 @@ export class PublicController {
         // Clients that want a discoverable open-data feed should
         // filter to items with a license set.
         ...(it.license ? { license: it.license } : {}),
-        // Rough theme mapping from item type. Not standards-strict
-        // but more useful than nothing for downstream facets.
-        theme: [it.type],
+        // Curated Aardvark themes stored as tags; fall back to the
+        // item type only when no curated theme is set so facets stay
+        // useful for untagged rows.
+        theme: (() => {
+          const curated = themesFromTags(it.tags ?? []);
+          return curated.length > 0 ? curated : [it.type];
+        })(),
       })),
     };
   }

@@ -2182,9 +2182,13 @@ export const en = {
     titleRequired: 'Title is required.',
     description: 'Description',
     descriptionPlaceholder: "What is this, and who's it for?",
-    tags: 'Tags',
+    themes: 'Themes',
+    themesHint:
+      'Optional Aardvark / DCAT themes. Pick any that fit; they appear on Records and the public catalog.',
+    tags: 'Keywords',
     tagsPlaceholder: 'Comma separated, e.g. buildings, parcels, campus',
-    tagsHint: 'Used for search and filtering.',
+    tagsHint:
+      'Free-form keywords for search. Themes above feed catalog facets and Aardvark export.',
     thumbnail: 'Thumbnail',
     visibility: 'Visibility',
     visibilityHintCreate:
