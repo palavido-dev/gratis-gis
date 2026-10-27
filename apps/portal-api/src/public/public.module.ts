@@ -7,6 +7,7 @@ import { OgcFeaturesController } from './ogc/features.controller.js';
 import { OgcStylesController } from './ogc/styles.controller.js';
 import { OgcTilesController } from './ogc/tiles.controller.js';
 import { OgcRecordsController } from './ogc/records.controller.js';
+import { OgcRecordsCatalogController } from './ogc/records-catalog.controller.js';
 import { PublicStacController } from './stac/stac.controller.js';
 import { OgcProblemJsonFilter } from './ogc/problem-json.filter.js';
 import { PublicCswController } from './public-csw.controller.js';
@@ -27,12 +28,16 @@ import { ItemsModule } from '../items/items.module.js';
  * is registered as a global APP_FILTER but is scoped internally to
  * /api/public/ogc/* paths so other surfaces keep their existing
  * error envelope.
+ *
+ * OgcRecordsCatalogController is registered before OgcFeaturesController
+ * so the static `/collections/catalog` path wins over `:id`.
  */
 @Module({
   imports: [DataLayerFeaturesModule, ItemsModule],
   controllers: [
     PublicController,
     OgcLandingController,
+    OgcRecordsCatalogController,
     OgcFeaturesController,
     OgcStylesController,
     OgcTilesController,

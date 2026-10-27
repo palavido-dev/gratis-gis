@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- OGC API Records mounts at `/api/public/ogc/collections/catalog` with
+  `itemType=record` so QGIS MetaSearch can discover the public
+  catalogue. `/records` stays as an alias; conformance declares
+  `searchable-catalog`. Data-layer records include a `FILE:GEO`
+  GeoJSON enclosure for MetaSearch Add Data (#116).
+
 ## [0.9.119] - 2026-10-27
 
 ### Fixed

@@ -51,13 +51,22 @@ sub-paths:
 - `/api/public/ogc/styles` - Styles list
 - `/api/public/ogc/styles/{styleId}` - one style
 - `/api/public/ogc/styles/{styleId}/metadata`
-- `/api/public/ogc/records` - Records (catalog)
+- `/api/public/ogc/records` - Records (catalog alias)
 - `/api/public/ogc/records/{recordId}` - one record
+- `/api/public/ogc/collections/catalog` - searchable-catalog collection
+  (`itemType=record`; what QGIS MetaSearch discovers under
+  `/collections`)
+- `/api/public/ogc/collections/catalog/items` - same payload as
+  `/records`, on the path the Records Part 1 searchable-catalog
+  class requires
+- `/api/public/ogc/collections/catalog/items/{recordId}` - one record
 
 The legacy `/api/public/csw/` surface stays up alongside Records
 indefinitely; CSW clients (older harvesters, geoportal aggregators)
 don't speak OGC API Records yet and removing CSW would break them.
 Records is the new front door; CSW is the back door we keep open.
+The `/records` path stays as a stable alias after the catalogue
+also mounts under `/collections/catalog`.
 
 ## Collection ID scheme
 
