@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
@@ -128,7 +129,13 @@ export interface DataLayerFeatureOut {
  * device may be offline again by the time a person looks at it.
  */
 export class FeatureConflictException extends ConflictException {
-  constructor(current: DataLayerFeatureOut | null) {
+  constructor(
+    current: DataLayerFeatureOut | null,
+    extras: {
+      losingSide?: DataLayerFeatureOut | null;
+      conflictArtifactId?: string;
+    } = {},
+  ) {
     super({
       statusCode: 409,
       error: 'Conflict',
@@ -138,9 +145,17 @@ export class FeatureConflictException extends ConflictException {
           ? 'This feature was deleted by someone else since you last read it.'
           : 'This feature was changed by someone else since you last read it.',
       current,
+      ...(extras.losingSide !== undefined
+        ? { losingSide: extras.losingSide }
+        : {}),
+      ...(extras.conflictArtifactId !== undefined
+        ? { conflictArtifactId: extras.conflictArtifactId }
+        : {}),
     });
   }
 }
+
+const MAX_SYNC_CONFLICTS = 50;
 
 /** What `loadLayerSchema` returns and `bulkInsertFeatures` optionally takes. */
 export interface LayerSchema {
@@ -1255,8 +1270,16 @@ export class DataLayerFeaturesService {
     featureId: string,
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
-    opts: { ownRowsOnly?: boolean; isTable?: boolean; baseObservationId?: string } = {},
-  ): Promise<DataLayerFeatureOut> {
+    opts: {
+      ownRowsOnly?: boolean;
+      isTable?: boolean;
+      baseObservationId?: string;
+      checkOnly?: boolean;
+    } = {},
+  ): Promise<
+    | DataLayerFeatureOut
+    | { ok: true; headObservationId: string | null; syncVersion: number }
+  > {
     const isTable = opts.isTable === true;
 
     // Look up the current state. The candidate-entities CTE inside
@@ -1277,12 +1300,6 @@ export class DataLayerFeaturesService {
       throw new NotFoundException('Feature not found');
     }
     const existing = current.features[0]!;
-    if (
-      opts.baseObservationId !== undefined &&
-      existing.properties._observation_id !== opts.baseObservationId
-    ) {
-      throw new FeatureConflictException(existing);
-    }
 
     // MERGE the patch over the current values. This is what the
     // docblock above has always promised and what every caller
@@ -1324,6 +1341,38 @@ export class DataLayerFeaturesService {
         ? (patch.geometry as GeoJsonGeometry | null)
         : existing.geometry;
 
+    const losingSide: DataLayerFeatureOut = {
+      type: 'Feature',
+      id: featureId,
+      geometry: nextGeometry,
+      properties: nextProps,
+    };
+
+    if (
+      opts.baseObservationId !== undefined &&
+      existing.properties._observation_id !== opts.baseObservationId
+    ) {
+      throw await this.raiseFeatureConflict({
+        itemId,
+        layerId,
+        featureId,
+        op: 'update',
+        current: existing,
+        losingSide,
+        baseObservationId: opts.baseObservationId,
+      });
+    }
+
+    if (opts.checkOnly === true) {
+      const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+      const head = existing.properties._observation_id;
+      return {
+        ok: true,
+        headObservationId: typeof head === 'string' ? head : null,
+        syncVersion,
+      };
+    }
+
     const principal = { sub: user.id, displayName: user.username ?? '' };
     const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
     const written = await this.dataLayer.writeFeatureUpdate({
@@ -1348,7 +1397,17 @@ export class DataLayerFeaturesService {
     if ('conflict' in written) {
       // Somebody landed between our read and our write. Report what is
       // there now; the read-back is the head the guard refused against.
-      throw new FeatureConflictException(refreshed.features[0] ?? null);
+      throw await this.raiseFeatureConflict({
+        itemId,
+        layerId,
+        featureId,
+        op: 'update',
+        current: refreshed.features[0] ?? null,
+        losingSide,
+        ...(opts.baseObservationId !== undefined
+          ? { baseObservationId: opts.baseObservationId }
+          : {}),
+      });
     }
     const result = refreshed.features[0];
     if (result === undefined) {
@@ -1376,8 +1435,12 @@ export class DataLayerFeaturesService {
     layerId: string,
     featureId: string,
     user: AuthUser,
-    opts: { ownRowsOnly?: boolean; baseObservationId?: string } = {},
-  ): Promise<void> {
+    opts: {
+      ownRowsOnly?: boolean;
+      baseObservationId?: string;
+      checkOnly?: boolean;
+    } = {},
+  ): Promise<void | { ok: true; headObservationId: string | null; syncVersion: number }> {
     const current = await this.dataLayer.listFeatures({
       itemId,
       layerId,
@@ -1394,7 +1457,25 @@ export class DataLayerFeaturesService {
       opts.baseObservationId !== undefined &&
       existing.properties._observation_id !== opts.baseObservationId
     ) {
-      throw new FeatureConflictException(existing);
+      throw await this.raiseFeatureConflict({
+        itemId,
+        layerId,
+        featureId,
+        op: 'delete',
+        current: existing,
+        losingSide: null,
+        baseObservationId: opts.baseObservationId,
+      });
+    }
+
+    if (opts.checkOnly === true) {
+      const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+      const head = existing.properties._observation_id;
+      return {
+        ok: true,
+        headObservationId: typeof head === 'string' ? head : null,
+        syncVersion,
+      };
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
@@ -1411,12 +1492,106 @@ export class DataLayerFeaturesService {
     });
     if ('conflict' in written) {
       const now = await this.dataLayer.listFeatures({ itemId, layerId, entity: featureId });
-      throw new FeatureConflictException(now.features[0] ?? null);
+      throw await this.raiseFeatureConflict({
+        itemId,
+        layerId,
+        featureId,
+        op: 'delete',
+        current: now.features[0] ?? null,
+        losingSide: null,
+        ...(opts.baseObservationId !== undefined
+          ? { baseObservationId: opts.baseObservationId }
+          : {}),
+      });
     }
     this.scheduleBboxRefresh(itemId, {
       kind: 'delete',
       geometries: [current.features[0]!.geometry],
     });
+  }
+
+  /**
+   * Persist a losing-side conflict on the layer (capped ring buffer)
+   * and throw FeatureConflictException with losingSide + artifact id.
+   */
+  private async raiseFeatureConflict(args: {
+    itemId: string;
+    layerId: string;
+    featureId: string;
+    op: 'update' | 'delete';
+    current: DataLayerFeatureOut | null;
+    losingSide: DataLayerFeatureOut | null;
+    baseObservationId?: string;
+  }): Promise<FeatureConflictException> {
+    const artifactId = await this.recordSyncConflict(args);
+    return new FeatureConflictException(args.current, {
+      losingSide: args.losingSide,
+      ...(artifactId !== undefined ? { conflictArtifactId: artifactId } : {}),
+    });
+  }
+
+  /** Append one sync-conflict artifact onto the layer JSON. Best-effort:
+   *  a failed stamp must not mask the 409 the client needs. */
+  private async recordSyncConflict(args: {
+    itemId: string;
+    layerId: string;
+    featureId: string;
+    op: 'update' | 'delete';
+    current: DataLayerFeatureOut | null;
+    losingSide: DataLayerFeatureOut | null;
+    baseObservationId?: string;
+  }): Promise<string | undefined> {
+    const id = randomUUID();
+    const entry = {
+      id,
+      at: new Date().toISOString(),
+      featureId: args.featureId,
+      op: args.op,
+      ...(args.baseObservationId !== undefined
+        ? { baseObservationId: args.baseObservationId }
+        : {}),
+      losingSide: args.losingSide,
+      current: args.current,
+    };
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const row = await this.prisma.item.findUnique({
+          where: { id: args.itemId },
+          select: { data: true, updatedAt: true },
+        });
+        if (!row) return undefined;
+        const data = row.data as {
+          version?: number;
+          layers?: Array<Record<string, unknown>>;
+        } | null;
+        if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+          return undefined;
+        }
+        const idx = data.layers.findIndex((l) => l.id === args.layerId);
+        if (idx < 0) return undefined;
+        const layer = data.layers[idx]!;
+        const prev = Array.isArray(layer.syncConflicts)
+          ? (layer.syncConflicts as unknown[])
+          : [];
+        const nextConflicts = [...prev, entry].slice(-MAX_SYNC_CONFLICTS);
+        const nextLayers = data.layers.slice();
+        nextLayers[idx] = { ...layer, syncConflicts: nextConflicts };
+        const updated = await this.prisma.item.updateMany({
+          where: { id: args.itemId, updatedAt: row.updatedAt },
+          data: {
+            data: { ...(data as object), layers: nextLayers } as never,
+          },
+        });
+        if (updated.count === 1) return id;
+      }
+    } catch (err) {
+      this.log.warn(
+        `recordSyncConflict failed for ${args.itemId}/${args.layerId}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+    return undefined;
   }
 
   /**

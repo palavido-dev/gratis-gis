@@ -7,7 +7,6 @@ import {
   ForbiddenException,
   Get,
   Headers,
-  HttpCode,
   InternalServerErrorException,
   NotFoundException,
   Param,
@@ -27,6 +26,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsObject,
   IsOptional,
   IsString,
@@ -122,11 +122,19 @@ class UpdateFeatureBodyDto {
    * last-writer-wins, which is what the web runtime does today.
    */
   @IsOptional() @IsUUID() baseObservationId?: string;
+  /**
+   * Dry run: validate share, schema, and baseObservationId without
+   * writing. Returns `{ ok: true, headObservationId, syncVersion }`
+   * or the same 409 a real write would, including a conflict artifact.
+   */
+  @IsOptional() @IsBoolean() checkOnly?: boolean;
 }
 
 /** DELETE takes the same guard; an empty or absent body is fine. */
 class DeleteFeatureBodyDto {
   @IsOptional() @IsUUID() baseObservationId?: string;
+  /** Dry run; see UpdateFeatureBodyDto.checkOnly. */
+  @IsOptional() @IsBoolean() checkOnly?: boolean;
 }
 
 /**
@@ -1822,20 +1830,21 @@ export class DataLayerFeaturesController {
       ...(body.baseObservationId !== undefined
         ? { baseObservationId: body.baseObservationId }
         : {}),
+      ...(body.checkOnly === true ? { checkOnly: true } : {}),
     });
   }
 
   @Delete('features/:fid')
-  @HttpCode(204)
   async remove(
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
+    @Res({ passthrough: true }) res: Response,
     // A DELETE body is unusual but legal, and the guard has to travel
     // with the request; a header would be the alternative, and a
     // stray UUID header is harder to see in a log than a JSON field.
-    @Body() body: DeleteFeatureBodyDto | undefined,
+    @Body() body?: DeleteFeatureBodyDto,
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
@@ -1854,12 +1863,23 @@ export class DataLayerFeaturesController {
         op: 'delete',
       });
     }
+    if (body?.checkOnly === true) {
+      // Dry run returns a JSON body (200); a real delete stays 204.
+      return this.v3.deleteFeature(itemId, layerId, featureId, user, {
+        ownRowsOnly: rowScope === 'own',
+        checkOnly: true,
+        ...(body.baseObservationId !== undefined
+          ? { baseObservationId: body.baseObservationId }
+          : {}),
+      });
+    }
     await this.v3.deleteFeature(itemId, layerId, featureId, user, {
       ownRowsOnly: rowScope === 'own',
       ...(body?.baseObservationId !== undefined
         ? { baseObservationId: body.baseObservationId }
         : {}),
     });
+    res.status(204);
   }
 
   /**
