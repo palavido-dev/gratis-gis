@@ -87,7 +87,7 @@ Use a personal portal API key (`ggk_...`), not a browser session JWT.
 Session tokens expire in minutes and will break MCP mid-conversation.
 
 1. Sign into the portal.
-2. Open **Profile -> API keys** (`/settings/api-keys`).
+2. Open **Profile / API keys** (`/settings/api-keys`).
 3. Mint a key (choose read-only unless you need writes later).
 4. Copy the `ggk_...` secret once and set `GRATIS_GIS_TOKEN` to it.
 
