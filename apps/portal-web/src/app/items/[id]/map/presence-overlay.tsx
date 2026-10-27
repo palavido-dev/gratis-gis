@@ -2,25 +2,16 @@
 'use client';
 
 /**
- * Presence overlay (#156 Phase 1).
+ * Presence overlay (#156 Phase 1 + 1.5).
  *
  * Renders "who's currently viewing this map" as avatar chips in
  * the map toolbar plus each viewer's cursor position on the
- * canvas (when they've shared one). Implements the third leg of
- * the Figma-for-maps collaboration story alongside markup (#154)
- * and threaded comments (#155).
+ * canvas (when they've shared one).
  *
- * Phase 1 uses HTTP polling: the client POSTs a heartbeat with
- * the local viewer's cursor lat/lng every 2 seconds and renders
- * the server-returned roster of active members (TTL-pruned on
- * the server at 5 seconds). Phase 1.5 swaps the transport to a
- * Nest WebSocket gateway behind a Caddy WS route for sub-second
- * cursor latency; the visible UX stays the same.
- *
- * The cursor projection uses MapLibre's `map.project([lng, lat])`
- * helper to convert WGS84 to screen pixels. We re-project the
- * stored cursors on every camera move so cursors track the map
- * even when nobody's heartbeat has fired in the meantime.
+ * Transport: try a Nest WebSocket (ticket minted over the BFF so
+ * the session JWT never lands on the WS URL). If the socket fails
+ * to open or drops, fall back to the Phase 1 HTTP heartbeat poll
+ * every 2 seconds. Visible UX is the same either way.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -40,6 +31,13 @@ interface HeartbeatResponse {
   members: PresenceMember[];
 }
 
+interface TicketResponse {
+  ticket: string;
+  connectionId: string;
+  expiresInMs: number;
+  wsPath: string;
+}
+
 interface Props {
   /** UUID of the map item this overlay is connected to. */
   mapId: string;
@@ -53,7 +51,7 @@ interface Props {
    * Where to render the avatar strip. The map editor passes a
    * portal target (the right side of the toolbar) so the chips
    * appear next to the Save button rather than floating over the
-   * canvas. Optional — when omitted, the chips render in a
+   * canvas. Optional - when omitted, the chips render in a
    * top-left floating box.
    */
   chipsContainer?: HTMLElement | null;
@@ -61,6 +59,7 @@ interface Props {
 
 const HEARTBEAT_INTERVAL_MS = 2_000;
 const CURSOR_THROTTLE_MS = 250;
+const WS_HEARTBEAT_INTERVAL_MS = 2_000;
 
 export function PresenceOverlay({
   mapId,
@@ -70,8 +69,12 @@ export function PresenceOverlay({
 }: Props) {
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const [connectionId, setConnectionId] = useState<string | null>(null);
+  const [transport, setTransport] = useState<'ws' | 'http'>('http');
   const lastCursorRef = useRef<{ lng: number; lat: number } | null>(null);
   const lastSentRef = useRef<number>(0);
+  const connectionIdRef = useRef<string | null>(null);
+  connectionIdRef.current = connectionId;
+  const wsRef = useRef<WebSocket | null>(null);
   // Force re-render on map move so we re-project cursors.
   const [cameraTick, setCameraTick] = useState(0);
 
@@ -102,15 +105,28 @@ export function PresenceOverlay({
     };
   }, [mapLibre]);
 
-  // Heartbeat loop.
+  const applyRoster = useCallback((next: PresenceMember[]) => {
+    setMembers(next);
+  }, []);
+
+  // Prefer WebSocket; fall back to HTTP poll on failure.
   useEffect(() => {
     if (!currentUser) return;
-    let alive = true;
-    const tick = async () => {
-      if (!alive) return;
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let wsHeartbeat: ReturnType<typeof setInterval> | null = null;
+    let cursorTimer: ReturnType<typeof setInterval> | null = null;
+
+    const stopPoll = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const httpHeartbeat = async () => {
+      if (cancelled) return;
       const now = Date.now();
-      // Throttle cursor payload to CURSOR_THROTTLE_MS so a fast
-      // mouse motion doesn't fire one heartbeat per pixel.
       const cursorToSend =
         now - lastSentRef.current >= CURSOR_THROTTLE_MS
           ? lastCursorRef.current
@@ -118,7 +134,7 @@ export function PresenceOverlay({
       lastSentRef.current = now;
       try {
         const body: Record<string, unknown> = {};
-        if (connectionId) body.connectionId = connectionId;
+        if (connectionIdRef.current) body.connectionId = connectionIdRef.current;
         if (cursorToSend !== undefined) body.cursor = cursorToSend;
         const res = await fetch(
           `/api/portal/realtime/maps/${mapId}/presence/heartbeat`,
@@ -130,35 +146,138 @@ export function PresenceOverlay({
         );
         if (!res.ok) throw new Error(`${res.status}`);
         const data = (await res.json()) as HeartbeatResponse;
-        if (!alive) return;
-        if (!connectionId && data.me?.connectionId) {
+        if (cancelled) return;
+        if (!connectionIdRef.current && data.me?.connectionId) {
           setConnectionId(data.me.connectionId);
         }
-        setMembers(data.members);
+        applyRoster(data.members);
       } catch {
-        // Swallow; the next heartbeat will try again. Presence
-        // dropping out for a few seconds is the right failure mode.
+        /* next poll retries */
       }
     };
-    // Fire one immediately on mount, then poll.
-    void tick();
-    const interval = setInterval(tick, HEARTBEAT_INTERVAL_MS);
-    return () => {
-      alive = false;
-      clearInterval(interval);
-    };
-  }, [currentUser, mapId, connectionId]);
 
-  // Best-effort drop on tab close so the user's chip disappears
-  // immediately on navigation rather than waiting out the TTL.
+    const startHttpFallback = () => {
+      if (cancelled) return;
+      setTransport('http');
+      stopPoll();
+      void httpHeartbeat();
+      pollTimer = setInterval(httpHeartbeat, HEARTBEAT_INTERVAL_MS);
+    };
+
+    const startWs = async () => {
+      try {
+        const res = await fetch(
+          `/api/portal/realtime/maps/${mapId}/presence/ticket`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              ...(connectionIdRef.current
+                ? { connectionId: connectionIdRef.current }
+                : {}),
+            }),
+          },
+        );
+        if (!res.ok) throw new Error(`ticket ${res.status}`);
+        const ticket = (await res.json()) as TicketResponse;
+        if (cancelled) return;
+        setConnectionId(ticket.connectionId);
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${window.location.host}${ticket.wsPath}`);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (cancelled) {
+            ws.close();
+            return;
+          }
+          setTransport('ws');
+          stopPoll();
+          wsHeartbeat = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'heartbeat' }));
+            }
+          }, WS_HEARTBEAT_INTERVAL_MS);
+          cursorTimer = setInterval(() => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            const now = Date.now();
+            if (now - lastSentRef.current < CURSOR_THROTTLE_MS) return;
+            lastSentRef.current = now;
+            ws.send(
+              JSON.stringify({
+                type: 'cursor',
+                cursor: lastCursorRef.current,
+              }),
+            );
+          }, CURSOR_THROTTLE_MS);
+        };
+
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(String(ev.data)) as {
+              type?: string;
+              members?: PresenceMember[];
+            };
+            if (msg.type === 'roster' && Array.isArray(msg.members)) {
+              applyRoster(msg.members);
+            }
+          } catch {
+            /* ignore malformed */
+          }
+        };
+
+        ws.onerror = () => {
+          /* onclose handles fallback */
+        };
+
+        ws.onclose = () => {
+          wsRef.current = null;
+          if (wsHeartbeat) clearInterval(wsHeartbeat);
+          if (cursorTimer) clearInterval(cursorTimer);
+          if (!cancelled) startHttpFallback();
+        };
+      } catch {
+        if (!cancelled) startHttpFallback();
+      }
+    };
+
+    void startWs();
+
+    return () => {
+      cancelled = true;
+      stopPoll();
+      if (wsHeartbeat) clearInterval(wsHeartbeat);
+      if (cursorTimer) clearInterval(cursorTimer);
+      const ws = wsRef.current;
+      wsRef.current = null;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'leave' }));
+        } catch {
+          /* ignore */
+        }
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [currentUser, mapId, applyRoster]);
+
+  // Best-effort drop on tab close (beacon can only POST).
   useEffect(() => {
     if (!currentUser || !connectionId) return;
     const handler = () => {
       try {
-        const data = new Blob([], { type: 'application/json' });
+        const body = new Blob(
+          [JSON.stringify({ connectionId })],
+          { type: 'application/json' },
+        );
         navigator.sendBeacon(
-          `/api/portal/realtime/maps/${mapId}/presence/${encodeURIComponent(connectionId)}`,
-          data,
+          `/api/portal/realtime/maps/${mapId}/presence/leave`,
+          body,
         );
       } catch {
         // ignore
@@ -170,24 +289,21 @@ export function PresenceOverlay({
 
   // Projected cursor positions for everyone except me.
   const cursors = useMemo(() => {
-    // cameraTick is a re-render trigger; reference it so the
-    // optimizer keeps it in the dep list.
     void cameraTick;
+    void transport;
     if (!mapLibre) return [] as Array<{ member: PresenceMember; x: number; y: number }>;
     const out: Array<{ member: PresenceMember; x: number; y: number }> = [];
     for (const m of members) {
       if (!m.cursor) continue;
-      if (m.connectionId === connectionId) continue; // don't render my own cursor
+      if (m.connectionId === connectionId) continue;
       const p = mapLibre.project([m.cursor.lng, m.cursor.lat]);
       out.push({ member: m, x: p.x, y: p.y });
     }
     return out;
-  }, [members, connectionId, mapLibre, cameraTick]);
+  }, [members, connectionId, mapLibre, cameraTick, transport]);
 
   return (
     <>
-      {/* Cursor markers. Absolute-positioned over the canvas; the
-          canvas wrapper has position: relative already. */}
       {cursors.map(({ member, x, y }) => (
         <div
           key={member.connectionId}
@@ -212,19 +328,9 @@ export function PresenceOverlay({
           </span>
         </div>
       ))}
-      {/* Avatar strip. When the parent supplies chipsContainer
-          (the BuilderShell toolbar's left side, next to the
-          canvas pane toggles + Save button), we portal into it so
-          the chips sit in the toolbar instead of floating over
-          the canvas where they used to overlap the MapLibre zoom
-          + compass controls. With no container, we fall back to
-          the canvas-overlay rendering for callers that don't have
-          a toolbar slot (preview surfaces, embedded readers). */}
-      {currentUser && members.length > 0 ? renderChipStrip(
-        chipsContainer,
-        members,
-        connectionId,
-      ) : null}
+      {currentUser && members.length > 0
+        ? renderChipStrip(chipsContainer, members, connectionId)
+        : null}
     </>
   );
 }
@@ -255,9 +361,6 @@ function renderChipStrip(
   if (container) {
     return createPortal(strip, container);
   }
-  // Fallback: canvas overlay (the pre-portal behavior). The
-  // pointer-events-none + absolute positioning is preserved so
-  // legacy callers don't regress.
   return (
     <div className="pointer-events-none absolute right-2 top-2 z-20">
       {strip}

@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module.js';
 import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
 
@@ -30,6 +31,9 @@ process.on('uncaughtException', (err) => {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Native ws adapter for presence Phase 1.5 (#156). Kept off
+  // socket.io so we do not add another realtime protocol stack.
+  app.useWebSocketAdapter(new WsAdapter(app));
   // Per-route CORS: the open-data surface (/api/public/*, /health)
   // answers any origin read-only; everything else answers only the
   // origins in CORS_ALLOWED_ORIGINS, which defaults to none. The

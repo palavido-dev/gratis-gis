@@ -3,34 +3,29 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
- * #156 Realtime presence + live cursors, Phase 1.
+ * #156 Realtime presence + live cursors.
  *
- * Phase 1 ships HTTP polling (not WebSockets) so the feature
- * lands without infra changes: the existing BFF allowlist
- * already lets a signed-in client GET / POST to portal-api, and
- * Caddy doesn't need a new route. A presence client polls
- * heartbeat every 2 seconds; the server keeps an in-memory
- * per-map roster with a 5-second TTL on missing heartbeats.
- *
- * Phase 1.5 swaps this for a Nest WebSocket gateway behind a
- * Caddy WS route once we want sub-second cursor latency. The
- * client-facing shape (members[] with cursor / color /
- * displayName) is the same, so the swap is a transport change
- * only.
+ * Phase 1: HTTP polling (heartbeat every ~2s).
+ * Phase 1.5: Nest WebSocket transport with the same roster shape;
+ * HTTP remains as the durable fallback. Opaque short-lived tickets
+ * are minted over the authenticated BFF so the browser never puts
+ * a session JWT on the WebSocket URL.
  *
  * In-memory only: with two portal-api replicas behind a load
- * balancer, presence works within a single replica's heartbeats.
- * Acceptable for the small-team buyer; Redis cross-replica
- * fanout lands when the user count justifies it.
+ * balancer, presence works within a single replica. Acceptable for
+ * the small-team buyer; Redis cross-replica fanout lands later.
  */
 const HEARTBEAT_TTL_MS = 5_000;
+const TICKET_TTL_MS = 30_000;
 
 /** Active member of a presence room. */
 export interface PresenceMember {
@@ -46,8 +41,30 @@ export interface PresenceMember {
   lastSeenAt: number;
 }
 
+export interface PresenceRoster {
+  me: PresenceMember;
+  members: PresenceMember[];
+}
+
+export interface PresenceTicketIssue {
+  ticket: string;
+  connectionId: string;
+  expiresInMs: number;
+  /** Path under the portal-api origin (includes /api prefix). */
+  wsPath: string;
+}
+
 interface RoomState {
   members: Map<string, PresenceMember>; // keyed by connectionId
+  /** WS subscribers that want a roster push after each mutation. */
+  subscribers: Set<(members: PresenceMember[]) => void>;
+}
+
+interface TicketRecord {
+  user: AuthUser;
+  mapId: string;
+  connectionId: string;
+  expiresAt: number;
 }
 
 const PALETTE: string[] = [
@@ -64,11 +81,60 @@ const PALETTE: string[] = [
 @Injectable()
 export class RealtimeService {
   private readonly rooms = new Map<string, RoomState>();
+  private readonly tickets = new Map<string, TicketRecord>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly sharing: SharingService,
   ) {}
+
+  /**
+   * Mint a short-lived WS ticket after the same can-read check as
+   * heartbeat. Single-use: consumeTicket deletes it.
+   */
+  async mintTicket(
+    user: AuthUser,
+    mapId: string,
+    connectionId?: string,
+  ): Promise<PresenceTicketIssue> {
+    await this.assertCanRead(user, mapId);
+    this.pruneTickets();
+    const id =
+      typeof connectionId === 'string' && connectionId.length > 0
+        ? connectionId.slice(0, 80)
+        : mintConnectionId(user.id);
+    const ticket = randomBytes(24).toString('base64url');
+    this.tickets.set(ticket, {
+      user,
+      mapId,
+      connectionId: id,
+      expiresAt: Date.now() + TICKET_TTL_MS,
+    });
+    return {
+      ticket,
+      connectionId: id,
+      expiresInMs: TICKET_TTL_MS,
+      wsPath: `/api/realtime/ws?mapId=${encodeURIComponent(mapId)}&ticket=${encodeURIComponent(ticket)}`,
+    };
+  }
+
+  /**
+   * Validate and consume a WS ticket. Returns the authenticated
+   * principal + connection id bound to the map, or throws.
+   */
+  consumeTicket(
+    ticket: string,
+    mapId: string,
+  ): { user: AuthUser; connectionId: string } {
+    this.pruneTickets();
+    const row = this.tickets.get(ticket);
+    if (!row || row.mapId !== mapId || row.expiresAt < Date.now()) {
+      this.tickets.delete(ticket);
+      throw new UnauthorizedException('Presence ticket expired or invalid.');
+    }
+    this.tickets.delete(ticket);
+    return { user: row.user, connectionId: row.connectionId };
+  }
 
   /**
    * Apply a heartbeat from a viewer. Returns the active member
@@ -82,7 +148,7 @@ export class RealtimeService {
       connectionId?: string;
       cursor?: { lng: number; lat: number } | null;
     },
-  ): Promise<{ me: PresenceMember; members: PresenceMember[] }> {
+  ): Promise<PresenceRoster> {
     await this.assertCanRead(user, mapId);
     const room = this.getOrCreate(mapId);
     this.prune(room);
@@ -90,8 +156,12 @@ export class RealtimeService {
       typeof input.connectionId === 'string' && input.connectionId.length > 0
         ? input.connectionId.slice(0, 80)
         : mintConnectionId(user.id);
-    let cursor: { lng: number; lat: number } | null = null;
-    if (input.cursor && typeof input.cursor === 'object') {
+
+    let cursorUpdate: { lng: number; lat: number } | null | undefined =
+      undefined;
+    if (input.cursor === null) {
+      cursorUpdate = null;
+    } else if (input.cursor && typeof input.cursor === 'object') {
       const lng = Number((input.cursor as { lng?: unknown }).lng);
       const lat = Number((input.cursor as { lat?: unknown }).lat);
       if (
@@ -102,13 +172,14 @@ export class RealtimeService {
         lat >= -90 &&
         lat <= 90
       ) {
-        cursor = { lng, lat };
+        cursorUpdate = { lng, lat };
       }
     }
+
     const existing = room.members.get(connectionId);
     let member: PresenceMember;
     if (existing) {
-      existing.cursor = cursor;
+      if (cursorUpdate !== undefined) existing.cursor = cursorUpdate;
       existing.lastSeenAt = Date.now();
       member = existing;
     } else {
@@ -119,15 +190,14 @@ export class RealtimeService {
         userId: user.id,
         displayName,
         color,
-        cursor,
+        cursor: cursorUpdate ?? null,
         lastSeenAt: Date.now(),
       };
       room.members.set(connectionId, member);
     }
-    return {
-      me: member,
-      members: Array.from(room.members.values()),
-    };
+    const members = Array.from(room.members.values());
+    this.notifyRoom(room, members);
+    return { me: member, members };
   }
 
   /**
@@ -146,7 +216,11 @@ export class RealtimeService {
     const existing = room.members.get(connectionId);
     if (existing && existing.userId !== user.id) return; // can only drop your own
     room.members.delete(connectionId);
-    if (room.members.size === 0) this.rooms.delete(mapId);
+    const members = Array.from(room.members.values());
+    this.notifyRoom(room, members);
+    if (room.members.size === 0 && room.subscribers.size === 0) {
+      this.rooms.delete(mapId);
+    }
   }
 
   /**
@@ -164,12 +238,27 @@ export class RealtimeService {
     return Array.from(room.members.values());
   }
 
+  /** Subscribe a WS client to roster pushes for a map room. */
+  subscribe(
+    mapId: string,
+    listener: (members: PresenceMember[]) => void,
+  ): () => void {
+    const room = this.getOrCreate(mapId);
+    room.subscribers.add(listener);
+    return () => {
+      room.subscribers.delete(listener);
+      if (room.members.size === 0 && room.subscribers.size === 0) {
+        this.rooms.delete(mapId);
+      }
+    };
+  }
+
   // ---- helpers ----------------------------------------------------------
 
   private getOrCreate(mapId: string): RoomState {
     let room = this.rooms.get(mapId);
     if (!room) {
-      room = { members: new Map() };
+      room = { members: new Map(), subscribers: new Set() };
       this.rooms.set(mapId, room);
     }
     return room;
@@ -179,6 +268,23 @@ export class RealtimeService {
     const cutoff = Date.now() - HEARTBEAT_TTL_MS;
     for (const [id, m] of room.members) {
       if (m.lastSeenAt < cutoff) room.members.delete(id);
+    }
+  }
+
+  private pruneTickets(): void {
+    const now = Date.now();
+    for (const [k, v] of this.tickets) {
+      if (v.expiresAt < now) this.tickets.delete(k);
+    }
+  }
+
+  private notifyRoom(room: RoomState, members: PresenceMember[]): void {
+    for (const listener of room.subscribers) {
+      try {
+        listener(members);
+      } catch {
+        /* one bad subscriber must not break the room */
+      }
     }
   }
 

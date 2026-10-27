@@ -5,6 +5,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
 } from '@nestjs/common';
@@ -20,6 +21,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -34,6 +36,14 @@ class HeartbeatDto {
   @IsOptional() @IsString() @MaxLength(80) connectionId?: string;
   @IsOptional() @IsObject() @ValidateNested() @Type(() => CursorDto)
   cursor?: CursorDto | null;
+}
+
+class TicketDto {
+  @IsOptional() @IsString() @MaxLength(80) connectionId?: string;
+}
+
+class LeaveBodyDto {
+  @IsString() @MaxLength(80) connectionId!: string;
 }
 
 const UUID_RE =
@@ -65,6 +75,26 @@ export class RealtimeController {
     });
   }
 
+  /**
+   * Mint a short-lived WS ticket. Browser never sees the session
+   * JWT on the WebSocket URL; it opens wss://.../api/realtime/ws
+   * with this ticket instead (#156 Phase 1.5).
+   */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Post('ticket')
+  ticket(
+    @CurrentUser() user: AuthUser,
+    @Param('mapId') mapId: string,
+    @Body() dto: TicketDto,
+  ) {
+    assertUuid(mapId);
+    return this.realtime.mintTicket(
+      user,
+      mapId,
+      dto.connectionId,
+    );
+  }
+
   @Get()
   list(@CurrentUser() user: AuthUser, @Param('mapId') mapId: string) {
     assertUuid(mapId);
@@ -79,5 +109,20 @@ export class RealtimeController {
   ) {
     assertUuid(mapId);
     return this.realtime.leave(user, mapId, connectionId);
+  }
+
+  /**
+   * Beacon-friendly leave. navigator.sendBeacon can only POST;
+   * the DELETE route above stays for explicit client leave.
+   */
+  @Post('leave')
+  @HttpCode(204)
+  leavePost(
+    @CurrentUser() user: AuthUser,
+    @Param('mapId') mapId: string,
+    @Body() dto: LeaveBodyDto,
+  ) {
+    assertUuid(mapId);
+    return this.realtime.leave(user, mapId, dto.connectionId);
   }
 }

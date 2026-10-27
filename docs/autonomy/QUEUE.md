@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-docs-whats-new | maintainer ask | Help + What's new + GitHub docs catch-up | Branch `cursor/docs-whats-new-2838` |
 | R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | PR #343; not Yjs |
 
 ## queued (ship-without-input)
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-docs-whats-new | 2026-10-27 | Merged #344: What's new + help + GitHub docs catch-up |
 | R2-ogc-records-auth-docs | 2026-10-27 | Help API Records + MetaSearch catalog path; Aardvark/DCAT noted |
 | R2-delta-sync-client-hint | 2026-10-27 | Help documents `delta?since=N` + syncConflicts review |
 | R2-markup-annotation-kinds | 2026-10-27 | Merged #342: markup text / arrow / circle tools |

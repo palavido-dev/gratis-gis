@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Presence Phase 1.5: Nest WebSocket transport for live cursors with
+  HTTP heartbeat fallback. Ticket mint over the BFF keeps session
+  JWTs off the WS URL (#156).
 - Landing-page What's new and help catch-up for the Oct 27 autonomy
   ships (markup/print/promote, feature-anchored comments, zonal
   stats, sync conflicts, MetaSearch Records + DCAT themes, MCP write
