@@ -4,6 +4,9 @@ import type { JSX } from 'react';
 import { Database, ExternalLink, Globe2, Lock, Users2 } from 'lucide-react';
 import type { Item, ItemAccess, ItemShare } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import type { SupportedLocale } from '@/lib/i18n/locales';
+import { getServerLocale } from '@/lib/i18n/server';
 
 interface Props {
   /** Form item id (used only for analytics-style copy; the actual
@@ -42,15 +45,15 @@ interface Props {
  */
 export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId }: Props) {
   void _formId;
+  const locale = await getServerLocale();
   if (!linkedLayerId) {
     return (
       <div className="mb-4 rounded-md border border-dashed border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-        <div className="font-medium">Responses are stored in a paired data layer</div>
+        <div className="font-medium">
+          {t('formDesigner.pairedLayer.heading', undefined, locale)}
+        </div>
         <p className="mt-1 text-warn">
-          This form hasn&apos;t saved its paired data layer yet. Save the
-          form with at least one question to materialize it; once it
-          exists, control who can view submissions by managing the
-          paired layer&apos;s sharing.
+          {t('formDesigner.pairedLayer.emptyBody', undefined, locale)}
         </p>
       </div>
     );
@@ -64,17 +67,16 @@ export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId 
       <div className="mb-4 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2 text-xs text-muted">
         <div className="inline-flex items-center gap-1.5 font-medium text-ink-1">
           <Database className="h-3.5 w-3.5" />
-          Responses are stored in a paired data layer
+          {t('formDesigner.pairedLayer.heading', undefined, locale)}
         </div>
         <p className="mt-1">
-          The paired layer is unreadable from here (it may be owned by
-          another user). Open it directly to manage who can view
-          responses:&nbsp;
+          {t('formDesigner.pairedLayer.unreadableLead', undefined, locale)}
+          &nbsp;
           <Link
             href={`/items/${linkedLayerId}`}
             className="inline-flex items-center gap-1 text-accent hover:underline"
           >
-            Paired data layer
+            {t('formDesigner.pairedLayer.layerLink', undefined, locale)}
             <ExternalLink className="h-3 w-3" />
           </Link>
         </p>
@@ -88,7 +90,7 @@ export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId 
   )
     ? ((layer as { shares?: ItemShare[] }).shares as ItemShare[]).length
     : 0;
-  const tier = describeAccess(access);
+  const tier = describeAccess(access, locale);
 
   return (
     <div className="mb-4 rounded-md border border-border bg-surface-2/40 px-3 py-2.5 text-xs">
@@ -96,7 +98,7 @@ export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId 
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
             <Database className="h-3.5 w-3.5" />
-            Responses are stored in a paired data layer
+            {t('formDesigner.pairedLayer.heading', undefined, locale)}
           </div>
           <div className="mt-1 truncate text-sm font-medium text-ink-0">
             {layer.title}
@@ -106,23 +108,19 @@ export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId 
             <span className="text-ink-1">{tier.label}</span>
             {shareCount > 0 ? (
               <span className="text-muted">
-                +{' '}{shareCount} additional share{shareCount === 1 ? '' : 's'}
+                {t('formDesigner.pairedLayer.additionalShares', { count: shareCount }, locale)}
               </span>
             ) : null}
           </div>
           <p className="mt-2 max-w-2xl text-2xs text-muted">
-            The settings above control who can <strong>open</strong> the
-            form and submit a response. The paired layer&apos;s settings
-            (linked at right) control who can <strong>view</strong>{' '}
-            submitted responses. By default the layer is private, so
-            only you can see what people submit.
+            {t('formDesigner.pairedLayer.dualAclHint', undefined, locale)}
           </p>
         </div>
         <Link
           href={`/items/${linkedLayerId}#sharing`}
           className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-2xs font-medium text-ink-1 hover:bg-surface-2"
         >
-          Manage responses access
+          {t('formDesigner.pairedLayer.manageAccess', undefined, locale)}
           <ExternalLink className="h-3 w-3" />
         </Link>
       </div>
@@ -135,22 +133,25 @@ interface AccessSummary {
   Icon: JSX.Element;
 }
 
-function describeAccess(access: ItemAccess): AccessSummary {
+function describeAccess(
+  access: ItemAccess,
+  locale: SupportedLocale,
+): AccessSummary {
   switch (access) {
     case 'public':
       return {
-        label: 'Public (anyone with the link)',
+        label: t('formDesigner.pairedLayer.accessPublic', undefined, locale),
         Icon: <Globe2 className="h-3.5 w-3.5 text-success" />,
       };
     case 'org':
       return {
-        label: 'Everyone in your organization',
+        label: t('formDesigner.pairedLayer.accessOrg', undefined, locale),
         Icon: <Users2 className="h-3.5 w-3.5 text-info" />,
       };
     case 'private':
     default:
       return {
-        label: 'Private (owner + explicit shares)',
+        label: t('formDesigner.pairedLayer.accessPrivate', undefined, locale),
         Icon: <Lock className="h-3.5 w-3.5 text-muted" />,
       };
   }

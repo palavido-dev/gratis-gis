@@ -3979,6 +3979,21 @@ export const fr: Partial<CatalogShape> = {
       submissionsLayer: "Submissions data layer",
       submissionsLayerTitle: "Open the auto-created data layer where submissions land",
     },
+    pairedLayer: {
+      heading: "Les réponses sont stockées dans une couche de données associée",
+      emptyBody:
+        "Ce formulaire n'a pas encore créé sa couche de données associée. Enregistrez le formulaire avec au moins une question pour la matérialiser ; ensuite, gérez qui peut voir les soumissions via le partage de cette couche.",
+      unreadableLead:
+        "La couche associée est illisible depuis ici (elle peut appartenir à un autre utilisateur). Ouvrez-la directement pour gérer qui peut voir les réponses :",
+      layerLink: "Couche de données associée",
+      additionalShares: "+ {count, plural, one {# partage supplémentaire} other {# partages supplémentaires}}",
+      dualAclHint:
+        "Les paramètres ci-dessus contrôlent qui peut ouvrir le formulaire et envoyer une réponse. Les paramètres de la couche associée (lien à droite) contrôlent qui peut voir les réponses envoyées. Par défaut la couche est privée, donc seul vous voyez ce que les gens envoient.",
+      manageAccess: "Gérer l'accès aux réponses",
+      accessPublic: "Public (toute personne avec le lien)",
+      accessOrg: "Tout le monde dans votre organisation",
+      accessPrivate: "Privé (propriétaire + partages explicites)",
+    },
     regex: {
       pattern: "Pattern",
       patternBuilder: "Pattern builder",

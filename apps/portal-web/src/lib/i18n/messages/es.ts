@@ -3973,6 +3973,21 @@ export const es: Partial<CatalogShape> = {
       submissionsLayer: "Submissions data layer",
       submissionsLayerTitle: "Open the auto-created data layer where submissions land",
     },
+    pairedLayer: {
+      heading: "Las respuestas se guardan en una capa de datos asociada",
+      emptyBody:
+        "Este formulario aún no ha creado su capa de datos asociada. Guarda el formulario con al menos una pregunta para materializarla; después controla quién puede ver los envíos gestionando el uso compartido de esa capa.",
+      unreadableLead:
+        "La capa asociada no se puede leer desde aquí (puede pertenecer a otro usuario). Ábrela directamente para gestionar quién puede ver las respuestas:",
+      layerLink: "Capa de datos asociada",
+      additionalShares: "+ {count, plural, one {# uso compartido adicional} other {# usos compartidos adicionales}}",
+      dualAclHint:
+        "Los ajustes de arriba controlan quién puede abrir el formulario y enviar una respuesta. Los ajustes de la capa asociada (enlace a la derecha) controlan quién puede ver las respuestas enviadas. Por defecto la capa es privada, así que solo tú ves lo que envían.",
+      manageAccess: "Gestionar acceso a las respuestas",
+      accessPublic: "Público (cualquiera con el enlace)",
+      accessOrg: "Todos en tu organización",
+      accessPrivate: "Privado (propietario + compartidos explícitos)",
+    },
     regex: {
       pattern: "Patrón",
       patternBuilder: "Constructor de patrones",
