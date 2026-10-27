@@ -28,8 +28,8 @@ item" instead of each re-deriving endpoints from `item.data`.
       ],
       "downloads": [
         {
-          "label": "GeoJSON (OGC API Features)",
-          "url": "/api/public/ogc/collections/<uuid>/items?f=json",
+          "label": "GeoJSON",
+          "url": "/api/items/<uuid>/geojson",
           "format": "GeoJSON"
         }
       ],
@@ -44,6 +44,9 @@ item" instead of each re-deriving endpoints from `item.data`.
   as web maps (`data-layer`, `tile`, `point-cloud`, `arcgis-rest`, …).
 - URLs are portal-relative. QGIS / MCP prefix with the configured
   portal origin.
+- Downloads prefer auth-gated item routes (`/api/items/...`,
+  `/api/portal/tile-layer/...`, `/api/portal/point-cloud/...`).
+  Public items also get the anonymous OGC Features URL.
 - Empty `layers` means "not map-stamped here"; open `landingPath`
   instead (maps, web apps, forms).
 - List endpoints do **not** include `meta.ui` (payload size).

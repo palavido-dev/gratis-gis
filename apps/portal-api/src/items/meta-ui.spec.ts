@@ -7,6 +7,7 @@ describe('buildMetaUi', () => {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'data_layer',
       title: 'Parcels',
+      access: 'org',
       thumbnailUrl: null,
       data: {
         version: 3,
@@ -30,7 +31,65 @@ describe('buildMetaUi', () => {
       },
       geometryType: 'Polygon',
     });
-    expect(ui.downloads[0]?.format).toBe('GeoJSON');
+    expect(ui.downloads).toEqual([
+      {
+        label: 'GeoJSON',
+        url: '/api/items/11111111-1111-4111-8111-111111111111/geojson',
+        format: 'GeoJSON',
+      },
+    ]);
+  });
+
+  it('adds public OGC download only when access is public', () => {
+    const ui = buildMetaUi({
+      id: '11111111-1111-4111-8111-111111111111',
+      type: 'data_layer',
+      title: 'Parcels',
+      access: 'public',
+      data: { version: 2 },
+    });
+    expect(ui.downloads.map((d) => d.url)).toEqual([
+      '/api/items/11111111-1111-4111-8111-111111111111/geojson',
+      '/api/public/ogc/collections/11111111-1111-4111-8111-111111111111/items?f=json',
+    ]);
+  });
+
+  it('stamps point_cloud and arcgis_service layer sources', () => {
+    const pc = buildMetaUi({
+      id: '44444444-4444-4444-8444-444444444444',
+      type: 'point_cloud',
+      title: 'Lidar',
+      data: {
+        dataUrl: '/api/portal/point-cloud/44444444-4444-4444-8444-444444444444/file.copc.laz',
+        hasRgb: true,
+        pointCount: 1000,
+      },
+    });
+    expect(pc.layers[0]?.source).toMatchObject({
+      kind: 'point-cloud',
+      colorScheme: 'rgb',
+      pointCount: 1000,
+    });
+    expect(pc.downloads[0]?.format).toBe('COPC');
+
+    const arc = buildMetaUi({
+      id: '55555555-5555-4555-8555-555555555555',
+      type: 'arcgis_service',
+      title: 'AGO',
+      data: {
+        url: 'https://example.test/FeatureServer',
+        serviceType: 'FeatureServer',
+        defaultLayerId: 0,
+        selectedLayerIds: [0],
+        layers: [{ id: 0, name: 'Sites', geometryType: 'esriGeometryPoint' }],
+      },
+    });
+    expect(arc.layers).toHaveLength(1);
+    expect(arc.layers[0]?.source).toMatchObject({
+      kind: 'arcgis-rest',
+      layerId: 0,
+      proxyUrl: '/api/portal/items/55555555-5555-4555-8555-555555555555/proxy',
+    });
   });
 
   it('pins tile_layer URLs and skips DEM / vector packages', () => {

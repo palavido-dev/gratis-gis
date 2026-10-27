@@ -22,6 +22,8 @@ type MetaUiItemInput = {
   data: unknown;
   bbox?: unknown;
   thumbnailUrl?: string | null;
+  /** When `public`, also advertise the anonymous OGC Features URL. */
+  access?: string | null;
   /** Optional lite-list sublayers already attached by list endpoints. */
   _layers?: Array<{ id: string; label: string; geometryType: string | null }>;
 };
@@ -220,11 +222,20 @@ function arcgisLayers(item: MetaUiItemInput): MetaUiLayer[] {
 function downloadsFor(item: MetaUiItemInput): MetaUiDownload[] {
   const out: MetaUiDownload[] = [];
   if (item.type === 'data_layer' || item.type === 'derived_layer') {
+    // Auth-gated path first so private items never advertise a
+    // public OGC URL that 404s for anonymous callers.
     out.push({
-      label: 'GeoJSON (OGC API Features)',
-      url: `/api/public/ogc/collections/${item.id}/items?f=json`,
+      label: 'GeoJSON',
+      url: `/api/items/${item.id}/geojson`,
       format: 'GeoJSON',
     });
+    if (item.access === 'public') {
+      out.push({
+        label: 'GeoJSON (OGC API Features)',
+        url: `/api/public/ogc/collections/${item.id}/items?f=json`,
+        format: 'GeoJSON',
+      });
+    }
   }
   if (item.type === 'tile_layer') {
     const data = item.data as { tileUrl?: string; kind?: string } | null;
