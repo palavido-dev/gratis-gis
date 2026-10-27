@@ -37,9 +37,14 @@ Maps reference data layers; data layers reference nothing.
 Three ways to get features into a data layer:
 
 - **Upload at create**. The new-item wizard offers a file upload
- step (Shapefile zip, GeoJSON, GeoPackage, KML).
+ step (Shapefile zip, GeoJSON, GeoPackage, KML, File Geodatabase
+ `.gdb.zip`). Multi-layer archives are staged once; each probed
+ layer becomes a sublayer.
 - **Import into an existing sublayer**. The **Layer data** section
- on the detail page has an Import button per sublayer.
+ on the detail page has an Import button per sublayer. File
+ Geodatabase uploads stage on the server (same path as the wizard);
+ if the archive has more than one layer you pick which source layer
+ to load into that sublayer, then a background import job runs.
 - **Submitted via a form**. A form item paired to this data layer
  posts new rows when respondents submit.
 

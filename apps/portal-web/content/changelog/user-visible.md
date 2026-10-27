@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Import File Geodatabase into an existing layer
+On a data layer's Import features control, drop a `.gdb.zip` (or `.gdb`) and the portal stages it with server GDAL the same way the create wizard does. If the archive has more than one layer, pick which source layer to load; a background import job fills the sublayer.
+
 ## 2026-10-27 - Re-apply sync conflicts on the Android field app
 When an offline edit on Android loses to someone else's change, the rejected queue row now offers **Re-apply** next to Discard. Confirm compares your queued edit to what the server has now; updates overwrite, deletes remove, and a missing feature can be recreated.
 

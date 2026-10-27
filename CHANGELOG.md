@@ -9,6 +9,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- v3 data layer **Import features** stages File Geodatabase
+  (`.gdb` / `.gdb.zip`) via `POST /ingest/stage`, prompts for a
+  source layer when the archive is multi-layer, and enqueues
+  `import-jobs` with `stagingId` + `sourceLayerName` (same dialect
+  as the create wizard). `spatial-import` no longer claims GDAL is
+  unwired; help + feature-services docs match
+  (R5-gdb-editor-server-ingest).
 - Android field queue offers guided **Re-apply** / Recreate on
   rejected conflict rows (parked `conflictCurrentJson`), mirroring
   the portal-web SyncConflictsPanel path: PATCH / DELETE with a live
