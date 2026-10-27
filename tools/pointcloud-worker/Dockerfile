@@ -17,6 +17,12 @@ USER root
 # Pins chosen as the newest set that co-solves on conda-forge
 # (untwine 1.5 requires pdal 2.10, which drags gdal 3.13 and
 # python 3.14; older gdal/python pins make the solve impossible).
+#
+# After the conda solve: drop pip (runtime never installs packages;
+# pip's vendored msgpack/urllib3/setuptools otherwise fail Trivy
+# HIGH) and apt-upgrade the Debian trixie base that micromamba
+# ships so openssl/perl/util-linux security updates land
+# (SEC-trivy-workers).
 RUN micromamba install -y -n base -c conda-forge \
       python=3.14 \
       pdal=2.10 \
@@ -26,7 +32,11 @@ RUN micromamba install -y -n base -c conda-forge \
       boto3 \
       numpy \
       onnxruntime \
-    && micromamba clean --all --yes
+    && micromamba remove -y -n base pip \
+    && micromamba clean --all --yes \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # MobileSAM image encoder for the magic-outline tool (#sam). Pulled
 # from our own pinned model release (exported from the official

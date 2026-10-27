@@ -25,8 +25,8 @@ SQL embedding.
 | SEC-otherSource-acl | High | Assert `canRead` on every pipeline `otherSource` (clip/erase/join/filter) on save, preview, recipe run, GeoJSON read; extend `extractDependencies`. (shipped #376) |
 | SEC-expr-field-allowlist | High | Allowlist field identifiers at ingest + expression compile; stop quote-doubling-only SQL embed. (shipped #377) |
 | SEC-ingest-zip-budget | Medium | Central-directory expansion budget before `/vsizip/` (reuse tile-conversion pattern). (shipped #378) |
-| SEC-records-bbox-throttle | Medium | DB-side bbox or scan cap + tighter throttle on OGC Records. (shipping) |
-| SEC-trivy-workers | Medium | Trivy matrix for `pointcloud-worker` and `script-runner`. |
+| SEC-records-bbox-throttle | Medium | DB-side bbox or scan cap + tighter throttle on OGC Records. (shipped #379) |
+| SEC-trivy-workers | Medium | Trivy matrix for `pointcloud-worker` and `script-runner`. (shipping) |
 | SEC-jwt-aud | Medium | JWT audience allowlist for known clients. |
 | SEC-jwt-deletedAt | Medium | Mirror `deletedAt` on JWT auth path (API keys already check). |
 | SEC-ws-frame-cap | Low | Max Presence WebSocket frame size. |
