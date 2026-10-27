@@ -22,6 +22,13 @@ materialized into a PostGIS table and behave like any other layer:
 you can put them on a map, style them, query them, or feed them
 into another derived layer.
 
+For a one-step **buffer**, the data layer's **Analyze** tab has
+**Buffer this layer**: pick a distance and unit, and the portal
+creates the derived-layer recipe for you (PostGIS on the server).
+That path stays honest about meter distances; the in-browser SQL
+builder does not invent a degree-unit buffer. See
+[Buffer](/help/analysis/buffer).
+
 ## Pipeline model
 
 A derived layer is an ordered list of **steps**, each producing a

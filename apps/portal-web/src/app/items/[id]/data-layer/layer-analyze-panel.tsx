@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
+import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -362,6 +363,16 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             Runs in your browser. The server never sees a query.
           </span>
         </div>
+        {/* Meter buffers need PROJ; DuckDB-WASM does not ship it
+            honestly. Offer a server derived_layer recipe instead of
+            a lying in-browser ST_Buffer (R4-analyze-buffer-derived). */}
+        {layer.geometryType ? (
+          <AnalyzeBufferGuide
+            itemId={itemId}
+            layerKey={layer.id}
+            sourceLabel={layer.label || layer.name || 'Layer'}
+          />
+        ) : null}
         {mode === 'builder' ? (
           <AnalyzeQueryBuilder
             viewName={viewName}
@@ -518,9 +529,12 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           {spatial ? (
             <>
               Spatial SQL works on the{' '}
-              <span className="font-mono">geometry</span> column:
-              ST_Area, ST_Buffer, ST_Intersects, spatial joins, and the
-              rest run right here in your browser.
+              <span className="font-mono">geometry</span> column for
+              CRS-safe transforms and spheroid measures (area, length).
+              Meter buffers need PROJ data this browser engine does not
+              ship — use <strong>Buffer this layer</strong> above to
+              create a PostGIS derived layer instead of a degree-unit
+              trap.
             </>
           ) : (
             <>

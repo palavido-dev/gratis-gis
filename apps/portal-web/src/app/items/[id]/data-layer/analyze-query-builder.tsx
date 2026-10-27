@@ -16,8 +16,10 @@
  * measures that compute real meters on WGS84 with no projection
  * database (ST_Area_Spheroid and friends, validated against the
  * engine). Buffer-by-meters needs ST_Transform with PROJ data in the
- * browser build, which is unverified, so it is not offered yet
+ * browser build, which is unverified, so it is not offered here —
  * rather than offered wrong (a degree-unit buffer would be a trap).
+ * The Analyze panel's "Buffer this layer" control creates a PostGIS
+ * derived_layer recipe instead (R4-analyze-buffer-derived).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
