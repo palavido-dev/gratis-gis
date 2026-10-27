@@ -19,6 +19,12 @@ Markup is the fastest way to get team feedback on a map. Anyone who
 can view the map can draw on it, group sketches into named markup
 sets, and ship the link back to the team. No editor permission needed.
 
+Signed-in viewers can always add their own markup. Map editors can
+also turn on **Anonymous markup** in Map settings so signed-out
+visitors on a public map can add and edit their own sets (off by
+default, rate-limited). Guests cannot promote a set to a data
+layer — that still needs a signed-in account.
+
 The classic use case: a project manager opens a shared parcel map,
 spots three parcels with wrong boundaries, sketches the correct
 edges, and emails the map URL to the analyst who can fix the
@@ -80,6 +86,9 @@ your own view; the set is still there for everyone else.
   shared map without asking the author.
 - Other viewers can see all markup sets but can only edit or
   delete their own.
+- Anonymous guests (when the setting is on) edit only sets they
+  created in the same browser; clearing site cookies loses that
+  edit right, though the markup stays on the map.
 
 ## Tips
 

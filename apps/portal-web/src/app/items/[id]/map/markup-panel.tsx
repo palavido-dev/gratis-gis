@@ -45,6 +45,7 @@ import {
   type DrawingSet,
 } from '@gratis-gis/shared-types';
 import type * as maplibregl from 'maplibre-gl';
+import { readAnonDrawingDisplay } from '@/lib/anon-drawing-session';
 import {
   drawModeFor,
   setDrawMode,
@@ -68,10 +69,18 @@ interface Props {
   /**
    * Current signed-in user. The panel uses this to figure out
    * which drawing sets the viewer can edit (their own, or any if
-   * `canEditMap`). Pass null only on a public viewer; in that
-   * case the create/edit actions disable.
+   * `canEditMap`). Pass null for a public anonymous viewer; when
+   * `allowAnonymousDrawings` is also on, create/edit of the
+   * visitor's own sets stays enabled via the anon cookie session.
    */
   currentUser: { id: string; displayName: string } | null;
+  /**
+   * Map opt-in for anonymous markup (#154). Off by default. When
+   * true and `currentUser` is null, the panel enables Add markup
+   * and edit/delete of sets authored in this browser session.
+   * Promote stays hidden for anonymous visitors.
+   */
+  allowAnonymousDrawings?: boolean;
   /**
    * Whether the viewer can edit the parent map item. Editors can
    * touch any drawing set (clean up after a reviewer who left);
@@ -118,6 +127,7 @@ export function MarkupPanel({
   open,
   onClose,
   currentUser,
+  allowAnonymousDrawings = false,
   canEditMap,
   mapCenter,
   onDrawingsChange,
@@ -134,6 +144,13 @@ export function MarkupPanel({
   const [activeSetId, setActiveSetId] = useState<string | null>(null);
   const [tool, setTool] = useState<MarkupTool>('off');
   const [promoteBusyId, setPromoteBusyId] = useState<string | null>(null);
+  // Re-read after writes so a freshly-minted cookie unlocks edit
+  // controls without a full page reload.
+  const [anonDisplay, setAnonDisplay] = useState<string | null>(() =>
+    readAnonDrawingDisplay(),
+  );
+  const canCreateMarkup =
+    Boolean(currentUser) || (allowAnonymousDrawings && !currentUser);
   const mapCenterRef = useRef(mapCenter);
   mapCenterRef.current = mapCenter;
   const drawingsRef = useRef(drawings);
@@ -251,11 +268,20 @@ export function MarkupPanel({
 
   const canEditSet = useCallback(
     (set: DrawingSet): boolean => {
-      if (!currentUser) return false;
-      if (canEditMap) return true;
-      return set.authorId === currentUser.id;
+      if (currentUser) {
+        if (canEditMap) return true;
+        return set.authorId === currentUser.id;
+      }
+      if (!allowAnonymousDrawings) return false;
+      // Anon visitors only edit sets they authored in this browser
+      // session (authorId null + display matches the cookie).
+      return (
+        set.authorId === null &&
+        anonDisplay !== null &&
+        set.authorDisplay === anonDisplay
+      );
     },
-    [currentUser, canEditMap],
+    [currentUser, canEditMap, allowAnonymousDrawings, anonDisplay],
   );
 
   const appendFeature = useCallback(
@@ -288,18 +314,28 @@ export function MarkupPanel({
   );
 
   const addSet = useCallback(async () => {
-    if (!currentUser) return;
+    if (!canCreateMarkup) return;
     setBusy(true);
     setError(null);
     try {
-      const title = defaultDrawingSetTitle(currentUser.displayName);
+      // Signed-in: stamp the title client-side. Anonymous: omit so
+      // the API names the set from the freshly-minted cookie display
+      // ("Anonymous ab12cd's markup …").
+      const body = currentUser
+        ? JSON.stringify({
+            title: defaultDrawingSetTitle(currentUser.displayName),
+          })
+        : '{}';
       const created = await portalJson<DrawingSet>(
         `/api/portal/items/${mapId}/drawings`,
         {
           method: 'POST',
-          body: JSON.stringify({ title }),
+          body,
         },
       );
+      // Cookie may have been minted on this response; refresh so
+      // canEditSet recognizes the new set as ours.
+      setAnonDisplay(readAnonDrawingDisplay());
       const next = [...drawings, created];
       setDrawings(next);
       onDrawingsChange(next);
@@ -310,7 +346,14 @@ export function MarkupPanel({
     } finally {
       setBusy(false);
     }
-  }, [currentUser, drawings, mapId, onDrawingsChange, t]);
+  }, [
+    canCreateMarkup,
+    currentUser,
+    drawings,
+    mapId,
+    onDrawingsChange,
+    t,
+  ]);
 
   const dropPinAtCenter = useCallback(
     async (setId: string) => {
@@ -707,18 +750,24 @@ export function MarkupPanel({
                       >
                         {t('mapMarkup.dropPinShort')}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => promoteSet(set.id)}
-                        disabled={busy || promoteBusyId === set.id || set.features.length === 0}
-                        className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-                        title={t('mapMarkup.promoteTitle')}
-                      >
-                        <ArrowUpFromLine className="h-3 w-3" />
-                        {promoteBusyId === set.id
-                          ? t('mapMarkup.promoting')
-                          : t('mapMarkup.promote')}
-                      </button>
+                      {currentUser ? (
+                        <button
+                          type="button"
+                          onClick={() => promoteSet(set.id)}
+                          disabled={
+                            busy ||
+                            promoteBusyId === set.id ||
+                            set.features.length === 0
+                          }
+                          className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                          title={t('mapMarkup.promoteTitle')}
+                        >
+                          <ArrowUpFromLine className="h-3 w-3" />
+                          {promoteBusyId === set.id
+                            ? t('mapMarkup.promoting')
+                            : t('mapMarkup.promote')}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => removeSet(set.id)}
@@ -739,16 +788,23 @@ export function MarkupPanel({
       </div>
 
       <div className="border-t border-border px-3 py-2">
-        {currentUser ? (
-          <button
-            type="button"
-            onClick={addSet}
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            {t('mapMarkup.addMarkup')}
-          </button>
+        {canCreateMarkup ? (
+          <>
+            <button
+              type="button"
+              onClick={addSet}
+              disabled={busy}
+              className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              {t('mapMarkup.addMarkup')}
+            </button>
+            {!currentUser && allowAnonymousDrawings ? (
+              <p className="mt-2 text-2xs text-muted">
+                {t('mapMarkup.anonymousHint')}
+              </p>
+            ) : null}
+          </>
         ) : (
           <p className="text-xs text-muted">
             {t('mapMarkup.signInToMarkup')}

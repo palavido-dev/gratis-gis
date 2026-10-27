@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Anonymous markup on public maps when `allowAnonymousDrawings` is
+  enabled (default off): logged-out visitors get a cookie session
+  and can create/edit/delete their own drawing sets; promote stays
+  signed-in only; anon writes are rate-limited (~30/min)
+  (R3-anonymous-markup / #154).
 - Field PWA offline refresh pulls layer changes via
   `GET .../layers/:layerId/delta?since=N` when a local syncVersion
   cursor exists, instead of re-downloading full GeoJSON every time

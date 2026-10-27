@@ -2413,6 +2413,9 @@ export const de: Partial<CatalogShape> = {
     dropPinShort: 'Mitte',
     addMarkup: 'Markierung hinzufügen',
     signInToMarkup: 'Melden Sie sich an, um Markierungen hinzuzufügen.',
+    anonymousHint:
+      'Sie fügen Markierungen als Gast hinzu. Zum Hochstufen in einen Datenlayer müssen Sie sich anmelden.',
+    anonymousReviewer: 'Anonym',
     pins: '{count, plural, one {# Pin} other {# Pins}}',
     features:
       '{count, plural, one {# Objekt} other {# Objekte}}',
@@ -2458,6 +2461,12 @@ export const de: Partial<CatalogShape> = {
     defaultExtent: 'Standardausdehnung',
     searchSource: 'Suchquelle',
     searchSourceEmpty: 'Erstellen Sie ein Geokodierungs-Service-Element, um hier Ihre eigenen Daten zu suchen.',
+    allowAnonymous: 'Anonyme Markierungen',
+    allowAnonymousDesc:
+      'Abgemeldete Besucher dürfen eigene Markierungssätze auf dieser öffentlichen Karte hinzufügen. Standardmäßig aus. Hochstufen in einen Datenlayer erfordert weiterhin eine Anmeldung.',
+    allowAnonymousOn: 'Erlaubt',
+    allowAnonymousOff: 'Aus (Standard)',
+    allowAnonymousError: 'Anonyme-Markierungen-Einstellung konnte nicht aktualisiert werden.',
   },
   featureBrowser: {
     featuresHeader: 'Features',

@@ -2404,6 +2404,9 @@ export const fr: Partial<CatalogShape> = {
     dropPinShort: 'Centre',
     addMarkup: 'Ajouter une annotation',
     signInToMarkup: 'Connectez-vous pour annoter cette carte.',
+    anonymousHint:
+      'Vous ajoutez des annotations en tant qu’invité. La promotion en couche de données nécessite une connexion.',
+    anonymousReviewer: 'Anonyme',
     pins: '{count, plural, one {# épingle} other {# épingles}}',
     features:
       '{count, plural, one {# entité} other {# entités}}',
@@ -2449,6 +2452,12 @@ export const fr: Partial<CatalogShape> = {
     defaultExtent: 'Étendue par défaut',
     searchSource: 'Source de recherche',
     searchSourceEmpty: 'Créez un élément de service de géocodage pour rechercher vos propres données ici.',
+    allowAnonymous: 'Annotations anonymes',
+    allowAnonymousDesc:
+      'Autoriser les visiteurs non connectés à ajouter leurs propres annotations sur cette carte publique. Désactivé par défaut. La promotion en couche de données exige toujours un compte.',
+    allowAnonymousOn: 'Autorisé',
+    allowAnonymousOff: 'Désactivé (par défaut)',
+    allowAnonymousError: 'Impossible de mettre à jour le réglage des annotations anonymes.',
   },
   featureBrowser: {
     featuresHeader: 'Entités',

@@ -2502,6 +2502,9 @@ export const en = {
     dropPinShort: 'Center',
     addMarkup: 'Add markup',
     signInToMarkup: 'Sign in to add markup to this map.',
+    anonymousHint:
+      'You are adding markup as a guest. Promote to a data layer requires signing in.',
+    anonymousReviewer: 'Anonymous',
     pins: '{count, plural, one {# pin} other {# pins}}',
     features:
       '{count, plural, one {# feature} other {# features}}',
@@ -2546,6 +2549,12 @@ export const en = {
     defaultExtent: 'Default extent',
     searchSource: 'Search source',
     searchSourceEmpty: 'Create a Geocoding service item to search your own data here.',
+    allowAnonymous: 'Anonymous markup',
+    allowAnonymousDesc:
+      'Let signed-out visitors add their own markup sets on this public map. Off by default. Promote to a data layer still requires a signed-in account.',
+    allowAnonymousOn: 'Allowed',
+    allowAnonymousOff: 'Off (default)',
+    allowAnonymousError: 'Could not update anonymous markup setting.',
   },
   featureBrowser: {
     featuresHeader: 'Features',

@@ -37,9 +37,8 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  *     requires the map to carry `allowAnonymousDrawings: true`.
  *   - UPDATE an existing set: the set's author OR a user with edit
  *     access on the item. Anonymous can update only sets they
- *     authored in the same session (Phase 1: identified by the
- *     `anonymousAuthorToken` cookie the BFF mints; checked elsewhere,
- *     not here).
+ *     authored in the same browser session (cookie token stored on
+ *     the set at create time; see assertCanWriteSet).
  *   - DELETE an existing set: same as update.
  *
  * `allowAnonymousDrawings` is a property of the map item itself; the
@@ -79,7 +78,7 @@ export class DrawingsService {
     mapId: string,
   ): Promise<DrawingSet[]> {
     const { data } = await this.loadMapForRead(user, mapId);
-    return data.drawings ?? [];
+    return (data.drawings ?? []).map(publicDrawingSet);
   }
 
   async create(
@@ -114,6 +113,9 @@ export class DrawingsService {
       id: randomUUID(),
       authorId,
       authorDisplay,
+      ...(author.kind === 'anonymous'
+        ? { anonymousAuthorToken: author.anon.token }
+        : {}),
       title:
         typeof input.title === 'string' && input.title.trim().length > 0
           ? input.title.trim().slice(0, 200)
@@ -132,7 +134,7 @@ export class DrawingsService {
       where: { id: item.id },
       data: { data: nextData as object },
     });
-    return next;
+    return publicDrawingSet(next);
   }
 
   async update(
@@ -175,7 +177,7 @@ export class DrawingsService {
       where: { id: item.id },
       data: { data: nextData as object },
     });
-    return updated;
+    return publicDrawingSet(updated);
   }
 
   async remove(
@@ -326,13 +328,21 @@ export class DrawingsService {
       );
     }
     if (author.kind === 'anonymous') {
-      // Anonymous can only edit sets they authored. The
-      // anon-author token check is enforced at the controller layer
-      // (it has access to the cookie / header that carries the
-      // token); by the time we get here we trust the caller has
-      // verified `set.authorId === null && set.authorDisplay matches`
-      // is THIS anon. Re-assert it cheaply.
-      if (set.authorId === null && set.authorDisplay === author.anon.display) {
+      // Anonymous can only edit sets they authored. Prefer the
+      // stored cookie token (set at create); fall back to display
+      // match for any legacy sets written before the token field
+      // landed.
+      if (set.authorId !== null) {
+        throw new ForbiddenException(
+          'You can only edit drawing sets you created in this session',
+        );
+      }
+      if (
+        typeof set.anonymousAuthorToken === 'string' &&
+        set.anonymousAuthorToken.length > 0
+      ) {
+        if (set.anonymousAuthorToken === author.anon.token) return;
+      } else if (set.authorDisplay === author.anon.display) {
         return;
       }
       throw new ForbiddenException(
@@ -462,3 +472,14 @@ export const DRAWING_LIMITS = {
   MAX_FEATURES_PER_SET,
   MAX_SETS_PER_MAP: 64,
 };
+
+/**
+ * Strip the server-only ownership token before a DrawingSet leaves
+ * the API. The browser identifies its own sets via the cookie +
+ * authorDisplay; it never needs the raw token in JSON.
+ */
+function publicDrawingSet(set: DrawingSet): DrawingSet {
+  if (set.anonymousAuthorToken === undefined) return set;
+  const { anonymousAuthorToken: _token, ...rest } = set;
+  return rest;
+}

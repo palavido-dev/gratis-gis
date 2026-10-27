@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Anonymous markup on public maps
+Map editors can allow signed-out visitors to add their own markup on a public map (off by default). Guests edit only the sets they created in that browser; promoting a set to a data layer still requires signing in.
+
 ## 2026-10-27 - Faster offline refresh in the field
 Refreshing a cached field deployment now downloads only what changed on each layer, instead of pulling the whole layer again. The first download is unchanged; later refreshes are quicker on big layers and weaker connections.
 

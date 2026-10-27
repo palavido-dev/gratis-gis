@@ -486,6 +486,56 @@ function sanitizeAttributionInData(data: unknown, depth = 0): unknown {
   return changed ? next : data;
 }
 
+/**
+ * Keep anonymous markup ownership across a full map Save.
+ * Clients never round-trip `anonymousAuthorToken` (API strips it);
+ * reattach the previous token when the same drawing id comes back
+ * without one. Also keep `allowAnonymousDrawings` if the client
+ * omitted the key entirely.
+ */
+function preserveMapAnonDrawingFields(
+  prev: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...incoming };
+  if (
+    typeof prev.allowAnonymousDrawings === 'boolean' &&
+    typeof merged.allowAnonymousDrawings !== 'boolean'
+  ) {
+    merged.allowAnonymousDrawings = prev.allowAnonymousDrawings;
+  }
+  const prevDrawings = Array.isArray(prev.drawings) ? prev.drawings : null;
+  const nextDrawings = Array.isArray(merged.drawings) ? merged.drawings : null;
+  if (!prevDrawings || !nextDrawings) return merged;
+  const prevById = new Map<string, Record<string, unknown>>();
+  for (const raw of prevDrawings) {
+    if (!raw || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id === 'string') prevById.set(row.id, row);
+  }
+  let changed = false;
+  const restored = nextDrawings.map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id !== 'string') return raw;
+    if (
+      typeof row.anonymousAuthorToken === 'string' &&
+      row.anonymousAuthorToken.length > 0
+    ) {
+      return raw;
+    }
+    const prior = prevById.get(row.id);
+    const priorToken = prior?.anonymousAuthorToken;
+    if (typeof priorToken !== 'string' || priorToken.length === 0) {
+      return raw;
+    }
+    changed = true;
+    return { ...row, anonymousAuthorToken: priorToken };
+  });
+  if (changed) merged.drawings = restored;
+  return merged;
+}
+
 @Injectable()
 export class ItemsService {
   private readonly log = new Logger(ItemsService.name);
@@ -1767,6 +1817,19 @@ export class ItemsService {
       // is being saved so a native client never trusts a stale or
       // client-supplied value.
       nextData = stampFormEngineVersion(merged) as Prisma.InputJsonValue;
+    }
+
+    // #154 / R3-anonymous-markup: map Save sends the full MapData
+    // from the browser, which never sees anonymousAuthorToken
+    // (stripped from drawings API responses). Without this merge a
+    // routine Save would wipe ownership tokens and leave only the
+    // weaker authorDisplay fallback. Also preserve
+    // allowAnonymousDrawings when the client omitted it.
+    if (input.data !== undefined && item.type === 'map') {
+      nextData = preserveMapAnonDrawingFields(
+        (item.data ?? {}) as Record<string, unknown>,
+        (nextData ?? {}) as Record<string, unknown>,
+      ) as Prisma.InputJsonValue;
     }
 
     // Round-trip footgun normalizer: any bare-MinIO URL pointing at

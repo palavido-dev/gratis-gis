@@ -159,6 +159,50 @@ describe('DrawingsService', () => {
       );
     });
 
+    it('rejects anonymous create when allowAnonymousDrawings is off', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', data: {} }),
+      );
+      const svc = makeService(prisma);
+      const author: DrawingsAuthor = {
+        kind: 'anonymous',
+        anon: { token: 'tok-1', display: 'Anonymous abcdef' },
+      };
+      await expect(svc.create(author, 'map-1', {})).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.item.update).not.toHaveBeenCalled();
+    });
+
+    it('allows anonymous create when allowAnonymousDrawings is on', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({
+          access: 'public',
+          data: { allowAnonymousDrawings: true } as object,
+        }),
+      );
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      const author: DrawingsAuthor = {
+        kind: 'anonymous',
+        anon: { token: 'tok-anon-1', display: 'Anonymous abcdef' },
+      };
+      const set = await svc.create(author, 'map-1', {});
+      expect(set.authorId).toBeNull();
+      expect(set.authorDisplay).toBe('Anonymous abcdef');
+      expect(set.anonymousAuthorToken).toBeUndefined();
+      // Token is persisted on the item blob but stripped from the
+      // public response shape.
+      const written = prisma.item.update.mock.calls[0]![0] as {
+        data: { data: { drawings: Array<{ anonymousAuthorToken?: string }> } };
+      };
+      expect(written.data.data.drawings[0]!.anonymousAuthorToken).toBe(
+        'tok-anon-1',
+      );
+    });
+
     it('drops invalid geometry types from incoming features', async () => {
       const prisma = makePrisma();
       prisma.item.findFirst.mockResolvedValue(
