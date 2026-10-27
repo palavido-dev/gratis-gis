@@ -6,26 +6,32 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R4-i18n-string-sweep-4 | research-cycle-4 | Form designer paired-layer notice i18n (#162) | PR #361 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R5-stac-ogc-help-honesty | research-cycle-5 | STAC QGIS help + honest OGC Features scope | Docs first |
+| R5-analyze-clip-shortcut | research-cycle-5 | Guided Clip → derived_layer (mirror Buffer) | |
+| R5-i18n-service-editors | research-cycle-5 | Service / ArcGIS / OGC editor chrome i18n (#162) | No Weblate / RTL |
+| R5-android-conflict-reapply | research-cycle-5 | Android re-apply rejected sync conflicts | After #360 |
+| R5-gdb-editor-server-ingest | research-cycle-5 | Data-layer editor .gdb via server GDAL ingest | Honesty |
+| R5-arcgis-pull-to-local | research-cycle-5 | Copy ArcGIS FeatureServer layers to data_layer | Caps required |
 
 ## queued (needs-maintainer)
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
-| Q-162b | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| Q-183b / R1-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
-| R1-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
-| R2-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
+| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
+| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
+| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
+| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
 
 ## done
 
 | id | when | result |
 | --- | --- | --- |
+| R4-i18n-string-sweep-4 | 2026-10-27 | Merged #361: form paired-layer sharing notice i18n |
 | R4-android-field-delta | 2026-10-27 | Merged #360: Android offline refresh via delta?since=N |
 | R4-analyze-buffer-derived | 2026-10-27 | Merged #359: Analyze Buffer → PostGIS derived_layer recipe |
 | R4-postgis-help-schema-browser | 2026-10-27 | Merged #358: capped table preview + honest PostGIS help |
@@ -67,6 +73,8 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R5-reject-node-graph-canvas | research-cycle-5 | Visual node-graph recipe canvas is polish, not honesty |
+| R5-reject-print-brand-kit | research-cycle-5 | Brand / chrome redesign fails playbook brand test |
 | R2-reject-ogc-cql2 | research-cycle-2 | CQL2 parked for v2; MetaSearch will not use it |
 | R2-reject-print-brand-kit | research-cycle-2 | Brand / chrome redesign fails playbook brand test |
 | R1-reject-brand-print-chrome | research-cycle-1 | Brand / chrome redesign fails playbook brand test |
