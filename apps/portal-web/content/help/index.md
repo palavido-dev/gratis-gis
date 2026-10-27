@@ -30,7 +30,8 @@ The catalog is organized into a handful of top-level areas:
 
 - **Getting started**. Orientation for new users.
 - **Items**. One page per item type (Map, Data layer, Form, etc.).
-- **Map editing**. Symbology, labels, filters, popups.
+- **Map editing**. Symbology, labels, filters, popups, markup,
+  comments, and live presence.
 - **Web Apps**. The Custom Web App designer, widgets, themes.
 - **Forms**. The form designer and XLSForm import.
 - **Print templates**. Page layout and parameters.
@@ -43,14 +44,16 @@ The catalog is organized into a handful of top-level areas:
 Anything you can do in the browser you can do from a script, using the
 same API and the same permissions.
 
-- [API keys](/help/reference/api-keys) — how something other than a
+- [API keys](/help/reference/api-keys): how something other than a
   browser signs in.
-- [Python client](/help/reference/python-client) — read, filter, buffer,
+- [Python client](/help/reference/python-client): read, filter, buffer,
   create, and export a layer, with worked examples.
-- [Scripts](/help/reference/scripts) — run that Python on the portal
+- [Scripts](/help/reference/scripts): run that Python on the portal
   itself, on a schedule.
-- [The HTTP API](/help/reference/api) — the routes underneath, for other
+- [The HTTP API](/help/reference/api): the routes underneath, for other
   languages.
+- [MCP server](/help/reference/mcp-server): plug an MCP-compatible AI
+  client into the same API (read tools, plus optional write tools).
 
 ## Coming from ArcGIS Online?
 

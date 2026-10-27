@@ -56,6 +56,24 @@ Do **not** build without an explicit queue entry marked
 - Prefer OGC / PostGIS / MapLibre shapes over proprietary lock-in.
 - `main` stays deployable; one logical change per PR.
 
+## Docs with every user-facing ship
+
+A `ship-without-input` PR that changes behavior users can see is
+not done until all of the following that apply are updated in the
+same PR (or a follow-up docs PR opened before the next queue item):
+
+1. **Help** under `apps/portal-web/content/help/` (new page or
+   section; frontmatter `id` / `related` / search tags).
+2. **What's new** at
+   `apps/portal-web/content/changelog/user-visible.md` (plain
+   English, newest first; this feeds the landing page card).
+3. **CHANGELOG.md** Unreleased (engineer-facing Keep a Changelog).
+4. **GitHub / repo docs** when the public surface moved: README
+   Status line, `docs/*` design notes, CONTRIBUTING checklists.
+
+Power-user or API-only changes still need help + CHANGELOG; they
+only skip What's new when a non-technical visitor would not notice.
+
 ## Queue
 
 Canonical file: [QUEUE.md](./QUEUE.md). The driver rewrites it each

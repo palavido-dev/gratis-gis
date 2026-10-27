@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Landing-page What's new and help catch-up for the Oct 27 autonomy
+  ships (markup/print/promote, feature-anchored comments, zonal
+  stats, sync conflicts, MetaSearch Records + DCAT themes, MCP write
+  tools). Autonomy playbook and CONTRIBUTING now require help +
+  What's new with user-facing PRs.
 - Map markup text, arrow, and circle tools (terra-draw circle mode;
   arrow tip + text symbol layers on the drawings overlay) (#154).
 - portal-mcp Phase 2 write tools: `run_tool` and

@@ -39,11 +39,15 @@ coordinates.
 
 ## How it works
 
-The map editor sends your cursor position to the server every
-couple of seconds and pulls down the latest list of everyone
-else's. When you stop moving the cursor, your "last known
-position" stays where you left it for a few seconds, then your
-chip drops off until you wiggle the mouse again.
+The map editor prefers a live WebSocket so cursors update quickly.
+If the socket cannot open (proxy, firewall, brief outage), it
+falls back to the original HTTP heartbeat poll. Avatar chips and
+cursor markers look the same either way; only the smoothness of
+motion changes.
+
+When you stop moving the cursor, your "last known position" stays
+where you left it for a few seconds, then your chip drops off
+until you wiggle the mouse again.
 
 Cursors that have been idle for more than 5 seconds disappear so
 the canvas doesn't get cluttered with stale arrows.
@@ -56,15 +60,8 @@ immediately for everyone else.
 - Only viewers who can already read the map ever see anyone
   else's presence. A private map's avatar list is gated by the
   same permission check as the map itself; nothing leaks.
-- Phase 1 is signed-in only. Anonymous public-link visitors do
+- Presence is signed-in only. Anonymous public-link visitors do
   not appear in the avatar strip.
-
-## What ships in Phase 1
-
-Phase 1 uses periodic polling. Phase 1.5 will switch to a live
-WebSocket connection so cursors track each other at sub-second
-latency. The visible UX stays identical; only the smoothness of
-cursor motion changes.
 
 ## Related
 

@@ -12,6 +12,21 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Markup that draws, prints, and promotes
+Shared maps now take lines, polygons, text labels, arrows, and circles in addition to pins. Promote a markup set into a private data layer when the redline is ready to become real GIS data. Visible markup also lands on the printed PDF, so the sheet matches what reviewers saw on screen.
+
+## 2026-10-27 - Comments pinned to a place
+Open a comment thread on a selected feature or markup sketch. Open threads show as pins on the map; click one to jump straight into that conversation.
+
+## 2026-10-27 - Summarize elevation inside your zones
+On an elevation layer, pick a polygon data layer and run zonal statistics. GratisGIS writes a new layer with mean, min, max, sum, and count for the raster cells inside each zone (when server-heavy analysis is enabled on the portal).
+
+## 2026-10-27 - Catch edits that lost a sync race
+When two people change the same feature and one save loses the optimistic check, the losing edit is kept as a sync conflict on the layer. Open the layer's data panel to review those conflicts after a field or QGIS sync instead of wondering what disappeared.
+
+## 2026-10-27 - Find the portal from QGIS MetaSearch
+Point MetaSearch at the public OGC Records catalog and searchable catalogue collections show up with a GeoJSON enclosure for Add Data. Public themes also use curated DCAT / Aardvark theme values so harvest tools get a clean theme facet alongside free-form keywords.
+
 ## 2026-10-27 - Demo database stays on the proven Postgres line
 A release that tried to jump the demo host to Postgres 18 without migrating the existing data volume was rolled back. The portal keeps running on Postgres 17 until a planned dump-and-restore upgrade is ready.
 
