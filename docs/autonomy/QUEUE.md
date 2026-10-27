@@ -11,7 +11,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-dashboard-filter-widget | research-cycle-3 | Dedicated dashboard filter widget | Reuses cross-filter context |
 | R3-sync-conflict-reapply | research-cycle-3 | Re-apply losing-side syncConflicts | Follow-up to #339 |
 | R3-mcp-query-osm | research-cycle-3 / #161 | MCP `query_osm` over Overpass | Thin facade; cap bbox/results |
 
@@ -28,7 +27,9 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
-| R3-anonymous-markup | 2026-10-27 | Anonymous markup when `allowAnonymousDrawings` (opt-in, rate-limited, no promote) |
+| R3-dashboard-filter-widget | 2026-10-27 | Help for existing Filter widget + cross-filter; feature already shipped |
+| R3-anonymous-markup | 2026-10-27 | Merged #351: anonymous markup when `allowAnonymousDrawings` |
+
 | R3-field-delta-sync | 2026-10-27 | Merged #350: field offline pull via `delta?since=N` |
 | R2-i18n-tile-layer-errors | 2026-10-27 | Merged #348: tile-layer editor error/progress i18n |
 | R2-form-touch-reorder | 2026-10-27 | Merged #347: form designer up/down reorder for touch |
