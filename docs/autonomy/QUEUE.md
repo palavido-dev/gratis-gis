@@ -6,12 +6,20 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R5-arcgis-pull-to-local | research-cycle-5 | Copy ArcGIS FeatureServer layers to data_layer | This PR |
+| Q-research-cycle-6 | research-cycle-6 | Refill ship-without-input after R5 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R6-sync-conflict-dismiss | research-cycle-6 | Dismiss syncConflicts after review / re-apply | Honesty |
+| R6-analyze-erase-shortcut | research-cycle-6 | Analyze Erase → PostGIS derived_layer | After Buffer/Clip |
+| R6-i18n-analyze-guides | research-cycle-6 | Buffer/Clip Analyze chrome i18n (#162) | Bound |
+| R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | Bound |
+| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | Docs |
+| R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
+| R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | Power-user |
+| R6-recipe-sink-honesty | research-cycle-6 | Recipe editor sinks: no coming soon lie | Honesty |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R5-arcgis-pull-to-local | 2026-10-27 | Merged #368: Copy selected FeatureServer layers to data_layer (50k cap) |
 | R5-gdb-editor-server-ingest | 2026-10-27 | Merged #367: v3 Import stages .gdb via /ingest/stage |
 | R5-android-conflict-reapply | 2026-10-27 | Merged #366: Android Re-apply / Recreate on rejected conflicts |
 | R5-i18n-service-editors | 2026-10-27 | Merged #365: service / ArcGIS / OGC editor chrome i18n |
@@ -74,6 +83,11 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R6-reject-node-graph-canvas | research-cycle-6 | Visual node-graph recipe canvas is polish, not honesty |
+| R6-reject-print-brand-kit | research-cycle-6 | Brand / chrome redesign fails playbook brand test |
+| R6-reject-seat-pricing | research-cycle-6 | Named-user pricing contradicts ethos |
+| R6-reject-recipe-materialize-sinks | research-cycle-6 | Materialize sinks deferred; honesty PR points at derived_layer |
+| R6-reject-tile3d-local-rebuild | research-cycle-6 | #183 stays open; no closing on local rebuilds |
 | R5-reject-node-graph-canvas | research-cycle-5 | Visual node-graph recipe canvas is polish, not honesty |
 | R5-reject-print-brand-kit | research-cycle-5 | Brand / chrome redesign fails playbook brand test |
 | R2-reject-ogc-cql2 | research-cycle-2 | CQL2 parked for v2; MetaSearch will not use it |

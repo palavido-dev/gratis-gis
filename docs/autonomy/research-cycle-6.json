@@ -1,0 +1,195 @@
+{
+  "cycle": 6,
+  "researchedAt": "2026-10-27T20:33:45Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-3/4/5; R5 ship-without-input drained on origin/main through #368 (STAC/OGC help #363, Clip #364, service i18n #365, Android conflict re-apply #366, gdb Import stage #367, ArcGIS copy-to-data-layer #368). Open issues still only #162/#183. Scanned honesty leftovers: SyncConflictsPanel keeps artifacts after re-apply with no dismiss API; eraseGenerator + derived-layer builder exist but Analyze has no Erase shortcut and help has no erase.md; Buffer/Clip Analyze guides and layer-analyze-panel chrome are hard-coded English; field-runtime status chrome still hard-codes Connection / Last cached / Add feature; print-this-map.md still says pins/lines/polygons while syncDrawings paints text/arrow/circle; recipe-editor disables derived-layer and data-layer sinks as coming soon while recipe-runner only supports selection and osm-features-overlay; MCP lacks a thin public Records catalog search after query_osm. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, and seat pricing rejected again.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "proposals": [
+    {
+      "id": "R6-sync-conflict-dismiss",
+      "title": "Dismiss resolved syncConflicts from the layer data panel",
+      "summary": "SyncConflictsPanel can re-apply losing edits (#353 / #366) but artifacts stay in the capped ring until they age out. Panel comments still say dismiss waits on a v1 API. Add a guided Dismiss (and optional dismiss-after-successful-re-apply) that removes one artifact from layer.syncConflicts for editors who can edit the layer.",
+      "rationale": "Highest-visibility unfinished honesty slice of the Mergin-shaped conflict story after checkOnly, review UI, web re-apply, and Android re-apply. Crews who recovered an edit still see a stale conflict card.",
+      "risk": "Blind dismiss can hide a conflict someone else still needs. Require edit permission, confirm before clear, operate by artifact id only, and never rewrite losingSide payloads. Keep the ring-buffer cap behavior for new conflicts.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Recoverable field UX on the operator's hardware. Guided clear after review, not silent last-write-wins.",
+      "sources": [
+        "apps/portal-web/src/app/items/[id]/data-layer/sync-conflicts-panel.tsx",
+        "apps/portal-web/src/lib/sync-conflicts-reapply.ts",
+        "apps/portal-api/src/data-layer/features.service.ts",
+        "packages/shared-types/src/data-layer.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/353"
+      ],
+      "suggestedFirstPR": "Add DELETE (or PATCH) /items/:id/layers/:layerId/sync-conflicts/:conflictId that drops one SyncConflictArtifact from the layer JSON; wire Dismiss on SyncConflictsPanel and offer dismiss after a 2xx re-apply; help + What's new + i18n keys.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R6-analyze-erase-shortcut",
+      "title": "Guided Erase shortcut that creates a derived-layer recipe",
+      "summary": "Buffer and Clip Analyze shortcuts now POST PostGIS derived_layer recipes (#359 / #364). eraseGenerator and the derived-layer builder already support erase, but Analyze has no Erase this layer control and help has clip.md without erase.md. Mirror the Clip guide: pick a mask data layer, create a single-step erase recipe, label it as a server job.",
+      "rationale": "Wherever Esri Erase burns Spatial Analyst seats, ship free on PostGIS. Next atomic primitive after Clip without inventing a node-graph canvas. Also closes the missing erase help page.",
+      "risk": "Users may expect instant in-browser results or geo-boundary paste as the mask. Label as a server derived layer job; require a readable data_layer mask (same honesty as Clip); reuse existing worker path and analysis tier gating.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Prefer PostGIS erase over proprietary Spatial Analyst seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/erase.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-clip-guide.tsx",
+        "apps/portal-web/src/lib/analyze-clip-derived.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx",
+        "apps/portal-web/content/help/analysis/clip.md",
+        "https://github.com/palavido-dev/gratis-gis/pull/364"
+      ],
+      "suggestedFirstPR": "Add analyze-erase-guide mirroring Clip (mask-layer picker + POST single-step erase derived_layer); add help/analysis/erase.md; What's new + CHANGELOG.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R6-i18n-analyze-guides",
+      "title": "Continue #162 i18n on Analyze Buffer, Clip, and panel chrome",
+      "summary": "Service editors landed in #365. The brand-new Analyze Buffer and Clip guides plus layer-analyze-panel still hard-code English (Buffer this layer, Clip this layer, Creating…, Create derived layer, starter SQL labels, DuckDB boot steps). Extract into catalogs with t() calls. No Weblate, no RTL, no locale product choice.",
+      "rationale": "Only two open issues; #162 remains the finishable cross-cutting slice. Fresh R4/R5 Analyze chrome is the most visible untranslated surface after service editors.",
+      "risk": "Catalog churn across five locales. Keep the PR to Analyze guides + layer-analyze-panel chrome; leave SQL snippets and column names as-is; machine-translate non-en with the existing Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Mechanical readiness for the self-hosted EU/LATAM demo audience. No localization SaaS decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "docs/autonomy/PLAYBOOK.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-buffer-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-clip-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Extract Buffer/Clip guide chrome and Analyze panel status / starter / create-layer strings into en/es/fr/de/pt-BR catalogs with t() calls; What's new one-liner optional (i18n-only can skip if non-technical visitors would not notice).",
+      "relatedIssues": ["#162"]
+    },
+    {
+      "id": "R6-i18n-field-status-chrome",
+      "title": "Continue #162 i18n on field PWA status chrome",
+      "summary": "fieldRuntime / fieldOffline / offlineMessage catalogs already cover much of the offline path, but field-runtime.tsx still hard-codes visible chrome such as Add feature, Connection, and Last cached. Extract that bounded status / sheet chrome into catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Field is the EU/LATAM demo surface where English-only chrome hurts most after map/service sweeps. Bounded leftover strings, not a new product call.",
+      "risk": "field-runtime.tsx is large. Keep the PR to status sheet / add-feature header / connection labels; do not re-open offline-message code contracts; leave API error payloads as passthrough.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Mechanical readiness for field crews on self-hosted portals. No localization SaaS decision.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "Extract Add feature / Connection / Last cached (and adjacent status labels in the same sheet) into fieldRuntime.* catalogs for en/es/fr/de/pt-BR with t() calls.",
+      "relatedIssues": ["#162"]
+    },
+    {
+      "id": "R6-print-markup-kinds-help",
+      "title": "Honest print help for text, arrow, and circle markup",
+      "summary": "Markup tools and syncDrawings already paint text, arrow, and circle (#342); print PDF uses the same overlay helper (#337). print-this-map.md still says Print includes pins, lines, polygons only, which under-sells what reviewers get on the sheet.",
+      "rationale": "Docs honesty is playbook-required. Tiny catch-up after annotation kinds shipped; no brand or print chrome redesign.",
+      "risk": "Low. Confirm Puppeteer path still calls syncDrawings for visible sets; do not claim local unsaved hide toggles affect print.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about shipped open markup formats on paper output. No Contour brand kit.",
+      "sources": [
+        "apps/portal-web/content/help/print-templates/print-this-map.md",
+        "apps/portal-web/content/help/map-editing/markup.md",
+        "apps/portal-web/src/lib/drawings-overlay.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/337",
+        "https://github.com/palavido-dev/gratis-gis/pull/342"
+      ],
+      "suggestedFirstPR": "Rewrite the Markup on the sheet section to list pins, lines, polygons, text, arrows, and circles; CHANGELOG docs note; skip What's new unless product owners want a tiny honesty entry.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R6-analyze-centroid-shortcut",
+      "title": "Guided Centroid shortcut that creates a derived-layer recipe",
+      "summary": "centroidGenerator and derived-layer builder already ship a no-param centroid step; Analyze still has no one-click Centroids for this layer. Add the same guided pattern as Buffer: create a single-step centroid derived_layer from the current layer id, labeled as a server job.",
+      "rationale": "Cheap next Analyze honesty win after Erase. Esri Feature To Point / Calculate Geometry seat pain maps cleanly onto free PostGIS ST_Centroid without a second layer picker.",
+      "risk": "Users may expect in-browser DuckDB centroids. Label as a server derived layer job; reuse existing worker path; keep DuckDB SQL starter as advanced fallback.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Guided PostGIS over proprietary geoprocessing seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/centroid.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-buffer-guide.tsx",
+        "apps/portal-web/src/lib/analyze-buffer-derived.ts",
+        "apps/portal-web/content/help/analysis/centroid.md",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-centroid-guide that POSTs a single-step centroid derived_layer; link or refresh centroid.md for the Analyze entry point; What's new + CHANGELOG.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R6-mcp-search-catalog",
+      "title": "MCP search_catalog over the public OGC Records catalog",
+      "summary": "MCP already has list_items (auth-scoped) plus query_osm. Public MetaSearch-friendly Records live at /api/public/ogc/collections/catalog/items after #327. Add a thin search_catalog read tool that queries that catalog (q / bbox / limit caps) so agents can discover public items without inventing a second HTTP client.",
+      "rationale": "Felt/CARTO MCP stays Enterprise-gated. Public catalog search keeps machine automation on open OGC Records the portal already exposes.",
+      "risk": "Public-only surface must not leak private items. Cap page size; refuse huge bbox; reuse Records query params; document that private catalogs still need list_items with a key.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Open standards automation. Prefer OGC Records over proprietary catalog APIs. No per-seat MCP upsell.",
+      "sources": [
+        "apps/portal-mcp/README.md",
+        "apps/portal-mcp/src/index.ts",
+        "apps/portal-api/src/public/ogc/records-catalog.controller.ts",
+        "apps/portal-api/src/public/ogc/records-core.ts",
+        "docs/research/felt-carto-roadmap-2026-05-30.md",
+        "https://github.com/palavido-dev/gratis-gis/pull/327"
+      ],
+      "suggestedFirstPR": "Add MCP tool search_catalog that GETs /api/public/ogc/collections/catalog/items with q/bbox/limit; return capped FeatureCollection or record summaries; document in portal-mcp README + API help cross-link; skip What's new (power-user MCP).",
+      "relatedIssues": []
+    },
+    {
+      "id": "R6-recipe-sink-honesty",
+      "title": "Honest recipe output sink copy instead of coming soon",
+      "summary": "Tool recipe-editor still offers disabled Derived layer and Data layer (materialise) options labeled coming soon, while recipe-runner.service only supports selection and osm-features-overlay and comments say the other sinks land later. Replace the disabled options with short honest copy that points authors at the derived_layer item builder and Analyze Buffer/Clip/Erase shortcuts. Do not wire materialize sinks in this PR.",
+      "rationale": "Classic honesty gap: UI promises a path the runner refuses. Creating derived_layer items already works elsewhere; the recipe editor should not advertise unfinished sinks.",
+      "risk": "Removing disabled options may surprise authors who saw them. Prefer replacing with an explanatory note and links rather than silently deleting vocabulary from shared-types.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about what we are not (not a full ModelBuilder materialize path yet). Guided derived_layer builder over aspirational dropdowns.",
+      "sources": [
+        "apps/portal-web/src/app/items/[id]/tool/recipe-editor.tsx",
+        "apps/portal-api/src/tools/recipe-runner.service.ts",
+        "packages/shared-types/src/tool.ts",
+        "apps/portal-web/content/help/analysis/workflows.md",
+        "README.md"
+      ],
+      "suggestedFirstPR": "In recipe-editor output sink UI, remove or relabel the disabled derived-layer / data-layer options with plain-English guidance to create a derived_layer item (or use Analyze shortcuts); update workflows help if it still implies recipe materialize; CHANGELOG docs note.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R6-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Tool DAG runtime and linear canvas exist; a full branching node-graph editor is a multi-day pillar UI and README already says it is not built. Prefer Analyze Erase/Centroid shortcuts on the existing derived-layer path."
+    },
+    {
+      "id": "R6-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Brand / chrome redesign fails the playbook brand test. Print markup already ships (#337); only a docs honesty catch-up for annotation kinds is queued."
+    },
+    {
+      "id": "R6-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted, no per-seat SaaS cosplay. Contradicts README ethos."
+    },
+    {
+      "id": "R6-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks now",
+      "reason": "recipe-runner explicitly defers those sinks; wiring them is a multi-path create/upsert feature beyond a first-PR honesty fix. Point authors at existing derived_layer / Analyze paths instead (R6-recipe-sink-honesty)."
+    },
+    {
+      "id": "R6-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild marketed as closing #183",
+      "reason": "Huge/ultra tiers, move-deferred rebuilds, and the incremental-append research note already shipped. Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ]
+}
