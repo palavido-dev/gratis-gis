@@ -192,8 +192,10 @@ matches the portal's needs.
   door. Authors who need historical access use the portal directly.
 - **Filtering.** CQL2 Text + JSON
   (`http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter`)
-  is target for v2; v1 ships Core + Sortby + CRS only. Clients that
-  need filter today use bbox + post-process.
+  is parked for a later major (v2+). v1 ships Core + GeoJSON + CRS.
+  Feature `sortby` is intentionally rejected with HTTP 400 until a
+  real `ORDER BY` path exists (stable feature-id order for paging).
+  Clients that need filter today use bbox + post-process.
 - **JSON-FG.** Out of scope for v1; the GeoJSON conformance class
   covers the realistic interop floor. JSON-FG is on the list for the
   next planning cycle alongside Filter.

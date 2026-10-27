@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Help for browsing public rasters from QGIS 3.42+ via
+  `/api/public/stac`, plus honest OGC API Features notes: CQL2 is
+  not a v1 promise, and `sortby` stays a deliberate 400 until
+  `ORDER BY` exists (R5-stac-ogc-help-honesty).
 - Form designer paired-layer sharing notice strings go through the
   locale catalogs (en / es / fr / de / pt-BR), so the dual-ACL
   reminder above the canvas follows the user's language choice

@@ -63,3 +63,9 @@ If you're moving from AGO or ArcGIS Pro, the **Coming from ArcGIS**
 guides in Getting started map familiar concepts to their GratisGIS
 equivalents (Feature Service → Data layer, Web Map → Map, Survey123
 → Form, and so on).
+
+## Opening rasters from QGIS
+
+Stock QGIS 3.42+ can point **Data Source Manager → STAC** at
+`/api/public/stac` and browse public rasters without the GratisGIS
+plugin. See **Browse public rasters from QGIS with STAC**.

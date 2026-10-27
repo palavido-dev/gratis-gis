@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Open public rasters from QGIS with STAC
+In QGIS 3.42 or newer, open Data Source Manager, pick STAC, and connect to your portal's `/api/public/stac` URL to browse published rasters without installing the GratisGIS plugin. Private rasters stay off that public catalog.
+
 ## 2026-10-27 - Form response-sharing reminder follows your language
 The notice above the form designer that explains how form sharing differs from who can see submitted responses now follows the language you pick in the user menu (Spanish, French, German, or Brazilian Portuguese).
 
