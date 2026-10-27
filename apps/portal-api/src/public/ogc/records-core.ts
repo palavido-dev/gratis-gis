@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { ItemType } from '@prisma/client';
+import {
+  keywordsFromTags,
+  themesFromTags,
+} from '@gratis-gis/shared-types';
 
 /**
  * Shared OGC API Records builders used by both the legacy
@@ -166,6 +170,11 @@ export function buildRecord(
   const bboxArr = parseBbox(row.bbox);
   const geometry = bboxArr ? bboxToGeometry(bboxArr) : null;
   const ownerName = row.owner?.fullName?.trim() || row.owner?.username;
+  // Free-form tags stay keywords; curated Aardvark themes
+  // (stored as tags that match ITEM_THEMES) emit separately so
+  // MetaSearch / GeoBlacklight facets stay clean.
+  const themes = themesFromTags(row.tags);
+  const keywords = keywordsFromTags(row.tags);
 
   return {
     id: row.id,
@@ -183,7 +192,8 @@ export function buildRecord(
       created: row.createdAt.toISOString(),
       updated: row.updatedAt.toISOString(),
       type: row.type,
-      keywords: row.tags ?? [],
+      keywords,
+      ...(themes.length > 0 ? { themes } : {}),
       ...(row.license ? { license: row.license } : {}),
       ...(ownerName
         ? {

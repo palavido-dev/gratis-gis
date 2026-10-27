@@ -2067,9 +2067,13 @@ export const es: Partial<CatalogShape> = {
     titleRequired: 'El título es obligatorio.',
     description: 'Descripción',
     descriptionPlaceholder: '¿Qué es esto y para quién es?',
-    tags: 'Etiquetas',
+    themes: 'Temas',
+    themesHint:
+      'Temas Aardvark / DCAT opcionales. Aparecen en Records y en el catálogo público.',
+    tags: 'Palabras clave',
     tagsPlaceholder: 'Separadas por comas, p. ej. edificios, parcelas, campus',
-    tagsHint: 'Se usa para buscar y filtrar.',
+    tagsHint:
+      'Palabras clave libres para búsqueda. Los temas de arriba alimentan facetas del catálogo y la exportación Aardvark.',
     thumbnail: 'Miniatura',
     visibility: 'Visibilidad',
     visibilityHintCreate:

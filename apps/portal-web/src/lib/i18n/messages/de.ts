@@ -2070,9 +2070,13 @@ export const de: Partial<CatalogShape> = {
     titleRequired: 'Titel ist erforderlich.',
     description: 'Beschreibung',
     descriptionPlaceholder: 'Was ist das, und für wen ist es?',
-    tags: 'Schlagwörter',
+    themes: 'Themen',
+    themesHint:
+      'Optionale Aardvark-/DCAT-Themen. Sie erscheinen in Records und im öffentlichen Katalog.',
+    tags: 'Stichwörter',
     tagsPlaceholder: 'Kommagetrennt, z. B. Gebäude, Flurstücke, Campus',
-    tagsHint: 'Wird für Suche und Filterung verwendet.',
+    tagsHint:
+      'Freie Stichwörter für die Suche. Themen oben speisen Katalogfacetten und den Aardvark-Export.',
     thumbnail: 'Vorschaubild',
     visibility: 'Sichtbarkeit',
     visibilityHintCreate:

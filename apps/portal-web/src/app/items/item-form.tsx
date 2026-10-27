@@ -16,6 +16,7 @@ import type {
   DerivedLayerData,
   Item,
   ItemAccess,
+  ItemTheme,
   ItemType,
   ThumbnailDesign,
 } from '@gratis-gis/shared-types';
@@ -24,8 +25,12 @@ import {
   DEFAULT_DATA_LAYER,
   DEFAULT_DERIVED_LAYER,
   DEFAULT_MAP,
+  ITEM_THEMES,
   defaultThumbnailDesign,
   isDerivedLayerData,
+  keywordsFromTags,
+  mergeThemesAndKeywords,
+  themesFromTags,
 } from '@gratis-gis/shared-types';
 import { ThumbnailDesigner } from '@/components/thumbnail-designer';
 import { DerivedLayerBuilder } from './new/derived-layer-builder';
@@ -156,8 +161,11 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   const [description, setDescription] = useState(
     initialValues?.description ?? '',
   );
+  const [selectedThemes, setSelectedThemes] = useState<ItemTheme[]>(
+    () => themesFromTags(initialValues?.tags ?? []),
+  );
   const [tagsText, setTagsText] = useState(
-    (initialValues?.tags ?? []).join(', '),
+    keywordsFromTags(initialValues?.tags ?? []).join(', '),
   );
   const [access, setAccess] = useState<ItemAccess>(
     (initialValues?.access as ItemAccess) ?? 'private',
@@ -251,7 +259,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
     const payload: Record<string, unknown> = {
       title: title.trim(),
       description: description.trim(),
-      tags: parseTags(tagsText),
+      tags: mergeThemesAndKeywords(selectedThemes, parseTags(tagsText)),
       access,
       thumbnailUrl,
       thumbnailDesign,
@@ -420,6 +428,37 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
             rows={4}
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+            {t('itemForm.themes')}
+          </p>
+          <p className="mb-2 text-xs text-muted">{t('itemForm.themesHint')}</p>
+          <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-border bg-surface-1 p-2 sm:grid-cols-3">
+            {ITEM_THEMES.map((theme) => {
+              const checked = selectedThemes.includes(theme);
+              return (
+                <label
+                  key={theme}
+                  className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-xs text-ink-1 hover:bg-surface-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      setSelectedThemes((curr) =>
+                        checked
+                          ? curr.filter((x) => x !== theme)
+                          : [...curr, theme],
+                      );
+                    }}
+                  />
+                  <span className="truncate">{theme}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
 
         <div>
