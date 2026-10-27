@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,6 +35,19 @@ import org.gratisgis.field.ui.form.FormViewModel
 @Composable
 fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
   val s by viewModel.state.collectAsStateWithLifecycle()
+  s.reapplyConfirm?.let { confirm ->
+    AlertDialog(
+      onDismissRequest = viewModel::cancelReapply,
+      title = { Text(confirm.title) },
+      text = { Text(confirm.message) },
+      confirmButton = {
+        TextButton(onClick = viewModel::confirmReapply) { Text(confirm.confirmLabel) }
+      },
+      dismissButton = {
+        TextButton(onClick = viewModel::cancelReapply) { Text("Cancel") }
+      },
+    )
+  }
   val formTarget = s.formTarget
   if (formTarget != null) {
     val formVm: FormViewModel = viewModel(
@@ -113,7 +127,15 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
             Text("server now has: ${it.take(200)}", style = MaterialTheme.typography.bodySmall)
           }
           if (row.syncStatus == "rejected") {
-            TextButton(onClick = { viewModel.discardRejected(row) }) { Text("Discard") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              if (row.conflictCurrentJson != null) {
+                TextButton(
+                  onClick = { viewModel.prepareReapply(row) },
+                  enabled = !s.busy,
+                ) { Text("Re-apply") }
+              }
+              TextButton(onClick = { viewModel.discardRejected(row) }) { Text("Discard") }
+            }
           }
         }
       }

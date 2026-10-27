@@ -162,6 +162,16 @@ class PortalClient(
     return received
   }
 
+  /**
+   * `GET /api/items/{id}/layers/{key}/features?entity=…` as text.
+   * Single-feature lookup used before conflict re-apply so the write
+   * carries the live `_observation_id` (mirrors portal-web probe).
+   */
+  suspend fun getFeaturesByEntity(dataLayerId: String, layerKey: String, entity: String): String =
+    http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features") {
+      parameter("entity", entity)
+    }.bodyAsText()
+
   /** `POST /api/items/{id}/layers/{key}/features`. Throws PortalError on refusal. */
   suspend fun insertFeatures(dataLayerId: String, layerKey: String, body: InsertFeaturesRequest): InsertFeaturesResponse =
     http.post("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features") {

@@ -74,7 +74,9 @@ losing edit from that list (PATCH / DELETE with a live
 `baseObservationId`, or POST recreate when the feature is gone).
 The field PWA offline drain (and Android queue drain) call
 `checkOnly=true` before each queued update/delete so validation
-failures surface before the real transfer.
+failures surface before the real transfer. Android rejected conflict
+rows can re-apply the queued losing side (PATCH / DELETE with a live
+`baseObservationId`, or POST recreate) after a confirm.
 
 Read parameters: `limit`, `cursor`, `at`, `bbox`, `parentFk` +
 `parentId`, `timeField` + `timeFrom` + `timeTo`.

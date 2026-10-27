@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -21,7 +22,13 @@ import org.gratisgis.field.core.database.LayerEntity
 import org.gratisgis.field.core.database.OfflinePackageEntity
 import org.gratisgis.field.core.database.QueueEntity
 import org.gratisgis.field.core.engine.CallResult
+import org.gratisgis.field.core.network.FeatureInsert
+import org.gratisgis.field.core.network.InsertFeaturesRequest
 import org.gratisgis.field.core.network.ItemSummary
+import org.gratisgis.field.core.network.PortalError
+import org.gratisgis.field.feature.sync.ConflictLiveHead
+import org.gratisgis.field.feature.sync.ConflictReapply
+import org.gratisgis.field.feature.sync.ConflictReapplyPlan
 import org.gratisgis.field.feature.sync.DownloadProgress
 import org.gratisgis.field.feature.sync.EnqueueResult
 import org.gratisgis.field.feature.sync.FeatureEdit
@@ -31,6 +38,14 @@ import org.gratisgis.field.feature.sync.QueueDrain
 import org.gratisgis.field.feature.sync.SyncResult
 import java.time.Instant
 import java.util.UUID
+
+/** Confirm dialog for guided conflict re-apply (mirrors portal-web). */
+data class ReapplyConfirm(
+  val rowId: String,
+  val title: String,
+  val message: String,
+  val confirmLabel: String,
+)
 
 data class CollectionState(
   val collection: ItemSummary,
@@ -46,6 +61,7 @@ data class CollectionState(
   val lastSync: SyncResult? = null,
   val benchmark: String? = null,
   val error: String? = null,
+  val reapplyConfirm: ReapplyConfirm? = null,
 )
 
 /** Which bound form to open (A1). */
@@ -67,6 +83,9 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
 
   private val _state = MutableStateFlow(CollectionState(collection))
   val state: StateFlow<CollectionState> = _state
+
+  /** Prepared plan waiting on the confirm dialog; cleared on cancel/success. */
+  private var pendingReapply: Pair<QueueEntity, ConflictReapplyPlan>? = null
 
   init {
     refresh()
@@ -279,6 +298,190 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
       app.db.queue().delete(row.collectionId, row.id)
       refresh()
     }
+  }
+
+  /**
+   * Probe the live head (or fall back to parked `conflictCurrentJson`),
+   * plan the re-apply write, and open a confirm dialog. Blind overwrite
+   * is refused without confirm; missing features offer Recreate.
+   */
+  fun prepareReapply(row: QueueEntity) {
+    val portal = app.portal ?: return fail("Not connected")
+    if (row.syncStatus != "rejected" || row.conflictCurrentJson == null) {
+      return fail("Only rejected conflict rows can be re-applied")
+    }
+    viewModelScope.launch {
+      _state.update { it.copy(busy = true, error = null, reapplyConfirm = null) }
+      try {
+        val live = probeLiveHead(portal, row)
+        val plan = ConflictReapply.plan(row, live)
+        if (plan is ConflictReapplyPlan.Unavailable) {
+          return@launch fail("Cannot re-apply: ${plan.reason}")
+        }
+        pendingReapply = row to plan
+        _state.update {
+          it.copy(
+            reapplyConfirm = ReapplyConfirm(
+              rowId = row.id,
+              title = "Re-apply this edit?",
+              message = reapplyMessage(plan, row),
+              confirmLabel = reapplyConfirmLabel(plan),
+            ),
+          )
+        }
+      } catch (t: Throwable) {
+        fail(t.message ?: t.toString())
+      } finally {
+        _state.update { it.copy(busy = false) }
+      }
+    }
+  }
+
+  fun cancelReapply() {
+    pendingReapply = null
+    _state.update { it.copy(reapplyConfirm = null) }
+  }
+
+  fun confirmReapply() {
+    val portal = app.portal ?: return fail("Not connected")
+    val pending = pendingReapply ?: return
+    val (row, plan) = pending
+    viewModelScope.launch {
+      _state.update { it.copy(busy = true, error = null, reapplyConfirm = null) }
+      try {
+        when (plan) {
+          is ConflictReapplyPlan.Noop -> {
+            app.db.queue().delete(row.collectionId, row.id)
+            pendingReapply = null
+            _state.update { it.copy(error = "Already deleted on the server; cleared from queue") }
+          }
+          is ConflictReapplyPlan.Unavailable -> fail("Cannot re-apply: ${plan.reason}")
+          is ConflictReapplyPlan.Patch -> {
+            portal.patchFeature(
+              row.dataLayerId,
+              row.layerKey,
+              plan.featureId,
+              plan.properties,
+              plan.geometry,
+              baseObservationId = plan.baseObservationId,
+            )
+            app.db.queue().delete(row.collectionId, row.id)
+            pendingReapply = null
+            _state.update { it.copy(error = "Re-applied update of ${row.globalId.take(8)}") }
+          }
+          is ConflictReapplyPlan.Delete -> {
+            portal.deleteFeature(
+              row.dataLayerId,
+              row.layerKey,
+              plan.featureId,
+              baseObservationId = plan.baseObservationId,
+            )
+            app.db.queue().delete(row.collectionId, row.id)
+            pendingReapply = null
+            _state.update { it.copy(error = "Re-applied delete of ${row.globalId.take(8)}") }
+          }
+          is ConflictReapplyPlan.Post -> {
+            portal.insertFeatures(
+              row.dataLayerId,
+              row.layerKey,
+              InsertFeaturesRequest(
+                listOf(
+                  FeatureInsert(
+                    plan.globalId,
+                    plan.geometry ?: JsonNull,
+                    plan.properties,
+                  ),
+                ),
+              ),
+            )
+            app.db.queue().delete(row.collectionId, row.id)
+            pendingReapply = null
+            _state.update { it.copy(error = "Recreated ${row.globalId.take(8)}") }
+          }
+        }
+      } catch (e: PortalError.Conflict) {
+        // Someone else edited again; re-park with the fresher current.
+        if (e.code == "feature-conflict") {
+          val reason = buildJsonObject {
+            put("code", "sync.conflict")
+            put(
+              "params",
+              buildJsonObject {
+                put("serverMessage", e.message ?: "")
+              },
+            )
+          }
+          app.db.queue().upsert(
+            row.copy(
+              syncStatus = "rejected",
+              failureJson = reason.toString(),
+              conflictCurrentJson = (e.current ?: JsonNull).toString(),
+              retryCount = (row.retryCount ?: 0) + 1,
+              lastAttemptAt = Instant.now().toString(),
+            ),
+          )
+          pendingReapply = null
+          fail("Still in conflict with a newer server edit; review again")
+        } else {
+          fail(e.message ?: e.toString())
+        }
+      } catch (t: Throwable) {
+        fail(t.message ?: t.toString())
+      } finally {
+        _state.update { it.copy(busy = false) }
+        refresh()
+      }
+    }
+  }
+
+  private suspend fun probeLiveHead(
+    portal: org.gratisgis.field.core.network.PortalClient,
+    row: QueueEntity,
+  ): ConflictLiveHead {
+    return try {
+      val text = portal.getFeaturesByEntity(row.dataLayerId, row.layerKey, row.globalId)
+      val fc = json.parseToJsonElement(text).jsonObject
+      val features = fc["features"]?.jsonArray
+      val first = features?.firstOrNull()?.jsonObject
+      if (first == null) {
+        ConflictLiveHead(exists = false)
+      } else {
+        ConflictReapply.liveHeadFromCurrentJson(first.toString())
+      }
+    } catch (e: PortalError.NotFound) {
+      ConflictLiveHead(exists = false)
+    } catch (_: Throwable) {
+      // Fall back to the version parked at conflict time so the
+      // confirm still shows server-now vs queued side offline-ish.
+      ConflictReapply.liveHeadFromCurrentJson(row.conflictCurrentJson)
+    }
+  }
+
+  private fun reapplyMessage(plan: ConflictReapplyPlan, row: QueueEntity): String {
+    val serverNow = row.conflictCurrentJson?.take(200) ?: "(none)"
+    val queued = when (row.op) {
+      "delete" -> "delete ${row.globalId.take(8)}"
+      else -> "update ${row.globalId.take(8)}: ${row.propertiesJson?.take(120) ?: "(no properties)"}"
+    }
+    return when (plan) {
+      is ConflictReapplyPlan.Post ->
+        "The feature is gone on the server. Recreate it from your queued edit?\n\nQueued: $queued\nServer now: $serverNow"
+      is ConflictReapplyPlan.Delete ->
+        "Delete the live feature to match your queued delete?\n\nQueued: $queued\nServer now: $serverNow"
+      is ConflictReapplyPlan.Noop ->
+        "The feature is already deleted on the server. Clear this queue row?"
+      is ConflictReapplyPlan.Patch ->
+        "Overwrite the live feature with your queued edit?\n\nQueued: $queued\nServer now: $serverNow"
+      is ConflictReapplyPlan.Unavailable ->
+        "Cannot re-apply: ${plan.reason}"
+    }
+  }
+
+  private fun reapplyConfirmLabel(plan: ConflictReapplyPlan): String = when (plan) {
+    is ConflictReapplyPlan.Post -> "Recreate"
+    is ConflictReapplyPlan.Delete -> "Delete"
+    is ConflictReapplyPlan.Noop -> "Clear"
+    else -> "Re-apply"
   }
 
   /**

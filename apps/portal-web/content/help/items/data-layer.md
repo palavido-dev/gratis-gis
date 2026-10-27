@@ -102,3 +102,8 @@ Re-apply writes the losing update onto the live feature (with the
 current observation id), deletes when the losing side was a delete,
 or recreates the feature when it is gone. Conflicts stay listed after
 a successful re-apply until a later dismiss path lands.
+
+On the Android field app, rejected queue rows that parked a server
+`current` offer the same **Re-apply** (and Recreate when the feature
+is gone) next to Discard, with a confirm that compares queued vs
+server-now before writing.
