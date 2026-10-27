@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Clip a layer from Analyze without leaving the tab
+On a data layer's Analyze tab, **Clip this layer** lets you pick another data layer as the cookie-cutter and creates a derived layer that runs the clip on PostGIS. Same honest server path as Buffer; not an instant in-browser result.
+
 ## 2026-10-27 - Open public rasters from QGIS with STAC
 In QGIS 3.42 or newer, open Data Source Manager, pick STAC, and connect to your portal's `/api/public/stac` URL to browse published rasters without installing the GratisGIS plugin. Private rasters stay off that public catalog.
 

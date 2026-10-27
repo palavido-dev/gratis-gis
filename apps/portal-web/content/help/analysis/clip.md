@@ -25,11 +25,12 @@ trimmed at the boundary.
 
 ## Inputs
 
-- **Source layer**. Any geometry type.
-- **Clip polygon**. One of:
-  - A **Geo boundary** item (the most common case).
-  - A single feature picked from another polygon layer.
-  - A static polygon defined inline (paste GeoJSON).
+- **Source layer**. Any geometry type (points, lines, or polygons).
+- **Clip layer**. Another **data layer** you can read. Prefer a
+  polygon layer as the cookie-cutter. The portal unions that
+  layer's geometries and intersects the source against the result.
+  Geo-boundary items and pasted GeoJSON are not a separate clip
+  input on this path; put the mask in a data layer first.
 
 ## Output
 
@@ -40,10 +41,24 @@ geometry is entirely inside come through unchanged.
 
 ## How to use it on its own
 
+### From Analyze (guided)
+
+1. Open a data layer and switch to the **Analyze** tab.
+2. Click **Clip this layer**.
+3. Pick the cookie-cutter data layer.
+4. Click **Create derived layer**.
+
+That posts a single-step clip recipe to the portal. The job runs
+on PostGIS on the server. Expect a short server job, not an
+instant browser result. Not gated on the optional server-heavy
+analysis tier.
+
+### From the new-item wizard
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
 3. Add a **Clip** step.
-4. Pick the **Clip polygon**.
+4. Pick the other data layer.
 5. Save.
 
 ## Example

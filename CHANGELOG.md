@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Clip this layer** guide creates a single-step
+  `derived_layer` clip recipe (cookie-cutter data_layer) via
+  `POST /api/portal/items`, reusing the existing PostGIS clip
+  tool. Labeled as a server derived-layer job; mirrors the Buffer
+  Analyze guide (R5-analyze-clip-shortcut).
 - Help for browsing public rasters from QGIS 3.42+ via
   `/api/public/stac`, plus honest OGC API Features notes: CQL2 is
   not a v1 promise, and `sortby` stays a deliberate 400 until

@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R5-stac-ogc-help-honesty | research-cycle-5 | STAC QGIS help + honest OGC Features scope | PR #363 |
+| R5-analyze-clip-shortcut | research-cycle-5 | Guided Clip → derived_layer (mirror Buffer) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R5-analyze-clip-shortcut | research-cycle-5 | Guided Clip → derived_layer (mirror Buffer) | |
 | R5-i18n-service-editors | research-cycle-5 | Service / ArcGIS / OGC editor chrome i18n (#162) | No Weblate / RTL |
 | R5-android-conflict-reapply | research-cycle-5 | Android re-apply rejected sync conflicts | After #360 |
 | R5-gdb-editor-server-ingest | research-cycle-5 | Data-layer editor .gdb via server GDAL ingest | Honesty |
@@ -31,6 +30,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R5-stac-ogc-help-honesty | 2026-10-27 | Merged #363: QGIS STAC help + honest OGC Features scope |
 | Q-research-cycle-5 | 2026-10-27 | Merged #362: research-cycle-5 refill ship-without-input queue |
 | R4-i18n-string-sweep-4 | 2026-10-27 | Merged #361: form paired-layer sharing notice i18n |
 | R4-android-field-delta | 2026-10-27 | Merged #360: Android offline refresh via delta?since=N |
