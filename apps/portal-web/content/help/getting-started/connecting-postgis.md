@@ -47,17 +47,21 @@ Skip it when:
    - **Role / username** — recommend creating a dedicated read-
      only role with SELECT-only permissions on the tables you
      want to expose. A regular login role works too; the portal
-     never issues writes from this connection in Phase 1.
+     never issues writes from this connection.
    - **Password** — stored encrypted on the server side. The
      browser never sees it after this form.
    - **Default schema** — the schema where the picker looks for
      tables by default. Other schemas stay reachable from the
      detail page.
 4. Click **Test connection**. On success you see the PostGIS
-   version. Fix any errors (firewall, wrong host, wrong password)
-   before continuing.
+   version and a capped preview of geometry tables in the default
+   schema (name, geometry kind, SRID, and a planner row estimate
+   when available). Fix any errors (firewall, wrong host, wrong
+   password) before continuing.
 5. Click **Save connection**. The portal probes the schema for
-   geometry tables and registers each one as an available layer.
+   geometry tables and registers each one as an available layer —
+   the same set the preview listed, including any tables beyond
+   the preview cap.
 
 ## Adding a layer to a map
 
@@ -66,6 +70,12 @@ onto a map from the Add Layer dialog. Choose your saved
 connection, pick the table, and the layer appears with the
 correct geometry type. Every viewport move issues a bounding-box
 SELECT against the database; only intersecting rows come back.
+
+To narrow rows further, open the layer panel's **Filter** tab and
+build clauses there. The portal compiles those filters into
+parameterized SQL on the live read path. Power users can still
+pass a free-form WHERE clause through the API; it is ANDed with
+the structured filter.
 
 ## What gets cached vs read live
 
@@ -91,13 +101,19 @@ without it the query is a sequential scan and the map will lag.
   permissions on the registered tables. Do not give it
   superuser or write privileges.
 
-## Limitations in Phase 1
+## Limitations
 
-- The geometry column must be SRID 4326 (WGS84). Server-side
-  reprojection for other SRIDs ships in Phase 1.5.
-- Per-table WHERE clauses can be set via the API but the layer
-  panel doesn't expose them yet. The visual WHERE clause builder
-  is planned for Phase 1.5.
+- Tables whose geometry column is not SRID 4326 are reprojected
+  on read (`ST_Transform`): the bbox is transformed into the
+  source SRID for the GiST index, and geometries go out as WGS84
+  GeoJSON. Very large non-4326 tables still need a GiST index on
+  the native geometry column.
+- The connect wizard preview lists at most 50 geometry tables so
+  a huge schema stays readable; Save still registers every
+  geometry table in the default schema.
+- Live connections are read-only from the portal. Editing still
+  goes through a portal-managed data layer (or another write
+  path you already run against the database).
 - Single-instance pool. Cross-replica fanout (so two portal-api
   instances share connection pools) ships if the user count
   warrants it.

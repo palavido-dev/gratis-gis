@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - See PostGIS tables before you save a connection
+When you connect a live PostgreSQL + PostGIS database, Test connection now lists the geometry tables it found (with SRID and a rough row count) so you can confirm the schema before Save.
+
 ## 2026-10-27 - Offline edits check for conflicts before they upload
 When the field app syncs edits you made offline, it asks the portal whether an update or delete would still be accepted before it applies the change. If someone else already changed that feature, or the values break the layer's rules, the edit stays on the device with the reason instead of partially uploading.
 

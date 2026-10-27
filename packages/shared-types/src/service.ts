@@ -267,9 +267,9 @@ export interface PostgisLiveLayerSnapshot {
    *  Polygon / MultiPoint / MultiLineString / MultiPolygon /
    *  GeometryCollection / Geometry). Drives default styling. */
   geometryKind: string;
-  /** SRID of the geometry column. 4326 (WGS84) is the only fully-
-   *  supported value in Phase 1; other SRIDs surface a warning
-   *  in the wizard and Phase 1.5 ships server-side reprojection. */
+  /** SRID of the geometry column. Non-4326 tables are reprojected
+   *  server-side on read (ST_Transform) so the wire format stays
+   *  WGS84 GeoJSON. */
   srid: number;
   /** Cached bbox in WGS84 lng/lat when known. The probe runs
    *  `ST_Extent` once at registration time; viewers refresh
