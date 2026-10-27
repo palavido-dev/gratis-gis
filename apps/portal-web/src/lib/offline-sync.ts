@@ -50,6 +50,13 @@
  *     terminally rejected. `queueChainHeads` is the rule; the service
  *     worker mirrors it.
  *
+ *   - **checkOnly before transfer.** Updates and deletes dry-run the
+ *     same PATCH/DELETE path with `checkOnly=true` before the real
+ *     write (#329 / R4-offline-checkonly). A schema refusal or a 409
+ *     conflict parks the row without applying anything; the server
+ *     still records a syncConflicts artifact on conflict. Inserts
+ *     have no checkOnly on the API, so they go straight to POST.
+ *
  *   - **No conflict resolution UI here.** That belongs to the runtime
  *     (it has the FormRuntime, the user, and the original record's
  *     view of the world). This module surfaces failures via
@@ -414,6 +421,10 @@ export async function discardRejected(record: QueueRecord): Promise<void> {
  * directly, so behaviour stays consistent regardless of which path
  * the record took. Insert carries the client globalId so a successful
  * server-side write that lost its response doesn't double-create.
+ *
+ * Updates and deletes dry-run first (`checkOnly=true`) so a conflict
+ * or schema refusal parks the row before the real write transfers.
+ * LOCKSTEP with public/sw.js `replayFeatureRecord`.
  */
 async function replayRecord(
   r: QueueRecord,
@@ -423,6 +434,7 @@ async function replayRecord(
     r.layerKey,
   )}/features`;
   if (r.op === 'insert') {
+    // POST has no checkOnly on the API; creates go straight through.
     const res = await replayFetch(layerPath, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -442,13 +454,20 @@ async function replayRecord(
     return;
   }
   if (r.op === 'update') {
+    const patchBody: Record<string, unknown> = {
+      properties: r.properties ?? {},
+      ...(r.geometry !== null ? { geometry: r.geometry } : {}),
+    };
+    await checkOnlyFeatureWrite(
+      `${layerPath}/${r.globalId}`,
+      'PATCH',
+      patchBody,
+      r.op,
+    );
     const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        properties: r.properties ?? {},
-        ...(r.geometry !== null ? { geometry: r.geometry } : {}),
-      }),
+      body: JSON.stringify(patchBody),
     });
     await throwIfNotOk(res, 'feature', r.op);
     // An edit can carry new photos too: the collector opens a record
@@ -458,6 +477,12 @@ async function replayRecord(
     return;
   }
   if (r.op === 'delete') {
+    await checkOnlyFeatureWrite(
+      `${layerPath}/${r.globalId}`,
+      'DELETE',
+      {},
+      r.op,
+    );
     const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'DELETE',
     });
@@ -483,6 +508,25 @@ async function replayRecord(
     code: 'sync.unknownOp',
     params: { op: String((r as { op: string }).op) },
   });
+}
+
+/**
+ * Dry-run a feature update or delete. Same path and body as the real
+ * write, plus `checkOnly: true`. A refusal throws the same way as a
+ * real write would, so the drain parks the row and never transfers.
+ */
+async function checkOnlyFeatureWrite(
+  url: string,
+  method: 'PATCH' | 'DELETE',
+  body: Record<string, unknown>,
+  op: 'update' | 'delete',
+): Promise<void> {
+  const res = await replayFetch(url, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...body, checkOnly: true }),
+  });
+  await throwIfNotOk(res, 'feature', op);
 }
 
 /**

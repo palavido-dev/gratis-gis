@@ -205,6 +205,103 @@ describe('syncQueue: HTTP failure', () => {
   });
 });
 
+describe('syncQueue: checkOnly dry-run before transfer', () => {
+  it('dry-runs an update with checkOnly before the real PATCH', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null }));
+    fetchMock
+      .mockResolvedValueOnce(
+        json(200, { ok: true, headObservationId: 'obs-1', syncVersion: 3 }),
+      )
+      .mockResolvedValueOnce(json(200, { type: 'Feature', id: 'feature-1' }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(await listQueue(DC, USER)).toEqual([]);
+    expect(calls()).toEqual([
+      { url: `${FEATURES_PATH}/feature-1`, method: 'PATCH' },
+      { url: `${FEATURES_PATH}/feature-1`, method: 'PATCH' },
+    ]);
+    const checkBody = JSON.parse(
+      String(fetchMock.mock.calls[0]![1]!.body),
+    ) as Record<string, unknown>;
+    const writeBody = JSON.parse(
+      String(fetchMock.mock.calls[1]![1]!.body),
+    ) as Record<string, unknown>;
+    expect(checkBody.checkOnly).toBe(true);
+    expect(writeBody.checkOnly).toBeUndefined();
+    expect(writeBody.properties).toEqual({ species: 'oak' });
+  });
+
+  it('parks an update when the checkOnly dry-run refuses, without writing', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null }));
+    fetchMock.mockResolvedValue(
+      json(409, {
+        statusCode: 409,
+        message: 'Feature changed since you last read it.',
+        error: 'Conflict',
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(0);
+    expect(result.rejected).toBe(1);
+    expect(result.errors[0]?.terminal).toBe(true);
+    const [row] = await listQueue(DC, USER);
+    expect(row!.syncStatus).toBe('rejected');
+    expect(row!.failure).toEqual({
+      code: 'sync.serverRefused',
+      params: {
+        serverMessage: 'Feature changed since you last read it.',
+      },
+    });
+    // Only the dry-run; the real PATCH must not fire.
+    expect(calls()).toEqual([
+      { url: `${FEATURES_PATH}/feature-1`, method: 'PATCH' },
+    ]);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]![1]!.body),
+    ) as Record<string, unknown>;
+    expect(body.checkOnly).toBe(true);
+  });
+
+  it('dry-runs a delete with checkOnly before the real DELETE', async () => {
+    await enqueueEdit(edit({ op: 'delete', geometry: null, properties: null }));
+    fetchMock
+      .mockResolvedValueOnce(
+        json(200, { ok: true, headObservationId: 'obs-1', syncVersion: 4 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(calls()).toEqual([
+      { url: `${FEATURES_PATH}/feature-1`, method: 'DELETE' },
+      { url: `${FEATURES_PATH}/feature-1`, method: 'DELETE' },
+    ]);
+    const checkBody = JSON.parse(
+      String(fetchMock.mock.calls[0]![1]!.body),
+    ) as Record<string, unknown>;
+    expect(checkBody).toEqual({ checkOnly: true });
+    expect(fetchMock.mock.calls[1]![1]?.body).toBeUndefined();
+  });
+
+  it('skips checkOnly for inserts (API has no create dry-run)', async () => {
+    await enqueueEdit(edit());
+    fetchMock.mockResolvedValue(json(201, { ok: true }));
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    expect(calls()).toEqual([{ url: FEATURES_PATH, method: 'POST' }]);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]![1]!.body),
+    ) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('checkOnly');
+  });
+});
+
 describe('syncQueue: ownership', () => {
   const OTHER = 'user-bob';
 

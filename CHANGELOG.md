@@ -9,6 +9,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field offline push dry-runs feature updates and deletes with
+  `checkOnly=true` before the real write, so schema refusals and
+  optimistic-concurrency 409s park the queue row without transferring
+  the edit. Inserts still go straight to POST (no create dry-run on
+  the API). portal-web in-app drain and service worker stay in
+  lockstep; Android QueueDrain mirrors the same check-then-write
+  (R4-offline-checkonly; pairs with #329 / #350).
 - Markup panel **GeoJSON** download builds a FeatureCollection from
   the already-loaded drawing set (kind / label / note / color + set
   provenance) and triggers a browser save; available to any viewer

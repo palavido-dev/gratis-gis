@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Offline edits check for conflicts before they upload
+When the field app syncs edits you made offline, it asks the portal whether an update or delete would still be accepted before it applies the change. If someone else already changed that feature, or the values break the layer's rules, the edit stays on the device with the reason instead of partially uploading.
+
 ## 2026-10-27 - Download markup as GeoJSON
 Open the Markup panel and click **GeoJSON** on a set to download its sketches as a FeatureCollection. Works for any set you can see — handy for dropping redlines into QGIS or emailing a file without promoting to a data layer.
 

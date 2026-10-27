@@ -71,6 +71,9 @@ the portal also keeps a capped `syncConflicts` list on the layer
 for later review in the Layer data panel. Editors can re-apply a
 losing edit from that list (PATCH / DELETE with a live
 `baseObservationId`, or POST recreate when the feature is gone).
+The field PWA offline drain (and Android queue drain) call
+`checkOnly=true` before each queued update/delete so validation
+failures surface before the real transfer.
 
 Read parameters: `limit`, `cursor`, `at`, `bbox`, `parentFk` +
 `parentId`, `timeField` + `timeFrom` + `timeTo`.
