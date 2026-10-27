@@ -843,6 +843,7 @@ export const ptBR: Partial<CatalogShape> = {
     elevationUnavailable: 'Essa camada de elevação não está disponível.',
     elevationNotReady: 'Essa camada de elevação ainda não está pronta.',
     elevationAddFailed: 'Não foi possível adicionar essa camada de elevação.',
+    gettingReady: 'Preparando o terreno 3D...',
   },
   scaledSymbology: {
     title: 'Classes de escala',
@@ -1144,6 +1145,21 @@ export const ptBR: Partial<CatalogShape> = {
     notFound: 'Não encontrado',
     sessionExpired:
       'Seu login expirou. Entre novamente para ver tudo a que você tem acesso.',
+    apiUnreachable:
+      'Não foi possível alcançar o servidor da API. Confirme que o portal-api está na porta 4000 e tente de novo.',
+    unexpected: 'Ocorreu um erro inesperado.',
+    tryAgain: 'Tentar de novo',
+    digest: 'Digest: {digest}',
+  },
+  submissionReceipts: {
+    title: 'Recibos',
+    intro: 'Um PDF de texto de cada envio. Os 20 mais recentes aparecem aqui.',
+    empty:
+      'Ainda não há envios. Os recibos aparecem aqui depois que alguém envia o formulário.',
+    loadFailed: 'Não foi possível carregar os envios.',
+    downloadFailed: 'Não foi possível baixar o recibo.',
+    downloadPdf: 'Baixar PDF',
+    preparing: 'Preparando…',
   },
   errorReason: {
     unknown: 'erro desconhecido',

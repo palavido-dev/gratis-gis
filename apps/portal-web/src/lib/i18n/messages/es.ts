@@ -847,6 +847,7 @@ export const es: Partial<CatalogShape> = {
     elevationUnavailable: 'Esa capa de elevación no está disponible.',
     elevationNotReady: 'Esa capa de elevación aún no está lista.',
     elevationAddFailed: 'No se pudo añadir esa capa de elevación.',
+    gettingReady: 'Preparando el terreno 3D...',
   },
   scaledSymbology: {
     title: 'Clases de escala',
@@ -1148,6 +1149,21 @@ export const es: Partial<CatalogShape> = {
     notFound: 'No encontrado',
     sessionExpired:
       'Tu sesión ha caducado. Inicia sesión de nuevo para ver todo aquello a lo que tienes acceso.',
+    apiUnreachable:
+      'No se pudo contactar con el servidor API. Asegúrate de que portal-api esté en el puerto 4000 e inténtalo de nuevo.',
+    unexpected: 'Se produjo un error inesperado.',
+    tryAgain: 'Reintentar',
+    digest: 'Digest: {digest}',
+  },
+  submissionReceipts: {
+    title: 'Recibos',
+    intro: 'Un PDF de texto de cada envío. Aquí se listan los 20 más recientes.',
+    empty:
+      'Aún no hay envíos. Los recibos aparecen aquí cuando alguien envía el formulario.',
+    loadFailed: 'No se pudieron cargar los envíos.',
+    downloadFailed: 'No se pudo descargar el recibo.',
+    downloadPdf: 'Descargar PDF',
+    preparing: 'Preparando…',
   },
   errorReason: {
     unknown: 'error desconocido',
