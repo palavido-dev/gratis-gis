@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-i18n-tile-layer-errors | issue #162 follow-up | Tile-layer editor error/progress strings | PR #348 |
+| R3-field-delta-sync | research-cycle-3 | Field offline pull via `delta?since=N` | PR #350 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R3-field-delta-sync | research-cycle-3 | Field offline pull via `delta?since=N` | Completes #328 on the client |
 | R3-anonymous-markup | research-cycle-3 / #154 | Anonymous markup when `allowAnonymousDrawings` | Opt-in + rate limits; no promote |
 | R3-dashboard-filter-widget | research-cycle-3 | Dedicated dashboard filter widget | Reuses cross-filter context |
 | R3-sync-conflict-reapply | research-cycle-3 | Re-apply losing-side syncConflicts | Follow-up to #339 |
@@ -31,6 +30,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-i18n-tile-layer-errors | 2026-10-27 | Merged #348: tile-layer editor error/progress i18n |
 | R2-form-touch-reorder | 2026-10-27 | Merged #347: form designer up/down reorder for touch |
 | R2-i18n-chrome-sweep | 2026-10-27 | Merged #346: error / receipts / terrain-chip chrome i18n |
 | R2-citation-export | 2026-10-27 | Merged #345: BibTeX / RIS / JSON-LD citation export |
