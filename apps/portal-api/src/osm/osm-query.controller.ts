@@ -88,14 +88,14 @@ export class OsmQueryController {
     try {
       if (mode === 'relational') {
         return await this.runRelational(user, bounds, {
-          anchorPresetId,
-          conditionsRaw,
-          negationsRaw,
+          ...(anchorPresetId !== undefined ? { anchorPresetId } : {}),
+          ...(conditionsRaw !== undefined ? { conditionsRaw } : {}),
+          ...(negationsRaw !== undefined ? { negationsRaw } : {}),
         });
       }
       return await this.runPresets(user, bounds, {
-        presetIdsRaw,
-        tagFiltersRaw,
+        ...(presetIdsRaw !== undefined ? { presetIdsRaw } : {}),
+        ...(tagFiltersRaw !== undefined ? { tagFiltersRaw } : {}),
       });
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
