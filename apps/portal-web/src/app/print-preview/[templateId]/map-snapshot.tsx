@@ -2,9 +2,9 @@
 'use client';
 
 /**
- * #159 Phase 2.2 / 2.4 inline MapLibre snapshot for the print Map
- * element. Replaces the Phase 2.1 iframe so the captured PDF gets
- * a vector(-ish) map render instead of an embedded raster.
+ * #159 Phase 2.2 / 2.4 / 3 inline MapLibre snapshot for the print
+ * Map element. Replaces the Phase 2.1 iframe so the captured PDF
+ * gets a vector(-ish) map render instead of an embedded raster.
  *
  * Phase 2.4 expansions:
  *   - per-layer renderer parity (unique-values / class-breaks /
@@ -14,6 +14,8 @@
  *     URLs work via the same protocol registration the canvas uses
  *   - scaleOverride: the print Map element's optional scale
  *     denominator overrides the bound map's persisted zoom
+ * Phase 3: paints map.data.drawings via shared syncDrawings so
+ * redline markup survives export (saved visibility only).
  *
  * Loads MapLibre on mount, points it at the map item's data blob,
  * and signals readiness by setting `document.body.dataset.mapReady`
@@ -37,6 +39,7 @@ import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap'
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
+import { syncDrawings } from '@/lib/drawings-overlay';
 import {
   addLabelLayer,
   addPaintForLayer,
@@ -232,9 +235,14 @@ export function MapSnapshot({
         //     data_layer on save
       }
       await Promise.all(tasks);
-      if (!disposed && failures.length > 0) {
+      if (disposed) return;
+      if (failures.length > 0) {
         setFailedLayers(failures);
       }
+      // #159 Phase 3: paint markup overlays from map.data.drawings
+      // (already on the print job bundle). Honors saved per-set
+      // visibility; no extra drawings API fetch.
+      syncDrawings(map, mapData.drawings ?? []);
       // Signal readiness once tiles + data sources have idled.
       // Puppeteer waitForSelector picks this up. We mark ready even
       // when layers failed: the pipeline still has to finish the
