@@ -52,16 +52,17 @@ when you open the Print chooser is the one the elements wire up
 to. The layout remembers its original map only as a default for
 preview in the designer.
 
-## What's coming next
+## Markup on the sheet
 
-- **Server-side render (Phase 2)** will replace the browser's
-  current `window.print()` path with a Puppeteer-based renderer
-  that produces vector-fidelity PDFs (text stays text, lines
-  stay vector). Layouts and the designer don't change; the
-  output quality does.
-- **Drawings on print (Phase 3)** will let you include the
-  redline / markup overlay on a map in the print output, honoring
-  per-set visibility toggles.
+Print includes the map's markup overlays (pins, lines, polygons)
+when those drawing sets are visible on the saved map. Toggle a
+set off in the Markup pane and save before printing if you want
+it omitted from the PDF. Viewer-only local hide toggles that are
+not saved do not change the print.
+
+Server-side Puppeteer render (Phase 2) is the path Print uses
+today: text stays text and map markup paints through the same
+MapLibre overlay the editor uses.
 
 ## Related
 

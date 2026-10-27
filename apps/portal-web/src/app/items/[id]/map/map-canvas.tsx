@@ -13,24 +13,12 @@ import {
 } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type {
-  DrawingSet,
   MapData,
   MapLayer,
   MapLayerFilter,
   MapLayerVia,
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
-
-/**
- * Minimal projection of a `DrawingSet` the canvas needs to render
- * its overlay. Keeps the canvas insulated from any future
- * DrawingSet field churn (comments, anchored threads, etc.) that
- * the panel cares about but the renderer does not.
- */
-type DrawingSetForRender = Pick<
-  DrawingSet,
-  'id' | 'color' | 'visible' | 'features'
->;
 import {
   ZOOM_MAX,
   ZOOM_MIN,
@@ -44,6 +32,11 @@ import {
   ensureRasterProtocols,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
+import {
+  type DrawingSetForRender,
+  raiseDrawingsLayers,
+  syncDrawings,
+} from '@/lib/drawings-overlay';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { getCachedUserName } from '@/lib/user-name-cache';
 import { formatDateTime, formatNumber } from '@/lib/i18n/format';
@@ -2557,191 +2550,6 @@ function toolCursor(mode: SelectToolMode): string {
   return `url("data:image/svg+xml;utf8,${encoded}") ${def.hx} ${def.hy}, crosshair`;
 }
 
-/**
- * #154 / Phase 1.5 Drawings overlay sync. Owns a single MapLibre
- * GeoJSON source (`drawings:overlay`) and layers on top of it:
- *   - `drawings:fill` / `drawings:stroke` — pin circles (Point)
- *   - `drawings:line` — LineString stroke
- *   - `drawings:poly-fill` / `drawings:poly-outline` — Polygon
- *
- * Color comes from each feature's properties (`color`), stamped at
- * flatten time from the parent drawing set so a recolor does not
- * require recomputing the source data. Visibility on a set hides
- * its features via a filter on `setId`.
- *
- * Idempotent: re-runs on every drawings prop change. Removes the
- * source + layers when there is no markup so the renderer does not
- * carry stale state across maps.
- */
-const DRAWINGS_SOURCE_ID = 'drawings:overlay';
-const DRAWINGS_FILL_LAYER_ID = 'drawings:fill';
-const DRAWINGS_STROKE_LAYER_ID = 'drawings:stroke';
-const DRAWINGS_LINE_LAYER_ID = 'drawings:line';
-const DRAWINGS_POLY_FILL_LAYER_ID = 'drawings:poly-fill';
-const DRAWINGS_POLY_OUTLINE_LAYER_ID = 'drawings:poly-outline';
-
-const DRAWINGS_LAYER_IDS = [
-  DRAWINGS_POLY_FILL_LAYER_ID,
-  DRAWINGS_POLY_OUTLINE_LAYER_ID,
-  DRAWINGS_LINE_LAYER_ID,
-  DRAWINGS_STROKE_LAYER_ID,
-  DRAWINGS_FILL_LAYER_ID,
-] as const;
-
-function syncDrawings(
-  m: maplibregl.Map,
-  sets: DrawingSetForRender[],
-): void {
-  const features: GeoJSON.Feature[] = [];
-  const hiddenSetIds: string[] = [];
-  for (const set of sets) {
-    if (!set.visible) hiddenSetIds.push(set.id);
-    for (const f of set.features) {
-      if (!f.geometry) continue;
-      features.push({
-        type: 'Feature',
-        id: f.id,
-        geometry: f.geometry as GeoJSON.Geometry,
-        properties: {
-          setId: set.id,
-          color: f.style?.color ?? set.color,
-          kind: f.kind,
-          label: f.label ?? '',
-          strokeWidth: f.style?.strokeWidth ?? 3,
-          fillOpacity: f.style?.fillOpacity ?? 0.25,
-        },
-      });
-    }
-  }
-  const fc: GeoJSON.FeatureCollection = {
-    type: 'FeatureCollection',
-    features,
-  };
-  const existing = m.getSource(DRAWINGS_SOURCE_ID) as
-    | maplibregl.GeoJSONSource
-    | undefined;
-  if (features.length === 0) {
-    // Tear down so a map cleared of all markup doesn't keep an
-    // empty source + layer pair hanging around in MapLibre's state.
-    for (const id of DRAWINGS_LAYER_IDS) {
-      if (m.getLayer(id)) m.removeLayer(id);
-    }
-    if (m.getSource(DRAWINGS_SOURCE_ID)) m.removeSource(DRAWINGS_SOURCE_ID);
-    return;
-  }
-  if (existing) {
-    existing.setData(fc);
-  } else {
-    m.addSource(DRAWINGS_SOURCE_ID, {
-      type: 'geojson',
-      data: fc,
-    });
-  }
-  // Hide features whose set has been toggled off. MapLibre's
-  // `!in` only takes literals; we pass the array as the data
-  // expression directly per spec.
-  const visibilityFilter: unknown[] =
-    hiddenSetIds.length === 0
-      ? ['literal', true]
-      : ['!', ['in', ['get', 'setId'], ['literal', hiddenSetIds]]];
-
-  const ensureCircle = (
-    id: string,
-    paint: Record<string, unknown>,
-  ) => {
-    const filter: maplibregl.FilterSpecification = [
-      'all',
-      ['==', ['geometry-type'], 'Point'],
-      visibilityFilter as never,
-    ];
-    if (!m.getLayer(id)) {
-      m.addLayer({
-        id,
-        type: 'circle',
-        source: DRAWINGS_SOURCE_ID,
-        filter,
-        paint,
-      } as maplibregl.CircleLayerSpecification);
-    } else {
-      m.setFilter(id, filter);
-    }
-  };
-
-  // Pins: white halo under colored fill so they read on any basemap.
-  ensureCircle(DRAWINGS_STROKE_LAYER_ID, {
-    'circle-radius': 10,
-    'circle-color': '#ffffff',
-    'circle-stroke-color': '#111827',
-    'circle-stroke-width': 1.5,
-  });
-  ensureCircle(DRAWINGS_FILL_LAYER_ID, {
-    'circle-radius': 6,
-    'circle-color': ['get', 'color'],
-    'circle-stroke-color': '#ffffff',
-    'circle-stroke-width': 1.5,
-  });
-
-  const lineFilter: maplibregl.FilterSpecification = [
-    'all',
-    ['==', ['geometry-type'], 'LineString'],
-    visibilityFilter as never,
-  ];
-  if (!m.getLayer(DRAWINGS_LINE_LAYER_ID)) {
-    m.addLayer({
-      id: DRAWINGS_LINE_LAYER_ID,
-      type: 'line',
-      source: DRAWINGS_SOURCE_ID,
-      filter: lineFilter,
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
-        'line-opacity': 0.95,
-      },
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round',
-      },
-    });
-  } else {
-    m.setFilter(DRAWINGS_LINE_LAYER_ID, lineFilter);
-  }
-
-  const polyFilter: maplibregl.FilterSpecification = [
-    'all',
-    ['==', ['geometry-type'], 'Polygon'],
-    visibilityFilter as never,
-  ];
-  if (!m.getLayer(DRAWINGS_POLY_FILL_LAYER_ID)) {
-    m.addLayer({
-      id: DRAWINGS_POLY_FILL_LAYER_ID,
-      type: 'fill',
-      source: DRAWINGS_SOURCE_ID,
-      filter: polyFilter,
-      paint: {
-        'fill-color': ['get', 'color'],
-        'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.25],
-      },
-    });
-  } else {
-    m.setFilter(DRAWINGS_POLY_FILL_LAYER_ID, polyFilter);
-  }
-  if (!m.getLayer(DRAWINGS_POLY_OUTLINE_LAYER_ID)) {
-    m.addLayer({
-      id: DRAWINGS_POLY_OUTLINE_LAYER_ID,
-      type: 'line',
-      source: DRAWINGS_SOURCE_ID,
-      filter: polyFilter,
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
-        'line-opacity': 0.95,
-      },
-    });
-  } else {
-    m.setFilter(DRAWINGS_POLY_OUTLINE_LAYER_ID, polyFilter);
-  }
-}
-
 /** Owned exclusively by the terrain effect; see #186 note there. */
 const TERRAIN_SOURCE_ID = 'gg-terrain-dem';
 
@@ -3996,18 +3804,9 @@ function syncOverlays(
     }
     // #154 invariant: markup always reads above the data layers.
     // The force-to-top pass above just raised every gg: layer over
-    // the drawings pair, burying markup, so re-assert the drawings
-    // layers at the very top. Stroke before fill mirrors the order
-    // syncDrawings adds them in (fill paints above its halo).
-    for (const id of [DRAWINGS_STROKE_LAYER_ID, DRAWINGS_FILL_LAYER_ID]) {
-      if (!m.getLayer(id)) continue;
-      try {
-        m.moveLayer(id);
-      } catch {
-        // Ignore: the drawings sync may have removed it
-        // concurrently; its next run re-adds on top anyway.
-      }
-    }
+    // the drawings stack, burying markup, so re-assert every
+    // drawings layer (pins, lines, polygons) at the very top.
+    raiseDrawingsLayers(m);
   }
 
   // Re-apply selection feature-state on rebuilt sources (see the
