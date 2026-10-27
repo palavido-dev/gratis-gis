@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | Branch `cursor/mcp-write-tools-2838` |
+| R2-mcp-write-tools | research-cycle-2 / #161 | MCP run_tool + create_data_layer_from_geojson | PR #341 on `cursor/mcp-write-tools-2838` |
 
 ## queued (ship-without-input)
 
