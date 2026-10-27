@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
+import { AnalyzeClipGuide } from './analyze-clip-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -367,11 +368,18 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             honestly. Offer a server derived_layer recipe instead of
             a lying in-browser ST_Buffer (R4-analyze-buffer-derived). */}
         {layer.geometryType ? (
-          <AnalyzeBufferGuide
-            itemId={itemId}
-            layerKey={layer.id}
-            sourceLabel={layer.label || layer.name || 'Layer'}
-          />
+          <div className="flex flex-wrap items-start gap-2">
+            <AnalyzeBufferGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeClipGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+          </div>
         ) : null}
         {mode === 'builder' ? (
           <AnalyzeQueryBuilder
