@@ -24,9 +24,27 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { useT } from '@/lib/i18n/locale-context';
+import { needsServerGdalStage } from '@/lib/server-gdal-stage';
 import { V3FeatureBrowser } from './v3-feature-browser';
 import { SyncConflictsPanel } from './sync-conflicts-panel';
 import { AddToMapButton } from '../add-to-map-button';
+
+/** Layer schema preview returned by `/ingest/stage` (same shape as the wizard). */
+interface ProbedLayer {
+  name: string;
+  geometryType: string | null;
+  fields: Array<{ name: string; type: string }>;
+  featureCount: number;
+}
+
+interface SourceLayerPick {
+  stagingId: string;
+  fileName: string;
+  driver: string;
+  layers: ProbedLayer[];
+  mode: 'replace' | 'append';
+  selected: string;
+}
 
 // Analyze (#175) lazy-loads: the DuckDB-WASM chunk is multiple MB
 // and must cost nothing on detail pages where nobody analyzes.
@@ -54,13 +72,11 @@ type LayerTab = 'attributes' | 'map' | 'analyze';
  * ingest controller parses via GDAL and bulk-inserts into the layer's
  * observation log, keyed by scope.
  *
- * Multi-layer archive (GDB, shapefile zip with multiple .shp) flow:
- * this component shows a single file picker per target layer. If the
- * user uploads a multi-layer archive, the server currently returns a
- * 400 asking for ?sourceLayer=<name>. A follow-up can add a
- * preview-first probe step; for MVP authors can use the Import tab
- * in the builder to add layers, then import data per-layer from a
- * file that has just that one layer.
+ * File Geodatabase (.gdb / .gdb.zip) uses the create-wizard dialect:
+ * stage via `/ingest/stage`, pick a source layer when the archive
+ * has more than one, then enqueue `import-jobs` with stagingId +
+ * sourceLayerName. Direct multipart import remains for single-file
+ * formats (GeoJSON, KML, shapefile zip, …).
  */
 interface Props {
   itemId: string;
@@ -135,6 +151,9 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
     | { kind: 'error'; text: string }
     | null
   >(null);
+  // Multi-layer GDB (and similar) after /ingest/stage: pick which
+  // source layer feeds this target sublayer.
+  const [sourcePick, setSourcePick] = useState<SourceLayerPick | null>(null);
   // Table-mode sublayers have no geometry column — hide Map entirely
   // rather than show an empty basemap (#223).
   const hasGeometry = Boolean(layer.geometryType);
@@ -159,13 +178,131 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
     setMessage(null);
   }
 
+  async function enqueueImportJob(
+    stagingId: string,
+    sourceLayerName: string,
+    mode: 'replace' | 'append',
+  ): Promise<void> {
+    const res = await fetch(
+      `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layer.id)}/import-jobs`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stagingId, sourceLayerName, mode }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        text.trim() ||
+          t('layerDataPanel.importJobFailed', { status: res.status }),
+      );
+    }
+    setMessage({
+      kind: 'success',
+      text: t('layerDataPanel.importJobQueued', {
+        sourceLayer: sourceLayerName,
+        mode,
+      }),
+    });
+    setSourcePick(null);
+    router.refresh();
+  }
+
+  /**
+   * File Geodatabase path: stage once (wizard dialect), auto-import
+   * when the archive has a single layer, otherwise ask which source
+   * layer to pull into this target. Falls back to direct multipart
+   * import when staging is forbidden (edit-share without publish).
+   */
+  async function handleStagedGdalImport(
+    file: File,
+    mode: 'replace' | 'append',
+  ): Promise<void> {
+    setBusy({
+      phase: 'uploading',
+      fileName: file.name,
+      fileSize: file.size,
+      bytesUploaded: 0,
+      copy: {
+        reading: {
+          headline: t('layerDataPanel.probingHeadline'),
+          subhead: t('layerDataPanel.probingDesc'),
+        },
+      },
+    });
+    try {
+      const out = await uploadWithProgress<{
+        stagingId: string;
+        driver: string;
+        layers: ProbedLayer[];
+      }>(
+        '/api/portal/ingest/stage',
+        file,
+        (e) => {
+          setBusy((prev) =>
+            prev
+              ? { ...prev, phase: e.phase, bytesUploaded: e.bytesUploaded }
+              : null,
+          );
+        },
+        xhrRef,
+      );
+      xhrRef.current = null;
+      if (!out.layers.length) {
+        setMessage({
+          kind: 'error',
+          text: t('layerDataPanel.probeNoLayers'),
+        });
+        return;
+      }
+      if (out.layers.length === 1) {
+        setBusy({
+          phase: 'reading',
+          fileName: file.name,
+          fileSize: file.size,
+          bytesUploaded: file.size,
+          copy: {
+            reading: {
+              headline: t('layerDataPanel.importingHeadline'),
+              subhead: t('layerDataPanel.importJobEnqueueDesc'),
+            },
+          },
+        });
+        await enqueueImportJob(out.stagingId, out.layers[0]!.name, mode);
+        return;
+      }
+      setSourcePick({
+        stagingId: out.stagingId,
+        fileName: file.name,
+        driver: out.driver,
+        layers: out.layers,
+        mode,
+        selected: out.layers[0]!.name,
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      const msg = (err as Error).message || t('layerDataPanel.uploadFailed');
+      // Staging requires can_publish_items. An edit-share that can
+      // still POST .../import may succeed for single-layer archives.
+      if (/\b403\b|Forbidden|contributor or admin/i.test(msg)) {
+        setBusy(null);
+        await handleDirectImport(file, mode);
+        return;
+      }
+      setMessage({ kind: 'error', text: msg });
+    } finally {
+      setBusy(null);
+      xhrRef.current = null;
+    }
+  }
+
   // #248: import mode threaded through handleFile. Default is replace
   // (the safe re-import-the-truth flow from #244). Append is opt-in
   // via the split-button dropdown -- mostly useful when stitching
   // monthly drops into a growing layer or merging two source files
   // with non-overlapping content.
-  async function handleFile(file: File, mode: 'replace' | 'append') {
-    setMessage(null);
+  async function handleDirectImport(file: File, mode: 'replace' | 'append') {
     setBusy({
       phase: 'uploading',
       fileName: file.name,
@@ -236,6 +373,47 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
     } finally {
       setBusy(null);
       xhrRef.current = null;
+    }
+  }
+
+  async function handleFile(file: File, mode: 'replace' | 'append') {
+    setMessage(null);
+    setSourcePick(null);
+    if (needsServerGdalStage(file.name)) {
+      await handleStagedGdalImport(file, mode);
+      return;
+    }
+    await handleDirectImport(file, mode);
+  }
+
+  async function confirmSourcePick() {
+    if (!sourcePick) return;
+    setMessage(null);
+    setBusy({
+      phase: 'reading',
+      fileName: sourcePick.fileName,
+      fileSize: 0,
+      bytesUploaded: 0,
+      copy: {
+        reading: {
+          headline: t('layerDataPanel.importingHeadline'),
+          subhead: t('layerDataPanel.importJobEnqueueDesc'),
+        },
+      },
+    });
+    try {
+      await enqueueImportJob(
+        sourcePick.stagingId,
+        sourcePick.selected,
+        sourcePick.mode,
+      );
+    } catch (err) {
+      setMessage({
+        kind: 'error',
+        text: (err as Error).message || t('layerDataPanel.uploadFailed'),
+      });
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -333,6 +511,55 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       {busy ? (
         <div className="mt-2">
           <UploadProgressPanel busy={busy} onCancel={cancelUpload} />
+        </div>
+      ) : null}
+      {sourcePick && !busy ? (
+        <div className="mt-2 rounded-md border border-border bg-surface-0 px-2.5 py-2">
+          <p className="text-2xs text-ink-1">
+            {t('layerDataPanel.sourceLayerPickIntro', {
+              fileName: sourcePick.fileName,
+              count: sourcePick.layers.length,
+              driver: sourcePick.driver,
+            })}
+          </p>
+          <label className="mt-1.5 block text-2xs font-medium text-ink-0">
+            {t('layerDataPanel.sourceLayerLabel')}
+            <select
+              className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-1 text-xs text-ink-0"
+              value={sourcePick.selected}
+              onChange={(e) =>
+                setSourcePick((prev) =>
+                  prev ? { ...prev, selected: e.target.value } : prev,
+                )
+              }
+            >
+              {sourcePick.layers.map((pl) => (
+                <option key={pl.name} value={pl.name}>
+                  {pl.name}
+                  {pl.geometryType ? ` · ${pl.geometryType}` : ''}
+                  {typeof pl.featureCount === 'number'
+                    ? ` · ${fmt.number(pl.featureCount)}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center rounded border border-border bg-accent px-2 py-1 text-2xs font-medium text-white hover:opacity-90"
+              onClick={() => void confirmSourcePick()}
+            >
+              {t('layerDataPanel.sourceLayerConfirm')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center rounded border border-border bg-surface-1 px-2 py-1 text-2xs text-ink-1 hover:bg-surface-2"
+              onClick={() => setSourcePick(null)}
+            >
+              {t('layerDataPanel.sourceLayerCancel')}
+            </button>
+          </div>
         </div>
       ) : null}
       {message ? (

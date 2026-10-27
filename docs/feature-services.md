@@ -45,19 +45,26 @@ weight at all.
 ### File Geodatabase (.gdb)
 
 Robust `.gdb` parsers live inside GDAL; there is no production-grade
-JS equivalent. When the user drops a `.gdb` or `.gdb.zip`, the upload
-handler detects it and routes through **server-side GDAL** at
-`POST /api/items/:id/ingest`. That endpoint uses `gdal-async` (Node
-bindings, ships prebuilt binaries: no system GDAL install required in
-dev) to read the uploaded archive via GDAL's `/vsizip/` virtual
-filesystem, iterate every layer, emit a merged GeoJSON collection, and
-write it straight back to the item.
+JS equivalent. The create-item wizard and the v3 data layer **Import
+features** control stage the archive with **server-side GDAL** at
+`POST /api/ingest/stage` (OpenFileGDB / FileGDB allowlisted), then
+import each chosen source layer via
+`POST /api/items/:id/layers/:layerId/import-jobs` with `stagingId` +
+`sourceLayerName`. Staging parks the bytes under `/tmp/gg-staging/`
+(1h TTL) so a multi-layer `.gdb.zip` only travels the wire once.
+`gdal-async` (Node bindings, prebuilt binaries; no system GDAL in
+dev) reads the upload via `/vsizip/` when the path ends in `.zip`.
 
-The same endpoint accepts any OGR-readable format (shapefile, KML,
-KMZ, GML, GPX, MapInfo TAB, CSV with WKT, etc.), so advanced users or
-scripts can ingest anything the browser parsers don't. The default
-client-side flow still handles GeoJSON / KML / KMZ / Shapefile zips
-with zero round-trip; server-side only fires when needed.
+Legacy v1/v2 items can still flatten through
+`POST /api/items/:id/ingest`. Prefer the stage + per-layer path for
+v3. Browser helpers that only return GeoJSON (`spatial-import`)
+refuse `.gdb` with a pointer at Import features / the wizard rather
+than claiming GDAL is unwired.
+
+The same GDAL path accepts other OGR-readable formats (GeoPackage,
+shapefile, KML, …) from the wizard. Client-side GeoJSON / KML still
+parse in-browser; KMZ and shapefile zips also use `to-geojson` where
+callers need a FeatureCollection without staging.
 
 ### GeoParquet (import and export)
 

@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R5-android-conflict-reapply | research-cycle-5 | Android re-apply rejected sync conflicts | This PR |
+| R5-gdb-editor-server-ingest | research-cycle-5 | Data-layer editor .gdb via server GDAL ingest | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R5-gdb-editor-server-ingest | research-cycle-5 | Data-layer editor .gdb via server GDAL ingest | Honesty |
 | R5-arcgis-pull-to-local | research-cycle-5 | Copy ArcGIS FeatureServer layers to data_layer | Caps required |
 
 ## queued (needs-maintainer)
@@ -28,6 +27,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R5-android-conflict-reapply | 2026-10-27 | Merged #366: Android Re-apply / Recreate on rejected conflicts |
 | R5-i18n-service-editors | 2026-10-27 | Merged #365: service / ArcGIS / OGC editor chrome i18n |
 | R5-analyze-clip-shortcut | 2026-10-27 | Merged #364: Analyze Clip → PostGIS derived_layer recipe |
 | R5-stac-ogc-help-honesty | 2026-10-27 | Merged #363: QGIS STAC help + honest OGC Features scope |

@@ -2561,6 +2561,20 @@ export const ptBR: Partial<CatalogShape> = {
       'Analisando o arquivo e inserindo no PostGIS junto às linhas existentes. Camadas grandes podem levar alguns minutos.',
     importingDesc:
       'Analisando o arquivo e inserindo em lote no PostGIS. Camadas grandes (parcelas em escala de condado) podem levar alguns minutos.',
+    probingHeadline: 'Lendo no servidor',
+    probingDesc:
+      'O GDAL está abrindo o arquivo e listando camadas. Isso pode levar um minuto em uma File Geodatabase em escala de condado.',
+    probeNoLayers: 'Esse arquivo não tem camadas legíveis.',
+    importJobEnqueueDesc:
+      'Enfileirando uma importação em segundo plano do arquivo preparado para esta camada.',
+    importJobQueued:
+      'Importação enfileirada para {sourceLayer} ({mode}). O progresso aparece no banner de importação desta página.',
+    importJobFailed: 'Não foi possível enfileirar a importação ({status}).',
+    sourceLayerPickIntro:
+      '{fileName} tem {count} camadas ({driver}). Escolha qual camada de origem importar para este destino.',
+    sourceLayerLabel: 'Camada de origem',
+    sourceLayerConfirm: 'Importar camada selecionada',
+    sourceLayerCancel: 'Cancelar',
     uploadFailed: 'Falha no upload',
     syncConflictsTitle:
       '{count, plural, one {# conflito de sync} other {# conflitos de sync}}',

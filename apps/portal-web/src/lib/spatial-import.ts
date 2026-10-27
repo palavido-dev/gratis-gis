@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Unified spatial-file importer. Takes any supported vector file and
- * returns a GeoJSON FeatureCollection, plus metadata the caller can
- * surface in its UI (detected format, feature count, warnings).
+ * Unified spatial-file importer for callers that need a GeoJSON
+ * FeatureCollection in the browser (geo-boundary paste/upload, map
+ * KML convert, legacy v1/v2 staged preview). Returns GeoJSON plus
+ * metadata the caller can surface in its UI.
  *
- * Supported today (all parsed in-browser, no server round trip):
+ * Supported here (browser or `to-geojson`):
  *   - GeoJSON (.geojson, .json)
  *   - KML (.kml)
- *   - KMZ (.kmz)
- *   - Shapefile delivered as a .zip (.shp + sidecars)
+ *   - KMZ (.kmz) via server `to-geojson`
+ *   - Shapefile delivered as a .zip (.shp + sidecars) via `to-geojson`
  *
- * Known gaps (rejected with a clear message):
- *   - File Geodatabase (.gdb or .gdb.zip). Only robust parser is GDAL,
- *     which we haven't wired server-side yet. Users are pointed at
- *     ArcGIS Pro / QGIS to re-export.
- *   - GML, KML-in-network-link, GeoPackage, MBTiles: land later.
+ * File Geodatabase (.gdb / .gdb.zip) is not parsed here. Portal-api
+ * GDAL staging (`/ingest/stage`) plus per-layer import / import-jobs
+ * is the honest path — used by the create wizard and the v3 data
+ * layer Import button. Callers that still hit this helper with a
+ * `.gdb` get a clear redirect message rather than a silent failure.
  *
  * Parsing libraries are dynamically imported so formats users never
  * touch don't bloat the default bundle.
@@ -63,7 +64,7 @@ export async function importSpatialFile(file: File): Promise<SpatialImportResult
 
   if (format === 'fgdb') {
     throw new Error(
-      'File Geodatabase (.gdb) import needs server-side GDAL, which is not yet wired up. For now, open the .gdb in ArcGIS Pro or QGIS and export to Shapefile or GeoJSON, then upload that.',
+      'File Geodatabase (.gdb / .gdb.zip) is imported with server-side GDAL. Use Import features on a data layer (or the create-item Import step), which stages the archive and lets you pick a source layer. This helper only returns in-browser GeoJSON.',
     );
   }
 

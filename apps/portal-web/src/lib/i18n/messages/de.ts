@@ -2581,6 +2581,20 @@ export const de: Partial<CatalogShape> = {
       'Datei wird geparst und neben vorhandenen Zeilen in PostGIS eingefügt. Große Ebenen können einige Minuten dauern.',
     importingDesc:
       'Datei wird geparst und als Bulk in PostGIS eingefügt. Große Ebenen (Parzellen auf County-Ebene) können einige Minuten dauern.',
+    probingHeadline: 'Lesen auf dem Server',
+    probingDesc:
+      'GDAL öffnet das Archiv und listet Ebenen. Bei einer File Geodatabase in County-Größe kann das eine Minute dauern.',
+    probeNoLayers: 'Diese Datei enthält keine lesbaren Ebenen.',
+    importJobEnqueueDesc:
+      'Hintergrundimport aus dem vorbereiteten Archiv in diese Ebene wird eingereiht.',
+    importJobQueued:
+      'Import für {sourceLayer} ({mode}) eingereiht. Fortschritt erscheint im Import-Banner dieser Seite.',
+    importJobFailed: 'Import konnte nicht eingereiht werden ({status}).',
+    sourceLayerPickIntro:
+      '{fileName} hat {count} Ebenen ({driver}). Wählen Sie, welche Quellenebene in dieses Ziel importiert werden soll.',
+    sourceLayerLabel: 'Quellenebene',
+    sourceLayerConfirm: 'Ausgewählte Ebene importieren',
+    sourceLayerCancel: 'Abbrechen',
     uploadFailed: 'Upload fehlgeschlagen',
     syncConflictsTitle:
       '{count, plural, one {# Sync-Konflikt} other {# Sync-Konflikte}}',

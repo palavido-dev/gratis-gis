@@ -2572,6 +2572,20 @@ export const fr: Partial<CatalogShape> = {
       "Analyse du fichier et insertion dans PostGIS à côté des lignes existantes. Les grandes couches peuvent prendre quelques minutes.",
     importingDesc:
       "Analyse du fichier et insertion en masse dans PostGIS. Les grandes couches (parcelles à l'échelle d'un comté) peuvent prendre quelques minutes.",
+    probingHeadline: 'Lecture sur le serveur',
+    probingDesc:
+      "GDAL ouvre l'archive et liste les couches. Cela peut prendre une minute pour une File Geodatabase à l'échelle d'un comté.",
+    probeNoLayers: 'Ce fichier ne contient aucune couche lisible.',
+    importJobEnqueueDesc:
+      "Mise en file d'une import en arrière-plan depuis l'archive préparée vers cette couche.",
+    importJobQueued:
+      "Import mis en file pour {sourceLayer} ({mode}). La progression s'affiche dans la bannière d'import de cette page.",
+    importJobFailed: "Impossible de mettre l'import en file ({status}).",
+    sourceLayerPickIntro:
+      '{fileName} contient {count} couches ({driver}). Choisissez la couche source à importer dans cette cible.',
+    sourceLayerLabel: 'Couche source',
+    sourceLayerConfirm: 'Importer la couche sélectionnée',
+    sourceLayerCancel: 'Annuler',
     uploadFailed: "Échec de l'envoi",
     syncConflictsTitle:
       '{count, plural, one {# conflit de sync} other {# conflits de sync}}',

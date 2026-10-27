@@ -2669,6 +2669,20 @@ export const en = {
       'Parsing the file and inserting into PostGIS alongside existing rows. Large layers can take a few minutes.',
     importingDesc:
       'Parsing the file and bulk-inserting into PostGIS. Large layers (county-scale parcels) can take a few minutes.',
+    probingHeadline: 'Reading on the server',
+    probingDesc:
+      'GDAL is opening the archive and listing layers. This can take a minute for a county-scale File Geodatabase.',
+    probeNoLayers: 'That file has no readable layers.',
+    importJobEnqueueDesc:
+      'Queueing a background import from the staged archive into this layer.',
+    importJobQueued:
+      'Import queued for {sourceLayer} ({mode}). Progress shows in the import banner on this page.',
+    importJobFailed: 'Could not queue the import ({status}).',
+    sourceLayerPickIntro:
+      '{fileName} has {count} layers ({driver}). Pick which source layer to import into this target.',
+    sourceLayerLabel: 'Source layer',
+    sourceLayerConfirm: 'Import selected layer',
+    sourceLayerCancel: 'Cancel',
     uploadFailed: 'Upload failed',
     syncConflictsTitle:
       '{count, plural, one {# sync conflict} other {# sync conflicts}}',
