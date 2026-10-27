@@ -6,14 +6,22 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-i18n-analyze-guides | research-cycle-6 | Buffer/Clip Analyze chrome i18n (#162) | This PR |
+| Q-security-sentinel-ops | security-deep-dive-2026-10-27 | PLAYBOOK Security Sentinel + digest + research note | This PR |
+| R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | #373 CI |
+| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | #374 CI |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | Bound |
-| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | Docs |
+| SEC-otherSource-acl | security-deep-dive-2026-10-27 | ACL-check derived-layer pipeline otherSource | High |
+| SEC-expr-field-allowlist | security-deep-dive-2026-10-27 | Allowlist field names in expressions + ingest | High |
+| SEC-ingest-zip-budget | security-deep-dive-2026-10-27 | Zip expansion budget before /vsizip/ | Medium |
+| SEC-records-bbox-throttle | security-deep-dive-2026-10-27 | Records bbox scan cap + throttle | Medium |
+| SEC-trivy-workers | security-deep-dive-2026-10-27 | Trivy matrix for worker images | Medium |
+| SEC-jwt-aud | security-deep-dive-2026-10-27 | JWT audience allowlist | Medium |
+| SEC-jwt-deletedAt | security-deep-dive-2026-10-27 | JWT path honors soft-deleted users | Medium |
+| SEC-ws-frame-cap | security-deep-dive-2026-10-27 | Presence WS max frame size | Low |
 | R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
 | R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | Power-user |
 | R6-recipe-sink-honesty | research-cycle-6 | Recipe editor sinks: no coming soon lie | Honesty |
@@ -31,6 +39,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R6-i18n-analyze-guides | 2026-10-27 | Merged #372: Buffer/Clip Analyze chrome i18n (#162) |
 | R6-analyze-erase-shortcut | 2026-10-27 | Merged #371: Analyze Erase → PostGIS derived_layer |
 | R6-sync-conflict-dismiss | 2026-10-27 | Merged #370: Dismiss syncConflicts after review / re-apply |
 | Q-research-cycle-6 | 2026-10-27 | Merged #369: research-cycle-6 refill ship-without-input queue |

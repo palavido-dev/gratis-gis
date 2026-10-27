@@ -115,10 +115,13 @@ at `/cursor/stores/self/autonomy/`.
 ## Cadence
 
 - **Work cycle:** at least every six hours while this conversation is
-  alive. Research if the queue is thin; otherwise build the top
-  `ship-without-input` item to a merged PR (or a clear blocked note).
+  alive. Run the Security Sentinel checklist, then research if the
+  queue is thin; otherwise build the top `ship-without-input` item
+  (security hardenings outrank polish when severity is High/Medium)
+  to a merged PR (or a clear blocked note).
 - **Daily digest:** one short update to the maintainer around 08:00
-  America/Los_Angeles. Format in [DIGEST.md](./DIGEST.md).
+  America/Los_Angeles. Format in [DIGEST.md](./DIGEST.md). Include a
+  Security sentinel line even when the pass is clean.
 - **Prod:** cut a release tag and run `infra/deploy.sh` on the demo
   host only when the digest says so, or when main is clearly ahead of
   the live footer version and CI is green. Never deploy a dirty tree.
