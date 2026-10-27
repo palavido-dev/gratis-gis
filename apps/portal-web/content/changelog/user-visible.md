@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Cite a public item in BibTeX, RIS, or JSON-LD
+Open a public item's Metadata tab and download a citation for your bibliography. BibTeX, RIS, and Schema.org JSON-LD are available from the same Cite menu, and the same files are at the public API for scripts and harvesters.
+
 ## 2026-10-27 - Markup that draws, prints, and promotes
 Shared maps now take lines, polygons, text labels, arrows, and circles in addition to pins. Promote a markup set into a private data layer when the redline is ready to become real GIS data. Visible markup also lands on the printed PDF, so the sheet matches what reviewers saw on screen.
 

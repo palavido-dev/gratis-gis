@@ -11,6 +11,7 @@ import { t } from '@/lib/i18n';
 import { formatDateTime } from '@/lib/i18n/format';
 import { getServerLocale } from '@/lib/i18n/server';
 import type { SupportedLocale } from '@/lib/i18n/locales';
+import { CiteMenu } from './cite-menu';
 
 /**
  * The Metadata tab of the item detail page.
@@ -103,6 +104,7 @@ export async function ItemMetadataPanel({
   updatedAt,
   ownerLabel,
   data,
+  access,
 }: {
   itemId: string;
   itemType: ItemType;
@@ -114,6 +116,8 @@ export async function ItemMetadataPanel({
   ownerLabel: string;
   /** Raw item.data. Only read for data_layer provenance / identifiers. */
   data: unknown;
+  /** Item access level. Cite export is only offered for public items. */
+  access?: string;
 }) {
   const locale = await getServerLocale();
   const tr = (key: string, params?: Record<string, string | number>) =>
@@ -193,6 +197,14 @@ export async function ItemMetadataPanel({
       </div>
 
       <dl className="h-fit rounded-lg border border-border bg-surface-1 text-sm shadow-card">
+        {access === 'public' ? (
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
+              {tr('metadataPanel.citeHeading')}
+            </span>
+            <CiteMenu itemId={itemId} locale={locale} />
+          </div>
+        ) : null}
         <Row label={tr('metadataPanel.type')}>{getItemTypeLabel(itemType)}</Row>
         <Row label={tr('metadataPanel.owner')}>{ownerLabel}</Row>
         <Row label={tr('metadataPanel.created')}>

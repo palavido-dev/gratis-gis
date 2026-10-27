@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Citation export for public items: BibTeX, RIS, and Schema.org
+  Dataset JSON-LD at `/api/public/ogc/citation/{id}.{bib|ris|jsonld}`,
+  plus a Cite menu on the item Metadata tab (#116 follow-up).
 - Presence Phase 1.5: Nest WebSocket transport for live cursors with
   HTTP heartbeat fallback. Ticket mint over the BFF keeps session
   JWTs off the WS URL (#156).
