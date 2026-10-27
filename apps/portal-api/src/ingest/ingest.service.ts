@@ -31,6 +31,7 @@ import {
   localNominatimBase,
   nominatimAnswers,
 } from './nominatim-search.js';
+import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -182,6 +183,8 @@ export class IngestService {
           string,
           { name: string; type: 'string' | 'number' | 'boolean' | 'date' }
         >();
+        const usedFieldNames = new Set<string>();
+        const fieldRename = new Map<string, string>();
         const drivers = new Set<string>();
         // Capture the first layer's SRS as the "source" SRS. In
         // practice all layers in a single file share an SRS (it's a
@@ -206,8 +209,13 @@ export class IngestService {
           for (let f = 0; f < defCount; f += 1) {
             const def = defs.get(f);
             if (!fieldMap.has(def.name)) {
+              const safe = registerSafeFieldName(
+                def.name,
+                usedFieldNames,
+                fieldRename,
+              );
               fieldMap.set(def.name, {
-                name: def.name,
+                name: safe,
                 type: gdalTypeToSimple(def.type),
               });
             }
@@ -218,7 +226,10 @@ export class IngestService {
           layer.features.forEach((feature) => {
             const geomJson = featureGeomJson(feature, xform);
             if (!geomJson) return;
-            const props: Record<string, unknown> = feature.fields.toObject();
+            const props = remapPropsToSafeNames(
+              feature.fields.toObject() as Record<string, unknown>,
+              fieldRename,
+            );
             combined.push({
               type: 'Feature',
               geometry: geomJson,
@@ -415,10 +426,19 @@ export class IngestService {
             name: string;
             type: 'string' | 'number' | 'boolean' | 'date';
           }> = [];
+          const usedFieldNames = new Set<string>();
+          const fieldRename = new Map<string, string>();
           const defCount = layer.fields.count();
           for (let f = 0; f < defCount; f += 1) {
             const def = layer.fields.get(f);
-            fields.push({ name: def.name, type: gdalTypeToSimple(def.type) });
+            fields.push({
+              name: registerSafeFieldName(
+                def.name,
+                usedFieldNames,
+                fieldRename,
+              ),
+              type: gdalTypeToSimple(def.type),
+            });
           }
           // Geometry type detection. The declared geomType is
           // authoritative when it's a specific WKB type (Point,
@@ -568,10 +588,15 @@ export class IngestService {
           name: string;
           type: 'string' | 'number' | 'boolean' | 'date';
         }> = [];
+        const usedFieldNames = new Set<string>();
+        const fieldRename = new Map<string, string>();
         const defCount = layer.fields.count();
         for (let f = 0; f < defCount; f += 1) {
           const def = layer.fields.get(f);
-          fields.push({ name: def.name, type: gdalTypeToSimple(def.type) });
+          fields.push({
+            name: registerSafeFieldName(def.name, usedFieldNames, fieldRename),
+            type: gdalTypeToSimple(def.type),
+          });
         }
         const target4326 = gdal.SpatialReference.fromEPSG(4326);
         const xform = buildTransform(gdal, layer.srs, target4326);
@@ -579,7 +604,10 @@ export class IngestService {
         layer.features.forEach((feature) => {
           const geomJson = featureGeomJson(feature, xform);
           if (!geomJson) return;
-          const props: Record<string, unknown> = feature.fields.toObject();
+          const props = remapPropsToSafeNames(
+            feature.fields.toObject() as Record<string, unknown>,
+            fieldRename,
+          );
           features.push({
             type: 'Feature',
             geometry: geomJson,
@@ -762,10 +790,15 @@ export class IngestService {
         name: string;
         type: 'string' | 'number' | 'boolean' | 'date';
       }> = [];
+      const usedFieldNames = new Set<string>();
+      const fieldRename = new Map<string, string>();
       const defCount = layer.fields.count();
       for (let f = 0; f < defCount; f += 1) {
         const def = layer.fields.get(f);
-        fields.push({ name: def.name, type: gdalTypeToSimple(def.type) });
+        fields.push({
+          name: registerSafeFieldName(def.name, usedFieldNames, fieldRename),
+          type: gdalTypeToSimple(def.type),
+        });
       }
       const target4326 = gdal.SpatialReference.fromEPSG(4326);
       const xform = buildTransform(gdal, layer.srs, target4326);
@@ -799,7 +832,10 @@ export class IngestService {
         // we still emit the row.
         const skip = !isTable && !geomJson;
         if (!skip) {
-          const props: Record<string, unknown> = feature.fields.toObject();
+          const props = remapPropsToSafeNames(
+            feature.fields.toObject() as Record<string, unknown>,
+            fieldRename,
+          );
           batch.push({
             geometry: isTable ? null : geomJson,
             properties: props,
@@ -1675,6 +1711,34 @@ function buildTransform(
   } catch {
     return null;
   }
+}
+
+/**
+ * Remap GDAL feature property keys onto allowlisted identifiers
+ * (SEC-expr-field-allowlist). Shapefile / GPKG names are usually
+ * already safe; this catches the rare apostrophe / space case and
+ * keeps schema `name` aligned with property keys.
+ */
+function remapPropsToSafeNames(
+  raw: Record<string, unknown>,
+  rename: Map<string, string>,
+): Record<string, unknown> {
+  if (rename.size === 0) return raw;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[rename.get(k) ?? k] = v;
+  }
+  return out;
+}
+
+function registerSafeFieldName(
+  rawName: string,
+  used: Set<string>,
+  rename: Map<string, string>,
+): string {
+  const safe = toSqlSafeFieldName(rawName, used);
+  if (safe !== rawName) rename.set(rawName, safe);
+  return safe;
 }
 
 /**

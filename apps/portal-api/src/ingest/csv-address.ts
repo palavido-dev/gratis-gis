@@ -6,6 +6,7 @@
  * the choice of which rows to send is unit-testable with no network.
  */
 
+import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import {
   detectCsvColumnPair,
   readDelimitedSample,
@@ -217,7 +218,9 @@ function inferFields(
   header: string[],
   rows: string[][],
 ): Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }> {
-  return header.map((name, idx) => {
+  const used = new Set<string>();
+  return header.map((raw, idx) => {
+    const name = toSqlSafeFieldName(raw, used);
     let allNumber = true;
     let allBool = true;
     let nonEmpty = 0;

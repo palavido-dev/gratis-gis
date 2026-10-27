@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   evaluateExpression,
+  ExpressionError,
   fieldRefTypeFor,
+  isSqlSafeFieldName,
   parseExpression,
+  toSqlSafeFieldName,
   validateExpression,
   type FieldRef,
 } from './expression.js';
@@ -83,6 +86,35 @@ describe('validateExpression: text arithmetic', () => {
   it('leaves unknown-typed fields unchecked, as before', () => {
     const loose: FieldRef[] = [{ name: 'x', type: 'unknown' }];
     expect(validateExpression(parseExpression('{{x}} + 1'), loose)).toEqual([]);
+  });
+});
+
+describe('SQL-safe field names (SEC-expr-field-allowlist)', () => {
+  it('accepts identifier-shaped names and rejects the rest', () => {
+    expect(isSqlSafeFieldName('acres')).toBe(true);
+    expect(isSqlSafeFieldName('Owner_Name')).toBe(true);
+    expect(isSqlSafeFieldName('Owner Name')).toBe(false);
+    expect(isSqlSafeFieldName("Owner's")).toBe(false);
+    expect(isSqlSafeFieldName('bad\\slash')).toBe(false);
+    expect(isSqlSafeFieldName('__proto__')).toBe(false);
+    expect(isSqlSafeFieldName('')).toBe(false);
+  });
+
+  it('slugifies CSV headers into allowlisted identifiers with collision suffixes', () => {
+    const used = new Set<string>();
+    expect(toSqlSafeFieldName('Owner Name', used)).toBe('Owner_Name');
+    expect(toSqlSafeFieldName('Owner Name', used)).toBe('Owner_Name_2');
+    expect(toSqlSafeFieldName('acres', used)).toBe('acres');
+  });
+
+  it('refuses non-allowlisted {{field}} refs at parse time', () => {
+    expect(() => parseExpression("{{Owner Name}} == 'x'")).toThrow(
+      ExpressionError,
+    );
+    expect(() => parseExpression("{{Owner's}} == 'x'")).toThrow(
+      ExpressionError,
+    );
+    expect(() => parseExpression("{{acres}} > 1")).not.toThrow();
   });
 });
 

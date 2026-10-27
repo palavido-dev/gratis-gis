@@ -6,6 +6,8 @@ import {
   parseExpression,
   validateExpression,
   ExpressionError,
+  isSqlSafeFieldName,
+  SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolValidateContext } from './types.js';
@@ -33,9 +35,15 @@ function columnForField(
   fieldName: string,
   schema: FeatureField[],
 ): string {
+  // Allowlist gate (SEC-expr-field-allowlist). Parser already
+  // enforces this; refuse to emit SQL if a bad name slips through.
+  if (!isSqlSafeFieldName(fieldName)) {
+    throw new BadRequestException(
+      `calculate-field expression field "${fieldName}" must match ${SQL_SAFE_FIELD_NAME_RE}`,
+    );
+  }
   const ref = schema.find((f) => f.name === fieldName);
-  const safe = fieldName.replace(/'/g, "''");
-  const raw = `(properties->>'${safe}')`;
+  const raw = `(properties->>'${fieldName}')`;
   switch (ref?.type) {
     case 'number':
       return `NULLIF(${raw}, '')::double precision`;

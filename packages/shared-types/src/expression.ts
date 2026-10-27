@@ -132,6 +132,77 @@ export class ExpressionError extends Error {
   }
 }
 
+/**
+ * Field identifiers that are safe to embed as SQL string literals
+ * (`properties->>'name'`) without relying on quote-doubling alone.
+ * Matches the regex already used for calculate-field output names,
+ * contour fields, aggregate groupBy, and parentFk filters.
+ *
+ * Expression `{{refs}}`, ingest schema keys, and SQL emitters must
+ * all agree on this allowlist (SEC-expr-field-allowlist).
+ */
+export const SQL_SAFE_FIELD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Cap shared with Postgres identifier practicality and UI limits. */
+export const MAX_SQL_SAFE_FIELD_NAME_LENGTH = 63;
+
+const RESERVED_SQL_SAFE_FIELD_NAMES = new Set([
+  '__proto__',
+  'constructor',
+  'prototype',
+]);
+
+/** True when `name` may be embedded in SQL / used as a schema key. */
+export function isSqlSafeFieldName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= MAX_SQL_SAFE_FIELD_NAME_LENGTH &&
+    SQL_SAFE_FIELD_NAME_RE.test(name) &&
+    !RESERVED_SQL_SAFE_FIELD_NAMES.has(name.toLowerCase())
+  );
+}
+
+/**
+ * Map an arbitrary CSV / GDAL header to an allowlisted identifier.
+ * Identity-preserving when already safe. Collision-aware when the
+ * caller passes a `used` set (mutated). Original display text belongs
+ * on FeatureField.label, not on `name`.
+ */
+export function toSqlSafeFieldName(raw: string, used?: Set<string>): string {
+  const trimmed = raw.trim();
+  let base: string;
+  if (isSqlSafeFieldName(trimmed)) {
+    base = trimmed;
+  } else {
+    base = trimmed
+      .replace(/[^A-Za-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!base || /^[0-9]/.test(base)) {
+      base = `f_${base || 'field'}`;
+    }
+    if (base.length > MAX_SQL_SAFE_FIELD_NAME_LENGTH) {
+      base = base.slice(0, MAX_SQL_SAFE_FIELD_NAME_LENGTH);
+    }
+    if (!isSqlSafeFieldName(base)) {
+      base = 'field';
+    }
+  }
+  if (RESERVED_SQL_SAFE_FIELD_NAMES.has(base.toLowerCase())) {
+    base = `f_${base}`;
+  }
+  if (!used) return base;
+  let candidate = base;
+  let n = 2;
+  while (used.has(candidate)) {
+    const suffix = `_${n}`;
+    candidate =
+      base.slice(0, MAX_SQL_SAFE_FIELD_NAME_LENGTH - suffix.length) + suffix;
+    n += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 // ---- Tokenizer ---------------------------------------------------
 
 type TokenKind =
@@ -197,6 +268,12 @@ function tokenize(src: string): Token[] {
       const name = src.slice(nameStart, i).trim();
       if (name.length === 0) {
         throw new ExpressionError('Empty field reference {{}}', start);
+      }
+      if (!isSqlSafeFieldName(name)) {
+        throw new ExpressionError(
+          `Field reference {{${name}}} must match ${SQL_SAFE_FIELD_NAME_RE} (letters, digits, underscore; max ${MAX_SQL_SAFE_FIELD_NAME_LENGTH} characters)`,
+          start,
+        );
       }
       out.push({ kind: 'field', text: name, value: name, pos: start });
       i += 2;

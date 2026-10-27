@@ -6,7 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
 | R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | This PR |
+=======
+| SEC-expr-field-allowlist | security-deep-dive-2026-10-27 | Allowlist field names in expressions + ingest | This PR |
+| R6-i18n-field-status-chrome | research-cycle-6 | Field PWA status sheet i18n (#162) | #373 CI |
+>>>>>>> fd38dcf7 (fix(security): allowlist expression and ingest field names)
 | R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | #374 CI |
 | SEC-expr-field-allowlist | security-deep-dive-2026-10-27 | Allowlist field names in expressions + ingest | #377 CI |
 

@@ -8,6 +8,8 @@ import {
   ExpressionError,
   collectFieldRefs,
   fieldRefTypeFor,
+  isSqlSafeFieldName,
+  SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolValidateContext } from './types.js';
@@ -35,15 +37,16 @@ function columnForField(
   fieldName: string,
   schema: FeatureField[],
 ): string {
+  // Allowlist gate (SEC-expr-field-allowlist). The expression
+  // tokenizer already rejects non-matching refs; this assert keeps
+  // the SQL emitter from ever falling back to quote-doubling alone.
+  if (!isSqlSafeFieldName(fieldName)) {
+    throw new BadRequestException(
+      `filter field "${fieldName}" must match ${SQL_SAFE_FIELD_NAME_RE}`,
+    );
+  }
   const ref = schema.find((f) => f.name === fieldName);
-  // Escape the field name as a SQL literal: properties->>'name'
-  // Single quotes are not allowed inside field names by the
-  // calculate-geometry validator (alpha-num + underscore only), and
-  // the filter generator inherits that same constraint via the
-  // shared validator below.  Belt-and-suspenders: replace any stray
-  // apostrophe so the emitted SQL stays well-formed regardless.
-  const safe = fieldName.replace(/'/g, "''");
-  const raw = `(properties->>'${safe}')`;
+  const raw = `(properties->>'${fieldName}')`;
   switch (ref?.type) {
     case 'number':
       // NULLIF guards against empty-string-to-double cast errors.
