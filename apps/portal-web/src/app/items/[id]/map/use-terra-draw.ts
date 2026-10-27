@@ -226,7 +226,9 @@ export function useTerraDraw(
           new td.TerraDrawPolygonMode(
             snapInit ? { snapping: snapInit } : undefined,
           ),
-          new td.TerraDrawCircleMode(),
+          // 32 segments matches shared-types DrawingFeature docs
+          // (circle materialised as a polygon on finish).
+          new td.TerraDrawCircleMode({ segments: 32 }),
           new td.TerraDrawSelectMode({ flags: selectFlags(snapping) }),
         ],
       });
