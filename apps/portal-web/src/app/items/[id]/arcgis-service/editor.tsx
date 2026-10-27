@@ -23,6 +23,7 @@ import {
 } from '@/lib/arcgis-rest';
 import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   itemId: string;
@@ -54,6 +55,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
   const [, startTransition] = useTransition();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -270,7 +272,9 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         body: JSON.stringify({ data: staged }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(
+          `${t('serviceEditors.saveFailed')} ${res.status} ${await res.text()}`,
+        );
         return;
       }
       setData(staged);
@@ -286,7 +290,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
   return (
     <div id="configure-arcgis" className="space-y-5">
       <div className="rounded-lg border border-border bg-surface-1 p-4">
-        <h3 className="mb-1 text-sm font-semibold">Service endpoint</h3>
+        <h3 className="mb-1 text-sm font-semibold">{t('serviceEditors.serviceEndpoint')}</h3>
         <p className="mb-3 text-xs text-muted">
           Paste the service root (<code>.../MapServer</code> or{' '}
           <code>.../FeatureServer</code>) or a specific layer URL. The
@@ -318,7 +322,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
             ) : (
               <Search className="h-3.5 w-3.5" />
             )}
-            Probe
+            {t('serviceEditors.probe')}
           </button>
         </div>
         {data.url && !probeResult ? (
@@ -330,14 +334,14 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
               rel="noreferrer"
               className="underline hover:text-ink-1"
             >
-              Open the service page
+              {t('serviceEditors.openServicePage')}
             </a>
             <span className="mx-1">•</span>
             {data.serviceType}
             {data.probedAt ? (
               <>
                 <span className="mx-1">•</span>
-                last probed {formatDate(data.probedAt)}
+                {t('serviceEditors.lastProbed', { when: formatDate(data.probedAt) })}
               </>
             ) : null}
           </p>
@@ -380,16 +384,16 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold">
-                Layers
+                {t('serviceEditors.layersHeading')}
                 <span className="ml-1.5 text-xs font-normal text-muted">
-                  ({effectiveSelected.size} of {staged.layers.length}{' '}
-                  selected)
+                  ({t('serviceEditors.selectedCount', {
+                    selected: effectiveSelected.size,
+                    total: staged.layers.length,
+                  })})
                 </span>
               </h3>
               <p className="text-xs text-muted">
-                Check which layers this item exposes. Unchecked layers
-                stay in the upstream service but won&apos;t appear when
-                maps consume this item. Star the default layer.
+                {t('serviceEditors.layersHint')}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -400,22 +404,22 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                     onClick={selectAll}
                     className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
-                    All
+                    {t('serviceEditors.selectAllShort')}
                   </button>
                   <button
                     type="button"
                     onClick={selectNone}
                     className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
-                    None
+                    {t('serviceEditors.selectNoneShort')}
                   </button>
                   <button
                     type="button"
                     onClick={selectSpatial}
-                    title="Only layers with geometry"
+                    title={t('serviceEditors.spatialOnlyTitle')}
                     className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
-                    Spatial only
+                    {t('serviceEditors.spatialOnly')}
                   </button>
                 </>
               ) : null}
@@ -424,10 +428,10 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                   type="button"
                   onClick={() => setProbeResult(null)}
                   className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2"
-                  title="Discard probe result"
+                  title={t('serviceEditors.discardProbeTitle')}
                 >
                   <RefreshCw className="h-3 w-3" />
-                  Discard probe
+                  {t('serviceEditors.discardProbe')}
                 </button>
               ) : null}
             </div>
@@ -520,7 +524,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         <div className="flex items-center justify-end gap-2">
           {saved ? (
             <span className="inline-flex items-center gap-1 text-xs text-success">
-              <Check className="h-3.5 w-3.5" /> Saved
+              <Check className="h-3.5 w-3.5" /> {t('serviceEditors.saved')}
             </span>
           ) : null}
           <button
@@ -534,7 +538,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            Save
+            {saving ? t('serviceEditors.saving') : t('serviceEditors.save')}
           </button>
         </div>
       ) : null}

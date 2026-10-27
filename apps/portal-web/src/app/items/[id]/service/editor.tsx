@@ -3,6 +3,7 @@
 
 import { formatDate } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useT } from '@/lib/i18n/locale-context';
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -58,6 +59,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
   const [, startTransition] = useTransition();
 
   // Selection by name (rather than by index) so re-probe preserves
@@ -169,7 +171,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       startTransition(() => router.refresh());
       setTimeout(() => setSaved(false), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.');
+      setError(err instanceof Error ? err.message : t('serviceEditors.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -184,7 +186,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       {/* Connection card. */}
       <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-medium text-ink-0">Connection</h2>
+          <h2 className="text-sm font-medium text-ink-0">{t('serviceEditors.connection')}</h2>
           <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
             {protocolPrettyLabel}
           </span>
@@ -196,7 +198,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               {' · '}
             </>
           ) : null}
-          probed {staged.probedAt ? formatRelative(staged.probedAt) : 'not yet'}
+          {t('serviceEditors.probedPrefix', { when: staged.probedAt ? formatRelative(staged.probedAt) : t('serviceEditors.probedNotYet') })}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -215,8 +217,8 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               className="inline-flex h-9 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 hover:bg-surface-2"
               title={
                 staged.protocol.startsWith('arcgis_')
-                  ? 'Open service root JSON in a new tab'
-                  : 'Open GetCapabilities in a new tab'
+                  ? t('serviceEditors.openServiceRootTitle')
+                  : t('serviceEditors.openGetCapabilitiesTitle')
               }
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -234,7 +236,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               ) : (
                 <RefreshCw className="h-3.5 w-3.5" />
               )}
-              {probing ? 'Probing...' : 'Re-probe'}
+              {probing ? t('serviceEditors.probing') : t('serviceEditors.reProbe')}
             </button>
           ) : null}
         </div>
@@ -275,7 +277,10 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
           </h2>
           <div className="flex items-center gap-2 text-xs text-muted">
             <span>
-              {selectedNames.size} of {staged.layers.length} selected
+              {t('serviceEditors.selectedCount', {
+                selected: selectedNames.size,
+                total: staged.layers.length,
+              })}
             </span>
             {canEdit ? (
               <>
@@ -286,14 +291,14 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
                   }
                   className="h-7 rounded border border-border bg-surface-1 px-2 hover:bg-surface-2"
                 >
-                  Select all
+                  {t('serviceEditors.selectAll')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedNames(new Set())}
                   className="h-7 rounded border border-border bg-surface-1 px-2 hover:bg-surface-2"
                 >
-                  Clear
+                  {t('serviceEditors.clear')}
                 </button>
               </>
             ) : null}
@@ -301,8 +306,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
         </div>
         {staged.layers.length === 0 ? (
           <p className="text-xs text-muted">
-            No {layerWord}s captured yet. Re-probe to load the list from the
-            server.
+            {t('serviceEditors.noLayersYet', { layerWord })}
           </p>
         ) : (
           <ul className="max-h-96 overflow-y-auto rounded border border-border bg-surface-2 text-xs">
@@ -358,7 +362,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       {/* Save / discard footer. */}
       {canEdit && hasChanges ? (
         <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm shadow-card">
-          <span className="text-ink-1">Unsaved changes.</span>
+          <span className="text-ink-1">{t('serviceEditors.unsavedChanges')}</span>
           <div className="flex gap-2">
             <button
               type="button"
@@ -366,7 +370,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               disabled={saving}
               className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
-              Discard
+              {t('serviceEditors.discard')}
             </button>
             <button
               type="button"
@@ -381,7 +385,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
+              {saving ? t('serviceEditors.saving') : saved ? t('serviceEditors.saved') : t('serviceEditors.save')}
             </button>
           </div>
         </div>
