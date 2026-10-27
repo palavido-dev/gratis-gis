@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
@@ -279,9 +286,14 @@ describe('extractZipToDir', () => {
     await writeZip([{ name: '0/0/0.png', data: 'tile' }], {
       zip64EntryCount: MAX_ZIP_ENTRIES + 1,
     });
-    await expect(assertZipExpansionBudget(zipPath, workRoot)).rejects.toThrow(
-      /entry ceiling/,
-    );
+    const fh = await open(zipPath, 'r');
+    try {
+      await expect(assertZipExpansionBudget(fh)).rejects.toThrow(
+        /entry ceiling/,
+      );
+    } finally {
+      await fh.close();
+    }
   });
 
   it('assertZipExpansionBudget refuses declared expansion past the byte ceiling', async () => {
@@ -297,20 +309,13 @@ describe('extractZipToDir', () => {
         uncompressedSizeOverride: MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1,
       },
     ]);
-    await expect(assertZipExpansionBudget(zipPath, workRoot)).rejects.toThrow(
-      /extraction ceiling/,
-    );
-  });
-
-  it('assertZipExpansionBudget refuses a path outside the allowed root', async () => {
-    await writeZip([{ name: 'ok.bin', data: 'x' }]);
-    const other = await mkdtemp(join(tmpdir(), 'gg-zip-other-'));
+    const fh = await open(zipPath, 'r');
     try {
-      await expect(assertZipExpansionBudget(zipPath, other)).rejects.toThrow(
-        /outside allowed root/,
+      await expect(assertZipExpansionBudget(fh)).rejects.toThrow(
+        /extraction ceiling/,
       );
     } finally {
-      await rm(other, { recursive: true, force: true });
+      await fh.close();
     }
   });
 

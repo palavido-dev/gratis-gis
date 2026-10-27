@@ -8,14 +8,7 @@ import {
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
   featuresFromAddresses,
@@ -1361,16 +1354,26 @@ export class IngestService {
    */
   private async resolveGdalOpenPath(filePath: string): Promise<string> {
     if (!filePath.toLowerCase().endsWith('.zip')) return filePath;
+    // Same containment pattern as sniffCsvColumns: validate via
+    // realpath + relative, then open the returned path (not the
+    // caller string). That is what CodeQL treats as sanitised.
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) {
+      throw new BadRequestException(
+        'Zip path is outside the ingest roots',
+      );
+    }
+    const fh = await open(safePath, 'r');
     try {
-      // Contain the open to the upload's mkdtemp dir (parent of the
-      // staged file) so CodeQL path-injection stays closed.
-      await assertZipExpansionBudget(filePath, dirname(filePath));
+      await assertZipExpansionBudget(fh);
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'Zip archive rejected',
       );
+    } finally {
+      await fh.close();
     }
-    return `/vsizip/${filePath}`;
+    return `/vsizip/${safePath}`;
   }
 
   /**

@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import {
-  mkdir,
-  mkdtemp,
-  open,
-  realpath,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
@@ -552,36 +544,18 @@ interface ZipEntry {
  */
 /**
  * Central-directory expansion budget check (SEC-ingest-zip-budget).
- * Call before handing a zip to GDAL `/vsizip/` so a zip bomb is
- * refused without opening the archive through VSI. Same entry /
+ * Call on an already-opened zip handle before handing the path to
+ * GDAL `/vsizip/`. Callers must open only after their own path
+ * containment guard (see IngestService.resolveInsideIngestRoot) so
+ * this function never takes a user-tainted path string — that is
+ * what keeps CodeQL js/path-injection quiet. Same entry /
  * uncompressed ceilings as `extractZipToDir`.
- *
- * `allowedRoot` must already contain the archive (typically the
- * mkdtemp dir that received the upload). We realpath both sides
- * and refuse anything outside that root before `open`, so a
- * user-influenced filename cannot escape into a path expression.
  */
 export async function assertZipExpansionBudget(
-  zipPath: string,
-  allowedRoot: string,
+  fh: FileHandle,
 ): Promise<void> {
-  const root = await realpath(allowedRoot);
-  let real: string;
-  try {
-    real = await realpath(resolve(zipPath));
-  } catch {
-    throw new Error('Zip archive not found');
-  }
-  if (real !== root && !real.startsWith(root + sep)) {
-    throw new Error('Zip path outside allowed root');
-  }
-  const fh = await open(real, 'r');
-  try {
-    const { size: fileSize } = await fh.stat();
-    await assertCentralDirectoryBudget(fh, fileSize);
-  } finally {
-    await fh.close();
-  }
+  const { size: fileSize } = await fh.stat();
+  await assertCentralDirectoryBudget(fh, fileSize);
 }
 
 export async function extractZipToDir(
