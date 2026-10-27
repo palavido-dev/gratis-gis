@@ -9,10 +9,16 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+<<<<<<< HEAD
 - Bounded i18n chrome sweep (#162): route error boundary, form
   submission receipts, and the 3D terrain loading chip now use the
   locale catalogs (en / es / fr / de / pt-BR). Weblate hosting stays
   needs-maintainer.
+=======
+- Form designer up/down controls on each question row so authors can
+  reorder on touch devices where HTML5 drag-and-drop does not work
+  (desktop grip handle unchanged).
+>>>>>>> f61731a7 (feat(forms): up/down reorder on form designer for touch)
 - Citation export for public items: BibTeX, RIS, and Schema.org
   Dataset JSON-LD at `/api/public/ogc/citation/{id}.{bib|ris|jsonld}`,
   plus a Cite menu on the item Metadata tab (#116 follow-up).

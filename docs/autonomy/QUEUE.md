@@ -6,13 +6,21 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
 | R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | Branch `cursor/i18n-chrome-sweep-2838`; no Weblate |
+=======
+| R2-form-touch-reorder | research-cycle-2 | Form designer up/down on touch | Branch `cursor/form-touch-reorder-2838` |
+| R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | PR #346; no Weblate |
+>>>>>>> f61731a7 (feat(forms): up/down reorder on form designer for touch)
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
 | R2-form-touch-reorder | research-cycle-2 | Form designer up/down on touch | |
+=======
+>>>>>>> f61731a7 (feat(forms): up/down reorder on form designer for touch)
 | R2-i18n-tile-layer-errors | issue #162 follow-up | Tile-layer editor error/progress strings | Split from chrome sweep |
 
 ## queued (needs-maintainer)

@@ -32,7 +32,10 @@ designed report and it does not include a map image.
 - **Question palette** (left). The catalog of question types you
  can drop into the form. Drag onto the canvas.
 - **Canvas** (center). The visual layout. Drag questions to
- reorder; click to select; right-click for delete / duplicate.
+ reorder on a desktop, or use the up/down arrows on each row
+ (needed on phones and tablets where drag-reorder does not
+ work). Click a question to select it; use the trash control to
+ delete.
 - **Question editor** (right). Per-question settings: label,
  backing field, validation, default, conditional visibility,
  hint text.

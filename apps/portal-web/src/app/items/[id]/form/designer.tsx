@@ -7,6 +7,8 @@ import { useT } from '@/lib/i18n/locale-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   Calculator,
   Calendar,
@@ -132,7 +134,8 @@ interface Props {
  * Drag-drop: HTML5 native (no extra deps). Drop targets stop event
  * propagation so a drop on a row doesn't double-fire on the parent
  * container. Tap-to-add is preserved for touch devices where DnD is
- * unreliable.
+ * unreliable. Each row also has up/down buttons for same-container
+ * reorder on touch (HTML5 DnD does not work on iOS Safari).
  *
  * Layer import: a "Start from a data layer" entry point on the
  * empty canvas (and a button always available in the form-level
@@ -1860,6 +1863,7 @@ function QuestionList({
               <QuestionRow
                 q={row[0]!}
                 index={firstIdx}
+                siblingCount={list.length}
                 containerId={containerId}
                 {...cb}
               />
@@ -1875,6 +1879,7 @@ function QuestionList({
                       <QuestionRow
                         q={q}
                         index={idx}
+                        siblingCount={list.length}
                         containerId={containerId}
                         {...cb}
                       />
@@ -1941,6 +1946,7 @@ function DropSlot({
 function QuestionRow({
   q,
   index,
+  siblingCount,
   containerId,
   selectedId,
   canEdit,
@@ -1954,10 +1960,13 @@ function QuestionRow({
 }: {
   q: Question;
   index: number;
+  siblingCount: number;
   containerId: QuestionId | null;
 } & CanvasCallbacks) {
   const t = useT();
   const [overTop, setOverTop] = useState(false);
+  const canMoveUp = index > 0;
+  const canMoveDown = index < siblingCount - 1;
 
   // Drop onto a question card. For "real" questions (anything that
   // accepts a value), the gesture means "share a row with this one":
@@ -2063,17 +2072,53 @@ function QuestionRow({
             ) : null}
           </div>
           {canEdit ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove(q.id);
-              }}
-              className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-              aria-label={t('formDesigner.canvas.removeQuestionAria')}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                disabled={!canMoveUp}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!canMoveUp) return;
+                  // Insert before the previous sibling.
+                  onMove(q.id, { containerId, index: index - 1 });
+                }}
+                className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-0 disabled:opacity-30"
+                aria-label={t('formDesigner.canvas.moveUpAria')}
+                title={t('formDesigner.canvas.moveUpTitle')}
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!canMoveDown}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!canMoveDown) return;
+                  // moveInTree detaches first, then adjusts the
+                  // insert index when the source sat before the
+                  // target in the same container. Passing index+2
+                  // lands the question one slot later (see
+                  // moveInTree index math).
+                  onMove(q.id, { containerId, index: index + 2 });
+                }}
+                className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-0 disabled:opacity-30"
+                aria-label={t('formDesigner.canvas.moveDownAria')}
+                title={t('formDesigner.canvas.moveDownTitle')}
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(q.id);
+                }}
+                className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                aria-label={t('formDesigner.canvas.removeQuestionAria')}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ) : null}
         </div>
 

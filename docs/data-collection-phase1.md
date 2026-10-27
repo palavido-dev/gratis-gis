@@ -76,9 +76,9 @@ vs-Field-Maps split.
   is already in place; the missing piece is the SW pre-cache and a
   manifest that lists the form-runtime route as a startable scope.
 - Drag-drop on touch devices. HTML5 native DnD is desktop-only on
-  iOS Safari; tap-to-add works there but reorder-by-grip doesn't.
-  Phase 1b adds a touch fallback (long-press + drag, or up/down
-  arrows on each row).
+  iOS Safari; tap-to-add works there. Up/down arrows on each canvas
+  row cover same-container reorder on touch; long-press + drag is
+  still optional polish.
 - Conditional logic builder Phase 2: today the designer's logic
   panel only writes a single `eq` between a ref and a literal. The
   Expression DSL supports the fuller shape (and / or / not / between

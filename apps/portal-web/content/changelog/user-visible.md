@@ -12,8 +12,13 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+<<<<<<< HEAD
 ## 2026-10-27 - More of the chrome follows your language
 Error screens, form submission receipts, and the "3D ground ready" chip on maps now follow the language you pick in the user menu (Spanish, French, German, or Brazilian Portuguese), alongside the chrome that already translated.
+=======
+## 2026-10-27 - Reorder form questions on a phone
+The form designer now has up and down arrows on every question row, so you can reorder on a phone or tablet where drag-and-drop does not work. Desktop still has the grip handle for drag reorder.
+>>>>>>> f61731a7 (feat(forms): up/down reorder on form designer for touch)
 
 ## 2026-10-27 - Cite a public item in BibTeX, RIS, or JSON-LD
 Open a public item's Metadata tab and download a citation for your bibliography. BibTeX, RIS, and Schema.org JSON-LD are available from the same Cite menu, and the same files are at the public API for scripts and harvesters.
