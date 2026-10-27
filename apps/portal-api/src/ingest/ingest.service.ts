@@ -32,6 +32,7 @@ import {
   nominatimAnswers,
 } from './nominatim-search.js';
 import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
+import { assertZipExpansionBudget } from '../tile-layer/tile-conversion.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -160,9 +161,7 @@ export class IngestService {
     const dirPath = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
     const filePath = join(dirPath, safeFilename(originalName));
     await writeFile(filePath, buffer);
-    const openPath = filePath.toLowerCase().endsWith('.zip')
-      ? `/vsizip/${filePath}`
-      : filePath;
+    const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, originalName, buffer);
 
     try {
@@ -364,9 +363,7 @@ export class IngestService {
       };
     }
     const gdal = await this.loadGdal();
-    const openPath = filePath.toLowerCase().endsWith('.zip')
-      ? `/vsizip/${filePath}`
-      : filePath;
+    const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = await this.openVector(gdal, openPath, filePath);
@@ -546,9 +543,7 @@ export class IngestService {
       }
     }
     const gdal = await this.loadGdal();
-    const openPath = filePath.toLowerCase().endsWith('.zip')
-      ? `/vsizip/${filePath}`
-      : filePath;
+    const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = gdal.open(openPath);
@@ -751,9 +746,7 @@ export class IngestService {
       }
     }
     const gdal = await this.loadGdal();
-    const openPath = filePath.toLowerCase().endsWith('.zip')
-      ? `/vsizip/${filePath}`
-      : filePath;
+    const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, basename(filePath));
     const ds = await this.openVector(gdal, openPath, filePath);
     try {
@@ -1352,6 +1345,23 @@ export class IngestService {
         'Server-side ingest is unavailable because GDAL is not installed. Install the gdal-async native binding or use the client-side upload flow for supported formats.',
       );
     }
+  }
+
+  /**
+   * Point GDAL at a local file, or at `/vsizip/` for zip uploads.
+   * SEC-ingest-zip-budget: refuse zip bombs via the shared central-
+   * directory ceiling before VSI walks members.
+   */
+  private async resolveGdalOpenPath(filePath: string): Promise<string> {
+    if (!filePath.toLowerCase().endsWith('.zip')) return filePath;
+    try {
+      await assertZipExpansionBudget(filePath);
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'Zip archive rejected',
+      );
+    }
+    return `/vsizip/${filePath}`;
   }
 
   /**

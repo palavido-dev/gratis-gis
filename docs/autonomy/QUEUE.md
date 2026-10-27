@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-print-markup-kinds-help | research-cycle-6 | Print help lists text/arrow/circle | This PR |
+| SEC-ingest-zip-budget | security-deep-dive-2026-10-27 | Zip expansion budget before /vsizip/ | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-ingest-zip-budget | security-deep-dive-2026-10-27 | Zip expansion budget before /vsizip/ | Medium |
 | SEC-records-bbox-throttle | security-deep-dive-2026-10-27 | Records bbox scan cap + throttle | Medium |
 | SEC-trivy-workers | security-deep-dive-2026-10-27 | Trivy matrix for worker images | Medium |
 | SEC-jwt-aud | security-deep-dive-2026-10-27 | JWT audience allowlist | Medium |
@@ -35,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R6-print-markup-kinds-help | 2026-10-27 | Merged #374: print help lists text/arrow/circle |
 | SEC-expr-field-allowlist | 2026-10-27 | Merged #377: allowlist expression + ingest field names |
 | R6-i18n-field-status-chrome | 2026-10-27 | Merged #373: field PWA Add-feature and status chrome i18n |
 | SEC-otherSource-acl | 2026-10-27 | Merged #376: ACL-check derived-layer pipeline otherSource |

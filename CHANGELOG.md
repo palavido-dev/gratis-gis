@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Ingest refuses zip archives whose central directory declares
+  more than 100k entries or more than 10 GiB uncompressed before
+  GDAL opens them via `/vsizip/` (same ceilings as tile zip
+  extract; SEC-ingest-zip-budget).
 - Expression `{{field}}` refs and ingest schema keys must match
   `[A-Za-z_][A-Za-z0-9_]*` (max 63). Filter / calculate-field SQL
   emitters refuse non-allowlisted names instead of quote-doubling

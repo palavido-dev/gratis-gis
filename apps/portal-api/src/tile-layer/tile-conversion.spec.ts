@@ -7,6 +7,8 @@ import { crc32, deflateRawSync } from 'node:zlib';
 
 import {
   MAX_ZIP_ENTRIES,
+  MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES,
+  assertZipExpansionBudget,
   extractZipToDir,
 } from './tile-conversion.js';
 
@@ -270,6 +272,33 @@ describe('extractZipToDir', () => {
     });
     await expect(extractZipToDir(zipPath, destDir)).rejects.toThrow(
       /entry ceiling/,
+    );
+  });
+
+  it('assertZipExpansionBudget shares the entry-count ceiling (SEC-ingest-zip-budget)', async () => {
+    await writeZip([{ name: '0/0/0.png', data: 'tile' }], {
+      zip64EntryCount: MAX_ZIP_ENTRIES + 1,
+    });
+    await expect(assertZipExpansionBudget(zipPath)).rejects.toThrow(
+      /entry ceiling/,
+    );
+  });
+
+  it('assertZipExpansionBudget refuses declared expansion past the byte ceiling', async () => {
+    // Honest central-directory size past the shared budget; no
+    // inflate needed — the /vsizip/ preflight must stop here.
+    // zip64 required: the ceiling is above the 32-bit size field.
+    await writeZip([
+      {
+        name: 'huge.bin',
+        data: 'x',
+        method: 0,
+        zip64: true,
+        uncompressedSizeOverride: MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES + 1,
+      },
+    ]);
+    await expect(assertZipExpansionBudget(zipPath)).rejects.toThrow(
+      /extraction ceiling/,
     );
   });
 
