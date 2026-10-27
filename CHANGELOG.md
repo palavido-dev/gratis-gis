@@ -17,6 +17,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field PWA Add-feature sheet and More-menu status chrome
+  (Connection / Last cached / Storage / Online states) go through
+  `fieldRuntime.*` catalogs (en / es / fr / de / pt-BR)
+  (R6-i18n-field-status-chrome / #162). Offline download progress
+  codes stay on `offlineMessage`.
 - Analyze Buffer / Clip guides and Analyze panel chrome (boot
   steps, Builder/SQL toggle, starters, Run / Save as layer) go
   through locale catalogs (en / es / fr / de / pt-BR)
@@ -2814,3 +2819,4 @@ Everything is new in a first release. What ships, briefly:
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2
 [0.9.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.1
 [0.9.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.0
+

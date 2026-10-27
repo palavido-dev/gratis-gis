@@ -2385,7 +2385,7 @@ export function FieldRuntime({
               }
               setPickerOpen(true);
             }}
-            aria-label="Add feature"
+            aria-label={t('fieldRuntime.addFeatureAria')}
             // #249.11: previous version applied paddingBottom for safe
             // area, which distorted the circle on iPhone (icon shoved
             // off-center). Move the inset onto `bottom` so the button
@@ -3184,11 +3184,13 @@ function TemplatePicker({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-border px-3 py-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink-0">Add feature</h2>
+            <h2 className="text-sm font-semibold text-ink-0">
+              {t('fieldRuntime.addFeature')}
+            </h2>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t('fieldRuntime.closeAria')}
               className="inline-flex h-11 w-11 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
             >
               <X className="h-4 w-4" />
@@ -3198,7 +3200,7 @@ function TemplatePicker({
             type="search"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter..."
+            placeholder={t('fieldRuntime.filterPlaceholder')}
             className="mt-2 h-9 w-full rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 outline-hidden placeholder:text-muted focus:border-accent"
           />
         </div>
@@ -3206,8 +3208,8 @@ function TemplatePicker({
           {groups.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted">
               {templates.length === 0
-                ? "This deployment has no editable layers yet."
-                : 'No templates match that filter.'}
+                ? t('fieldRuntime.noEditableLayers')
+                : t('fieldRuntime.noTemplatesMatch')}
             </p>
           ) : (
             groups.map(([groupLabel, groupTemplates]) => (
@@ -5472,17 +5474,26 @@ function FieldMoreMenu({
   }, [open]);
 
   const connStatus = isOnline
-    ? { label: 'Online', tone: 'text-success' as const }
+    ? {
+        label: t('fieldRuntime.connectionOnline'),
+        tone: 'text-success' as const,
+      }
     : hasCache
-      ? { label: 'Offline (cached)', tone: 'text-warn' as const }
-      : { label: 'Offline (no cache)', tone: 'text-danger' as const };
+      ? {
+          label: t('fieldRuntime.connectionOfflineCached'),
+          tone: 'text-warn' as const,
+        }
+      : {
+          label: t('fieldRuntime.connectionOfflineNoCache'),
+          tone: 'text-danger' as const,
+        };
 
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="More options"
+        aria-label={t('fieldRuntime.moreOptionsAria')}
         aria-expanded={open}
         className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
       >
@@ -5495,20 +5506,24 @@ function FieldMoreMenu({
         >
           <div className="border-b border-border px-3 py-2">
             <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-              Map
+              {t('fieldRuntime.mapHeading')}
             </p>
             <p className="mt-0.5 truncate text-sm text-ink-0">{mapTitle}</p>
           </div>
           <ul className="px-1 py-1 text-sm">
             <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-              <span className="text-muted">Connection</span>
+              <span className="text-muted">
+                {t('fieldRuntime.connection')}
+              </span>
               <span className={`font-medium ${connStatus.tone}`}>
                 {connStatus.label}
               </span>
             </li>
             {cachedAt ? (
               <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-                <span className="text-muted">Last cached</span>
+                <span className="text-muted">
+                  {t('fieldRuntime.lastCached')}
+                </span>
                 <span className="text-ink-1">
                   {formatRelativeTime(cachedAt)}
                 </span>
@@ -5516,7 +5531,7 @@ function FieldMoreMenu({
             ) : null}
             {persistentState !== 'unknown' ? (
               <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-                <span className="text-muted">Storage</span>
+                <span className="text-muted">{t('fieldRuntime.storage')}</span>
                 <span
                   className={
                     persistentState === 'persistent'
@@ -5525,8 +5540,8 @@ function FieldMoreMenu({
                   }
                 >
                   {persistentState === 'persistent'
-                    ? 'Persistent'
-                    : 'Best effort'}
+                    ? t('fieldRuntime.storagePersistent')
+                    : t('fieldRuntime.storageBestEffort')}
                 </span>
               </li>
             ) : null}
