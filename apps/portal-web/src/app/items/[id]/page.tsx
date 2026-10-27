@@ -692,6 +692,7 @@ export default async function ItemDetailPage(props: Props) {
           updatedAt={item.updatedAt}
           ownerLabel={ownerLabel}
           data={item.data}
+          access={item.access}
         />
       ),
     },

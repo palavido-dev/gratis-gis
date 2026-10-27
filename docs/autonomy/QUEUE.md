@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-presence-websocket | research-cycle-2 / #156 | Nest WS for presence; HTTP fallback | PR #343; not Yjs |
+| R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | Branch `cursor/citation-export-2838` |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R2-citation-export | research-cycle-2 / #116 | BibTeX / RIS / JSON-LD on public items | |
 | R2-i18n-chrome-sweep | issue #162 | Bounded chrome string extraction | No Weblate |
 | R2-form-touch-reorder | research-cycle-2 | Form designer up/down on touch | |
 
@@ -29,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-presence-websocket | 2026-10-27 | Merged #343: Nest WS presence + HTTP fallback |
 | Q-docs-whats-new | 2026-10-27 | Merged #344: What's new + help + GitHub docs catch-up |
 | R2-ogc-records-auth-docs | 2026-10-27 | Help API Records + MetaSearch catalog path; Aardvark/DCAT noted |
 | R2-delta-sync-client-hint | 2026-10-27 | Help documents `delta?since=N` + syncConflicts review |

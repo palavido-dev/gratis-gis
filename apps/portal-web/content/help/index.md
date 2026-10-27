@@ -54,6 +54,8 @@ same API and the same permissions.
   languages.
 - [MCP server](/help/reference/mcp-server): plug an MCP-compatible AI
   client into the same API (read tools, plus optional write tools).
+- [Cite a public item](/help/reference/cite-an-item): BibTeX, RIS, and
+  Schema.org JSON-LD downloads.
 
 ## Coming from ArcGIS Online?
 

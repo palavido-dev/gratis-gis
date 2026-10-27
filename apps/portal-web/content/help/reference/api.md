@@ -173,6 +173,20 @@ features. Curated DCAT / Aardvark themes live on items as
 `dcat_theme_sm` (separate from free-form keywords); harvest tools
 can also fetch `GET /api/public/ogc/aardvark/{id}.json`.
 
+### Citation export
+
+Public items also expose bibliography downloads (no DOI minting;
+the portal URL and item id are the identifiers):
+
+```
+GET /api/public/ogc/citation/{id}.bib
+GET /api/public/ogc/citation/{id}.ris
+GET /api/public/ogc/citation/{id}.jsonld
+```
+
+The Metadata tab on a public item offers the same formats from a
+Cite menu.
+
 ### STAC
 
 A full STAC API root at `/api/public/stac`, with collections and both
