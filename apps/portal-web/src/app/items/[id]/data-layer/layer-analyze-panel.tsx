@@ -27,6 +27,7 @@ import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
+import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -375,6 +376,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeClipGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeEraseGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
