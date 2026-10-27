@@ -8,6 +8,8 @@ import * as maplibregl from 'maplibre-gl';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { LidarControl } from 'maplibre-gl-lidar';
 import type { PointCloudData } from '@gratis-gis/shared-types';
+import { deferLidarUpdatesWhileMoving } from '@/lib/defer-lidar-updates';
+import { streamingOptionsForPointCount } from '@/lib/point-cloud-streaming';
 
 /**
  * In-browser COPC viewer (#179, unit 2). Wraps maplibre-gl-lidar,
@@ -91,19 +93,9 @@ export default function PointCloudViewer({
       ? ('dark' as const)
       : ('light' as const);
 
-    // Size-aware tuning (#183). Every stream-update batch rebuilds
-    // the deck.gl layer data on the main thread, and on a ~200M-point
-    // cloud that measured as multi-second stalls (worst observed:
-    // 1.9s) during pan/zoom. Until maplibre-gl-lidar appends nodes
-    // incrementally (upstream + SSE LOD on the issue), the honest
-    // levers are: fewer points per rebuild, fewer rebuilds while the
-    // camera moves, fewer concurrent node fetches, and no picking
-    // buffers by default on huge clouds (the panel still exposes the
-    // toggle). Small clouds keep the snappier settings; "ultra"
-    // (>100M) is stricter than the 20M "huge" tier.
-    const pointCount = data.pointCount ?? 0;
-    const isUltra = pointCount > 100_000_000;
-    const isHuge = pointCount > 20_000_000;
+    // Size-aware tuning + move-deferred rebuilds (#183). See
+    // streamingOptionsForPointCount / deferLidarUpdatesWhileMoving.
+    const streaming = streamingOptionsForPointCount(data.pointCount);
     const control = new LidarControl({
       title: 'Point cloud',
       collapsed: true,
@@ -111,15 +103,11 @@ export default function PointCloudViewer({
       pointSize: 2,
       // RGB when the file carries it; elevation ramp otherwise.
       colorScheme: data.hasRgb ? 'rgb' : 'elevation',
-      pickable: !isHuge,
+      pickable: streaming.pickable,
       autoZoom: true,
-      streamingPointBudget: isUltra
-        ? 750_000
-        : isHuge
-          ? 1_500_000
-          : 4_000_000,
-      streamingViewportDebounceMs: isUltra ? 600 : isHuge ? 400 : 150,
-      streamingMaxConcurrentRequests: isUltra ? 2 : 4,
+      streamingPointBudget: streaming.streamingPointBudget,
+      streamingViewportDebounceMs: streaming.streamingViewportDebounceMs,
+      streamingMaxConcurrentRequests: streaming.streamingMaxConcurrentRequests,
       // The share-URL affordance encodes the control's own state
       // into the address bar; inside the portal that fights the
       // Next router, so it stays off.
@@ -127,6 +115,7 @@ export default function PointCloudViewer({
       restoreFromUrl: false,
     });
     map.addControl(control, 'top-right');
+    const stopDeferring = deferLidarUpdatesWhileMoving(map, control);
 
     // Surface load failures next to the map. The control shows
     // them in its own panel too, but the panel starts collapsed,
@@ -153,6 +142,7 @@ export default function PointCloudViewer({
 
     return () => {
       cancelled = true;
+      stopDeferring();
       try {
         control.stopStreaming();
       } catch {

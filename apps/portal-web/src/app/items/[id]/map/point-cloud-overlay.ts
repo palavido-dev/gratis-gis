@@ -30,6 +30,8 @@
 import type * as maplibregl from 'maplibre-gl';
 import type { MapLayer } from '@gratis-gis/shared-types';
 import type { LidarControl } from 'maplibre-gl-lidar';
+import { deferLidarUpdatesWhileMoving } from '@/lib/defer-lidar-updates';
+import { streamingOptionsForPointCount } from '@/lib/point-cloud-streaming';
 
 type PointCloudSource = Extract<MapLayer['source'], { kind: 'point-cloud' }>;
 type PcLayer = MapLayer & { source: PointCloudSource };
@@ -38,6 +40,8 @@ interface CloudEntry {
   control: LidarControl;
   /** last applied style signature, to avoid re-style churn */
   styleSig: string;
+  /** teardown for move-deferred rebuilds (#183) */
+  stopDeferring: () => void;
 }
 
 interface OverlayState {
@@ -127,6 +131,11 @@ function disposeOverlayState(map: maplibregl.Map): void {
 }
 
 function removeControl(map: maplibregl.Map, entry: CloudEntry): void {
+  try {
+    entry.stopDeferring();
+  } catch {
+    /* already cleared */
+  }
   try {
     entry.control.stopStreaming();
   } catch {
@@ -253,7 +262,7 @@ async function reconcile(
   for (const [i, layer] of planned.entries()) {
     if (states.get(map) !== state) return; // torn down mid-loop
     if (state.clouds.has(layer.id)) continue; // already has a control
-    const isHuge = (layer.source.pointCount ?? 0) > 20_000_000;
+    const streaming = streamingOptionsForPointCount(layer.source.pointCount);
     const theme = document.documentElement.classList.contains('dark')
       ? ('dark' as const)
       : ('light' as const);
@@ -272,11 +281,16 @@ async function reconcile(
       pickable: false,
       shareUrl: false,
       restoreFromUrl: false,
-      streamingPointBudget: isHuge ? 1_500_000 : 4_000_000,
-      streamingViewportDebounceMs: isHuge ? 400 : 150,
+      streamingPointBudget: streaming.streamingPointBudget,
+      streamingViewportDebounceMs: streaming.streamingViewportDebounceMs,
+      streamingMaxConcurrentRequests: streaming.streamingMaxConcurrentRequests,
     });
     map.addControl(control, 'top-right');
-    const entry: CloudEntry = { control, styleSig: '' };
+    const entry: CloudEntry = {
+      control,
+      styleSig: '',
+      stopDeferring: deferLidarUpdatesWhileMoving(map, control),
+    };
     state.clouds.set(layer.id, entry);
 
     const url = `${window.location.origin}${layer.source.dataUrl}`;
