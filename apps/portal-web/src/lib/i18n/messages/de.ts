@@ -2385,7 +2385,7 @@ export const de: Partial<CatalogShape> = {
     deleteAria: 'Markierung löschen',
     somethingWrong: 'Etwas ist schiefgelaufen',
     empty:
-      'Noch keine Markierungen. Fügen Sie einen Satz hinzu und zeichnen Sie Pins, Linien oder Polygone.',
+      'Noch keine Markierungen. Fügen Sie einen Satz hinzu und zeichnen Sie Pins, Linien, Polygone, Text, Pfeile oder Kreise.',
     dropPin: 'Pin in der Kartenmitte setzen',
     dropPinShort: 'Mitte',
     addMarkup: 'Markierung hinzufügen',
@@ -2399,12 +2399,20 @@ export const de: Partial<CatalogShape> = {
     toolPin: 'Pins zeichnen',
     toolLine: 'Linien zeichnen',
     toolPolygon: 'Polygone zeichnen',
+    toolText: 'Text platzieren',
+    toolArrow: 'Pfeile zeichnen',
+    toolCircle: 'Kreise zeichnen',
     hintPin:
       'Klicken Sie auf die Karte, um einen Pin zu setzen. Erneut auf das Pin-Werkzeug klicken zum Beenden.',
     hintLine:
       'Klicken Sie, um Stützpunkte hinzuzufügen; Doppelklick oder Enter beendet die Linie.',
     hintPolygon:
       'Klicken Sie, um Stützpunkte hinzuzufügen; Doppelklick oder Enter schließt das Polygon.',
+    hintText: 'Klicken Sie auf die Karte, um Text zu platzieren, und geben Sie die Beschriftung ein.',
+    hintArrow:
+      'Klicken Sie, um Stützpunkte hinzuzufügen; Doppelklick oder Enter beendet den Pfeil.',
+    hintCircle: 'Klicken Sie den Mittelpunkt, dann ziehen Sie für den Radius.',
+    textPrompt: 'Textbeschriftung',
     promote: 'Übernehmen',
     promoteTitle: 'Diese Markierung als Datenebene speichern',
     promoting: 'Wird übernommen…',

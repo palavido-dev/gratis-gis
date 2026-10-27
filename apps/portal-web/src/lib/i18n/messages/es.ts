@@ -2370,7 +2370,7 @@ export const es: Partial<CatalogShape> = {
     deleteAria: 'Eliminar anotación',
     somethingWrong: 'Algo salió mal',
     empty:
-      'Aún no hay anotaciones. Añade un conjunto y dibuja pines, líneas o polígonos.',
+      'Aún no hay anotaciones. Añade un conjunto y dibuja pines, líneas, polígonos, texto, flechas o círculos.',
     dropPin: 'Colocar pin en el centro del mapa',
     dropPinShort: 'Centro',
     addMarkup: 'Añadir anotación',
@@ -2384,12 +2384,20 @@ export const es: Partial<CatalogShape> = {
     toolPin: 'Dibujar pines',
     toolLine: 'Dibujar líneas',
     toolPolygon: 'Dibujar polígonos',
+    toolText: 'Colocar texto',
+    toolArrow: 'Dibujar flechas',
+    toolCircle: 'Dibujar círculos',
     hintPin:
       'Haz clic en el mapa para soltar un pin. Vuelve a hacer clic en la herramienta para parar.',
     hintLine:
       'Haz clic para añadir vértices; doble clic o Enter para terminar la línea.',
     hintPolygon:
       'Haz clic para añadir vértices; doble clic o Enter para cerrar el polígono.',
+    hintText: 'Haz clic en el mapa para colocar texto y escribe la etiqueta.',
+    hintArrow:
+      'Haz clic para añadir vértices; doble clic o Enter para terminar la flecha.',
+    hintCircle: 'Haz clic en el centro y arrastra para fijar el radio.',
+    textPrompt: 'Etiqueta de texto',
     promote: 'Promover',
     promoteTitle: 'Guardar esta anotación como capa de datos',
     promoting: 'Promoviendo…',

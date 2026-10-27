@@ -6,18 +6,16 @@ import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
- * Markup panel (#154 Phase 1 + 1.5).
+ * Markup panel (#154 Phase 1 + 1.5 + annotation kinds).
  *
  * A floating overlay on the map editor that lets viewers (not just
- * editors) add their own markup — pins, lines, and polygons with
- * optional notes — to a shared map. The killer use case is the
- * manager-redline workflow: a non-GIS stakeholder opens a shared
- * map, sketches the wrong boundary, types a note, and ships the
- * URL back to the team.
+ * editors) add their own markup to a shared map: pins, lines,
+ * polygons, text labels, arrows, and circles. The killer use case
+ * is the manager-redline workflow: a non-GIS stakeholder opens a
+ * shared map, sketches the wrong boundary, types a note, and ships
+ * the URL back to the team.
  *
- * Phase 1.5 adds:
- *   - Line / polygon tools via terra-draw (click-to-place pins too)
- *   - Promote a set to a real data_layer the author owns
+ * Also: promote a set to a real data_layer the author owns.
  *
  * The panel manages its own server round-trips against
  * /api/portal/items/:mapId/drawings, so the parent map editor only
@@ -27,13 +25,16 @@ import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpFromLine,
+  Circle,
   Eye,
   EyeOff,
   Hexagon,
   MapPin,
+  MoveRight,
   PencilLine,
   Plus,
   Slash,
+  Type,
   Trash2,
   X,
 } from 'lucide-react';
@@ -50,10 +51,10 @@ import {
   startDraw,
   useCrosshairCursor,
   useTerraDraw,
-  type DrawGeometryType,
+  type MarkupDrawTool,
 } from './use-terra-draw';
 
-type MarkupTool = 'off' | DrawGeometryType;
+type MarkupTool = 'off' | MarkupDrawTool;
 
 interface Props {
   /** UUID of the map item this panel is editing. */
@@ -183,10 +184,29 @@ export function MarkupPanel({
       const kind = kindForTool(toolRef.current);
       if (!kind) return;
       const now = new Date().toISOString();
+      let label: string | undefined;
+      if (kind === 'text') {
+        // Guided: ask for the label right after place. Cancel still
+        // saves a point so the reviewer can rename later via note.
+        const typed =
+          typeof window !== 'undefined'
+            ? window.prompt(t('mapMarkup.textPrompt'), '')
+            : '';
+        if (typed === null) {
+          try {
+            if (draw.hasFeature(id)) draw.removeFeatures([id]);
+          } catch {
+            /* already gone */
+          }
+          return;
+        }
+        label = typed.trim() || undefined;
+      }
       const feature: DrawingFeature = {
         id: cryptoRandomUuid(),
         kind,
         geometry: f.geometry,
+        ...(label !== undefined ? { label } : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -510,11 +530,7 @@ export function MarkupPanel({
 
       {tool !== 'off' ? (
         <p className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs text-muted">
-          {tool === 'point'
-            ? t('mapMarkup.hintPin')
-            : tool === 'line'
-              ? t('mapMarkup.hintLine')
-              : t('mapMarkup.hintPolygon')}
+          {hintForTool(tool, t)}
         </p>
       ) : null}
 
@@ -658,6 +674,30 @@ export function MarkupPanel({
                       >
                         <Hexagon className="h-3 w-3" />
                       </ToolButton>
+                      <ToolButton
+                        active={isActive && tool === 'text'}
+                        disabled={busy}
+                        label={t('mapMarkup.toolText')}
+                        onClick={() => armTool(set.id, 'text')}
+                      >
+                        <Type className="h-3 w-3" />
+                      </ToolButton>
+                      <ToolButton
+                        active={isActive && tool === 'arrow'}
+                        disabled={busy}
+                        label={t('mapMarkup.toolArrow')}
+                        onClick={() => armTool(set.id, 'arrow')}
+                      >
+                        <MoveRight className="h-3 w-3" />
+                      </ToolButton>
+                      <ToolButton
+                        active={isActive && tool === 'circle'}
+                        disabled={busy}
+                        label={t('mapMarkup.toolCircle')}
+                        onClick={() => armTool(set.id, 'circle')}
+                      >
+                        <Circle className="h-3 w-3" />
+                      </ToolButton>
                       <button
                         type="button"
                         onClick={() => dropPinAtCenter(set.id)}
@@ -762,7 +802,32 @@ function kindForTool(
   if (tool === 'point') return 'pin';
   if (tool === 'line') return 'line';
   if (tool === 'polygon') return 'polygon';
+  if (tool === 'text') return 'text';
+  if (tool === 'arrow') return 'arrow';
+  if (tool === 'circle') return 'circle';
   return null;
+}
+
+function hintForTool(
+  tool: MarkupTool,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  switch (tool) {
+    case 'point':
+      return t('mapMarkup.hintPin');
+    case 'line':
+      return t('mapMarkup.hintLine');
+    case 'polygon':
+      return t('mapMarkup.hintPolygon');
+    case 'text':
+      return t('mapMarkup.hintText');
+    case 'arrow':
+      return t('mapMarkup.hintArrow');
+    case 'circle':
+      return t('mapMarkup.hintCircle');
+    default:
+      return '';
+  }
 }
 
 function message(e: unknown, fallback: string): string {

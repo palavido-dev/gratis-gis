@@ -9,6 +9,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Map markup text, arrow, and circle tools (terra-draw circle mode;
+  arrow tip + text symbol layers on the drawings overlay) (#154).
 - portal-mcp Phase 2 write tools: `run_tool` and
   `create_data_layer_from_geojson` (thin facades over existing
   `/api/tools/:id/run` and `/api/items` + layer feature append). Needs

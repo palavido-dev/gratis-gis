@@ -2376,7 +2376,7 @@ export const fr: Partial<CatalogShape> = {
     deleteAria: "Supprimer l'annotation",
     somethingWrong: "Une erreur s'est produite",
     empty:
-      'Pas encore d\'annotations. Ajoutez un jeu, puis dessinez des épingles, lignes ou polygones.',
+      'Pas encore d\'annotations. Ajoutez un jeu, puis dessinez des épingles, lignes, polygones, textes, flèches ou cercles.',
     dropPin: 'Placer une épingle au centre de la carte',
     dropPinShort: 'Centre',
     addMarkup: 'Ajouter une annotation',
@@ -2390,12 +2390,20 @@ export const fr: Partial<CatalogShape> = {
     toolPin: 'Dessiner des épingles',
     toolLine: 'Dessiner des lignes',
     toolPolygon: 'Dessiner des polygones',
+    toolText: 'Placer du texte',
+    toolArrow: 'Dessiner des flèches',
+    toolCircle: 'Dessiner des cercles',
     hintPin:
       'Cliquez sur la carte pour placer une épingle. Cliquez à nouveau sur l\'outil pour arrêter.',
     hintLine:
       'Cliquez pour ajouter des sommets ; double-clic ou Entrée pour terminer la ligne.',
     hintPolygon:
       'Cliquez pour ajouter des sommets ; double-clic ou Entrée pour fermer le polygone.',
+    hintText: 'Cliquez sur la carte pour placer du texte, puis saisissez le libellé.',
+    hintArrow:
+      'Cliquez pour ajouter des sommets ; double-clic ou Entrée pour terminer la flèche.',
+    hintCircle: 'Cliquez le centre, puis glissez pour fixer le rayon.',
+    textPrompt: 'Libellé du texte',
     promote: 'Promouvoir',
     promoteTitle: 'Enregistrer cette annotation comme couche de données',
     promoting: 'Promotion…',

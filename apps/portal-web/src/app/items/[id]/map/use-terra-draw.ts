@@ -57,14 +57,31 @@ import type { TerraDraw } from 'terra-draw';
  */
 export const DRAW_COORD_PRECISION = 9;
 
-/** Geometry families the draw modes map onto. */
+/** Geometry families the draw modes map onto (feature edit + markup). */
 export type DrawGeometryType = 'point' | 'line' | 'polygon';
 
-/** terra-draw mode names this module registers. */
-export type DrawMode = 'select' | 'point' | 'linestring' | 'polygon';
+/**
+ * Markup-only authoring tools. Circle uses terra-draw's circle mode;
+ * arrow / text reuse line / point modes and stamp a different
+ * DrawingFeature.kind for rendering.
+ */
+export type MarkupDrawTool = DrawGeometryType | 'circle' | 'arrow' | 'text';
 
-export function drawModeFor(geometryType: DrawGeometryType): DrawMode {
-  return geometryType === 'line' ? 'linestring' : geometryType;
+/** terra-draw mode names this module registers. */
+export type DrawMode =
+  | 'select'
+  | 'point'
+  | 'linestring'
+  | 'polygon'
+  | 'circle';
+
+export function drawModeFor(
+  geometryType: DrawGeometryType | MarkupDrawTool,
+): DrawMode {
+  if (geometryType === 'line' || geometryType === 'arrow') return 'linestring';
+  if (geometryType === 'text') return 'point';
+  if (geometryType === 'circle') return 'circle';
+  return geometryType;
 }
 
 /**
@@ -136,6 +153,9 @@ function selectFlags(snapping: boolean) {
     point: { feature: { draggable: true } },
     linestring: { feature: { draggable: true, coordinates } },
     polygon: { feature: { draggable: true, coordinates } },
+    // Circles are materialised as polygons; allow the same vertex
+    // handles so a reviewer can nudge the outline after place.
+    circle: { feature: { draggable: true, coordinates } },
   };
 }
 
@@ -206,6 +226,7 @@ export function useTerraDraw(
           new td.TerraDrawPolygonMode(
             snapInit ? { snapping: snapInit } : undefined,
           ),
+          new td.TerraDrawCircleMode(),
           new td.TerraDrawSelectMode({ flags: selectFlags(snapping) }),
         ],
       });
