@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-meta-ui-viewer-hint | research-cycle-1 | Server-computed `meta.ui` viewer hint | branch `cursor/meta-ui-viewer-hint-2838` |
+| R1-meta-ui-viewer-hint | research-cycle-1 | Server-computed `meta.ui` viewer hint | PR #333 on `cursor/meta-ui-viewer-hint-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
