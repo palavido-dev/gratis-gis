@@ -479,6 +479,10 @@ services:
       # public URL because the JWT iss claim is the public hostname.
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-gratis-gis}
+      # Optional override of Keycloak client ids (`azp`) allowed to
+      # call portal-api. Default in code: portal-web,field-app,
+      # qgis-plugin (SEC-jwt-aud).
+      JWT_ALLOWED_AZP: ${JWT_ALLOWED_AZP:-}
       # Service-account credentials for the api's admin operations
       # (user reconcile, password reset, role mutation). Matches the
       # portal-api-admin client in the realm import.

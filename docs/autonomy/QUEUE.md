@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-trivy-workers | security-deep-dive-2026-10-27 | Trivy matrix for worker images | This PR |
+| SEC-jwt-aud | security-deep-dive-2026-10-27 | JWT azp allowlist for known clients | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-jwt-aud | security-deep-dive-2026-10-27 | JWT audience allowlist | Medium |
 | SEC-jwt-deletedAt | security-deep-dive-2026-10-27 | JWT path honors soft-deleted users | Medium |
 | SEC-ws-frame-cap | security-deep-dive-2026-10-27 | Presence WS max frame size | Low |
 | R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
@@ -32,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-trivy-workers | 2026-10-27 | Merged #380: Trivy matrix + worker image hardenings |
 | SEC-records-bbox-throttle | 2026-10-27 | Merged #379: Records bbox scan cap + 60/min throttle |
 | SEC-ingest-zip-budget | 2026-10-27 | Merged #378: zip expansion budget before /vsizip/ |
 | R6-print-markup-kinds-help | 2026-10-27 | Merged #374: print help lists text/arrow/circle |
