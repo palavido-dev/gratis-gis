@@ -33,9 +33,12 @@ submissions, App Builder (viewer, editor, and custom widget apps,
 including KPI and operations dashboards), the offline-capable field PWA,
 derived-layer analysis and tool recipes (OSM is a first-class source; the
 node-graph canvas is not built), live PostgreSQL/PostGIS connections,
-print/PDF layouts, OGC API endpoints (Features, Tiles, Styles, Records),
-an open MCP server, a QGIS plugin, light and dark themes, five UI
-languages, and one-click sample data that seeds a complete demonstration
+print/PDF layouts (including visible map markup), OGC API endpoints
+(Features, Tiles, Styles, Records with a MetaSearch-friendly searchable
+catalog plus DCAT / Aardvark themes), live map presence and markup /
+comments, zonal statistics on elevation layers, an open MCP server with
+read and optional write tools, a QGIS plugin, light and dark themes, five
+UI languages, and one-click sample data that seeds a complete demonstration
 workspace. Underneath all of it is the observation-log engine plus
 Cedar-based geometry-aware authorization. 700+ backend tests, CI on
 every push.
