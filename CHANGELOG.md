@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Research note on maplibre-gl-lidar incremental per-node
+  append/evict for huge COPC clouds (`docs/research/maplibre-gl-lidar-incremental-append-2026-10-27.md`);
+  mitigations already shipped under #183 stay; issue stays open.
 - Terrain analysis panel strings (contours, steepness, zonal
   statistics) extracted into the i18n catalogs (#162).
 - Zonal statistics analysis job: summarize a raster COG inside
