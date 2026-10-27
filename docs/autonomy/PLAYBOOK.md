@@ -23,6 +23,34 @@ a firehose of PRs. Every change must fit the product ethos in
 3. **Builders**: implement one queued item at a time on
    `cursor/<slug>-2838` branches, open PRs into `main`, wait for CI,
    merge only when the item needed no maintainer decision.
+4. **Security Sentinel** (same conversation, dedicated checklist):
+   runs once per work cycle and summarizes in the daily digest.
+   Prefer `ship-without-input` hardenings over waiting on the
+   maintainer unless product, legal, or Keycloak/ops defaults are
+   involved. Checklist:
+
+   1. Diff gate: new `@Public()`, BFF anonymous allowlist entries,
+      or `@Throttle` changes.
+   2. Outbound fetch: user-supplied URLs must use `safeFetch` /
+      `assertSafeOutboundUrl`.
+   3. File/archive paths: GDAL open and zip extract must use
+      `assertSafeGdalOpenPath` and the ingest root guard.
+   4. Admin / secrets: new `/admin/*` routes need `AdminGuard`; no
+      API keys on admin; no secrets in logs.
+   5. Cross-user data: staging IDs, item IDs, layer keys checked on
+      read and write (including derived-layer pipeline
+      `otherSource`).
+   6. Public DoS: unauthenticated list endpoints need pagination,
+      throttle, and a max row scan.
+   7. Dependencies: Dependabot / `pnpm.overrides` vs
+      `security.yml`; flag HIGH/CRITICAL in images Trivy does not
+      yet scan (workers).
+   8. MCP / tools: write tools stay behind non-readonly keys; sinks
+      cannot touch private layers without ACL.
+   9. Regression tests when changing auth or ingest guards.
+
+   Standing research note:
+   [docs/research/security-deep-dive-2026-10-27.md](../research/security-deep-dive-2026-10-27.md).
 
 ## What to build
 

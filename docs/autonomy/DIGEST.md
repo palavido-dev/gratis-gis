@@ -13,6 +13,9 @@ Shipped
 In flight
 - …
 
+Security sentinel
+- … (checklist hits, hardenings shipped or queued; "clean" if none)
+
 Research
 - … (1–3 ethos-aligned findings; link QUEUE ids)
 
