@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Smarter CSV uploads, and a quieter point-cloud pan
+Upload a spreadsheet and the portal looks for coordinate columns, US place names, and addresses it can geocode on your own Nominatim. Huge point clouds keep streaming while you pan, and only redraw when the camera settles, so a 200-million-point cloud no longer freezes the map mid-drag. Much of the portal chrome is also ready for Spanish, French, German, and Brazilian Portuguese when you switch locale.
+
 ## 2026-10-03 - Sign-in settings load again
 Organization admins can open Sign-in and see work-account methods and the authenticator switch. A map that uses a built-in basemap such as Positron no longer stops the Housekeeping page from loading.
 
