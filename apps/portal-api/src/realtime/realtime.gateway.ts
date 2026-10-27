@@ -10,6 +10,10 @@ import type { WebSocket } from 'ws';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
+  PRESENCE_WS_MAX_PAYLOAD_BYTES,
+  isPresenceFrameWithinBudget,
+} from './presence-frame.js';
+import {
   RealtimeService,
   type PresenceMember,
 } from './realtime.service.js';
@@ -35,8 +39,14 @@ interface SocketState {
  *                     { type: 'leave' }
  *   server -> client: { type: 'roster', members: PresenceMember[] }
  *                     { type: 'error', message: string }
+ *
+ * `maxPayload` caps a single inbound frame at 64 KiB (SEC-ws-frame-cap);
+ * the `ws` library default is 100 MiB.
  */
-@WebSocketGateway({ path: '/api/realtime/ws' })
+@WebSocketGateway({
+  path: '/api/realtime/ws',
+  maxPayload: PRESENCE_WS_MAX_PAYLOAD_BYTES,
+})
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -103,6 +113,11 @@ export class RealtimeGateway
   private async onMessage(client: WebSocket, raw: unknown): Promise<void> {
     const st = this.state.get(client);
     if (!st) return;
+    // Defense in depth alongside gateway maxPayload (SEC-ws-frame-cap).
+    if (!isPresenceFrameWithinBudget(raw)) {
+      this.close(client, 'Frame too large');
+      return;
+    }
     let msg: { type?: string; cursor?: { lng: number; lat: number } | null };
     try {
       const text =

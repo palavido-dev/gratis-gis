@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Presence WebSocket (`/api/realtime/ws`) caps each inbound frame at
+  64 KiB (`maxPayload` + application check). Cursor / heartbeat
+  messages are tiny; the `ws` default of 100 MiB is refused
+  (SEC-ws-frame-cap).
 - portal-api JWT auth refuses soft-deleted users (`user.deletedAt`),
   matching the API-key path. Keycloak reconcile soft-deletes also
   invalidate the auth-sync principal cache (SEC-jwt-deletedAt).
