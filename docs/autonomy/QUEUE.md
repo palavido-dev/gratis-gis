@@ -6,13 +6,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-162a / R1-i18n-string-sweep | issue #162 | Terrain analysis i18n extraction | PR #335 on `cursor/i18n-string-sweep-2838`; waiting CI |
+| Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | PR #336 on `cursor/lidar-incremental-writeup-2838`; do not close #183 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-183a / R1-lidar-incremental-writeup | issue #183 | Upstream incremental-append research note | Do not close #183 |
+| *(empty — research cycle 2 next)* | | | |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-162a / R1-i18n-string-sweep | 2026-10-27 | Merged #335: terrain analysis panel i18n (`demAnalysis.*`) |
 | R1-zonal-stats-primitive | 2026-10-27 | Merged #334: zonal stats analysis job + elevation UI |
 | R1-meta-ui-viewer-hint | 2026-10-27 | Merged #333: server-computed `meta.ui` on item detail |
 | R1-dcat-themes-aardvark | 2026-10-27 | Merged #332: curated themes + Aardvark export |
