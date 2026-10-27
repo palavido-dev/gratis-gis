@@ -139,14 +139,14 @@ export class OgcLandingController {
         // standard defines (checked against OGC 20-004r1's own
         // conformance tables; the record model's class is
         // `conf/record-core`). We declared the invented URI for
-        // months, which no client could have matched. Note
-        // `conf/searchable-catalog` stays absent on purpose: it
-        // requires records at /collections/{catalogId}/items, and
-        // ours are still at /records. Declare it when the catalogue
-        // moves to the standard path, not before.
+        // months, which no client could have matched.
+        // `conf/searchable-catalog` is declared now that records also
+        // live at /collections/catalog/items (MetaSearch path); the
+        // /records alias remains for older clients.
         'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core',
         'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json',
         'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/sorting',
+        'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/searchable-catalog',
       ],
     };
   }
@@ -516,7 +516,7 @@ export class OgcLandingController {
         },
         '/records': {
           get: {
-            summary: 'Catalog records (paged)',
+            summary: 'Catalog records (paged, alias)',
             tags: ['Records'],
             parameters: [
               {
@@ -549,6 +549,13 @@ export class OgcLandingController {
                   'Whitelisted keys: createdAt, updatedAt, title, type. ' +
                   'Optional `-` prefix for descending.',
               },
+              {
+                name: 'bbox',
+                in: 'query',
+                schema: { type: 'string' },
+                description:
+                  'Comma-separated minLon,minLat,maxLon,maxLat (CRS84).',
+              },
             ],
             responses: { '200': { description: 'Records collection' } },
           },
@@ -556,6 +563,77 @@ export class OgcLandingController {
         '/records/{recordId}': {
           get: {
             summary: 'One catalog record',
+            tags: ['Records'],
+            parameters: [
+              {
+                name: 'recordId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+              },
+            ],
+            responses: {
+              '200': { description: 'Catalog record' },
+              '404': { description: 'Record not found' },
+            },
+          },
+        },
+        '/collections/catalog': {
+          get: {
+            summary: 'Records catalogue collection (searchable-catalog)',
+            tags: ['Records'],
+            responses: {
+              '200': {
+                description:
+                  'Collection document with itemType=record for MetaSearch',
+              },
+            },
+          },
+        },
+        '/collections/catalog/items': {
+          get: {
+            summary: 'Catalog records via /collections (MetaSearch path)',
+            tags: ['Records'],
+            parameters: [
+              {
+                name: 'limit',
+                in: 'query',
+                schema: { type: 'integer', minimum: 1, maximum: 1000, default: 100 },
+              },
+              {
+                name: 'offset',
+                in: 'query',
+                schema: { type: 'integer', minimum: 0, default: 0 },
+              },
+              {
+                name: 'q',
+                in: 'query',
+                schema: { type: 'string' },
+              },
+              {
+                name: 'type',
+                in: 'query',
+                schema: { type: 'string' },
+              },
+              {
+                name: 'sortby',
+                in: 'query',
+                schema: { type: 'string' },
+              },
+              {
+                name: 'bbox',
+                in: 'query',
+                schema: { type: 'string' },
+                description:
+                  'Comma-separated minLon,minLat,maxLon,maxLat (CRS84).',
+              },
+            ],
+            responses: { '200': { description: 'Records collection' } },
+          },
+        },
+        '/collections/catalog/items/{recordId}': {
+          get: {
+            summary: 'One catalog record via /collections',
             tags: ['Records'],
             parameters: [
               {

@@ -31,6 +31,7 @@ import {
   swapAxes,
   type CollectionRow,
 } from './features-core.js';
+import { catalogCollectionDoc } from './records-core.js';
 
 /**
  * The query parameters the API definition declares for /items, and
@@ -88,28 +89,34 @@ export class OgcFeaturesController {
   @Get('/')
   async collections(@Req() req: Request) {
     const base = absoluteBase(req);
+    const ogcRoot = `${base}/api/public/ogc`;
     const rows = await this.publicV3DataLayers();
+    // Catalogue collection first so MetaSearch / OWSLib see
+    // itemType=record without scanning the whole Features list.
     return {
       links: [
         {
-          href: `${base}/api/public/ogc/collections`,
+          href: `${ogcRoot}/collections`,
           rel: 'self',
           type: 'application/json',
         },
         {
-          href: `${base}/api/public/ogc/`,
+          href: `${ogcRoot}/`,
           rel: 'root',
           type: 'application/json',
         },
         {
-          href: `${base}/api/public/ogc/conformance`,
+          href: `${ogcRoot}/conformance`,
           rel: 'conformance',
           type: 'application/json',
         },
       ],
-      collections: rows.map((r) =>
-        collectionDoc(r, `${base}/api/public/ogc`, { tilesAndStyles: true }),
-      ),
+      collections: [
+        catalogCollectionDoc(ogcRoot),
+        ...rows.map((r) =>
+          collectionDoc(r, ogcRoot, { tilesAndStyles: true }),
+        ),
+      ],
     };
   }
 
