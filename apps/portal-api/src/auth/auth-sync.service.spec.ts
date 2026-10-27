@@ -273,6 +273,17 @@ describe('AuthSyncService.upsertFromClaims principal cache', () => {
     expect(user.groupIds).toEqual(['g-1']);
   });
 
+  it('refuses a soft-deleted user before upserting lastSeenAt', async () => {
+    const prisma = makePrisma({
+      user: makeUserRow({ deletedAt: new Date(T0 - 1) }),
+    });
+    const service = svc(prisma);
+    await expect(service.upsertFromClaims(makeClaims())).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(prisma.user.upsert).not.toHaveBeenCalled();
+  });
+
   it('re-checks the auto-disable instant on every hit', async () => {
     // Disable falls 5 s from now, well inside the 10 s TTL. The entry
     // must refuse on the dot, not when it happens to expire.

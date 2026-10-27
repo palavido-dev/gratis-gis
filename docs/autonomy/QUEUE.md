@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-jwt-aud | security-deep-dive-2026-10-27 | JWT azp allowlist for known clients | This PR |
+| SEC-jwt-deletedAt | security-deep-dive-2026-10-27 | JWT path honors soft-deleted users | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-jwt-deletedAt | security-deep-dive-2026-10-27 | JWT path honors soft-deleted users | Medium |
 | SEC-ws-frame-cap | security-deep-dive-2026-10-27 | Presence WS max frame size | Low |
 | R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
 | R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | Power-user |
@@ -31,6 +30,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-jwt-aud | 2026-10-27 | Merged #381: JWT azp allowlist for known clients |
 | SEC-trivy-workers | 2026-10-27 | Merged #380: Trivy matrix + worker image hardenings |
 | SEC-records-bbox-throttle | 2026-10-27 | Merged #379: Records bbox scan cap + 60/min throttle |
 | SEC-ingest-zip-budget | 2026-10-27 | Merged #378: zip expansion budget before /vsizip/ |

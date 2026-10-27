@@ -403,6 +403,15 @@ export class AuthSyncService {
     const existing = await this.prisma.user.findUnique({
       where: { username: claims.preferred_username },
     });
+    // Soft-deleted accounts must not authenticate via a still-valid
+    // Keycloak JWT. API keys already refuse deletedAt (api-key.service);
+    // mirror that here before any upsert writes lastSeenAt or revives
+    // profile fields (SEC-jwt-deletedAt).
+    if (existing !== null && existing.deletedAt !== null) {
+      throw new UnauthorizedException(
+        'This account is deleted. Contact your organization admin.',
+      );
+    }
     // fullName only counts as changed when the token carries a name:
     // Prisma skips undefined fields, so the old upsert also left
     // fullName untouched for tokens without a `name` claim.
@@ -453,6 +462,13 @@ export class AuthSyncService {
       // for brand-new users, whose unseen map entry always makes
       // writeLastSeen true on their first request in this process.
       this.lastSeenWrittenAt.set(claims.sub, now);
+    }
+
+    // Defense in depth if a concurrent soft-delete raced the upsert.
+    if (user.deletedAt !== null) {
+      throw new UnauthorizedException(
+        'This account is deleted. Contact your organization admin.',
+      );
     }
 
     // Auto-disable enforcement (#85). When auto_disable_at is in
