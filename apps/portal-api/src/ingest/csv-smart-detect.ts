@@ -32,6 +32,11 @@
  * detection logic is unit-testable in isolation.
  */
 
+import {
+  isSqlSafeFieldName,
+  toSqlSafeFieldName,
+} from '@gratis-gis/shared-types';
+
 export interface SmartDetectResult {
   kind: 'detected';
   geojson: { type: 'FeatureCollection'; features: unknown[] };
@@ -449,7 +454,9 @@ function inferFieldTypes(
     const row = parseRow(lines[i]!, delimiter);
     if (row.length === header.length) samples.push(row);
   }
-  return header.map((name, idx) => {
+  const used = new Set<string>();
+  return header.map((raw, idx) => {
+    const name = toSqlSafeFieldName(raw, used);
     let allNumber = true;
     let allBool = true;
     let nonEmpty = 0;
@@ -475,6 +482,9 @@ function emitPoints(
   latIdx: number,
   lngIdx: number,
 ): unknown[] {
+  // Same allowlist mapping as inferFieldTypes (SEC-expr-field-allowlist).
+  const used = new Set<string>();
+  const safeNames = header.map((h) => toSqlSafeFieldName(h, used));
   const out: unknown[] = [];
   for (let i = 1; i < lines.length && out.length < SMART_DETECT_LIMITS.MAX_FEATURES; i += 1) {
     const row = parseRow(lines[i]!, delimiter);
@@ -483,15 +493,20 @@ function emitPoints(
     const lng = parseCoordinate(row[lngIdx] ?? '');
     if (lat === null || lng === null) continue;
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-    const props: Record<string, unknown> = {};
+    // Map + fromEntries so we never assign `obj[userKey] = …`
+    // (CodeQL js/remote-property-injection). Keys are allowlisted
+    // identifiers produced above.
+    const entries = new Map<string, unknown>();
     for (let c = 0; c < header.length; c += 1) {
       if (c === latIdx || c === lngIdx) continue;
-      props[header[c]!] = row[c] ?? '';
+      const key = safeNames[c]!;
+      if (!isSqlSafeFieldName(key)) continue;
+      entries.set(key, row[c] ?? '');
     }
     out.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [lng, lat] },
-      properties: props,
+      properties: Object.fromEntries(entries) as Record<string, unknown>,
     });
   }
   return out;

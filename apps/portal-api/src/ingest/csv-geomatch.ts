@@ -21,6 +21,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import {
   detectCsvColumnPair,
   readDelimitedSample,
@@ -402,10 +403,12 @@ function rowProperties(
   extras: Array<[string, unknown]>,
 ): Record<string, unknown> {
   // Build via Map + fromEntries so we never assign `obj[userKey] = …`
-  // (CodeQL js/remote-property-injection).
+  // (CodeQL js/remote-property-injection). Field names are the same
+  // allowlisted identifiers stored on plan.fields (SEC-expr-field-allowlist).
   const entries = new Map<string, unknown>();
+  const safeNames = sanitizeHeaderNames(plan.header);
   for (let i = 0; i < plan.header.length; i += 1) {
-    const name = safePropertyName(plan.header[i]!);
+    const name = safeNames[i] ?? plan.fields[i]?.name ?? null;
     if (name === null) continue;
     const field = plan.fields[i];
     const cell = (row[i] ?? '').trim();
@@ -484,8 +487,9 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
     };
   }
 
-  const fields = header.map((name, idx) => ({
-    name,
+  const safeNames = sanitizeHeaderNames(header);
+  const fields = header.map((_, idx) => ({
+    name: safeNames[idx] ?? `col_${idx}`,
     type: inferFieldType(rows, idx),
   }));
 
@@ -536,8 +540,9 @@ export function planUsCountyGeomatch(text: string): GeomatchDetect {
     };
   }
 
-  const fields = header.map((name, idx) => ({
-    name,
+  const safeNames = sanitizeHeaderNames(header);
+  const fields = header.map((_, idx) => ({
+    name: safeNames[idx] ?? `col_${idx}`,
     type: inferFieldType(rows, idx),
   }));
 
@@ -591,8 +596,9 @@ export function planUsZctaGeomatch(text: string): GeomatchDetect {
     };
   }
 
-  const fields = header.map((name, idx) => ({
-    name,
+  const safeNames = sanitizeHeaderNames(header);
+  const fields = header.map((_, idx) => ({
+    name: safeNames[idx] ?? `col_${idx}`,
     type: inferFieldType(rows, idx),
   }));
 
@@ -647,8 +653,9 @@ export function planCountryGeomatch(text: string): GeomatchDetect {
     };
   }
 
-  const fields = header.map((name, idx) => ({
-    name,
+  const safeNames = sanitizeHeaderNames(header);
+  const fields = header.map((_, idx) => ({
+    name: safeNames[idx] ?? `col_${idx}`,
     type: inferFieldType(rows, idx),
   }));
 
@@ -829,10 +836,12 @@ export function featuresFromCountryGeomatch(
 }
 
 /**
- * Reject header names that would be dangerous as object keys
- * (`__proto__`, `constructor`, `prototype`) or empty after trim.
+ * Reject empty / prototype-polluting headers; map everything else to
+ * an SQL-safe identifier (SEC-expr-field-allowlist). Callers that need
+ * collision-stable names across a whole header row should use
+ * `sanitizeHeaderNames` instead of calling this per cell.
  */
-function safePropertyName(raw: string): string | null {
+function safePropertyName(raw: string, used?: Set<string>): string | null {
   const name = raw.trim();
   if (!name) return null;
   const lower = name.toLowerCase();
@@ -843,7 +852,13 @@ function safePropertyName(raw: string): string | null {
   ) {
     return null;
   }
-  return name;
+  return toSqlSafeFieldName(name, used);
+}
+
+/** One allowlisted name per header column (null = skip that column). */
+function sanitizeHeaderNames(header: string[]): Array<string | null> {
+  const used = new Set<string>();
+  return header.map((h) => safePropertyName(h, used));
 }
 
 /** Detect + join in one call for the buffer ingest path (counties → states). */

@@ -23,7 +23,7 @@ SQL embedding.
 | id | severity | summary |
 | --- | --- | --- |
 | SEC-otherSource-acl | High | Assert `canRead` on every pipeline `otherSource` (clip/erase/join/filter) on save, preview, recipe run, GeoJSON read; extend `extractDependencies`. |
-| SEC-expr-field-allowlist | High | Allowlist field identifiers at ingest + expression compile; stop quote-doubling-only SQL embed. |
+| SEC-expr-field-allowlist | High | Allowlist field identifiers at ingest + expression compile; stop quote-doubling-only SQL embed. (shipping) |
 | SEC-ingest-zip-budget | Medium | Central-directory expansion budget before `/vsizip/` (reuse tile-conversion pattern). |
 | SEC-records-bbox-throttle | Medium | DB-side bbox or scan cap + tighter throttle on OGC Records. |
 | SEC-trivy-workers | Medium | Trivy matrix for `pointcloud-worker` and `script-runner`. |

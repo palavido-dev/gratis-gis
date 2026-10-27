@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Expression `{{field}}` refs and ingest schema keys must match
+  `[A-Za-z_][A-Za-z0-9_]*` (max 63). Filter / calculate-field SQL
+  emitters refuse non-allowlisted names instead of quote-doubling
+  alone. CSV / GDAL headers are slugified onto the same allowlist
+  (SEC-expr-field-allowlist).
 - Derived-layer save, preview, and GeoJSON read now require
   `canRead` on every pipeline `otherSource` (clip / erase /
   spatial-join / spatial-filter), not only the primary source
