@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics analysis job | branch `cursor/zonal-stats-primitive-2838` |
+| R1-zonal-stats-primitive | research-cycle-1 | Zonal statistics analysis job | PR #334 on `cursor/zonal-stats-primitive-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
