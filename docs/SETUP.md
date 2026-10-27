@@ -44,7 +44,7 @@ of the images we pull (notably `pramsey/pg_tileserv` and the
 default `mediagis/nominatim`) only publish amd64 builds; without
 Rosetta they fail to start with a `no matching manifest` error.
 The other infra images (`postgis/postgis`, `quay.io/keycloak/keycloak`,
-`pgsty/silo` — S3-compatible MinIO fork after `minio/minio` left
+`pgsty/silo`  -  S3-compatible MinIO fork after `minio/minio` left
 Docker Hub) all have native arm64 builds and run at full speed.
 
 
@@ -343,7 +343,7 @@ gratis-gis/
 ├── apps/
 │   ├── portal-api/        NestJS backend (port 4000)
 │   ├── portal-web/        Next.js frontend (port 3000)
-│   └── portal-mcp/        Read-only MCP server for the portal API
+│   └── portal-mcp/        MCP server for the portal API (read + optional write tools)
 ├── packages/
 │   ├── engine/            Observation-log engine core
 │   ├── shared-types/      TS types both apps depend on

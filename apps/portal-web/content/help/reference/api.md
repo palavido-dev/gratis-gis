@@ -62,6 +62,13 @@ provisioning afterwards; the item takes features straight away.
 | `PATCH /api/items/:id/layers/:layer/features/:fid` | Update one feature's geometry or properties. |
 | `DELETE /api/items/:id/layers/:layer/features/:fid` | Remove one feature. |
 | `GET /api/items/:id/layers/:layer/features-search?q=&fields=` | Text containment search. |
+| `GET /api/items/:id/layers/:layer/delta?since=N` | Observation-log changes (including deletes) since sync version `N`, for O(changes) field / QGIS sync. |
+
+Feature `PATCH` / `DELETE` accept `checkOnly=true` to validate
+optimistic concurrency (`baseObservationId`) and schema without
+writing. A `409` conflict response includes the losing-side edit;
+the portal also keeps a capped `syncConflicts` list on the layer
+for later review in the Layer data panel.
 
 Read parameters: `limit`, `cursor`, `at`, `bbox`, `parentFk` +
 `parentId`, `timeField` + `timeFrom` + `timeTo`.
@@ -151,7 +158,20 @@ A MapLibre style document per collection, served as
 
 ### OGC API Records
 
-Catalogue records for discovery, at `/api/public/ogc/records`.
+Catalogue records for discovery. QGIS MetaSearch and similar
+clients should prefer the searchable-catalog collection:
+
+```
+GET /api/public/ogc/collections/catalog
+GET /api/public/ogc/collections/catalog/items
+GET /api/public/ogc/records
+```
+
+`/records` stays as an alias. Data-layer records include a
+`FILE:GEO` GeoJSON enclosure so MetaSearch Add Data can load
+features. Curated DCAT / Aardvark themes live on items as
+`dcat_theme_sm` (separate from free-form keywords); harvest tools
+can also fetch `GET /api/public/ogc/aardvark/{id}.json`.
 
 ### STAC
 
@@ -197,5 +217,5 @@ version of everything above and a good deal more.
 
 ## See also
 
-- [Python client](/help/reference/python-client) — a wrapper around all of this
-- [API keys](/help/reference/api-keys) — authentication
+- [Python client](/help/reference/python-client): a wrapper around all of this
+- [API keys](/help/reference/api-keys): authentication

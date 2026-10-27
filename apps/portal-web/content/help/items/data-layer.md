@@ -67,9 +67,23 @@ observation in the engine's log. This means:
 - **Undo works at every level**. Single-row, batch, layer-wide.
 - **Time-travel queries**. Show me this layer as of last Tuesday.
 - **Audit trail**. Every observation records who changed what
- and when.
+  and when.
 
 The bitemporal engine is mostly invisible day-to-day. Where you
 see it: the **As of** time slider in the map editor and the
 **History** column when you right-click a feature in the
 attribute table.
+
+## Sync versions and conflicts
+
+Each sublayer also carries a monotonic **sync version** that bumps
+when a feature write batch is accepted. Field apps and the QGIS
+plugin can ask for only the changes since a version they already
+have (`delta?since=N` on the HTTP API), instead of re-downloading
+the whole layer.
+
+When two editors change the same feature and one save loses the
+optimistic concurrency check, the losing edit is kept on the layer
+as a **sync conflict**. Open the **Layer data** panel on the item
+page to review recent conflicts after a sync, so a field crew can
+see what did not land and decide what to retry.
