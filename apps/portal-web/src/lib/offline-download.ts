@@ -860,12 +860,14 @@ export function applyDeltaChanges(
       ...(change.properties ?? {}),
       _global_id: change.entity,
     };
-    const feature: GeoJSON.Feature = {
-      type: 'Feature',
+    // Geometry may be null on table rows / unlocated features; the
+    // project's GeoJSON.Feature typedef requires Geometry, so assert.
+    const feature = {
+      type: 'Feature' as const,
       id: change.entity,
       geometry: change.geometry,
       properties: props,
-    };
+    } as GeoJSON.Feature;
     byEntity.set(change.entity, {
       kind: 'upsert',
       row: {
