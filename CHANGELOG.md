@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Help article for the dashboard Filter widget (category
+  cross-filter against charts, maps, and tables).
+
 - Anonymous markup on public maps when `allowAnonymousDrawings` is
   enabled (default off): logged-out visitors get a cookie session
   and can create/edit/delete their own drawing sets; promote stays
