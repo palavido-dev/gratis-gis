@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-sync-conflict-artifact | research-cycle-1 | `checkOnly` dry run + recoverable conflict artifacts | Branch `cursor/sync-conflict-artifact-2838` |
+| R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | PR #330 on `cursor/drawings-lines-promote-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-drawings-lines-promote | research-cycle-1 | Drawings Phase 1.5: line/polygon + promote to data layer | #154 |
 | R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | #155; after drawings kinds help |
 | R1-dcat-themes-aardvark | research-cycle-1 | DCAT themes + Aardvark export | #116 |
 | R1-meta-ui-viewer-hint | research-cycle-1 | Server-computed `meta.ui` viewer hint | Web + QGIS alignment |
@@ -32,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R1-sync-conflict-artifact | 2026-10-27 | Merged #329: checkOnly + layer syncConflicts artifacts |
 | R1-layer-delta-sync | 2026-10-27 | Merged #328: layer syncVersion + GET .../delta?since=N |
 | R1-records-metasearch | 2026-10-27 | Merged #327: `/collections/catalog` searchable-catalog for MetaSearch |
 | Q-rel-09118 | 2026-10-27 | Tagged v0.9.118; app images on prod. PG18 boot failed; host rolled back to PG17 |

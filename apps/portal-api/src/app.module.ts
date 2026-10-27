@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { GroupsModule } from './groups/groups.module.js';
 import { ItemsModule } from './items/items.module.js';
+import { DrawingsPromoteModule } from './items/drawings-promote.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { PostgisLiveModule } from './postgis-live/postgis-live.module.js';
 import { PrintRenderModule } from './print/print-render.module.js';
@@ -71,6 +72,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     UsersModule,
     GroupsModule,
     ItemsModule,
+    DrawingsPromoteModule,
     StorageModule,
     IngestModule,
     ImportJobsModule,

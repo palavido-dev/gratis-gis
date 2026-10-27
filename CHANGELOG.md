@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Map markup Phase 1.5: pin / line / polygon tools via terra-draw,
+  overlay rendering for lines and polygons, and **Promote** which
+  copies a drawing set into a private data_layer (splitting mixed
+  geometries into sublayers) and adds it to the map when the viewer
+  can edit (#154).
 - OGC API Records mounts at `/api/public/ogc/collections/catalog` with
   `itemType=record` so QGIS MetaSearch can discover the public
   catalogue. `/records` stays as an alias; conformance declares

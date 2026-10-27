@@ -2355,14 +2355,34 @@ export const es: Partial<CatalogShape> = {
     renameTitle: 'Clic para renombrar',
     deleteAria: 'Eliminar anotación',
     somethingWrong: 'Algo salió mal',
-    empty: 'Aún no hay anotaciones. Añade un conjunto y luego coloca pines en el mapa.',
-    dropPin: 'Colocar pin en el centro',
+    empty:
+      'Aún no hay anotaciones. Añade un conjunto y dibuja pines, líneas o polígonos.',
+    dropPin: 'Colocar pin en el centro del mapa',
+    dropPinShort: 'Centro',
     addMarkup: 'Añadir anotación',
     signInToMarkup: 'Inicia sesión para añadir anotaciones a este mapa.',
     pins: '{count, plural, one {# pin} other {# pines}}',
+    features:
+      '{count, plural, one {# entidad} other {# entidades}}',
     deleteConfirm:
       '¿Eliminar la anotación "{title}"? Esto no se puede deshacer.',
     setColorAria: 'Establecer color {color}',
+    toolPin: 'Dibujar pines',
+    toolLine: 'Dibujar líneas',
+    toolPolygon: 'Dibujar polígonos',
+    hintPin:
+      'Haz clic en el mapa para soltar un pin. Vuelve a hacer clic en la herramienta para parar.',
+    hintLine:
+      'Haz clic para añadir vértices; doble clic o Enter para terminar la línea.',
+    hintPolygon:
+      'Haz clic para añadir vértices; doble clic o Enter para cerrar el polígono.',
+    promote: 'Promover',
+    promoteTitle: 'Guardar esta anotación como capa de datos',
+    promoting: 'Promoviendo…',
+    promoteEmpty: 'Añade al menos una entidad antes de promover.',
+    promoteFailed: 'No se pudo promover esta anotación a una capa de datos.',
+    promoteDone:
+      'Se guardaron {count, plural, one {# entidad} other {# entidades}} de "{title}" como capa de datos.',
   },
   mapLegend: {
     title: 'Leyenda',

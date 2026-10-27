@@ -2350,14 +2350,34 @@ export const ptBR: Partial<CatalogShape> = {
     renameTitle: 'Clique para renomear',
     deleteAria: 'Excluir anotação',
     somethingWrong: 'Algo deu errado',
-    empty: 'Ainda não há anotações. Adicione um conjunto e depois coloque pinos no mapa.',
-    dropPin: 'Colocar pino no centro',
+    empty:
+      'Ainda não há anotações. Adicione um conjunto e desenhe pinos, linhas ou polígonos.',
+    dropPin: 'Colocar pino no centro do mapa',
+    dropPinShort: 'Centro',
     addMarkup: 'Adicionar anotação',
     signInToMarkup: 'Entre para adicionar anotações a este mapa.',
     pins: '{count, plural, one {# pino} other {# pinos}}',
+    features:
+      '{count, plural, one {# feição} other {# feições}}',
     deleteConfirm:
       'Excluir a anotação "{title}"? Isso não pode ser desfeito.',
     setColorAria: 'Definir cor {color}',
+    toolPin: 'Desenhar pinos',
+    toolLine: 'Desenhar linhas',
+    toolPolygon: 'Desenhar polígonos',
+    hintPin:
+      'Clique no mapa para soltar um pino. Clique de novo na ferramenta para parar.',
+    hintLine:
+      'Clique para adicionar vértices; clique duplo ou Enter para terminar a linha.',
+    hintPolygon:
+      'Clique para adicionar vértices; clique duplo ou Enter para fechar o polígono.',
+    promote: 'Promover',
+    promoteTitle: 'Salvar esta anotação como camada de dados',
+    promoting: 'Promovendo…',
+    promoteEmpty: 'Adicione pelo menos uma feição antes de promover.',
+    promoteFailed: 'Não foi possível promover esta anotação para uma camada.',
+    promoteDone:
+      'Salvou {count, plural, one {# feição} other {# feições}} de "{title}" como camada de dados.',
   },
   mapLegend: {
     title: 'Legenda',

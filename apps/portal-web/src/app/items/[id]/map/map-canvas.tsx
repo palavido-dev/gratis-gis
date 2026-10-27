@@ -2558,27 +2558,35 @@ function toolCursor(mode: SelectToolMode): string {
 }
 
 /**
- * #154 Drawings overlay sync. Owns a single MapLibre GeoJSON
- * source (`drawings:overlay`) and two layers on top of it:
- *   - `drawings:fill` — the colored pin circle, sized constant
- *     in pixels.
- *   - `drawings:stroke` — a white halo so the pin reads against
- *     any basemap.
+ * #154 / Phase 1.5 Drawings overlay sync. Owns a single MapLibre
+ * GeoJSON source (`drawings:overlay`) and layers on top of it:
+ *   - `drawings:fill` / `drawings:stroke` — pin circles (Point)
+ *   - `drawings:line` — LineString stroke
+ *   - `drawings:poly-fill` / `drawings:poly-outline` — Polygon
  *
- * Color comes from each pin feature's properties (`color`), which
- * are stamped per-pin at flatten time from the parent drawing
- * set's color so a recolor doesn't require recomputing the source
- * data. Visibility on a set hides its features by emitting a
- * filter expression that drops features whose `setId` is in the
- * hidden list.
+ * Color comes from each feature's properties (`color`), stamped at
+ * flatten time from the parent drawing set so a recolor does not
+ * require recomputing the source data. Visibility on a set hides
+ * its features via a filter on `setId`.
  *
  * Idempotent: re-runs on every drawings prop change. Removes the
- * source + layers when there is no markup so the renderer doesn't
+ * source + layers when there is no markup so the renderer does not
  * carry stale state across maps.
  */
 const DRAWINGS_SOURCE_ID = 'drawings:overlay';
 const DRAWINGS_FILL_LAYER_ID = 'drawings:fill';
 const DRAWINGS_STROKE_LAYER_ID = 'drawings:stroke';
+const DRAWINGS_LINE_LAYER_ID = 'drawings:line';
+const DRAWINGS_POLY_FILL_LAYER_ID = 'drawings:poly-fill';
+const DRAWINGS_POLY_OUTLINE_LAYER_ID = 'drawings:poly-outline';
+
+const DRAWINGS_LAYER_IDS = [
+  DRAWINGS_POLY_FILL_LAYER_ID,
+  DRAWINGS_POLY_OUTLINE_LAYER_ID,
+  DRAWINGS_LINE_LAYER_ID,
+  DRAWINGS_STROKE_LAYER_ID,
+  DRAWINGS_FILL_LAYER_ID,
+] as const;
 
 function syncDrawings(
   m: maplibregl.Map,
@@ -2599,6 +2607,8 @@ function syncDrawings(
           color: f.style?.color ?? set.color,
           kind: f.kind,
           label: f.label ?? '',
+          strokeWidth: f.style?.strokeWidth ?? 3,
+          fillOpacity: f.style?.fillOpacity ?? 0.25,
         },
       });
     }
@@ -2613,8 +2623,9 @@ function syncDrawings(
   if (features.length === 0) {
     // Tear down so a map cleared of all markup doesn't keep an
     // empty source + layer pair hanging around in MapLibre's state.
-    if (m.getLayer(DRAWINGS_STROKE_LAYER_ID)) m.removeLayer(DRAWINGS_STROKE_LAYER_ID);
-    if (m.getLayer(DRAWINGS_FILL_LAYER_ID)) m.removeLayer(DRAWINGS_FILL_LAYER_ID);
+    for (const id of DRAWINGS_LAYER_IDS) {
+      if (m.getLayer(id)) m.removeLayer(id);
+    }
     if (m.getSource(DRAWINGS_SOURCE_ID)) m.removeSource(DRAWINGS_SOURCE_ID);
     return;
   }
@@ -2633,45 +2644,101 @@ function syncDrawings(
     hiddenSetIds.length === 0
       ? ['literal', true]
       : ['!', ['in', ['get', 'setId'], ['literal', hiddenSetIds]]];
-  if (!m.getLayer(DRAWINGS_STROKE_LAYER_ID)) {
-    m.addLayer({
-      id: DRAWINGS_STROKE_LAYER_ID,
-      type: 'circle',
-      source: DRAWINGS_SOURCE_ID,
-      filter: ['all', ['==', ['geometry-type'], 'Point'], visibilityFilter as never],
-      paint: {
-        'circle-radius': 10,
-        'circle-color': '#ffffff',
-        'circle-stroke-color': '#111827',
-        'circle-stroke-width': 1.5,
-      },
-    });
-  } else {
-    m.setFilter(DRAWINGS_STROKE_LAYER_ID, [
+
+  const ensureCircle = (
+    id: string,
+    paint: Record<string, unknown>,
+  ) => {
+    const filter: maplibregl.FilterSpecification = [
       'all',
       ['==', ['geometry-type'], 'Point'],
       visibilityFilter as never,
-    ]);
+    ];
+    if (!m.getLayer(id)) {
+      m.addLayer({
+        id,
+        type: 'circle',
+        source: DRAWINGS_SOURCE_ID,
+        filter,
+        paint,
+      } as maplibregl.CircleLayerSpecification);
+    } else {
+      m.setFilter(id, filter);
+    }
+  };
+
+  // Pins: white halo under colored fill so they read on any basemap.
+  ensureCircle(DRAWINGS_STROKE_LAYER_ID, {
+    'circle-radius': 10,
+    'circle-color': '#ffffff',
+    'circle-stroke-color': '#111827',
+    'circle-stroke-width': 1.5,
+  });
+  ensureCircle(DRAWINGS_FILL_LAYER_ID, {
+    'circle-radius': 6,
+    'circle-color': ['get', 'color'],
+    'circle-stroke-color': '#ffffff',
+    'circle-stroke-width': 1.5,
+  });
+
+  const lineFilter: maplibregl.FilterSpecification = [
+    'all',
+    ['==', ['geometry-type'], 'LineString'],
+    visibilityFilter as never,
+  ];
+  if (!m.getLayer(DRAWINGS_LINE_LAYER_ID)) {
+    m.addLayer({
+      id: DRAWINGS_LINE_LAYER_ID,
+      type: 'line',
+      source: DRAWINGS_SOURCE_ID,
+      filter: lineFilter,
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+        'line-opacity': 0.95,
+      },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+    });
+  } else {
+    m.setFilter(DRAWINGS_LINE_LAYER_ID, lineFilter);
   }
-  if (!m.getLayer(DRAWINGS_FILL_LAYER_ID)) {
+
+  const polyFilter: maplibregl.FilterSpecification = [
+    'all',
+    ['==', ['geometry-type'], 'Polygon'],
+    visibilityFilter as never,
+  ];
+  if (!m.getLayer(DRAWINGS_POLY_FILL_LAYER_ID)) {
     m.addLayer({
-      id: DRAWINGS_FILL_LAYER_ID,
-      type: 'circle',
+      id: DRAWINGS_POLY_FILL_LAYER_ID,
+      type: 'fill',
       source: DRAWINGS_SOURCE_ID,
-      filter: ['all', ['==', ['geometry-type'], 'Point'], visibilityFilter as never],
+      filter: polyFilter,
       paint: {
-        'circle-radius': 6,
-        'circle-color': ['get', 'color'],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1.5,
+        'fill-color': ['get', 'color'],
+        'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.25],
       },
     });
   } else {
-    m.setFilter(DRAWINGS_FILL_LAYER_ID, [
-      'all',
-      ['==', ['geometry-type'], 'Point'],
-      visibilityFilter as never,
-    ]);
+    m.setFilter(DRAWINGS_POLY_FILL_LAYER_ID, polyFilter);
+  }
+  if (!m.getLayer(DRAWINGS_POLY_OUTLINE_LAYER_ID)) {
+    m.addLayer({
+      id: DRAWINGS_POLY_OUTLINE_LAYER_ID,
+      type: 'line',
+      source: DRAWINGS_SOURCE_ID,
+      filter: polyFilter,
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
+        'line-opacity': 0.95,
+      },
+    });
+  } else {
+    m.setFilter(DRAWINGS_POLY_OUTLINE_LAYER_ID, polyFilter);
   }
 }
 
