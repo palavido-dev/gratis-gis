@@ -7,6 +7,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Analyze Buffer / Clip guides and Analyze panel chrome (boot
+  steps, Builder/SQL toggle, starters, Run / Save as layer) go
+  through locale catalogs (en / es / fr / de / pt-BR)
+  (R6-i18n-analyze-guides / #162). SQL snippets stay as-is.
+
 ### Added
 
 <<<<<<< HEAD
