@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-162a / R1-i18n-string-sweep | issue #162 | Terrain analysis i18n extraction | branch `cursor/i18n-string-sweep-2838` |
+| Q-162a / R1-i18n-string-sweep | issue #162 | Terrain analysis i18n extraction | PR #335 on `cursor/i18n-string-sweep-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
