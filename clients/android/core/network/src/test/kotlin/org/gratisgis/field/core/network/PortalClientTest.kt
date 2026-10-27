@@ -134,4 +134,27 @@ class PortalClientTest {
     assertEquals("Demo", info.name)
     assertEquals("https://auth.example/realms/gratis-gis", info.auth.issuer)
   }
+
+  @Test
+  fun getLayerDeltaPassesSinceAndLimit() = runTest {
+    val engine = MockEngine { request ->
+      assertEquals(
+        "https://portal.example/api/items/dl1/layers/main/delta?since=42&limit=10000",
+        request.url.toString(),
+      )
+      respond(
+        """{"syncVersion":50,"since":42,"truncated":false,"changes":[{"observationId":"o1","entity":"e1","kind":"update","syncVersion":43,"geometry":null,"properties":{"n":1}}]}""",
+        HttpStatusCode.OK,
+        jsonHeaders,
+      )
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      val body = client.getLayerDelta("dl1", "main", since = 42, limit = 10_000)
+      assertEquals(50L, body.syncVersion)
+      assertEquals(42L, body.since)
+      assertEquals(1, body.changes.size)
+      assertEquals("e1", body.changes[0].entity)
+      assertEquals("update", body.changes[0].kind)
+    }
+  }
 }

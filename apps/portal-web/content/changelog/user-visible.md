@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Faster offline refresh on the Android field app
+Taking a collection offline again on Android now downloads only what changed on each layer when a previous download left a sync cursor, instead of pulling the whole layer every time. The first download is unchanged.
+
 ## 2026-10-27 - Buffer a layer from Analyze without faking meters
 On a data layer's Analyze tab, **Buffer this layer** opens a short distance and unit form and creates a derived layer that runs the buffer on PostGIS. The in-browser SQL builder still refuses meter buffers (no PROJ in that engine), so this is the honest path instead of a degree-unit trap.
 

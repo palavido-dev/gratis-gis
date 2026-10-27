@@ -113,6 +113,24 @@ class PortalClient(
     }.bodyAsText()
 
   /**
+   * `GET /api/items/{id}/layers/{layerKey}/delta?since=N`. Observation
+   * log since the given syncVersion cursor (inclusive lower bound is
+   * exclusive on the server: changes with syncVersion > since). Used
+   * by OfflineDownloader for incremental refresh; pass `limit=1` after
+   * a full GeoJSON pull to seed the head cursor without applying rows.
+   */
+  suspend fun getLayerDelta(
+    dataLayerId: String,
+    layerKey: String,
+    since: Long,
+    limit: Int? = null,
+  ): LayerDeltaResponse =
+    http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/delta") {
+      parameter("since", since)
+      if (limit != null) parameter("limit", limit)
+    }.body()
+
+  /**
    * `GET /api/items/{id}/offline-packages/{packageId}/file`, streamed
    * to `sink`. Returns bytes written. The caller writes to a temp file
    * and renames on success so a partial download never looks complete.

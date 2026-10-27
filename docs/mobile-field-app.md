@@ -458,9 +458,11 @@ GET /api/items/{itemId}/offline-packages/{packageId}/file
 
 `delta?since=N` returns `{ syncVersion, since, changes[], truncated }`
 with change kinds `create|update|delete|derive|observe` and feature id
-`entity`. The field PWA offline refresh uses it when a local
-`syncVersion` cursor exists (full GeoJSON on first download, then
-incremental); the Android client should do the same once it lands.
+`entity`. The field PWA offline refresh and the Android
+`OfflineDownloader` both use it when a local `syncVersion` cursor
+exists (full GeoJSON on first download / unknown cursor, then
+incremental upserts and deletes; Android persists the cursor on
+`LayerEntity`).
 
 Feature `PATCH` / `DELETE` accept `checkOnly=true` for a dry run that
 validates `baseObservationId` and schema without writing (#329). The
