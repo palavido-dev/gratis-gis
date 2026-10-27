@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Download markup as GeoJSON
+Open the Markup panel and click **GeoJSON** on a set to download its sketches as a FeatureCollection. Works for any set you can see — handy for dropping redlines into QGIS or emailing a file without promoting to a data layer.
+
 ## 2026-10-27 - Re-apply a sync conflict from the layer panel
 When a sync conflict shows on a layer's data panel, editors can re-apply the losing edit after a confirm that compares losing vs current. Updates overwrite the live feature, deletes remove it, and a missing feature is recreated from the losing side.
 

@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Markup panel **GeoJSON** download builds a FeatureCollection from
+  the already-loaded drawing set (kind / label / note / color + set
+  provenance) and triggers a browser save; available to any viewer
+  who can see the set (R4-drawings-geojson-export / #154).
 - portal-mcp `query_osm` read tool over `GET /api/osm/query`
   (thin facade on OsmService / Overpass). Requires a bbox;
   caps area at 1 square degree and features at 5000 (default

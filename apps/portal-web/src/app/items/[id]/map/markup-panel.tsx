@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpFromLine,
   Circle,
+  Download,
   Eye,
   EyeOff,
   Hexagon,
@@ -46,6 +47,7 @@ import {
 } from '@gratis-gis/shared-types';
 import type * as maplibregl from 'maplibre-gl';
 import { readAnonDrawingDisplay } from '@/lib/anon-drawing-session';
+import { downloadDrawingSetGeoJson } from '@/lib/drawings-geojson-export';
 import {
   drawModeFor,
   setDrawMode,
@@ -528,6 +530,21 @@ export function MarkupPanel({
     [drawings, canEditSet, mapId, onPromoted, t],
   );
 
+  /** Client-side GeoJSON download from features already on the panel. */
+  const exportSetGeoJson = useCallback(
+    (setId: string) => {
+      const set = drawings.find((s) => s.id === setId);
+      if (!set) return;
+      const result = downloadDrawingSetGeoJson(set);
+      if (!result.downloaded) {
+        setError(t('mapMarkup.exportEmpty'));
+      } else {
+        setError(null);
+      }
+    },
+    [drawings, t],
+  );
+
   const sorted = useMemo(
     () => [...drawings].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [drawings],
@@ -750,6 +767,16 @@ export function MarkupPanel({
                       >
                         {t('mapMarkup.dropPinShort')}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => exportSetGeoJson(set.id)}
+                        disabled={busy || set.features.length === 0}
+                        className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        title={t('mapMarkup.exportTitle')}
+                      >
+                        <Download className="h-3 w-3" />
+                        {t('mapMarkup.export')}
+                      </button>
                       {currentUser ? (
                         <button
                           type="button"
@@ -777,6 +804,19 @@ export function MarkupPanel({
                         title={t('mapMarkup.deleteAria')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : set.features.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => exportSetGeoJson(set.id)}
+                        disabled={busy}
+                        className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        title={t('mapMarkup.exportTitle')}
+                      >
+                        <Download className="h-3 w-3" />
+                        {t('mapMarkup.export')}
                       </button>
                     </div>
                   ) : null}
