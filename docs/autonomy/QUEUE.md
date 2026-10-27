@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | Branch `cursor/feature-anchored-comments-2838` |
+| R1-feature-anchored-comments | research-cycle-1 | Feature-anchored comment threads | PR #331 on `cursor/feature-anchored-comments-2838`; waiting CI |
 
 ## queued (ship-without-input)
 
