@@ -51,6 +51,7 @@ function degreesFromKm(km: number): number {
  * already carry an uploaded thumbnailUrl pass through untouched.
  */
 import { synthesizeThumbnailUrl } from './thumbnail-url.js';
+import { withMetaUi } from './meta-ui.js';
 import {
   extractDependencies,
   normalizeArcgisUrl,
@@ -989,7 +990,7 @@ export class ItemsService {
       if (!this.sharing.canAdmin(user, item)) {
         throw new NotFoundException('Item not found');
       }
-      return synthesizeThumbnailUrl(item);
+      return withMetaUi(synthesizeThumbnailUrl(item));
     }
     if (!this.sharing.canRead(user, item, item.shares)) {
       // Don't leak existence; return 404 instead of 403 for unauthenticated reads
@@ -1007,9 +1008,14 @@ export class ItemsService {
       // because the dataJson contract is loose, but the rest of the
       // service expects Prisma's `JsonValue` so callers of get() see
       // the same type regardless of branch.
-      return synthesizeThumbnailUrl({ ...item, data: filtered as typeof item.data });
+      return withMetaUi(
+        synthesizeThumbnailUrl({
+          ...item,
+          data: filtered as typeof item.data,
+        }),
+      );
     }
-    return synthesizeThumbnailUrl(item);
+    return withMetaUi(synthesizeThumbnailUrl(item));
   }
 
   /**

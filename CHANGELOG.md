@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Item detail responses include a server-computed `meta.ui` block
+  (suggested map layers, downloads, thumbnail, landing path) so
+  portal-web, QGIS, and MCP share one presentation contract
+  (`docs/meta-ui.md`).
 - Curated Aardvark / DCAT themes (21-value `dcat_theme_sm`) on item
   create/edit, split from free-form keywords in OGC Records and the
   public catalog, plus `GET /api/public/ogc/aardvark/{id}.json` for
