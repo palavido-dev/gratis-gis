@@ -68,6 +68,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Map editor right-rail title uses the existing `mapSettings.title`
+  catalog entry instead of a hard-coded English string
+  (R12-i18n-map-settings-title / #162).
 - Field line/polygon vertex progress subtitle (count, tap Finish,
   need N more) goes through en/es/fr/de/pt-BR catalogs
   (R12-i18n-field-vertex-progress-chrome / #162).
