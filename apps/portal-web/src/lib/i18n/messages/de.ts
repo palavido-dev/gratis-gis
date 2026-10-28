@@ -2976,6 +2976,42 @@ export const de: Partial<CatalogShape> = {
       org: 'Organisation',
       public: 'Öffentlich',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Sichtbarkeit',
+    yourOrganization: 'Ihre Organisation',
+    accessPrivateDesc:
+      'Nur Sie und Personen, mit denen Sie unten teilen.',
+    accessOrgDescDefault:
+      'Jeder mit Anmeldung in Ihrer Organisation kann dies sehen.',
+    accessOrgDescNamed:
+      'Jeder mit Anmeldung bei {org} kann dies sehen.',
+    accessPublicDesc: 'Jeder im Internet, ohne Anmeldung.',
+    orgAlreadySeesRest:
+      'kann dieses Element bereits sehen. Freigaben unten dienen nur dazu, Bearbeiten oder Verwalten zusätzlich zu gewähren.',
+    publicMeansAnyoneRest:
+      'bedeutet, dass jeder im Internet dies ansehen kann. Freigaben unten dienen nur dazu, Bearbeiten oder Verwalten zu gewähren.',
+    changePermissionAria: 'Berechtigung ändern',
+    canView: 'kann ansehen',
+    canDownload: 'kann herunterladen',
+    canEdit: 'kann bearbeiten',
+    canAdmin: 'kann verwalten',
+    rowScopeAria: 'Zeilenbereich',
+    rowScopeTitle: 'Was können sie sehen / bearbeiten?',
+    allFeatures: 'alle Features',
+    onlyTheirs: 'nur ihre eigenen',
+    restrictToAreaAria: 'Auf Gebiet beschränken',
+    editGeoRestrictionTitle: 'Geografische Einschränkung bearbeiten',
+    restrictGeoTitle: 'Auf ein geografisches Gebiet beschränken',
+    removeShareAria: 'Freigabe entfernen',
+    searchGroupsPlaceholder: 'Gruppen suchen...',
+    searchPeoplePlaceholder: 'Personen in Ihrer Org. suchen...',
+    noGroupsYet: 'Noch keine Gruppen. Erstellen Sie eine unter /groups.',
+    startTypingGroups: 'Tippen Sie, um Gruppen zu filtern.',
+    startTypingPeople: 'Tippen Sie einen Namen oder Benutzernamen.',
+    groupTab: 'Gruppe',
+    userTab: 'Benutzer',
+    editorItemAccess: 'Editor-Elementzugriff',
+    checkingDependencyAccess: 'Abhängigkeitszugriff wird geprüft...',
     permission: {
       view: 'Ansehen',
       download: 'Herunterladen',

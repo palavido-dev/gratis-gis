@@ -2967,6 +2967,42 @@ export const fr: Partial<CatalogShape> = {
       org: 'Organisation',
       public: 'Public',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Visibilité',
+    yourOrganization: 'Votre organisation',
+    accessPrivateDesc:
+      'Uniquement vous et les personnes avec qui vous partagez ci-dessous.',
+    accessOrgDescDefault:
+      'Toute personne disposant d’un compte dans votre organisation peut voir ceci.',
+    accessOrgDescNamed:
+      'Toute personne disposant d’un compte chez {org} peut voir ceci.',
+    accessPublicDesc: 'Toute personne sur Internet, sans connexion.',
+    orgAlreadySeesRest:
+      'peut déjà voir cet élément. Les partages ci-dessous servent seulement à accorder la modification ou l’administration en plus.',
+    publicMeansAnyoneRest:
+      'signifie que toute personne sur Internet peut le consulter. Les partages ci-dessous servent seulement à accorder la modification ou l’administration.',
+    changePermissionAria: 'Modifier l’autorisation',
+    canView: 'peut consulter',
+    canDownload: 'peut télécharger',
+    canEdit: 'peut modifier',
+    canAdmin: 'peut administrer',
+    rowScopeAria: 'Portée des lignes',
+    rowScopeTitle: 'Que peuvent-ils voir / modifier ?',
+    allFeatures: 'toutes les entités',
+    onlyTheirs: 'uniquement les leurs',
+    restrictToAreaAria: 'Restreindre à une zone',
+    editGeoRestrictionTitle: 'Modifier la restriction géographique',
+    restrictGeoTitle: 'Restreindre à une zone géographique',
+    removeShareAria: 'Retirer le partage',
+    searchGroupsPlaceholder: 'Rechercher des groupes...',
+    searchPeoplePlaceholder: 'Rechercher des personnes dans votre org...',
+    noGroupsYet: 'Aucun groupe pour l’instant. Créez-en un depuis /groups.',
+    startTypingGroups: 'Commencez à taper pour filtrer les groupes.',
+    startTypingPeople: 'Commencez à taper un nom ou un identifiant.',
+    groupTab: 'Groupe',
+    userTab: 'Utilisateur',
+    editorItemAccess: 'Accès à l’élément éditeur',
+    checkingDependencyAccess: 'Vérification de l’accès aux dépendances...',
     permission: {
       view: 'Lecture',
       download: 'Téléchargement',

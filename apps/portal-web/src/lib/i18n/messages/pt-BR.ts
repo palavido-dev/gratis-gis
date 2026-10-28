@@ -2957,6 +2957,42 @@ export const ptBR: Partial<CatalogShape> = {
       org: 'Organização',
       public: 'Público',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Visibilidade',
+    yourOrganization: 'Sua organização',
+    accessPrivateDesc:
+      'Somente você e as pessoas com quem você compartilha abaixo.',
+    accessOrgDescDefault:
+      'Qualquer pessoa com login na sua organização pode ver isto.',
+    accessOrgDescNamed:
+      'Qualquer pessoa com login em {org} pode ver isto.',
+    accessPublicDesc: 'Qualquer pessoa na internet, sem login.',
+    orgAlreadySeesRest:
+      'já pode ver este item. Os compartilhamentos abaixo só servem para conceder edição ou administração além disso.',
+    publicMeansAnyoneRest:
+      'significa que qualquer pessoa na internet pode ver isto. Os compartilhamentos abaixo só servem para conceder edição ou administração.',
+    changePermissionAria: 'Alterar permissão',
+    canView: 'pode ver',
+    canDownload: 'pode baixar',
+    canEdit: 'pode editar',
+    canAdmin: 'pode administrar',
+    rowScopeAria: 'Escopo de linhas',
+    rowScopeTitle: 'O que eles podem ver / editar?',
+    allFeatures: 'todas as feições',
+    onlyTheirs: 'somente as deles',
+    restrictToAreaAria: 'Restringir a uma área',
+    editGeoRestrictionTitle: 'Editar restrição geográfica',
+    restrictGeoTitle: 'Restringir a uma área geográfica',
+    removeShareAria: 'Remover compartilhamento',
+    searchGroupsPlaceholder: 'Pesquisar grupos...',
+    searchPeoplePlaceholder: 'Pesquisar pessoas na sua org...',
+    noGroupsYet: 'Ainda não há grupos. Crie um em /groups.',
+    startTypingGroups: 'Comece a digitar para filtrar grupos.',
+    startTypingPeople: 'Comece a digitar um nome ou usuário.',
+    groupTab: 'Grupo',
+    userTab: 'Usuário',
+    editorItemAccess: 'Acesso ao item do editor',
+    checkingDependencyAccess: 'Verificando acesso às dependências...',
     permission: {
       view: 'Ver',
       download: 'Baixar',
