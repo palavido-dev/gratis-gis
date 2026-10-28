@@ -65,6 +65,16 @@ One row per distinct group-key combination (or one row when
 
 There is no separate geometry-strategy control.
 
+## From a data layer Analyze tab
+
+On a data layer's **Analyze** tab, **Group by for this layer**
+opens one optional group key (or whole layer), one aggregate
+(`count`, `sum`, or `avg` on a numeric field), and an output
+name, then creates a private derived layer with a single
+aggregate step (same PostGIS `ST_Union` path as above). Multi-key
+and multi-agg authoring stay in Create → Derived layer. Expect a
+server job, not an instant browser result.
+
 ## Examples
 
 - **Hydrant count per parcel id** (after a spatial join that

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Group by for this layer from Analyze
+On a data layer's Analyze tab, **Group by for this layer** opens one optional group key (or whole layer), one aggregate (count / sum / avg), and an output name, then creates a private PostGIS derived layer. Geometry is always the union of each group (`ST_Union`). Multi-key and multi-agg stay in Create → Derived layer. Expect a server job, not an instant browser result.
+
 ## 2026-10-28 - Contour for this layer from Analyze
 On a point data layer's Analyze tab, **Contour for this layer** opens numeric field, auto interval, and optional min/max controls and creates a private PostGIS derived layer of TIN iso-lines (each line carries a `level` property). Not iso-polygons; dense point sets can be slow. Same path as Create → Derived layer → Contour. Expect a server job, not an instant browser result.
 

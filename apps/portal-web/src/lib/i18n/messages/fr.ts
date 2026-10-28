@@ -5166,6 +5166,36 @@ export const fr: Partial<CatalogShape> = {
     contourValidateField: 'Choisissez un champ numérique.',
     contourValidateInterval: 'L’intervalle doit être un nombre positif.',
     contourValidateRange: 'Le min doit être strictement inférieur au max lorsque les deux sont définis.',
+    groupByAction: 'Grouper cette couche',
+    groupByActionTitle:
+      'Créer une couche dérivée côté serveur qui regroupe les lignes par une clé avec un agrégat (géométrie ST_Union).',
+    groupByHeading: 'Grouper cette couche (couche dérivée serveur)',
+    groupByIntroBefore:
+      'Crée une couche dérivée privée avec une clé de groupe (ou toute la couche) et un agrégat (count / sum / avg). La géométrie est toujours ST_Union par groupe. Même recette que',
+    groupByHelpLink: 'Aide Group by',
+    groupByIntroTail:
+      '. Multi-clés / multi-agrégats restent dans Créer → Couche dérivée. Attendez un job serveur.',
+    groupByKey: 'Clé de groupe',
+    groupByKeyAria: 'Champ de groupement (optionnel)',
+    groupByWholeLayer: 'Toute la couche (sans clé)',
+    groupByOp: 'Agrégat',
+    groupByOpAria: 'Opération d’agrégation',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Champ numérique',
+    groupByAggFieldAria: 'Champ numérique pour sum ou avg',
+    groupByPickNumeric: 'Choisir un champ numérique…',
+    groupByNoNumeric: 'Aucun champ numérique sur cette couche',
+    groupByOutput: 'Nom de sortie',
+    groupByOutputAria: 'Nom de colonne de l’agrégat',
+    groupByHint:
+      'Les valeurs NULL de la clé forment leur propre groupe. Les grandes unions peuvent être lentes. Ouvrez le nouvel élément après le job serveur.',
+    groupByValidateKey: 'Choisissez une clé présente sur cette couche, ou toute la couche.',
+    groupByValidateOp: 'Choisissez count, sum ou avg.',
+    groupByValidateAggField: 'Choisissez un champ numérique pour sum ou avg.',
+    groupByValidateOutput: 'Le nom de sortie doit être un id de champ lettre/underscore.',
+    groupByValidateOutputCollision: 'Le nom de sortie ne doit pas entrer en collision avec la clé de groupe.',
   },
 
   serviceEditors: {

@@ -5159,6 +5159,36 @@ export const es: Partial<CatalogShape> = {
     contourValidateField: 'Elija un campo numérico.',
     contourValidateInterval: 'El intervalo debe ser un número positivo.',
     contourValidateRange: 'El mínimo debe ser estrictamente menor que el máximo si ambos están definidos.',
+    groupByAction: 'Agrupar esta capa',
+    groupByActionTitle:
+      'Crea una capa derivada en el servidor que resume filas por una clave con un agregado (geometría ST_Union).',
+    groupByHeading: 'Agrupar esta capa (capa derivada en el servidor)',
+    groupByIntroBefore:
+      'Crea una capa derivada privada con una clave de grupo (o toda la capa) y un agregado (count / sum / avg). La geometría es siempre ST_Union por grupo. Misma receta que',
+    groupByHelpLink: 'Ayuda de agrupar',
+    groupByIntroTail:
+      '. Varias claves / varios agregados siguen en Crear → Capa derivada. Espere un trabajo en el servidor.',
+    groupByKey: 'Clave de grupo',
+    groupByKeyAria: 'Campo para agrupar (opcional)',
+    groupByWholeLayer: 'Toda la capa (sin clave)',
+    groupByOp: 'Agregado',
+    groupByOpAria: 'Operación de agregado',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Campo numérico',
+    groupByAggFieldAria: 'Campo numérico para sum o avg',
+    groupByPickNumeric: 'Elija un campo numérico…',
+    groupByNoNumeric: 'No hay campos numéricos en esta capa',
+    groupByOutput: 'Nombre de salida',
+    groupByOutputAria: 'Nombre de columna del agregado',
+    groupByHint:
+      'Los valores NULL de la clave forman su propio grupo. Las uniones grandes pueden ser lentas. Abra el nuevo elemento cuando termine el trabajo.',
+    groupByValidateKey: 'Elija una clave que exista en esta capa, o toda la capa.',
+    groupByValidateOp: 'Elija count, sum o avg.',
+    groupByValidateAggField: 'Elija un campo numérico para sum o avg.',
+    groupByValidateOutput: 'El nombre de salida debe ser un id de campo con letra/guion bajo.',
+    groupByValidateOutputCollision: 'El nombre de salida no debe coincidir con la clave de grupo.',
   },
 
   serviceEditors: {

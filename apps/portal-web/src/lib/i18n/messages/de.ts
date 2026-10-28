@@ -5176,6 +5176,36 @@ export const de: Partial<CatalogShape> = {
     contourValidateField: 'Wählen Sie ein numerisches Feld.',
     contourValidateInterval: 'Intervall muss eine positive Zahl sein.',
     contourValidateRange: 'Min muss streng kleiner als Max sein, wenn beide gesetzt sind.',
+    groupByAction: 'Gruppieren für diese Layer',
+    groupByActionTitle:
+      'Server-seitige abgeleitete Layer erstellen, die Zeilen nach einem Schlüssel mit einem Aggregat zusammenfasst (ST_Union-Geometrie).',
+    groupByHeading: 'Gruppieren für diese Layer (server-seitige abgeleitete Layer)',
+    groupByIntroBefore:
+      'Erstellt eine private abgeleitete Layer mit einem Gruppenschlüssel (oder ganzer Layer) und einem Aggregat (count / sum / avg). Geometrie ist immer ST_Union pro Gruppe. Gleiches Rezept wie',
+    groupByHelpLink: 'Hilfe zu Gruppieren',
+    groupByIntroTail:
+      '. Mehrere Schlüssel / Aggregate bleiben unter Erstellen → Abgeleitete Layer. Erwarten Sie einen Server-Job.',
+    groupByKey: 'Gruppenschlüssel',
+    groupByKeyAria: 'Feld zum Gruppieren (optional)',
+    groupByWholeLayer: 'Ganze Layer (kein Schlüssel)',
+    groupByOp: 'Aggregat',
+    groupByOpAria: 'Aggregatoperation',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Numerisches Feld',
+    groupByAggFieldAria: 'Numerisches Feld für sum oder avg',
+    groupByPickNumeric: 'Numerisches Feld wählen…',
+    groupByNoNumeric: 'Keine numerischen Felder auf diesem Layer',
+    groupByOutput: 'Ausgabename',
+    groupByOutputAria: 'Spaltenname des Aggregats',
+    groupByHint:
+      'NULL-Werte im Gruppenschlüssel bilden eine eigene Gruppe. Große Unions können langsam sein. Öffnen Sie das neue Element nach dem Server-Job.',
+    groupByValidateKey: 'Wählen Sie einen Schlüssel auf diesem Layer oder die ganze Layer.',
+    groupByValidateOp: 'Wählen Sie count, sum oder avg.',
+    groupByValidateAggField: 'Wählen Sie ein numerisches Feld für sum oder avg.',
+    groupByValidateOutput: 'Ausgabename muss eine Feld-ID mit Buchstabe/Unterstrich sein.',
+    groupByValidateOutputCollision: 'Ausgabename darf nicht mit dem Gruppenschlüssel kollidieren.',
   },
 
   serviceEditors: {

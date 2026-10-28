@@ -31,9 +31,10 @@ it. The detail page edits one of these kinds:
   item, or use a data layer's **Analyze** guided actions (Buffer,
   Clip, Erase, Centroids, Convex hulls, Bounding boxes, Dissolve,
   Simplify, Densify, Vertices, Calculate geometry, Nearest
-  neighbor, Fishnet on polygons, Contour on points, Top N,
-  Random sample; see [Derived layer](items-derived-layer)), when
-  you want a saved spatial pipeline.
+  neighbor, Fishnet on polygons, Contour on points, Group by
+  (one key, count/sum/avg), Top N, Random sample; see
+  [Derived layer](items-derived-layer)), when you want a saved
+  spatial pipeline.
 - **OSM relational query**
 
 A recipe can be opened on a canvas. Dragging a step changes
