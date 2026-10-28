@@ -28,8 +28,8 @@ SQL embedding.
 | SEC-records-bbox-throttle | Medium | DB-side bbox or scan cap + tighter throttle on OGC Records. (shipped #379) |
 | SEC-trivy-workers | Medium | Trivy matrix for `pointcloud-worker` and `script-runner`. (shipped #380) |
 | SEC-jwt-aud | Medium | JWT `azp` allowlist for known clients (Keycloak omits `aud`). (shipped #381) |
-| SEC-jwt-deletedAt | Medium | Mirror `deletedAt` on JWT auth path (API keys already check). (shipping) |
-| SEC-ws-frame-cap | Low | Max Presence WebSocket frame size. |
+| SEC-jwt-deletedAt | Medium | Mirror `deletedAt` on JWT auth path (API keys already check). (shipped #382) |
+| SEC-ws-frame-cap | Low | Max Presence WebSocket frame size. (shipping) |
 
 ## Process
 
