@@ -567,7 +567,7 @@ export function MarkupPanel({
     <div
       role="dialog"
       aria-label={t('mapMarkup.panelAria')}
-      className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
+      className="absolute right-14 top-3 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
@@ -835,7 +835,7 @@ export function MarkupPanel({
               type="button"
               onClick={addSet}
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               {t('mapMarkup.addMarkup')}

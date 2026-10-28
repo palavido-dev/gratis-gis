@@ -288,17 +288,17 @@ export class PrintRenderService {
             `Map-ready signal timed out for template ${args.templateId}; capturing anyway`,
           );
         }
+        // Margins stay at 0: starter (and designer) layouts already
+        // inset elements by paper.marginIn inside the full-page
+        // canvas. Applying marginIn again here shrunk the content
+        // area and could push the whole sheet off the captured page
+        // for landscape templates, producing blank PDFs.
         const pdf = await page.pdf({
           printBackground: true,
           preferCSSPageSize: false,
           width: `${inches.w}in`,
           height: `${inches.h}in`,
-          margin: {
-            top: `${paper.marginIn}in`,
-            right: `${paper.marginIn}in`,
-            bottom: `${paper.marginIn}in`,
-            left: `${paper.marginIn}in`,
-          },
+          margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
         });
         // puppeteer.page.pdf returns Uint8Array on recent versions;
         // wrap as a Buffer so the controller can stream it.

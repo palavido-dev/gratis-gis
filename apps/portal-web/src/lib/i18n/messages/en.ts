@@ -787,6 +787,7 @@ export const en = {
     basemapActive: 'active',
     elevationProfileButton: 'Elevation profile',
     visibilityButton: 'Visibility',
+    measureButton: 'Measure',
     createAppButton: 'Create app',
     savingIndicator: 'Saving...',
     saveAsTitle: 'Save this map',
@@ -794,6 +795,17 @@ export const en = {
       'Give it a name and it becomes a map in your portal, ready to share and open again later.',
     mapNamePlaceholder: 'Map name',
     cancel: 'Cancel',
+  },
+  mapMeasure: {
+    title: 'Measure',
+    closeAria: 'Close measure',
+    modeAria: 'Measure mode',
+    distance: 'Distance',
+    area: 'Area',
+    unit: 'Unit',
+    hintDistance: 'Click to add points on the map. Double-click to finish.',
+    hintArea: 'Click to add vertices on the map. Double-click to finish.',
+    newMeasurement: 'New measurement',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
@@ -1299,6 +1311,13 @@ export const en = {
     pickSection: 'Use an existing layout',
     pickEmpty:
       'No print layouts to choose from yet. Use "Create a new print layout" above to make one.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint: 'Hover a layout to preview its page structure.',
+    previewTitle: 'Preview: {title}',
+    previewFrameAria: 'PDF preview of {title}',
+    renderingPreview: 'Rendering preview…',
+    backToLayouts: 'Back to layouts',
+    downloadPdf: 'Download PDF',
   },
   errors: {
     generic: 'Something went wrong',

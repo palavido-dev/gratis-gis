@@ -53,11 +53,12 @@ import { SelectToolbar, type SelectToolMode } from './select-tool';
 import { useFeatureEditing, type EditableLayerInfo } from './feature-editing';
 import type { DrawGeometryType } from './use-terra-draw';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
-import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
+import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Ruler, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
 import { ElevationProfileTool } from './elevation-profile';
+import { MeasureTool } from './measure-tool';
 import { VisibilityTool } from './visibility-tool';
-import { resolveDemForBbox } from '@/lib/dem-resolver';
+import { mapHasElevationSource, resolveDemForBbox } from '@/lib/dem-resolver';
 import {
   CommentsPanel,
   type CommentThreadDTO,
@@ -444,6 +445,9 @@ export function MapEditor({
   // shown to signed-in users and errors in plain language for
   // everyone else.
   const [visibilityOpen, setVisibilityOpen] = useState(false);
+  // Measure tool: distance + area sketches on the map canvas.
+  // Local only — nothing persists to a layer.
+  const [measureOpen, setMeasureOpen] = useState(false);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -1425,6 +1429,16 @@ export function MapEditor({
     [],
   );
 
+  // Profile + visibility need an elevation surface on the map.
+  // Hide the toolbar buttons (and force-close open panes) when the
+  // map has no terrain stack / DEM wired in.
+  const hasElevation = mapHasElevationSource(map.terrain);
+  useEffect(() => {
+    if (hasElevation) return;
+    if (profileOpen) setProfileOpen(false);
+    if (visibilityOpen) setVisibilityOpen(false);
+  }, [hasElevation, profileOpen, visibilityOpen]);
+
   // Elevation layers available for 3D terrain (#186 / #211):
   // tile_layer items flagged dem. Fetched lazily when the layers
   // panel's terrain section first opens; the list is tiny
@@ -1875,17 +1889,55 @@ export function MapEditor({
         }}
       />
       <ToolbarIconToggle
-        Icon={ChartSpline}
-        label={t('mapEditor.elevationProfileButton')}
-        active={profileOpen}
-        onClick={() => setProfileOpen((v) => !v)}
+        Icon={Ruler}
+        label={t('mapEditor.measureButton')}
+        active={measureOpen}
+        onClick={() => {
+          setMeasureOpen((v) => {
+            const next = !v;
+            if (next) {
+              if (featureEditing.active) featureEditing.deactivate();
+              if (selectTool !== 'off') setSelectTool('off');
+              if (markupOpen) setMarkupOpen(false);
+              if (profileOpen) setProfileOpen(false);
+              if (visibilityOpen) setVisibilityOpen(false);
+            }
+            return next;
+          });
+        }}
       />
-      {currentUser ? (
+      {hasElevation ? (
+        <ToolbarIconToggle
+          Icon={ChartSpline}
+          label={t('mapEditor.elevationProfileButton')}
+          active={profileOpen}
+          onClick={() => {
+            setProfileOpen((v) => {
+              const next = !v;
+              if (next) {
+                if (measureOpen) setMeasureOpen(false);
+                if (visibilityOpen) setVisibilityOpen(false);
+              }
+              return next;
+            });
+          }}
+        />
+      ) : null}
+      {hasElevation && currentUser ? (
         <ToolbarIconToggle
           Icon={Eye}
           label={t('mapEditor.visibilityButton')}
           active={visibilityOpen}
-          onClick={() => setVisibilityOpen((v) => !v)}
+          onClick={() => {
+            setVisibilityOpen((v) => {
+              const next = !v;
+              if (next) {
+                if (measureOpen) setMeasureOpen(false);
+                if (profileOpen) setProfileOpen(false);
+              }
+              return next;
+            });
+          }}
         />
       ) : null}
       {/* #187: item-bound surfaces (markup persistence, comments,
@@ -2125,27 +2177,45 @@ export function MapEditor({
             drawings={drawings}
             onMapReady={setMapLibre}
             suppressPopup={
-              profileOpen || visibilityOpen || featureEditing.canvasProps.suppressPopup
+              profileOpen ||
+              visibilityOpen ||
+              measureOpen ||
+              featureEditing.canvasProps.suppressPopup
             }
             editClaimedLayerIds={featureEditing.canvasProps.editClaimedLayerIds}
             onEditClaimedClick={featureEditing.canvasProps.onEditClaimedClick}
           />
-          <ElevationProfileTool
+          <MeasureTool
             map={mapLibre}
-            open={profileOpen}
-            onClose={() => setProfileOpen(false)}
-            resolveDemUrl={resolveProfileDem}
-          />
-          <VisibilityTool
-            map={mapLibre}
-            open={visibilityOpen}
-            onClose={() => setVisibilityOpen(false)}
-            resolveDemUrl={resolveProfileDem}
-            onLayerReady={(layer) => {
-              setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
-              markDirty();
+            open={measureOpen}
+            onClose={() => setMeasureOpen(false)}
+            onDrawActiveChange={(active) => {
+              if (active) {
+                if (featureEditing.active) featureEditing.deactivate();
+                if (selectTool !== 'off') setSelectTool('off');
+              }
             }}
           />
+          {hasElevation ? (
+            <ElevationProfileTool
+              map={mapLibre}
+              open={profileOpen}
+              onClose={() => setProfileOpen(false)}
+              resolveDemUrl={resolveProfileDem}
+            />
+          ) : null}
+          {hasElevation ? (
+            <VisibilityTool
+              map={mapLibre}
+              open={visibilityOpen}
+              onClose={() => setVisibilityOpen(false)}
+              resolveDemUrl={resolveProfileDem}
+              onLayerReady={(layer) => {
+                setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
+                markDirty();
+              }}
+            />
+          ) : null}
           <SelectToolbar
             mode={selectTool}
             onChange={(next) => {

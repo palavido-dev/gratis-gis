@@ -18,6 +18,11 @@
  *   4. The inline MapSnapshot client component sets
  *      body[data-map-ready="true"] once tiles + layers settle.
  *   5. Puppeteer's page.pdf captures the rendered HTML.
+ *
+ * Deliberately does NOT emit its own <html>/<body>: the root
+ * layout already owns those, and nesting a second document made
+ * headless Chrome capture a blank page. AppShellChrome renders
+ * this route as a bare fragment (no chrome, no feedback tab).
  */
 import { notFound } from 'next/navigation';
 import { Buffer } from 'node:buffer';
@@ -101,25 +106,20 @@ export default async function PrintPreviewPage(props: Props) {
   const inches = resolvePaperInches(bundle.template.data.paper);
 
   return (
-    <html lang="en">
-      <head>
-        <title>Print preview</title>
-        <style>{`
-          @page { size: ${inches.w}in ${inches.h}in; margin: 0; }
-          html, body { margin: 0; padding: 0; background: white; }
-          body { width: ${inches.w * 96}px; height: ${inches.h * 96}px; }
-        `}</style>
-      </head>
-      <body>
-        <PrintRenderer
-          template={bundle.template.data}
-          mapId={bundle.mapId}
-          mapData={bundle.map.data}
-          basemapData={bundle.basemap}
-          parameterValues={parameterValues}
-          userDisplayName={bundle.userDisplayName}
-        />
-      </body>
-    </html>
+    <>
+      <style>{`
+        @page { size: ${inches.w}in ${inches.h}in; margin: 0; }
+        html, body { margin: 0; padding: 0; background: white; }
+        body { width: ${inches.w * 96}px; height: ${inches.h * 96}px; overflow: hidden; }
+      `}</style>
+      <PrintRenderer
+        template={bundle.template.data}
+        mapId={bundle.mapId}
+        mapData={bundle.map.data}
+        basemapData={bundle.basemap}
+        parameterValues={parameterValues}
+        userDisplayName={bundle.userDisplayName}
+      />
+    </>
   );
 }
