@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Spatial join help (`analysis/spatial-join`) matches the
+  generator: predicates within / intersects / nearest, attribute
+  strategies count / first (with attrsToKeep), default prefix
+  `joined_`. Contains, Within distance, and one-to-many / cartesian
+  joins are not options (R8-spatial-join-help-honesty).
 - Tool recipe editor OSM overlay AOI hint drops the "wave 2"
   promise; copy matches the runner (drawn AOIs for everyone;
   layer / selection AOIs need sign-in). Matching bbox errors
