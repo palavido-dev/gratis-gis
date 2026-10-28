@@ -578,6 +578,9 @@ export class PublicController {
    * becomes a side channel around the clip.
    */
   @Public()
+  // Tighter than the global 300/min: aggregate can scan a public
+  // layer (SEC-public-aggregate-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/aggregate')
   async layerAggregate(
     @Req() req: Request,
