@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-drawings-list-throttle | research-cycle-12 | @Throttle 60/min on Public GET drawings list | This PR |
+| SEC-public-features-page-throttle | research-cycle-12 | @Throttle 60/min on Public features-page + search | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-features-page-throttle | research-cycle-12 | @Throttle 60/min on Public features-page + search | Low |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-drawings-list-throttle | 2026-10-28 | Merged #443: Public GET drawings list @Throttle 60/min |
 | SEC-stac-items-search-throttle | 2026-10-28 | Merged #442: Public STAC items + search @Throttle 60/min |
 | R12-i18n-field-offline-basemap-row | 2026-10-28 | Merged #441: closed clean (offline-basemap-row + DownloadProgressModal already i18n after #425) |
 | R12-tool-help-post-r11-honesty | 2026-10-28 | Merged #440: Analyze catalog honesty (builder-only clarify) |

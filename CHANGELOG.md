@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public `GET .../layers/:layerId/features-page` and
+  `.../features-search` are throttled at 60/min per IP (same as
+  Public OGC Records / Features items; global default is 300/min).
+  Cuts anonymous attribute-table / search scans that can request
+  up to 5000 rows per call without changing MVT tiles, ACL, or
+  the limit clamp (SEC-public-features-page-throttle).
 - Public `GET /api/items/:mapId/drawings` is throttled at 60/min
   per IP (same as Public comments list / OGC Records; global
   default is 300/min). Cuts anonymous drawing-set polling on
