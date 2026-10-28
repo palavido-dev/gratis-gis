@@ -68,6 +68,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Help: tool.md / derived-layer.md Analyze lists still match
+  Contour / Group-by and the 30/min Public tools/run note; clarify
+  Filter / Spatial filter / Spatial join / Calculate field stay
+  builder-only (R12-tool-help-post-r11-honesty).
 - Help: cross-link Data collection ↔ Data layer ↔ HTTP API for
   sync conflict **Re-apply** / **Dismiss** (Layer data panel);
   keep CRDT honesty on drawings

@@ -34,7 +34,9 @@ it. The detail page edits one of these kinds:
   neighbor, Fishnet on polygons, Contour on points, Group by
   (one key, count/sum/avg), Top N, Random sample; see
   [Derived layer](items-derived-layer)), when you want a saved
-  spatial pipeline.
+  spatial pipeline. Filter, Spatial filter, Spatial join, and
+  Calculate field stay on Create → Derived layer (no Analyze
+  shortcut).
 - **OSM relational query**
 
 A recipe can be opened on a canvas. Dragging a step changes
