@@ -7,6 +7,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- Form help no longer calls GratisGIS forms the "native equivalent" of Survey123; wording matches the XLSForm import / different designer reality.
+
 ## [0.9.120] - 2026-10-28
 
 ### Security

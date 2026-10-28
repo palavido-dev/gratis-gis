@@ -6,6 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R13-form-help-survey123-honesty | research-cycle-13 | Soften form.md Survey123 equivalence claim | PR pending |
 
 ## queued (ship-without-input)
 
@@ -18,7 +19,6 @@ Driver-owned. Newest proposals at the top of each section.
 | SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | |
 | SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | Leave MVT alone |
 | SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | |
-| R13-form-help-survey123-honesty | research-cycle-13 | Soften form.md "native equivalent of Survey123" | Docs-only; api.md Rate limits fold into SEC-citation |
 
 ## queued (needs-maintainer)
 
