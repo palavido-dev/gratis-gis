@@ -4907,6 +4907,19 @@ export const fr: Partial<CatalogShape> = {
       '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
     convexHullHint:
       'Enveloppes par entité uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    bboxAction: 'Boîtes englobantes de cette couche',
+    bboxActionTitle:
+      'Créer une couche dérivée serveur de boîtes englobantes par entité (PostGIS ST_Envelope).',
+    bboxHeading:
+      'Boîtes englobantes de cette couche (couche dérivée serveur)',
+    bboxIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    bboxIntroAfter:
+      'sur PostGIS pour chaque entité (attributs conservés). Pas une seule boîte pour toute la couche. Même recette que',
+    bboxHelpLink: 'Aide Boîte englobante',
+    bboxIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    bboxHint:
+      'Boîtes par entité uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
   },
 
   serviceEditors: {

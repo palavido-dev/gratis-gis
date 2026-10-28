@@ -4916,6 +4916,19 @@ export const de: Partial<CatalogShape> = {
       '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
     convexHullHint:
       'Nur Hüllen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    bboxAction: 'Begrenzungsrahmen für diese Ebene',
+    bboxActionTitle:
+      'Serverseitigen Derived Layer mit Begrenzungsrahmen pro Feature erstellen (PostGIS ST_Envelope).',
+    bboxHeading:
+      'Begrenzungsrahmen für diese Ebene (serverseitiger Derived Layer)',
+    bboxIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    bboxIntroAfter:
+      'auf PostGIS für jedes Feature ausführt (Attribute bleiben). Kein einzelner Rahmen für die ganze Ebene. Gleiches Rezept wie',
+    bboxHelpLink: 'Hilfe Begrenzungsrahmen',
+    bboxIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    bboxHint:
+      'Nur Rahmen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
   },
 
   serviceEditors: {

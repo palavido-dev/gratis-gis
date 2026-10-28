@@ -5030,6 +5030,18 @@ export const en = {
       '. Expect a short server job, not an instant browser result.',
     convexHullHint:
       'Per-feature hulls only. Open the new item to map or refresh the result after the server job finishes.',
+    bboxAction: 'Bounding boxes for this layer',
+    bboxActionTitle:
+      'Create a server-side derived layer of per-feature bounding boxes (PostGIS ST_Envelope).',
+    bboxHeading: 'Bounding boxes for this layer (server derived layer)',
+    bboxIntroBefore: 'Creates a private derived layer that runs',
+    bboxIntroAfter:
+      'on PostGIS for every feature (attributes kept). Not one envelope for the whole layer. Same recipe as',
+    bboxHelpLink: 'Bounding box help',
+    bboxIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    bboxHint:
+      'Per-feature envelopes only. Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**
