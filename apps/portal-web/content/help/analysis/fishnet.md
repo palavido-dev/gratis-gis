@@ -2,7 +2,7 @@
 id: analysis-fishnet
 title: Fishnet
 summary: Generate a regular square grid over a polygon source (filled cells or grid lines). The starting layer for many "binned-by-cell" workflows.
-category: analysis
+category: analysis/generate
 order: 90
 complexity: intermediate
 tags:

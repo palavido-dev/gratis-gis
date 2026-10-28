@@ -2,7 +2,7 @@
 id: items-pick-list
 title: Pick list
 summary: A reusable list of coded values with labels, referenced by fields on data layers and forms.
-category: items
+category: items/data
 order: 90
 complexity: intermediate
 tags:

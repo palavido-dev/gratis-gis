@@ -2,7 +2,7 @@
 id: analysis-spatial-join
 title: Spatial join
 summary: Attach a count or selected attributes from a second data layer onto each input feature via within, intersects, or nearest.
-category: analysis
+category: analysis/select-and-calculate
 order: 30
 complexity: intermediate
 tags:

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Help is easier to browse
+The help home page now leads with task cards (new here, publish, collect, analyze, build apps, automate, admin). The sidebar stays collapsed until you open a section, and Analysis / Items are grouped by job instead of one long flat list.
+
 ## 2026-10-28 - Help pages show the real UI
 Getting started, form designer, map and data layer detail, and the analysis recipe steps (Buffer, Clip, and the other guided tools) now include screenshots of the live portal instead of wireframe drawings.
 

@@ -2,7 +2,7 @@
 id: items-web-app
 title: Web app
 summary: A standalone web page built from a map plus widgets. Nearby to Web AppBuilder. Not an Experience Builder drop-in.
-category: items
+category: items/maps-and-apps
 order: 50
 complexity: basic
 tags:

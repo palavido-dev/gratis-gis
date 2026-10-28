@@ -2,7 +2,7 @@
 id: items-form-submission-collection
 title: Form submission collection
 summary: A non-spatial item type that stores form responses when those responses don't map onto a feature.
-category: items
+category: items/field-and-forms
 order: 40
 complexity: intermediate
 tags:

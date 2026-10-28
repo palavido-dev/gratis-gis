@@ -2,7 +2,7 @@
 id: bundle-export
 title: Bundle export
 summary: Pack a data layer (and optionally its related tables and feature attachments) into a single ZIP archive.
-category: items
+category: map-editing
 order: 25
 complexity: intermediate
 controls:

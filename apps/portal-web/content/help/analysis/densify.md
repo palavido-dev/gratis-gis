@@ -2,7 +2,7 @@
 id: analysis-densify
 title: Densify
 summary: Add vertices so no segment exceeds a meter-honest max length via PostGIS ST_Segmentize on geography. Attributes are kept.
-category: analysis
+category: analysis/geometry
 order: 66
 complexity: basic
 tags:

@@ -2,7 +2,7 @@
 id: items-arcgis-service
 title: ArcGIS service
 summary: An item that points at an external ArcGIS REST feature service or map service. Lets you reference AGO or Pro-published data from a GratisGIS map without copying it.
-category: items
+category: items/data
 order: 130
 complexity: intermediate
 tags:

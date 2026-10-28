@@ -227,10 +227,10 @@ function extractHeadings(
  * fall back to alpha sort after these.
  *
  * Keyed by the *raw* category segment (before prettyLabel).
+ * Exported so the help landing page can mirror the same order.
  */
-const CATEGORY_ORDER: Record<string, number> = {
+export const CATEGORY_ORDER: Record<string, number> = {
   'getting-started': 10,
-  'coming-from-arcgis': 15,
   items: 20,
   'map-editing': 30,
   forms: 40,
@@ -241,9 +241,79 @@ const CATEGORY_ORDER: Record<string, number> = {
   reference: 90,
 };
 
-function categoryRank(rawCategory: string): number {
-  const top = rawCategory.split('/')[0] ?? '';
-  return CATEGORY_ORDER[top] ?? 1000;
+/**
+ * Nested category segment order (second path segment and deeper).
+ * Keeps Analysis / Items subgroups in a task-shaped reading order
+ * instead of alpha ("Generate" before "Geometry").
+ */
+const SUBCATEGORY_ORDER: Record<string, number> = {
+  // getting-started
+  'coming-from-arcgis': 80,
+  // items
+  'maps-and-apps': 10,
+  data: 20,
+  'field-and-forms': 30,
+  organize: 40,
+  advanced: 90,
+  // analysis
+  'select-and-calculate': 10,
+  proximity: 20,
+  overlay: 30,
+  geometry: 40,
+  summarize: 50,
+  generate: 60,
+  // web-apps
+  widgets: 20,
+  // map-editing
+  symbology: 10,
+};
+
+/**
+ * Human labels for raw category path segments.  Overrides the
+ * default Title-Case-from-dashes so "select-and-calculate" reads
+ * as "Select & calculate" in the sidebar and landing.
+ */
+const CATEGORY_LABELS: Record<string, string> = {
+  'getting-started': 'Getting started',
+  'coming-from-arcgis': 'Coming from ArcGIS',
+  'map-editing': 'Map editing',
+  'web-apps': 'Web apps',
+  'print-templates': 'Print templates',
+  'maps-and-apps': 'Maps & apps',
+  'field-and-forms': 'Field & forms',
+  'select-and-calculate': 'Select & calculate',
+  proximity: 'Proximity',
+  overlay: 'Overlay',
+  geometry: 'Geometry',
+  summarize: 'Summarize',
+  generate: 'Generate',
+  data: 'Data',
+  organize: 'Organize',
+  advanced: 'Advanced',
+  widgets: 'Widgets',
+  symbology: 'Symbology',
+  items: 'Items',
+  forms: 'Forms',
+  analysis: 'Analysis',
+  admin: 'Admin',
+  reference: 'Reference',
+};
+
+export function categoryRank(rawCategory: string): number {
+  const parts = rawCategory.split('/').filter(Boolean);
+  const top = parts[0] ?? '';
+  const topRank = (CATEGORY_ORDER[top] ?? 1000) * 1000;
+  if (parts.length < 2) return topRank;
+  const sub = parts[1] ?? '';
+  return topRank + (SUBCATEGORY_ORDER[sub] ?? 500);
+}
+
+export function prettyCategoryLabel(rawSegment: string): string {
+  if (CATEGORY_LABELS[rawSegment]) return CATEGORY_LABELS[rawSegment];
+  return rawSegment
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 /**
@@ -264,6 +334,8 @@ export async function loadAllDocs(): Promise<HelpDoc[]> {
     const ra = categoryRank(ca);
     const rb = categoryRank(cb);
     if (ra !== rb) return ra - rb;
+    // Within the same rank bucket, keep path order stable then
+    // fall back to the per-doc `order` frontmatter.
     if (ca !== cb) return ca.localeCompare(cb);
     const oa = a.frontmatter.order ?? 100;
     const ob = b.frontmatter.order ?? 100;
@@ -436,7 +508,7 @@ export async function buildNav(): Promise<HelpNavNode> {
       // matched and a fresh category node spawned per doc --
       // sidebar showed "Getting Started" three times with one
       // child each.
-      const pretty = prettyLabel(part);
+      const pretty = prettyCategoryLabel(part);
       let next = cursor.children.find(
         (c) => c.label === pretty && !c.slug,
       );
@@ -457,12 +529,8 @@ export async function buildNav(): Promise<HelpNavNode> {
       children: [],
     });
   }
+  // Children keep insertion order from `loadAllDocs`, which already
+  // sorts by categoryRank + order, so Analysis subgroups and Items
+  // families land in task order without a second pass here.
   return root;
-}
-
-function prettyLabel(rawSegment: string): string {
-  return rawSegment
-    .split('-')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
 }

@@ -2,7 +2,7 @@
 id: analysis-group-by
 title: Group by
 summary: Roll up rows by group keys with count/sum/avg/min/max/first aggregates; geometry is always ST_Union per group.
-category: analysis
+category: analysis/summarize
 order: 50
 complexity: intermediate
 tags:

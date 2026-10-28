@@ -2,7 +2,7 @@
 id: analysis-centroid
 title: Centroid
 summary: Replace each feature's geometry with a single point at its geometric center.
-category: analysis
+category: analysis/geometry
 order: 70
 complexity: basic
 tags:

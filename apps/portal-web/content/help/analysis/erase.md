@@ -2,7 +2,7 @@
 id: analysis-erase
 title: Erase
 summary: Keep only the parts of input features that fall outside an erase mask. The geometric inverse of clip.
-category: analysis
+category: analysis/overlay
 order: 81
 complexity: basic
 tags:

@@ -2,7 +2,7 @@
 id: items-derived-layer
 title: Derived layer
 summary: An item that produces features by running a pipeline of analysis steps against one or more source layers. The output is queryable like a data layer.
-category: items
+category: items/data
 order: 140
 complexity: intermediate
 tags:

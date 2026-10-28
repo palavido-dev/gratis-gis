@@ -2,7 +2,7 @@
 id: items-data-layer
 title: Data layer
 summary: An item that holds one or more PostGIS-backed feature tables.  The native equivalent of an Esri feature service.
-category: items
+category: items/data
 order: 20
 complexity: basic
 tags:

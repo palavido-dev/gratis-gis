@@ -2,7 +2,7 @@
 id: analysis-convex-hull
 title: Convex hull
 summary: Replace each feature's geometry with its convex hull via PostGIS ST_ConvexHull. Attributes are kept.
-category: analysis
+category: analysis/geometry
 order: 75
 complexity: basic
 tags:

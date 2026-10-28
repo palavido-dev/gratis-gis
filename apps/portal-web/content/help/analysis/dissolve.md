@@ -2,7 +2,7 @@
 id: analysis-dissolve
 title: Dissolve
 summary: Merge every input geometry into one combined feature via PostGIS ST_Union. Attributes are dropped.
-category: analysis
+category: analysis/geometry
 order: 60
 complexity: basic
 tags:

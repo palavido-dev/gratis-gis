@@ -2,7 +2,7 @@
 id: analysis-nearest-neighbor
 title: Nearest neighbor
 summary: Add nearest_distance_m — geographic meters to the closest other feature in the same layer.
-category: analysis
+category: analysis/proximity
 order: 42
 complexity: intermediate
 tags:

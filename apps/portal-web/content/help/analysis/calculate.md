@@ -2,7 +2,7 @@
 id: analysis-calculate
 title: Calculate
 summary: Add a computed column from field expressions, or add length / perimeter / area via Calculate geometry.
-category: analysis
+category: analysis/select-and-calculate
 order: 20
 complexity: basic
 tags:

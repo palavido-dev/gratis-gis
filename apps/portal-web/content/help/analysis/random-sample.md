@@ -2,7 +2,7 @@
 id: analysis-random-sample
 title: Random sample
 summary: Keep a deterministic random subset by percentage or exact count, keyed by a stable seed.
-category: analysis
+category: analysis/generate
 order: 41
 complexity: basic
 tags:

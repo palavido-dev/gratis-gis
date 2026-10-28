@@ -2,7 +2,7 @@
 id: analysis-clip
 title: Clip
 summary: Keep only the parts of input features that fall inside a clip polygon. Cookie-cutter style.
-category: analysis
+category: analysis/overlay
 order: 80
 complexity: basic
 tags:

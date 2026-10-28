@@ -2,7 +2,7 @@
 id: analysis-vertices
 title: Vertices
 summary: Explode each geometry into one point per vertex via PostGIS ST_DumpPoints. Adds vertex_index; row count can grow a lot.
-category: analysis
+category: analysis/geometry
 order: 67
 complexity: intermediate
 tags:

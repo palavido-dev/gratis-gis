@@ -2,7 +2,7 @@
 id: analysis-buffer
 title: Buffer
 summary: Expand each input feature outward (or inward) by a fixed distance to produce a polygon at that offset.
-category: analysis
+category: analysis/proximity
 order: 40
 complexity: basic
 tags:

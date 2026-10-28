@@ -48,10 +48,11 @@ function NavRow({
   depth: number;
 }) {
   const isLeaf = !!node.slug;
-  // Auto-open categories that contain the active doc.  Walks
-  // children recursively; cheap because the tree is tiny.
+  // Only auto-open the branch that contains the active doc. Top-
+  // level categories used to start open, which painted ~100 links
+  // at once and made the sidebar feel like a dump.
   const containsActive = containsSlug(node, activeSlug);
-  const [open, setOpen] = useState<boolean>(containsActive || depth === 0);
+  const [open, setOpen] = useState<boolean>(containsActive);
   const isActive = isLeaf && node.slug === activeSlug;
   // Leaves are indented under their category; categories sit
   // flush left so the section breaks read like a real outline.

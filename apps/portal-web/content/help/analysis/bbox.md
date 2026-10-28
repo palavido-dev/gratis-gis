@@ -2,7 +2,7 @@
 id: analysis-bbox
 title: Bounding box
 summary: Replace each feature's geometry with its axis-aligned envelope via PostGIS ST_Envelope. Attributes are kept.
-category: analysis
+category: analysis/geometry
 order: 74
 complexity: basic
 tags:

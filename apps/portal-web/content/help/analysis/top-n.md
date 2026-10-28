@@ -2,7 +2,7 @@
 id: analysis-top-n
 title: Top N
 summary: Keep the N rows with the highest or lowest numeric attribute value. Geometry and attributes pass through.
-category: analysis
+category: analysis/summarize
 order: 40
 complexity: basic
 tags:

@@ -2,7 +2,7 @@
 id: items-point-cloud
 title: Point cloud
 summary: A 3D lidar COPC item. Viewers stream octree nodes in view with size-aware density tiers; not Potree or Tile3D yet.
-category: items
+category: items/data
 order: 125
 complexity: intermediate
 tags:

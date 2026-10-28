@@ -2,7 +2,7 @@
 id: analysis-contour
 title: Contour
 summary: Generate iso-lines from a numeric field on a point layer via a PostGIS TIN.
-category: analysis
+category: analysis/generate
 order: 100
 complexity: advanced
 tags:

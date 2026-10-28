@@ -2,7 +2,7 @@
 id: items-map
 title: Map
 summary: An item that composes layers, a viewport, and a basemap.  Maps are what web apps render and what print templates print against.
-category: items
+category: items/maps-and-apps
 order: 10
 complexity: basic
 tags:

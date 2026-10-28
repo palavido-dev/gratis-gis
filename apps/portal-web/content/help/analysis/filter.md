@@ -2,7 +2,7 @@
 id: analysis-filter
 title: Filter
 summary: Keep rows from a source layer that match a {{field}} expression. The simplest derived-layer step.
-category: analysis
+category: analysis/select-and-calculate
 order: 10
 complexity: basic
 tags:
