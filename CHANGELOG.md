@@ -50,6 +50,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field PWA offline / GPS / related chrome (Download for offline /
+  Refresh offline cache, locate-me labels, Enable location / Update
+  Point, Save feature / Save changes, Layer visibility, related-record
+  waiting-to-sync hints, queue badge titles) goes through
+  `fieldRuntime.*` / `fieldGps.*` / `fieldOffline.*` catalogs
+  (en / es / fr / de / pt-BR)
+  (R10-i18n-field-offline-gps-chrome / #162).
 - Field PWA collect chrome (Add / Vertex at GPS or center, Undo /
   Finish, nothing-to-collect hint, Remove from device, map aria
   labels, offline Pick lists breakdown) goes through
