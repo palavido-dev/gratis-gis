@@ -10,6 +10,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsBoolean,
   IsIn,
@@ -61,8 +62,15 @@ export class CommentsController {
   /**
    * List every thread on an item. Public for public items
    * (the service gates non-public reads against canRead).
+   *
+   * Rate limit is tighter than the global 300/min default
+   * (matches Public OGC Records list at 60/min): anonymous
+   * pollers on public item threads are an easy burn if left at
+   * the global ceiling. Authenticated create/reply/resolve stay
+   * on the global default.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get()
   list(
     @CurrentUser() user: AuthUser | null,
