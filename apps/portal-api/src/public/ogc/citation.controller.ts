@@ -8,6 +8,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
@@ -39,6 +40,9 @@ export class OgcCitationController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Tighter than the global 300/min: citation downloads hit Prisma
+  // per request and are easy to scrape (SEC-citation-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':itemId.bib')
   @Header('Content-Type', 'application/x-bibtex; charset=utf-8')
   async bib(
@@ -50,6 +54,7 @@ export class OgcCitationController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':itemId.ris')
   @Header(
     'Content-Type',
@@ -64,6 +69,7 @@ export class OgcCitationController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':itemId.jsonld')
   @Header('Content-Type', 'application/ld+json; charset=utf-8')
   async jsonld(
