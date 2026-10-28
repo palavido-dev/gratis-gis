@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-recipe-aoi-honesty | research-cycle-7 | Recipe AOI hint: no wave-2 promise | This PR |
+| Q-research-cycle-8 | research-cycle-8 | Refill ship-without-input queue | This PR |
 
 ## queued (ship-without-input)
 
@@ -26,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R7-recipe-aoi-honesty | 2026-10-27 | Merged #396: recipe AOI hint without wave-2 promise |
 | R7-analyze-simplify-shortcut | 2026-10-27 | Merged #395: Analyze Simplify → PostGIS derived_layer |
 | R7-analyze-dissolve-shortcut | 2026-10-27 | Merged #394: Analyze Dissolve → PostGIS derived_layer |
 | R7-i18n-erase-centroid-guides | 2026-10-27 | Merged #392: Erase/Centroid Analyze chrome i18n (#162) |
