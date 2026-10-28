@@ -9,6 +9,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public `GET /api/items/:mapId/drawings` is throttled at 60/min
+  per IP (same as Public comments list / OGC Records; global
+  default is 300/min). Cuts anonymous drawing-set polling on
+  public maps without changing create/update/delete write
+  throttles at 30/min (SEC-drawings-list-throttle).
 - Public STAC `GET .../collections/:id/items`, single-item lookup,
   and `GET`/`POST .../search` are throttled at 60/min per IP (same
   as Public OGC Records / Features items; global default is
