@@ -87,6 +87,9 @@ export class OgcFeaturesController {
   ) {}
 
   @Public()
+  // Tighter than the global 300/min: catalogue walk scans every
+  // public data_layer (SEC-ogc-features-collections-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   async collections(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -122,6 +125,7 @@ export class OgcFeaturesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id')
   async collection(@Req() req: Request, @Param('id') id: string) {
     const row = await this.resolvePublicCollection(id);
