@@ -1427,6 +1427,21 @@ export const en = {
     downloadFeatures: 'Features',
     downloadForms: 'Forms',
     downloadPickLists: 'Pick lists',
+    layersPanelAria: 'Layer visibility',
+    layersHeading: 'Layers',
+    location: 'Location',
+    notSet: 'Not set',
+    updatePoint: 'Update Point',
+    saveFeature: 'Save feature',
+    saveChanges: 'Save changes',
+    relatedUnsynced: 'unsynced',
+    relatedOpen: 'Open',
+    relatedWaitingSync:
+      'This record is waiting to sync. It will be openable once it reaches the server.',
+    relatedOpenTitle: 'Open this {layer} record',
+    relatedNotEditable:
+      'This child layer is not editable in this deployment',
+    relatedNoEditAccess: 'You do not have edit access to this layer',
   },
   // Location permission, surfaced where a thumb can reach it. Every
   // stamped position on a deployment depends on this working, so a
@@ -1437,6 +1452,22 @@ export const en = {
       'Location is blocked. Allow it in your browser settings to capture at your position.',
     unavailable:
       'Location is unavailable on this device. Features will be placed at the map centre.',
+    showMyLocation: 'Show my location',
+    acquiringLocation: 'Acquiring location',
+    permissionDenied: 'Location permission denied',
+    locationUnavailable: 'Location unavailable',
+    following: 'Following location (tap to stop)',
+    centerOnLocation: 'Center on my location (~{accuracy} m)',
+    accuracyUnknown: 'unknown',
+    enableLocation: 'Enable location to use GPS',
+    resnapTitle: 'Re-snap to current GPS (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Permission denied',
+    statusUnavailable: 'Unavailable',
+    statusAcquiring: 'Acquiring...',
+    statusError: 'Error',
+    statusWatching: 'Watching',
+    statusMeters: '{meters} m',
   },
   // Downloading a deployment for offline use, and the truth about
   // what actually landed.
@@ -1472,6 +1503,18 @@ export const en = {
       '{count, plural, one {# unsynced edit will be lost.} other {# unsynced edits will be lost.}}',
     removeWillLoseOthers:
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
+    downloadForOffline: 'Download for offline',
+    refreshOfflineCache: 'Refresh offline cache',
+    confirmRefresh: 'Confirm refresh',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# edit not yet synced. Refresh anyway?} other {# edits not yet synced. Refresh anyway?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# edit waiting to sync. Reconnect to send.} other {# edits waiting to sync. Reconnect to send.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# edit waiting to sync. Click to send now.} other {# edits waiting to sync. Click to send now.}}',
+    queuedCount: '{count} queued',
+    syncCount: 'Sync {count}',
+    syncing: 'Syncing...',
   },
   // Every sentence the offline download manager and the two queue
   // drains can produce, keyed by the code they persist instead of the

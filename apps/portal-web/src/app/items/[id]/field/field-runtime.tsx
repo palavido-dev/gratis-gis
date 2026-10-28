@@ -3385,17 +3385,19 @@ function LayerVisibilityPanel({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Layer visibility"
+      aria-label={panelT('fieldRuntime.layersPanelAria')}
       className="fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)]"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2.5">
-        <h3 className="text-base font-semibold text-ink-0">Layers</h3>
+        <h3 className="text-base font-semibold text-ink-0">
+          {panelT('fieldRuntime.layersHeading')}
+        </h3>
         <button
           type="button"
           onClick={onClose}
           className="inline-flex h-10 w-10 items-center justify-center rounded text-ink-1 hover:bg-surface-2"
-          aria-label="Close"
+          aria-label={panelT('fieldRuntime.closeAria')}
         >
           <X className="h-5 w-5" />
         </button>
@@ -3691,7 +3693,9 @@ function LayerVisibilityPanel({
           ) : (
             <CloudDownload className="h-4 w-4" />
           )}
-          {cachedDeployment ? 'Refresh offline cache' : 'Download for offline'}
+          {cachedDeployment
+            ? panelT('fieldOffline.refreshOfflineCache')
+            : panelT('fieldOffline.downloadForOffline')}
         </button>
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
@@ -4502,7 +4506,7 @@ function FormModal({
           <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-0 px-3 py-2">
             <div className="min-w-0 flex-1">
               <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-                Location
+                {t('fieldRuntime.location')}
               </p>
               <p className="truncate font-mono text-sm tabular-nums text-ink-0">
                 {(() => {
@@ -4514,7 +4518,7 @@ function FormModal({
                     typeof activeGeometry.coordinates[1] === 'number'
                       ? (activeGeometry.coordinates as [number, number])
                       : null;
-                  if (!coords) return 'Not set';
+                  if (!coords) return t('fieldRuntime.notSet');
                   const [lon, lat] = coords;
                   return `${lat.toFixed(6)}°N  ${lon.toFixed(6)}°W`;
                 })()}
@@ -4534,17 +4538,18 @@ function FormModal({
               }}
               title={
                 gpsPosition
-                  ? `Re-snap to current GPS (~${
-                      gpsPosition.accuracyM < 1
-                        ? '<1'
-                        : Math.round(gpsPosition.accuracyM)
-                    } m)`
-                  : 'Enable location to use GPS'
+                  ? t('fieldGps.resnapTitle', {
+                      accuracy:
+                        gpsPosition.accuracyM < 1
+                          ? '<1'
+                          : Math.round(gpsPosition.accuracyM),
+                    })
+                  : t('fieldGps.enableLocation')
               }
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
             >
               <LocateFixed className="h-4 w-4" />
-              Update Point
+              {t('fieldRuntime.updatePoint')}
             </button>
           </div>
         ) : null}
@@ -4553,7 +4558,11 @@ function FormModal({
             form={form}
             initial={initial}
             onSubmit={handleSubmit}
-            submitLabel={modal.mode === 'add' ? 'Save feature' : 'Save changes'}
+            submitLabel={
+              modal.mode === 'add'
+                ? t('fieldRuntime.saveFeature')
+                : t('fieldRuntime.saveChanges')
+            }
             formId={`field-form-${modal.layer.layerKey}`}
             // #249.14: header already has a Submit button. The
             // FormRuntime's bottom Submit was reading as a duplicate
@@ -4700,7 +4709,7 @@ function FormModal({
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
-                                          unsynced
+                                          {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
                                     </p>
@@ -4714,14 +4723,16 @@ function FormModal({
                                     }}
                                     title={
                                       pending
-                                        ? 'This record is waiting to sync. It will be openable once it reaches the server.'
+                                        ? t('fieldRuntime.relatedWaitingSync')
                                         : childEditable
-                                          ? `Open this ${c.layerLabel} record`
-                                          : 'This child layer is not editable in this deployment'
+                                          ? t('fieldRuntime.relatedOpenTitle', {
+                                              layer: c.layerLabel,
+                                            })
+                                          : t('fieldRuntime.relatedNotEditable')
                                     }
                                     className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                                   >
-                                    Open
+                                    {t('fieldRuntime.relatedOpen')}
                                   </button>
                                 </li>
                               );
@@ -4767,6 +4778,7 @@ function FieldLocateButton({
   accuracyM: number | null;
   onTap: () => void;
 }) {
+  const t = useT();
   const tone =
     gpsStatus === 'denied' || gpsStatus === 'unavailable'
       ? 'bg-surface-1 border-border text-muted'
@@ -4777,24 +4789,25 @@ function FieldLocateButton({
           : 'bg-surface-1 border-border text-ink-1';
   const label =
     gpsStatus === 'idle'
-      ? 'Show my location'
+      ? t('fieldGps.showMyLocation')
       : gpsStatus === 'requesting'
-        ? 'Acquiring location'
+        ? t('fieldGps.acquiringLocation')
         : gpsStatus === 'denied'
-          ? 'Location permission denied'
+          ? t('fieldGps.permissionDenied')
           : gpsStatus === 'unavailable'
-            ? 'Location unavailable'
+            ? t('fieldGps.locationUnavailable')
             : follow
-              ? 'Following location (tap to stop)'
+              ? t('fieldGps.following')
               : hasPosition
-                ? `Center on my location (~${
-                    accuracyM === null
-                      ? 'unknown'
-                      : accuracyM < 1
-                        ? '<1'
-                        : Math.round(accuracyM)
-                  } m)`
-                : 'Show my location';
+                ? t('fieldGps.centerOnLocation', {
+                    accuracy:
+                      accuracyM === null
+                        ? t('fieldGps.accuracyUnknown')
+                        : accuracyM < 1
+                          ? '<1'
+                          : Math.round(accuracyM),
+                  })
+                : t('fieldGps.showMyLocation');
   return (
     <button
       type="button"
@@ -5201,7 +5214,7 @@ function FieldFeaturePopupSheet({
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
-                                          unsynced
+                                          {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
                                     </p>
@@ -5215,14 +5228,16 @@ function FieldFeaturePopupSheet({
                                     }}
                                     title={
                                       pending
-                                        ? 'This record is waiting to sync. It will be openable once it reaches the server.'
+                                        ? t('fieldRuntime.relatedWaitingSync')
                                         : !child
-                                          ? 'You do not have edit access to this layer'
-                                          : `Open this ${c.layerLabel} record`
+                                          ? t('fieldRuntime.relatedNoEditAccess')
+                                          : t('fieldRuntime.relatedOpenTitle', {
+                                              layer: c.layerLabel,
+                                            })
                                     }
                                     className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                                   >
-                                    Open
+                                    {t('fieldRuntime.relatedOpen')}
                                   </button>
                                 </li>
                               );
@@ -5562,7 +5577,7 @@ function FieldMoreMenu({
                 and we shouldn't pretend to know anything. */}
             {gpsStatus !== 'idle' ? (
               <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-                <span className="text-muted">GPS</span>
+                <span className="text-muted">{t('fieldGps.label')}</span>
                 <span
                   className={
                     gpsStatus === 'denied' || gpsStatus === 'unavailable'
@@ -5580,20 +5595,21 @@ function FieldMoreMenu({
                   }
                 >
                   {gpsStatus === 'denied'
-                    ? 'Permission denied'
+                    ? t('fieldGps.statusDenied')
                     : gpsStatus === 'unavailable'
-                      ? 'Unavailable'
+                      ? t('fieldGps.statusUnavailable')
                       : gpsStatus === 'requesting'
-                        ? 'Acquiring...'
+                        ? t('fieldGps.statusAcquiring')
                         : gpsStatus === 'error'
-                          ? 'Error'
+                          ? t('fieldGps.statusError')
                           : gpsAccuracyM === null
-                            ? 'Watching'
-                            : `${
-                                gpsAccuracyM < 1
-                                  ? '<1'
-                                  : Math.round(gpsAccuracyM)
-                              } m`}
+                            ? t('fieldGps.statusWatching')
+                            : t('fieldGps.statusMeters', {
+                                meters:
+                                  gpsAccuracyM < 1
+                                    ? '<1'
+                                    : Math.round(gpsAccuracyM),
+                              })}
                 </span>
               </li>
             ) : null}
@@ -5609,8 +5625,7 @@ function FieldMoreMenu({
                 refresh runs straight through. */}
             {confirmingRefresh && hasCache && queueCount > 0 ? (
               <p className="px-2 pt-1 text-2xs text-warn">
-                {queueCount} edit{queueCount === 1 ? '' : 's'} not yet
-                synced. Refresh anyway?
+                {t('fieldOffline.refreshUnsyncedWarn', { count: queueCount })}
               </p>
             ) : null}
             <button
@@ -5649,10 +5664,10 @@ function FieldMoreMenu({
               )}
               <span>
                 {confirmingRefresh && hasCache && queueCount > 0
-                  ? 'Confirm refresh'
+                  ? t('fieldOffline.confirmRefresh')
                   : hasCache
-                    ? 'Refresh offline cache'
-                    : 'Download for offline'}
+                    ? t('fieldOffline.refreshOfflineCache')
+                    : t('fieldOffline.downloadForOffline')}
               </span>
             </button>
             {/* Remove from device. Only meaningful when something is
@@ -5743,14 +5758,15 @@ function QueueBadge({
   isOnline: boolean;
   onSync: () => void;
 }) {
+  const t = useT();
   if (!isOnline) {
     return (
       <span
         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs font-medium text-muted"
-        title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Reconnect to send.`}
+        title={t('fieldOffline.waitingOfflineTitle', { count })}
       >
         <CloudOff className="h-3 w-3" />
-        {count} queued
+        {t('fieldOffline.queuedCount', { count })}
       </span>
     );
   }
@@ -5760,14 +5776,16 @@ function QueueBadge({
       disabled={syncing}
       onClick={onSync}
       className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
-      title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Click to send now.`}
+      title={t('fieldOffline.waitingOnlineTitle', { count })}
     >
       {syncing ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
         <CloudDownload className="h-3 w-3 rotate-180" />
       )}
-      {syncing ? 'Syncing...' : `Sync ${count}`}
+      {syncing
+        ? t('fieldOffline.syncing')
+        : t('fieldOffline.syncCount', { count })}
     </button>
   );
 }

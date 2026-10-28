@@ -1380,6 +1380,21 @@ export const ptBR: Partial<CatalogShape> = {
     downloadFeatures: "Feições",
     downloadForms: "Formulários",
     downloadPickLists: "Listas de opções",
+    layersPanelAria: 'Visibilidade das camadas',
+    layersHeading: 'Camadas',
+    location: 'Localização',
+    notSet: 'Não definido',
+    updatePoint: 'Atualizar ponto',
+    saveFeature: 'Salvar feição',
+    saveChanges: 'Salvar alterações',
+    relatedUnsynced: 'não sincronizado',
+    relatedOpen: 'Abrir',
+    relatedWaitingSync:
+      'Este registro está aguardando sincronização. Ele poderá ser aberto quando chegar ao servidor.',
+    relatedOpenTitle: 'Abrir este registro de {layer}',
+    relatedNotEditable:
+      'Esta camada filha não é editável nesta implantação',
+    relatedNoEditAccess: 'Você não tem acesso de edição a esta camada',
   },
   fieldGps: {
     accuracy: 'Precisão do GPS {meters} m',
@@ -1387,6 +1402,22 @@ export const ptBR: Partial<CatalogShape> = {
       'A localização está bloqueada. Permita-a nas configurações do navegador para capturar na sua posição.',
     unavailable:
       'A localização não está disponível neste dispositivo. As feições serão posicionadas no centro do mapa.',
+    showMyLocation: 'Mostrar minha localização',
+    acquiringLocation: 'Obtendo localização',
+    permissionDenied: 'Permissão de localização negada',
+    locationUnavailable: 'Localização indisponível',
+    following: 'Acompanhando a localização (toque para parar)',
+    centerOnLocation: 'Centralizar na minha localização (~{accuracy} m)',
+    accuracyUnknown: 'desconhecida',
+    enableLocation: 'Ative a localização para usar o GPS',
+    resnapTitle: 'Reajustar ao GPS atual (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Permissão negada',
+    statusUnavailable: 'Indisponível',
+    statusAcquiring: 'Obtendo...',
+    statusError: 'Erro',
+    statusWatching: 'Monitorando',
+    statusMeters: '{meters} m',
   },
   fieldOffline: {
     partial: 'Incompleto. Não baixado: {missing}.',
@@ -1412,6 +1443,18 @@ export const ptBR: Partial<CatalogShape> = {
       '{count, plural, one {# edição não sincronizada será perdida.} other {# edições não sincronizadas serão perdidas.}}',
     removeWillLoseOthers:
       '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
+    downloadForOffline: 'Baixar para uso offline',
+    refreshOfflineCache: 'Atualizar cache offline',
+    confirmRefresh: 'Confirmar atualização',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# edição ainda não sincronizada. Atualizar mesmo assim?} other {# edições ainda não sincronizadas. Atualizar mesmo assim?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# edição aguardando sincronização. Reconecte para enviar.} other {# edições aguardando sincronização. Reconecte para enviar.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# edição aguardando sincronização. Toque para enviar agora.} other {# edições aguardando sincronização. Toque para enviar agora.}}',
+    queuedCount: '{count} na fila',
+    syncCount: 'Sincronizar {count}',
+    syncing: 'Sincronizando...',
   },
   offlineMessage: {
     unknown:

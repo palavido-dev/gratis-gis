@@ -1384,6 +1384,21 @@ export const fr: Partial<CatalogShape> = {
     downloadFeatures: "Entités",
     downloadForms: "Formulaires",
     downloadPickLists: "Listes de choix",
+    layersPanelAria: 'Visibilité des couches',
+    layersHeading: 'Couches',
+    location: 'Emplacement',
+    notSet: 'Non défini',
+    updatePoint: 'Mettre à jour le point',
+    saveFeature: 'Enregistrer l’entité',
+    saveChanges: 'Enregistrer les modifications',
+    relatedUnsynced: 'non synchronisé',
+    relatedOpen: 'Ouvrir',
+    relatedWaitingSync:
+      'Cet enregistrement attend la synchronisation. Il pourra être ouvert une fois arrivé sur le serveur.',
+    relatedOpenTitle: 'Ouvrir cet enregistrement {layer}',
+    relatedNotEditable:
+      'Cette couche enfant n’est pas modifiable dans ce déploiement',
+    relatedNoEditAccess: 'Vous n’avez pas d’accès en écriture à cette couche',
   },
   fieldGps: {
     accuracy: 'Précision GPS {meters} m',
@@ -1391,6 +1406,22 @@ export const fr: Partial<CatalogShape> = {
       'La localisation est bloquée. Autorisez-la dans les paramètres du navigateur pour capturer à votre position.',
     unavailable:
       'La localisation est indisponible sur cet appareil. Les entités seront placées au centre de la carte.',
+    showMyLocation: 'Afficher ma position',
+    acquiringLocation: 'Acquisition de la position',
+    permissionDenied: 'Permission de localisation refusée',
+    locationUnavailable: 'Localisation indisponible',
+    following: 'Suivi de la position (appuyer pour arrêter)',
+    centerOnLocation: 'Centrer sur ma position (~{accuracy} m)',
+    accuracyUnknown: 'inconnue',
+    enableLocation: 'Activez la localisation pour utiliser le GPS',
+    resnapTitle: 'Recaler sur le GPS actuel (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Permission refusée',
+    statusUnavailable: 'Indisponible',
+    statusAcquiring: 'Acquisition...',
+    statusError: 'Erreur',
+    statusWatching: 'En suivi',
+    statusMeters: '{meters} m',
   },
   fieldOffline: {
     partial: 'Incomplet. Non téléchargé : {missing}.',
@@ -1416,6 +1447,18 @@ export const fr: Partial<CatalogShape> = {
       '{count, plural, one {# modification non synchronisée sera perdue.} other {# modifications non synchronisées seront perdues.}}',
     removeWillLoseOthers:
       "{count, plural, one {# d'entre elles appartient à un autre compte.} other {# d'entre elles appartiennent à un autre compte.}}",
+    downloadForOffline: 'Télécharger pour le hors ligne',
+    refreshOfflineCache: 'Actualiser le cache hors ligne',
+    confirmRefresh: 'Confirmer l’actualisation',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# modification pas encore synchronisée. Actualiser quand même ?} other {# modifications pas encore synchronisées. Actualiser quand même ?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# modification en attente de synchronisation. Reconnectez-vous pour l’envoyer.} other {# modifications en attente de synchronisation. Reconnectez-vous pour les envoyer.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# modification en attente de synchronisation. Cliquez pour l’envoyer maintenant.} other {# modifications en attente de synchronisation. Cliquez pour les envoyer maintenant.}}',
+    queuedCount: '{count} en file',
+    syncCount: 'Synchroniser {count}',
+    syncing: 'Synchronisation...',
   },
   offlineMessage: {
     unknown:

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Field offline and GPS chrome follow your language
+On a field deployment, Download for offline / Refresh offline cache, Show my location and GPS status, Save feature / Save changes, Layer visibility, related-record sync hints, and the edits-waiting-to-sync badge follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
 ## 2026-10-28 - Calculate geometry for this layer from Analyze
 On a data layer's Analyze tab, **Calculate geometry for this layer** opens length / perimeter / area, unit, and field-name controls and creates a private PostGIS derived layer with that measure (geography, honest units). This is not Calculate field expressions. Same path as Create → Derived layer → Calculate geometry. Expect a short server job, not an instant browser result.
 

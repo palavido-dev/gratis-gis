@@ -1384,6 +1384,21 @@ export const de: Partial<CatalogShape> = {
     downloadFeatures: "Features",
     downloadForms: "Formulare",
     downloadPickLists: "Auswahllisten",
+    layersPanelAria: 'Ebenensichtbarkeit',
+    layersHeading: 'Ebenen',
+    location: 'Standort',
+    notSet: 'Nicht gesetzt',
+    updatePoint: 'Punkt aktualisieren',
+    saveFeature: 'Feature speichern',
+    saveChanges: 'Änderungen speichern',
+    relatedUnsynced: 'nicht synchronisiert',
+    relatedOpen: 'Öffnen',
+    relatedWaitingSync:
+      'Dieser Datensatz wartet auf die Synchronisierung. Er lässt sich öffnen, sobald er den Server erreicht.',
+    relatedOpenTitle: 'Diesen {layer}-Datensatz öffnen',
+    relatedNotEditable:
+      'Diese untergeordnete Ebene ist in dieser Bereitstellung nicht bearbeitbar',
+    relatedNoEditAccess: 'Sie haben keinen Schreibzugriff auf diese Ebene',
   },
   fieldGps: {
     accuracy: 'GPS-Genauigkeit {meters} m',
@@ -1391,6 +1406,22 @@ export const de: Partial<CatalogShape> = {
       'Der Standortzugriff ist blockiert. Erlauben Sie ihn in den Browsereinstellungen, um an Ihrer Position zu erfassen.',
     unavailable:
       'Der Standort ist auf diesem Gerät nicht verfügbar. Features werden in der Kartenmitte platziert.',
+    showMyLocation: 'Meinen Standort anzeigen',
+    acquiringLocation: 'Standort wird ermittelt',
+    permissionDenied: 'Standortberechtigung verweigert',
+    locationUnavailable: 'Standort nicht verfügbar',
+    following: 'Standort wird verfolgt (tippen zum Beenden)',
+    centerOnLocation: 'Auf meinen Standort zentrieren (~{accuracy} m)',
+    accuracyUnknown: 'unbekannt',
+    enableLocation: 'Standort aktivieren, um GPS zu nutzen',
+    resnapTitle: 'Auf aktuelles GPS neu ausrichten (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Berechtigung verweigert',
+    statusUnavailable: 'Nicht verfügbar',
+    statusAcquiring: 'Wird ermittelt...',
+    statusError: 'Fehler',
+    statusWatching: 'Aktiv',
+    statusMeters: '{meters} m',
   },
   fieldOffline: {
     partial: 'Unvollständig. Nicht heruntergeladen: {missing}.',
@@ -1417,6 +1448,18 @@ export const de: Partial<CatalogShape> = {
       '{count, plural, one {# nicht synchronisierte Bearbeitung geht verloren.} other {# nicht synchronisierte Bearbeitungen gehen verloren.}}',
     removeWillLoseOthers:
       '{count, plural, one {# davon gehört einem anderen Konto.} other {# davon gehören einem anderen Konto.}}',
+    downloadForOffline: 'Für Offline herunterladen',
+    refreshOfflineCache: 'Offline-Cache aktualisieren',
+    confirmRefresh: 'Aktualisierung bestätigen',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# Bearbeitung noch nicht synchronisiert. Trotzdem aktualisieren?} other {# Bearbeitungen noch nicht synchronisiert. Trotzdem aktualisieren?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# Bearbeitung wartet auf Synchronisierung. Neu verbinden zum Senden.} other {# Bearbeitungen warten auf Synchronisierung. Neu verbinden zum Senden.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# Bearbeitung wartet auf Synchronisierung. Tippen zum Sofort-Senden.} other {# Bearbeitungen warten auf Synchronisierung. Tippen zum Sofort-Senden.}}',
+    queuedCount: '{count} in Warteschlange',
+    syncCount: '{count} synchronisieren',
+    syncing: 'Synchronisiere...',
   },
   offlineMessage: {
     unknown:
