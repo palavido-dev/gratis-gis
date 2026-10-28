@@ -363,6 +363,10 @@ export class PublicController {
    * deliberately scoped to a region.
    */
   @Public()
+  // Tighter than the global 300/min: whole-collection stream path
+  // (SEC-public-features-geojson-throttle). MVT tiles stay unthrottled
+  // at this decorator (byte/high-frequency class).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/features')
   async layerFeatures(
     @Param('id') itemId: string,
@@ -457,6 +461,7 @@ export class PublicController {
    *  controller exposes. Some callers ask for /geojson, others for
    *  /features; both return the same FeatureCollection. */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/geojson')
   async layerGeojson(
     @Param('id') itemId: string,
