@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Group by help (`analysis/group-by`) matches the aggregate
+  generator: groupBy + count/sum/avg/min/max/first, geometry
+  always `ST_Union` per group. Drop / bbox / convex-hull / first /
+  last / collect_into_array claims removed; dissolve help
+  cross-link updated (R8-groupby-help-honesty).
 - Spatial join help (`analysis/spatial-join`) matches the
   generator: predicates within / intersects / nearest, attribute
   strategies count / first (with attrsToKeep), default prefix

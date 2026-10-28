@@ -1,7 +1,7 @@
 ---
 id: analysis-group-by
 title: Group by
-summary: Roll up rows by one or more keys, producing aggregates (count, sum, average, min, max) per group.
+summary: Roll up rows by group keys with count/sum/avg/min/max/first aggregates; geometry is always ST_Union per group.
 category: analysis
 order: 50
 complexity: intermediate
@@ -16,70 +16,77 @@ related:
   - analysis-dissolve
 ---
 
-A **group-by** step rolls up rows by one or more key fields,
-producing one output row per group with computed aggregates.
+A **group-by** step (builder label **Group by + aggregate**)
+collapses input rows to one output feature per distinct
+combination of group keys. Geometry for each group is always
+PostGIS `ST_Union` of the group's input geometries. Attributes
+are the group keys plus your declared aggregates.
 
 Use after a spatial-join, after a filter, or directly on a source
-layer when you want a summary.
+layer when you want a keyed summary. If you only need **one**
+union of the whole layer with no keys and no aggregates, use the
+plain [Dissolve](analysis-dissolve) step instead.
 
 ## Inputs
 
 - **Source layer**.
-- **Group keys**: one or more fields whose distinct combinations
- define the groups.
-- **Aggregates**, each a `(function, field, output name)`:
-  - **count**(*): number of rows per group.
-  - **sum**(field): numeric total.
-  - **avg**(field): average.
-  - **min** / **max**(field): extremes.
-  - **first** / **last**(field, ordered by another field): first or
-    last value when ordered.
-  - **collect_into_array**(field): JSON array of values.
-- **Geometry strategy** (for spatial outputs):
-  - **Drop**: output rows have no geometry (non-spatial output).
-  - **Bounding box**: union bbox of each group's geometries.
-  - **Convex hull**: convex hull of each group's geometries.
-  - **First**: the first row's geometry (cheap, semi-arbitrary).
-  - **Dissolve**: union of geometries per group. If you only want
-    one union of the whole layer with no keys or aggregates, use
-    the plain [Dissolve](analysis-dissolve) step instead.
+- **Group keys** (`groupBy`): zero to eight field names. Distinct
+  combinations define the groups. An **empty** key list collapses
+  the whole input to a single feature (union + aggregates only).
+- **Aggregates** (`aggs`): up to 16 entries, each
+  `(op, field?, outputName)`:
+  - **count** — row count per group (`field` unused).
+  - **sum** / **avg** / **min** / **max** — numeric field.
+  - **first** — first value of a field in the group (no order-by
+    control).
+
+**Not options:** last, collect_into_array, or a geometry strategy
+picker (Drop / Bounding box / Convex hull / First / Dissolve).
+Output geometry is always the union of each group.
 
 ## Output
 
-One row per distinct combination of group keys. Schema is the
-group keys + the aggregates. Geometry per the chosen strategy.
+One row per distinct group-key combination (or one row when
+`groupBy` is empty):
+
+- Geometry: `ST_Union` of the group's non-null input geometries
+  (often a multipolygon when parts do not touch).
+- Properties: each group key (original name) plus each aggregate
+  under its `outputName`.
 
 ## How to use it on its own
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
 3. Add a **Group by** step.
-4. Pick **group keys**.
-5. Define each **aggregate**.
-6. Pick a **geometry strategy**.
-7. Save.
+4. Pick **group keys** (or leave empty for a single overall rollup).
+5. Add each **aggregate** (op, field when required, output name).
+6. Save.
+
+There is no separate geometry-strategy control.
 
 ## Examples
 
-- **Hydrants per parcel** (after a spatial-join).
- Group key: `parcel_id`. Aggregate: `count(*) as hydrant_count`.
- Geometry strategy: drop (non-spatial result) or join back to
- parcels for the spatial result.
-- **Average inspection score per neighborhood**.
- Group key: `neighborhood`. Aggregate: `avg(score)`. Geometry:
- dissolve to neighborhood boundaries.
-- **Number of incidents per category, monthly**. Two group
- keys: `category`, `month_start`. Aggregate: `count(*)`.
- Geometry: drop.
+- **Hydrant count per parcel id** (after a spatial join that
+  brought `parcel_id` onto hydrant rows, or on parcels that
+  already carry a count). Group key: `parcel_id`. Aggregate:
+  `count` → `hydrant_count`. Geometry: union of features in each
+  parcel group.
+- **Average inspection score per neighborhood**. Group key:
+  `neighborhood`. Aggregate: `avg(score)` → `avg_score`.
+- **Single overall count**. Empty group keys. Aggregate:
+  `count` → `n`. Same shape idea as dissolve, but you keep an
+  aggregate attribute instead of dropping properties.
 
 ## Notes
 
-- **NULL is a group**. Rows with NULL in a group key are
- grouped together under "NULL". Filter them out first if you
- don't want that.
-- **Large groups are slow**. The default geometry strategy
- (`first`) is cheap; `dissolve` on a 100k-feature group can be
- minutes. Pick by what the downstream consumer needs.
-- **Cardinality drops sharply**. The output row count is the
- number of distinct group-key combinations. A million-row layer
- grouped by `month_start` produces ~12 rows per year of data.
+- **NULL is a group**. Rows with NULL in a group key are grouped
+  together. Filter them out first if you do not want that.
+- **Large unions are slow**. Dissolving a huge group via
+  `ST_Union` can take minutes; filter first when you can.
+- **Cardinality drops**. Output row count is the number of
+  distinct key combinations (or 1 when keys are empty).
+- **Keyed dissolve lives here.** The no-param
+  [Dissolve](analysis-dissolve) step unions everything and drops
+  attributes. For one polygon per attribute value plus counts or
+  sums, use this step.
