@@ -68,6 +68,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field runtime Back / Cancel aria-labels and the empty
+  editable-layers footer go through en/es/fr/de/pt-BR catalogs
+  (R12-i18n-field-runtime-nav-chrome / #162).
 - Analyze **Group by for this layer** opens one optional group
   key (or whole layer), one aggregate (`count` / `sum` / `avg`),
   and an output name, then creates a private PostGIS derived
