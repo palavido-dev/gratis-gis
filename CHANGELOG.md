@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public OGC Features collection catalogue (`GET /collections` and
+  `GET /collections/:id`) is throttled at 60/min per IP (same as
+  Public OGC Features items; global default is 300/min). Cuts
+  anonymous catalogue scans without changing auth
+  (SEC-ogc-features-collections-throttle).
+
 ### Documentation
 
 - Form help no longer calls GratisGIS forms the "native equivalent" of Survey123; wording matches the XLSForm import / different designer reality.
@@ -15,7 +23,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
-- Public OGC Features collection catalogue (`GET /collections` and `GET /collections/:id`) is rate-limited at 60 requests per minute.
+- Public OGC citation `.bib` / `.ris` / `.jsonld` downloads are rate-limited at 60 requests per minute (was only the global 300/min budget).
 - Public `GET .../layers/:layerId/features-page` and
   `.../features-search` are throttled at 60/min per IP (same as
   Public OGC Records / Features items; global default is 300/min).
