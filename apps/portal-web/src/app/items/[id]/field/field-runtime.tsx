@@ -4975,7 +4975,7 @@ function FieldFeaturePopupSheet({
                   expanded: concrete.expanded,
                 });
               }}
-              aria-label="Back to list"
+              aria-label={t('fieldRuntime.sheetBackToListAria')}
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -4986,8 +4986,9 @@ function FieldFeaturePopupSheet({
           <div className="min-w-0 flex-1 text-center">
             {concrete.mode === 'list' ? (
               <h2 className="truncate text-base font-semibold text-ink-0">
-                {concrete.hits.length} item
-                {concrete.hits.length === 1 ? '' : 's'}
+                {t('fieldRuntime.sheetItemCount', {
+                  count: concrete.hits.length,
+                })}
               </h2>
             ) : (
               <>
@@ -5009,7 +5010,11 @@ function FieldFeaturePopupSheet({
                 expanded: !concrete.expanded,
               } as typeof concrete);
             }}
-            aria-label={expanded ? 'Collapse sheet' : 'Expand sheet'}
+            aria-label={
+              expanded
+                ? t('fieldRuntime.sheetCollapseAria')
+                : t('fieldRuntime.sheetExpandAria')
+            }
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <ChevronUp
@@ -5021,7 +5026,7 @@ function FieldFeaturePopupSheet({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('fieldRuntime.closeAria')}
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <X className="h-5 w-5" />
@@ -5041,12 +5046,12 @@ function FieldFeaturePopupSheet({
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
                 concrete.hit.editable
-                  ? 'Edit this feature'
-                  : 'You do not have edit access to this layer'
+                  ? t('fieldRuntime.sheetEditTitle')
+                  : t('fieldRuntime.relatedNoEditAccess')
               }
             >
               <Crosshair className="h-4 w-4" />
-              Edit
+              {t('fieldRuntime.sheetEdit')}
             </button>
             <button
               type="button"
@@ -5055,12 +5060,12 @@ function FieldFeaturePopupSheet({
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
                 concrete.hit.editable
-                  ? 'Create a new feature with these attributes'
-                  : 'You do not have edit access to this layer'
+                  ? t('fieldRuntime.sheetCopyTitle')
+                  : t('fieldRuntime.relatedNoEditAccess')
               }
             >
               <Plus className="h-4 w-4" />
-              Copy
+              {t('fieldRuntime.sheetCopy')}
             </button>
           </div>
         ) : null}
@@ -5091,7 +5096,7 @@ function FieldFeaturePopupSheet({
                       <p className="truncate text-base font-medium text-ink-0">
                         {pickRelatedRowTitle(hit.properties) ??
                           hit.globalId?.slice(0, 8) ??
-                          '(unnamed)'}
+                          t('fieldRuntime.sheetUnnamed')}
                       </p>
                     </div>
                     <ChevronUp
@@ -5112,7 +5117,11 @@ function FieldFeaturePopupSheet({
                     </dt>
                     <dd className="mt-0.5 wrap-break-word text-sm text-ink-0">
                       {v === null || v === undefined || v === ''
-                        ? <span className="text-muted">(empty)</span>
+                        ? (
+                            <span className="text-muted">
+                              {t('fieldRuntime.sheetEmptyValue')}
+                            </span>
+                          )
                         : typeof v === 'object'
                           ? JSON.stringify(v)
                           : String(v)}
@@ -5121,7 +5130,7 @@ function FieldFeaturePopupSheet({
                 ))}
                 {Object.keys(concrete.hit.properties).length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted">
-                    No attributes on this feature.
+                    {t('fieldRuntime.sheetNoAttributes')}
                   </div>
                 ) : null}
               </dl>

@@ -1442,6 +1442,18 @@ export const en = {
     relatedNotEditable:
       'This child layer is not editable in this deployment',
     relatedNoEditAccess: 'You do not have edit access to this layer',
+    // Feature-sheet chrome (R11-i18n-field-feature-sheet-chrome / #162).
+    sheetBackToListAria: 'Back to list',
+    sheetCollapseAria: 'Collapse sheet',
+    sheetExpandAria: 'Expand sheet',
+    sheetEdit: 'Edit',
+    sheetCopy: 'Copy',
+    sheetEditTitle: 'Edit this feature',
+    sheetCopyTitle: 'Create a new feature with these attributes',
+    sheetUnnamed: '(unnamed)',
+    sheetEmptyValue: '(empty)',
+    sheetNoAttributes: 'No attributes on this feature.',
+    sheetItemCount: '{count, plural, one {# item} other {# items}}',
   },
   // Location permission, surfaced where a thumb can reach it. Every
   // stamped position on a deployment depends on this working, so a

@@ -54,6 +54,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field feature-sheet chrome (Back to list, Collapse/Expand,
+  Edit/Copy labels and titles, item count, unnamed/empty/
+  no-attributes) goes through en/es/fr/de/pt-BR catalogs
+  (R11-i18n-field-feature-sheet-chrome / #162).
 - Analyze **Random sample for this layer** creates a private
   PostGIS derived layer that keeps a deterministic percentage or
   count subset (md5(global_id||seed); max count 100,000) with a

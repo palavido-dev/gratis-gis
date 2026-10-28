@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-research-cycle-11 | research-cycle-11 | Refill ship-without-input after R10 drain | This PR |
+| R11-i18n-field-feature-sheet-chrome | research-cycle-11 | Field feature-sheet Edit/Copy/nav i18n (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-i18n-field-feature-sheet-chrome | research-cycle-11 | Field feature-sheet Edit/Copy/nav i18n (#162) | Highest-visibility |
 | R11-i18n-field-offline-panel-dialog | research-cycle-11 | Offline panel + download dialog i18n (#162) | Storage/Clear/titles |
 | R11-i18n-field-layers-search-chrome | research-cycle-11 | Basemap chip + address search + related list i18n | #162 |
 | R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs honesty |
@@ -36,6 +35,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-research-cycle-11 | 2026-10-28 | Merged #423: research-cycle-11 refill ship-without-input queue |
 | SEC-tools-run-throttle | 2026-10-28 | Merged #422: Public tools/run @Throttle 30/min |
 | R10-analyze-random-sample-shortcut | 2026-10-28 | Merged #421: Analyze Random sample → PostGIS derived_layer |
 | R10-recipe-overpass-truncated-honesty | 2026-10-28 | Merged #420: recipe OSM truncated flag honesty |
