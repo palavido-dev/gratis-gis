@@ -24,34 +24,70 @@ you can put them on a map, style them, query them, or feed them
 into another derived layer.
 
 For one-step recipes, a data layer's **Analyze** tab has guided
-actions (**Buffer**, **Clip**, **Erase**, **Centroids**,
-**Convex hulls**, **Dissolve**, **Simplify this layer**, …) that create a private
-derived-layer item via PostGIS on the server. Meter distances and
-tolerances stay honest; the in-browser SQL builder does not invent
-degree-unit geometry ops. See [Buffer](/help/analysis/buffer) and
-[Simplify](/help/analysis/simplify).
+actions that create a private derived-layer item via PostGIS on
+the server: **Buffer**, **Clip**, **Erase**, **Centroids**,
+**Convex hulls**, **Dissolve**, **Simplify**, and **Densify**.
+Meter distances and tolerances stay honest; the in-browser SQL
+builder does not invent degree-unit geometry ops. See
+[Buffer](analysis-buffer), [Simplify](analysis-simplify), and
+[Densify](analysis-densify).
 
 ## Pipeline model
 
 A derived layer is an ordered list of **steps**, each producing a
-new intermediate result from its inputs. Available steps:
+new intermediate result from its inputs. Available steps (same
+set as the derived-layer builder / tool registry):
 
-- **Filter**. Keep rows matching an expression.
-- **Calculate**. Add a computed column.
-- **Buffer**. Expand each input by a fixed distance.
-- **Spatial join**. Attach attributes from one layer to features
- of another based on spatial relationship.
-- **Group by**. Roll up rows into groups with aggregates.
-- **Dissolve**. Union every input geometry into one feature
-  (attributes dropped; keyed dissolve stays on group-by).
-- **Simplify**. Drop vertices within a tolerance (`ST_Simplify`).
-- **Centroid**. Replace each feature's geometry with its centroid.
-- **Fishnet**. Generate a regular grid over an extent.
-- **Contour**. Generate iso-lines from a value column.
-- **Clip**. Trim features to fit inside a polygon.
+### Attribute and sampling
 
-Steps reference earlier steps' outputs by name. The last step's
-output is the derived layer's features.
+- **[Filter](analysis-filter)**. Keep rows matching a `{{field}}`
+  expression.
+- **[Calculate field](analysis-calculate)** /
+  **[Calculate geometry](analysis-calculate)**. Add a computed
+  attribute column, or length / perimeter / area from geometry.
+- **[Group by](analysis-group-by)**. Roll up rows with aggregates;
+  geometry is always `ST_Union` per group.
+- **[Top N](analysis-top-n)**. Keep the N highest or lowest
+  numeric values.
+- **[Random sample](analysis-random-sample)**. Deterministic
+  percentage or count sample with a stable seed.
+- **[Nearest neighbor](analysis-nearest-neighbor)**. Add
+  `nearest_distance_m` to the closest other feature in the same
+  layer.
+
+### Geometry transform
+
+- **[Buffer](analysis-buffer)**. Expand each geometry by a
+  meter-honest distance.
+- **[Simplify](analysis-simplify)**. Drop vertices within a
+  tolerance (`ST_Simplify`).
+- **[Densify](analysis-densify)**. Add vertices so no segment
+  exceeds a max length (`ST_Segmentize` on geography).
+- **[Centroid](analysis-centroid)**. Replace each geometry with
+  its centroid.
+- **[Convex hull](analysis-convex-hull)**. Per-feature convex
+  hull (`ST_ConvexHull`).
+- **Bbox**. Replace each geometry with its envelope
+  (`ST_Envelope`).
+- **Vertices**. Explode geometries to point vertices.
+- **[Dissolve](analysis-dissolve)**. Union every input into one
+  feature (attributes dropped; keyed dissolve stays on group-by).
+
+### Overlay and generate
+
+- **[Spatial join](analysis-spatial-join)**. Attach a count or
+  selected attributes from another data layer (within /
+  intersects / nearest).
+- **[Spatial filter](analysis-spatial-filter)**. Keep rows by
+  spatial predicate against another source (no attribute join).
+- **[Clip](analysis-clip)**. Trim features to a mask polygon.
+- **[Erase](analysis-erase)**. Subtract a mask from features.
+- **[Fishnet](analysis-fishnet)**. Square grid over an extent.
+- **[Contour](analysis-contour)**. Iso-lines from a numeric
+  column (TIN path).
+
+Steps feed forward in order. The last step's output is the
+derived layer's features.
 
 ## Inputs
 
@@ -101,7 +137,11 @@ share at the same tier as the most-restrictive input.
 
 ## See also
 
-- **Buffer**. The simplest one-step derived layer recipe.
-- **Spatial join**. The most common multi-step recipe (filter,
- then join).
-- **Group by**. Roll-up rollups.
+- **[Buffer](analysis-buffer)**. The simplest one-step recipe
+  with a distance.
+- **[Spatial join](analysis-spatial-join)** /
+  **[Spatial filter](analysis-spatial-filter)**. Decorate vs
+  keep/drop by location.
+- **[Group by](analysis-group-by)**. Aggregates with unioned
+  geometry.
+- **[Workflows](analysis-workflows)**. Multi-step patterns.

@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Derived layer item help lists the full analysis step catalog
+  (matching the tool registry / builder) and the Analyze guided
+  shortcuts that ship today, with links into analysis help
+  (R9-derived-layer-catalog-honesty).
 - Analysis help for **Top N**, **Random sample**, and **Nearest
   neighbor** documents the shipped generators (numeric field + N
   + asc|desc; percentage|count + stable seed; no-param
