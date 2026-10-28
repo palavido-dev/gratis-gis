@@ -5160,6 +5160,32 @@ export const en = {
     fishnetValidateMin: 'Cell size must be at least {meters} m.',
     fishnetValidateMax: 'Cell size must be at most {meters} m.',
     fishnetValidateOutput: 'Pick polygons or lines output.',
+    topNAction: 'Top N for this layer',
+    topNActionTitle:
+      'Create a server-side derived layer that keeps the top N rows by a numeric field.',
+    topNHeading: 'Top N for this layer (server derived layer)',
+    topNIntroBefore:
+      'Creates a private derived layer that keeps the N rows with the highest or lowest numeric field value (NULLs last). Same recipe as',
+    topNHelpLink: 'Top N help',
+    topNIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    topNField: 'Numeric field',
+    topNFieldAria: 'Numeric field for Top N',
+    topNN: 'N',
+    topNNAria: 'Number of rows to keep',
+    topNDirection: 'Direction',
+    topNDirectionAria: 'Sort direction',
+    topNDir_desc: 'highest first',
+    topNDir_asc: 'lowest first',
+    topNPickField: 'Pick a numeric field…',
+    topNNoNumeric: 'No numeric fields on this layer',
+    topNHint:
+      'N up to {max}. NULLs sort last. Open the new item to map or refresh the result after the server job finishes.',
+    topNValidateNoNumeric: 'This layer has no numeric fields for Top N.',
+    topNValidateField: 'Pick a numeric field.',
+    topNValidateN: 'N must be a positive integer.',
+    topNValidateMax: 'N must be at most {max}.',
+    topNValidateDirection: 'Pick ascending or descending.',
   },
 
   /**

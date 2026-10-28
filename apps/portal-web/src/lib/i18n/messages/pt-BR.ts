@@ -5030,6 +5030,32 @@ export const ptBR: Partial<CatalogShape> = {
     fishnetValidateMin: 'O tamanho da célula deve ser pelo menos {meters} m.',
     fishnetValidateMax: 'O tamanho da célula deve ser no máximo {meters} m.',
     fishnetValidateOutput: 'Escolha saída de polígonos ou linhas.',
+    topNAction: 'Top N desta camada',
+    topNActionTitle:
+      'Criar uma camada derivada no servidor que mantém as N linhas principais por um campo numérico.',
+    topNHeading: 'Top N desta camada (camada derivada no servidor)',
+    topNIntroBefore:
+      'Cria uma camada derivada privada que mantém as N linhas com o valor numérico mais alto ou mais baixo (NULLs por último). Mesma receita que',
+    topNHelpLink: 'Ajuda de Top N',
+    topNIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    topNField: 'Campo numérico',
+    topNFieldAria: 'Campo numérico para Top N',
+    topNN: 'N',
+    topNNAria: 'Número de linhas a manter',
+    topNDirection: 'Direção',
+    topNDirectionAria: 'Direção de ordenação',
+    topNDir_desc: 'maior primeiro',
+    topNDir_asc: 'menor primeiro',
+    topNPickField: 'Escolha um campo numérico…',
+    topNNoNumeric: 'Nenhum campo numérico nesta camada',
+    topNHint:
+      'N até {max}. NULLs ficam por último. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    topNValidateNoNumeric: 'Esta camada não tem campos numéricos para Top N.',
+    topNValidateField: 'Escolha um campo numérico.',
+    topNValidateN: 'N deve ser um inteiro positivo.',
+    topNValidateMax: 'N deve ser no máximo {max}.',
+    topNValidateDirection: 'Escolha crescente ou decrescente.',
   },
 
   serviceEditors: {

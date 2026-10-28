@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R10-analyze-fishnet-shortcut | research-cycle-10 | Analyze Fishnet → PostGIS derived_layer | This PR |
+| R10-analyze-top-n-shortcut | research-cycle-10 | Analyze Top N → PostGIS derived_layer | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R10-analyze-top-n-shortcut | research-cycle-10 | Analyze Top N → PostGIS derived_layer | field + N + direction |
 | R10-recipe-overpass-truncated-honesty | research-cycle-10 | Recipe OSM overlay truncated flag honesty | Drop wave-2 lie |
 | R10-analyze-random-sample-shortcut | research-cycle-10 | Analyze Random sample → PostGIS derived_layer | mode + value + seed |
 | SEC-tools-run-throttle | research-cycle-10 | @Throttle 30/min on Public POST /api/tools/:id/run | Low; Overpass egress |
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R10-analyze-fishnet-shortcut | 2026-10-28 | Merged #418: Analyze Fishnet → PostGIS derived_layer |
 | R10-analyze-nearest-neighbor-shortcut | 2026-10-28 | Merged #417: Analyze Nearest neighbor → PostGIS derived_layer |
 | R10-data-collection-help-honesty | 2026-10-28 | Merged #416: Data collection help (offline, sync, QR) |
 | R10-i18n-field-offline-gps-chrome | 2026-10-28 | Merged #415: Field offline / GPS / related chrome i18n (#162)

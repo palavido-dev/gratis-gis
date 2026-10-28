@@ -28,14 +28,14 @@ actions that create a private derived-layer item via PostGIS on
 the server: **Buffer**, **Clip**, **Erase**, **Centroids**,
 **Convex hulls**, **Bounding boxes**, **Dissolve**,
 **Simplify**, **Densify**, **Vertices**, **Calculate
-geometry**, **Nearest neighbor**, and **Fishnet** (polygon
-layers). Meter distances and tolerances stay honest; the
+geometry**, **Nearest neighbor**, **Fishnet** (polygon layers),
+and **Top N**. Meter distances and tolerances stay honest; the
 in-browser SQL builder does not invent degree-unit geometry ops.
 See [Buffer](analysis-buffer), [Bounding box](analysis-bbox),
 [Vertices](analysis-vertices), [Calculate](analysis-calculate),
 [Simplify](analysis-simplify), [Densify](analysis-densify),
-[Nearest neighbor](analysis-nearest-neighbor), and
-[Fishnet](analysis-fishnet).
+[Nearest neighbor](analysis-nearest-neighbor),
+[Fishnet](analysis-fishnet), and [Top N](analysis-top-n).
 
 ## Pipeline model
 

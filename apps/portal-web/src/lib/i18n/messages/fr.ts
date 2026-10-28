@@ -5040,6 +5040,32 @@ export const fr: Partial<CatalogShape> = {
     fishnetValidateMin: 'La taille de cellule doit être d’au moins {meters} m.',
     fishnetValidateMax: 'La taille de cellule doit être d’au plus {meters} m.',
     fishnetValidateOutput: 'Choisissez une sortie polygones ou lignes.',
+    topNAction: 'Top N pour cette couche',
+    topNActionTitle:
+      'Créer une couche dérivée serveur qui conserve les N lignes en tête selon un champ numérique.',
+    topNHeading: 'Top N pour cette couche (couche dérivée serveur)',
+    topNIntroBefore:
+      'Crée une couche dérivée privée qui conserve les N lignes avec la valeur numérique la plus haute ou la plus basse (NULL en dernier). Même recette que',
+    topNHelpLink: 'Aide Top N',
+    topNIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    topNField: 'Champ numérique',
+    topNFieldAria: 'Champ numérique pour Top N',
+    topNN: 'N',
+    topNNAria: 'Nombre de lignes à conserver',
+    topNDirection: 'Direction',
+    topNDirectionAria: 'Direction de tri',
+    topNDir_desc: 'plus haut d’abord',
+    topNDir_asc: 'plus bas d’abord',
+    topNPickField: 'Choisissez un champ numérique…',
+    topNNoNumeric: 'Aucun champ numérique sur cette couche',
+    topNHint:
+      'N jusqu’à {max}. Les NULL vont en dernier. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    topNValidateNoNumeric: 'Cette couche n’a pas de champs numériques pour Top N.',
+    topNValidateField: 'Choisissez un champ numérique.',
+    topNValidateN: 'N doit être un entier positif.',
+    topNValidateMax: 'N doit être au plus {max}.',
+    topNValidateDirection: 'Choisissez croissant ou décroissant.',
   },
 
   serviceEditors: {
