@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field PWA collect chrome (Add / Vertex at GPS or center, Undo /
+  Finish, nothing-to-collect hint, Remove from device, map aria
+  labels, offline Pick lists breakdown) goes through
+  `fieldRuntime.*` catalogs (en / es / fr / de / pt-BR)
+  (R9-i18n-field-collect-chrome / #162). Offline progress codes
+  stay on `offlineMessage`.
 - Derived layer item help lists the full analysis step catalog
   (matching the tool registry / builder) and the Analyze guided
   shortcuts that ship today, with links into analysis help

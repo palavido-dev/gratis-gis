@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Field collect buttons follow your language
+On a field deployment, Add at GPS / Add at center (and Vertex at … for lines and polygons), Remove from device, and the map tool labels follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
 ## 2026-10-27 - Honest streaming note on large point clouds
 On a point cloud item, clouds over about 20 million points show a short note under the 3D viewer: lower in-view density and delayed rebuilds while you pan (stricter again over 100 million). This is a responsiveness tradeoff, not Potree-style LOD or 3D Tiles yet — see Point cloud help.
 
