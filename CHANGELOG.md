@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Calculate help and expression-language reference drop fake
+  geometry helpers (`area_m2`, `centroid_*`, …). Document
+  Calculate field (`{{field}}` expressions) vs Calculate geometry
+  (length / perimeter / area + unit + fieldName)
+  (R8-calculate-help-honesty).
 - Group by help (`analysis/group-by`) matches the aggregate
   generator: groupBy + count/sum/avg/min/max/first, geometry
   always `ST_Union` per group. Drop / bbox / convex-hull / first /

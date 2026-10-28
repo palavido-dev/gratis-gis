@@ -1,7 +1,7 @@
 ---
 id: analysis-calculate
 title: Calculate
-summary: Add a computed column to a layer. The same input rows, plus one or more new derived attributes.
+summary: Add a computed column from field expressions, or add length / perimeter / area via Calculate geometry.
 category: analysis
 order: 20
 complexity: basic
@@ -12,66 +12,96 @@ tags:
 related:
   - items-derived-layer
   - analysis-filter
+  - reference-expression-language
 ---
 
-A **calculate** step adds a new field to the output rows whose
-value is computed from existing fields (or computed from the
-geometry itself: area, length, centroid coordinates).
+Two related derived-layer steps add attributes without changing
+geometry:
 
-## Inputs
+1. **Calculate field** — one new column from an expression over
+   existing attributes (`{{field}}` refs and the shared expression
+   dialect).
+2. **Calculate geometry** — one numeric column from the feature
+   geometry (length, perimeter, or area) in a chosen unit.
+
+They are separate tools in the builder. Do not paste
+`area_m2()` into a calculate-field expression; that helper is not
+in the dialect.
+
+## Calculate field
+
+### Inputs
 
 - **Source layer**.
-- **One or more new fields**, each with:
-  - A **name** (column header).
-  - A **type** (text, integer, decimal, date, boolean).
-  - An **expression** that produces the value.
+- **Output field name**.
+- **Expression** using the
+  [expression language](reference-expression-language). Field
+  references use `{{name}}` braces.
 
-## Expression vocabulary
+### Output
 
-The expression dialect is a small functional language:
+Source rows unchanged, plus the new field. Geometry unchanged.
 
-- **Field references**: bare identifiers (`status`, `acres`).
-- **Arithmetic**: `+`, `-`, `*`, `/`, `%`. Integer/decimal handled
- like SQL.
-- **String concatenation**: `||`. (`first || ' ' || last`).
-- **Comparison + Boolean**: `=`, `!=`, `<`, `>`, `and`, `or`,
- `not`.
-- **Conditional**: `case when ... then ... else ... end`.
-- **Functions**: `upper(x)`, `lower(x)`, `length(x)`, `round(x, n)`,
- `coalesce(x, y)`, `cast(x as decimal)`, `now()`, `today()`.
-- **Geometry helpers**: `area_m2()`, `area_ft2()`, `length_m()`,
- `length_ft()`, `centroid_x()`, `centroid_y()`, `bbox_west()`,
- ...
+### Examples
 
-## Output
+- **Full name**:
+  `concat({{first}}, ' ', {{last}})` (or `{{first}}` / `{{last}}`
+  with `||` where the surface allows).
+- **Flag from attributes**:
+  `if({{status}} = 'closed', false, true)`.
 
-The source rows, unchanged, plus the new fields. The geometry is
-unchanged.
+See the expression reference for the shipped function list
+(`upper`, `lower`, `length`, `concat`, `coalesce`, `abs`,
+`round`, `floor`, `ceil`, `if`). Geometry helpers such as
+`area_m2()` / `centroid_x()` are **not** available here.
 
-## Examples
+## Calculate geometry
 
-- **Acreage from polygon area**:
- `acres = area_m2() / 4046.8564`.
-- **Full name** from first and last:
- `full_name = first || ' ' || last`.
-- **Status flag**:
- `is_overdue = case when due < today() and status != 'closed' then true else false end`.
-- **Buffer-ready label**:
- `display = upper(coalesce(name, 'UNKNOWN'))`.
+### Inputs
 
-## When NOT to use Calculate
+- **Source layer** (any geometry; null geometries skip the measure).
+- **Measurement**: `length`, `perimeter`, or `area`.
+- **Unit**: length units (meters, feet, …) or area units
+  (square meters, acres, hectares, …) matching the measurement.
+- **Field name**: the new numeric column (letters / digits /
+  underscore).
 
-- **One-off value transforms in a popup**. Don't add a derived
- column just so a popup can show formatted output. The popup
- template can interpolate fields directly.
-- **Per-user values**. Calculate is per-row; it doesn't know who
- the viewer is. Per-user logic happens at query time.
+Computation uses PostGIS geography (`ST_Length` / `ST_Area`, with
+`ST_Boundary` for perimeter) and converts to the chosen unit.
+
+### Output
+
+Source attributes plus the new numeric field. Geometry unchanged.
+
+### Examples
+
+- **Parcel acres**: measurement `area`, unit acres, field
+  `acres`.
+- **Road length in miles**: measurement `length`, unit miles,
+  field `miles`.
+- **Polygon perimeter in meters**: measurement `perimeter`, unit
+  meters, field `perimeter_m`.
+
+## How to use them
+
+1. New-item wizard → **Derived layer**.
+2. Pick a Source.
+3. Add **Calculate field** and/or **Calculate geometry**.
+4. Fill expression or measurement / unit / field name.
+5. Save.
+
+## When NOT to use Calculate field
+
+- **Geometry measures**. Use **Calculate geometry**, not fake
+  expression helpers.
+- **One-off popup formatting**. Popup templates can interpolate
+  fields without a derived column.
+- **Per-user values**. Calculate is per-row at materialization
+  time; it does not know who the viewer is.
 
 ## Notes
 
-- **Expressions are evaluated at materialization time.** Refresh
- the derived layer when the source changes.
-- **Type coercion** follows SQL rules; `cast(x as integer)` is
- the explicit form when you don't want to rely on coercion.
-- **NULL propagates** through arithmetic: `1 + null = null`.
- Use `coalesce` to default a NULL before computing.
+- **Materialization time.** Refresh the derived layer when the
+  source changes.
+- **NULL propagates** through arithmetic. Use `coalesce` before
+  computing when you need a default.
