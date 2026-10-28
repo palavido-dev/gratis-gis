@@ -25,7 +25,7 @@ into another derived layer.
 
 For one-step recipes, a data layer's **Analyze** tab has guided
 actions (**Buffer**, **Clip**, **Erase**, **Centroids**,
-**Dissolve**, **Simplify this layer**, …) that create a private
+**Convex hulls**, **Dissolve**, **Simplify this layer**, …) that create a private
 derived-layer item via PostGIS on the server. Meter distances and
 tolerances stay honest; the in-browser SQL builder does not invent
 degree-unit geometry ops. See [Buffer](/help/analysis/buffer) and

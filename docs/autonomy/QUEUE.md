@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-i18n-analyze-query-builder | research-cycle-8 | #162 Analyze query-builder chrome i18n | This PR |
+| R8-analyze-convex-hull-shortcut | research-cycle-8 | Analyze Convex hull → derived_layer | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-analyze-convex-hull-shortcut | research-cycle-8 | Analyze Convex hull → derived_layer | Centroid-shaped |
 | R8-analyze-densify-shortcut | research-cycle-8 | Analyze Densify → derived_layer | Buffer-shaped |
 | R8-point-cloud-streaming-honesty | research-cycle-8 | Point-cloud help/viewer size-tier honesty | #183 open |
 
@@ -29,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R8-i18n-analyze-query-builder | 2026-10-27 | Merged #401: Analyze query-builder chrome i18n (#162) |
 | R8-calculate-help-honesty | 2026-10-27 | Merged #400: Calculate vs Calculate geometry help honesty |
 | R8-groupby-help-honesty | 2026-10-27 | Merged #399: group-by help matches aggregate ST_Union + ops |
 | R8-spatial-join-help-honesty | 2026-10-27 | Merged #398: spatial-join help matches within/intersects/nearest |

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Convex hulls for this layer from Analyze
+On a data layer's Analyze tab, **Convex hulls for this layer** creates a private PostGIS derived layer that replaces each feature with its convex hull (attributes kept; not one hull for the whole layer). Same path as Create → Derived layer → Convex hull. Expect a short server job, not an instant browser result.
+
 ## 2026-10-27 - Simplify this layer from Analyze
 On a data layer's Analyze tab, **Simplify this layer** opens a tolerance and unit form and creates a private PostGIS derived layer that drops vertices within that tolerance (`ST_Simplify`; not topology-preserving). Same path as Create → Derived layer → Simplify. Expect a short server job, not an instant browser result.
 

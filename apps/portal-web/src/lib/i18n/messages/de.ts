@@ -4847,6 +4847,20 @@ export const de: Partial<CatalogShape> = {
     qbOpEmpty: 'ist leer',
     qbOpNotEmpty: 'ist nicht leer',
     qbOpIsNot: 'ist nicht',
+
+    convexHullAction: 'Konvexe Hüllen für diese Ebene',
+    convexHullActionTitle:
+      'Serverseitigen Derived Layer mit konvexen Hüllen pro Feature erstellen (PostGIS ST_ConvexHull).',
+    convexHullHeading:
+      'Konvexe Hüllen für diese Ebene (serverseitiger Derived Layer)',
+    convexHullIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    convexHullIntroAfter:
+      'auf PostGIS für jedes Feature ausführt (Attribute bleiben). Keine einzelne Hülle für die ganze Ebene. Gleiches Rezept wie',
+    convexHullHelpLink: 'Hilfe Konvexe Hülle',
+    convexHullIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    convexHullHint:
+      'Nur Hüllen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
   },
 
   serviceEditors: {

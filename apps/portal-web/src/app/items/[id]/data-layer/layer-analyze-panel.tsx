@@ -28,6 +28,7 @@ import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
+import { AnalyzeConvexHullGuide } from './analyze-convex-hull-guide';
 import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
@@ -400,6 +401,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeCentroidGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeConvexHullGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
