@@ -6,12 +6,19 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-recipe-sink-honesty | research-cycle-6 | Recipe editor sinks: no coming soon lie | This PR |
+| Q-research-cycle-7 | research-cycle-7 | Refill ship-without-input after R6 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R7-dissolve-help-honesty | research-cycle-7 | dissolve.md matches no-param ST_Union | Docs honesty |
+| R7-fishnet-help-honesty | research-cycle-7 | fishnet.md matches cellSize/unit/output | Docs honesty |
+| R7-contour-help-honesty | research-cycle-7 | contour.md matches TIN iso-lines | Docs honesty |
+| R7-i18n-erase-centroid-guides | research-cycle-7 | #162 Erase/Centroid Analyze chrome i18n | After Buffer/Clip |
+| R7-analyze-dissolve-shortcut | research-cycle-7 | Analyze Dissolve → derived_layer | After dissolve help |
+| R7-analyze-simplify-shortcut | research-cycle-7 | Analyze Simplify → derived_layer | Buffer-shaped |
+| R7-recipe-aoi-honesty | research-cycle-7 | Recipe AOI hint: no wave-2 promise | Tiny copy |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +33,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R6-recipe-sink-honesty | 2026-10-27 | Merged #386: recipe sinks honest (no coming soon) |
 | R6-mcp-search-catalog | 2026-10-27 | Merged #385: MCP search_catalog on public Records |
 | R6-analyze-centroid-shortcut | 2026-10-27 | Merged #384: Analyze Centroid → PostGIS derived_layer |
 | SEC-ws-frame-cap | 2026-10-27 | Merged #383: Presence WS max inbound frame 64 KiB |
@@ -55,6 +63,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R7-reject-node-graph-canvas | research-cycle-7 | Visual node-graph recipe canvas is polish, not honesty |
+| R7-reject-print-brand-kit | research-cycle-7 | Brand / chrome redesign fails playbook brand test |
+| R7-reject-seat-pricing | research-cycle-7 | Named-user pricing contradicts ethos |
+| R7-reject-recipe-materialize-sinks | research-cycle-7 | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R7-reject-tile3d-local-rebuild | research-cycle-7 | #183 stays open; no closing on local rebuilds |
+| R7-reject-dissolve-groupby-feature | research-cycle-7 | Keyed dissolve stays on group-by; no second path |
 | R6-reject-node-graph-canvas | research-cycle-6 | Visual node-graph recipe canvas is polish, not honesty |
 | R6-reject-print-brand-kit | research-cycle-6 | Brand / chrome redesign fails playbook brand test |
 | R6-reject-seat-pricing | research-cycle-6 | Named-user pricing contradicts ethos |
