@@ -84,23 +84,38 @@ Do **not** build without an explicit queue entry marked
 - Prefer OGC / PostGIS / MapLibre shapes over proprietary lock-in.
 - `main` stays deployable; one logical change per PR.
 
-## Docs with every user-facing ship
+## Docs in the same commit (continuous)
 
-A `ship-without-input` PR that changes behavior users can see is
-not done until all of the following that apply are updated in the
-same PR (or a follow-up docs PR opened before the next queue item):
+Documentation is not a follow-up. Every shippable PR updates the
+docs that would otherwise go stale **in the same branch / commits
+as the code** (never "docs later" before picking the next queue
+item). Applies to feature work, hardenings, honesty fixes, and
+i18n when help or CHANGELOG would be wrong without them.
+
+Update all of the following that apply:
 
 1. **Help** under `apps/portal-web/content/help/` (new page or
-   section; frontmatter `id` / `related` / search tags).
+   section; frontmatter `id` / `related` / search tags). Rewrite
+   pages that oversell params or paths the code does not ship.
 2. **What's new** at
    `apps/portal-web/content/changelog/user-visible.md` (plain
    English, newest first; this feeds the landing page card).
 3. **CHANGELOG.md** Unreleased (engineer-facing Keep a Changelog).
-4. **GitHub / repo docs** when the public surface moved: README
-   Status line, `docs/*` design notes, CONTRIBUTING checklists.
+4. **Repo docs** when the public surface moved: README Status
+   line, `docs/*` design notes, MCP / API READMEs, CONTRIBUTING
+   checklists.
+5. **QUEUE.md** when the autonomy item moves
+   (in-progress / done / rejected).
 
-Power-user or API-only changes still need help + CHANGELOG; they
-only skip What's new when a non-technical visitor would not notice.
+Power-user or API-only changes still need help + CHANGELOG when a
+page or engineer note would be wrong; they only skip What's new
+when a non-technical visitor would not notice. Pure process /
+research-json refills still update QUEUE (and PLAYBOOK when the
+rule itself changes).
+
+Builders: before opening the PR, grep the diff for user-visible
+strings and confirm matching help / CHANGELOG / What's new rows
+exist in the same diff.
 
 ## Queue
 
