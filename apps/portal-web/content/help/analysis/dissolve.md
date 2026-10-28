@@ -1,7 +1,7 @@
 ---
 id: analysis-dissolve
 title: Dissolve
-summary: Merge adjacent polygons that share an attribute value into one multipolygon per shared value.
+summary: Merge every input geometry into one combined feature via PostGIS ST_Union. Attributes are dropped.
 category: analysis
 order: 60
 complexity: basic
@@ -14,69 +14,77 @@ related:
   - analysis-group-by
 ---
 
-A **dissolve** step merges polygons that share the same value of
-a key field into one polygon (or multipolygon) per distinct value.
-Boundaries between same-key polygons disappear; boundaries
-between different-key polygons remain.
+A **dissolve** step merges every input geometry into a **single**
+feature with PostGIS `ST_Union`. There is no key field and no
+attribute aggregation on this path: the output has empty
+properties.
 
-Use to clean up tile boundaries, simplify a parcel layer to a
-land-use layer, or visualize "regions" computed from a finer
-input.
+Use when you want one combined shape — a total extent, a
+boundary-cleanup union of same-area tiles you already filtered,
+or a single mask polygon for a later clip / erase.
+
+If you need one polygon **per attribute value** (land-use
+categories, ownership, zoning) plus counts or sums, use
+[Group by](analysis-group-by) with geometry strategy **Dissolve**
+instead. That is the shipped keyed path.
 
 ## Inputs
 
-- **Source layer** (must be polygon or multipolygon).
-- **Key field** (optional). If set, polygons are dissolved per
- value. If omitted, every polygon dissolves into a single
- multipolygon.
-- **Attributes to preserve**. By default the key field. You can
- add summary aggregates the same way as a group-by step
- (sum of an area field, count of input polygons per group).
+- **Source layer**. Any geometry type. Null geometries are
+  skipped. The step has no parameters in the derived-layer
+  builder.
 
 ## Output
 
-One polygon (or multipolygon) per distinct key value. Schema is
-the key field plus any preserved aggregates.
+Exactly one feature (when the source has at least one non-null
+geometry):
+
+- Geometry: the union of every input geometry (often a
+  multipolygon when parts do not touch).
+- Properties: empty (`{}`). Source attributes are not carried
+  forward — there is no canonical way to pick which `name` wins
+  among dozens of input rows.
+
+Downstream steps that need a named field will fail validation if
+they sit after dissolve. Filter or calculate before dissolving,
+or use group-by when you need keys and aggregates.
 
 ## How to use it on its own
 
 1. New-item wizard → **Derived layer**.
-2. Pick a polygon Source.
-3. Add a **Dissolve** step.
-4. Pick the **Key field**.
-5. Save.
+2. Pick a Source.
+3. Add a **Dissolve** step (no options to fill in).
+4. Save.
+
+Expect a short server job. The builder shows a short note that
+attributes are dropped.
 
 ## Examples
 
-- **Parcels to land-use polygons**. Source: parcel layer with a
- `land_use` field. Key: `land_use`. Output: one multipolygon per
- land-use category (one shape for "residential", one for
- "commercial", etc.).
-- **Tile-boundary cleanup**. Source: a layer ingested from
- tiled-by-quad data where adjacent same-value cells should be
- one. Key: the cell value field. Output: clean polygons with
- no internal seams.
-- **Single overall extent**. Source: any polygon layer. Key:
- omitted. Output: one multipolygon that's the union of every
- input. Useful as a quick "what's the total extent" reference.
+- **Single overall extent**. Source: any polygon layer. Output:
+  one multipolygon that is the union of every input. Useful as a
+  quick "what's the total coverage" reference or as a clip mask.
+- **Pre-filtered union**. Filter parcels to one owner first, then
+  dissolve — one shape for that owner without inventing a key
+  field on dissolve itself.
 
 ## Dissolve vs. group-by with dissolve geometry strategy
 
-Both can produce the same output. The differences:
+Both can merge geometries. The differences:
 
-- **Dissolve** is the simpler path; pick this when you only want
- the merged geometry plus the key.
-- **Group-by** with `geometry strategy: dissolve` is the right
- path when you also want non-trivial aggregates (count, sum,
- average) computed alongside the dissolved geometry.
+- **Dissolve** (this step) is the simple path: one union of the
+  whole input, no attributes. Prefer it when that is all you need.
+- **Group by** with geometry strategy **Dissolve** is the path
+  when you also want group keys and aggregates (count, sum,
+  average) alongside the merged geometry per key.
 
 ## Notes
 
-- **Non-adjacent same-key polygons become multipolygons.** A
- layer where "residential" parcels are scattered across town
- produces a single multipolygon feature containing all of them.
-- **Internal holes survive.** If the source polygons have rings
- that surround other-key polygons (a residential block around
- a commercial lot), the dissolve preserves the hole.
+- **Non-adjacent parts become multipolygons.** Scattered parcels
+  that you dissolve together produce one multipolygon feature.
+- **Internal holes can survive** when they are rings in the
+  unioned geometry.
 - **Slow on huge inputs.** Dissolving millions of polygons can
- take minutes; consider filtering first or running off-hours.
+  take minutes; filter first or run off-hours.
+- **No key-field dissolve here.** That wording in older docs was
+  wrong for this generator; use group-by.
