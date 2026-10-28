@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-research-cycle-8 | research-cycle-8 | Refill ship-without-input after R7 drain | This PR |
+| R8-spatial-join-help-honesty | research-cycle-8 | spatial-join.md matches within/intersects/nearest | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-spatial-join-help-honesty | research-cycle-8 | spatial-join.md matches within/intersects/nearest | Docs honesty |
 | R8-groupby-help-honesty | research-cycle-8 | group-by.md matches aggregate ST_Union + ops | Docs honesty |
 | R8-calculate-help-honesty | research-cycle-8 | Calculate/expression docs: no fake geometry helpers | Docs honesty |
 | R8-i18n-analyze-query-builder | research-cycle-8 | #162 Analyze query-builder chrome i18n | After guides |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-research-cycle-8 | 2026-10-27 | Merged #397: research-cycle-8 refill ship-without-input queue |
 | R7-recipe-aoi-honesty | 2026-10-27 | Merged #396: recipe AOI hint without wave-2 promise |
 | R7-analyze-simplify-shortcut | 2026-10-27 | Merged #395: Analyze Simplify → PostGIS derived_layer |
 | R7-analyze-dissolve-shortcut | 2026-10-27 | Merged #394: Analyze Dissolve → PostGIS derived_layer |
