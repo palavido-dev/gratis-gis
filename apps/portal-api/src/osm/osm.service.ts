@@ -230,6 +230,10 @@ export class OsmService {
     );
     const response = await this.client.run({ endpoint, ql });
     const collection = osmToGeoJson(response);
+    // Pre-slice count so callers can set truncated when Overpass (or
+    // our soft cap) returned more than we keep. Cache stores the
+    // persisted slice length; the return value keeps the raw count.
+    const rawCount = collection.features.length;
     const features = collection.features.slice(0, maxFeatures);
 
     const scope = `osm:${hash}`;
@@ -268,7 +272,7 @@ export class OsmService {
 
     return {
       scope,
-      featureCount: features.length,
+      featureCount: rawCount,
       cacheHit: false,
       features,
       attribution: ATTRIBUTION,

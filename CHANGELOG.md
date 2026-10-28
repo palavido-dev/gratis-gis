@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Recipe OSM overlay / relational / reverse-geocode outputs set
+  `truncated` from the real Overpass (and nearest-N) caps instead
+  of hardcoding `false`. OsmService.resolve reports the pre-slice
+  feature count so clients can tell when a soft maxFeatures cut
+  the list (R10-recipe-overpass-truncated-honesty).
 - Analyze **Top N for this layer** creates a private PostGIS
   derived layer that keeps the N rows with the highest or lowest
   numeric field value (NULLs last; max N 100,000). Same path as

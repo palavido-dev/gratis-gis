@@ -22,11 +22,14 @@ it. The detail page edits one of these kinds:
   source. Selection and "OSM features on the map" are the
   outputs the runner supports. An OSM overlay area of interest
   can be a drawn shape for everyone, or a layer / selection when
-  you are signed in. A recipe does **not** create a new derived
-  layer or data layer as its sink — create a
-  [derived layer](items-derived-layer) item (or use Analyze
-  Buffer / Clip / Erase / Centroid / Dissolve / Simplify) when
-  you want a saved spatial pipeline.
+  you are signed in. OSM overlay / relational / reverse-geocode
+  results set `truncated` when Overpass (or a nearest-N /
+  selection cap) returned more features than the response keeps —
+  do not treat a capped overlay as a complete census of the AOI.
+  A recipe does **not** create a new derived layer or data layer
+  as its sink — create a [derived layer](items-derived-layer)
+  item (or use Analyze Buffer / Clip / Erase / Centroid /
+  Dissolve / Simplify) when you want a saved spatial pipeline.
 - **OSM relational query**
 
 A recipe can be opened on a canvas. Dragging a step changes
