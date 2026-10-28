@@ -3656,6 +3656,10 @@ export const en = {
       'Local OpenAI-compatible (Ollama or a proxy)',
     confirmClear: 'Confirm clear',
     clear: 'Clear',
+    configLockedNotice:
+      'AI provider settings are locked on this public-testing portal. The key is applied from the host environment on each deploy and cannot be changed here.',
+    errConfigLocked:
+      'AI provider settings are locked on this public-testing portal.',
   },
 
   /** Admin → Migrations (#162). */

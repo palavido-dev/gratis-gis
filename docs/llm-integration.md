@@ -1,8 +1,9 @@
 # LLM integration
 
 GratisGIS stays AGPL. Connecting a model is optional, and it is
-off until an organization admin saves a provider and an API key.
-The API does not call a model before that save.
+off until an organization admin saves a provider and an API key
+(or until a deploy bootstraps one from host env). The API does
+not call a model before that save.
 
 An earlier note in this file required self-hosted models only and
 ruled out OpenAI and Anthropic. That decision is superseded.
@@ -40,12 +41,12 @@ The server does not write the item. The user copies the draft.
 
 | Method | Path | Who |
 | --- | --- | --- |
-| `GET` | `/api/admin/ai` | Org admin. Config only: provider, model, base URL, and whether a key is saved. The key itself is never returned. |
-| `PUT` | `/api/admin/ai` | Org admin. Save or replace the provider. Omit the key to keep the one already stored. |
-| `DELETE` | `/api/admin/ai` | Org admin. Remove the provider and the key. |
-| `GET` | `/api/ai/status` | Any signed-in user. `{ "configured": true \| false }`. |
+| `GET` | `/api/admin/ai` | Org admin. Config only: provider, model, base URL, flags, and whether a key is saved. The key itself is never returned. |
+| `PUT` | `/api/admin/ai` | Org admin. Save or replace the provider. Omit the key to keep the one already stored. Refused when AI config is locked. |
+| `DELETE` | `/api/admin/ai` | Org admin. Remove the provider and the key. Refused when AI config is locked. |
+| `GET` | `/api/ai/status` | Any signed-in user. `{ configured, buildDisabled, configLocked, quota }`. |
 | `POST` | `/api/ai/draft` | Any signed-in user who can read the item. Body: `{ "itemId", "instruction" }`. |
-| `POST` | `/api/ai/build` | A contributor or admin. Body: `{ "instruction" }`. Creates layers, a map, a form, and a viewer app from the description. |
+| `POST` | `/api/ai/build` | A contributor or admin. Body: `{ "instruction" }`. Creates layers, a map, a form, and a viewer app from the description. May be disabled on the public demo. |
 | `POST` | `/api/ai/features` | Any signed-in user who can read the data layer. Body: `{ "itemId", "question", "layerId"? }`. Answers from a sample of attribute text. |
 
 Viewers and contributors cannot save a provider. API keys cannot
@@ -55,9 +56,13 @@ with `code: "ai_not_configured"`. An item the caller cannot read
 is a 404 from the same sharing check as `GET /api/items/:id`.
 
 The key is encrypted with `CREDENTIAL_ENCRYPTION_KEY`, the same
-AES-256-GCM cipher used for other stored credentials.
+AES-256-GCM cipher used for other stored credentials. The browser
+never sees the key: every model call is a server-side proxy to a
+fixed official host (or an admin-chosen OpenAI-compatible base).
 
 ## Configuring a key
+
+### Normal (private) deploy
 
 1. The API process needs `CREDENTIAL_ENCRYPTION_KEY` (32 bytes,
    base64). Generate one with
@@ -74,6 +79,62 @@ AES-256-GCM cipher used for other stored credentials.
 5. Save. Clear removes the row. Leaving the key field blank on
    a later save keeps the stored key.
 
+### Public demo / public-testing deploy
+
+Shared tester passwords are printed on the sign-in page, so the
+Admin → AI form must not be the way the key is managed: anyone
+signed in as `tester-admin` could replace or clear it. Instead:
+
+1. Put a **dedicated, low-limit** provider project key in
+   `infra/.env.prod` as `PORTAL_AI_BOOTSTRAP_API_KEY` (never commit
+   that file). Prefer a cheap model via
+   `PORTAL_AI_BOOTSTRAP_PROVIDER` / `PORTAL_AI_BOOTSTRAP_MODEL`
+   (defaults: `openai` / `gpt-4o-mini`).
+2. Keep `PORTAL_LOCK_ADMIN_TIER=1` on the demo. That also locks
+   AI config save/clear and disables AI build unless you
+   explicitly set `PORTAL_LOCK_AI_CONFIG=0` or
+   `PORTAL_AI_DISABLE_BUILD=0`.
+3. Redeploy / restart `portal-api`. On boot,
+   `AiBootstrapService` encrypts the bootstrap key into
+   `org_ai_provider` for `DEFAULT_ORG_SLUG` (or
+   `PORTAL_AI_BOOTSTRAP_ORG_SLUG`). The nightly golden restore
+   wipes the DB row; the next API boot writes it back from env,
+   so the secret stays out of the golden dump.
+4. Set a hard monthly budget and alert on the provider project
+   itself as the backstop if app quotas fail.
+
+Cursor / this agent cannot mint or attach a vendor API key, and
+Cursor’s own models are not a drop-in provider for the portal.
+You supply an OpenAI, Anthropic, xAI, or local-compatible key.
+
+## Spend caps and hijack resistance
+
+Before every outbound model call the API:
+
+- Requires a signed-in user in the org that owns the key.
+- Enforces item sharing (draft / ask) or `can_publish_items` (build).
+- Applies Nest per-IP `@Throttle` on the AI routes.
+- Applies a per-user sliding one-minute cap
+  (`PORTAL_AI_USER_MINUTE_CALL_LIMIT`; default 6 under
+  public-testing hardening, else 12).
+- Increments shared Postgres daily counters and refuses with
+  429 `ai_quota_exceeded` when the org or user day cap would be
+  exceeded (`PORTAL_AI_ORG_DAILY_CALL_LIMIT` /
+  `PORTAL_AI_USER_DAILY_CALL_LIMIT`; defaults 100 / 20 under
+  public-testing hardening, else unlimited).
+- Caps model output at 1200 tokens and keeps prompts structured
+  (no free-form general chat proxy).
+
+| Env | Effect |
+| --- | --- |
+| `PORTAL_LOCK_ADMIN_TIER` | Public-testing hardening; also locks AI config and disables build unless overridden. |
+| `PORTAL_LOCK_AI_CONFIG` | Force lock (`1`) or unlock (`0`) Admin → AI writes. |
+| `PORTAL_AI_DISABLE_BUILD` | Force disable (`1`) or allow (`0`) `POST /api/ai/build`. |
+| `PORTAL_AI_ORG_DAILY_CALL_LIMIT` | Org-wide calls per UTC day (`0` = unlimited). |
+| `PORTAL_AI_USER_DAILY_CALL_LIMIT` | Per-user calls per UTC day (`0` = unlimited). |
+| `PORTAL_AI_USER_MINUTE_CALL_LIMIT` | Per-user calls per rolling minute (`0` = unlimited). |
+| `PORTAL_AI_BOOTSTRAP_*` | Provider, model, API key, optional base URL / org slug; applied on API boot. |
+
 ## Building from a description
 
 `POST /api/ai/build` asks the model for a plan, checks it, and
@@ -89,6 +150,7 @@ Choose **Build it** to create the items.
 
 A viewer cannot call this endpoint. When no provider is saved
 the response is 409 `ai_not_configured`, the same as drafts.
+When build is disabled the response is 403 `ai_build_disabled`.
 
 ## Asking a layer
 

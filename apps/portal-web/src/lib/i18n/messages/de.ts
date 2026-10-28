@@ -3559,6 +3559,10 @@ export const de: Partial<CatalogShape> = {
       'Lokal OpenAI-kompatibel (Ollama oder Proxy)',
     confirmClear: 'Löschen bestätigen',
     clear: 'Löschen',
+    configLockedNotice:
+      'KI-Anbietereinstellungen sind auf diesem öffentlichen Testportal gesperrt. Der Schlüssel wird bei jedem Deploy aus der Host-Umgebung übernommen und kann hier nicht geändert werden.',
+    errConfigLocked:
+      'KI-Anbietereinstellungen sind auf diesem öffentlichen Testportal gesperrt.',
   },
 
   adminMigrations: {

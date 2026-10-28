@@ -13,6 +13,7 @@ import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { AiConfigService } from './ai-config.service.js';
 import { AiProviderClient, ProviderCallError } from './ai-provider.client.js';
+import { AiQuotaService } from './ai-quota.service.js';
 import { aiNotConfigured } from './ai-draft.service.js';
 import {
   attributeLine,
@@ -58,6 +59,7 @@ export class AiFeaturesService {
     private readonly features: DataLayerFeaturesService,
     private readonly config: AiConfigService,
     private readonly client: AiProviderClient,
+    private readonly quota: AiQuotaService,
   ) {}
 
   async ask(
@@ -172,6 +174,8 @@ export class AiFeaturesService {
 
     const stored = await this.config.loadUsable(user.orgId);
     if (!stored) throw aiNotConfigured();
+
+    await this.quota.consume(user);
 
     let text: string;
     try {

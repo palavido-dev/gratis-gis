@@ -3550,6 +3550,10 @@ export const fr: Partial<CatalogShape> = {
       'OpenAI compatible local (Ollama ou proxy)',
     confirmClear: 'Confirmer la suppression',
     clear: 'Effacer',
+    configLockedNotice:
+      'Les paramètres du fournisseur IA sont verrouillés sur ce portail de tests publics. La clé est appliquée depuis l\'environnement hôte à chaque déploiement et ne peut pas être modifiée ici.',
+    errConfigLocked:
+      'Les paramètres du fournisseur IA sont verrouillés sur ce portail de tests publics.',
   },
 
   adminMigrations: {

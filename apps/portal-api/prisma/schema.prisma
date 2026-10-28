@@ -243,6 +243,7 @@ model Organization {
   notificationTemplates NotificationTemplate[]
   /// Opt-in AI provider. No row means AI is off.
   aiProvider            OrgAiProvider?
+  aiUsageDaily          AiUsageDaily[]
 
   @@map("organization")
 }
@@ -267,6 +268,22 @@ model OrgAiProvider {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_ai_provider")
+}
+
+/// Per-day AI call counters. `user_id` all-zeros is the org bucket;
+/// other rows are per signed-in user. Used for spend caps on the
+/// public demo and any deploy that sets PORTAL_AI_*_DAILY_CALL_LIMIT.
+model AiUsageDaily {
+  orgId  String   @map("org_id") @db.Uuid
+  userId String   @map("user_id") @db.Uuid
+  day    DateTime @db.Date
+  calls  Int      @default(0)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, userId, day])
+  @@index([orgId, day], map: "ai_usage_daily_org_day_idx")
+  @@map("ai_usage_daily")
 }
 
 model User {

@@ -3544,6 +3544,10 @@ export const es: Partial<CatalogShape> = {
       'OpenAI compatible local (Ollama o un proxy)',
     confirmClear: 'Confirmar borrado',
     clear: 'Borrar',
+    configLockedNotice:
+      'La configuración del proveedor de IA está bloqueada en este portal de pruebas públicas. La clave se aplica desde el entorno del host en cada despliegue y no se puede cambiar aquí.',
+    errConfigLocked:
+      'La configuración del proveedor de IA está bloqueada en este portal de pruebas públicas.',
   },
 
   adminMigrations: {
