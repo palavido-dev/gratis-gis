@@ -54,6 +54,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field layers basemap chip, address-search Places/Searching,
+  and related-records list chrome go through en/es/fr/de/pt-BR
+  catalogs (R11-i18n-field-layers-search-chrome / #162).
 - Field offline panel + download dialog chrome (map detail
   pickers, basemap unavailable warning, storage gauge /
   Make persistent / Clear tiles, download titles, Close/Cancel)
