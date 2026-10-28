@@ -54,6 +54,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Group by for this layer** opens one optional group
+  key (or whole layer), one aggregate (`count` / `sum` / `avg`),
+  and an output name, then creates a private PostGIS derived
+  layer (`ST_Union` per group). Multi-key / multi-agg stay in
+  Create → Derived layer. Same path as Create → Derived layer →
+  Group by (R11-analyze-group-by-shortcut).
 - Analyze **Contour for this layer** (point layers) opens
   numeric field, auto interval, and optional min/max controls
   and creates a private PostGIS derived layer of TIN iso-lines

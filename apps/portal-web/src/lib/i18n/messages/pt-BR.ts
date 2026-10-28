@@ -5156,6 +5156,36 @@ export const ptBR: Partial<CatalogShape> = {
     contourValidateField: 'Escolha um campo numérico.',
     contourValidateInterval: 'O intervalo deve ser um número positivo.',
     contourValidateRange: 'O mínimo deve ser estritamente menor que o máximo quando ambos estão definidos.',
+    groupByAction: 'Agrupar esta camada',
+    groupByActionTitle:
+      'Cria uma camada derivada no servidor que resume linhas por uma chave com um agregado (geometria ST_Union).',
+    groupByHeading: 'Agrupar esta camada (camada derivada no servidor)',
+    groupByIntroBefore:
+      'Cria uma camada derivada privada com uma chave de grupo (ou a camada inteira) e um agregado (count / sum / avg). A geometria é sempre ST_Union por grupo. Mesma receita que',
+    groupByHelpLink: 'Ajuda de agrupar',
+    groupByIntroTail:
+      '. Várias chaves / vários agregados ficam em Criar → Camada derivada. Espere um job no servidor.',
+    groupByKey: 'Chave de grupo',
+    groupByKeyAria: 'Campo para agrupar (opcional)',
+    groupByWholeLayer: 'Camada inteira (sem chave)',
+    groupByOp: 'Agregado',
+    groupByOpAria: 'Operação de agregado',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Campo numérico',
+    groupByAggFieldAria: 'Campo numérico para sum ou avg',
+    groupByPickNumeric: 'Escolha um campo numérico…',
+    groupByNoNumeric: 'Não há campos numéricos nesta camada',
+    groupByOutput: 'Nome de saída',
+    groupByOutputAria: 'Nome da coluna do agregado',
+    groupByHint:
+      'Valores NULL na chave formam o próprio grupo. Uniões grandes podem ser lentas. Abra o novo item após o job no servidor.',
+    groupByValidateKey: 'Escolha uma chave existente nesta camada, ou a camada inteira.',
+    groupByValidateOp: 'Escolha count, sum ou avg.',
+    groupByValidateAggField: 'Escolha um campo numérico para sum ou avg.',
+    groupByValidateOutput: 'O nome de saída deve ser um id de campo com letra/underscore.',
+    groupByValidateOutputCollision: 'O nome de saída não deve colidir com a chave de grupo.',
   },
 
   serviceEditors: {
