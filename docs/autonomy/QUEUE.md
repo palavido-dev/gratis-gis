@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-tool-help-post-r11-honesty | research-cycle-12 | Confirm tool.md / derived-layer.md vs Contour/Group-by | This PR |
+| R12-i18n-field-offline-basemap-row | research-cycle-12 | Spot-check offline basemap row literals after #425 | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-i18n-field-offline-basemap-row | research-cycle-12 | Spot-check offline basemap row literals after #425 | Close if clean |
 | SEC-stac-items-search-throttle | research-cycle-12 | @Throttle 60/min on Public STAC items + search | Low |
 | SEC-drawings-list-throttle | research-cycle-12 | @Throttle 60/min on Public GET drawings list | Low |
 | SEC-public-features-page-throttle | research-cycle-12 | @Throttle 60/min on Public features-page + search | Low |
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R12-tool-help-post-r11-honesty | 2026-10-28 | Merged #440: Analyze catalog honesty (builder-only clarify) |
 | R12-sync-conflict-help-crosslink | 2026-10-28 | Merged #439: sync conflict Re-apply / Dismiss help crosslinks |
 | R12-i18n-pwa-install-chrome | 2026-10-28 | Merged #438: PWA Install / Dismiss / iOS hint i18n (#162) |
 | R12-i18n-map-settings-title | 2026-10-28 | Merged #437: Map settings rail title i18n (#162) |
