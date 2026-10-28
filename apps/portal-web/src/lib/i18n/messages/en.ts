@@ -1383,6 +1383,10 @@ export const en = {
     addFeature: 'Add feature',
     addFeatureAria: 'Add feature',
     closeAria: 'Close',
+    // Runtime nav / collect-arm chrome (R12-i18n-field-runtime-nav-chrome / #162).
+    backAria: 'Back',
+    cancelCollectAria: 'Cancel',
+    noEditableLayersInMap: 'No editable layers in this map.',
     filterPlaceholder: 'Filter...',
     noEditableLayers: 'This deployment has no editable layers yet.',
     noTemplatesMatch: 'No templates match that filter.',

@@ -2029,7 +2029,7 @@ export function FieldRuntime({
         <Link
           href={backHref}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
-          aria-label="Back"
+          aria-label={t('fieldRuntime.backAria')}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -2520,7 +2520,7 @@ export function FieldRuntime({
       <footer className="flex shrink-0 items-center gap-2 border-t border-border bg-surface-1 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {editableLayers.length === 0 ? (
           <p className="flex-1 text-center text-xs text-muted">
-            No editable layers in this map.
+            {t('fieldRuntime.noEditableLayersInMap')}
           </p>
         ) : activeTemplate ? (
           (() => {
@@ -2565,7 +2565,7 @@ export function FieldRuntime({
                     type="button"
                     onClick={() => setActiveTemplate(null)}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
-                    aria-label="Cancel"
+                    aria-label={t('fieldRuntime.cancelCollectAria')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
