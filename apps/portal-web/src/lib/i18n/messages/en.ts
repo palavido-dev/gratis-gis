@@ -1454,6 +1454,24 @@ export const en = {
     sheetEmptyValue: '(empty)',
     sheetNoAttributes: 'No attributes on this feature.',
     sheetItemCount: '{count, plural, one {# item} other {# items}}',
+    // Layers panel basemap chip + address search + related-list
+    // chrome (R11-i18n-field-layers-search-chrome / #162).
+    basemapLabel: 'Basemap: {name}',
+    basemapDefault: 'default',
+    basemapHide: 'Hide',
+    basemapChange: 'Change',
+    noLayersInMap: 'No layers in this map.',
+    searchPlaces: 'Places',
+    searching: 'Searching...',
+    relatedRecordsHeading: 'Related records',
+    relatedAdd: 'Add',
+    relatedAddTitle: 'Add a new {layer} record under this feature',
+    relatedLoadError:
+      "Couldn't load existing {layer} records ({error}). Tap Add to create a new one.",
+    relatedLoadErrorShort: "Couldn't load {layer} records ({error}).",
+    relatedEmpty: 'No {layer} records yet.',
+    loadingEllipsis: 'Loading...',
+    relatedRowCount: '{count, plural, one {# row} other {# rows}}',
   },
   // Location permission, surfaced where a thumb can reach it. Every
   // stamped position on a deployment depends on this working, so a

@@ -3473,7 +3473,7 @@ function LayerVisibilityPanel({
           if (finalSet.length === 0) {
             return (
               <li className="p-3 text-center text-sm text-muted">
-                No layers in this map.
+                {panelT('fieldRuntime.noLayersInMap')}
               </li>
             );
           }
@@ -3538,10 +3538,16 @@ function LayerVisibilityPanel({
           >
             <Layers className="h-4 w-4 shrink-0 text-muted" />
             <span className="min-w-0 flex-1 truncate">
-              Basemap: {activeBasemap?.label ?? 'default'}
+              {panelT('fieldRuntime.basemapLabel', {
+                name:
+                  activeBasemap?.label ??
+                  panelT('fieldRuntime.basemapDefault'),
+              })}
             </span>
             <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
-              {basemapPickerOpen ? 'Hide' : 'Change'}
+              {basemapPickerOpen
+                ? panelT('fieldRuntime.basemapHide')
+                : panelT('fieldRuntime.basemapChange')}
             </span>
           </button>
           {basemapPickerOpen ? (
@@ -4624,7 +4630,7 @@ function FormModal({
           (modal.layer.childLayers ?? []).length > 0 ? (
             <div className="mt-5 border-t border-border pt-4">
               <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-1">
-                Related records
+                {t('fieldRuntime.relatedRecordsHeading')}
               </p>
               <div className="space-y-4">
                 {(modal.layer.childLayers ?? []).map((c) => {
@@ -4669,13 +4675,15 @@ function FormModal({
                           }}
                           title={
                             childEditable
-                              ? `Add a new ${c.layerLabel} record under this feature`
-                              : 'This child layer is not editable in this deployment'
+                              ? t('fieldRuntime.relatedAddTitle', {
+                                  layer: c.layerLabel,
+                                })
+                              : t('fieldRuntime.relatedNotEditable')
                           }
                           className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Plus className="h-4 w-4" />
-                          Add
+                          {t('fieldRuntime.relatedAdd')}
                         </button>
                       </div>
                       {/* #247 / #249.21: existing-row list. Bumped to
@@ -4684,13 +4692,16 @@ function FormModal({
                       {state && !state.loading ? (
                         state.error ? (
                           <p className="text-sm text-danger">
-                            Couldn&apos;t load existing {c.layerLabel}
-                            {' '}records ({state.error}). Tap Add to
-                            create a new one.
+                            {t('fieldRuntime.relatedLoadError', {
+                              layer: c.layerLabel,
+                              error: state.error,
+                            })}
                           </p>
                         ) : state.rows.length === 0 ? (
                           <p className="text-sm text-muted">
-                            No {c.layerLabel.toLowerCase()} records yet.
+                            {t('fieldRuntime.relatedEmpty', {
+                              layer: c.layerLabel.toLowerCase(),
+                            })}
                           </p>
                         ) : (
                           <ul className="space-y-1.5">
@@ -5197,21 +5208,28 @@ function FieldFeaturePopupSheet({
                           </h3>
                           {rowsState && !rowsState.loading ? (
                             <span className="text-2xs text-muted">
-                              {rowsState.rows.length} row
-                              {rowsState.rows.length === 1 ? '' : 's'}
+                              {t('fieldRuntime.relatedRowCount', {
+                                count: rowsState.rows.length,
+                              })}
                             </span>
                           ) : null}
                         </div>
                         {!rowsState || rowsState.loading ? (
-                          <p className="text-sm text-muted">Loading...</p>
+                          <p className="text-sm text-muted">
+                            {t('fieldRuntime.loadingEllipsis')}
+                          </p>
                         ) : rowsState.error ? (
                           <p className="text-sm text-danger">
-                            Couldn&apos;t load {c.layerLabel} records
-                            ({rowsState.error}).
+                            {t('fieldRuntime.relatedLoadErrorShort', {
+                              layer: c.layerLabel,
+                              error: rowsState.error,
+                            })}
                           </p>
                         ) : rowsState.rows.length === 0 ? (
                           <p className="text-sm text-muted">
-                            No {c.layerLabel.toLowerCase()} records yet.
+                            {t('fieldRuntime.relatedEmpty', {
+                              layer: c.layerLabel.toLowerCase(),
+                            })}
                           </p>
                         ) : (
                           <ul className="space-y-1.5">
@@ -6251,7 +6269,7 @@ function FieldAddressSearch({
           featureResults.length > 0 ? (
             <li>
               <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
-                Places
+                {t('fieldRuntime.searchPlaces')}
               </div>
             </li>
           ) : null}
@@ -6270,7 +6288,9 @@ function FieldAddressSearch({
             </li>
           ))}
           {loading && placeResults.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-muted">Searching...</li>
+            <li className="px-3 py-2 text-xs text-muted">
+              {t('fieldRuntime.searching')}
+            </li>
           ) : null}
         </ul>
       ) : null}
