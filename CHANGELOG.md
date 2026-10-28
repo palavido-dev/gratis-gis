@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Dissolve help (`analysis/dissolve`) matches the no-param
+  PostGIS `ST_Union` generator: one combined feature, attributes
+  dropped. Key-field / aggregate dissolve stays on group-by with
+  geometry strategy dissolve (R7-dissolve-help-honesty).
 - Tool recipe editor Output sink lists only Selection and OSM
   features on map (what the runner supports). Removed the
   disabled "Derived layer / Data layer — coming soon" options;

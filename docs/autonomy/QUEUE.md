@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-research-cycle-7 | research-cycle-7 | Refill ship-without-input after R6 drain | This PR |
+| R7-dissolve-help-honesty | research-cycle-7 | dissolve.md matches no-param ST_Union | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-dissolve-help-honesty | research-cycle-7 | dissolve.md matches no-param ST_Union | Docs honesty |
 | R7-fishnet-help-honesty | research-cycle-7 | fishnet.md matches cellSize/unit/output | Docs honesty |
 | R7-contour-help-honesty | research-cycle-7 | contour.md matches TIN iso-lines | Docs honesty |
 | R7-i18n-erase-centroid-guides | research-cycle-7 | #162 Erase/Centroid Analyze chrome i18n | After Buffer/Clip |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-research-cycle-7 | 2026-10-27 | Merged #387: research-cycle-7 refill ship-without-input queue |
 | R6-recipe-sink-honesty | 2026-10-27 | Merged #386: recipe sinks honest (no coming soon) |
 | R6-mcp-search-catalog | 2026-10-27 | Merged #385: MCP search_catalog on public Records |
 | R6-analyze-centroid-shortcut | 2026-10-27 | Merged #384: Analyze Centroid → PostGIS derived_layer |
