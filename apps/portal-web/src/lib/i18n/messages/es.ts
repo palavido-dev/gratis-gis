@@ -2600,9 +2600,28 @@ export const es: Partial<CatalogShape> = {
     subtitle: 'Cómo se presenta y se comporta este mapa al usarlo.',
     viewScope: 'Ámbito de vista',
     viewScopeEmpty: 'Crea un elemento de límite para usarlo como ámbito de vista.',
+    viewScopeDescLead:
+      'Recorta cada capa de este mapa a un límite para que solo se dibujen las entidades de su interior.',
+    viewScopeDescNotAcl: 'No es control de acceso:',
+    viewScopeDescNotAclBody:
+      'las capas subyacentes siguen sirviendo todos sus datos.',
     defaultExtent: 'Extensión predeterminada',
+    defaultExtentDesc:
+      'El encuadre con el que se abre el mapa la primera vez. Si no se define, usa la cámara guardada del mapa.',
     searchSource: 'Fuente de búsqueda',
     searchSourceEmpty: 'Crea un elemento de servicio de geocodificación para buscar tus propios datos aquí.',
+    searchSourceDesc:
+      'Dónde busca la barra de búsqueda direcciones y lugares. El valor predeterminado es Nominatim (OpenStreetMap). Los geocodificadores internos buscan en tus propios datos.',
+    optionNoClip: '(sin recorte)',
+    optionUseSavedExtent: '(usar extensión guardada)',
+    optionDefaultNominatim: 'Predeterminado (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(interno)',
+    summaryNone: 'ninguno',
+    summarySavedCamera: 'cámara guardada',
+    summaryDeleted: '(eliminado)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Búsqueda',
     allowAnonymous: 'Anotaciones anónimas',
     allowAnonymousDesc:
       'Permite que visitantes sin sesión añadan sus propias anotaciones en este mapa público. Desactivado por defecto. Promover a una capa de datos sigue exigiendo una cuenta.',

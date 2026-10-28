@@ -2607,9 +2607,28 @@ export const fr: Partial<CatalogShape> = {
     subtitle: 'Comment cette carte se présente et se comporte à l\'usage.',
     viewScope: 'Étendue de vue',
     viewScopeEmpty: "Créez un élément de limite pour l'utiliser comme étendue de vue.",
+    viewScopeDescLead:
+      'Découpez chaque couche de cette carte selon une limite pour n’afficher que les entités à l’intérieur.',
+    viewScopeDescNotAcl: 'Pas un contrôle d’accès :',
+    viewScopeDescNotAclBody:
+      'les couches sous-jacentes servent toujours l’intégralité de leurs données.',
     defaultExtent: 'Étendue par défaut',
+    defaultExtentDesc:
+      'Le cadre d’ouverture de la carte au premier chargement. Sans valeur, utilise la caméra enregistrée de la carte.',
     searchSource: 'Source de recherche',
     searchSourceEmpty: 'Créez un élément de service de géocodage pour rechercher vos propres données ici.',
+    searchSourceDesc:
+      'Où la barre de recherche résout adresses et lieux. Par défaut Nominatim (OpenStreetMap). Les géocodeurs internes cherchent dans vos propres données.',
+    optionNoClip: '(pas de découpe)',
+    optionUseSavedExtent: '(utiliser l’étendue enregistrée)',
+    optionDefaultNominatim: 'Par défaut (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(interne)',
+    summaryNone: 'aucun',
+    summarySavedCamera: 'caméra enregistrée',
+    summaryDeleted: '(supprimé)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Recherche',
     allowAnonymous: 'Annotations anonymes',
     allowAnonymousDesc:
       'Autoriser les visiteurs non connectés à ajouter leurs propres annotations sur cette carte publique. Désactivé par défaut. La promotion en couche de données exige toujours un compte.',
