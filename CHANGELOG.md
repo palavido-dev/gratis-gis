@@ -54,6 +54,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Help: add **Print template** item page; rewrite Print widget,
+  print-templates overview / parameters / tokens so they match
+  shipped `print_template` (paper canvas + elements + parameters,
+  browser print) instead of unbuilt report/DOCX flows. Glossary
+  and related links updated (R11-print-template-help-honesty).
 - Field layers basemap chip, address-search Places/Searching,
   and related-records list chrome go through en/es/fr/de/pt-BR
   catalogs (R11-i18n-field-layers-search-chrome / #162).

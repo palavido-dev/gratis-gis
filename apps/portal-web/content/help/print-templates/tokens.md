@@ -1,102 +1,74 @@
 ---
 id: print-templates-tokens
 title: Template tokens
-summary: The placeholder syntax authors put in the body to bind layer data into the rendered document.
+summary: Parameter and dynamic chips in print-template text elements — not mustache report syntax or DOCX merge fields.
 category: print-templates
 order: 30
 complexity: advanced
 tags:
   - print-templates
   - tokens
-  - syntax
 related:
   - print-templates-overview
   - print-templates-parameters
+  - items-print-template
 ---
 
-A **token** is a `{{ ... }}` placeholder in the report template's
-body that resolves to a value at run time. Tokens can interpolate
-single values, render tables, embed small maps, and conditionally
-include sections.
+Print template **text** elements are built from **segments**:
+literal text mixed with **binding chips**. The designer shows
+chips in the canvas; at print time the renderer joins literals
+with resolved values.
 
-## Single-value tokens
+This is not a `{{ ... }}` mustache language, not a `for` /
+`query(...)` report engine, and not DOCX mail-merge. Those belong
+to the unbuilt [report template](items-report-template) design.
 
-A bare reference resolves to a single value and emits inline:
+## Binding sources
 
-```
-{{ params.start_date }}
-{{ feature.name }}
-{{ feature.owner_name | upper }}
-{{ feature.acres | round(2) }}
-```
+A binding chip has a **source** and a **token id**:
 
-`params.<name>` references a parameter the runner supplied.
-`feature.<field>` references a field on the feature parameter
-(common when the template runs against one feature).
+- **Parameter.** Resolves to a declared
+  [parameter](print-templates-parameters)'s value (`tokenId` =
+  parameter id).
+- **Dynamic.** Resolves to a built-in filled at print time.
 
-A pipe character (`|`) applies a filter:
+Optional **format** hints (for example a date pattern) may be
+stored on the chip; keep them simple.
 
-- `upper` / `lower`: case conversion.
-- `round(n)`: round numeric values to `n` decimal places.
-- `date('Y-m-d')`: format a date with a strftime-style pattern.
-- `coalesce(fallback)`: substitute `fallback` if the value is
- NULL.
-- `default('N/A')`: same idea, shorter syntax.
+## Dynamic tokens
 
-Filters can chain: `{{ feature.due_date | date('Y-m-d') | upper }}`.
+Built-ins the renderer fills automatically:
 
-## Iteration
+| Token id | Meaning |
+| --- | --- |
+| `today_date` | Today's date |
+| `today_datetime` | Today's date and time |
+| `now_time` | Current time |
+| `map_scale` | Scale of the print job's map |
+| `map_extent_bbox` | Map extent as a bbox string |
+| `map_center_latlon` | Map center lat/lon |
+| `user_display_name` | Signed-in user's display name |
+| `org_name` | Organization name |
+| `app_name` | Host web app name (when printing from an app) |
+| `page_number` | Page number (single-page layouts today) |
 
-A `for` block emits its body once per row of a multi-row query:
+Map / legend / scalebar / north-arrow elements do **not** use
+text tokens; they bind to the print job's map as whole elements.
 
-```
-{{ for row in query('inspections', filter='parcel_id = ' || feature.id) }}
-  {{ row.inspected_at | date('Y-m-d') }}: {{ row.notes }}
-{{ end }}
-```
+## What is not supported
 
-The body sees `row.<field>` for each iteration. The `query(...)`
-helper runs a SQL-like query against the named layer; the result
-rows are iterated. Other helpers (`relatedRows(...)`,
-`siblings(...)`) cover common shapes without writing a raw
-query.
+- Mustache bodies, filters (`| upper`), or chained pipes.
+- `for` / `if` blocks over layer queries.
+- Embedded `{{ map(...) }}` helpers inside text.
+- DOCX or HTML document merge.
 
-## Conditional inclusion
-
-```
-{{ if feature.status = 'failed' }}
-  This parcel failed inspection on {{ feature.last_inspected | date }}.
-{{ end }}
-```
-
-Same Boolean expression dialect as filters and conditional
-visibility.
-
-## Embedded maps
-
-```
-{{ map(layer='hydrants', bbox=feature.bbox, w=400, h=300) }}
-```
-
-Renders a small map server-side and inlines it as an image (PNG)
-in PDF, or as an embedded image in DOCX. Common parameters:
-
-- `layer`: which layer (or layers, as a list) to render.
-- `bbox`: extent. Can come from a feature, a geo boundary, or
- an explicit `[w, s, e, n]`.
-- `w`, `h`: pixel dimensions.
-- `basemap`: basemap reference; default is the template's
- chosen basemap.
+For structured documents from feature rows or form submissions,
+that product is not built. Use print templates for paper maps.
 
 ## Notes
 
-- **Token errors fail the run.** A typo like
- `{{ feature.nme }}` raises an error and the run aborts (no
- partial output). Use `coalesce` or `default` to handle
- expected NULLs.
-- **Token output is escaped** in DOCX bodies (Word's XML
- escaping). HTML / PDF rendering respects whitespace in the
- token result.
-- **Map rendering is the slow part.** A template with five
- embedded maps takes ~5x longer to generate than one with no
- maps. Keep map embeds to where they add value.
+- Prefer chips in the designer over hand-editing JSON segments.
+- Empty parameter values fall back to the parameter's default
+  when one is set.
+- Images are separate **image** elements (URL or data URI), not
+  tokens inside text.
