@@ -4786,6 +4786,25 @@ export const de: Partial<CatalogShape> = {
       '. Für schlüsselbasiertes Dissolve mit Aggregaten Group by nutzen. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
     dissolveHint:
       'Attribute werden verworfen. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    simplifyAction: 'Diese Ebene vereinfachen',
+    simplifyActionTitle:
+      'Serverseitigen Derived-Layer-Simplify erstellen (PostGIS ST_Simplify). Meter-ehrliche Toleranz.',
+    simplifyHeading: 'Diese Ebene vereinfachen (serverseitiger Derived Layer)',
+    simplifyIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    simplifyIntroAfter:
+      'auf PostGIS mit meter-ehrlicher Toleranz ausführt (Douglas–Peucker). Gleiches Rezept wie',
+    simplifyHelpLink: 'Simplify-Hilfe',
+    simplifyIntroTail:
+      '. Nicht topologieerhaltend. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    simplifyTolerance: 'Toleranz',
+    simplifyToleranceAria: 'Vereinfachungstoleranz',
+    simplifyUnit: 'Einheit',
+    simplifyUnitAria: 'Einheit der Vereinfachungstoleranz',
+    simplifyLimitHint:
+      'Bis zu {meters} m. Erwarten Sie einen kurzen Server-Job; öffnen Sie das neue Element zum Kartieren oder Aktualisieren.',
+    simplifyValidateUnit: 'Wählen Sie eine Toleranzeinheit.',
+    simplifyValidateEmpty: 'Geben Sie eine Toleranz größer als null ein.',
+    simplifyValidateMax: 'Die Toleranz darf höchstens {meters} m betragen.',
   },
 
   serviceEditors: {

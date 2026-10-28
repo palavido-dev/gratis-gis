@@ -4777,6 +4777,25 @@ export const fr: Partial<CatalogShape> = {
       '. Pour une fusion par clé avec agrégats, utilisez Grouper par. Attendez un court travail serveur, pas un résultat navigateur instantané.',
     dissolveHint:
       'Les attributs sont abandonnés. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    simplifyAction: 'Simplifier cette couche',
+    simplifyActionTitle:
+      'Créer une simplification de couche dérivée côté serveur (PostGIS ST_Simplify). Tolérance en mètres honnêtes.',
+    simplifyHeading: 'Simplifier cette couche (couche dérivée serveur)',
+    simplifyIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    simplifyIntroAfter:
+      'sur PostGIS avec une tolérance en mètres honnêtes (Douglas–Peucker). Même recette que',
+    simplifyHelpLink: 'Aide Simplifier',
+    simplifyIntroTail:
+      '. Ne préserve pas la topologie. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    simplifyTolerance: 'Tolérance',
+    simplifyToleranceAria: 'Tolérance de simplification',
+    simplifyUnit: 'Unité',
+    simplifyUnitAria: 'Unité de tolérance de simplification',
+    simplifyLimitHint:
+      'Jusqu’à {meters} m. Attendez un court travail serveur ; ouvrez le nouvel élément pour cartographier ou actualiser.',
+    simplifyValidateUnit: 'Choisissez une unité de tolérance.',
+    simplifyValidateEmpty: 'Saisissez une tolérance supérieure à zéro.',
+    simplifyValidateMax: 'La tolérance doit être d’au plus {meters} m.',
   },
 
   serviceEditors: {

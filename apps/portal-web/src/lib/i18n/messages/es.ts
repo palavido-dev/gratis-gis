@@ -4771,6 +4771,25 @@ export const es: Partial<CatalogShape> = {
       '. Para disolución por clave con agregados, use Agrupar por. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
     dissolveHint:
       'Se eliminan los atributos. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
+    simplifyAction: 'Simplificar esta capa',
+    simplifyActionTitle:
+      'Crear una simplificación de capa derivada en el servidor (PostGIS ST_Simplify). Tolerancia en metros honestos.',
+    simplifyHeading: 'Simplificar esta capa (capa derivada en el servidor)',
+    simplifyIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    simplifyIntroAfter:
+      'en PostGIS con una tolerancia en metros honestos (Douglas–Peucker). Misma receta que',
+    simplifyHelpLink: 'Ayuda de simplificación',
+    simplifyIntroTail:
+      '. No preserva topología. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    simplifyTolerance: 'Tolerancia',
+    simplifyToleranceAria: 'Tolerancia de simplificación',
+    simplifyUnit: 'Unidad',
+    simplifyUnitAria: 'Unidad de tolerancia de simplificación',
+    simplifyLimitHint:
+      'Hasta {meters} m. Espere un trabajo breve en el servidor; abra el elemento nuevo para mapear o actualizar el resultado.',
+    simplifyValidateUnit: 'Elija una unidad de tolerancia.',
+    simplifyValidateEmpty: 'Introduzca una tolerancia mayor que cero.',
+    simplifyValidateMax: 'La tolerancia debe ser como máximo {meters} m.',
   },
 
   serviceEditors: {

@@ -12,6 +12,7 @@ tags:
 related:
   - items-data-layer
   - analysis-buffer
+  - analysis-simplify
   - analysis-spatial-join
   - analysis-filter
 ---
@@ -22,12 +23,13 @@ materialized into a PostGIS table and behave like any other layer:
 you can put them on a map, style them, query them, or feed them
 into another derived layer.
 
-For a one-step **buffer**, the data layer's **Analyze** tab has
-**Buffer this layer**: pick a distance and unit, and the portal
-creates the derived-layer recipe for you (PostGIS on the server).
-That path stays honest about meter distances; the in-browser SQL
-builder does not invent a degree-unit buffer. See
-[Buffer](/help/analysis/buffer).
+For one-step recipes, a data layer's **Analyze** tab has guided
+actions (**Buffer**, **Clip**, **Erase**, **Centroids**,
+**Dissolve**, **Simplify this layer**, …) that create a private
+derived-layer item via PostGIS on the server. Meter distances and
+tolerances stay honest; the in-browser SQL builder does not invent
+degree-unit geometry ops. See [Buffer](/help/analysis/buffer) and
+[Simplify](/help/analysis/simplify).
 
 ## Pipeline model
 
@@ -40,7 +42,9 @@ new intermediate result from its inputs. Available steps:
 - **Spatial join**. Attach attributes from one layer to features
  of another based on spatial relationship.
 - **Group by**. Roll up rows into groups with aggregates.
-- **Dissolve**. Merge adjacent polygons that share an attribute.
+- **Dissolve**. Union every input geometry into one feature
+  (attributes dropped; keyed dissolve stays on group-by).
+- **Simplify**. Drop vertices within a tolerance (`ST_Simplify`).
 - **Centroid**. Replace each feature's geometry with its centroid.
 - **Fishnet**. Generate a regular grid over an extent.
 - **Contour**. Generate iso-lines from a value column.
