@@ -9,6 +9,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public layer `/features` and `/geojson` mirrors are rate-limited at 60 requests per minute (MVT tiles unchanged).
 - Public layer `/aggregate` is rate-limited at 60 requests per minute.
 - Public OGC Features collection catalogue (`GET /collections` and
   `GET /collections/:id`) is throttled at 60/min per IP (same as
