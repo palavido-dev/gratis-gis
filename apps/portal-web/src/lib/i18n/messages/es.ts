@@ -4913,6 +4913,18 @@ export const es: Partial<CatalogShape> = {
       '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
     bboxHint:
       'Solo rectángulos por entidad. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
+    verticesAction: 'Vértices de esta capa',
+    verticesActionTitle:
+      'Crear una capa derivada en el servidor con vértices (PostGIS ST_DumpPoints). El número de filas puede crecer mucho.',
+    verticesHeading: 'Vértices de esta capa (capa derivada en el servidor)',
+    verticesIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    verticesIntroAfter:
+      'en PostGIS (añade vertex_index). El número de filas puede dispararse en formas densas; las partes MULTI* se vuelcan juntas. Misma receta que',
+    verticesHelpLink: 'Ayuda de vértices',
+    verticesIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    verticesHint:
+      'Un punto por vértice. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
   },
 
   serviceEditors: {

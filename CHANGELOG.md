@@ -149,6 +149,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Vertices for this layer** guide creates a single-step
+  `derived_layer` vertices recipe via `POST /api/portal/items`,
+  reusing PostGIS `ST_DumpPoints` (adds `vertex_index`; row count
+  can explode; MULTI* parts dump together). Help page
+  `analysis/vertices` documents the Analyze entry point. Locale
+  catalogs for the guide chrome (en / es / fr / de / pt-BR)
+  (R9-analyze-vertices-shortcut).
 - Analyze **Bounding boxes for this layer** guide creates a
   single-step `derived_layer` bbox recipe via
   `POST /api/portal/items`, reusing PostGIS `ST_Envelope` per
