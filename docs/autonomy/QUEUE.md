@@ -14,7 +14,6 @@ Driver-owned. Newest proposals at the top of each section.
 | R13-i18n-builder-viewer-editor-titles | research-cycle-13 | BuilderShell Back/Close + viewer/editor panel titles (#162) | |
 | R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | Partial catalog exists |
 | R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | Guides already t() |
-| R13-i18n-dialog-sheet-close | research-cycle-13 | Dialog/Sheet Close + attribute-form Cancel aria (#162) | common.close/cancel |
 | SEC-citation-throttle | research-cycle-13 | @Throttle 60/min on Public citation .bib/.ris/.jsonld | |
 | SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | |
 | SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | Leave MVT alone |
