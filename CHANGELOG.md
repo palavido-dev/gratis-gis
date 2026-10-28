@@ -65,6 +65,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- portal-mcp `search_catalog` read tool over the public OGC
+  Records catalog
+  (`GET /api/public/ogc/collections/catalog/items`). Filters
+  `q` / `type` / optional WGS84 `bbox`; caps limit at 100
+  (default 25) and bbox area at 100 square degrees. No token
+  required; private items still need `list_items`
+  (R6-mcp-search-catalog).
 - Analyze **Centroids for this layer** guide creates a single-step
   `derived_layer` centroid recipe via `POST /api/portal/items`,
   reusing the existing PostGIS `ST_Centroid` tool. Help page
