@@ -3605,12 +3605,12 @@ function LayerVisibilityPanel({
             collector should be steered toward. */}
         {offlineBasemap.areas.some((a) => a.current) ? null : (<>
         <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-          Map detail to cache
+          {panelT('fieldOffline.mapDetailToCache')}
         </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Least detail
+              {panelT('fieldOffline.leastDetail')}
             </span>
             <select
               value={tileZoomMin}
@@ -3626,7 +3626,7 @@ function LayerVisibilityPanel({
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Most detail
+              {panelT('fieldOffline.mostDetail')}
             </span>
             <select
               value={tileZoomMax}
@@ -3657,7 +3657,7 @@ function LayerVisibilityPanel({
         ) : blockedTileSources.length > 0 ? (
           <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
             <p className="text-2xs font-medium text-warn">
-              The basemap will not be available offline
+              {panelT('fieldOffline.basemapUnavailableOffline')}
             </p>
             {/* One line per distinct provider, not per template: a
                 style can pull several URLs off one host and three
@@ -3670,14 +3670,15 @@ function LayerVisibilityPanel({
               ),
             )}
             <p className="mt-1 text-2xs text-muted">
-              Your data, forms and any self-hosted layers still download
-              normally.
+              {panelT('fieldOffline.basemapUnavailableTail')}
             </p>
           </div>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
-            ~{fmt.number(estimatedTileCount)} tiles at the
-            current viewport. Cap is 200,000.
+            {panelT('fieldOffline.tilesEstimate', {
+              count: fmt.number(estimatedTileCount),
+              cap: fmt.number(200_000),
+            })}
           </p>
         )}
       </div>
@@ -3699,8 +3700,10 @@ function LayerVisibilityPanel({
         </button>
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
-            Cached {formatRelativeTime(cachedDeployment.cachedAt)} ·{' '}
-            {formatBytes(cachedDeployment.estimatedSize)}
+            {panelT('fieldOffline.cachedSummary', {
+              when: formatRelativeTime(cachedDeployment.cachedAt),
+              size: formatBytes(cachedDeployment.estimatedSize),
+            })}
           </p>
         ) : null}
         {/* A download that skipped a layer, a pick list or part of the
@@ -3736,7 +3739,7 @@ function LayerVisibilityPanel({
         <div className="border-b border-border px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted">
-              Storage
+              {panelT('fieldRuntime.storage')}
             </span>
             {persistentState === 'best-effort' ? (
               <button
@@ -3744,15 +3747,21 @@ function LayerVisibilityPanel({
                 onClick={onRequestPersist}
                 className="text-2xs text-accent hover:underline"
               >
-                Make persistent
+                {panelT('fieldOffline.makePersistent')}
               </button>
             ) : persistentState === 'persistent' ? (
-              <span className="text-2xs text-success">Persistent</span>
+              <span className="text-2xs text-success">
+                {panelT('fieldRuntime.storagePersistent')}
+              </span>
             ) : null}
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-2xs text-ink-1">
             <span>{formatBytes(storage.usage)}</span>
-            <span className="text-muted">of {formatBytes(storage.quota)}</span>
+            <span className="text-muted">
+              {panelT('fieldOffline.storageOf', {
+                quota: formatBytes(storage.quota),
+              })}
+            </span>
           </div>
           <div
             role="progressbar"
@@ -3776,7 +3785,7 @@ function LayerVisibilityPanel({
           </div>
           {storage.usagePercent >= 0.95 ? (
             <p className="mt-1 text-2xs text-danger">
-              Storage nearly full. Free up space before downloading more areas.
+              {panelT('fieldOffline.storageNearlyFull')}
             </p>
           ) : null}
           {/* Slice 10: tile-cache breakdown surfaced inside the
@@ -3788,15 +3797,17 @@ function LayerVisibilityPanel({
           {tileCache && tileCache.count > 0 ? (
             <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
               <span>
-                Map tiles: {fmt.number(tileCache.count)} (
-                {formatBytes(tileCache.bytes)})
+                {panelT('fieldOffline.mapTilesBreakdown', {
+                  count: fmt.number(tileCache.count),
+                  size: formatBytes(tileCache.bytes),
+                })}
               </span>
               <button
                 type="button"
                 onClick={onClearTiles}
                 className="text-2xs text-accent hover:underline"
               >
-                Clear tiles
+                {panelT('fieldOffline.clearTiles')}
               </button>
             </div>
           ) : null}
@@ -5837,10 +5848,10 @@ function DownloadProgressModal({
           )}
           <DialogTitle className="text-sm font-semibold text-ink-0">
             {progress.phase === 'failed'
-              ? 'Download failed'
+              ? t('fieldOffline.downloadFailedTitle')
               : finished
-                ? 'Ready for offline'
-                : 'Downloading for offline'}
+                ? t('fieldOffline.readyForOfflineTitle')
+                : t('fieldOffline.downloadingForOfflineTitle')}
           </DialogTitle>
         </div>
         <DialogDescription className="mt-2 text-xs text-muted">
@@ -5886,7 +5897,9 @@ function DownloadProgressModal({
         </dl>
         {progress.estimatedSize > 0 ? (
           <p className="mt-2 text-2xs text-muted">
-            ~{formatBytes(progress.estimatedSize)} cached
+            {t('fieldOffline.cachedSizeApprox', {
+              size: formatBytes(progress.estimatedSize),
+            })}
           </p>
         ) : null}
         {progress.error ? (
@@ -5905,7 +5918,9 @@ function DownloadProgressModal({
             onClick={finished ? onClose : onCancel}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
-            {finished ? 'Close' : 'Cancel'}
+            {finished
+              ? t('fieldRuntime.closeAria')
+              : t('fieldCollect.cancel')}
           </button>
         </DialogFooter>
       </DialogContent>

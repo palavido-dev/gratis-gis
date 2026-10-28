@@ -1466,6 +1466,25 @@ export const ptBR: Partial<CatalogShape> = {
     queuedCount: '{count} na fila',
     syncCount: 'Sincronizar {count}',
     syncing: 'Sincronizando...',
+    mapDetailToCache: 'Detalhe do mapa para cache',
+    leastDetail: 'Menos detalhe',
+    mostDetail: 'Mais detalhe',
+    basemapUnavailableOffline: 'O mapa-base não estará disponível offline',
+    basemapUnavailableTail:
+      'Seus dados, formulários e camadas auto-hospedadas ainda baixam normalmente.',
+    tilesEstimate:
+      '~{count} tiles na vista atual. Limite de {cap}.',
+    cachedSummary: 'Em cache {when} · {size}',
+    makePersistent: 'Tornar persistente',
+    storageOf: 'de {quota}',
+    storageNearlyFull:
+      'Armazenamento quase cheio. Liberte espaço antes de baixar mais áreas.',
+    mapTilesBreakdown: 'Tiles do mapa: {count} ({size})',
+    clearTiles: 'Limpar tiles',
+    downloadFailedTitle: 'Falha no download',
+    readyForOfflineTitle: 'Pronto para offline',
+    downloadingForOfflineTitle: 'Baixando para offline',
+    cachedSizeApprox: '~{size} em cache',
   },
   offlineMessage: {
     unknown:

@@ -1471,6 +1471,25 @@ export const de: Partial<CatalogShape> = {
     queuedCount: '{count} in Warteschlange',
     syncCount: '{count} synchronisieren',
     syncing: 'Synchronisiere...',
+    mapDetailToCache: 'Kartendetail für den Cache',
+    leastDetail: 'Wenig Detail',
+    mostDetail: 'Viel Detail',
+    basemapUnavailableOffline: 'Die Basiskarte ist offline nicht verfügbar',
+    basemapUnavailableTail:
+      'Ihre Daten, Formulare und selbst gehosteten Layer werden weiterhin normal heruntergeladen.',
+    tilesEstimate:
+      '~{count} Kacheln für den aktuellen Ausschnitt. Obergrenze {cap}.',
+    cachedSummary: 'Zwischengespeichert {when} · {size}',
+    makePersistent: 'Persistent machen',
+    storageOf: 'von {quota}',
+    storageNearlyFull:
+      'Speicher fast voll. Geben Sie Speicher frei, bevor Sie weitere Gebiete herunterladen.',
+    mapTilesBreakdown: 'Kartenkacheln: {count} ({size})',
+    clearTiles: 'Kacheln löschen',
+    downloadFailedTitle: 'Download fehlgeschlagen',
+    readyForOfflineTitle: 'Bereit für Offline',
+    downloadingForOfflineTitle: 'Download für Offline',
+    cachedSizeApprox: '~{size} zwischengespeichert',
   },
   offlineMessage: {
     unknown:

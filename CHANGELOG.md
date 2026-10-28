@@ -54,6 +54,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field offline panel + download dialog chrome (map detail
+  pickers, basemap unavailable warning, storage gauge /
+  Make persistent / Clear tiles, download titles, Close/Cancel)
+  goes through en/es/fr/de/pt-BR catalogs
+  (R11-i18n-field-offline-panel-dialog / #162).
 - Field feature-sheet chrome (Back to list, Collapse/Expand,
   Edit/Copy labels and titles, item count, unnamed/empty/
   no-attributes) goes through en/es/fr/de/pt-BR catalogs
