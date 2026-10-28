@@ -149,6 +149,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Bounding boxes for this layer** guide creates a
+  single-step `derived_layer` bbox recipe via
+  `POST /api/portal/items`, reusing PostGIS `ST_Envelope` per
+  feature (attributes kept; not one envelope for the whole
+  layer). Help page `analysis/bbox` documents the Analyze entry
+  point. Locale catalogs for the guide chrome
+  (en / es / fr / de / pt-BR) (R9-analyze-bbox-shortcut).
 - Analyze **Densify this layer** guide creates a single-step
   `derived_layer` densify recipe via `POST /api/portal/items`,
   reusing PostGIS `ST_Segmentize` on geography with a

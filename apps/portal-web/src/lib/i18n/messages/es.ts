@@ -4900,6 +4900,19 @@ export const es: Partial<CatalogShape> = {
       '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
     convexHullHint:
       'Solo envolventes por entidad. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
+    bboxAction: 'Rectángulos delimitadores de esta capa',
+    bboxActionTitle:
+      'Crear una capa derivada en el servidor con rectángulos delimitadores por entidad (PostGIS ST_Envelope).',
+    bboxHeading:
+      'Rectángulos delimitadores de esta capa (capa derivada en el servidor)',
+    bboxIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    bboxIntroAfter:
+      'en PostGIS para cada entidad (se conservan los atributos). No es un solo rectángulo de toda la capa. Misma receta que',
+    bboxHelpLink: 'Ayuda de rectángulo delimitador',
+    bboxIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    bboxHint:
+      'Solo rectángulos por entidad. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
   },
 
   serviceEditors: {

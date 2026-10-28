@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Bounding boxes for this layer from Analyze
+On a data layer's Analyze tab, **Bounding boxes for this layer** creates a private PostGIS derived layer that replaces each feature with its axis-aligned envelope (attributes kept; not one box for the whole layer). Same path as Create → Derived layer → Bbox. Expect a short server job, not an instant browser result.
+
 ## 2026-10-28 - Field collect buttons follow your language
 On a field deployment, Add at GPS / Add at center (and Vertex at … for lines and polygons), Remove from device, and the map tool labels follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
 

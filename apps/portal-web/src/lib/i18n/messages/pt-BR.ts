@@ -4897,6 +4897,19 @@ export const ptBR: Partial<CatalogShape> = {
       '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
     convexHullHint:
       'Apenas envoltórias por feição. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    bboxAction: 'Retângulos delimitadores desta camada',
+    bboxActionTitle:
+      'Criar uma camada derivada no servidor com retângulos delimitadores por feição (PostGIS ST_Envelope).',
+    bboxHeading:
+      'Retângulos delimitadores desta camada (camada derivada no servidor)',
+    bboxIntroBefore: 'Cria uma camada derivada privada que executa',
+    bboxIntroAfter:
+      'no PostGIS para cada feição (atributos mantidos). Não é um único retângulo de toda a camada. Mesma receita que',
+    bboxHelpLink: 'Ajuda de retângulo delimitador',
+    bboxIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    bboxHint:
+      'Apenas retângulos por feição. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
   },
 
   serviceEditors: {

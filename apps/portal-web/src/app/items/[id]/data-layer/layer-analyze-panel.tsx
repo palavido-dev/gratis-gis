@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
+import { AnalyzeBboxGuide } from './analyze-bbox-guide';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
@@ -407,6 +408,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeConvexHullGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeBboxGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
