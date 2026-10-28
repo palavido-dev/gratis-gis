@@ -6,12 +6,22 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | This PR |
+| Q-research-cycle-12 | research-cycle-12 | Refill ship-without-input after R11 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R12-i18n-field-runtime-nav-chrome | research-cycle-12 | Field Back/Cancel + empty editable-layers i18n (#162) | Highest-visibility |
+| R12-i18n-field-vertex-progress-chrome | research-cycle-12 | Line/polygon vertex progress subtitle i18n (#162) | tap Finish / need N |
+| R12-i18n-map-settings-title | research-cycle-12 | Map editor Map settings panel title i18n (#162) | rightPanelTitle |
+| R12-i18n-pwa-install-chrome | research-cycle-12 | PWA Install / Dismiss / iOS copy i18n (#162) | field + items list |
+| R12-sync-conflict-help-crosslink | research-cycle-12 | Cross-link sync conflict Re-apply / Dismiss help | Docs discoverability |
+| R12-tool-help-post-r11-honesty | research-cycle-12 | Confirm tool.md / derived-layer.md vs Contour/Group-by | Docs spot-check |
+| R12-i18n-field-offline-basemap-row | research-cycle-12 | Spot-check offline basemap row literals after #425 | Close if clean |
+| SEC-stac-items-search-throttle | research-cycle-12 | @Throttle 60/min on Public STAC items + search | Low |
+| SEC-drawings-list-throttle | research-cycle-12 | @Throttle 60/min on Public GET drawings list | Low |
+| SEC-public-features-page-throttle | research-cycle-12 | @Throttle 60/min on Public features-page + search | Low |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +36,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-ogc-features-throttle | 2026-10-28 | Merged #433: Public OGC Features items @Throttle 60/min |
 | SEC-comments-list-throttle | 2026-10-28 | Merged #432: Public GET comments @Throttle 60/min |
 | SEC-feedback-post-throttle | 2026-10-28 | Merged #431: Public POST /feedback @Throttle 30/min |
 | R11-analyze-group-by-shortcut | 2026-10-28 | Merged #430: Analyze Group-by → PostGIS derived_layer |
