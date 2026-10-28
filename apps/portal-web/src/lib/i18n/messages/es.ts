@@ -4727,6 +4727,37 @@ export const es: Partial<CatalogShape> = {
     clipHint: "Prefiera una capa de polígonos como cortador. Necesita acceso de lectura. Abra el elemento nuevo para mapear o actualizar el resultado.",
     clipValidateEmpty: "Elija una capa de recorte (una capa de polígonos que pueda leer).",
     clipValidateSelf: "Elija otra capa para recortar; una capa no puede recortarse a sí misma aquí.",
+    eraseAction: "Borrar esta capa",
+    eraseActionTitle:
+      "Crear un borrado de capa derivada en el servidor (PostGIS) contra otra capa de datos.",
+    eraseHeading: "Borrar esta capa (capa derivada en el servidor)",
+    eraseIntroBefore: "Crea una capa derivada privada que ejecuta",
+    eraseIntroAfter:
+      "en PostGIS contra otra capa de datos que pueda leer. Misma receta que",
+    eraseHelpLink: "Ayuda de borrado",
+    eraseIntroTail:
+      ". Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.",
+    eraseByLabel: "Borrar con capa de datos",
+    erasePickPlaceholder: "Elija una capa…",
+    eraseLoadFailed: "No se pudieron cargar capas de datos para borrar.",
+    eraseHint:
+      "Prefiera una capa de polígonos como máscara. Necesita acceso de lectura. Abra el elemento nuevo para mapear o actualizar el resultado.",
+    eraseValidateEmpty:
+      "Elija una máscara de borrado (una capa de polígonos que pueda leer).",
+    eraseValidateSelf:
+      "Elija otra capa como máscara; una capa no puede borrarse a sí misma aquí.",
+    centroidAction: "Centroides de esta capa",
+    centroidActionTitle:
+      "Crear una capa derivada de centroides geométricos en el servidor (PostGIS ST_Centroid).",
+    centroidHeading: "Centroides de esta capa (capa derivada en el servidor)",
+    centroidIntroBefore: "Crea una capa derivada privada que ejecuta",
+    centroidIntroAfter:
+      "en PostGIS para cada entidad. Solo centroide geométrico (no polo de inaccesibilidad). Misma receta que",
+    centroidHelpLink: "Ayuda de centroide",
+    centroidIntroTail:
+      ". Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.",
+    centroidHint:
+      "Solo centroide geométrico. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.",
   },
 
   serviceEditors: {

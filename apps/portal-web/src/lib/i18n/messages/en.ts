@@ -4861,6 +4861,37 @@ export const en = {
       'Pick a clip layer (a polygon data layer you can read).',
     clipValidateSelf:
       'Pick a different layer to clip against; a layer cannot cookie-cut itself here.',
+    eraseAction: 'Erase this layer',
+    eraseActionTitle:
+      'Create a server-side derived layer erase (PostGIS) against another data layer.',
+    eraseHeading: 'Erase this layer (server derived layer)',
+    eraseIntroBefore: 'Creates a private derived layer that runs',
+    eraseIntroAfter:
+      'on PostGIS against another data layer you can read. Same recipe as',
+    eraseHelpLink: 'Erase help',
+    eraseIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    eraseByLabel: 'Erase by data layer',
+    erasePickPlaceholder: 'Pick a layer…',
+    eraseLoadFailed: 'Could not load data layers to erase against.',
+    eraseHint:
+      'Prefer a polygon layer as the mask. You need read access to it. Open the new item to map or refresh the result.',
+    eraseValidateEmpty:
+      'Pick an erase mask (a polygon data layer you can read).',
+    eraseValidateSelf:
+      'Pick a different layer as the erase mask; a layer cannot erase itself here.',
+    centroidAction: 'Centroids for this layer',
+    centroidActionTitle:
+      'Create a server-side derived layer of geometric centroids (PostGIS ST_Centroid).',
+    centroidHeading: 'Centroids for this layer (server derived layer)',
+    centroidIntroBefore: 'Creates a private derived layer that runs',
+    centroidIntroAfter:
+      'on PostGIS for every feature. Geometric centroid only (not pole of inaccessibility). Same recipe as',
+    centroidHelpLink: 'Centroid help',
+    centroidIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    centroidHint:
+      'Geometric centroid only. Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**

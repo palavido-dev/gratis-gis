@@ -4723,6 +4723,37 @@ export const ptBR: Partial<CatalogShape> = {
     clipHint: "Prefira uma camada de polígonos como cortador. Você precisa de acesso de leitura. Abra o novo item para mapear ou atualizar o resultado.",
     clipValidateEmpty: "Escolha uma camada de recorte (uma camada de polígonos que você possa ler).",
     clipValidateSelf: "Escolha outra camada para recortar; uma camada não pode se recortar aqui.",
+    eraseAction: "Apagar esta camada",
+    eraseActionTitle:
+      "Criar um apagamento de camada derivada no servidor (PostGIS) contra outra camada de dados.",
+    eraseHeading: "Apagar esta camada (camada derivada no servidor)",
+    eraseIntroBefore: "Cria uma camada derivada privada que executa",
+    eraseIntroAfter:
+      "no PostGIS contra outra camada de dados que você pode ler. Mesma receita que",
+    eraseHelpLink: "Ajuda de apagar",
+    eraseIntroTail:
+      ". Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.",
+    eraseByLabel: "Apagar com camada de dados",
+    erasePickPlaceholder: "Escolha uma camada…",
+    eraseLoadFailed: "Não foi possível carregar camadas de dados para apagar.",
+    eraseHint:
+      "Prefira uma camada de polígonos como máscara. Você precisa de acesso de leitura. Abra o novo item para mapear ou atualizar o resultado.",
+    eraseValidateEmpty:
+      "Escolha uma máscara de apagar (uma camada de polígonos que você possa ler).",
+    eraseValidateSelf:
+      "Escolha outra camada como máscara; uma camada não pode se apagar aqui.",
+    centroidAction: "Centróides desta camada",
+    centroidActionTitle:
+      "Criar uma camada derivada de centróides geométricos no servidor (PostGIS ST_Centroid).",
+    centroidHeading: "Centróides desta camada (camada derivada no servidor)",
+    centroidIntroBefore: "Cria uma camada derivada privada que executa",
+    centroidIntroAfter:
+      "no PostGIS para cada feição. Apenas centróide geométrico (não polo de inacessibilidade). Mesma receita que",
+    centroidHelpLink: "Ajuda de centróide",
+    centroidIntroTail:
+      ". Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.",
+    centroidHint:
+      "Apenas centróide geométrico. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.",
   },
 
   serviceEditors: {

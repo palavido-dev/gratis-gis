@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-contour-help-honesty | research-cycle-7 | contour.md matches TIN iso-lines | This PR |
+| R7-i18n-erase-centroid-guides | research-cycle-7 | #162 Erase/Centroid Analyze chrome i18n | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-i18n-erase-centroid-guides | research-cycle-7 | #162 Erase/Centroid Analyze chrome i18n | After Buffer/Clip |
 | R7-analyze-dissolve-shortcut | research-cycle-7 | Analyze Dissolve → derived_layer | After dissolve help |
 | R7-analyze-simplify-shortcut | research-cycle-7 | Analyze Simplify → derived_layer | Buffer-shaped |
 | R7-recipe-aoi-honesty | research-cycle-7 | Recipe AOI hint: no wave-2 promise | Tiny copy |
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R7-contour-help-honesty | 2026-10-27 | Merged #390: contour help matches TIN iso-lines |
 | R7-fishnet-help-honesty | 2026-10-27 | Merged #389: fishnet help matches square ST_SquareGrid |
 | R7-dissolve-help-honesty | 2026-10-27 | Merged #388: dissolve help matches no-param ST_Union |
 | Q-research-cycle-7 | 2026-10-27 | Merged #387: research-cycle-7 refill ship-without-input queue |
