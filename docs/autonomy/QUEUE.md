@@ -6,16 +6,25 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| whats-new-history-releases | maintainer | Full What's new history + release groupings | PR #461 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | PR #459 conflict rebase |
-| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | PR #460 conflict rebase |
-| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | PR #454 conflict rebase |
-| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | PR #456 conflict rebase |
-| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | PR #455 conflict rebase |
+| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | PR #459 |
+| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | PR #460 |
+| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | PR #454 |
+| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | PR #456; leave MVT alone |
+| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | PR #455 |
+| R14-i18n-viewer-editor-detail-chrome | research-cycle-14 | Viewer/editor detail builder chrome (#162) | After #459/#460 |
+| R14-i18n-item-page-chrome | research-cycle-14 | Item page Sharing / Back / Responses / Open builder (#162) | |
+| R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | |
+| R14-i18n-print-template-chrome | research-cycle-14 | Print template designer Paper / Zoom / Delete parameter (#162) | |
+| R14-data-layer-help-honesty | research-cycle-14 | Soften data-layer.md Esri feature-service equivalence claim | Docs-only |
+| SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | After R13 SEC |
+| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | After R13 SEC |
+| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | After R13 SEC |
 
 ## queued (needs-maintainer)
 
@@ -30,10 +39,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
-| SEC-citation-throttle | 2026-10-28 | Merged (this PR): Public OGC citation .bib/.ris/.jsonld @Throttle 60/min |
-| R13-i18n-builder-viewer-editor-titles | 2026-10-28 | Merged #458: BuilderShell Back/Close + viewer/editor panel titles (#162) |
+| Q-research-cycle-14 | 2026-10-28 | PR: research-cycle-14 refill ship-without-input queue |
+| SEC-citation-throttle | 2026-10-28 | Merged #452: Public OGC citation downloads @Throttle 60/min |
 | R13-form-help-survey123-honesty | 2026-10-28 | Merged #453: soften Form vs Survey123 equivalence claim |
+| R13-i18n-builder-viewer-editor-titles | 2026-10-28 | Merged #458: BuilderShell Back/Close + viewer/editor panel titles (#162) |
 | R13-i18n-dialog-sheet-close | 2026-10-28 | Merged #457: Dialog/Sheet Close + attribute-form Cancel aria (#162) |
+| map-measure-print-preview | 2026-10-28 | Merged #451: Measure tool, elevation profile fix, print preview UX |
 | R13-i18n-editor-runtime-chrome | 2026-10-28 | Merged #448: Feature Editor runtime toolbar / edit / measure i18n (#162) |
 | R13-i18n-map-settings-descriptions | 2026-10-28 | Merged #447: map settings descriptions + option labels i18n (#162) |
 | R13-i18n-map-layers-panel-title | 2026-10-28 | Merged #446: map Layers rail title via mapLayerPanel.title (#162) |
