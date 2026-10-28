@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Fishnet for this layer** (polygon layers) creates a
+  private PostGIS derived layer via `ST_SquareGrid` with cell size,
+  unit, and polygons|lines. UI/help note the ~1e6 cell save-time
+  cap. Same path as Create → Derived layer → Fishnet
+  (R10-analyze-fishnet-shortcut).
 - Analyze **Nearest neighbor for this layer** creates a private
   PostGIS derived layer that adds `nearest_distance_m` (same-layer
   geography self-join). UI and help state O(N²) cost and single-row

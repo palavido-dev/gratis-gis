@@ -5025,6 +5025,31 @@ export const de: Partial<CatalogShape> = {
       '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
     nnHint:
       'Nur dieselbe Ebene. Große Ebenen können langsam sein (O(N²)). Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    fishnetAction: 'Fishnet für diese Ebene',
+    fishnetActionTitle:
+      'Serverseitigen Derived-Layer-Fishnet erstellen (PostGIS ST_SquareGrid). Nur Polygon-Ebenen.',
+    fishnetHeading: 'Fishnet für diese Ebene (serverseitiger Derived Layer)',
+    fishnetIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    fishnetIntroAfter:
+      'auf PostGIS über diese Polygon-Ebene ausführt (quadratische Zellen, an die Quelle geclippt). Gleiches Rezept wie',
+    fishnetHelpLink: 'Hilfe Fishnet',
+    fishnetIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    fishnetCellSize: 'Zellgröße',
+    fishnetCellSizeAria: 'Fishnet-Zellgröße',
+    fishnetUnit: 'Einheit',
+    fishnetUnitAria: 'Einheit der Fishnet-Zellgröße',
+    fishnetOutput: 'Ausgabe',
+    fishnetOutputAria: 'Fishnet-Ausgabemodus',
+    fishnetOutput_polygons: 'Polygone',
+    fishnetOutput_lines: 'Linien',
+    fishnetLimitHint:
+      'Zellgröße {minMeters}–{maxMeters} m. Sehr feine Gitter auf großen Ausdehnungen können die Speicher-Obergrenze von ~{maxCells} Zellen treffen. Öffnen Sie das neue Element, wenn der Server-Job fertig ist.',
+    fishnetValidateUnit: 'Wählen Sie eine Einheit für die Zellgröße.',
+    fishnetValidateEmpty: 'Geben Sie eine Zellgröße größer als null ein.',
+    fishnetValidateMin: 'Die Zellgröße muss mindestens {meters} m betragen.',
+    fishnetValidateMax: 'Die Zellgröße darf höchstens {meters} m betragen.',
+    fishnetValidateOutput: 'Wählen Sie Polygon- oder Linienausgabe.',
   },
 
   serviceEditors: {

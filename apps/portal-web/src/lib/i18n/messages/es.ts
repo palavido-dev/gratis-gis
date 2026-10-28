@@ -5008,6 +5008,31 @@ export const es: Partial<CatalogShape> = {
       '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
     nnHint:
       'Solo la misma capa. Las capas grandes pueden ser lentas (O(N²)). Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
+    fishnetAction: 'Malla (fishnet) de esta capa',
+    fishnetActionTitle:
+      'Crear una malla de capa derivada en el servidor (PostGIS ST_SquareGrid). Solo capas de polígonos.',
+    fishnetHeading: 'Malla (fishnet) de esta capa (capa derivada en el servidor)',
+    fishnetIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    fishnetIntroAfter:
+      'en PostGIS sobre esta capa de polígonos (celdas cuadradas, recortadas a la fuente). Misma receta que',
+    fishnetHelpLink: 'Ayuda de malla',
+    fishnetIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    fishnetCellSize: 'Tamaño de celda',
+    fishnetCellSizeAria: 'Tamaño de celda de la malla',
+    fishnetUnit: 'Unidad',
+    fishnetUnitAria: 'Unidad del tamaño de celda',
+    fishnetOutput: 'Salida',
+    fishnetOutputAria: 'Modo de salida de la malla',
+    fishnetOutput_polygons: 'polígonos',
+    fishnetOutput_lines: 'líneas',
+    fishnetLimitHint:
+      'Tamaño de celda {minMeters}–{maxMeters} m. Las mallas muy finas en extensiones grandes pueden alcanzar el tope de ~{maxCells} celdas al guardar. Abra el elemento nuevo cuando termine el trabajo del servidor.',
+    fishnetValidateUnit: 'Elija una unidad de tamaño de celda.',
+    fishnetValidateEmpty: 'Introduzca un tamaño de celda mayor que cero.',
+    fishnetValidateMin: 'El tamaño de celda debe ser al menos {meters} m.',
+    fishnetValidateMax: 'El tamaño de celda debe ser como máximo {meters} m.',
+    fishnetValidateOutput: 'Elija salida de polígonos o líneas.',
   },
 
   serviceEditors: {
