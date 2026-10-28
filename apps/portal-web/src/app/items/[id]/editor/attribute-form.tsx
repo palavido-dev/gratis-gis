@@ -8,6 +8,7 @@ import {
   type FeatureField,
   type PickListData,
 } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /** Layer schema. Non-system fields drive the form inputs. */
@@ -100,6 +101,7 @@ export function AttributeForm({
   title = 'New feature attributes',
   extraFooter,
 }: Props) {
+  const t = useT();
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const seed: Record<string, unknown> = {};
     for (const f of fields) {
@@ -148,7 +150,7 @@ export function AttributeForm({
           disabled={submitting}
           onClick={onCancel}
           className="shrink-0 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink-0 disabled:opacity-50"
-          aria-label="Cancel"
+          aria-label={t('common.cancel')}
         >
           <X className="h-4 w-4" />
         </button>

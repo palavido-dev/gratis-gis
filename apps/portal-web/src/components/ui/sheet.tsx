@@ -24,6 +24,7 @@ import {
 } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export const Sheet = DialogPrimitive.Root;
 export const SheetTrigger = DialogPrimitive.Trigger;
@@ -81,6 +82,7 @@ export const SheetContent = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const widthClass = side === 'bottom' ? 'w-full' : SIZE_CLASS[size];
   return (
     <SheetPortal>
@@ -99,7 +101,7 @@ export const SheetContent = forwardRef<
         {hideCloseButton ? null : (
           <DialogPrimitive.Close
             className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X className="h-4 w-4" />
           </DialogPrimitive.Close>

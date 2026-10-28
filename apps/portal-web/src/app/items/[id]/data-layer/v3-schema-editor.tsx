@@ -221,6 +221,7 @@ function EventLayerWizard({
   );
   const [label, setLabel] = useState('Inspections');
   const [enableAttachments, setEnableAttachments] = useState(true);
+  const t = useT();
 
   function reset() {
     setLabel('Inspections');
@@ -309,7 +310,7 @@ function EventLayerWizard({
             reset();
           }}
           className="rounded p-1 text-muted hover:bg-surface-2"
-          aria-label="Close"
+          aria-label={t('common.close')}
         >
           <X className="h-4 w-4" />
         </button>
