@@ -2099,7 +2099,7 @@ export function MapEditor({
         icon={<MapBaseIcon className="h-4 w-4 text-muted" />}
         toolbarRight={toolbarRight}
         leftPanel={leftPanel}
-        leftPanelTitle="Layers"
+        leftPanelTitle={t('mapLayerPanel.title')}
         leftRailIcon={<LayersIcon className="h-4 w-4" />}
         rightPanel={rightPanel}
         rightPanelTitle={t('mapSettings.title')}
