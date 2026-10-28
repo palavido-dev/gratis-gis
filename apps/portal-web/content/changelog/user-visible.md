@@ -3,14 +3,25 @@
 User-visible changes shipped to GratisGIS. Plain-English summaries
 only; one entry per notable feature. Add new entries at the top.
 
-Format: `## YYYY-MM-DD - Short feature name` on one line, then one
-short paragraph of plain-English description on the next line.
+Format:
 
-This file is loaded by the public landing page at runtime, so
-keep entries short and accessible. Anything that reads like a
-release note ("Refactored the X service") doesn't belong here.
+- Optional release banner (Keep a Changelog style), once per tagged
+  release: `## [0.9.120] - 2026-10-28`. Entries below inherit that
+  version until the next banner or `## [earlier]` (clears the stamp
+  for pre-version history). The landing card and `/whats-new`
+  history page group by these banners.
+- Each feature: `## YYYY-MM-DD - Short feature name` on one line,
+  then one short paragraph of plain-English description.
+
+This file is loaded by the public landing page (five newest) and
+the full `/whats-new` history at runtime, so keep entries short and
+accessible. Anything that reads like a developer release note
+("Refactored the X service") doesn't belong here. Prefer starting a
+new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
+
+## [0.9.120] - 2026-10-28
 
 ## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits
 Analyze can now create private PostGIS layers for Group by, Contour, Random sample, Top N, Fishnet, Nearest neighbor, and more from the layer tab. Field and map editor chrome keep growing into Spanish, French, German, and Brazilian Portuguese. Public list and search endpoints that used to share a loose global budget now rate-limit anonymous scans more tightly.
@@ -56,6 +67,8 @@ On a data layer's Analyze tab, **Bounding boxes for this layer** creates a priva
 
 ## 2026-10-28 - Field collect buttons follow your language
 On a field deployment, Add at GPS / Add at center (and Vertex at … for lines and polygons), Remove from device, and the map tool labels follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
+## [earlier]
 
 ## 2026-10-27 - Honest streaming note on large point clouds
 On a point cloud item, clouds over about 20 million points show a short note under the 3D viewer: lower in-view density and delayed rebuilds while you pan (stricter again over 100 million). This is a responsiveness tradeoff, not Potree-style LOD or 3D Tiles yet — see Point cloud help.

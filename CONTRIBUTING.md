@@ -90,7 +90,9 @@ call:
 - Add a plain-English entry at the top of
   `apps/portal-web/content/changelog/user-visible.md` when a
   non-technical visitor would notice (this feeds the landing-page
-  What's new card).
+  What's new card and `/whats-new`). When cutting a version tag,
+  add a `## [X.Y.Z] - YYYY-MM-DD` banner above that release's
+  entries so the history page can group by version.
 - Update `CHANGELOG.md` under Unreleased.
 - Touch README / `docs/*` / package READMEs when the public
   surface or status line moved.

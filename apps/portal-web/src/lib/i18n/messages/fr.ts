@@ -3094,6 +3094,18 @@ export const fr: Partial<CatalogShape> = {
     failed: 'Impossible de charger les données d\'exemple',
     dismiss: 'Fermer le panneau de bienvenue',
   },
+  whatsNewPage: {
+    metaTitle: 'Nouveautés',
+    metaDescription:
+      'Mises à jour visibles de GratisGIS, regroupées par version lorsqu’il y en a une.',
+    title: 'Nouveautés',
+    intro:
+      'Notes en langage simple sur les fonctions que les visiteurs peuvent voir et utiliser. Regroupées par version lorsque nous en marquons une ; les notes plus anciennes restent sous Mises à jour antérieures.',
+    backToHome: 'Retour à l’accueil',
+    releaseHeading: 'Version {version}',
+    earlierHeading: 'Mises à jour antérieures',
+    empty: 'Aucune mise à jour publiée pour le moment.',
+  },
   landing: {
     openMyItems: 'Ouvrir mes éléments',
     publicItemsTitle: 'Voyez-le en action',
@@ -3102,6 +3114,7 @@ export const fr: Partial<CatalogShape> = {
     publicItemsEmpty:
       'Rien n\'a encore été partagé publiquement. Si vous avez un compte portail, connectez-vous pour voir le contenu partagé avec vous.',
     whatsNew: 'Nouveautés',
+    whatsNewViewAll: 'Voir tout l’historique',
     builtOn: 'Construit avec',
     projectEyebrow: 'Portail SIG open source',
     projectHeadline: 'Un portail auto-hébergé, une PWA de terrain et QGIS',
