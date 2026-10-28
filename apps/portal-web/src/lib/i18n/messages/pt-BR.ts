@@ -4959,6 +4959,16 @@ export const ptBR: Partial<CatalogShape> = {
     modeSqlTitle: "Editar o SQL diretamente",
     starterColumnProfile: "Perfil de colunas",
     starterGeometrySummary: "Resumo de geometria",
+    starterPreview: "Prévia",
+    starterCountBy: "Contar por {field}",
+    sqlFooterLayerAvailable: "A camada está disponível como",
+    sqlFooterSpatialLead: "O SQL espacial funciona na coluna",
+    sqlFooterSpatialMid:
+      "para transformações seguras quanto ao SRC e medidas esferoidais (área, comprimento). Buffers em metros precisam de dados PROJ que este motor do navegador não inclui — use",
+    sqlFooterSpatialTail:
+      "acima para criar uma camada derivada PostGIS em vez de uma armadilha de unidades em graus.",
+    sqlFooterSpatialUnavailable:
+      "A extensão espacial não pôde ser carregada, então a coluna geometry é WKB bruto e só SQL de atributos nesta sessão.",
     browserOnlyHint: "Roda no seu navegador. O servidor nunca vê a consulta.",
     sqlAriaLabel: "Consulta SQL",
     run: "Executar (Ctrl+Enter)",

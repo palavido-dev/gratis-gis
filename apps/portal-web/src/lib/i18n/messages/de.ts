@@ -4978,6 +4978,16 @@ export const de: Partial<CatalogShape> = {
     modeSqlTitle: "SQL direkt bearbeiten",
     starterColumnProfile: "Spaltenprofil",
     starterGeometrySummary: "Geometrie-Zusammenfassung",
+    starterPreview: "Vorschau",
+    starterCountBy: "Zählen nach {field}",
+    sqlFooterLayerAvailable: "Die Ebene ist verfügbar als",
+    sqlFooterSpatialLead: "Räumliches SQL funktioniert auf der",
+    sqlFooterSpatialMid:
+      "-Spalte für CRS-sichere Transformationen und Sphäroidmaße (Fläche, Länge). Meterpuffer brauchen PROJ-Daten, die diese Browser-Engine nicht mitliefert — nutzen Sie",
+    sqlFooterSpatialTail:
+      "oben, um eine PostGIS-abgeleitete Ebene zu erstellen statt einer Grad-Einheiten-Falle.",
+    sqlFooterSpatialUnavailable:
+      "Die Spatial-Erweiterung konnte nicht geladen werden, daher ist die geometry-Spalte rohes WKB und für diese Sitzung nur Attribut-SQL verfügbar.",
     browserOnlyHint: "Läuft in Ihrem Browser. Der Server sieht keine Abfrage.",
     sqlAriaLabel: "SQL-Abfrage",
     run: "Ausführen (Strg+Enter)",
