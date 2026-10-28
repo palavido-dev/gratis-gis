@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-research-cycle-9 | research-cycle-9 | Refill ship-without-input queue | This PR |
+| R9-filter-help-honesty | research-cycle-9 | Filter help matches `{{field}}` expression dialect | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-filter-help-honesty | research-cycle-9 | Filter help matches `{{field}}` expression dialect | Docs |
 | R9-spatial-filter-help-honesty | research-cycle-9 | Add spatial-filter help (predicates + otherSource) | Docs |
 | R9-sampling-nn-help-honesty | research-cycle-9 | Help for top-n / random-sample / nearest-neighbor | Docs |
 | R9-derived-layer-catalog-honesty | research-cycle-9 | derived-layer.md full step catalog + Analyze list | Docs |
@@ -34,6 +33,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-research-cycle-9 | 2026-10-28 | Merged #405: research-cycle-9 refill ship-without-input queue |
 | R8-point-cloud-streaming-honesty | 2026-10-28 | Merged #404: point-cloud size-tier honesty (#183 open) |
 | R8-analyze-densify-shortcut | 2026-10-27 | Merged #403: Analyze Densify → PostGIS derived_layer |
 | R8-analyze-convex-hull-shortcut | 2026-10-27 | Merged #402: Analyze Convex hull → PostGIS derived_layer |

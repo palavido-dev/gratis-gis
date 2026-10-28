@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Filter help (`analysis/filter`) matches the shared expression
+  dialect: examples use `{{field}}` refs, cross-link the
+  expression-language reference, and drop bare SQL column-name
+  cosplay (R9-filter-help-honesty).
 - Point cloud help (`items/point-cloud`) and the item-types
   one-liner document size-aware streaming tiers (default / huge /
   ultra), move-deferred rebuilds, and that this is a density
