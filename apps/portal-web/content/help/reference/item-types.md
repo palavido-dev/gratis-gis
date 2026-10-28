@@ -30,7 +30,7 @@ end.
 | **Derived layer** | Computed output of an analysis pipeline against other layers. Materialized into its own table. | **Derived layer** |
 | **Connected service** | A reference to an external service the portal reads live: an ArcGIS map, feature, image or geocoding service, or an OGC WMS, WFS or WMTS endpoint. One type for all of them; the protocol is recorded on the item. | **Connected service** |
 | **Tile layer** | A pre-rendered tile container (PMTiles) uploaded to the portal's object storage. Range-served, and usable as a basemap source. | **Tile layer** |
-| **Point cloud** | A 3D lidar point cloud uploaded as a COPC file and served as an ordinary layer; viewers stream only the part in view. | **Point cloud** |
+| **Point cloud** | A 3D lidar COPC item. Viewers stream octree nodes in view; large clouds use size-aware density tiers (not Potree / Tile3D yet). | **Point cloud** |
 | **Basemap** | A single base-layer reference: a style URL, a tile URL, or a WMS endpoint. (Composing a basemap from a portal map is planned but not built.) | **Basemap** |
 | **Geo boundary** | A reusable polygon referenced by share limits, viewports, clip steps. | **Geo boundary** |
 | **Geocoding service** | Turns one of your own data layers (parcels, addresses, places) into an address search by naming the fields to match on. Appears in the map search box alongside external geocoders. | **Geocoding service** |
