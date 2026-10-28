@@ -30,6 +30,7 @@ import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeCalculateGeometryGuide } from './analyze-calculate-geometry-guide';
 import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
+import { AnalyzeContourGuide } from './analyze-contour-guide';
 import { AnalyzeConvexHullGuide } from './analyze-convex-hull-guide';
 import { AnalyzeDensifyGuide } from './analyze-densify-guide';
 import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
@@ -458,6 +459,14 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
                 itemId={itemId}
                 layerKey={layer.id}
                 sourceLabel={layer.label || layer.name || 'Layer'}
+              />
+            ) : null}
+            {layer.geometryType === 'point' ? (
+              <AnalyzeContourGuide
+                itemId={itemId}
+                layerKey={layer.id}
+                sourceLabel={layer.label || layer.name || 'Layer'}
+                fields={layer.fields ?? []}
               />
             ) : null}
             <AnalyzeTopNGuide

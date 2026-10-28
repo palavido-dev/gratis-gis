@@ -54,6 +54,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Contour for this layer** (point layers) opens
+  numeric field, auto interval, and optional min/max controls
+  and creates a private PostGIS derived layer of TIN iso-lines
+  (`level` property; not iso-polygons). Manual level lists stay
+  in Create → Derived layer. Same path as Create → Derived layer
+  → Contour (R11-analyze-contour-shortcut).
 - Field layers basemap chip, address-search Places/Searching,
   and related-records list chrome go through en/es/fr/de/pt-BR
   catalogs (R11-i18n-field-layers-search-chrome / #162).

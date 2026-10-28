@@ -5133,6 +5133,32 @@ export const es: Partial<CatalogShape> = {
     randomSampleValidateCount: 'El conteo debe ser un entero positivo.',
     randomSampleValidateMax: 'El conteo debe ser como máximo {max}.',
     randomSampleValidateSeed: 'La semilla debe ser un entero distinto de cero.',
+    contourAction: 'Curvas de nivel de esta capa',
+    contourActionTitle:
+      'Crea una capa derivada en el servidor con iso-líneas TIN a partir de un campo numérico (solo capas de puntos).',
+    contourHeading: 'Curvas de nivel de esta capa (capa derivada en el servidor)',
+    contourIntroBefore:
+      'Crea una capa derivada privada que construye un TIN de Delaunay y emite iso-líneas con un intervalo automático (mín/máx opcional). Solo líneas con propiedad level — no iso-polígonos. Misma receta que',
+    contourHelpLink: 'Ayuda de curvas de nivel',
+    contourIntroTail:
+      '. Espere un trabajo en el servidor; conjuntos densos de puntos pueden ser lentos.',
+    contourField: 'Campo numérico',
+    contourFieldAria: 'Campo numérico para curvas de nivel',
+    contourInterval: 'Intervalo',
+    contourIntervalAria: 'Intervalo de niveles de curva',
+    contourMin: 'Mín (opcional)',
+    contourMinAria: 'Nivel mínimo opcional',
+    contourMax: 'Máx (opcional)',
+    contourMaxAria: 'Nivel máximo opcional',
+    contourOptional: 'auto',
+    contourPickField: 'Elija un campo numérico…',
+    contourNoNumeric: 'No hay campos numéricos en esta capa',
+    contourHint:
+      'Los niveles automáticos se ajustan al intervalo en el rango del campo (como máximo unos {max} niveles). Las listas manuales están en Crear → Capa derivada. Abra el nuevo elemento cuando termine el trabajo.',
+    contourValidateNoNumeric: 'Esta capa no tiene campos numéricos para curvas de nivel.',
+    contourValidateField: 'Elija un campo numérico.',
+    contourValidateInterval: 'El intervalo debe ser un número positivo.',
+    contourValidateRange: 'El mínimo debe ser estrictamente menor que el máximo si ambos están definidos.',
   },
 
   serviceEditors: {

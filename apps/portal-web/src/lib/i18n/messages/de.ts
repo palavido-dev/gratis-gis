@@ -5150,6 +5150,32 @@ export const de: Partial<CatalogShape> = {
     randomSampleValidateCount: 'Anzahl muss eine positive ganze Zahl sein.',
     randomSampleValidateMax: 'Anzahl darf höchstens {max} sein.',
     randomSampleValidateSeed: 'Seed muss eine von Null verschiedene ganze Zahl sein.',
+    contourAction: 'Höhenlinien für diese Layer',
+    contourActionTitle:
+      'Server-seitige abgeleitete Layer mit TIN-Isolinien aus einem numerischen Feld erstellen (nur Punktlayer).',
+    contourHeading: 'Höhenlinien für diese Layer (server-seitige abgeleitete Layer)',
+    contourIntroBefore:
+      'Erstellt eine private abgeleitete Layer, die ein Delaunay-TIN baut und Isolinien mit Auto-Intervall (optional min/max) ausgibt. Nur Linien mit level-Eigenschaft — keine Iso-Polygone. Gleiches Rezept wie',
+    contourHelpLink: 'Hilfe zu Höhenlinien',
+    contourIntroTail:
+      '. Erwarten Sie einen Server-Job; dichte Punktmengen können langsam sein.',
+    contourField: 'Numerisches Feld',
+    contourFieldAria: 'Numerisches Feld für Höhenlinien',
+    contourInterval: 'Intervall',
+    contourIntervalAria: 'Höhenlinien-Intervall',
+    contourMin: 'Min (optional)',
+    contourMinAria: 'Optionales Mindestniveau',
+    contourMax: 'Max (optional)',
+    contourMaxAria: 'Optionales Höchstniveau',
+    contourOptional: 'auto',
+    contourPickField: 'Numerisches Feld wählen…',
+    contourNoNumeric: 'Keine numerischen Felder auf diesem Layer',
+    contourHint:
+      'Auto-Niveaus rasten am Intervall im Feldbereich ein (etwa {max} Niveaus max). Manuelle Listen bleiben unter Erstellen → Abgeleitete Layer. Öffnen Sie das neue Element nach dem Server-Job.',
+    contourValidateNoNumeric: 'Dieser Layer hat keine numerischen Felder für Höhenlinien.',
+    contourValidateField: 'Wählen Sie ein numerisches Feld.',
+    contourValidateInterval: 'Intervall muss eine positive Zahl sein.',
+    contourValidateRange: 'Min muss streng kleiner als Max sein, wenn beide gesetzt sind.',
   },
 
   serviceEditors: {

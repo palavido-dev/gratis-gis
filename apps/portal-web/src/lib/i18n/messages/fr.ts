@@ -5140,6 +5140,32 @@ export const fr: Partial<CatalogShape> = {
     randomSampleValidateCount: 'Le nombre doit être un entier positif.',
     randomSampleValidateMax: 'Le nombre doit être au plus {max}.',
     randomSampleValidateSeed: 'La graine doit être un entier non nul.',
+    contourAction: 'Courbes de niveau pour cette couche',
+    contourActionTitle:
+      'Créer une couche dérivée côté serveur d’iso-lignes TIN à partir d’un champ numérique (couches ponctuelles uniquement).',
+    contourHeading: 'Courbes de niveau pour cette couche (couche dérivée serveur)',
+    contourIntroBefore:
+      'Crée une couche dérivée privée qui construit un TIN de Delaunay et émet des iso-lignes selon un intervalle automatique (min/max optionnels). Sortie ligne avec une propriété level uniquement — pas d’iso-polygones. Même recette que',
+    contourHelpLink: 'Aide Courbes de niveau',
+    contourIntroTail:
+      '. Attendez un job serveur ; les nuages de points denses peuvent être lents.',
+    contourField: 'Champ numérique',
+    contourFieldAria: 'Champ numérique pour les courbes de niveau',
+    contourInterval: 'Intervalle',
+    contourIntervalAria: 'Intervalle des niveaux de courbe',
+    contourMin: 'Min (optionnel)',
+    contourMinAria: 'Niveau minimum optionnel',
+    contourMax: 'Max (optionnel)',
+    contourMaxAria: 'Niveau maximum optionnel',
+    contourOptional: 'auto',
+    contourPickField: 'Choisir un champ numérique…',
+    contourNoNumeric: 'Aucun champ numérique sur cette couche',
+    contourHint:
+      'Les niveaux auto s’alignent sur l’intervalle dans la plage du champ (environ {max} niveaux max). Les listes manuelles restent dans Créer → Couche dérivée. Ouvrez le nouvel élément après le job serveur.',
+    contourValidateNoNumeric: 'Cette couche n’a pas de champs numériques pour les courbes de niveau.',
+    contourValidateField: 'Choisissez un champ numérique.',
+    contourValidateInterval: 'L’intervalle doit être un nombre positif.',
+    contourValidateRange: 'Le min doit être strictement inférieur au max lorsque les deux sont définis.',
   },
 
   serviceEditors: {

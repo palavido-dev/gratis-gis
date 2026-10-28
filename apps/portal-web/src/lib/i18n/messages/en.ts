@@ -5265,6 +5265,32 @@ export const en = {
     randomSampleValidateCount: 'Count must be a positive integer.',
     randomSampleValidateMax: 'Count must be at most {max}.',
     randomSampleValidateSeed: 'Seed must be a nonzero integer.',
+    contourAction: 'Contour for this layer',
+    contourActionTitle:
+      'Create a server-side derived layer of TIN iso-lines from a numeric field (point layers only).',
+    contourHeading: 'Contour for this layer (server derived layer)',
+    contourIntroBefore:
+      'Creates a private derived layer that builds a Delaunay TIN and emits iso-lines for an auto interval (optional min/max). Line output with a level property only — not iso-polygons. Same recipe as',
+    contourHelpLink: 'Contour help',
+    contourIntroTail:
+      '. Expect a server job; dense point sets can be slow.',
+    contourField: 'Numeric field',
+    contourFieldAria: 'Numeric field for Contour',
+    contourInterval: 'Interval',
+    contourIntervalAria: 'Contour level interval',
+    contourMin: 'Min (optional)',
+    contourMinAria: 'Optional minimum contour level',
+    contourMax: 'Max (optional)',
+    contourMaxAria: 'Optional maximum contour level',
+    contourOptional: 'auto',
+    contourPickField: 'Pick a numeric field…',
+    contourNoNumeric: 'No numeric fields on this layer',
+    contourHint:
+      'Auto levels snap to the interval across the field range (about {max} levels max). Manual level lists stay in Create → Derived layer. Open the new item after the server job finishes.',
+    contourValidateNoNumeric: 'This layer has no numeric fields for Contour.',
+    contourValidateField: 'Pick a numeric field.',
+    contourValidateInterval: 'Interval must be a positive number.',
+    contourValidateRange: 'Min must be strictly less than max when both are set.',
   },
 
   /**
