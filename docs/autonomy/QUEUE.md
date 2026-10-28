@@ -6,13 +6,21 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
 | SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | This PR |
 | R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | Open #430 |
+=======
+| R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | This PR |
+>>>>>>> origin/main
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+<<<<<<< HEAD
+=======
+| SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
+>>>>>>> origin/main
 | SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Low |
 | SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | Low |
 

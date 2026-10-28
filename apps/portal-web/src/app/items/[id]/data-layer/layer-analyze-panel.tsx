@@ -36,6 +36,7 @@ import { AnalyzeDensifyGuide } from './analyze-densify-guide';
 import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import { AnalyzeFishnetGuide } from './analyze-fishnet-guide';
+import { AnalyzeGroupByGuide } from './analyze-group-by-guide';
 import { AnalyzeNearestNeighborGuide } from './analyze-nearest-neighbor-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
 import { AnalyzeRandomSampleGuide } from './analyze-random-sample-guide';
@@ -469,6 +470,12 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
                 fields={layer.fields ?? []}
               />
             ) : null}
+            <AnalyzeGroupByGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              fields={layer.fields ?? []}
+            />
             <AnalyzeTopNGuide
               itemId={itemId}
               layerKey={layer.id}

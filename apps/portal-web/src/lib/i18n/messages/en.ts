@@ -5291,6 +5291,36 @@ export const en = {
     contourValidateField: 'Pick a numeric field.',
     contourValidateInterval: 'Interval must be a positive number.',
     contourValidateRange: 'Min must be strictly less than max when both are set.',
+    groupByAction: 'Group by for this layer',
+    groupByActionTitle:
+      'Create a server-side derived layer that rolls up rows by one key with one aggregate (ST_Union geometry).',
+    groupByHeading: 'Group by for this layer (server derived layer)',
+    groupByIntroBefore:
+      'Creates a private derived layer with one group key (or whole-layer) and one aggregate (count / sum / avg). Geometry is always ST_Union per group. Same recipe as',
+    groupByHelpLink: 'Group by help',
+    groupByIntroTail:
+      '. Multi-key / multi-agg stay in Create → Derived layer. Expect a server job.',
+    groupByKey: 'Group key',
+    groupByKeyAria: 'Field to group by (optional)',
+    groupByWholeLayer: 'Whole layer (no key)',
+    groupByOp: 'Aggregate',
+    groupByOpAria: 'Aggregate operation',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Numeric field',
+    groupByAggFieldAria: 'Numeric field for sum or avg',
+    groupByPickNumeric: 'Pick a numeric field…',
+    groupByNoNumeric: 'No numeric fields on this layer',
+    groupByOutput: 'Output name',
+    groupByOutputAria: 'Aggregate output column name',
+    groupByHint:
+      'NULL values in the group key form their own group. Large unions can be slow. Open the new item after the server job finishes.',
+    groupByValidateKey: 'Pick a group key that exists on this layer, or whole layer.',
+    groupByValidateOp: 'Pick count, sum, or avg.',
+    groupByValidateAggField: 'Pick a numeric field for sum or avg.',
+    groupByValidateOutput: 'Output name must be a letter/underscore field id.',
+    groupByValidateOutputCollision: 'Output name must not collide with the group key.',
   },
 
   /**
