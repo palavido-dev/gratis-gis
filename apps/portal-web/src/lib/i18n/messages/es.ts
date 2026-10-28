@@ -5059,6 +5059,34 @@ export const es: Partial<CatalogShape> = {
     topNValidateN: 'N debe ser un entero positivo.',
     topNValidateMax: 'N debe ser como máximo {max}.',
     topNValidateDirection: 'Elija ascendente o descendente.',
+    randomSampleAction: 'Muestra aleatoria de esta capa',
+    randomSampleActionTitle:
+      'Crea una capa derivada en el servidor que conserva un subconjunto aleatorio determinista.',
+    randomSampleHeading: 'Muestra aleatoria de esta capa (capa derivada en el servidor)',
+    randomSampleIntroBefore:
+      'Crea una capa derivada privada que conserva un porcentaje o un número exacto de filas, con una semilla estable (no random() de Postgres). Misma receta que',
+    randomSampleHelpLink: 'Ayuda de muestra aleatoria',
+    randomSampleIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    randomSampleMode: 'Modo',
+    randomSampleModeAria: 'Modo de muestra aleatoria',
+    randomSampleMode_percentage: 'porcentaje',
+    randomSampleMode_count: 'conteo exacto',
+    randomSampleValuePct: 'Porcentaje',
+    randomSampleValueCount: 'Conteo',
+    randomSampleValueAria: 'Tamaño de la muestra',
+    randomSampleSeed: 'Semilla',
+    randomSampleSeedAria: 'Semilla de la muestra aleatoria',
+    randomSampleShuffle: 'Barajar',
+    randomSampleShuffleTitle: 'Generar una semilla nueva (solo en el cliente)',
+    randomSampleHint:
+      'Porcentaje 0–100 o conteo hasta {max}. La misma semilla repite la misma muestra; Barajar antes de crear elige un subconjunto nuevo. Abra el ítem nuevo cuando termine el trabajo del servidor.',
+    randomSampleValidateMode: 'Elija modo porcentaje o conteo.',
+    randomSampleValidateValue: 'El valor debe ser un número positivo.',
+    randomSampleValidatePct: 'El porcentaje debe ser como máximo 100.',
+    randomSampleValidateCount: 'El conteo debe ser un entero positivo.',
+    randomSampleValidateMax: 'El conteo debe ser como máximo {max}.',
+    randomSampleValidateSeed: 'La semilla debe ser un entero distinto de cero.',
   },
 
   serviceEditors: {

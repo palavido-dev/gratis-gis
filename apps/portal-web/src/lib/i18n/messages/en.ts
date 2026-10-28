@@ -5186,6 +5186,34 @@ export const en = {
     topNValidateN: 'N must be a positive integer.',
     topNValidateMax: 'N must be at most {max}.',
     topNValidateDirection: 'Pick ascending or descending.',
+    randomSampleAction: 'Random sample for this layer',
+    randomSampleActionTitle:
+      'Create a server-side derived layer that keeps a deterministic random subset.',
+    randomSampleHeading: 'Random sample for this layer (server derived layer)',
+    randomSampleIntroBefore:
+      'Creates a private derived layer that keeps a percentage or exact count of rows, keyed by a stable seed (not Postgres random()). Same recipe as',
+    randomSampleHelpLink: 'Random sample help',
+    randomSampleIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    randomSampleMode: 'Mode',
+    randomSampleModeAria: 'Random sample mode',
+    randomSampleMode_percentage: 'percentage',
+    randomSampleMode_count: 'exact count',
+    randomSampleValuePct: 'Percent',
+    randomSampleValueCount: 'Count',
+    randomSampleValueAria: 'Sample size',
+    randomSampleSeed: 'Seed',
+    randomSampleSeedAria: 'Random sample seed',
+    randomSampleShuffle: 'Reshuffle',
+    randomSampleShuffleTitle: 'Roll a new seed (client-side only)',
+    randomSampleHint:
+      'Percentage 0–100 or count up to {max}. Same seed repeats the same sample; Reshuffle before create picks a new subset. Open the new item after the server job finishes.',
+    randomSampleValidateMode: 'Pick percentage or count mode.',
+    randomSampleValidateValue: 'Value must be a positive number.',
+    randomSampleValidatePct: 'Percentage must be at most 100.',
+    randomSampleValidateCount: 'Count must be a positive integer.',
+    randomSampleValidateMax: 'Count must be at most {max}.',
+    randomSampleValidateSeed: 'Seed must be a nonzero integer.',
   },
 
   /**
