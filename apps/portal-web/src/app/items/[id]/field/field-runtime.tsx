@@ -2211,7 +2211,7 @@ export function FieldRuntime({
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
           className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
-          aria-label="Toggle layers"
+          aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
         >
           <Layers className="h-5 w-5 text-ink-1" />
@@ -2297,7 +2297,7 @@ export function FieldRuntime({
             <button
               type="button"
               onClick={() => setSearchExpanded(true)}
-              aria-label="Search address"
+              aria-label={t('fieldRuntime.searchAddressAria')}
               className="absolute left-15 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
               <Search className="h-5 w-5 text-ink-1" />
@@ -2411,12 +2411,12 @@ export function FieldRuntime({
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <p className="text-xs font-medium text-ink-0">
-              Nothing to collect in this deployment
+              {t('fieldRuntime.nothingToCollectTitle')}
             </p>
             <p className="mt-0.5 text-2xs text-muted">
               {editableLayers.length > 0
-                ? 'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.'
-                : 'Its map has no layers you can add to.'}
+                ? t('fieldRuntime.nothingToCollectViewOnly')
+                : t('fieldRuntime.nothingToCollectNoLayers')}
             </p>
           </div>
         ) : null}
@@ -2582,11 +2582,11 @@ export function FieldRuntime({
                       type="button"
                       onClick={undoLastVertex}
                       disabled={pendingVertices.length === 0}
-                      title="Remove the last vertex"
+                      title={t('fieldRuntime.undoVertexTitle')}
                       className="inline-flex h-11 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                     >
                       <ArrowLeft className="h-4 w-4" />
-                      Undo
+                      {t('fieldRuntime.undoVertex')}
                     </button>
                     <button
                       type="button"
@@ -2594,13 +2594,15 @@ export function FieldRuntime({
                       disabled={!canFinish}
                       title={
                         canFinish
-                          ? 'Open the form for this feature'
-                          : `Need at least ${minVerts} vertices`
+                          ? t('fieldRuntime.finishVerticesTitle')
+                          : t('fieldRuntime.finishNeedVertices', {
+                              count: minVerts,
+                            })
                       }
                       className="inline-flex h-11 shrink-0 items-center gap-1 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" />
-                      Finish
+                      {t('fieldRuntime.finishVertices')}
                     </button>
                   </>
                 ) : null}
@@ -2616,17 +2618,21 @@ export function FieldRuntime({
                   <button
                     type="button"
                     onClick={commitAtGps}
-                    title={`Drop the ${
-                      isMultiVertex ? 'vertex' : 'feature'
-                    } at your current location (~${
-                      gps.position.accuracyM < 1
-                        ? '<1'
-                        : Math.round(gps.position.accuracyM)
-                    } m accuracy)`}
+                    title={t('fieldRuntime.dropAtGpsTitle', {
+                      kind: isMultiVertex
+                        ? t('fieldRuntime.dropKindVertex')
+                        : t('fieldRuntime.dropKindFeature'),
+                      accuracy:
+                        gps.position.accuracyM < 1
+                          ? '<1'
+                          : Math.round(gps.position.accuracyM),
+                    })}
                     className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90"
                   >
                     <LocateFixed className="h-4 w-4" />
-                    {isMultiVertex ? 'Vertex at GPS' : 'Add at GPS'}
+                    {isMultiVertex
+                      ? t('fieldRuntime.vertexAtGps')
+                      : t('fieldRuntime.addAtGps')}
                   </button>
                 ) : null}
                 <button
@@ -2639,7 +2645,9 @@ export function FieldRuntime({
                   }`}
                 >
                   <MapPin className="h-4 w-4" />
-                  {isMultiVertex ? 'Vertex at center' : 'Add at center'}
+                  {isMultiVertex
+                    ? t('fieldRuntime.vertexAtCenter')
+                    : t('fieldRuntime.addAtCenter')}
                 </button>
               </>
             );
@@ -5323,6 +5331,7 @@ function FieldNavCluster({
 }: {
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
 }) {
+  const t = useT();
   const [bearing, setBearing] = useState(0);
   const [pitch, setPitch] = useState(0);
 
@@ -5349,7 +5358,7 @@ function FieldNavCluster({
       <button
         type="button"
         onClick={() => mapRef.current?.zoomIn()}
-        aria-label="Zoom in"
+        aria-label={t('fieldRuntime.zoomInAria')}
         className="inline-flex h-11 w-11 items-center justify-center hover:bg-surface-2"
       >
         <Plus className="h-5 w-5 text-ink-1" />
@@ -5357,7 +5366,7 @@ function FieldNavCluster({
       <button
         type="button"
         onClick={() => mapRef.current?.zoomOut()}
-        aria-label="Zoom out"
+        aria-label={t('fieldRuntime.zoomOutAria')}
         className="inline-flex h-11 w-11 items-center justify-center border-t border-border hover:bg-surface-2"
       >
         <Minus className="h-5 w-5 text-ink-1" />
@@ -5372,7 +5381,7 @@ function FieldNavCluster({
           // north up, flat" mental model.
           mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 300 });
         }}
-        aria-label="Reset bearing"
+        aria-label={t('fieldRuntime.resetBearingAria')}
         className="inline-flex h-11 w-11 items-center justify-center border-t border-border hover:bg-surface-2"
       >
         <Compass
@@ -5692,8 +5701,8 @@ function FieldMoreMenu({
                   />
                   <span>
                     {confirmingRemove
-                      ? 'Confirm remove from device'
-                      : 'Remove from device'}
+                      ? t('fieldRuntime.confirmRemoveFromDevice')
+                      : t('fieldRuntime.removeFromDevice')}
                   </span>
                 </button>
               </>
@@ -5816,25 +5825,33 @@ function DownloadProgressModal({
             detail. */}
         <dl className="mt-3 grid grid-cols-4 gap-2 text-2xs">
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Layers</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadLayers')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.layerCount}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Features</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadFeatures')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.featuresFetched}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Forms</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadForms')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.formsFetched}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Pick lists</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadPickLists')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.pickListsFetched}
             </dd>
@@ -5905,6 +5922,7 @@ function FieldAddressSearch({
   autoFocus?: boolean;
   onClose?: () => void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   // #249.12: place results (Nominatim) and feature results (layer
   // attributes) are tracked separately so the dropdown can render a
@@ -6116,9 +6134,9 @@ function FieldAddressSearch({
           onFocus={() => {
             if (query.trim().length >= 3) setOpen(true);
           }}
-          placeholder="Search address..."
+          placeholder={t('fieldRuntime.searchAddressPlaceholder')}
           className="h-9 w-full rounded-md border border-border bg-surface-0 pl-8 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
-          aria-label="Search address"
+          aria-label={t('fieldRuntime.searchAddressAria')}
         />
         {query || onClose ? (
           <button
@@ -6134,7 +6152,11 @@ function FieldAddressSearch({
               setOpen(false);
               onClose?.();
             }}
-            aria-label={onClose ? 'Close search' : 'Clear search'}
+            aria-label={
+              onClose
+                ? t('fieldRuntime.closeSearchAria')
+                : t('fieldRuntime.clearSearchAria')
+            }
             className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-3 w-3" />

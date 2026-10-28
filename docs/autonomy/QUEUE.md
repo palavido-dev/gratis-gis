@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-derived-layer-catalog-honesty | research-cycle-9 | derived-layer.md full step catalog + Analyze list | This PR |
+| R9-i18n-field-collect-chrome | research-cycle-9 | Field collect / GPS / remove chrome i18n | This PR; #162 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-i18n-field-collect-chrome | research-cycle-9 | Field collect / GPS / remove chrome i18n | #162 |
 | R9-analyze-bbox-shortcut | research-cycle-9 | Analyze Bounding boxes → PostGIS derived_layer | + help |
 | R9-analyze-vertices-shortcut | research-cycle-9 | Analyze Vertices → PostGIS derived_layer | + help |
 | R9-analyze-calculate-geometry-shortcut | research-cycle-9 | Analyze Calculate geometry → PostGIS derived_layer | Buffer-shaped |
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R9-derived-layer-catalog-honesty | 2026-10-28 | Merged #409: derived-layer full step catalog + Analyze list |
 | R9-sampling-nn-help-honesty | 2026-10-28 | Merged #408: Top N / Random sample / Nearest neighbor help |
 | R9-spatial-filter-help-honesty | 2026-10-28 | Merged #407: Spatial filter help (predicates + otherSource) |
 | R9-filter-help-honesty | 2026-10-28 | Merged #406: Filter help matches {{field}} expression dialect |
