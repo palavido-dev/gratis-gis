@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Tool recipe editor Output sink lists only Selection and OSM
+  features on map (what the runner supports). Removed the
+  disabled "Derived layer / Data layer — coming soon" options;
+  copy points authors at creating a derived_layer item or
+  Analyze Buffer / Clip / Erase / Centroid instead
+  (R6-recipe-sink-honesty).
 - Print help lists text, arrow, and circle markup on the sheet
   (not only pins / lines / polygons), matching what
   `syncDrawings` paints into the PDF (R6-print-markup-kinds-help).

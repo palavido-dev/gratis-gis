@@ -13,8 +13,10 @@
  *      param-aware in v1; the editor still shows the slot so future
  *      param-aware steps slot in additively.
  *   3. Output: the sink that fires when the recipe finishes.
- *      Selection-on-target-layer is the v1 default; derived-layer
- *      and data-layer sinks light up once the backend lands them.
+ *      Runner supports `selection` and `osm-features-overlay`
+ *      only. Persistent layers are created as derived_layer items
+ *      (or Analyze Buffer / Clip / Erase / Centroid shortcuts),
+ *      not as recipe output sinks (R6-recipe-sink-honesty).
  *
  * Kept in one file because every section talks to the same
  * RecipeAction blob -- breaking out per-section would just shuffle
@@ -1770,25 +1772,55 @@ function OutputSection({
     }
   }
 
+  const unsupportedSink =
+    output.kind === 'derived-layer' || output.kind === 'data-layer';
+
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-medium text-ink-0">Output</h3>
       <p className="text-2xs text-muted">
-        What happens when the recipe finishes.  Selection updates the
+        What happens when the recipe finishes. Selection updates the
         host map&apos;s selection state on the chosen target layer.
         OSM overlay renders OSM features the user picked on top of
-        the host map (attribution baked in).
+        the host map (attribution baked in). Recipes do not create
+        a new layer item — for a saved spatial pipeline, create a{' '}
+        <a
+          href="/items/new?type=derived_layer"
+          className="underline underline-offset-2 hover:text-ink-1"
+        >
+          derived layer
+        </a>{' '}
+        or use Analyze Buffer / Clip / Erase / Centroid on a data
+        layer.
       </p>
+      {unsupportedSink ? (
+        <p className="rounded-md border border-border bg-surface-1 p-2 text-2xs text-ink-1">
+          This recipe&apos;s output sink (
+          <span className="font-mono">{output.kind}</span>) is not
+          run by the tool runner. Pick Selection or OSM features on
+          map, or create a{' '}
+          <a
+            href="/items/new?type=derived_layer"
+            className="underline underline-offset-2 hover:text-ink-1"
+          >
+            derived layer
+          </a>{' '}
+          item instead.
+        </p>
+      ) : null}
       <div>
         <label className={labelCls}>Sink</label>
         <select
           disabled={!canEdit}
-          value={output.kind}
+          value={unsupportedSink ? 'selection' : output.kind}
           onChange={(e) => {
-            const next = e.target.value as ToolOutput['kind'];
+            const next = e.target.value as 'selection' | 'osm-features-overlay';
             if (next === 'selection') {
-              setOutput({ kind: 'selection', targetParameterRef: featureSourceParams[0]?.name ?? '' });
-            } else if (next === 'osm-features-overlay') {
+              setOutput({
+                kind: 'selection',
+                targetParameterRef: featureSourceParams[0]?.name ?? '',
+              });
+            } else {
               setOutput({ kind: 'osm-features-overlay' });
               // Auto-seed sourceParameterRef + aoiParameterRef when
               // the recipe already has the right shape so authors
@@ -1801,22 +1833,12 @@ function OutputSection({
               if (!recipe.aoiParameterRef && featureSourceParams[0]) {
                 setAoiRef(featureSourceParams[0].name);
               }
-            } else if (next === 'derived-layer') {
-              setOutput({ kind: 'derived-layer', titleTemplate: 'Result of {{toolName}}' });
-            } else {
-              setOutput({ kind: 'data-layer', titleTemplate: 'Result of {{toolName}}' });
             }
           }}
           className={inputCls}
         >
           <option value="selection">Selection (transient)</option>
           <option value="osm-features-overlay">OSM features on map</option>
-          <option value="derived-layer" disabled>
-            Derived layer — coming soon
-          </option>
-          <option value="data-layer" disabled>
-            Data layer (materialise) — coming soon
-          </option>
         </select>
       </div>
       {output.kind === 'selection' ? (

@@ -408,13 +408,13 @@ export type ToolParameter =
  *                            data_layer when they want to keep it.
  *                            Output features are not associated with
  *                            any pre-existing layer.
- *   - `derived-layer`:       create (or upsert) a derived_layer item
- *                            whose recipe is the resolved pipeline.
- *                            Live lens that recomputes on every
- *                            read.  Deferred to wave 2.
- *   - `data-layer`:          materialise the result into a new v3
- *                            data_layer item -- a snapshot, not a
- *                            lens.  Deferred to wave 2+.
+ *   - `derived-layer` / `data-layer`: kept in the type union for
+ *                            older saved recipes, but the runner
+ *                            refuses them. Authors who want a
+ *                            persistent layer create a derived_layer
+ *                            item (or use Analyze shortcuts) instead
+ *                            of a tool-recipe output sink
+ *                            (R6-recipe-sink-honesty).
  */
 export type ToolOutput =
   | { kind: 'selection'; targetParameterRef: string }
