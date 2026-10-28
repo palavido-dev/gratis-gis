@@ -11,6 +11,7 @@ tags:
   - spatial-join
 related:
   - items-derived-layer
+  - analysis-spatial-filter
   - analysis-group-by
   - analysis-clip
 ---
@@ -49,7 +50,8 @@ explode into multiple output rows. Use attribute strategy
 **Not options:** Contains, Within distance as its own predicate,
 one-to-many cardinality, or "bring all join fields by default".
 Distance filtering beyond nearest's max meters belongs on a
-separate spatial-filter step when you need it.
+separate [Spatial filter](analysis-spatial-filter) step when you
+need it (including **contains** / **touches** / **near**).
 
 ## Output
 
