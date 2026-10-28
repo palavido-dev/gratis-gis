@@ -1469,6 +1469,25 @@ export const es: Partial<CatalogShape> = {
     queuedCount: '{count} en cola',
     syncCount: 'Sincronizar {count}',
     syncing: 'Sincronizando...',
+    mapDetailToCache: 'Detalle del mapa a guardar en caché',
+    leastDetail: 'Menos detalle',
+    mostDetail: 'Más detalle',
+    basemapUnavailableOffline: 'El mapa base no estará disponible sin conexión',
+    basemapUnavailableTail:
+      'Sus datos, formularios y capas autoalojadas se descargan con normalidad.',
+    tilesEstimate:
+      '~{count} teselas en la vista actual. El tope es {cap}.',
+    cachedSummary: 'En caché {when} · {size}',
+    makePersistent: 'Hacer persistente',
+    storageOf: 'de {quota}',
+    storageNearlyFull:
+      'Almacenamiento casi lleno. Libere espacio antes de descargar más áreas.',
+    mapTilesBreakdown: 'Teselas del mapa: {count} ({size})',
+    clearTiles: 'Borrar teselas',
+    downloadFailedTitle: 'Error en la descarga',
+    readyForOfflineTitle: 'Listo para usar sin conexión',
+    downloadingForOfflineTitle: 'Descargando para usar sin conexión',
+    cachedSizeApprox: '~{size} en caché',
   },
   offlineMessage: {
     unknown:

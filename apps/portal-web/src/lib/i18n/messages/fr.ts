@@ -1470,6 +1470,25 @@ export const fr: Partial<CatalogShape> = {
     queuedCount: '{count} en file',
     syncCount: 'Synchroniser {count}',
     syncing: 'Synchronisation...',
+    mapDetailToCache: 'Niveau de détail de la carte à mettre en cache',
+    leastDetail: 'Moins de détail',
+    mostDetail: 'Plus de détail',
+    basemapUnavailableOffline: 'Le fond de carte ne sera pas disponible hors ligne',
+    basemapUnavailableTail:
+      'Vos données, formulaires et couches auto-hébergées se téléchargent normalement.',
+    tilesEstimate:
+      '~{count} tuiles pour la vue actuelle. Plafond : {cap}.',
+    cachedSummary: 'En cache {when} · {size}',
+    makePersistent: 'Rendre persistant',
+    storageOf: 'sur {quota}',
+    storageNearlyFull:
+      'Stockage presque plein. Libérez de l’espace avant de télécharger d’autres zones.',
+    mapTilesBreakdown: 'Tuiles cartographiques : {count} ({size})',
+    clearTiles: 'Effacer les tuiles',
+    downloadFailedTitle: 'Échec du téléchargement',
+    readyForOfflineTitle: 'Prêt pour le hors ligne',
+    downloadingForOfflineTitle: 'Téléchargement pour le hors ligne',
+    cachedSizeApprox: '~{size} en cache',
   },
   offlineMessage: {
     unknown:

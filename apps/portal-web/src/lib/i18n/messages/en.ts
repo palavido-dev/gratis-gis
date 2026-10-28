@@ -1527,6 +1527,27 @@ export const en = {
     queuedCount: '{count} queued',
     syncCount: 'Sync {count}',
     syncing: 'Syncing...',
+    // Offline panel + download dialog chrome
+    // (R11-i18n-field-offline-panel-dialog / #162).
+    mapDetailToCache: 'Map detail to cache',
+    leastDetail: 'Least detail',
+    mostDetail: 'Most detail',
+    basemapUnavailableOffline: 'The basemap will not be available offline',
+    basemapUnavailableTail:
+      'Your data, forms and any self-hosted layers still download normally.',
+    tilesEstimate:
+      '~{count} tiles at the current viewport. Cap is {cap}.',
+    cachedSummary: 'Cached {when} · {size}',
+    makePersistent: 'Make persistent',
+    storageOf: 'of {quota}',
+    storageNearlyFull:
+      'Storage nearly full. Free up space before downloading more areas.',
+    mapTilesBreakdown: 'Map tiles: {count} ({size})',
+    clearTiles: 'Clear tiles',
+    downloadFailedTitle: 'Download failed',
+    readyForOfflineTitle: 'Ready for offline',
+    downloadingForOfflineTitle: 'Downloading for offline',
+    cachedSizeApprox: '~{size} cached',
   },
   // Every sentence the offline download manager and the two queue
   // drains can produce, keyed by the code they persist instead of the
