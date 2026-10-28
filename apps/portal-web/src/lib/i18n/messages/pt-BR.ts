@@ -4828,6 +4828,20 @@ export const ptBR: Partial<CatalogShape> = {
     qbOpEmpty: 'está vazio',
     qbOpNotEmpty: 'não está vazio',
     qbOpIsNot: 'não é',
+
+    convexHullAction: 'Envoltórias convexas desta camada',
+    convexHullActionTitle:
+      'Criar uma camada derivada no servidor de envoltórias convexas por feição (PostGIS ST_ConvexHull).',
+    convexHullHeading:
+      'Envoltórias convexas desta camada (camada derivada no servidor)',
+    convexHullIntroBefore: 'Cria uma camada derivada privada que executa',
+    convexHullIntroAfter:
+      'no PostGIS para cada feição (atributos mantidos). Não é uma única envoltória de toda a camada. Mesma receita que',
+    convexHullHelpLink: 'Ajuda de envoltória convexa',
+    convexHullIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    convexHullHint:
+      'Apenas envoltórias por feição. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
   },
 
   serviceEditors: {

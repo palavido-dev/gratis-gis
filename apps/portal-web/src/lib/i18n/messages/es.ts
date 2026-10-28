@@ -4832,6 +4832,20 @@ export const es: Partial<CatalogShape> = {
     qbOpEmpty: 'está vacío',
     qbOpNotEmpty: 'no está vacío',
     qbOpIsNot: 'no es',
+
+    convexHullAction: 'Envolventes convexas de esta capa',
+    convexHullActionTitle:
+      'Crear una capa derivada en el servidor con envolventes convexas por entidad (PostGIS ST_ConvexHull).',
+    convexHullHeading:
+      'Envolventes convexas de esta capa (capa derivada en el servidor)',
+    convexHullIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    convexHullIntroAfter:
+      'en PostGIS para cada entidad (se conservan los atributos). No es una sola envolvente de toda la capa. Misma receta que',
+    convexHullHelpLink: 'Ayuda de envolvente convexa',
+    convexHullIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    convexHullHint:
+      'Solo envolventes por entidad. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
   },
 
   serviceEditors: {

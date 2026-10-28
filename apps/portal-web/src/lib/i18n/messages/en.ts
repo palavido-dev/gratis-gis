@@ -4966,6 +4966,19 @@ export const en = {
     qbOpEmpty: 'is empty',
     qbOpNotEmpty: 'is not empty',
     qbOpIsNot: 'is not',
+
+    convexHullAction: 'Convex hulls for this layer',
+    convexHullActionTitle:
+      'Create a server-side derived layer of per-feature convex hulls (PostGIS ST_ConvexHull).',
+    convexHullHeading: 'Convex hulls for this layer (server derived layer)',
+    convexHullIntroBefore: 'Creates a private derived layer that runs',
+    convexHullIntroAfter:
+      'on PostGIS for every feature (attributes kept). Not one hull for the whole layer. Same recipe as',
+    convexHullHelpLink: 'Convex hull help',
+    convexHullIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    convexHullHint:
+      'Per-feature hulls only. Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**

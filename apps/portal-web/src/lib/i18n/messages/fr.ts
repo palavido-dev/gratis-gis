@@ -4838,6 +4838,20 @@ export const fr: Partial<CatalogShape> = {
     qbOpEmpty: 'est vide',
     qbOpNotEmpty: 'n’est pas vide',
     qbOpIsNot: 'n’est pas',
+
+    convexHullAction: 'Enveloppes convexes de cette couche',
+    convexHullActionTitle:
+      'Créer une couche dérivée côté serveur d’enveloppes convexes par entité (PostGIS ST_ConvexHull).',
+    convexHullHeading:
+      'Enveloppes convexes de cette couche (couche dérivée serveur)',
+    convexHullIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    convexHullIntroAfter:
+      'sur PostGIS pour chaque entité (attributs conservés). Pas une seule enveloppe pour toute la couche. Même recette que',
+    convexHullHelpLink: 'Aide Enveloppe convexe',
+    convexHullIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    convexHullHint:
+      'Enveloppes par entité uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
   },
 
   serviceEditors: {

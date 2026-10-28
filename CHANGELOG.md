@@ -117,6 +117,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Convex hulls for this layer** guide creates a
+  single-step `derived_layer` convex-hull recipe via
+  `POST /api/portal/items`, reusing PostGIS `ST_ConvexHull`
+  per feature (attributes kept; not one hull for the whole
+  layer). Help page `analysis/convex-hull` documents the Analyze
+  entry point. Locale catalogs for the guide chrome
+  (en / es / fr / de / pt-BR) (R8-analyze-convex-hull-shortcut).
 - Analyze **Simplify this layer** guide creates a single-step
   `derived_layer` simplify recipe via `POST /api/portal/items`,
   reusing PostGIS `ST_Simplify` with meter-honest tolerance
