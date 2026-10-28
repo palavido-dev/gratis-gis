@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-ws-frame-cap | security-deep-dive-2026-10-27 | Presence WS max frame size | This PR |
+| R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | After Erase |
 | R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | Power-user |
 | R6-recipe-sink-honesty | research-cycle-6 | Recipe editor sinks: no coming soon lie | Honesty |
 
@@ -29,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-ws-frame-cap | 2026-10-27 | Merged #383: Presence WS max inbound frame 64 KiB |
 | SEC-jwt-deletedAt | 2026-10-27 | Merged #382: refuse soft-deleted users on JWT path |
 | SEC-jwt-aud | 2026-10-27 | Merged #381: JWT azp allowlist for known clients |
 | SEC-trivy-workers | 2026-10-27 | Merged #380: Trivy matrix + worker image hardenings |

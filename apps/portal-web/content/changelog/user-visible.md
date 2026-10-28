@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Centroids for this layer from Analyze
+On a data layer's Analyze tab, **Centroids for this layer** creates a private PostGIS derived layer that replaces each feature with its geometric center point (same path as Create → Derived layer → Centroid). Expect a short server job, not an instant browser result.
+
 ## 2026-10-27 - Erase this layer from Analyze
 On a data layer's Analyze tab, **Erase this layer** creates a private PostGIS derived layer that keeps features outside a mask data layer you pick (same path as Create → Derived layer → Erase). Expect a short server job, not an instant browser result.
 

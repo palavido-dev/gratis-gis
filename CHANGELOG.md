@@ -65,6 +65,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Centroids for this layer** guide creates a single-step
+  `derived_layer` centroid recipe via `POST /api/portal/items`,
+  reusing the existing PostGIS `ST_Centroid` tool. Help page
+  `analysis/centroid` documents the Analyze entry point.
+  Geometric centroid only (not pole of inaccessibility). Labeled
+  as a server derived-layer job; mirrors Buffer
+  (R6-analyze-centroid-shortcut).
 - Analyze **Erase this layer** guide creates a single-step
   `derived_layer` erase recipe (mask data_layer) via
   `POST /api/portal/items`, reusing the existing PostGIS erase
