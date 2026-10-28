@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Random sample for this layer** creates a private
+  PostGIS derived layer that keeps a deterministic percentage or
+  count subset (md5(global_id||seed); max count 100,000) with a
+  client-side reshuffle control. Same path as Create → Derived
+  layer → Random sample (R10-analyze-random-sample-shortcut).
 - Recipe OSM overlay / relational / reverse-geocode outputs set
   `truncated` from the real Overpass (and nearest-N) caps instead
   of hardcoding `false`. OsmService.resolve reports the pre-slice

@@ -5056,6 +5056,34 @@ export const ptBR: Partial<CatalogShape> = {
     topNValidateN: 'N deve ser um inteiro positivo.',
     topNValidateMax: 'N deve ser no máximo {max}.',
     topNValidateDirection: 'Escolha crescente ou decrescente.',
+    randomSampleAction: 'Amostra aleatória desta camada',
+    randomSampleActionTitle:
+      'Cria uma camada derivada no servidor que mantém um subconjunto aleatório determinístico.',
+    randomSampleHeading: 'Amostra aleatória desta camada (camada derivada no servidor)',
+    randomSampleIntroBefore:
+      'Cria uma camada derivada privada que mantém uma porcentagem ou uma contagem exata de linhas, com semente estável (não random() do Postgres). Mesma receita que',
+    randomSampleHelpLink: 'Ajuda de amostra aleatória',
+    randomSampleIntroTail:
+      '. Espere um trabalho breve no servidor, não um resultado instantâneo no navegador.',
+    randomSampleMode: 'Modo',
+    randomSampleModeAria: 'Modo de amostra aleatória',
+    randomSampleMode_percentage: 'porcentagem',
+    randomSampleMode_count: 'contagem exata',
+    randomSampleValuePct: 'Porcentagem',
+    randomSampleValueCount: 'Contagem',
+    randomSampleValueAria: 'Tamanho da amostra',
+    randomSampleSeed: 'Semente',
+    randomSampleSeedAria: 'Semente da amostra aleatória',
+    randomSampleShuffle: 'Embaralhar',
+    randomSampleShuffleTitle: 'Gerar uma semente nova (somente no cliente)',
+    randomSampleHint:
+      'Porcentagem 0–100 ou contagem até {max}. A mesma semente repete a mesma amostra; Embaralhar antes de criar escolhe um subconjunto novo. Abra o item novo após o trabalho do servidor.',
+    randomSampleValidateMode: 'Escolha modo porcentagem ou contagem.',
+    randomSampleValidateValue: 'O valor deve ser um número positivo.',
+    randomSampleValidatePct: 'A porcentagem deve ser no máximo 100.',
+    randomSampleValidateCount: 'A contagem deve ser um inteiro positivo.',
+    randomSampleValidateMax: 'A contagem deve ser no máximo {max}.',
+    randomSampleValidateSeed: 'A semente deve ser um inteiro diferente de zero.',
   },
 
   serviceEditors: {

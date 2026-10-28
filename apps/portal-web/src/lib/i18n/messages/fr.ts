@@ -5066,6 +5066,34 @@ export const fr: Partial<CatalogShape> = {
     topNValidateN: 'N doit être un entier positif.',
     topNValidateMax: 'N doit être au plus {max}.',
     topNValidateDirection: 'Choisissez croissant ou décroissant.',
+    randomSampleAction: 'Échantillon aléatoire pour cette couche',
+    randomSampleActionTitle:
+      'Créer une couche dérivée côté serveur qui conserve un sous-ensemble aléatoire déterministe.',
+    randomSampleHeading: 'Échantillon aléatoire pour cette couche (couche dérivée serveur)',
+    randomSampleIntroBefore:
+      'Crée une couche dérivée privée qui conserve un pourcentage ou un nombre exact de lignes, avec une graine stable (pas random() de Postgres). Même recette que',
+    randomSampleHelpLink: "Aide Échantillon aléatoire",
+    randomSampleIntroTail:
+      '. Attendez un court travail serveur, pas un résultat instantané dans le navigateur.',
+    randomSampleMode: 'Mode',
+    randomSampleModeAria: "Mode d'échantillon aléatoire",
+    randomSampleMode_percentage: 'pourcentage',
+    randomSampleMode_count: 'nombre exact',
+    randomSampleValuePct: 'Pourcentage',
+    randomSampleValueCount: 'Nombre',
+    randomSampleValueAria: "Taille de l'échantillon",
+    randomSampleSeed: 'Graine',
+    randomSampleSeedAria: "Graine de l'échantillon aléatoire",
+    randomSampleShuffle: 'Mélanger',
+    randomSampleShuffleTitle: 'Tirer une nouvelle graine (côté client uniquement)',
+    randomSampleHint:
+      'Pourcentage 0–100 ou nombre jusqu’à {max}. La même graine répète le même échantillon ; Mélanger avant création en choisit un nouveau. Ouvrez le nouvel élément après le travail serveur.',
+    randomSampleValidateMode: 'Choisissez le mode pourcentage ou nombre.',
+    randomSampleValidateValue: 'La valeur doit être un nombre positif.',
+    randomSampleValidatePct: 'Le pourcentage doit être au plus 100.',
+    randomSampleValidateCount: 'Le nombre doit être un entier positif.',
+    randomSampleValidateMax: 'Le nombre doit être au plus {max}.',
+    randomSampleValidateSeed: 'La graine doit être un entier non nul.',
   },
 
   serviceEditors: {

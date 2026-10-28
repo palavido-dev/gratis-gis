@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Random sample for this layer from Analyze
+On a data layer's Analyze tab, **Random sample for this layer** opens percentage-or-count, value, and seed controls (with reshuffle) and creates a private PostGIS derived layer. The sample is deterministic for a given seed — not Postgres `random()`. Same path as Create → Derived layer → Random sample. Expect a short server job, not an instant browser result.
+
 ## 2026-10-28 - Honest OSM truncated flag on recipe tools
 When a recipe tool’s OSM overlay (or nearest-N / relational) result hits a feature cap, the response now sets truncated honestly instead of always claiming the list is complete. Zoom in or tighten the query if you need a full census of the area.
 

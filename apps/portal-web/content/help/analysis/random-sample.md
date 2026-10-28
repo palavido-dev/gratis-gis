@@ -49,6 +49,16 @@ except that count mode orders by the hash before applying
 4. Choose percentage or count, the value, and a seed.
 5. Save.
 
+## From a data layer Analyze tab
+
+On a data layer's **Analyze** tab, **Random sample for this
+layer** opens mode, value, and seed controls (with a
+client-side reshuffle) and creates a private derived layer with
+a single random-sample step (same PostGIS path as above). Expect
+a short server job, not an instant browser result. Changing the
+seed before create reshuffles which rows are kept; the saved
+seed keeps the sample stable across later reads.
+
 ## Examples
 
 - **Ten percent QA sample**. Mode: percentage. Value: 10.

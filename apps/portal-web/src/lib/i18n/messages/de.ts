@@ -5076,6 +5076,34 @@ export const de: Partial<CatalogShape> = {
     topNValidateN: 'N muss eine positive ganze Zahl sein.',
     topNValidateMax: 'N darf höchstens {max} sein.',
     topNValidateDirection: 'Wählen Sie aufsteigend oder absteigend.',
+    randomSampleAction: 'Zufallsstichprobe für diese Layer',
+    randomSampleActionTitle:
+      'Erstellt einen serverseitigen abgeleiteten Layer mit einer deterministischen Zufallsstichprobe.',
+    randomSampleHeading: 'Zufallsstichprobe für diese Layer (abgeleiteter Server-Layer)',
+    randomSampleIntroBefore:
+      'Erstellt einen privaten abgeleiteten Layer, der einen Prozentsatz oder eine genaue Anzahl Zeilen behält, mit stabilem Seed (nicht Postgres random()). Gleiches Rezept wie',
+    randomSampleHelpLink: 'Hilfe Zufallsstichprobe',
+    randomSampleIntroTail:
+      '. Erwarten Sie einen kurzen Serverjob, kein sofortiges Browserergebnis.',
+    randomSampleMode: 'Modus',
+    randomSampleModeAria: 'Zufallsstichproben-Modus',
+    randomSampleMode_percentage: 'Prozent',
+    randomSampleMode_count: 'genaue Anzahl',
+    randomSampleValuePct: 'Prozent',
+    randomSampleValueCount: 'Anzahl',
+    randomSampleValueAria: 'Stichprobengröße',
+    randomSampleSeed: 'Seed',
+    randomSampleSeedAria: 'Zufallsstichproben-Seed',
+    randomSampleShuffle: 'Neu mischen',
+    randomSampleShuffleTitle: 'Neuen Seed würfeln (nur clientseitig)',
+    randomSampleHint:
+      'Prozent 0–100 oder Anzahl bis {max}. Gleicher Seed wiederholt die gleiche Stichprobe; Neu mischen vor dem Erstellen wählt eine neue. Öffnen Sie das neue Element nach dem Serverjob.',
+    randomSampleValidateMode: 'Wählen Sie Prozent- oder Anzahlmodus.',
+    randomSampleValidateValue: 'Wert muss eine positive Zahl sein.',
+    randomSampleValidatePct: 'Prozent darf höchstens 100 sein.',
+    randomSampleValidateCount: 'Anzahl muss eine positive ganze Zahl sein.',
+    randomSampleValidateMax: 'Anzahl darf höchstens {max} sein.',
+    randomSampleValidateSeed: 'Seed muss eine von Null verschiedene ganze Zahl sein.',
   },
 
   serviceEditors: {

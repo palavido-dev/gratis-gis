@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R10-recipe-overpass-truncated-honesty | research-cycle-10 | Recipe OSM overlay truncated flag honesty | This PR |
+| R10-analyze-random-sample-shortcut | research-cycle-10 | Analyze Random sample → PostGIS derived_layer | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R10-analyze-random-sample-shortcut | research-cycle-10 | Analyze Random sample → PostGIS derived_layer | mode + value + seed |
 | SEC-tools-run-throttle | research-cycle-10 | @Throttle 30/min on Public POST /api/tools/:id/run | Low; Overpass egress |
 
 ## queued (needs-maintainer)
@@ -28,6 +27,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R10-recipe-overpass-truncated-honesty | 2026-10-28 | Merged #420: recipe OSM truncated flag honesty |
 | R10-analyze-top-n-shortcut | 2026-10-28 | Merged #419: Analyze Top N → PostGIS derived_layer |
 | R10-analyze-fishnet-shortcut | 2026-10-28 | Merged #418: Analyze Fishnet → PostGIS derived_layer |
 | R10-analyze-nearest-neighbor-shortcut | 2026-10-28 | Merged #417: Analyze Nearest neighbor → PostGIS derived_layer |
