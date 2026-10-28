@@ -1,7 +1,7 @@
 ---
 id: analysis-fishnet
 title: Fishnet
-summary: Generate a regular grid of square (or hex) polygons over an extent. The starting layer for any "binned-by-cell" analysis.
+summary: Generate a regular square grid over a polygon source (filled cells or grid lines). The starting layer for many "binned-by-cell" workflows.
 category: analysis
 order: 90
 complexity: intermediate
@@ -16,72 +16,74 @@ related:
   - analysis-group-by
 ---
 
-A **fishnet** step generates a regular grid of polygon cells over
-an extent. Each cell is a polygon feature with row/column attributes.
-The output is a starting layer; pair it with a spatial-join and
-group-by to produce a heatmap-style summary "X per cell".
+A **fishnet** step builds a regular **square** grid over the
+bounding box of a polygon source, then keeps (and clips) only
+cells that intersect the source geometry. Pair it with a
+spatial join and group-by for heatmap-style "count per cell"
+summaries.
+
+Hex cells, a separate geo-boundary / manual extent picker, and
+a separate "clip polygon" control are **not** options on this
+path. The extent and clip come from the pipeline source itself.
 
 ## Inputs
 
-- **Cell shape**: square or hex (hexagonal).
-- **Cell size**: edge length in meters (or feet, or miles).
-- **Extent**: one of:
-  - A **Geo boundary** item.
-  - The bounding box of another layer.
-  - A manual bounding box.
-- Optional **clip to a polygon**: instead of filling the bounding
- box, generate only cells that intersect a polygon. Produces a
- grid shaped like the polygon.
+- **Source layer** of polygon (or multipolygon) features. The
+  grid covers each feature's bounding box and is clipped with
+  `ST_Intersection` to that feature.
+- **Cell size**: edge length in meters, feet, or miles (converted
+  to degrees for PostGIS `ST_SquareGrid` on EPSG:4326 storage).
+- **Output mode**:
+  - **Polygons**: one polygon row per intersecting cell
+    (partial cells are clipped to the source edge).
+  - **Lines**: grid-line edges clipped to the source (transect /
+    sampling-line style).
 
 ## Output
 
-A polygon layer with one row per cell. Schema:
+One row per grid cell (or line segment set) that intersects the
+source. Source attributes are dropped. Schema:
 
-- `row`, `col` (or `i`, `j` for hex): cell coordinates.
-- `area_m2`: the cell's geometric area (in m^2).
-- `bbox`: the cell's bounding box.
+- `cell_row`, `cell_col`: integer grid indices from
+  `ST_SquareGrid`.
+
+There is no `area_m2` or `bbox` property on this path.
 
 ## How to use it on its own
 
 1. New-item wizard → **Derived layer**.
-2. Add a **Fishnet** step (no Source: fishnet creates its own
- input).
-3. Pick shape, size, extent.
-4. (Optional) Pick a clip polygon.
+2. Pick a polygon Source (city boundary, study area, etc.).
+3. Add a **Fishnet** step.
+4. Set cell size, unit, and polygons vs lines.
 5. Save.
 
-## Example: incident density by 500m cell
+Expect a short server job. Very small cell sizes on large
+extents are refused at save time (safety cap about one million
+cells).
 
-1. Fishnet over the city's geo boundary, square cells, 500m edge.
+## Example: incident density by 500 m cell
+
+1. Fishnet over a city boundary polygon, square cells, 500 m
+   edge, output polygons.
 2. Spatial join: target = fishnet, join = incidents,
- predicate = contains, cardinality = one-to-many.
-3. Group by: keys = `row`, `col`. Aggregate = `count(*) as
- incident_count`. Geometry strategy = `first` (the fishnet's
- cell geometry).
-4. Symbology: Graduated on `incident_count`.
-
-The result is a heatmap-style choropleth without the rendering
-expense of a true heatmap.
-
-## Hex vs. square
-
-- **Square** cells are easier to read off a printed legend and
- align with city-grid neighborhoods nicely.
-- **Hex** cells have the same neighbor distance in every
- direction (good for distance-decay analysis) and visually
- read smoother for density.
-
-Use whichever fits the audience.
+   predicate = contains (or intersects), as appropriate.
+3. Group by: keys = `cell_row`, `cell_col`. Aggregate =
+   `count(*)` as incident count. Geometry strategy = `first`
+   (keep the cell polygon).
+4. Symbology: graduated on the count.
 
 ## Notes
 
-- **Cell counts grow fast.** A 250m grid over a 50km x 50km
- county is 40,000 cells; a 100m grid is 250,000. Watch the
- estimated row count before saving.
-- **Cells outside the clip polygon drop entirely.** A hex
- fishnet clipped to an irregular boundary doesn't carry "edge
- cells" that are mostly outside; they're trimmed to nothing
- and dropped.
-- **Cell size is in projected units.** The portal computes in a
- local equal-area projection so "500m cells" are actually 500m
- on the ground.
+- **Square only.** Hexagonal fishnets are not shipped.
+- **Cell counts grow fast.** A fine grid over a county-scale
+  polygon can hit the save-time safety cap; increase cell size
+  or use a smaller source.
+- **Cells outside the source drop.** Partial cells at the edge
+  are clipped; cells that only touch at a point can become empty
+  and disappear from useful results.
+- **Meter sizes are approximate in geographic CRS.** The portal
+  converts cell size with a constant meters-per-degree factor on
+  EPSG:4326. At high latitudes cells are not perfectly square on
+  the ground; city-to-state workflows are the intended scale.
+- **Point or line sources** are a poor fit; the SQL intersects
+  against the source geometry and can yield empty results.
