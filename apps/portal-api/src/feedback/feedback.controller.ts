@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import {
   IsEmail,
@@ -74,8 +75,14 @@ export class FeedbackController {
    * notification email went out is deliberately not reflected in the
    * response: the row is durable either way, and telling the reporter
    * "something failed" would only produce a duplicate.
+   *
+   * Rate limit is tighter than the global 300/min default (matches
+   * anonymous drawings writes / Public tools run): optional
+   * screenshots make this an easy bandwidth burn if left at the
+   * global ceiling. Honeypot behaviour is unchanged.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post()
   @HttpCode(200)
   @UseInterceptors(
