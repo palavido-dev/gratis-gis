@@ -6,12 +6,20 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-point-cloud-streaming-honesty | research-cycle-8 | Point-cloud help/viewer size-tier honesty | This PR; #183 stays open |
+| Q-research-cycle-9 | research-cycle-9 | Refill ship-without-input queue | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R9-filter-help-honesty | research-cycle-9 | Filter help matches `{{field}}` expression dialect | Docs |
+| R9-spatial-filter-help-honesty | research-cycle-9 | Add spatial-filter help (predicates + otherSource) | Docs |
+| R9-sampling-nn-help-honesty | research-cycle-9 | Help for top-n / random-sample / nearest-neighbor | Docs |
+| R9-derived-layer-catalog-honesty | research-cycle-9 | derived-layer.md full step catalog + Analyze list | Docs |
+| R9-i18n-field-collect-chrome | research-cycle-9 | Field collect / GPS / remove chrome i18n | #162 |
+| R9-analyze-bbox-shortcut | research-cycle-9 | Analyze Bounding boxes → PostGIS derived_layer | + help |
+| R9-analyze-vertices-shortcut | research-cycle-9 | Analyze Vertices → PostGIS derived_layer | + help |
+| R9-analyze-calculate-geometry-shortcut | research-cycle-9 | Analyze Calculate geometry → PostGIS derived_layer | Buffer-shaped |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R8-point-cloud-streaming-honesty | 2026-10-28 | Merged #404: point-cloud size-tier honesty (#183 open) |
 | R8-analyze-densify-shortcut | 2026-10-27 | Merged #403: Analyze Densify → PostGIS derived_layer |
 | R8-analyze-convex-hull-shortcut | 2026-10-27 | Merged #402: Analyze Convex hull → PostGIS derived_layer |
 | R8-i18n-analyze-query-builder | 2026-10-27 | Merged #401: Analyze query-builder chrome i18n (#162) |
@@ -72,6 +81,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R9-reject-node-graph-canvas | research-cycle-9 | Visual node-graph recipe canvas is polish, not honesty |
+| R9-reject-print-brand-kit | research-cycle-9 | Brand / chrome redesign fails playbook brand test |
+| R9-reject-seat-pricing | research-cycle-9 | Named-user pricing contradicts ethos |
+| R9-reject-recipe-materialize-sinks | research-cycle-9 | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R9-reject-tile3d-local-rebuild | research-cycle-9 | #183 stays open; no closing on local rebuilds |
+| R9-reject-dissolve-groupby-feature | research-cycle-9 | Keyed dissolve stays on group-by; no second path |
+| R9-reject-weblate-hosting | research-cycle-9 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
 | R8-reject-node-graph-canvas | research-cycle-8 | Visual node-graph recipe canvas is polish, not honesty |
 | R8-reject-print-brand-kit | research-cycle-8 | Brand / chrome redesign fails playbook brand test |
 | R8-reject-seat-pricing | research-cycle-8 | Named-user pricing contradicts ethos |
@@ -85,6 +101,7 @@ Driver-owned. Newest proposals at the top of each section.
 | R7-reject-recipe-materialize-sinks | research-cycle-7 | Materialize sinks deferred; honesty #386 points at derived_layer |
 | R7-reject-tile3d-local-rebuild | research-cycle-7 | #183 stays open; no closing on local rebuilds |
 | R7-reject-dissolve-groupby-feature | research-cycle-7 | Keyed dissolve stays on group-by; no second path |
+| R7-reject-weblate-hosting | research-cycle-7 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
 | R6-reject-node-graph-canvas | research-cycle-6 | Visual node-graph recipe canvas is polish, not honesty |
 | R6-reject-print-brand-kit | research-cycle-6 | Brand / chrome redesign fails playbook brand test |
 | R6-reject-seat-pricing | research-cycle-6 | Named-user pricing contradicts ethos |
