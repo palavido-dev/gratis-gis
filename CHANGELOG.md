@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze query-builder chrome (Fields / Filters / Geometry /
+  Group by / Sort / Limit and filter operators) goes through
+  locale catalogs (en / es / fr / de / pt-BR)
+  (R8-i18n-analyze-query-builder / #162). SQL snippets stay as-is.
 - Calculate help and expression-language reference drop fake
   geometry helpers (`area_m2`, `centroid_*`, …). Document
   Calculate field (`{{field}}` expressions) vs Calculate geometry

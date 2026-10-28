@@ -24,6 +24,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { FeatureField, LayerGeometryType } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface FilterRow {
   id: number;
@@ -44,34 +45,7 @@ type FilterOp =
   | 'empty'
   | 'notempty';
 
-const STRING_OPS: Array<[FilterOp, string]> = [
-  ['eq', 'equals'],
-  ['neq', 'does not equal'],
-  ['contains', 'contains'],
-  ['starts', 'starts with'],
-  ['empty', 'is empty'],
-  ['notempty', 'is not empty'],
-];
-const NUMERIC_OPS: Array<[FilterOp, string]> = [
-  ['eq', '='],
-  ['neq', 'is not'],
-  ['gt', '>'],
-  ['gte', '>='],
-  ['lt', '<'],
-  ['lte', '<='],
-  ['empty', 'is empty'],
-  ['notempty', 'is not empty'],
-];
-
 type SpatialOp = 'none' | 'centroid' | 'point-on-surface' | 'convex-hull' | 'envelope';
-
-const SPATIAL_OPS: Array<[SpatialOp, string]> = [
-  ['none', 'Keep original shapes'],
-  ['centroid', 'Centroids'],
-  ['point-on-surface', 'Points inside each shape'],
-  ['convex-hull', 'Convex hulls'],
-  ['envelope', 'Bounding boxes'],
-];
 
 const SPATIAL_FN: Record<Exclude<SpatialOp, 'none'>, string> = {
   centroid: 'ST_Centroid',
@@ -100,6 +74,7 @@ export function AnalyzeQueryBuilder({
   spatialAvailable,
   onSql,
 }: Props) {
+  const t = useT();
   const [pickedFields, setPickedFields] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [spatialOp, setSpatialOp] = useState<SpatialOp>('none');
@@ -116,6 +91,41 @@ export function AnalyzeQueryBuilder({
     () => fields.filter((f) => f.type === 'number'),
     [fields],
   );
+
+  const stringOps = useMemo(
+    (): Array<[FilterOp, string]> => [
+      ['eq', t('analyzeWorkbench.qbOpEquals')],
+      ['neq', t('analyzeWorkbench.qbOpNotEquals')],
+      ['contains', t('analyzeWorkbench.qbOpContains')],
+      ['starts', t('analyzeWorkbench.qbOpStartsWith')],
+      ['empty', t('analyzeWorkbench.qbOpEmpty')],
+      ['notempty', t('analyzeWorkbench.qbOpNotEmpty')],
+    ],
+    [t],
+  );
+  const numericOps = useMemo(
+    (): Array<[FilterOp, string]> => [
+      ['eq', '='],
+      ['neq', t('analyzeWorkbench.qbOpIsNot')],
+      ['gt', '>'],
+      ['gte', '>='],
+      ['lt', '<'],
+      ['lte', '<='],
+      ['empty', t('analyzeWorkbench.qbOpEmpty')],
+      ['notempty', t('analyzeWorkbench.qbOpNotEmpty')],
+    ],
+    [t],
+  );
+  const spatialOps = useMemo(
+    (): Array<[SpatialOp, string]> => [
+      ['none', t('analyzeWorkbench.qbSpatialKeep')],
+      ['centroid', t('analyzeWorkbench.qbSpatialCentroid')],
+      ['point-on-surface', t('analyzeWorkbench.qbSpatialPointOnSurface')],
+      ['convex-hull', t('analyzeWorkbench.qbSpatialConvexHull')],
+      ['envelope', t('analyzeWorkbench.qbSpatialEnvelope')],
+    ],
+    [t],
+  );
   // Which measures make sense for this geometry family. Points have
   // no meaningful spheroid measure; a centroid/hull transform can
   // change the family, but measures always apply to the ORIGINAL
@@ -123,11 +133,11 @@ export function AnalyzeQueryBuilder({
   const availableMeasures: Array<[Measure, string]> =
     geometryType === 'polygon'
       ? [
-          ['area', 'Area (sq m)'],
-          ['perimeter', 'Perimeter (m)'],
+          ['area', t('analyzeWorkbench.qbMeasureArea')],
+          ['perimeter', t('analyzeWorkbench.qbMeasurePerimeter')],
         ]
       : geometryType === 'line'
-        ? [['length', 'Length (m)']]
+        ? [['length', t('analyzeWorkbench.qbMeasureLength')]]
         : [];
 
   const sql = useMemo(
@@ -200,9 +210,9 @@ export function AnalyzeQueryBuilder({
           right default for exploration. */}
       <div>
         <div className={sectionLabel}>
-          Fields{' '}
+          {t('analyzeWorkbench.qbFields')}{' '}
           <span className="normal-case tracking-normal">
-            (none selected = all)
+            {t('analyzeWorkbench.qbFieldsNoneSelected')}
           </span>
         </div>
         <div className="mt-1.5 flex flex-wrap gap-1">
@@ -230,7 +240,9 @@ export function AnalyzeQueryBuilder({
       {/* Filters: AND semantics, one row per condition. */}
       <div>
         <div className="flex items-center justify-between">
-          <span className={sectionLabel}>Filters (all must match)</span>
+          <span className={sectionLabel}>
+            {t('analyzeWorkbench.qbFilters')}
+          </span>
           <button
             type="button"
             onClick={() =>
@@ -247,7 +259,7 @@ export function AnalyzeQueryBuilder({
             className="inline-flex items-center gap-1 text-2xs text-accent hover:underline"
           >
             <Plus className="h-3 w-3" />
-            Add filter
+            {t('analyzeWorkbench.qbAddFilter')}
           </button>
         </div>
         {filters.length > 0 ? (
@@ -256,8 +268,8 @@ export function AnalyzeQueryBuilder({
               const field = fields.find((f) => f.name === row.field);
               const ops =
                 field?.type === 'number' || field?.type === 'date'
-                  ? NUMERIC_OPS
-                  : STRING_OPS;
+                  ? numericOps
+                  : stringOps;
               const needsValue = row.op !== 'empty' && row.op !== 'notempty';
               const coded =
                 field?.domain?.type === 'coded-value'
@@ -271,7 +283,7 @@ export function AnalyzeQueryBuilder({
                       updateFilter(row.id, { field: e.target.value, op: 'eq', value: '' })
                     }
                     className={selectClass}
-                    aria-label="Filter field"
+                    aria-label={t('analyzeWorkbench.qbFilterFieldAria')}
                   >
                     {fields.map((f) => (
                       <option key={f.name} value={f.name}>
@@ -285,7 +297,7 @@ export function AnalyzeQueryBuilder({
                       updateFilter(row.id, { op: e.target.value as FilterOp })
                     }
                     className={selectClass}
-                    aria-label="Filter operator"
+                    aria-label={t('analyzeWorkbench.qbFilterOpAria')}
                   >
                     {ops.map(([op, label]) => (
                       <option key={op} value={op}>
@@ -301,9 +313,11 @@ export function AnalyzeQueryBuilder({
                           updateFilter(row.id, { value: e.target.value })
                         }
                         className={selectClass}
-                        aria-label="Filter value"
+                        aria-label={t('analyzeWorkbench.qbFilterValueAria')}
                       >
-                        <option value="">(pick a value)</option>
+                        <option value="">
+                          {t('analyzeWorkbench.qbPickValue')}
+                        </option>
                         {coded.map((v) => (
                           <option key={String(v.code)} value={String(v.code)}>
                             {v.label}
@@ -317,9 +331,13 @@ export function AnalyzeQueryBuilder({
                         onChange={(e) =>
                           updateFilter(row.id, { value: e.target.value })
                         }
-                        placeholder={field?.type === 'date' ? '2026-01-31' : 'value'}
+                        placeholder={
+                          field?.type === 'date'
+                            ? '2026-01-31'
+                            : t('analyzeWorkbench.qbValuePlaceholder')
+                        }
                         className={`${inputClass} w-36`}
-                        aria-label="Filter value"
+                        aria-label={t('analyzeWorkbench.qbFilterValueAria')}
                       />
                     )
                   ) : null}
@@ -328,7 +346,7 @@ export function AnalyzeQueryBuilder({
                     onClick={() =>
                       setFilters((prev) => prev.filter((f) => f.id !== row.id))
                     }
-                    aria-label="Remove filter"
+                    aria-label={t('analyzeWorkbench.qbRemoveFilterAria')}
                     className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
                     <X className="h-3 w-3" />
@@ -346,13 +364,15 @@ export function AnalyzeQueryBuilder({
       {hasGeometry && spatialAvailable ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <label className="flex items-center gap-1.5 text-2xs text-ink-1">
-            <span className={sectionLabel}>Geometry</span>
+            <span className={sectionLabel}>
+              {t('analyzeWorkbench.qbGeometry')}
+            </span>
             <select
               value={spatialOp}
               onChange={(e) => setSpatialOp(e.target.value as SpatialOp)}
               className={selectClass}
             >
-              {SPATIAL_OPS.map(([op, label]) => (
+              {spatialOps.map(([op, label]) => (
                 <option key={op} value={op}>
                   {label}
                 </option>
@@ -384,7 +404,9 @@ export function AnalyzeQueryBuilder({
           geometry from the output (the result is a table). */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <label className="flex items-center gap-1.5 text-2xs text-ink-1">
-          <span className={sectionLabel}>Group by</span>
+          <span className={sectionLabel}>
+            {t('analyzeWorkbench.qbGroupBy')}
+          </span>
           <select
             value={groupByField}
             onChange={(e) => {
@@ -402,7 +424,7 @@ export function AnalyzeQueryBuilder({
             }}
             className={selectClass}
           >
-            <option value="">(no grouping)</option>
+            <option value="">{t('analyzeWorkbench.qbNoGrouping')}</option>
             {fields.map((f) => (
               <option key={f.name} value={f.name}>
                 {f.label || f.name}
@@ -412,17 +434,19 @@ export function AnalyzeQueryBuilder({
         </label>
         {groupByField && numericFields.length > 0 ? (
           <label className="flex items-center gap-1.5 text-2xs text-ink-1">
-            <span className={sectionLabel}>Also</span>
+            <span className={sectionLabel}>
+              {t('analyzeWorkbench.qbAlso')}
+            </span>
             <select
               value={aggFn}
               onChange={(e) => setAggFn(e.target.value as typeof aggFn)}
               className={selectClass}
             >
-              <option value="none">(count only)</option>
-              <option value="sum">sum of</option>
-              <option value="avg">average of</option>
-              <option value="min">min of</option>
-              <option value="max">max of</option>
+              <option value="none">{t('analyzeWorkbench.qbCountOnly')}</option>
+              <option value="sum">{t('analyzeWorkbench.qbSumOf')}</option>
+              <option value="avg">{t('analyzeWorkbench.qbAvgOf')}</option>
+              <option value="min">{t('analyzeWorkbench.qbMinOf')}</option>
+              <option value="max">{t('analyzeWorkbench.qbMaxOf')}</option>
             </select>
             {aggFn !== 'none' ? (
               <select
@@ -430,7 +454,7 @@ export function AnalyzeQueryBuilder({
                 onChange={(e) => setAggField(e.target.value)}
                 className={selectClass}
               >
-                <option value="">(pick a field)</option>
+                <option value="">{t('analyzeWorkbench.qbPickField')}</option>
                 {numericFields.map((f) => (
                   <option key={f.name} value={f.name}>
                     {f.label || f.name}
@@ -441,15 +465,19 @@ export function AnalyzeQueryBuilder({
           </label>
         ) : null}
         <label className="flex items-center gap-1.5 text-2xs text-ink-1">
-          <span className={sectionLabel}>Sort</span>
+          <span className={sectionLabel}>
+            {t('analyzeWorkbench.qbSort')}
+          </span>
           <select
             value={orderField}
             onChange={(e) => setOrderField(e.target.value)}
             className={selectClass}
           >
-            <option value="">(none)</option>
+            <option value="">{t('analyzeWorkbench.qbSortNone')}</option>
             {groupByField ? (
-              <option value="__count__">count</option>
+              <option value="__count__">
+                {t('analyzeWorkbench.qbSortCount')}
+              </option>
             ) : null}
             {fields.map((f) => (
               <option key={f.name} value={f.name}>
@@ -463,13 +491,17 @@ export function AnalyzeQueryBuilder({
               onChange={(e) => setOrderDir(e.target.value as 'asc' | 'desc')}
               className={selectClass}
             >
-              <option value="asc">ascending</option>
-              <option value="desc">descending</option>
+              <option value="asc">{t('analyzeWorkbench.qbAscending')}</option>
+              <option value="desc">
+                {t('analyzeWorkbench.qbDescending')}
+              </option>
             </select>
           ) : null}
         </label>
         <label className="flex items-center gap-1.5 text-2xs text-ink-1">
-          <span className={sectionLabel}>Limit</span>
+          <span className={sectionLabel}>
+            {t('analyzeWorkbench.qbLimit')}
+          </span>
           <input
             type="number"
             min={1}
