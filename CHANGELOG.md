@@ -54,6 +54,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Help **Tool** item: Analyze shortcut list matches shipped
+  guides (through Random sample) and notes Public
+  `POST /api/tools/:id/run` is throttled at 30/min per IP
+  (R11-tool-help-analyze-catalog-honesty).
 - Field layers basemap chip, address-search Places/Searching,
   and related-records list chrome go through en/es/fr/de/pt-BR
   catalogs (R11-i18n-field-layers-search-chrome / #162).

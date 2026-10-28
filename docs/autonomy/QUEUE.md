@@ -6,14 +6,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-i18n-field-layers-search-chrome | research-cycle-11 | Basemap chip + address search + related list i18n | This PR |
+| R11-tool-help-analyze-catalog-honesty | research-cycle-11 | tool.md Analyze list + Public 30/min run | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs honesty |
-| R11-tool-help-analyze-catalog-honesty | research-cycle-11 | tool.md Analyze list + Public 30/min run | Docs after R10 |
+| R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs honesty / #427 |
 | R11-analyze-contour-shortcut | research-cycle-11 | Analyze Contour → PostGIS (points, auto interval) | Constrained |
 | R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | Constrained |
 | SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R11-i18n-field-layers-search-chrome | 2026-10-28 | Merged #426: Field basemap chip + search + related-list i18n (#162) |
 | R11-i18n-field-offline-panel-dialog | 2026-10-28 | Merged #425: Field offline panel + download dialog i18n (#162) |
 | R11-i18n-field-feature-sheet-chrome | 2026-10-28 | Merged #424: Field feature-sheet Edit/Copy/nav i18n (#162) |
 | Q-research-cycle-11 | 2026-10-28 | Merged #423: research-cycle-11 refill ship-without-input queue |
