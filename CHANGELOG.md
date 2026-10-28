@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- New **Data collection** item help (`help/items/data-collection`):
+  deployment contents (map + editable layers + forms), QR / link
+  handoff, Download / Refresh offline, sync queue + conflict pointer
+  to Data layer, and an honest Not Field Maps / Not Survey123 line.
+  Linked from item-types, Map, Form, and Data layer help
+  (R10-data-collection-help-honesty).
 - Field PWA offline / GPS / related chrome (Download for offline /
   Refresh offline cache, locate-me labels, Enable location / Update
   Point, Save feature / Save changes, Layer visibility, related-record

@@ -11,6 +11,7 @@ tags:
   - features
 related:
   - items-map
+  - items-data-collection
   - adding-a-layer
   - bundle-export
 ---
@@ -85,9 +86,9 @@ Each sublayer also carries a monotonic **sync version** that bumps
 when a feature write batch is accepted. Field apps and the QGIS
 plugin can ask for only the changes since a version they already
 have (`delta?since=N` on the HTTP API), instead of re-downloading
-the whole layer. The field PWA offline refresh uses that delta when
-it already has a cursor, so a second download only pulls what
-changed.
+the whole layer. The field PWA offline refresh (on a **Data
+collection** deployment) uses that delta when it already has a
+cursor, so a second download only pulls what changed.
 
 When two editors change the same feature and one save loses the
 optimistic concurrency check, the losing edit is kept on the layer

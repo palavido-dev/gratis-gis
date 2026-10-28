@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Data collection help for field deployments
+Help now has a **Data collection** page: what a field deployment includes (map, editable layers, forms), how QR / link share works, Download for offline and Refresh, sync queue and where to review conflicts, and an honest note that this is not Field Maps or Survey123.
+
 ## 2026-10-28 - Field offline and GPS chrome follow your language
 On a field deployment, Download for offline / Refresh offline cache, Show my location and GPS status, Save feature / Save changes, Layer visibility, related-record sync hints, and the edits-waiting-to-sync badge follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
 
