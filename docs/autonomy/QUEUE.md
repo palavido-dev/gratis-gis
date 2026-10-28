@@ -6,12 +6,19 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| Q-research-cycle-8 | research-cycle-8 | Refill ship-without-input queue | This PR |
+| Q-research-cycle-8 | research-cycle-8 | Refill ship-without-input after R7 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R8-spatial-join-help-honesty | research-cycle-8 | spatial-join.md matches within/intersects/nearest | Docs honesty |
+| R8-groupby-help-honesty | research-cycle-8 | group-by.md matches aggregate ST_Union + ops | Docs honesty |
+| R8-calculate-help-honesty | research-cycle-8 | Calculate/expression docs: no fake geometry helpers | Docs honesty |
+| R8-i18n-analyze-query-builder | research-cycle-8 | #162 Analyze query-builder chrome i18n | After guides |
+| R8-analyze-convex-hull-shortcut | research-cycle-8 | Analyze Convex hull → derived_layer | Centroid-shaped |
+| R8-analyze-densify-shortcut | research-cycle-8 | Analyze Densify → derived_layer | Buffer-shaped |
+| R8-point-cloud-streaming-honesty | research-cycle-8 | Point-cloud help/viewer size-tier honesty | #183 open |
 
 ## queued (needs-maintainer)
 
@@ -65,6 +72,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R8-reject-node-graph-canvas | research-cycle-8 | Visual node-graph recipe canvas is polish, not honesty |
+| R8-reject-print-brand-kit | research-cycle-8 | Brand / chrome redesign fails playbook brand test |
+| R8-reject-seat-pricing | research-cycle-8 | Named-user pricing contradicts ethos |
+| R8-reject-recipe-materialize-sinks | research-cycle-8 | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R8-reject-tile3d-local-rebuild | research-cycle-8 | #183 stays open; no closing on local rebuilds |
+| R8-reject-dissolve-groupby-feature | research-cycle-8 | Keyed dissolve stays on group-by; no second path |
+| R8-reject-weblate-hosting | research-cycle-8 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
 | R7-reject-node-graph-canvas | research-cycle-7 | Visual node-graph recipe canvas is polish, not honesty |
 | R7-reject-print-brand-kit | research-cycle-7 | Brand / chrome redesign fails playbook brand test |
 | R7-reject-seat-pricing | research-cycle-7 | Named-user pricing contradicts ethos |
