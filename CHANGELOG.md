@@ -50,9 +50,17 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+<<<<<<< HEAD
 - Analyze Erase / Centroid guides go through locale catalogs
   (en / es / fr / de / pt-BR), matching Buffer / Clip
   (R7-i18n-erase-centroid-guides / #162).
+=======
+- CONTRIBUTING and the autonomy PLAYBOOK require documentation
+  (help, CHANGELOG, What's new when user-visible, QUEUE for
+  autonomy items) in the **same PR / commits** as the code —
+  continuous updates, not docs follow-ups
+  (docs-every-commit).
+>>>>>>> 48b97d37 (docs: require help/CHANGELOG in the same PR as code)
 - Contour help (`analysis/contour`) matches the TIN iso-line
   generator: numeric field + auto/manual levels, line output
   with a `level` property. Iso-polygons, smoothing, and

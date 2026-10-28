@@ -77,21 +77,28 @@ comments, commit messages, PR descriptions, docs, and markdown files.
 A pre-commit check may be added later to enforce the first two rules
 automatically; until then, self-policing is expected.
 
-## Documentation with behavior changes
+## Documentation with every behavior change
 
-If a PR changes something a person can see or call:
+Keep docs continuously up to date. Ship documentation **in the
+same PR (and preferably the same commits) as the code** — not as
+a later follow-up. If a PR changes something a person can see or
+call:
 
-- Update or add help under `apps/portal-web/content/help/`.
+- Update or add help under `apps/portal-web/content/help/`
+  (including rewriting pages that describe options the code does
+  not implement).
 - Add a plain-English entry at the top of
   `apps/portal-web/content/changelog/user-visible.md` when a
   non-technical visitor would notice (this feeds the landing-page
   What's new card).
 - Update `CHANGELOG.md` under Unreleased.
-- Touch README / `docs/*` when the public surface or status line
-  moved.
+- Touch README / `docs/*` / package READMEs when the public
+  surface or status line moved.
 
-Skip What's new for pure internals; still update help when an
-existing help page would be wrong.
+Skip What's new for pure internals; still update help and
+CHANGELOG when an existing page or engineer note would be wrong.
+Autonomy builders also move `docs/autonomy/QUEUE.md` in the same
+PR when a queued item ships.
 
 ## Tests
 
