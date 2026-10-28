@@ -49,6 +49,14 @@ and typically fall outside the top N.
 4. Choose the numeric field, N, and direction.
 5. Save.
 
+## From a data layer Analyze tab
+
+On a data layer's **Analyze** tab, **Top N for this layer** opens
+numeric field, N, and direction controls and creates a private
+derived layer with a single top-n step (same PostGIS path as
+above). Layers with no numeric fields cannot submit. Expect a
+short server job, not an instant browser result.
+
 ## Examples
 
 - **Ten largest parcels**. Field: `acres`. N: 10. Direction:

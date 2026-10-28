@@ -37,6 +37,7 @@ import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import { AnalyzeFishnetGuide } from './analyze-fishnet-guide';
 import { AnalyzeNearestNeighborGuide } from './analyze-nearest-neighbor-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
+import { AnalyzeTopNGuide } from './analyze-top-n-guide';
 import { AnalyzeVerticesGuide } from './analyze-vertices-guide';
 import type {
   DataLayerSublayer,
@@ -458,6 +459,12 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
                 sourceLabel={layer.label || layer.name || 'Layer'}
               />
             ) : null}
+            <AnalyzeTopNGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              fields={layer.fields ?? []}
+            />
           </div>
         ) : null}
         {mode === 'builder' ? (

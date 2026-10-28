@@ -5050,6 +5050,32 @@ export const de: Partial<CatalogShape> = {
     fishnetValidateMin: 'Die Zellgröße muss mindestens {meters} m betragen.',
     fishnetValidateMax: 'Die Zellgröße darf höchstens {meters} m betragen.',
     fishnetValidateOutput: 'Wählen Sie Polygon- oder Linienausgabe.',
+    topNAction: 'Top N für diese Ebene',
+    topNActionTitle:
+      'Serverseitigen Derived Layer erstellen, der die Top-N-Zeilen nach einem Zahlenfeld behält.',
+    topNHeading: 'Top N für diese Ebene (serverseitiger Derived Layer)',
+    topNIntroBefore:
+      'Erstellt einen privaten Derived Layer, der die N Zeilen mit dem höchsten oder niedrigsten Zahlenfeldwert behält (NULLs zuletzt). Gleiches Rezept wie',
+    topNHelpLink: 'Hilfe Top N',
+    topNIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    topNField: 'Zahlenfeld',
+    topNFieldAria: 'Zahlenfeld für Top N',
+    topNN: 'N',
+    topNNAria: 'Anzahl der zu behaltenden Zeilen',
+    topNDirection: 'Richtung',
+    topNDirectionAria: 'Sortierrichtung',
+    topNDir_desc: 'höchste zuerst',
+    topNDir_asc: 'niedrigste zuerst',
+    topNPickField: 'Zahlenfeld wählen…',
+    topNNoNumeric: 'Keine Zahlenfelder auf dieser Ebene',
+    topNHint:
+      'N bis {max}. NULLs sortieren zuletzt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    topNValidateNoNumeric: 'Diese Ebene hat keine Zahlenfelder für Top N.',
+    topNValidateField: 'Wählen Sie ein Zahlenfeld.',
+    topNValidateN: 'N muss eine positive ganze Zahl sein.',
+    topNValidateMax: 'N darf höchstens {max} sein.',
+    topNValidateDirection: 'Wählen Sie aufsteigend oder absteigend.',
   },
 
   serviceEditors: {

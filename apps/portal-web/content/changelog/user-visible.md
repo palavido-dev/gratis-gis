@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Top N for this layer from Analyze
+On a data layer's Analyze tab, **Top N for this layer** opens numeric field, N, and highest/lowest controls and creates a private PostGIS derived layer with those rows (NULLs last). Same path as Create → Derived layer → Top N. Expect a short server job, not an instant browser result.
+
 ## 2026-10-28 - Fishnet for this layer from Analyze
 On a polygon data layer's Analyze tab, **Fishnet for this layer** opens cell size, unit, and polygons vs lines controls and creates a private PostGIS derived layer (`ST_SquareGrid`, clipped to the source). Point/line layers do not show the chip. Very fine grids on large extents may hit a ~1 million cell save-time cap. Same path as Create → Derived layer → Fishnet. Expect a short server job, not an instant browser result.
 

@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Top N for this layer** creates a private PostGIS
+  derived layer that keeps the N rows with the highest or lowest
+  numeric field value (NULLs last; max N 100,000). Same path as
+  Create → Derived layer → Top N (R10-analyze-top-n-shortcut).
 - Analyze **Fishnet for this layer** (polygon layers) creates a
   private PostGIS derived layer via `ST_SquareGrid` with cell size,
   unit, and polygons|lines. UI/help note the ~1e6 cell save-time

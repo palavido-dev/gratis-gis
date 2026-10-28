@@ -5033,6 +5033,32 @@ export const es: Partial<CatalogShape> = {
     fishnetValidateMin: 'El tamaño de celda debe ser al menos {meters} m.',
     fishnetValidateMax: 'El tamaño de celda debe ser como máximo {meters} m.',
     fishnetValidateOutput: 'Elija salida de polígonos o líneas.',
+    topNAction: 'Top N de esta capa',
+    topNActionTitle:
+      'Crear una capa derivada en el servidor que conserva las N filas principales por un campo numérico.',
+    topNHeading: 'Top N de esta capa (capa derivada en el servidor)',
+    topNIntroBefore:
+      'Crea una capa derivada privada que conserva las N filas con el valor más alto o más bajo de un campo numérico (NULLs al final). Misma receta que',
+    topNHelpLink: 'Ayuda de Top N',
+    topNIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    topNField: 'Campo numérico',
+    topNFieldAria: 'Campo numérico para Top N',
+    topNN: 'N',
+    topNNAria: 'Número de filas a conservar',
+    topNDirection: 'Dirección',
+    topNDirectionAria: 'Dirección de ordenación',
+    topNDir_desc: 'mayor primero',
+    topNDir_asc: 'menor primero',
+    topNPickField: 'Elija un campo numérico…',
+    topNNoNumeric: 'No hay campos numéricos en esta capa',
+    topNHint:
+      'N hasta {max}. Los NULL van al final. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
+    topNValidateNoNumeric: 'Esta capa no tiene campos numéricos para Top N.',
+    topNValidateField: 'Elija un campo numérico.',
+    topNValidateN: 'N debe ser un entero positivo.',
+    topNValidateMax: 'N debe ser como máximo {max}.',
+    topNValidateDirection: 'Elija ascendente o descendente.',
   },
 
   serviceEditors: {
