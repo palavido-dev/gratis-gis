@@ -10,6 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { Public } from '../auth/public.decorator.js';
@@ -495,6 +496,10 @@ export class PublicController {
    * the client uses one parser either way.
    */
   @Public()
+  // Tighter than the global 300/min: attribute search on public
+  // layers (SEC-public-features-page-throttle; matches Records /
+  // OGC Features items at 60/min).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/features-search')
   async layerFeaturesSearch(
     @Param('id') itemId: string,
@@ -677,6 +682,10 @@ export class PublicController {
    * it does on every other mirror in this file.
    */
   @Public()
+  // Tighter than the global 300/min: features-page defaults/clamps
+  // limit to 5000 (SEC-public-features-page-throttle; matches
+  // Records / OGC Features items at 60/min). MVT tiles unchanged.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/features-page')
   async layerFeaturesPage(
     @Param('id') itemId: string,
