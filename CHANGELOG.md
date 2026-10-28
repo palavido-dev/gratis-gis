@@ -85,6 +85,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Map settings View scope / Default extent / Search source
+  descriptions, select options, geocoder kind suffixes, and
+  collapsed summary labels go through en/es/fr/de/pt-BR catalogs
+  (R13-i18n-map-settings-descriptions / #162).
 - Map editor left-rail title uses the existing `mapLayerPanel.title`
   catalog entry instead of a hard-coded English string
   (R13-i18n-map-layers-panel-title / #162).
