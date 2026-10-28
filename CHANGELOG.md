@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public `GET /api/items/:itemId/comments` is throttled at 60/min
+  per IP (same as Public OGC Records list; global default is
+  300/min). Cuts anonymous comment-thread polling on public items
+  without changing create/reply/resolve auth (SEC-comments-list-throttle).
 - Public `POST /api/tools/:id/run` is throttled at 30/min per IP
   (same as anonymous drawings writes; global default is 300/min).
   Cuts anonymous Overpass-backed tool abuse surface without

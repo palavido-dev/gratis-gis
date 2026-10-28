@@ -6,14 +6,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | This PR |
+| SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | This PR |
+| SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Open #431 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
-| SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Low |
 | SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | Low |
 
 ## queued (needs-maintainer)
@@ -29,6 +28,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R11-analyze-group-by-shortcut | 2026-10-28 | Merged #430: Analyze Group-by → PostGIS derived_layer |
 | R11-analyze-contour-shortcut | 2026-10-28 | Merged #429: Analyze Contour → PostGIS derived_layer |
 | R11-print-template-help-honesty | 2026-10-28 | Merged #427: honest print_template item + Print widget help |
 | R11-tool-help-analyze-catalog-honesty | 2026-10-28 | Closed #428 (superseded by Contour PR tool.md refresh) |
