@@ -4733,6 +4733,37 @@ export const fr: Partial<CatalogShape> = {
     clipHint: "Préférez une couche polygone comme emporte-pièce. Accès en lecture requis. Ouvrez le nouvel élément pour cartographier ou actualiser.",
     clipValidateEmpty: "Choisissez une couche de découpage (une couche polygone lisible).",
     clipValidateSelf: "Choisissez une autre couche ; une couche ne peut pas se découper elle-même ici.",
+    eraseAction: "Effacer cette couche",
+    eraseActionTitle:
+      "Créer un effacement de couche dérivée côté serveur (PostGIS) contre une autre couche de données.",
+    eraseHeading: "Effacer cette couche (couche dérivée serveur)",
+    eraseIntroBefore: "Crée une couche dérivée privée qui exécute",
+    eraseIntroAfter:
+      "sur PostGIS contre une autre couche de données lisible. Même recette que",
+    eraseHelpLink: "Aide Effacement",
+    eraseIntroTail:
+      ". Attendez un court travail serveur, pas un résultat navigateur instantané.",
+    eraseByLabel: "Effacer avec une couche de données",
+    erasePickPlaceholder: "Choisir une couche…",
+    eraseLoadFailed: "Impossible de charger les couches de données pour l'effacement.",
+    eraseHint:
+      "Préférez une couche polygone comme masque. Accès en lecture requis. Ouvrez le nouvel élément pour cartographier ou actualiser.",
+    eraseValidateEmpty:
+      "Choisissez un masque d'effacement (une couche polygone lisible).",
+    eraseValidateSelf:
+      "Choisissez une autre couche comme masque ; une couche ne peut pas s'effacer elle-même ici.",
+    centroidAction: "Centroïdes de cette couche",
+    centroidActionTitle:
+      "Créer une couche dérivée de centroïdes géométriques côté serveur (PostGIS ST_Centroid).",
+    centroidHeading: "Centroïdes de cette couche (couche dérivée serveur)",
+    centroidIntroBefore: "Crée une couche dérivée privée qui exécute",
+    centroidIntroAfter:
+      "sur PostGIS pour chaque entité. Centroïde géométrique uniquement (pas le pôle d'inaccessibilité). Même recette que",
+    centroidHelpLink: "Aide Centroïde",
+    centroidIntroTail:
+      ". Attendez un court travail serveur, pas un résultat navigateur instantané.",
+    centroidHint:
+      "Centroïde géométrique uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.",
   },
 
   serviceEditors: {

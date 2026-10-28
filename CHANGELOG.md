@@ -50,6 +50,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze Erase / Centroid guides go through locale catalogs
+  (en / es / fr / de / pt-BR), matching Buffer / Clip
+  (R7-i18n-erase-centroid-guides / #162).
 - Contour help (`analysis/contour`) matches the TIN iso-line
   generator: numeric field + auto/manual levels, line output
   with a `level` property. Iso-polygons, smoothing, and

@@ -4742,6 +4742,37 @@ export const de: Partial<CatalogShape> = {
     clipHint: "Bevorzugen Sie eine Polygon-Ebene als Ausstecher. Leserecht erforderlich. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren.",
     clipValidateEmpty: "Wählen Sie eine Clip-Ebene (eine lesbare Polygon-Datenebene).",
     clipValidateSelf: "Wählen Sie eine andere Ebene; eine Ebene kann sich hier nicht selbst ausschneiden.",
+    eraseAction: "Diese Ebene löschen (Erase)",
+    eraseActionTitle:
+      "Serverseitigen Derived-Layer-Erase (PostGIS) gegen eine andere Datenebene erstellen.",
+    eraseHeading: "Diese Ebene löschen (serverseitiger Derived Layer)",
+    eraseIntroBefore: "Erstellt einen privaten Derived Layer, der",
+    eraseIntroAfter:
+      "auf PostGIS gegen eine lesbare Datenebene ausführt. Gleiches Rezept wie",
+    eraseHelpLink: "Erase-Hilfe",
+    eraseIntroTail:
+      ". Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.",
+    eraseByLabel: "Löschen mit Datenebene",
+    erasePickPlaceholder: "Ebene wählen…",
+    eraseLoadFailed: "Datenebenen zum Löschen konnten nicht geladen werden.",
+    eraseHint:
+      "Bevorzugen Sie eine Polygon-Ebene als Maske. Leserecht erforderlich. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren.",
+    eraseValidateEmpty:
+      "Wählen Sie eine Erase-Maske (eine lesbare Polygon-Datenebene).",
+    eraseValidateSelf:
+      "Wählen Sie eine andere Ebene als Maske; eine Ebene kann sich hier nicht selbst löschen.",
+    centroidAction: "Schwerpunkte dieser Ebene",
+    centroidActionTitle:
+      "Serverseitigen Derived Layer mit geometrischen Schwerpunkten erstellen (PostGIS ST_Centroid).",
+    centroidHeading: "Schwerpunkte dieser Ebene (serverseitiger Derived Layer)",
+    centroidIntroBefore: "Erstellt einen privaten Derived Layer, der",
+    centroidIntroAfter:
+      "auf PostGIS für jedes Feature ausführt. Nur geometrischer Schwerpunkt (kein Pol der Unzugänglichkeit). Gleiches Rezept wie",
+    centroidHelpLink: "Centroid-Hilfe",
+    centroidIntroTail:
+      ". Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.",
+    centroidHint:
+      "Nur geometrischer Schwerpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.",
   },
 
   serviceEditors: {
