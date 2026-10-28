@@ -1,0 +1,414 @@
+{
+  "cycle": 13,
+  "researchedAt": "2026-10-28T11:35:00Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-12; R12 ship-without-input drained on origin/main through #444 (field Back/Cancel/empty-layers #435, vertex progress #436, Map settings title #437, PWA install #438, sync-conflict help #439, tool Analyze honesty #440, offline-basemap-row closed clean #441, SEC STAC/drawings-list/features-page throttles #442-#444). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE stay needs-maintainer). Security Sentinel this cycle: clean after #444; no new @Public / BFF allowlist regressions; safeFetch, zip/GDAL budgets, otherSource ACL, Records/STAC/Features items/features-page/drawings list/comments/feedback/tools.run throttles intact. Honesty/i18n scan after R12: field-runtime + offline-basemap-row + PWA + mapSettings.title + Analyze guides Contour/Group-by already on t(); map-editor still hard-codes leftPanelTitle=\"Layers\" despite mapLayerPanel.title; map-settings-section description bodies + (no clip)/(use saved extent)/Default (Nominatim) options still English; editor-runtime toolbar/edit/measure chrome is a dense English island; viewer/editor BuilderShell panel titles Settings/Layers/Targets still literals; builder-shell Back to item / Close panel still English; sharing-panel visibility/permission/search chrome still mixes English with sharing.* keys; Analyze SQL starters Preview / Count by ${field} + DuckDB footer still English; ui/dialog + ui/sheet Close aria still English. Public endpoints still only on global 300/min without tighter @Throttle: OGC citation .bib/.ris/.jsonld, OGC Features collections landing (/) + collection :id, Public /features + /geojson mirrors (unbounded stream path), Public /aggregate, Public filtered-extent, Records/Records-catalog single-item GETs, Aardvark, thumbnails, portal-info, health, storage/point-cloud/tile proxies (ACL + key-pinned; Nest throttle rejected for byte/high-frequency class). Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, multi-input Analyze shortcuts, calculate-field / filter Analyze shortcuts, report-template implementation, and OGC Tiles byte-stream throttle rejected.",
+  "driverBcId": "bc-e7c587df-7226-5143-8d3e-6b7dad1f33ff",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T11:32:00Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #444. STAC items/search 60/min, drawings GET list 60/min, features-page + features-search 60/min, OGC Features items + featureId 60/min, Records list 60/min, comments GET 60/min, feedback POST 30/min, tools/run 30/min, drawings writes 30/min, public-proxy class 30/min all intact. Global ThrottlerGuard 300/min still covers Public controllers that lack a tighter decorator: OgcCitationController .bib/.ris/.jsonld; OgcFeaturesController collections GET / and GET :id (full public data_layer catalogue scan); PublicController layerFeatures + layerGeojson (whole-collection stream / popup entity path) + layerAggregate + layerFilteredExtent; OGC Records / Records-catalog single-item GETs; Aardvark; items thumbnail.svg; portal-info; health; storage private/:kind/:key; point-cloud file; tile-layer file/PNG and OGC Tiles matrix/tile byte routes. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; Keycloak admin and env-configured basemap HEAD probes stay operator-trusted. Zip central-directory budget and assertSafeGdalOpenPath still guard /vsizip/; derived-layer otherSource canRead checks remain. Deep-dive SEC-* + R11/R12 SEC throttles shipped. No High hardening queued. Low follow-ups: SEC-citation-throttle, SEC-ogc-features-collections-throttle, SEC-public-features-geojson-throttle, SEC-public-aggregate-throttle. Do NOT Nest-throttle OGC Tiles / MVT / storage / point-cloud byte routes (same reject as R12). Prefer not Nest-throttling health (k8s probes) or portal-info (every client bootstrap; response is cacheable and light) unless abuse evidence appears."
+  },
+  "leftoverHardcodedEnglish": [
+    {
+      "file": "apps/portal-web/src/app/items/[id]/map/map-editor.tsx",
+      "lines": [2102],
+      "strings": ["Layers (leftPanelTitle; mapLayerPanel.title already exists)"]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/map/map-settings-section.tsx",
+      "lines": [139, 141, 142, 157, 170, 181, 194, 211],
+      "strings": [
+        "Clip every layer…",
+        "Not access control:",
+        "(no clip)",
+        "The frame the map opens to…",
+        "(use saved extent)",
+        "Where the search bar looks up…",
+        "Default (Nominatim)"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/editor/editor-runtime.tsx",
+      "lines": [
+        2118, 2119, 2151, 2152, 2210, 2211, 2225, 2226, 2242, 2243, 2258, 2259,
+        2299, 2302, 2313, 2323, 2333, 2343, 2368, 2387, 2419, 2633, 2723, 2726,
+        2737, 2748, 2759, 2770, 2915, 2916, 2927, 2941, 2942, 3036, 3125, 3126,
+        3138, 3151, 3166, 3432, 3507, 3508, 3509, 3510, 3511, 3512, 3513
+      ],
+      "strings": [
+        "Print / Basemap / Layers / Attribute table / Form view / Measure",
+        "Select mode / Click / Rectangle / Polygon / Lasso",
+        "Edit mode / Exit edit mode / New feature / Delete this feature",
+        "Exit measure / Measure mode / Distance / Area",
+        "Select / Add / Edit / Snap / Measure / Undo / Redo"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/editor/editor-detail.tsx",
+      "lines": [404, 411, 457, 521, 543, 625, 637, 641, 644, 817, 833, 839, 845, 851, 954, 1143, 1210, 1222],
+      "strings": [
+        "Saved",
+        "Targets / Settings (BuilderShell titles)",
+        "Enable snap / Remove target / Create / Edit geometry / Edit attributes / Delete",
+        "Row scope / Remove template / Label / Geometry tool"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/viewer/detail.tsx",
+      "lines": [358, 365, 411, 474, 496, 563, 567, 570, 647, 650, 655, 658, 661, 727],
+      "strings": [
+        "Saved / Layers / Settings",
+        "Select / Measure / Attribute table / Legend / Print / Remove layer"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/sharing-panel.tsx",
+      "lines": [995, 996, 1010, 1011, 1093, 1245, 1270, 1271, 1305, 1319, 1379, 1393, 1398, 1429],
+      "strings": [
+        "Private / Public visibility labels+desc (sharing.access.* keys exist but not wired here)",
+        "Visibility / Change permission / Row scope / Restrict to area / Remove share",
+        "Search groups... / Search people in your org... / Editor item access"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/components/builder-shell/builder-shell.tsx",
+      "lines": [321, 322, 497, 498],
+      "strings": ["Back to item", "Close panel"]
+    },
+    {
+      "file": "apps/portal-web/src/components/ui/dialog.tsx",
+      "lines": [102],
+      "strings": ["Close"]
+    },
+    {
+      "file": "apps/portal-web/src/components/ui/sheet.tsx",
+      "lines": [102],
+      "strings": ["Close"]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/editor/attribute-form.tsx",
+      "lines": [151],
+      "strings": ["Cancel"]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+      "lines": [285, 296, 651, 655, 658, 659, 665],
+      "strings": [
+        "Preview",
+        "Count by ${countField}",
+        "The layer is available as… / Spatial SQL works… / Meter buffers… Buffer this layer / spatial extension could not be loaded…"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/components/thumbnail-designer.tsx",
+      "lines": [83, 96, 106, 108, 113, 120, 128, 132, 137, 144, 148, 153, 159, 161],
+      "strings": [
+        "Thumbnail preview / Reset every layer… / Background / Color / Image / Sidebar / Title bar / Logo / Opacity"
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "R13-i18n-map-layers-panel-title",
+      "title": "Continue #162 i18n on map editor Layers rail title",
+      "summary": "map-editor.tsx still passes leftPanelTitle=\"Layers\" while mapLayerPanel.title already exists in en/es/fr/de/pt-BR and the layer panel body uses t(). After R12 mapSettings.title (#437), wire leftPanelTitle={t('mapLayerPanel.title')}. Tiny finishable #162 map chrome slice.",
+      "rationale": "Same pattern as R12 Map settings title. Authors who switched locale still see English on the left Layers rail.",
+      "risk": "Title-only. Do not redesign the layer panel. Confirm mapLayerPanel.title is already translated before inventing a parallel key.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free portal chrome. No brand redesign.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/map/map-editor.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/437"
+      ],
+      "suggestedFirstPR": "Replace leftPanelTitle=\"Layers\" with t('mapLayerPanel.title'); skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-map-settings-descriptions",
+      "title": "Continue #162 i18n on map settings description bodies + options",
+      "summary": "After #437 titled the rail, map-settings-section.tsx still hard-codes View scope / Default extent / Search source description paragraphs (including \"Not access control:\"), plus option labels (no clip) / (use saved extent) / Default (Nominatim). Extract into mapSettings.* keys; keep allowAnonymous already on t().",
+      "rationale": "Highest-visibility leftover map settings English after the title PR. Non-English authors still read English honesty copy about clip ≠ ACL.",
+      "risk": "Preserve the access-control honesty sentence. Do not change clip / geocoder behavior. Machine-translate non-en with Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest map settings in the author's language. No ACL redesign.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/map/map-settings-section.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "i18n description bodies + empty option labels; CHANGELOG docs note optional; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-editor-runtime-chrome",
+      "title": "Continue #162 i18n on Feature Editor runtime toolbar chrome",
+      "summary": "editor-runtime.tsx hard-codes Print / Basemap / Layers / Attribute table / Form view / Measure / Select mode (Click/Rectangle/Polygon/Lasso) / Edit mode / New feature / Delete / Exit measure / Distance / Area / Select-Add-Edit-Snap-Measure-Undo-Redo. Dense English island after field + map i18n. Add editorRuntime catalog with t() on toolbar titles and aria-labels.",
+      "rationale": "Editors who switched locale still hit English on every collect/edit session in the Feature Editor runtime. Largest remaining interactive #162 portal surface after field drained.",
+      "risk": "Scope to visible toolbar / pane chrome only. Do not redesign select tools or snap heuristics. Reuse common.* / mapEditor.* keys where wording matches.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free editor chrome. No Field Maps cosplay.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/editor/editor-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Wire toolbar + edit/measure chrome into en/es/fr/de/pt-BR; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-builder-viewer-editor-titles",
+      "title": "Continue #162 i18n on BuilderShell + viewer/editor panel titles",
+      "summary": "builder-shell.tsx hard-codes Back to item / Close panel. viewer/detail.tsx leftPanelTitle=\"Layers\" rightPanelTitle=\"Settings\". editor-detail.tsx leftPanelTitle=\"Targets\" rightPanelTitle=\"Settings\". common.settings already exists. Extract builderShell + viewer/editor shell title keys.",
+      "rationale": "Shared BuilderShell chrome is the frame around map/viewer/editor; leftover English undoes locale switches on every item builder.",
+      "risk": "Title/aria only. Do not change panel resize or storageKey behavior. Prefer common.settings / mapLayerPanel.title reuse.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free portal chrome.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/components/builder-shell/builder-shell.tsx",
+        "apps/portal-web/src/app/items/[id]/viewer/detail.tsx",
+        "apps/portal-web/src/app/items/[id]/editor/editor-detail.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "i18n BuilderShell Back/Close + viewer/editor panel titles; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-sharing-panel-chrome",
+      "title": "Continue #162 i18n on Sharing panel visibility / share-row chrome",
+      "summary": "sharing-panel.tsx still hard-codes Private/Public/org visibility labels+descriptions (sharing.access.* keys exist but the option map is local English), aria-label Visibility / Change permission / Row scope / Restrict to area / Remove share, and Search groups... / Search people... placeholders. Wire through sharing.* catalog.",
+      "rationale": "Sharing is the highest-stakes portal chrome for non-English org admins. Partial catalog already exists; finish the wiring.",
+      "risk": "Do not change access tier semantics or geo-limit behavior. Keep cascade / dependency-gap copy honest. Scope to sharing-panel.tsx strings.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest sharing chrome in the admin's language. No seat pricing.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/sharing-panel.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Wire visibility options + share-row aria/placeholders to sharing.*; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-analyze-sql-starters",
+      "title": "Continue #162 i18n on Analyze SQL starters + DuckDB footer",
+      "summary": "layer-analyze-panel.tsx Analyze guides are on t(), but SQL mode starters still hard-code label 'Preview' and `Count by ${countField}`, and the results footer hard-codes the Spatial SQL / Meter buffers / Buffer this layer / spatial-extension-failed paragraphs. Extract analyzeWorkbench.starterPreview / starterCountBy / sqlFooter* keys.",
+      "rationale": "Analyze chrome was i18n'd through Contour/Group-by guides; leftover English on the SQL path undoes R8 analyzeWorkbench work on the same panel.",
+      "risk": "Keep SQL text itself untranslated (identifiers). Only translate starter labels + footer prose. Do not claim in-browser meter buffers.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest Analyze SQL chrome in the author's language.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "i18n Preview/Count-by labels + SQL footer; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R13-i18n-dialog-sheet-close",
+      "title": "Continue #162 i18n on shared Dialog/Sheet Close aria",
+      "summary": "ui/dialog.tsx and ui/sheet.tsx hard-code aria-label=\"Close\". common.close already exists. Also attribute-form.tsx aria-label=\"Cancel\" can use common.cancel. Tiny shared-chrome #162 slice that lifts every dialog/sheet consumer.",
+      "rationale": "One key fix fans out across portal dialogs. Finishable without product calls.",
+      "risk": "ui/ components need a safe useT path (or accept label prop with default from caller). Prefer common.close; do not invent dialogClose.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free portal chrome.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/components/ui/dialog.tsx",
+        "apps/portal-web/src/components/ui/sheet.tsx",
+        "apps/portal-web/src/app/items/[id]/editor/attribute-form.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Wire Close/Cancel aria through common.*; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "SEC-citation-throttle",
+      "title": "Tighter throttle on Public OGC citation exports",
+      "summary": "OgcCitationController .bib / .ris / .jsonld are @Public with only the global 300/min ThrottlerGuard. Anonymous crawlers can hammer bibliography exports for every public item id. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on all three methods matching Records / OGC Features items.",
+      "rationale": "Standing Low follow-up called out in R12 sentinel notes. Same Public catalogue class without a product call.",
+      "risk": "Legitimate citation managers that batch-download may hit 60/min. Prefer 60; document in CHANGELOG Security + cite-an-item / api.md rate note. Keep formats and ACL unchanged.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without waiting on pricing or Keycloak defaults.",
+      "sources": [
+        "apps/portal-api/src/public/ogc/citation.controller.ts",
+        "apps/portal-web/content/help/reference/cite-an-item.md",
+        "apps/portal-web/content/help/reference/api.md",
+        "docs/autonomy/research-cycle-12.json"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on bib/ris/jsonld; CHANGELOG Security + cite-an-item note; fold a short Public Rate limits subsection into api.md covering citation plus already-shipped Records/Features/STAC/features-page/drawings/comments 60/min limits; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-ogc-features-collections-throttle",
+      "title": "Tighter throttle on Public OGC Features collection landing",
+      "summary": "OgcFeaturesController GET / (collections list) and GET :id (collection landing) are @Public with only the global 300/min guard while items routes are already 60/min. Collections landing scans every public data_layer. Add @Throttle 60/min on both methods so scrapers cannot bypass the items throttle via catalogue fan-out.",
+      "rationale": "Complement to SEC-ogc-features-throttle (#433). Landing is the cheap discovery path into the heavier items scans.",
+      "risk": "MetaSearch / OWSLib clients that refresh catalogues often may hit 60/min. Prefer 60 to match Records; document in CHANGELOG Security. Leave tiles/styles byte routes alone.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without inventing a new public tier.",
+      "sources": [
+        "apps/portal-api/src/public/ogc/features.controller.ts",
+        "apps/portal-api/src/public/ogc/records.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on collections / and :id; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-public-features-geojson-throttle",
+      "title": "Tighter throttle on Public features + geojson mirrors",
+      "summary": "PublicController layerFeatures and layerGeojson remain @Public with only the global 300/min guard after features-page/search got 60/min (#444). The non-paged path streams a whole public layer FeatureCollection; the entity= path feeds anonymous popups. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on both methods; leave MVT tiles unchanged.",
+      "rationale": "Heaviest remaining Public DoS class after features-page. Same Nest rate pattern as Records/Features items without lowering the stream ACL/geo clip.",
+      "risk": "Busy public maps with many popup entity lookups may hit 60/min on shared NAT. Prefer 60 to match features-page; document in CHANGELOG Security. Do not Nest-throttle MVT.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without inventing a new public tier.",
+      "sources": [
+        "apps/portal-api/src/public/public.controller.ts",
+        "docs/autonomy/research-cycle-12.json",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on /features + /geojson; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-public-aggregate-throttle",
+      "title": "Tighter throttle on Public layer aggregate",
+      "summary": "PublicController layerAggregate is @Public with only the global 300/min guard. Anonymous dashboard/chart widgets can run groupBy/agg scans on public layers harder than features-page (already 60/min). Add @Throttle 60/min; keep field allowlist + public tier clip unchanged.",
+      "rationale": "Low hardening complementary to features-page throttle. Aggregate is CPU/DB heavier than a citation export.",
+      "risk": "Public apps that auto-refresh charts may hit 60/min. Prefer 60; document in CHANGELOG Security. Do not change aggregate query dialect in the same PR.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without waiting on abuse product calls.",
+      "sources": [
+        "apps/portal-api/src/public/public.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on aggregate; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R13-form-help-survey123-honesty",
+      "title": "Soften form.md Survey123 \"native equivalent\" claim",
+      "summary": "items/form.md summary still says \"The native equivalent of a Survey123 survey\" while data-collection.md, coming-from-arcgis/survey123-to-form.md, and terminology.md carefully say not a Survey123 drop-in. Soften frontmatter summary + a short What this is not pointer to XLSForm import limits. Docs-only honesty; no product change.",
+      "rationale": "Playbook ethos: honest about what we are not. Form item page is a common landing for ArcGIS migrants; the summary currently oversells.",
+      "risk": "Docs-only. Keep XLSForm import path visible. Do not invent Survey123 Connect parity. CHANGELOG docs note; skip What's new unless user-visible help card text changes enough to notice.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about not being Survey123. No Field Maps / Survey123 cosplay.",
+      "sources": [
+        "apps/portal-web/content/help/items/form.md",
+        "apps/portal-web/content/help/items/data-collection.md",
+        "apps/portal-web/content/help/coming-from-arcgis/survey123-to-form.md",
+        "apps/portal-web/content/help/coming-from-arcgis/terminology.md"
+      ],
+      "suggestedFirstPR": "Rewrite form.md summary + short honesty blurb; cross-link survey123-to-form; CHANGELOG docs note.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R13-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer field/portal i18n and Low SEC."
+    },
+    {
+      "id": "R13-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print help honesty already shipped."
+    },
+    {
+      "id": "R13-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R13-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
+    },
+    {
+      "id": "R13-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer. point-cloud.md already honest about SSE / Tile3D."
+    },
+    {
+      "id": "R13-reject-weblate-hosting",
+      "title": "Reject choosing Weblate vs Crowdin vs Tolgee",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
+    },
+    {
+      "id": "R13-reject-analyze-multi-input-shortcuts",
+      "title": "Reject Spatial join / Spatial filter Analyze shortcuts",
+      "reason": "R11/R12 rejection still holds. Multi-source otherSource pickers are heavy Analyze UX; honesty help already shipped."
+    },
+    {
+      "id": "R13-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor. Calculate geometry already covers meter-honest measures."
+    },
+    {
+      "id": "R13-reject-analyze-filter-shortcut",
+      "title": "Reject Filter Analyze shortcut",
+      "reason": "Filter is a free-form {{field}} expression. AnalyzeQueryBuilder covers ad-hoc SQL preview; materialised filter recipes stay on the builder."
+    },
+    {
+      "id": "R13-reject-report-template-item",
+      "title": "Reject building the Report template item type",
+      "reason": "report-template.md honestly says not built. Implementing DOCX/PDF document reports is a new pillar."
+    },
+    {
+      "id": "R13-reject-ogc-tiles-byte-throttle",
+      "title": "Reject Nest @Throttle on OGC Tiles / MVT / storage / point-cloud byte routes",
+      "reason": "High-frequency map traffic; a 60/min Nest limit would break legitimate MapLibre / COPC loads. Prefer CDN / edge / existing ACL. Citation + Features collections + features/geojson + aggregate are the better Low SEC targets."
+    },
+    {
+      "id": "R13-reject-health-portalinfo-nest-throttle",
+      "title": "Reject Nest @Throttle on health and portal-info",
+      "reason": "health feeds k8s/load-balancer probes; portal-info is the pre-auth bootstrap every QGIS/field/SDK client hits. Both are light and cacheable. Leave on global 300/min unless abuse evidence appears."
+    },
+    {
+      "id": "R13-reject-presence-crdt",
+      "title": "Reject live cursors Phase 2 CRDT",
+      "reason": "Abuse / transport defaults stay needs-maintainer. Presence WebSocket frame cap already shipped."
+    },
+    {
+      "id": "R13-reject-thumbnail-designer-i18n-first",
+      "title": "Defer thumbnail-designer i18n behind editor/sharing chrome",
+      "reason": "thumbnail-designer.tsx has many English labels but is lower-traffic authoring chrome than Feature Editor / Sharing. Prefer those #162 slices first; revisit if queue empties."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ],
+  "queueRecommendation": [
+    "R13-i18n-map-layers-panel-title",
+    "R13-i18n-map-settings-descriptions",
+    "R13-i18n-editor-runtime-chrome",
+    "R13-i18n-builder-viewer-editor-titles",
+    "R13-i18n-sharing-panel-chrome",
+    "R13-i18n-analyze-sql-starters",
+    "R13-i18n-dialog-sheet-close",
+    "SEC-citation-throttle",
+    "SEC-ogc-features-collections-throttle",
+    "SEC-public-features-geojson-throttle",
+    "SEC-public-aggregate-throttle",
+    "R13-form-help-survey123-honesty"
+  ]
+}
