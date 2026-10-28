@@ -85,6 +85,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Map editor left-rail title uses the existing `mapLayerPanel.title`
+  catalog entry instead of a hard-coded English string
+  (R13-i18n-map-layers-panel-title / #162).
 - Help: tool.md / derived-layer.md Analyze lists still match
   Contour / Group-by and the 30/min Public tools/run note; clarify
   Filter / Spatial filter / Spatial join / Calculate field stay
