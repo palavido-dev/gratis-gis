@@ -1395,6 +1395,17 @@ export const ptBR: Partial<CatalogShape> = {
     relatedNotEditable:
       'Esta camada filha não é editável nesta implantação',
     relatedNoEditAccess: 'Você não tem acesso de edição a esta camada',
+    sheetBackToListAria: 'Voltar à lista',
+    sheetCollapseAria: 'Recolher painel',
+    sheetExpandAria: 'Expandir painel',
+    sheetEdit: 'Editar',
+    sheetCopy: 'Copiar',
+    sheetEditTitle: 'Editar esta feição',
+    sheetCopyTitle: 'Criar uma feição nova com estes atributos',
+    sheetUnnamed: '(sem nome)',
+    sheetEmptyValue: '(vazio)',
+    sheetNoAttributes: 'Nenhum atributo nesta feição.',
+    sheetItemCount: '{count, plural, one {# item} other {# itens}}',
   },
   fieldGps: {
     accuracy: 'Precisão do GPS {meters} m',

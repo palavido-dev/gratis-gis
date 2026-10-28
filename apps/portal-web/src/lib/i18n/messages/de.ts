@@ -1399,6 +1399,17 @@ export const de: Partial<CatalogShape> = {
     relatedNotEditable:
       'Diese untergeordnete Ebene ist in dieser Bereitstellung nicht bearbeitbar',
     relatedNoEditAccess: 'Sie haben keinen Schreibzugriff auf diese Ebene',
+    sheetBackToListAria: 'Zurück zur Liste',
+    sheetCollapseAria: 'Bereich einklappen',
+    sheetExpandAria: 'Bereich erweitern',
+    sheetEdit: 'Bearbeiten',
+    sheetCopy: 'Kopieren',
+    sheetEditTitle: 'Dieses Feature bearbeiten',
+    sheetCopyTitle: 'Neues Feature mit diesen Attributen erstellen',
+    sheetUnnamed: '(unbenannt)',
+    sheetEmptyValue: '(leer)',
+    sheetNoAttributes: 'Keine Attribute an diesem Feature.',
+    sheetItemCount: '{count, plural, one {# Element} other {# Elemente}}',
   },
   fieldGps: {
     accuracy: 'GPS-Genauigkeit {meters} m',

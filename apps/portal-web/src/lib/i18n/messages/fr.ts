@@ -1399,6 +1399,17 @@ export const fr: Partial<CatalogShape> = {
     relatedNotEditable:
       'Cette couche enfant n’est pas modifiable dans ce déploiement',
     relatedNoEditAccess: 'Vous n’avez pas d’accès en écriture à cette couche',
+    sheetBackToListAria: 'Retour à la liste',
+    sheetCollapseAria: 'Réduire le panneau',
+    sheetExpandAria: 'Agrandir le panneau',
+    sheetEdit: 'Modifier',
+    sheetCopy: 'Copier',
+    sheetEditTitle: 'Modifier cette entité',
+    sheetCopyTitle: 'Créer une nouvelle entité avec ces attributs',
+    sheetUnnamed: '(sans nom)',
+    sheetEmptyValue: '(vide)',
+    sheetNoAttributes: 'Aucun attribut sur cette entité.',
+    sheetItemCount: '{count, plural, one {# élément} other {# éléments}}',
   },
   fieldGps: {
     accuracy: 'Précision GPS {meters} m',

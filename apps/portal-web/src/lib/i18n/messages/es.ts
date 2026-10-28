@@ -1398,6 +1398,17 @@ export const es: Partial<CatalogShape> = {
     relatedNotEditable:
       'Esta capa secundaria no es editable en este despliegue',
     relatedNoEditAccess: 'No tienes acceso de edición a esta capa',
+    sheetBackToListAria: 'Volver a la lista',
+    sheetCollapseAria: 'Contraer panel',
+    sheetExpandAria: 'Expandir panel',
+    sheetEdit: 'Editar',
+    sheetCopy: 'Copiar',
+    sheetEditTitle: 'Editar esta entidad',
+    sheetCopyTitle: 'Crear una entidad nueva con estos atributos',
+    sheetUnnamed: '(sin nombre)',
+    sheetEmptyValue: '(vacío)',
+    sheetNoAttributes: 'No hay atributos en esta entidad.',
+    sheetItemCount: '{count, plural, one {# elemento} other {# elementos}}',
   },
   fieldGps: {
     accuracy: 'Precisión GPS {meters} m',
