@@ -12,6 +12,7 @@ tags:
 related:
   - what-is-gratisgis
   - coming-from-arcgis-terminology
+  - items-data-collection
 ---
 
 Every addressable thing in GratisGIS is an **item**. Items have
