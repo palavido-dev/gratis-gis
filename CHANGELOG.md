@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public `POST /api/feedback` is throttled at 30/min per IP
+  (same as anonymous drawings writes / tools run; global default
+  is 300/min). Cuts anonymous screenshot-upload bandwidth burn
+  without changing honeypot behaviour (SEC-feedback-post-throttle).
 - Public `POST /api/tools/:id/run` is throttled at 30/min per IP
   (same as anonymous drawings writes; global default is 300/min).
   Cuts anonymous Overpass-backed tool abuse surface without
