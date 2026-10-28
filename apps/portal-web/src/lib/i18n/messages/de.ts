@@ -4983,7 +4983,7 @@ export const de: Partial<CatalogShape> = {
     sqlFooterLayerAvailable: "Die Ebene ist verfügbar als",
     sqlFooterSpatialLead: "Räumliches SQL funktioniert auf der",
     sqlFooterSpatialMid:
-      "-Spalte für CRS-sichere Transformationen und Sphäroidmaße (Fläche, Länge). Meterpuffer brauchen PROJ-Daten, die diese Browser-Engine nicht mitliefert — nutzen Sie",
+      "Spalte für CRS-sichere Transformationen und Sphäroidmaße (Fläche, Länge). Meterpuffer brauchen PROJ-Daten, die diese Browser-Engine nicht mitliefert — nutzen Sie",
     sqlFooterSpatialTail:
       "oben, um eine PostGIS-abgeleitete Ebene zu erstellen statt einer Grad-Einheiten-Falle.",
     sqlFooterSpatialUnavailable:
