@@ -2551,12 +2551,15 @@ export function FieldRuntime({
                           Finish. Falls back to the template's
                           sublabel for point templates. */}
                       {isMultiVertex
-                        ? `${pendingVertices.length} vertex${
-                            pendingVertices.length === 1 ? '' : 'es'
-                          }${
+                        ? `${t('fieldRuntime.vertexCountLabel', {
+                            count: pendingVertices.length,
+                          })}${
                             canFinish
-                              ? ' — tap Finish'
-                              : ` — need ${minVerts - pendingVertices.length} more`
+                              ? t('fieldRuntime.vertexTapFinishSuffix')
+                              : t('fieldRuntime.vertexNeedMoreSuffix', {
+                                  remaining:
+                                    minVerts - pendingVertices.length,
+                                })
                           }`
                         : activeTemplate.sublabel}
                     </p>

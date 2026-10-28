@@ -68,6 +68,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Field line/polygon vertex progress subtitle (count, tap Finish,
+  need N more) goes through en/es/fr/de/pt-BR catalogs
+  (R12-i18n-field-vertex-progress-chrome / #162).
 - Field runtime Back / Cancel aria-labels and the empty
   editable-layers footer go through en/es/fr/de/pt-BR catalogs
   (R12-i18n-field-runtime-nav-chrome / #162).

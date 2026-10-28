@@ -1342,6 +1342,10 @@ export const de: Partial<CatalogShape> = {
     backAria: 'Zurück',
     cancelCollectAria: 'Abbrechen',
     noEditableLayersInMap: 'Keine bearbeitbaren Ebenen in dieser Karte.',
+    vertexCountLabel:
+      '{count, plural, one {# Stützpunkt} other {# Stützpunkte}}',
+    vertexTapFinishSuffix: ' - Fertig tippen',
+    vertexNeedMoreSuffix: ' - noch {remaining} nötig',
     filterPlaceholder: "Filtern...",
     noEditableLayers: "Diese Bereitstellung hat noch keine bearbeitbaren Ebenen.",
     noTemplatesMatch: "Keine Vorlage entspricht diesem Filter.",

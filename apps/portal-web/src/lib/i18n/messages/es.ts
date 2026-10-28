@@ -1342,6 +1342,10 @@ export const es: Partial<CatalogShape> = {
     backAria: 'Atrás',
     cancelCollectAria: 'Cancelar',
     noEditableLayersInMap: 'No hay capas editables en este mapa.',
+    vertexCountLabel:
+      '{count, plural, one {# vértice} other {# vértices}}',
+    vertexTapFinishSuffix: ' - toque Finalizar',
+    vertexNeedMoreSuffix: ' - faltan {remaining}',
     filterPlaceholder: "Filtrar...",
     noEditableLayers: "Esta implementación aún no tiene capas editables.",
     noTemplatesMatch: "Ninguna plantilla coincide con ese filtro.",

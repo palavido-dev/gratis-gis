@@ -1338,6 +1338,10 @@ export const ptBR: Partial<CatalogShape> = {
     backAria: 'Voltar',
     cancelCollectAria: 'Cancelar',
     noEditableLayersInMap: 'Nenhuma camada editável neste mapa.',
+    vertexCountLabel:
+      '{count, plural, one {# vértice} other {# vértices}}',
+    vertexTapFinishSuffix: ' - toque em Concluir',
+    vertexNeedMoreSuffix: ' - faltam {remaining}',
     filterPlaceholder: "Filtrar...",
     noEditableLayers: "Esta implantação ainda não tem camadas editáveis.",
     noTemplatesMatch: "Nenhum modelo corresponde a esse filtro.",
