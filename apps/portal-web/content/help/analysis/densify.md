@@ -61,6 +61,8 @@ segment length runs on PostGIS — Analyze does not invent an
 in-browser densify.
 
 ### From the new-item wizard
+![Derived layer recipe with a Densify step](/help/analysis/densify-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

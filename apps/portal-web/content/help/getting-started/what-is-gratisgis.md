@@ -19,6 +19,8 @@ the apps that consume them. And it speaks the same workflows your
 team already knows. The differences are who owns the hardware and
 what the license says.
 
+![Items grid after sign-in, with New item and content grouped by type](/help/getting-started/what-is-gratisgis-items-grid.png)
+
 ## What it does
 
 You upload data (Shapefile, GeoJSON, GeoPackage, KML), the portal

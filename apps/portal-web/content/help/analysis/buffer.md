@@ -53,11 +53,13 @@ so this guide is the honest path.
 
 ### From the new-item wizard
 
+![Derived layer recipe with a Buffer step: Fixed distance and units](/help/analysis/buffer-analyze-guide.png)
+
 1. Open the new-item wizard and pick **Derived layer**.
 2. Pick a **Source**. The layer you want to buffer.
-3. Add a **Buffer** step.
+3. Add a **Buffer** step (or keep the default Buffer step).
 4. Enter the distance and pick the unit.
-5. Click **Save**.
+5. Click **Create item**.
 
 That's the whole single-step recipe. Nothing else is required.
 Derived-layer buffer is part of the always-on PostGIS analysis

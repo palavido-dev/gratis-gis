@@ -53,6 +53,8 @@ The portal creates a private derived layer and opens it. Expect a
 short server job, not an instant browser result.
 
 ### From the new-item wizard
+![Derived layer recipe with a Bounding box step](/help/analysis/bbox-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

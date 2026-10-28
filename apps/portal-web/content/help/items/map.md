@@ -20,6 +20,8 @@ A **map** item is the standard way to combine layers, a basemap,
 and a default viewport into something a person (or a web app) can
 look at.
 
+![Map detail page with Open map and the composed layer list](/help/items/map-detail.png)
+
 ## What's in a map
 
 - **Layers**. References to data layer items (or external services

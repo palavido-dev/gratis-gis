@@ -21,6 +21,8 @@ A **data layer** is the native item type for feature data. It owns
 one or more PostGIS tables and the schema that describes them.
 Maps reference data layers; data layers reference nothing.
 
+![Data layer detail page with Overview map preview and feature stats](/help/items/data-layer-detail.png)
+
 ## What's in a data layer
 
 - **One or more sublayers**, each backed by its own PostGIS table.

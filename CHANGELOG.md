@@ -7,6 +7,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- Help: real UI screenshots for getting-started, form designer, map/data-layer detail, and analysis derived-layer recipes (Buffer, Clip, and the other guided steps).
+
 ## [0.9.120] - 2026-10-28
 
 ### Security

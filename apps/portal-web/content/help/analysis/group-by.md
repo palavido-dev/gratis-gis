@@ -55,6 +55,8 @@ One row per distinct group-key combination (or one row when
   under its `outputName`.
 
 ## How to use it on its own
+![Derived layer recipe with a Group by step](/help/analysis/group-by-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

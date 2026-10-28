@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Help pages show the real UI
+Getting started, form designer, map and data layer detail, and the analysis recipe steps (Buffer, Clip, and the other guided tools) now include screenshots of the live portal instead of wireframe drawings.
+
 ## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits
 Analyze can now create private PostGIS layers for Group by, Contour, Random sample, Top N, Fishnet, Nearest neighbor, and more from the layer tab. Field and map editor chrome keep growing into Spanish, French, German, and Brazilian Portuguese. Public list and search endpoints that used to share a loose global budget now rate-limit anonymous scans more tightly.
 

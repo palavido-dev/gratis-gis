@@ -39,6 +39,8 @@ measure against). If the source already had a field named
 `nearest_distance_m`, this step overwrites it.
 
 ## How to use it on its own
+![Derived layer recipe with a Nearest neighbor step](/help/analysis/nearest-neighbor-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

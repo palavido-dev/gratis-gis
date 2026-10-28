@@ -42,6 +42,8 @@ except that count mode orders by the hash before applying
 `LIMIT`.
 
 ## How to use it on its own
+![Derived layer recipe with a Random sample step](/help/analysis/random-sample-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

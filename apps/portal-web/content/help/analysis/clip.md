@@ -55,11 +55,13 @@ analysis tier.
 
 ### From the new-item wizard
 
+![Derived layer recipe with a Clip by another layer step](/help/analysis/clip-analyze-guide.png)
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
-3. Add a **Clip** step.
+3. Add a **Clip by another layer** step.
 4. Pick the other data layer.
-5. Save.
+5. Click **Create item**.
 
 ## Example
 

@@ -87,6 +87,11 @@ call:
 - Update or add help under `apps/portal-web/content/help/`
   (including rewriting pages that describe options the code does
   not implement).
+- If the help page names a UI control, tab, wizard, dialog, or
+  multi-step process the reader has to perform, include a real
+  screenshot under `apps/portal-web/public/help/` and reference
+  it from the markdown. No exceptions. See
+  [`apps/portal-web/content/help/SCREENSHOTS.md`](./apps/portal-web/content/help/SCREENSHOTS.md).
 - Add a plain-English entry at the top of
   `apps/portal-web/content/changelog/user-visible.md` when a
   non-technical visitor would notice (this feeds the landing-page

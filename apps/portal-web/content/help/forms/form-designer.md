@@ -20,7 +20,7 @@ item's question list, layout, validation, and submission
 behavior. It opens from a form item's detail page (**Open
 designer**).
 
-![Form designer with a location question and a text question](/help/form-designer.svg)
+![Form designer with question palette, canvas questions, and properties panel](/help/forms/form-designer-canvas.png)
 
 Open the designer's **Responses** tab. Owners and organization
 admins see the latest submissions there. **Download PDF** saves

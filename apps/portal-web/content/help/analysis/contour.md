@@ -49,6 +49,8 @@ A line layer. Each feature is a contour segment with:
 No `level_top`, and no mean/count aggregates from the source.
 
 ## How to use it on its own
+![Derived layer recipe with a Contour step](/help/analysis/contour-analyze-guide.png)
+
 
 1. Start from a point layer that already has the numeric field
    (survey points, sample sites, or centroids you computed

@@ -48,6 +48,8 @@ SQL starter still offers `ST_Centroid` for ad-hoc queries; the
 guided control is the honest path when you want a saved layer.
 
 ### From the new-item wizard
+![Derived layer recipe with a Centroid step](/help/analysis/centroid-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

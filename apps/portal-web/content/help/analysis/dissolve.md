@@ -63,6 +63,8 @@ short server job, not an instant browser result. Attributes are
 dropped on this path.
 
 ### From the new-item wizard
+![Derived layer recipe with a Dissolve step](/help/analysis/dissolve-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

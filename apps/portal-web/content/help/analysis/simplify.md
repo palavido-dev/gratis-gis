@@ -58,6 +58,8 @@ tolerance runs on PostGIS — Analyze does not invent an in-browser
 simplify.
 
 ### From the new-item wizard
+![Derived layer recipe with a Simplify step](/help/analysis/simplify-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

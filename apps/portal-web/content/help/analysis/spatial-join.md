@@ -63,6 +63,8 @@ need it (including **contains** / **touches** / **near**).
   skipped by the join SQL).
 
 ## How to use it on its own
+![Derived layer recipe with a Spatial join step](/help/analysis/spatial-join-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a **Source**.

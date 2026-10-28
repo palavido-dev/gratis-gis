@@ -42,6 +42,8 @@ values for the sort field are pushed to the end (`NULLS LAST`)
 and typically fall outside the top N.
 
 ## How to use it on its own
+![Derived layer recipe with a Top N step](/help/analysis/top-n-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

@@ -60,6 +60,8 @@ short server job, not an instant browser result. Dense sources
 may take longer and produce many rows.
 
 ### From the new-item wizard
+![Derived layer recipe with a Vertices step](/help/analysis/vertices-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

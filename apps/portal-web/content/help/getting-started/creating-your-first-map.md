@@ -18,23 +18,23 @@ viewport and a basemap. Maps are how you compose data for human
 consumption; they're what web apps render and what print templates
 print.
 
-![New item wizard with Map selected](/help/new-item.svg)
+![New item wizard after choosing Map, with title, visibility, and Create item](/help/getting-started/creating-your-first-map-new-item.png)
 
 ## Steps
 
 1. From the items grid (the landing page after you sign in), click
  **+ New item**.
-2. Pick **Map** from the wizard. The selected card is the filled
- one in the figure above.
-3. Give the map a title, then click **Create**.
-4. You land on the map's detail page. Click **Open builder**.
-5. In the map builder, click **+ Add layer** in the left rail.
-6. Pick a data layer you have access to and click **Add**.
-7. The layer renders on the map. Open **Style** on the layer to
+2. Pick **Map** from the wizard (under the Maps category). Fill in
+ a title and visibility, then click **Create item**.
+3. You land on the map's detail page. Click **Open map** (or open
+ it with **view=configure**) to enter the map surface.
+4. In the map builder, use the **Layers** rail on the left to manage
+ overlays. Add layers from items you can read.
+5. The layer renders on the map. Open style controls on the layer to
  change its color, size, and labels. Save with **⌘S** or the
  Save button.
 
-![Map builder with a layer list beside the map](/help/map-builder.svg)
+![Map builder with a Layers rail, the map canvas, and Map settings](/help/getting-started/creating-your-first-map-builder.png)
 
 On a phone the layer list and the settings panel collapse to
 icons at the edges of the map. Tap an icon to slide that panel

@@ -98,6 +98,8 @@ measures run on PostGIS geography — Analyze does not invent
 `area_m2()` expression helpers.
 
 ### From the new-item wizard
+![Derived layer recipe with a Calculate geometry step](/help/analysis/calculate-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
