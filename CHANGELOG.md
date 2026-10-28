@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public STAC `GET .../collections/:id/items`, single-item lookup,
+  and `GET`/`POST .../search` are throttled at 60/min per IP (same
+  as Public OGC Records / Features items; global default is
+  300/min). Cuts anonymous catalog scans that can request up to
+  1000 items per call without changing auth or the limit clamp
+  (SEC-stac-items-search-throttle).
 - Public OGC Features `GET .../collections/:id/items` and
   `.../items/:featureId` are throttled at 60/min per IP (same as
   Public OGC Records list; global default is 300/min). Cuts
