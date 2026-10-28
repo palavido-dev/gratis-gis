@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Spatial filter help (`analysis/spatial-filter`) documents the
+  shipped predicates (intersects / within / contains / touches /
+  near + meters), otherSource data-layer (or recipe inline
+  geometry), and that left rows pass through with no attribute
+  join. Spatial-join help cross-links the new page
+  (R9-spatial-filter-help-honesty).
 - Filter help (`analysis/filter`) matches the shared expression
   dialect: examples use `{{field}}` refs, cross-link the
   expression-language reference, and drop bare SQL column-name
