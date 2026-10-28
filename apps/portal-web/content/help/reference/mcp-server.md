@@ -1,7 +1,7 @@
 ---
 id: reference-mcp-server
 title: MCP server
-summary: A small Model Context Protocol server that lets MCP-compatible AI clients read your portal (including a capped OpenStreetMap query) and, with a write-capable API key, run tools or create a data layer from GeoJSON.
+summary: A small Model Context Protocol server that lets MCP-compatible AI clients read your portal (including the public Records catalog and a capped OpenStreetMap query) and, with a write-capable API key, run tools or create a data layer from GeoJSON.
 category: reference
 order: 50
 complexity: advanced
@@ -25,7 +25,8 @@ to plug their portal into an MCP-compatible tool.
 
 ## What the MCP server can do
 
-Read tools (safe with a read-only API key):
+Read tools (safe with a read-only API key; `search_catalog`
+works even without a key):
 
 - **list_items**: paginated browse of items the caller can
   read, optionally filtered by item type and free-text query.
@@ -33,6 +34,12 @@ Read tools (safe with a read-only API key):
 - **read_layer_features**: GeoJSON FeatureCollection for a
   data layer, capped per call so a large layer doesn't fill
   the model's context window.
+- **search_catalog**: search the portal's **public** OGC API
+  Records catalog (`/api/public/ogc/collections/catalog/items`)
+  by free text, item type, and optional bounding box. Returns
+  only public items; private or org-shared items still need
+  **list_items** with an API key. Caps: default 25 records
+  (max 100); bbox area at most about 100 square degrees.
 - **query_osm**: OpenStreetMap features for a required
   bounding box, via the portal's Overpass path. Pass iD
   preset ids (for example gas stations) or a relational
@@ -111,6 +118,7 @@ portal:
 - "Show me the first 200 features from the `parcels` layer
   near Charleston, WV."
 - "Find all maps in my portal with `flood` in the title."
+- "Search the public catalog for flood maps near Charleston."
 - "Query OSM for gas stations inside this downtown bbox."
 - With a write-capable key: "Create a private layer from this
   GeoJSON of survey points."

@@ -9,6 +9,7 @@
  * Phase 1 (read):
  *   - list_items, get_item, read_layer_features
  *   - query_osm: GET /api/osm/query (capped Overpass facade)
+ *   - search_catalog: GET public OGC Records catalog (no token)
  * Phase 2 (write; needs a non-read-only API key):
  *   - run_tool: POST /api/tools/:id/run
  *   - create_data_layer_from_geojson: POST /api/items then
@@ -19,6 +20,8 @@
  * on the API but expire quickly; we soft-detect them and point
  * operators at API keys instead. Read-only keys work for Phase 1
  * and are refused by portal-api on Phase 2 POSTs.
+ * `search_catalog` hits the public Records mount and does not
+ * require a token; private items still need `list_items`.
  *
  * Connectivity: GRATIS_GIS_BASE_URL points at the portal-api
  * deployment (default http://localhost:4000). Thin facade over
@@ -58,6 +61,15 @@ import {
   clientRejectOsmQuery,
   type OsmQueryArgs,
 } from './osm-query.js';
+import {
+  CATALOG_ITEM_TYPES,
+  SEARCH_CATALOG_DEFAULT_LIMIT,
+  SEARCH_CATALOG_MAX_BBOX_AREA_DEG2,
+  SEARCH_CATALOG_MAX_LIMIT,
+  buildSearchCatalogPath,
+  clientRejectSearchCatalog,
+  type SearchCatalogArgs,
+} from './search-catalog.js';
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
@@ -215,6 +227,25 @@ const queryOsmSchema = z.object({
     .optional(),
 });
 
+const searchCatalogSchema = z.object({
+  q: z.string().max(200).optional(),
+  type: z.enum(CATALOG_ITEM_TYPES).optional(),
+  bbox: z
+    .tuple([z.number(), z.number(), z.number(), z.number()])
+    .optional()
+    .describe(
+      'Optional WGS84 [west, south, east, north]. Max area ' +
+        `${SEARCH_CATALOG_MAX_BBOX_AREA_DEG2} square degrees.`,
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(SEARCH_CATALOG_MAX_LIMIT)
+    .optional(),
+  offset: z.number().int().min(0).max(100_000).optional(),
+});
+
 const TOOLS: Tool[] = [
   {
     name: 'list_items',
@@ -292,6 +323,54 @@ const TOOLS: Tool[] = [
         },
       },
       required: ['itemId'],
+    },
+  },
+  {
+    name: 'search_catalog',
+    description:
+      'Search the portal public OGC API Records catalog ' +
+      '(GET /api/public/ogc/collections/catalog/items). Returns only ' +
+      'public items as an OGC Records FeatureCollection (title, ' +
+      'type, tags, links, optional bbox). Filter with q (free text), ' +
+      'type, and optional WGS84 bbox. Caps: limit default ' +
+      `${SEARCH_CATALOG_DEFAULT_LIMIT} max ${SEARCH_CATALOG_MAX_LIMIT}; ` +
+      `bbox area ≤ ${SEARCH_CATALOG_MAX_BBOX_AREA_DEG2} square degrees. ` +
+      'Does not require GRATIS_GIS_TOKEN. Private / org items are not ' +
+      'returned — use list_items with an API key for those.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: {
+          type: 'string',
+          description:
+            'Free-text search against public item title / description / tags.',
+        },
+        type: {
+          type: 'string',
+          enum: [...CATALOG_ITEM_TYPES],
+          description: 'Filter by public item type.',
+        },
+        bbox: {
+          type: 'array',
+          description:
+            'Optional WGS84 bounding box [west, south, east, north]. ' +
+            `Max area ${SEARCH_CATALOG_MAX_BBOX_AREA_DEG2} square degrees.`,
+          items: { type: 'number' },
+          minItems: 4,
+          maxItems: 4,
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: SEARCH_CATALOG_MAX_LIMIT,
+          description: `Maximum records to return. Defaults to ${SEARCH_CATALOG_DEFAULT_LIMIT}.`,
+        },
+        offset: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Pagination offset. Defaults to 0.',
+        },
+      },
     },
   },
   {
@@ -450,25 +529,36 @@ const TOOLS: Tool[] = [
   },
 ];
 
-async function authedFetch(
+async function portalFetch(
   method: 'GET' | 'POST',
   path: string,
-  body?: unknown,
+  opts: { body?: unknown; requireAuth: boolean },
 ): Promise<unknown> {
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'user-agent': USER_AGENT,
+  };
+  if (opts.requireAuth) {
+    headers.authorization = `Bearer ${requireToken()}`;
+  } else if (TOKEN) {
+    // Public routes ignore auth; attach when present so operators
+    // with a key configured do not surprise themselves.
+    headers.authorization = `Bearer ${TOKEN}`;
+  }
+  if (opts.body !== undefined) {
+    headers['content-type'] = 'application/json';
+  }
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
-    headers: {
-      authorization: `Bearer ${requireToken()}`,
-      accept: 'application/json',
-      'user-agent': USER_AGENT,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    headers,
+    ...(opts.body !== undefined
+      ? { body: JSON.stringify(opts.body) }
+      : {}),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     const base = `GratisGIS ${res.status}: ${text || res.statusText}`;
-    if (res.status === 401 || res.status === 403) {
+    if (opts.requireAuth && (res.status === 401 || res.status === 403)) {
       throw new Error(`${base}\n${TOKEN_SETUP_HINT}`);
     }
     throw new Error(base);
@@ -477,6 +567,18 @@ async function authedFetch(
   const text = await res.text();
   if (!text) return null;
   return JSON.parse(text) as unknown;
+}
+
+async function authedFetch(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
+  return portalFetch(method, path, { body, requireAuth: true });
+}
+
+async function publicGet(path: string): Promise<unknown> {
+  return portalFetch('GET', path, { requireAuth: false });
 }
 
 async function authedGet(path: string): Promise<unknown> {
@@ -535,6 +637,15 @@ async function runTool(
         ? `/api/items/${args.itemId}/layers/${encodeURIComponent(args.layerKey)}/geojson?limit=${limit}`
         : `/api/items/${args.itemId}/geojson?limit=${limit}`;
       const out = await authedGet(path);
+      return toContent(out);
+    }
+    case 'search_catalog': {
+      const args = searchCatalogSchema.parse(
+        rawArgs ?? {},
+      ) as SearchCatalogArgs;
+      const reject = clientRejectSearchCatalog(args);
+      if (reject) throw new Error(reject);
+      const out = await publicGet(buildSearchCatalogPath(args));
       return toContent(out);
     }
     case 'query_osm': {

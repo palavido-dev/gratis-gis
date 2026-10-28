@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-analyze-centroid-shortcut | research-cycle-6 | Analyze Centroid → derived_layer | This PR |
+| R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R6-mcp-search-catalog | research-cycle-6 | MCP search_catalog on public Records | Power-user |
 | R6-recipe-sink-honesty | research-cycle-6 | Recipe editor sinks: no coming soon lie | Honesty |
 
 ## queued (needs-maintainer)
@@ -28,6 +27,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R6-analyze-centroid-shortcut | 2026-10-27 | Merged #384: Analyze Centroid → PostGIS derived_layer |
 | SEC-ws-frame-cap | 2026-10-27 | Merged #383: Presence WS max inbound frame 64 KiB |
 | SEC-jwt-deletedAt | 2026-10-27 | Merged #382: refuse soft-deleted users on JWT path |
 | SEC-jwt-aud | 2026-10-27 | Merged #381: JWT azp allowlist for known clients |

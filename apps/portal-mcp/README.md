@@ -2,7 +2,7 @@
 
 A small [Model Context Protocol](https://modelcontextprotocol.io) server that
 exposes a GratisGIS portal to MCP clients (Claude Desktop, Cursor, custom
-agents). Connects over stdio. Phase 1 ships four read tools; Phase 2 adds
+agents). Connects over stdio. Phase 1 ships five read tools; Phase 2 adds
 two write tools.
 
 The server ships with the platform under AGPL-3.0-or-later and works
@@ -17,6 +17,12 @@ against any GratisGIS portal you can sign into.
 - `get_item`: full metadata for a single item by id.
 - `read_layer_features`: GeoJSON FeatureCollection for a `data_layer`,
   capped per call so a large layer cannot exhaust the model context.
+- `search_catalog`: public OGC API Records catalog via
+  `GET /api/public/ogc/collections/catalog/items`. Filter with `q`,
+  `type`, and optional WGS84 `bbox`. Caps: limit default 25 / max 100;
+  bbox area ≤ 100 square degrees. **Does not require a token** — returns
+  only public items. Private / org catalogs still need `list_items` with
+  an API key.
 - `query_osm`: OpenStreetMap Overpass query via `GET /api/osm/query`.
   Requires a WGS84 bbox; supports iD `presetIds` or relational
   `anchorPresetId` + `conditions`. Caps: bbox ≤ 1 square degree, at most
@@ -57,7 +63,8 @@ terminal is only useful for verifying the binary starts. Real usage is via
 an MCP client.
 
 Without `GRATIS_GIS_TOKEN` the server still starts and still answers
-`list_tools`; every tool call returns the "token is not set" message as an
+`list_tools`. `search_catalog` works without a token (public Records
+only); every other tool returns the "token is not set" message as an
 error. That is deliberate. It used to exit at startup instead, which an MCP
 client could only report as a bare "server disconnected".
 
