@@ -84,6 +84,21 @@ Source attributes plus the new numeric field. Geometry unchanged.
 
 ## How to use them
 
+### Calculate geometry from Analyze (guided)
+
+1. Open a data layer and switch to the **Analyze** tab.
+2. Click **Calculate geometry for this layer**.
+3. Pick length, perimeter, or area; choose a unit; name the field.
+4. Optionally edit the title.
+5. Click **Create derived layer**.
+
+The portal creates a private derived layer and opens it. Expect a
+short server job, not an instant browser result. Meter-honest
+measures run on PostGIS geography — Analyze does not invent
+`area_m2()` expression helpers.
+
+### From the new-item wizard
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
 3. Add **Calculate field** and/or **Calculate geometry**.

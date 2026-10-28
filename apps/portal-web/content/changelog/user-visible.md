@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Calculate geometry for this layer from Analyze
+On a data layer's Analyze tab, **Calculate geometry for this layer** opens length / perimeter / area, unit, and field-name controls and creates a private PostGIS derived layer with that measure (geography, honest units). This is not Calculate field expressions. Same path as Create → Derived layer → Calculate geometry. Expect a short server job, not an instant browser result.
+
 ## 2026-10-28 - Vertices for this layer from Analyze
 On a data layer's Analyze tab, **Vertices for this layer** creates a private PostGIS derived layer that explodes each geometry into one point per vertex (`ST_DumpPoints`, with `vertex_index`). Dense shapes can produce many rows; multi-part geometries dump all parts together. Same path as Create → Derived layer → Vertices. Expect a short server job, not an instant browser result.
 

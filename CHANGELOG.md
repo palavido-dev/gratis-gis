@@ -149,6 +149,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Calculate geometry for this layer** guide creates a
+  single-step `derived_layer` calculate-geometry recipe via
+  `POST /api/portal/items` (length / perimeter / area + unit +
+  field name on PostGIS geography). Help `analysis/calculate`
+  documents the Analyze entry point. Locale catalogs for the
+  guide chrome (en / es / fr / de / pt-BR)
+  (R9-analyze-calculate-geometry-shortcut).
 - Analyze **Vertices for this layer** guide creates a single-step
   `derived_layer` vertices recipe via `POST /api/portal/items`,
   reusing PostGIS `ST_DumpPoints` (adds `vertex_index`; row count

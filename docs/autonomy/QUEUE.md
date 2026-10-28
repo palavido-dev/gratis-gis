@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-analyze-vertices-shortcut | research-cycle-9 | Analyze Vertices → PostGIS derived_layer | This PR |
+| R9-analyze-calculate-geometry-shortcut | research-cycle-9 | Analyze Calculate geometry → PostGIS derived_layer | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-analyze-calculate-geometry-shortcut | research-cycle-9 | Analyze Calculate geometry → PostGIS derived_layer | Buffer-shaped |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R9-analyze-vertices-shortcut | 2026-10-28 | Merged #412: Analyze Vertices → PostGIS derived_layer |
 | R9-analyze-bbox-shortcut | 2026-10-28 | Merged #411: Analyze Bounding boxes → PostGIS derived_layer |
 | R9-i18n-field-collect-chrome | 2026-10-28 | Merged #410: Field collect / GPS / remove chrome i18n (#162) |
 | R9-derived-layer-catalog-honesty | 2026-10-28 | Merged #409: derived-layer full step catalog + Analyze list |
