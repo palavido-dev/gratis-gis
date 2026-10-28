@@ -2,7 +2,7 @@
 id: items-form
 title: Form
 summary: An item that collects new features or non-spatial responses from people in the field or at their desks. The native equivalent of a Survey123 survey.
-category: items
+category: items/field-and-forms
 order: 30
 complexity: basic
 tags:
@@ -16,6 +16,7 @@ related:
   - forms-form-designer
   - forms-xlsform-import
 ---
+![Form designer canvas](/help/forms/form-designer-canvas.png)
 
 A **form** is an item that presents a question list to a respondent
 and writes their answers into a backing layer when they submit.

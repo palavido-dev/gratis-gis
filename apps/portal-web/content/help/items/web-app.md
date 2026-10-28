@@ -2,7 +2,7 @@
 id: items-web-app
 title: Web app
 summary: A standalone web page built from a map plus widgets. Nearby to Web AppBuilder. Not an Experience Builder drop-in.
-category: items
+category: items/maps-and-apps
 order: 50
 complexity: basic
 tags:
@@ -14,6 +14,7 @@ related:
   - web-apps-custom-app
   - web-apps-templates
 ---
+![Web app item detail page](/help/items/web-app-detail.png)
 
 A **web app** is an item that wraps a map with a chosen template,
 a set of widgets, and a theme, producing a standalone web page

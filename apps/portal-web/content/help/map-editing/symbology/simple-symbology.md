@@ -13,6 +13,7 @@ related:
   - symbology-graduated
   - symbology-scale-classes
 ---
+![Map builder layer style panel for Trails](/help/map-editing/symbology/simple-symbology-panel.png)
 
 **Simple symbology** is the default and the right choice when you
 want every feature of a layer drawn the same way. One stroke

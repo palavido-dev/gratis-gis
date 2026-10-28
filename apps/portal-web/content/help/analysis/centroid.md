@@ -2,7 +2,7 @@
 id: analysis-centroid
 title: Centroid
 summary: Replace each feature's geometry with a single point at its geometric center.
-category: analysis
+category: analysis/geometry
 order: 70
 complexity: basic
 tags:
@@ -48,6 +48,8 @@ SQL starter still offers `ST_Centroid` for ad-hoc queries; the
 guided control is the honest path when you want a saved layer.
 
 ### From the new-item wizard
+![Derived layer recipe with a Centroid step](/help/analysis/centroid-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

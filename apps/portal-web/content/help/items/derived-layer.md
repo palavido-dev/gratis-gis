@@ -2,7 +2,7 @@
 id: items-derived-layer
 title: Derived layer
 summary: An item that produces features by running a pipeline of analysis steps against one or more source layers. The output is queryable like a data layer.
-category: items
+category: items/data
 order: 140
 complexity: intermediate
 tags:
@@ -16,6 +16,7 @@ related:
   - analysis-spatial-join
   - analysis-filter
 ---
+![New Derived layer item type in the wizard](/help/analysis/derived-layer-new-item.png)
 
 A **derived layer** is an item whose features are computed from
 other layers by a pipeline of analysis steps. The output rows are

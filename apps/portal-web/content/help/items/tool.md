@@ -2,7 +2,7 @@
 id: items-tool
 title: Tool
 summary: A reusable named action or analysis recipe, with a canvas that arranges the recipe as one chain.
-category: items
+category: items/maps-and-apps
 order: 170
 complexity: advanced
 tags:

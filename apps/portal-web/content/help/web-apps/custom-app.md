@@ -14,6 +14,7 @@ related:
   - web-apps-templates
   - web-apps-themes
 ---
+![Web app item detail with Open viewer](/help/web-apps/custom-app-builder.png)
 
 The **Custom Web App** builder is the drag-and-drop editor for
 web app items whose template is **Custom**. Pick a layout, drag

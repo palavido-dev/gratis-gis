@@ -2,7 +2,7 @@
 id: analysis-convex-hull
 title: Convex hull
 summary: Replace each feature's geometry with its convex hull via PostGIS ST_ConvexHull. Attributes are kept.
-category: analysis
+category: analysis/geometry
 order: 75
 complexity: basic
 tags:
@@ -52,6 +52,8 @@ The portal creates a private derived layer and opens it. Expect a
 short server job, not an instant browser result.
 
 ### From the new-item wizard
+![Derived layer recipe with a Convex hull step](/help/analysis/convex-hull-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

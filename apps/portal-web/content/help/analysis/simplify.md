@@ -2,7 +2,7 @@
 id: analysis-simplify
 title: Simplify
 summary: Drop vertices within a tolerance of a straight line via PostGIS ST_Simplify. Attributes are kept.
-category: analysis
+category: analysis/geometry
 order: 65
 complexity: basic
 tags:
@@ -58,6 +58,8 @@ tolerance runs on PostGIS — Analyze does not invent an in-browser
 simplify.
 
 ### From the new-item wizard
+![Derived layer recipe with a Simplify step](/help/analysis/simplify-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

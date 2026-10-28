@@ -7,6 +7,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- Help: task-shaped landing hub, collapsed sidebar, and nested Analysis / Items / Coming-from-ArcGIS groups (URLs unchanged).
+- Help: real UI screenshots for getting-started, form designer, map editing (markup/comments/symbology), admin surfaces, web app detail, and analysis derived-layer recipes (Buffer, Clip, and the other guided steps).
+
 ## [0.9.120] - 2026-10-28
 
 ### Security

@@ -2,7 +2,7 @@
 id: items-print-template
 title: Print template
 summary: A paper layout (page size, map frame, legend, text, parameters) that a web app's Print tool or the map editor Print button fills in and renders for PDF.
-category: items
+category: items/maps-and-apps
 order: 55
 complexity: intermediate
 tags:

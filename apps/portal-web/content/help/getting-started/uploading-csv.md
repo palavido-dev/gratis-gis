@@ -14,7 +14,7 @@ related:
   - items-data-layer
 ---
 
-![A spreadsheet with an address column becoming points on a map](/help/csv-upload.svg)
+![New Data layer item form where you create a layer before importing a CSV](/help/getting-started/uploading-csv-import.png)
 
 If your spreadsheet has latitude and longitude columns, you can
 turn it into a mapped data layer without renaming anything

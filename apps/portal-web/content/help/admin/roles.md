@@ -13,6 +13,7 @@ related:
   - admin-organization-settings
   - sharing-an-item
 ---
+![Admin Users and roles list](/help/admin/users.png)
 
 A **role** is a coarse permission level applied to a user across
 their entire org membership. Roles control what the user can do

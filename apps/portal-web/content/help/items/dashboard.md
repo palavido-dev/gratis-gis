@@ -2,7 +2,7 @@
 id: items-dashboard
 title: Dashboard
 summary: Dashboards are web apps started from the KPI Dashboard or Operations Board template. There is no dashboard item type.
-category: items
+category: items/maps-and-apps
 order: 60
 complexity: intermediate
 tags:

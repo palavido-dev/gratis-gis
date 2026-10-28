@@ -2,7 +2,7 @@
 id: items-report-template
 title: Report template
 summary: Document report templates are not built. Use a print template for paper output from a web app.
-category: items
+category: items/maps-and-apps
 order: 70
 complexity: intermediate
 tags:

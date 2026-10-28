@@ -2,7 +2,7 @@
 id: analysis-spatial-join
 title: Spatial join
 summary: Attach a count or selected attributes from a second data layer onto each input feature via within, intersects, or nearest.
-category: analysis
+category: analysis/select-and-calculate
 order: 30
 complexity: intermediate
 tags:
@@ -63,6 +63,8 @@ need it (including **contains** / **touches** / **near**).
   skipped by the join SQL).
 
 ## How to use it on its own
+![Derived layer recipe with a Spatial join step](/help/analysis/spatial-join-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a **Source**.

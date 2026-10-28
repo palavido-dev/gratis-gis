@@ -2,7 +2,7 @@
 id: items-data-layer
 title: Data layer
 summary: An item that holds one or more PostGIS-backed feature tables.  The native equivalent of an Esri feature service.
-category: items
+category: items/data
 order: 20
 complexity: basic
 tags:
@@ -20,6 +20,8 @@ related:
 A **data layer** is the native item type for feature data. It owns
 one or more PostGIS tables and the schema that describes them.
 Maps reference data layers; data layers reference nothing.
+
+![Data layer detail page with Overview map preview and feature stats](/help/items/data-layer-detail.png)
 
 ## What's in a data layer
 

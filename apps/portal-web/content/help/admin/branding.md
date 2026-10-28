@@ -12,6 +12,7 @@ tags:
 related:
   - admin-organization-settings
 ---
+![Admin Landing page / branding settings](/help/admin/branding.png)
 
 The **branding** page (admin → branding) controls the portal's
 look at the org level: logo in the top bar, primary color

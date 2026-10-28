@@ -2,7 +2,7 @@
 id: analysis-clip
 title: Clip
 summary: Keep only the parts of input features that fall inside a clip polygon. Cookie-cutter style.
-category: analysis
+category: analysis/overlay
 order: 80
 complexity: basic
 tags:
@@ -55,11 +55,13 @@ analysis tier.
 
 ### From the new-item wizard
 
+![Derived layer recipe with a Clip by another layer step](/help/analysis/clip-analyze-guide.png)
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
-3. Add a **Clip** step.
+3. Add a **Clip by another layer** step.
 4. Pick the other data layer.
-5. Save.
+5. Click **Create item**.
 
 ## Example
 

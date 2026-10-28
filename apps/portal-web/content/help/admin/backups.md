@@ -14,6 +14,7 @@ tags:
 related:
   - admin-organization-settings
 ---
+![Admin Backup settings](/help/admin/backup.png)
 
 GratisGIS persists state in two places: **PostgreSQL** (every
 item's metadata, every feature, the observation log) and **MinIO**
