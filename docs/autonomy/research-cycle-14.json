@@ -1,0 +1,334 @@
+{
+  "cycle": 14,
+  "researchedAt": "2026-10-28T18:04:33Z",
+  "method": "Read PLAYBOOK.md, origin/main QUEUE.md, research-cycle-13.json, CHANGELOG Unreleased / 0.9.120, and user-visible.md. Security Sentinel on origin/main: mapped every @Public route vs method/class @Throttle; confirmed R13 SEC PRs still open (#452 citation, #454 OGC Features collections, #455 aggregate, #456 features/geojson) and R13 i18n PRs open (#459 sharing, #460 Analyze SQL). After those land, Public list-class routes still only on global 300/min: layer filtered-extent, CSW GetRecords, public/catalog.json (unbounded DCAT dump), STAC collections landing, OGC Styles list (full public layer scan), Records/Records-catalog single-item GETs, Aardvark, Public landing/item/osm-presets/basemap items, thumbnail.svg, plus rejected byte/bootstrap class (MVT, OGC Tiles, storage, point-cloud, health, portal-info). Honesty: form.md Survey123 softening already merged (#453); data-layer.md summary still claims native equivalent of an Esri feature service. i18n leftovers after R13 merges (Layers rail, map settings descriptions, editor-runtime, BuilderShell Back/Close, dialog/sheet Close): sharing-panel + Analyze SQL still in flight; next #162 finishable islands are viewer/editor detail builder chrome, item page actions, folder detail, print-template designer. Open GitHub issues still only #162 and #183. Skimmed docs/research security-deep-dive and help honesty greps. Ethos filters applied; needs-maintainer carry-forward unchanged; standing rejects (node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, multi-input / calculate-field / filter Analyze shortcuts, report-template implementation, Nest-throttle on OGC Tiles/MVT/storage/point-cloud/health/portal-info) restated.",
+  "driverBcId": "bc-research-cycle-14",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T18:04:33Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist regressions on origin/main since R13. Shipped tighter throttles remain intact: STAC items/search 60/min, drawings list 60/min + writes 30/min, features-page + features-search 60/min, OGC Features items + featureId 60/min, Records list 60/min, comments GET 60/min, feedback POST 30/min, tools/run 30/min, public-proxy class 30/min. Open R13 SEC PRs (#452/#454/#455/#456) cover citation, OGC Features collections, aggregate, features+geojson. After those merge, global 300/min still covers: PublicController layerFilteredExtent; PublicCswController GetRecords (paginated public-item harvest); PublicController catalog.json (unbounded public-item DCAT findMany); STAC collections + collection id; OgcStylesController styles list (full public layer scan); Records / Records-catalog single-item GETs; Aardvark; Public landing / item / osm-presets / basemap items; items thumbnail.svg; portal-info; health; storage private/:kind/:key; point-cloud file; tile-layer / elevation-mosaic / OGC Tiles / MVT byte routes. safeFetch / assertSafeOutboundUrl, zip budget, assertSafeGdalOpenPath, otherSource canRead, JWT deletedAt/azp, WS 64 KiB frame cap unchanged. No High hardening queued. Low follow-ups for this refill: SEC-public-filtered-extent-throttle, SEC-csw-throttle, SEC-public-catalog-json-throttle (STAC collections / OGC Styles / Records item / Aardvark / thumbnail / basemap-items are secondary). Do NOT Nest-throttle OGC Tiles / MVT / storage / point-cloud byte routes. Prefer not Nest-throttling health or portal-info unless abuse evidence appears."
+  },
+  "leftoverHardcodedEnglish": [
+    {
+      "file": "apps/portal-web/src/app/items/[id]/sharing-panel.tsx",
+      "lines": [995, 1010, 1083, 1093, 1245, 1270, 1305, 1319, 1379, 1393, 1429],
+      "strings": [
+        "Private / Public visibility labels+desc (sharing.access.* keys exist; R13 PR #459 in flight)",
+        "Visibility / Change permission / Row scope / Restrict to area / Remove share",
+        "Search groups... / Search people in your org... / Editor item access"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+      "lines": [285, 296, 651, 659, 665],
+      "strings": [
+        "Preview / Count by ${countField} (R13 PR #460 in flight)",
+        "The layer is available as… / Spatial SQL works… / Buffer this layer / spatial extension could not be loaded…"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/editor/editor-detail.tsx",
+      "lines": [403, 406, 416, 545, 639, 819, 820, 853, 1145, 1146],
+      "strings": [
+        "Unsaved changes / Saved / Open in workspace",
+        "Editor configuration / Clear reference map",
+        "Remove target / Delete / Remove template"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/viewer/detail.tsx",
+      "lines": [357, 360, 370, 386, 416, 498, 499, 565, 729, 730],
+      "strings": [
+        "Unsaved changes / Saved / Open viewer / Discard / Add from map",
+        "Viewer configuration / Clear reference map / Remove layer"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/page.tsx",
+      "lines": [598, 717, 785, 1458, 1469],
+      "strings": [
+        "Sharing / Back to items / Responses",
+        "Print template designer / Open builder"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/folder/folder-detail.tsx",
+      "lines": [514, 524, 534, 947, 1164],
+      "strings": [
+        "Apply folder sharing / New subfolder / Add items",
+        "Cancel / Smart folder"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/print-template/print-template-detail.tsx",
+      "lines": [447, 458, 880, 909, 1154, 1484],
+      "strings": [
+        "Zoom out / Zoom in / Paper / Portrait",
+        "Type text… / Delete parameter"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/tool/recipe-editor.tsx",
+      "lines": [115, 176, 235, 336, 382, 1460],
+      "strings": [
+        "Start from a template / Selection cap / Parameters",
+        "Area of interest / Remove parameter / Remove step"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/custom/detail.tsx",
+      "lines": [1813, 1885, 3813, 3952, 4111],
+      "strings": [
+        "Move left / Move right / Add page / Remove map / Remove layer / Remove widget (dense; defer past sharper #162 slices)"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/responses/form-view.tsx",
+      "lines": [214, 224, 238, 269, 277, 343, 452],
+      "strings": [
+        "Previous / Next submission / Close form view",
+        "Submitted by / Submitted at / No attachments / No entries"
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "R14-i18n-viewer-editor-detail-chrome",
+      "title": "Continue #162 i18n on viewer/editor detail builder chrome",
+      "summary": "After R13 BuilderShell titles and editor-runtime toolbar, editor-detail.tsx and viewer/detail.tsx still hard-code Unsaved changes / Saved / Open in workspace|Open viewer / Discard / Add from map, Editor|Viewer configuration, Clear reference map, Remove target|layer|template, and Delete aria. Extract catalogs (reuse common.save / common.delete / builderShell where wording matches) for en/es/fr/de/pt-BR.",
+      "rationale": "Highest-traffic #162 finishable island left once sharing-panel (#459) and Analyze SQL (#460) land. Builder chrome for Feature Editor and Viewer authors, not a new pillar.",
+      "risk": "Do not change save / import / target / layer semantics. Scope to detail builder chrome strings; leave runtime already covered by R13. Skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Guided authoring chrome in the admin language. Continues open issue #162 without Weblate hosting.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/editor/editor-detail.tsx",
+        "apps/portal-web/src/app/items/[id]/viewer/detail.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Wire viewer + editor detail chrome through catalogs; CHANGELOG Changed note; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R14-i18n-item-page-chrome",
+      "title": "Continue #162 i18n on item page chrome actions",
+      "summary": "items/[id]/page.tsx still hard-codes Sharing, Back to items, Responses, Print template designer, Open builder, and related action titles. Wire through existing itemPage / common / builderShell keys where possible.",
+      "rationale": "Every item type lands on this page. Small, finishable #162 slice after viewer/editor detail.",
+      "risk": "Do not change which actions appear by type or ACL. Scope to chrome labels/titles on page.tsx. Skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Portal chrome in the user's language. No product call.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/page.tsx"
+      ],
+      "suggestedFirstPR": "Replace hard-coded page.tsx chrome with t() catalogs; CHANGELOG Changed; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R14-i18n-folder-detail-chrome",
+      "title": "Continue #162 i18n on folder detail chrome",
+      "summary": "folder-detail.tsx hard-codes Apply folder sharing, New subfolder, Add items, Smart folder, Cancel, breadcrumb aria, and related titles/placeholders. Add a small folderDetail catalog (en/es/fr/de/pt-BR).",
+      "rationale": "Folders are org navigation chrome. Bounded file, clear strings, no hosting decision.",
+      "risk": "Do not change cascade-sharing or smart-folder query semantics. Keep honesty that Apply folder sharing updates child shares. Skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest folder sharing chrome in the admin language.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/folder/folder-detail.tsx"
+      ],
+      "suggestedFirstPR": "folderDetail catalog + wire folder-detail.tsx; CHANGELOG Changed; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R14-i18n-print-template-chrome",
+      "title": "Continue #162 i18n on print template designer chrome",
+      "summary": "print-template-detail.tsx hard-codes Paper / Size / Orientation / Portrait, Zoom in/out aria, Type text…, Delete parameter, and related designer labels. Wire through a printTemplate catalog; reuse map/print keys where wording matches.",
+      "rationale": "Print template help honesty already shipped; designer chrome is the leftover English island for that item type.",
+      "risk": "Do not redesign print layouts or brand kit. Scope to designer chrome strings. Keep paper sizes as literal enum values if needed. Skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Authoring chrome i18n without brand redesign. Fits playbook reject of print brand kit.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/print-template/print-template-detail.tsx",
+        "apps/portal-web/content/help/items/print-template.md"
+      ],
+      "suggestedFirstPR": "printTemplate catalog + wire designer chrome; CHANGELOG Changed; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R14-data-layer-help-honesty",
+      "title": "Soften data-layer.md Esri feature-service equivalence claim",
+      "summary": "items/data-layer.md summary still says The native equivalent of an Esri feature service. Same oversell class as the now-fixed form.md Survey123 line. Soften to PostGIS-backed feature tables with OGC / public API surfaces, and a short What this is not note (not a hosted feature service drop-in, not ArcGIS Server).",
+      "rationale": "Playbook ethos: honest about what we are not. Form honesty (#453) already set the pattern; data-layer is the next frontmatter that still claims native equivalent.",
+      "risk": "Docs-only. Keep PostGIS / OGC Features / public mirrors discoverable. Do not invent ArcGIS FeatureServer parity. CHANGELOG Documentation note; skip What's new unless the help card blurb changes enough to notice.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about not being ArcGIS Online / ArcGIS Server. Prefer OGC / PostGIS shapes.",
+      "sources": [
+        "apps/portal-web/content/help/items/data-layer.md",
+        "apps/portal-web/content/help/items/form.md",
+        "apps/portal-web/content/help/coming-from-arcgis/terminology.md",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "Rewrite data-layer.md summary + short honesty blurb; CHANGELOG docs note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-public-filtered-extent-throttle",
+      "title": "Tighter throttle on Public layer filtered-extent",
+      "summary": "PublicController GET .../layers/:layerId/filtered-extent is @Public with only global 300/min. Anonymous zoom-to-filter can run PostGIS extent work with where/via/asOf. Add @Throttle 60/min matching features-page / aggregate / Records.",
+      "rationale": "List/compute class sibling of already-queued aggregate and features mirrors. Low severity, no product call, same SEC-* pattern.",
+      "risk": "Dashboards that hammer filtered-extent on pan may hit 60/min. Prefer 60; leave MVT and ACL unchanged. Document in CHANGELOG Security + api.md rate note; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted Public DoS hardening without pricing or Keycloak defaults.",
+      "sources": [
+        "apps/portal-api/src/public/public.controller.ts",
+        "apps/portal-web/content/help/reference/api.md",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on layerFilteredExtent; CHANGELOG Security + api.md Public rate note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-csw-throttle",
+      "title": "Tighter throttle on Public CSW GetCapabilities / GetRecords",
+      "summary": "PublicCswController GET /public/csw is @Public with only global 300/min. GetRecords walks public items (start/max up to 200) for harvesters. Add @Throttle 60/min on the controller or dispatch method matching Records list.",
+      "rationale": "Catalogue harvest endpoint without a tighter Nest budget. Same Public list class as Records / STAC / Features collections.",
+      "risk": "Aggressive CSW harvesters may need to back off. Prefer 60; keep maxrecords clamp (200) and XML shape unchanged. CHANGELOG Security + api.md / CSW help note; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "OGC-compatible catalogue surface with honest rate limits. Self-hosted hardening.",
+      "sources": [
+        "apps/portal-api/src/public/public-csw.controller.ts",
+        "apps/portal-web/content/help/reference/api.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on CSW dispatch; CHANGELOG Security + short api.md note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-public-catalog-json-throttle",
+      "title": "Tighter throttle on Public DCAT catalog.json",
+      "summary": "PublicController GET catalog.json is @Public with only global 300/min and runs an unbounded findMany of every public item for the org. Add @Throttle 60/min (optionally also a soft row cap later; this PR is throttle-only).",
+      "rationale": "Anonymous DCAT dump is a catalogue scan class endpoint. Cheaper than feature streams but still unbounded list work per call.",
+      "risk": "Open-data harvesters polling often may hit 60/min. Prefer 60; do not change DCAT shape in this PR. CHANGELOG Security + api.md; skip What's new. Row-cap is a separate product-ish follow-up if needed.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Open standards (DCAT) with Public DoS budget. No seat pricing.",
+      "sources": [
+        "apps/portal-api/src/public/public.controller.ts",
+        "apps/portal-web/content/help/reference/api.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on catalog(); CHANGELOG Security + api.md; skip What's new.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R14-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer #162 chrome and Low SEC."
+    },
+    {
+      "id": "R14-reject-print-brand-kit",
+      "title": "Reject print / brand kit redesign",
+      "reason": "Fails playbook brand test. Print help honesty already shipped; R14 only allows print-template chrome i18n."
+    },
+    {
+      "id": "R14-reject-seat-pricing",
+      "title": "Reject seat pricing / SaaS packaging",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R14-reject-recipe-materialize-sinks",
+      "title": "Reject recipe materialize sinks",
+      "reason": "Honesty already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a sharp ship."
+    },
+    {
+      "id": "R14-reject-tile3d-local-rebuild",
+      "title": "Reject Tile3D / SSE local rebuild as ship-without-input",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+    },
+    {
+      "id": "R14-reject-weblate-hosting",
+      "title": "Reject Weblate / Crowdin / Tolgee hosting choice",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction."
+    },
+    {
+      "id": "R14-reject-analyze-multi-input-shortcuts",
+      "title": "Reject multi-input Analyze shortcuts",
+      "reason": "Prior cycle rejection still holds. Multi-source otherSource pickers are heavy Analyze UX."
+    },
+    {
+      "id": "R14-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor. Calculate geometry already covers meter-honest measures."
+    },
+    {
+      "id": "R14-reject-analyze-filter-shortcut",
+      "title": "Reject Filter Analyze shortcut",
+      "reason": "Filter is a free-form {{field}} expression. AnalyzeQueryBuilder covers ad-hoc SQL preview; materialize stays builder-only."
+    },
+    {
+      "id": "R14-reject-report-template-item",
+      "title": "Reject report-template implementation",
+      "reason": "report-template.md honestly says not built. Implementing DOCX/PDF document reports is a new pillar."
+    },
+    {
+      "id": "R14-reject-ogc-tiles-byte-throttle",
+      "title": "Reject Nest @Throttle on OGC Tiles / MVT / storage / point-cloud",
+      "reason": "High-frequency map traffic; a 60/min Nest limit would break legitimate MapLibre / COPC loads. Prefer edge / CDN budgets."
+    },
+    {
+      "id": "R14-reject-health-portalinfo-nest-throttle",
+      "title": "Reject Nest @Throttle on health / portal-info",
+      "reason": "health feeds k8s/load-balancer probes; portal-info is the pre-auth bootstrap every client hits. No abuse evidence."
+    },
+    {
+      "id": "R14-reject-presence-crdt",
+      "title": "Reject presence CRDT as ship-without-input",
+      "reason": "Abuse / transport defaults stay needs-maintainer. Presence WebSocket frame cap already shipped."
+    },
+    {
+      "id": "R14-reject-custom-app-builder-i18n-first",
+      "title": "Defer custom web-app builder i18n as first #162 slice",
+      "reason": "custom/detail.tsx is a dense English island (100+ strings). Prefer sharper viewer/editor/item/folder/print slices first; revisit after those land."
+    },
+    {
+      "id": "R14-reject-stac-collections-throttle-now",
+      "title": "Defer STAC collections / OGC Styles / Records-item / Aardvark throttles",
+      "reason": "Valid Low follow-ups after filtered-extent / CSW / catalog.json. Keep the refill to three sharper SEC list endpoints; note them in sentinel for cycle 15."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ],
+  "queueOrder": [
+    "R14-i18n-viewer-editor-detail-chrome",
+    "R14-i18n-item-page-chrome",
+    "R14-i18n-folder-detail-chrome",
+    "R14-i18n-print-template-chrome",
+    "R14-data-layer-help-honesty",
+    "SEC-public-filtered-extent-throttle",
+    "SEC-csw-throttle",
+    "SEC-public-catalog-json-throttle"
+  ],
+  "queueRecommendation": [
+    "R14-i18n-viewer-editor-detail-chrome",
+    "R14-i18n-item-page-chrome",
+    "R14-i18n-folder-detail-chrome",
+    "R14-i18n-print-template-chrome",
+    "R14-data-layer-help-honesty",
+    "SEC-public-filtered-extent-throttle",
+    "SEC-csw-throttle",
+    "SEC-public-catalog-json-throttle"
+  ],
+  "drainFirstNote": "origin/main QUEUE still has in-flight R13 work: sharing-panel (#459), Analyze SQL starters (#460), SEC citation/collections/features-geojson/aggregate (#452/#454/#456/#455), and form honesty already merged (#453). Drain those before enqueueing R14 ids."
+}
