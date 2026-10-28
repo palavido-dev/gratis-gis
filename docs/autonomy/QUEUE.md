@@ -6,12 +6,24 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-features-page-throttle | research-cycle-12 | @Throttle 60/min on Public features-page + search | This PR |
+| Q-research-cycle-13 | research-cycle-13 | Refill ship-without-input queue after R12 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R13-i18n-map-layers-panel-title | research-cycle-13 | Wire map leftPanelTitle Layers via mapLayerPanel.title (#162) | After #437 title pattern |
+| R13-i18n-map-settings-descriptions | research-cycle-13 | Map settings description bodies + option labels (#162) | After #437 |
+| R13-i18n-editor-runtime-chrome | research-cycle-13 | Feature Editor runtime toolbar / edit / measure i18n (#162) | Dense English island |
+| R13-i18n-builder-viewer-editor-titles | research-cycle-13 | BuilderShell Back/Close + viewer/editor panel titles (#162) | |
+| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | Partial catalog exists |
+| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | Guides already t() |
+| R13-i18n-dialog-sheet-close | research-cycle-13 | Dialog/Sheet Close + attribute-form Cancel aria (#162) | common.close/cancel |
+| SEC-citation-throttle | research-cycle-13 | @Throttle 60/min on Public citation .bib/.ris/.jsonld | |
+| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | |
+| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | Leave MVT alone |
+| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | |
+| R13-form-help-survey123-honesty | research-cycle-13 | Soften form.md "native equivalent of Survey123" | Docs-only; api.md Rate limits fold into SEC-citation |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +38,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-public-features-page-throttle | 2026-10-28 | Merged #444: Public features-page + features-search @Throttle 60/min |
 | SEC-drawings-list-throttle | 2026-10-28 | Merged #443: Public GET drawings list @Throttle 60/min |
 | SEC-stac-items-search-throttle | 2026-10-28 | Merged #442: Public STAC items + search @Throttle 60/min |
 | R12-i18n-field-offline-basemap-row | 2026-10-28 | Merged #441: closed clean (offline-basemap-row + DownloadProgressModal already i18n after #425) |
@@ -105,6 +118,20 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | reason |
 | --- | --- |
+| R13-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R13-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R13-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R13-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty points at derived_layer |
+| R13-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
+| R13-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R13-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
+| R13-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R13-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R13-reject-report-template-item | Report template not built |
+| R13-reject-ogc-tiles-byte-throttle | Nest throttle on tile/MVT/storage/point-cloud byte routes would break maps |
+| R13-reject-health-portalinfo-nest-throttle | health = probes; portal-info = every-client bootstrap |
+| R13-reject-presence-crdt | Abuse / transport defaults stay needs-maintainer |
+| R13-reject-thumbnail-designer-i18n-first | Defer behind editor/sharing #162 slices |
 | R11-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
 | R11-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
 | R11-reject-seat-pricing | Named-user pricing contradicts ethos |
