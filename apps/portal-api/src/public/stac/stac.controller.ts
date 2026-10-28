@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -130,6 +131,10 @@ export class PublicStacController {
   }
 
   @Public()
+  // Tighter than the global 300/min: STAC items/search clamp limit
+  // to 1000 (SEC-stac-items-search-throttle; matches Records /
+  // OGC Features items at 60/min).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('collections/:collectionId/items')
   @Header('Content-Type', STAC_GEOJSON_MEDIA_TYPE)
   async items(
@@ -154,6 +159,9 @@ export class PublicStacController {
   }
 
   @Public()
+  // Same 60/min bucket class as /items: single-item lookups would
+  // otherwise bypass the listing throttle (SEC-stac-items-search-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('collections/:collectionId/items/:itemId')
   @Header('Content-Type', STAC_GEOJSON_MEDIA_TYPE)
   async item(
@@ -180,6 +188,7 @@ export class PublicStacController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('search')
   @Header('Content-Type', STAC_GEOJSON_MEDIA_TYPE)
   async searchGet(@Req() req: Request) {
@@ -202,6 +211,7 @@ export class PublicStacController {
    * 201, which would claim a resource was created by a read.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('search')
   @HttpCode(200)
   @Header('Content-Type', STAC_GEOJSON_MEDIA_TYPE)
