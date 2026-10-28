@@ -50,17 +50,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
-<<<<<<< HEAD
-- Analyze Erase / Centroid guides go through locale catalogs
-  (en / es / fr / de / pt-BR), matching Buffer / Clip
-  (R7-i18n-erase-centroid-guides / #162).
-=======
 - CONTRIBUTING and the autonomy PLAYBOOK require documentation
   (help, CHANGELOG, What's new when user-visible, QUEUE for
   autonomy items) in the **same PR / commits** as the code —
   continuous updates, not docs follow-ups
   (docs-every-commit).
->>>>>>> 48b97d37 (docs: require help/CHANGELOG in the same PR as code)
+- Analyze Erase / Centroid guides go through locale catalogs
+  (en / es / fr / de / pt-BR), matching Buffer / Clip
+  (R7-i18n-erase-centroid-guides / #162).
 - Contour help (`analysis/contour`) matches the TIN iso-line
   generator: numeric field + auto/manual levels, line output
   with a `level` property. Iso-polygons, smoothing, and
@@ -97,6 +94,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Simplify this layer** guide creates a single-step
+  `derived_layer` simplify recipe via `POST /api/portal/items`,
+  reusing PostGIS `ST_Simplify` with meter-honest tolerance
+  (Douglas–Peucker; not topology-preserving). Help page
+  `analysis/simplify` documents the Analyze entry point. Locale
+  catalogs for the guide chrome (en / es / fr / de / pt-BR)
+  (R7-analyze-simplify-shortcut).
 - Analyze **Dissolve this layer** guide creates a single-step
   `derived_layer` dissolve recipe via `POST /api/portal/items`,
   reusing the no-param PostGIS `ST_Union` tool (attributes

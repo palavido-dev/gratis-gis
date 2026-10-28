@@ -4905,6 +4905,25 @@ export const en = {
       '. For keyed dissolve with aggregates, use group-by. Expect a short server job, not an instant browser result.',
     dissolveHint:
       'Attributes are dropped. Open the new item to map or refresh the result after the server job finishes.',
+    simplifyAction: 'Simplify this layer',
+    simplifyActionTitle:
+      'Create a server-side derived layer simplify (PostGIS ST_Simplify). Meter-honest tolerance.',
+    simplifyHeading: 'Simplify this layer (server derived layer)',
+    simplifyIntroBefore: 'Creates a private derived layer that runs',
+    simplifyIntroAfter:
+      'on PostGIS with a meter-honest tolerance (Douglas–Peucker). Same recipe as',
+    simplifyHelpLink: 'Simplify help',
+    simplifyIntroTail:
+      '. Not topology-preserving. Expect a short server job, not an instant browser result.',
+    simplifyTolerance: 'Tolerance',
+    simplifyToleranceAria: 'Simplify tolerance',
+    simplifyUnit: 'Unit',
+    simplifyUnitAria: 'Simplify tolerance unit',
+    simplifyLimitHint:
+      'Up to {meters} m. Expect a short server job; open the new item to map or refresh the result.',
+    simplifyValidateUnit: 'Pick a tolerance unit.',
+    simplifyValidateEmpty: 'Enter a tolerance greater than zero.',
+    simplifyValidateMax: 'Tolerance must be at most {meters} m.',
   },
 
   /**
