@@ -68,6 +68,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Help: cross-link Data collection ↔ Data layer ↔ HTTP API for
+  sync conflict **Re-apply** / **Dismiss** (Layer data panel);
+  keep CRDT honesty on drawings
+  (R12-sync-conflict-help-crosslink).
 - PWA Install / Dismiss / iOS install-hint chrome goes through
   en/es/fr/de/pt-BR catalogs (R12-i18n-pwa-install-chrome / #162).
 - Map editor right-rail title uses the existing `mapSettings.title`

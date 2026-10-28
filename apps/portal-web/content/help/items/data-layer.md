@@ -12,6 +12,7 @@ tags:
 related:
   - items-map
   - items-data-collection
+  - reference-api
   - adding-a-layer
   - bundle-export
 ---
