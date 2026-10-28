@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.120] - 2026-10-28
+
 ### Security
 
 - Public `GET .../layers/:layerId/features-page` and

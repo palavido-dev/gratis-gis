@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits
+Analyze can now create private PostGIS layers for Group by, Contour, Random sample, Top N, Fishnet, Nearest neighbor, and more from the layer tab. Field and map editor chrome keep growing into Spanish, French, German, and Brazilian Portuguese. Public list and search endpoints that used to share a loose global budget now rate-limit anonymous scans more tightly.
+
 ## 2026-10-28 - Group by for this layer from Analyze
 On a data layer's Analyze tab, **Group by for this layer** opens one optional group key (or whole layer), one aggregate (count / sum / avg), and an output name, then creates a private PostGIS derived layer. Geometry is always the union of each group (`ST_Union`). Multi-key and multi-agg stay in Create → Derived layer. Expect a server job, not an instant browser result.
 
