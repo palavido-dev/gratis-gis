@@ -7,7 +7,6 @@ Driver-owned. Newest proposals at the top of each section.
 | id | source | summary | notes |
 | --- | --- | --- | --- |
 | SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | This PR |
-| SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Open #432 |
 
 ## queued (ship-without-input)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-comments-list-throttle | 2026-10-28 | Merged #432: Public GET comments @Throttle 60/min |
 | SEC-feedback-post-throttle | 2026-10-28 | Merged #431: Public POST /feedback @Throttle 30/min |
 | R11-analyze-group-by-shortcut | 2026-10-28 | Merged #430: Analyze Group-by → PostGIS derived_layer |
 | R11-analyze-contour-shortcut | 2026-10-28 | Merged #429: Analyze Contour → PostGIS derived_layer |

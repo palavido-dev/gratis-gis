@@ -15,6 +15,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   anonymous collection scans that can request up to 10_000
   features per call without changing auth or the limit clamp
   (SEC-ogc-features-throttle).
+- Public `GET /api/items/:itemId/comments` is throttled at 60/min
+  per IP (same as Public OGC Records list; global default is
+  300/min). Cuts anonymous comment-thread polling on public items
+  without changing create/reply/resolve auth (SEC-comments-list-throttle).
 - Public `POST /api/feedback` is throttled at 30/min per IP
   (same as anonymous drawings writes / tools run; global default
   is 300/min). Cuts anonymous screenshot-upload bandwidth burn
