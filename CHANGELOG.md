@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analysis help for **Top N**, **Random sample**, and **Nearest
+  neighbor** documents the shipped generators (numeric field + N
+  + asc|desc; percentage|count + stable seed; no-param
+  `nearest_distance_m` same-layer O(N²) honesty). Pages:
+  `analysis/top-n`, `analysis/random-sample`,
+  `analysis/nearest-neighbor` (R9-sampling-nn-help-honesty).
 - Spatial filter help (`analysis/spatial-filter`) documents the
   shipped predicates (intersects / within / contains / touches /
   near + meters), otherSource data-layer (or recipe inline
