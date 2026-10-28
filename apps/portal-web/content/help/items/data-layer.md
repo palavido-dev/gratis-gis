@@ -114,3 +114,17 @@ On the Android field app, rejected queue rows that parked a server
 `current` offer the same **Re-apply** (and Recreate when the feature
 is gone) next to Discard, with a confirm that compares queued vs
 server-now before writing.
+
+Field collectors usually first see parked edits on a
+[Data collection](items-data-collection) deployment (queue badge /
+rejected list). Resolve the durable conflict cards here on the
+**Layer data** panel of the paired data layer. This is optimistic
+concurrency review, not multi-user CRDT merge on drawings.
+
+## Related
+
+- [Data collection](items-data-collection) for offline queue,
+  dry-run push, and where collectors open the field PWA.
+- [HTTP API](reference-api) for `checkOnly=true`, `delta?since=N`,
+  and the `syncConflicts` shape.
+- [Map](items-map) for how maps reference this item.

@@ -87,9 +87,10 @@ offline it only shows that edits are waiting.
 Queued **updates** and **deletes** dry-run with `checkOnly=true`
 before the real write. A conflict or schema refusal parks that edit
 on the device with the server reason. New creates upload without a
-dry-run. Review recent conflicts on the paired **Data layer** item
-(**Layer data** panel): **Re-apply** or **Dismiss**. Details live
-on the Data layer help page.
+dry-run. Review recent conflicts on the paired
+[Data layer](items-data-layer) item (**Layer data** panel):
+**Re-apply** or **Dismiss**. That page's **Sync versions and
+conflicts** section is the full Re-apply / Dismiss guide.
 
 ## What this is not
 
@@ -106,5 +107,6 @@ on the Data layer help page.
 
 - **Map** — the deployed composition.
 - **Form** — custom bindings and survey-style capture.
-- **Data layer** — sync versions, delta refresh, conflict review.
+- [Data layer](items-data-layer) — sync versions, delta refresh,
+  **Layer data** conflict **Re-apply** / **Dismiss**.
 - **Item types** — catalog one-liner for this type.

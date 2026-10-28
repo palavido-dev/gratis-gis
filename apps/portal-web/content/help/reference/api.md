@@ -69,14 +69,16 @@ Feature `PATCH` / `DELETE` accept `checkOnly=true` to validate
 optimistic concurrency (`baseObservationId`) and schema without
 writing. A `409` conflict response includes the losing-side edit;
 the portal also keeps a capped `syncConflicts` list on the layer
-for later review in the Layer data panel. Editors can re-apply a
-losing edit from that list (PATCH / DELETE with a live
-`baseObservationId`, or POST recreate when the feature is gone).
-The field PWA offline drain (and Android queue drain) call
-`checkOnly=true` before each queued update/delete so validation
-failures surface before the real transfer. Android rejected conflict
-rows can re-apply the queued losing side (PATCH / DELETE with a live
-`baseObservationId`, or POST recreate) after a confirm.
+for later review in the Layer data panel (see
+[Data layer](items-data-layer) help: **Sync versions and
+conflicts**). Editors can re-apply a losing edit from that list
+(PATCH / DELETE with a live `baseObservationId`, or POST recreate
+when the feature is gone). The field PWA offline drain (and Android
+queue drain) call `checkOnly=true` before each queued update/delete
+so validation failures surface before the real transfer. Android
+rejected conflict rows can re-apply the queued losing side
+(PATCH / DELETE with a live `baseObservationId`, or POST recreate)
+after a confirm.
 
 Read parameters: `limit`, `cursor`, `at`, `bbox`, `parentFk` +
 `parentId`, `timeField` + `timeFrom` + `timeTo`.
