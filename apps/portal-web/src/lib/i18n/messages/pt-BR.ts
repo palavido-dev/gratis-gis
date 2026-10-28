@@ -24,6 +24,17 @@ export const ptBR: Partial<CatalogShape> = {
     settings: 'Configurações',
     language: 'Idioma',
   },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: 'Voltar ao item',
+    closePanel: 'Fechar painel',
+    pinPanel: 'Fixar painel',
+    unpinPanel: 'Desafixar painel',
+    pinPanelTitle: 'Fixar painel aberto',
+    unpinPanelTitle: 'Desafixar (reduzir a ícone)',
+    openLeftPanel: 'Abrir painel esquerdo',
+    openRightPanel: 'Abrir painel direito',
+  },
   nav: {
     items: 'Itens',
     home: 'Início',
@@ -753,6 +764,7 @@ export const ptBR: Partial<CatalogShape> = {
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
+    targetsPanelTitle: 'Destinos',
     printTitle: 'Imprimir a vista atual',
     printAria: 'Imprimir',
     formViewButton: 'Vista de formulário',

@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
+import { useT } from '@/lib/i18n/locale-context';
 import Link from 'next/link';
 import type {
   DataLayerData,
@@ -66,6 +67,7 @@ interface Props {
  *   - The actual editing canvas runtime.
  */
 export function EditorDetail({ itemId, initial, canEdit }: Props) {
+  const t = useT();
   // The working copy. We seed `tools` from the default palette when
   // the persisted shape is older than slice 1 and missing the
   // field, so users on legacy items see something instead of an
@@ -638,10 +640,10 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         icon={<PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={targetsPanel}
-        leftPanelTitle="Targets"
+        leftPanelTitle={t('editorRuntime.targetsPanelTitle')}
         leftRailIcon={<Layers className="h-4 w-4" />}
         rightPanel={settingsPanel}
-        rightPanelTitle="Settings"
+        rightPanelTitle={t('common.settings')}
         rightRailIcon={<Settings className="h-4 w-4" />}
       >
         <div className="absolute inset-0 flex flex-col gap-4 overflow-auto p-6">

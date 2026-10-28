@@ -26,6 +26,17 @@ export const fr: Partial<CatalogShape> = {
     settings: 'Paramètres',
     language: 'Langue',
   },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: "Retour à l'élément",
+    closePanel: 'Fermer le panneau',
+    pinPanel: 'Épingler le panneau',
+    unpinPanel: 'Détacher le panneau',
+    pinPanelTitle: 'Épingler le panneau ouvert',
+    unpinPanelTitle: "Détacher (réduire à l'icône)",
+    openLeftPanel: 'Ouvrir le panneau gauche',
+    openRightPanel: 'Ouvrir le panneau droit',
+  },
   nav: {
     items: 'Éléments',
     home: 'Accueil',
@@ -755,6 +766,7 @@ export const fr: Partial<CatalogShape> = {
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
+    targetsPanelTitle: 'Cibles',
     printTitle: 'Imprimer la vue actuelle',
     printAria: 'Imprimer',
     formViewButton: 'Vue formulaire',
