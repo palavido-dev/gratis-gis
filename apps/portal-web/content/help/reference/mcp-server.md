@@ -12,6 +12,7 @@ tags:
 related:
   - reference-item-types
   - reference-api-keys
+  - reference-api
 ---
 
 The GratisGIS MCP server lets compatible AI clients (desktop
@@ -139,3 +140,5 @@ bypass any portal rules.
 - [Item types](reference-item-types) for what you can ask
   list_items to filter by.
 - [API keys](reference-api-keys) for minting and revoking keys.
+- [HTTP API](reference-api) for the public OGC Records catalog
+  mount that `search_catalog` calls.
