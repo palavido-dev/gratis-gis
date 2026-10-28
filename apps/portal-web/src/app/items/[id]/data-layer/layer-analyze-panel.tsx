@@ -34,6 +34,7 @@ import { AnalyzeConvexHullGuide } from './analyze-convex-hull-guide';
 import { AnalyzeDensifyGuide } from './analyze-densify-guide';
 import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
+import { AnalyzeNearestNeighborGuide } from './analyze-nearest-neighbor-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
 import { AnalyzeVerticesGuide } from './analyze-vertices-guide';
 import type {
@@ -440,6 +441,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeCalculateGeometryGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeNearestNeighborGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}

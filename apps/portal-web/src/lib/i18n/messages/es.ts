@@ -4995,6 +4995,19 @@ export const es: Partial<CatalogShape> = {
       'El nombre debe empezar por letra o guion bajo y contener solo letras, números y guiones bajos.',
     calcGeomValidateAreaUnit: 'Elija una unidad de área.',
     calcGeomValidateLengthUnit: 'Elija una unidad de longitud.',
+    nnAction: 'Vecino más cercano de esta capa',
+    nnActionTitle:
+      'Crear una capa derivada en el servidor que añade nearest_distance_m (autojoin geográfico en la misma capa). O(N²).',
+    nnHeading:
+      'Vecino más cercano de esta capa (capa derivada en el servidor)',
+    nnIntroBefore: 'Crea una capa derivada privada que añade',
+    nnIntroAfter:
+      'mediante un autojoin geográfico en PostGIS (metros hasta la otra entidad más cercana). Solo la misma capa; O(N²); una capa de una sola fila da NULL. Misma receta que',
+    nnHelpLink: 'Ayuda de vecino más cercano',
+    nnIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    nnHint:
+      'Solo la misma capa. Las capas grandes pueden ser lentas (O(N²)). Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
   },
 
   serviceEditors: {

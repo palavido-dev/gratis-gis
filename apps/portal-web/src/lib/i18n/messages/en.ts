@@ -5123,6 +5123,18 @@ export const en = {
       'Field name must start with a letter or underscore and contain only letters, numbers, and underscores.',
     calcGeomValidateAreaUnit: 'Pick an area unit.',
     calcGeomValidateLengthUnit: 'Pick a length unit.',
+    nnAction: 'Nearest neighbor for this layer',
+    nnActionTitle:
+      'Create a server-side derived layer that adds nearest_distance_m (same-layer geography self-join). O(N²).',
+    nnHeading: 'Nearest neighbor for this layer (server derived layer)',
+    nnIntroBefore: 'Creates a private derived layer that adds',
+    nnIntroAfter:
+      'via PostGIS geography self-join (meters to the closest other feature). Same-layer only; O(N²); a single-row layer yields NULL. Same recipe as',
+    nnHelpLink: 'Nearest neighbor help',
+    nnIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    nnHint:
+      'Same layer only. Large layers can be slow (O(N²)). Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**

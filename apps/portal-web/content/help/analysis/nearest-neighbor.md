@@ -45,6 +45,15 @@ measure against). If the source already had a field named
 3. Add a **Nearest neighbor** step.
 4. Save.
 
+## From a data layer Analyze tab
+
+On a data layer's **Analyze** tab, **Nearest neighbor for this
+layer** opens a short title form and creates a private derived
+layer with a single nearest-neighbor step against that layer
+(same PostGIS path as above). The guide states O(N²) cost and that
+a single-row layer yields NULL. Expect a short server job, not an
+instant browser result.
+
 ## Examples
 
 - **Isolation score**. Source: wells. Output adds meters to the
