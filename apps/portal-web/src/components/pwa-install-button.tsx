@@ -10,6 +10,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * "Install GratisGIS" affordance for the field runtime + items list.
@@ -56,6 +57,7 @@ export function PwaInstallButton({
    *  bars; 'default' is a labeled button for sidebar / banner use. */
   variant?: 'default' | 'compact';
 }) {
+  const t = useT();
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -158,24 +160,22 @@ export function PwaInstallButton({
           className="inline-flex h-7 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 text-2xs font-medium text-accent hover:bg-accent/20"
           title={
             isIOS
-              ? 'Install GratisGIS on this device (Tap Share, then Add to Home Screen)'
-              : 'Install GratisGIS on this device for offline-friendly storage'
+              ? t('pwaInstall.installTitleIos')
+              : t('pwaInstall.installTitleAndroid')
           }
         >
           <Smartphone className="h-3 w-3" />
-          Install
+          {t('pwaInstall.install')}
         </button>
       ) : (
         <div className="flex items-center gap-2 rounded-md border border-accent/40 bg-accent/5 px-3 py-2 text-sm">
           <Smartphone className="h-4 w-4 text-accent" />
           <div className="min-w-0 flex-1">
-            <p className="text-ink-1">
-              Install GratisGIS for better offline support
-            </p>
+            <p className="text-ink-1">{t('pwaInstall.bannerTitle')}</p>
             <p className="text-2xs text-muted">
               {isIOS
-                ? 'iOS lifts its 1 GB storage cap once installed.'
-                : "Adds an icon to your home screen and protects cached data from cleanup."}
+                ? t('pwaInstall.bannerIosHint')
+                : t('pwaInstall.bannerAndroidHint')}
             </p>
           </div>
           <button
@@ -183,12 +183,12 @@ export function PwaInstallButton({
             onClick={handleClick}
             className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90"
           >
-            Install
+            {t('pwaInstall.install')}
           </button>
           <button
             type="button"
             onClick={dismiss}
-            aria-label="Dismiss"
+            aria-label={t('pwaInstall.dismissAria')}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1"
           >
             <X className="h-3.5 w-3.5" />
@@ -204,24 +204,27 @@ export function PwaInstallButton({
       >
         <DialogContent size="sm" className="p-4 shadow-overlay">
           <DialogTitle className="text-base font-semibold text-ink-0">
-            Install on iOS
+            {t('pwaInstall.iosDialogTitle')}
           </DialogTitle>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink-1">
             <li>
-              Tap the <strong>Share</strong> button at the bottom of Safari
-              (the square with an up-arrow).
+              {t('pwaInstall.iosStep1Before')}
+              <strong>{t('pwaInstall.iosStep1Share')}</strong>
+              {t('pwaInstall.iosStep1After')}
             </li>
             <li>
-              Scroll down and tap{' '}
-              <strong>Add to Home Screen</strong>.
+              {t('pwaInstall.iosStep2Before')}
+              <strong>{t('pwaInstall.iosStep2Action')}</strong>
+              {t('pwaInstall.iosStep2After')}
             </li>
             <li>
-              Tap <strong>Add</strong> in the top-right corner.
+              {t('pwaInstall.iosStep3Before')}
+              <strong>{t('pwaInstall.iosStep3Action')}</strong>
+              {t('pwaInstall.iosStep3After')}
             </li>
           </ol>
           <DialogDescription className="mt-3 text-xs text-muted">
-            Once installed, GratisGIS gets stronger storage retention and
-            the iOS 1 GB cap on web storage no longer applies.
+            {t('pwaInstall.iosDialogDesc')}
           </DialogDescription>
           <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
             <button
@@ -229,7 +232,7 @@ export function PwaInstallButton({
               onClick={() => setShowIOSHint(false)}
               className="inline-flex h-9 w-full items-center justify-center rounded-md bg-accent text-sm font-medium text-accent-foreground hover:opacity-90"
             >
-              Got it
+              {t('pwaInstall.gotIt')}
             </button>
           </DialogFooter>
         </DialogContent>

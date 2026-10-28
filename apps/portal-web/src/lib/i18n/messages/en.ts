@@ -5384,6 +5384,34 @@ export const en = {
       'Copied {inserted, plural, one {# feature} other {# features}} (hit the {cap} feature cap). Open the new data layer, or use Admin → Migrations for a full import.',
   },
 
+  // PWA install chrome (R12-i18n-pwa-install-chrome / #162).
+  pwaInstall: {
+    install: 'Install',
+    installTitleIos:
+      'Install GratisGIS on this device (Tap Share, then Add to Home Screen)',
+    installTitleAndroid:
+      'Install GratisGIS on this device for offline-friendly storage',
+    bannerTitle: 'Install GratisGIS for better offline support',
+    bannerIosHint: 'iOS lifts its 1 GB storage cap once installed.',
+    bannerAndroidHint:
+      'Adds an icon to your home screen and protects cached data from cleanup.',
+    dismissAria: 'Dismiss',
+    iosDialogTitle: 'Install on iOS',
+    iosStep1Before: 'Tap the ',
+    iosStep1Share: 'Share',
+    iosStep1After:
+      ' button at the bottom of Safari (the square with an up-arrow).',
+    iosStep2Before: 'Scroll down and tap ',
+    iosStep2Action: 'Add to Home Screen',
+    iosStep2After: '.',
+    iosStep3Before: 'Tap ',
+    iosStep3Action: 'Add',
+    iosStep3After: ' in the top-right corner.',
+    iosDialogDesc:
+      'Once installed, GratisGIS gets stronger storage retention and the iOS 1 GB cap on web storage no longer applies.',
+    gotIt: 'Got it',
+  },
+
   /** Settings → Notification preferences (#162). */
   settingsNotifications: {
     backToProfile: 'Back to profile',
