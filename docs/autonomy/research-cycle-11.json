@@ -1,0 +1,213 @@
+{
+  "cycle": 11,
+  "researchedAt": "2026-10-28T07:20:00Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-10; R10 ship-without-input fully drained on origin/main through #422 (field offline/GPS i18n #415, data-collection help #416, Analyze NN/fishnet/top-n/random-sample #417–#421, recipe Overpass truncated #420, SEC tools-run throttle #422). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE / incremental nodes stay needs-maintainer). Security Sentinel this cycle: clean for High/Medium; Low follow-ups proposed for Public feedback POST and Public comments GET still on the global 300/min ceiling after tools-run got 30/min. Honesty scan after R10: Analyze shortcuts now cover Buffer through Random sample for Buffer-shaped / no-param tools; remaining derived tools (filter, calculate-field, contour, spatial-join/filter, group-by) stay builder-only (expression or multi-picker). Field-runtime still hard-codes English on related-sheet chrome (Back to list / Collapse / Expand / Close / Edit / Copy titles / N items), offline download dialog titles (Download failed / Ready for offline / Downloading for offline), related-record list chrome (Add titles, Couldn't load / No records yet, child not editable), and a few status strings (Loading… / Searching… / Submit failed / Persistent badge). tool.md does not yet mention the 30/min Public run throttle. ComingSoon stub still hard-codes English. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph polish, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, keyed dissolve-on-dissolve, and heavy Analyze shortcuts rejected again.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T07:18:00Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #422. Tools run now 30/min (#422). Drawings writes stay 30/min; Records stay 60/min + bbox scan. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; zip/GDAL budgets and derived-layer otherSource ACL intact. Deep-dive SEC-* through tools-run throttle shipped (#376–#383, #422). Remaining Public surfaces still on global 300/min without a tighter decorator: feedback POST (honeypot exists but no @Throttle), comments GET list, STAC, OGC Features/Tiles, health/portal-info (intentionally open). Low ship-without-input: SEC-feedback-post-throttle and SEC-comments-list-throttle at 30–60/min matching drawings / Records patterns. No High/Medium hardening queued this cycle."
+  },
+  "proposals": [
+    {
+      "id": "R11-i18n-field-related-sheet-chrome",
+      "title": "Continue #162 i18n on field related-sheet chrome",
+      "summary": "After R10 offline/GPS i18n (#415), field-runtime related bottom sheet still hard-codes English on Back to list, Collapse/Expand sheet, Close, Edit / Copy button labels and titles (Edit this feature / Create a new feature… / You do not have edit access…), and the list header '{n} item(s)'. Extract into fieldRuntime / fieldRelated catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Highest-visibility remaining field chrome for EU / LatAm collectors after offline/GPS. Related drill-in is the everyday edit path on deployments with parent/child layers.",
+      "risk": "Keep hit.editable gating logic unchanged. Machine-translate non-en with Phase 1.1 pattern. Scope to sheet chrome only — offline dialog and related-list body are separate proposals.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free field chrome. No Contour brand kit.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/415"
+      ],
+      "suggestedFirstPR": "Wire related-sheet Back/Collapse/Expand/Close/Edit/Copy/N-items strings through en/es/fr/de/pt-BR; What's new optional (i18n-only can skip).",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R11-i18n-field-offline-dialog-titles",
+      "title": "Continue #162 i18n on offline download dialog titles",
+      "summary": "Offline download DialogTitle still hard-codes 'Download failed' / 'Ready for offline' / 'Downloading for offline' while the body already uses formatOfflineMessage(t, …) and layer/feature breakdown keys. Extract the three titles into fieldOffline and call t().",
+      "rationale": "Collectors see this dialog every time they leave signal. Body is localized; titles still flash English.",
+      "risk": "Do not invent new progress phases. Reuse fieldOffline namespace. Skip What's new if i18n-only.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest localized offline readiness, not Field Maps cosplay.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Add fieldOffline.downloadFailedTitle / readyTitle / downloadingTitle; wire DialogTitle; catalogs + locales.spec.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R11-i18n-field-related-list-chrome",
+      "title": "Continue #162 i18n on related-record list chrome",
+      "summary": "Parent-feature related section still hard-codes Add button titles ('Add a new {layer} record…' / 'This child layer is not editable in this deployment'), load-error copy ('Couldn't load existing …'), empty state ('No … records yet'), plus submit/save fallbacks ('Could not save' / 'Submit failed.'). Extract with ICU placeholders for layer labels.",
+      "rationale": "Pairs with related-sheet chrome. Parent/child demos are a core data-collection pitch; English-only related lists undermine #162.",
+      "risk": "Preserve childEditable gating. Keep API error bodies as server-provided when present; only localize the fallbacks and static chrome.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free related-record capture without Survey123 seats.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/content/help/items/data-collection.md"
+      ],
+      "suggestedFirstPR": "Extract related-list Add/empty/error/submit fallbacks into catalogs; wire t(); locales.spec.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R11-tool-run-throttle-help",
+      "title": "Document Public tool run 30/min throttle in tool help",
+      "summary": "#422 throttles POST /api/tools/:id/run at 30/min but help/items/tool.md and reference/api.md do not mention the cap. Authors embedding public OSM tools in Custom Web Apps need to know anonymous viewers share a per-IP budget with drawings writes.",
+      "rationale": "docs-every-commit left a small honesty hole: security CHANGELOG shipped, user/author help did not. Same class as recipe truncated honesty.",
+      "risk": "Do not invent per-user authenticated exemptions that the ThrottlerGuard does not implement. One short paragraph + CHANGELOG docs note; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest public-tool limits. Prefer docs over silent 429 surprises.",
+      "sources": [
+        "apps/portal-api/src/tools/tools.controller.ts",
+        "apps/portal-web/content/help/items/tool.md",
+        "apps/portal-web/content/help/reference/api.md",
+        "https://github.com/palavido-dev/gratis-gis/pull/422"
+      ],
+      "suggestedFirstPR": "Add rate-limit note to tool.md (+ api.md if tools run is listed); CHANGELOG docs; QUEUE.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R11-i18n-coming-soon-stub",
+      "title": "i18n ComingSoon item stub chrome (#162)",
+      "summary": "coming-soon.tsx hard-codes '{label}: coming soon' for item types that land on the stub. Extract into a small itemChrome / comingSoon catalog so non-en locales do not flash English on unfinished item surfaces.",
+      "rationale": "Tiny finishable #162 slice. Demo authors occasionally open stub types; English-only stub undermines locale switcher credibility.",
+      "risk": "Do not invent new item types. Keep stub behaviour; localize the label template only.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest unfinished surfaces in the user's language.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/coming-soon.tsx"
+      ],
+      "suggestedFirstPR": "Add comingSoon.template key; wire t(); five catalogs; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "SEC-feedback-post-throttle",
+      "title": "Tighter throttle on Public POST /api/feedback",
+      "summary": "FeedbackController.submit is @Public with honeypot + per-address limits but no @Throttle decorator, so it rides the global 300/min ThrottlerGuard. Anonymous screenshot uploads can still burn bandwidth. Add @Throttle({ default: { ttl: 60_000, limit: 30 } }) matching drawings writes / tools run.",
+      "rationale": "Standing Low follow-up after SEC-tools-run-throttle. Small hardening, no product call.",
+      "risk": "Legitimate reporters behind shared NATs share one bucket — 30/min is still ample for humans. Keep honeypot behaviour unchanged.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Hardening without new pillars.",
+      "sources": [
+        "apps/portal-api/src/feedback/feedback.controller.ts",
+        "apps/portal-api/src/tools/tools.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 30/min on feedback submit; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-comments-list-throttle",
+      "title": "Tighter throttle on Public GET /api/items/:id/comments",
+      "summary": "CommentsController.list is @Public for public items with only the global 300/min guard. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) matching Records list. Auth POSTs for create/reply stay ungated by this decorator (or inherit global).",
+      "rationale": "Public DoS checklist item for unauthenticated list endpoints. Low severity; finishes the comments surface after feature-anchored comments shipped.",
+      "risk": "Polling UIs must stay under 60/min. Confirm client poll intervals before merging if any exist.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Public list endpoints stay paginated/throttled.",
+      "sources": [
+        "apps/portal-api/src/items/comments.controller.ts",
+        "apps/portal-api/src/public/ogc/records.controller.ts",
+        "docs/autonomy/PLAYBOOK.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on comments list; CHANGELOG Security; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R11-i18n-field-status-misc",
+      "title": "Continue #162 i18n on field Loading/Searching/Persistent chrome",
+      "summary": "field-runtime still hard-codes Loading…, Searching…, and a green Persistent storage badge span (storagePersistent key may already exist unused). Wire remaining status chrome through catalogs after the larger related/offline slices.",
+      "rationale": "Small mop-up after related-sheet / offline dialog / related-list. Keeps #162 finishable without Weblate.",
+      "risk": "Confirm storagePersistent key before adding duplicates. Skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Catalog completeness for field chrome.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Wire Loading/Searching/Persistent (and leftover Failed to load fallbacks) via t(); catalogs.",
+      "relatedIssues": [162]
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R11-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas polish",
+      "reason": "Phase 1 already linearizes graphs; a fancy branching canvas is polish, not honesty. Playbook prefers fewer sharper ships."
+    },
+    {
+      "id": "R11-reject-print-brand-kit",
+      "title": "Reject print / portal brand kit redesign",
+      "reason": "Fails playbook brand test and design-system constraints. Needs-maintainer for visual redesigns."
+    },
+    {
+      "id": "R11-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing work",
+      "reason": "Contradicts self-hosted open-standards ethos. Legal/pricing needs-maintainer."
+    },
+    {
+      "id": "R11-reject-recipe-materialize-sinks",
+      "title": "Reject recipe materialize-to-layer sinks",
+      "reason": "Honesty #386 points authors at derived_layer. Materialize sinks are a new pillar shape."
+    },
+    {
+      "id": "R11-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+    },
+    {
+      "id": "R11-reject-dissolve-groupby-feature",
+      "title": "Reject implementing dissolve groupBy / aggregates now",
+      "reason": "Keyed dissolve already exists as group-by with ST_Union. Second path is scope creep."
+    },
+    {
+      "id": "R11-reject-weblate-hosting",
+      "title": "Reject choosing Weblate vs Crowdin vs Tolgee",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
+    },
+    {
+      "id": "R11-reject-analyze-contour-shortcut",
+      "title": "Reject Contour Analyze shortcut this cycle",
+      "reason": "Contour levels/enrich are heavier than Buffer-shaped forms. Stay builder + existing help."
+    },
+    {
+      "id": "R11-reject-analyze-multi-input-shortcuts",
+      "title": "Reject Spatial join / Spatial filter Analyze shortcuts",
+      "reason": "Multi-source otherSource pickers are heavy Analyze UX. Honesty help already shipped."
+    },
+    {
+      "id": "R11-reject-analyze-filter-calculate-field",
+      "title": "Reject Filter / Calculate field Analyze shortcuts",
+      "reason": "Expression dialect needs a real expression editor, not a Buffer-shaped form. Stay builder-only."
+    },
+    {
+      "id": "R11-reject-analyze-groupby-shortcut",
+      "title": "Reject Group-by Analyze shortcut this cycle",
+      "reason": "groupBy keys + aggregate ops UI is heavier than Top N. Prefer finishing #162 field chrome + SEC throttles first."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ]
+}
