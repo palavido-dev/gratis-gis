@@ -19,9 +19,12 @@ it. The detail page edits one of these kinds:
 - **Open URL** or **open item**
 - **Export layer**
 - **Recipe**: an ordered analysis recipe, including OSM as a
- source. Selection and "OSM features on the map" are outputs
- you can pick. Saving the result as a new derived layer or a
- new data layer is still disabled in that editor.
+  source. Selection and "OSM features on the map" are the
+  outputs the runner supports. A recipe does **not** create a
+  new derived layer or data layer as its sink — create a
+  [derived layer](items-derived-layer) item (or use Analyze
+  Buffer / Clip / Erase / Centroid) when you want a saved
+  spatial pipeline.
 - **OSM relational query**
 
 A recipe can be opened on a canvas. Dragging a step changes

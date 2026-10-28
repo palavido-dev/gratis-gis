@@ -12,6 +12,7 @@ tags:
   - dag
 related:
   - items-tool
+  - items-derived-layer
 ---
 
 Tools in GratisGIS can run an analysis pipeline behind a single
@@ -82,6 +83,13 @@ Recipes saved before the canvas still run as a list. Open
 them on the canvas when you want to rearrange the chain.
 The list remains, and editing a step there updates the box.
 
+Recipe **output** is Selection or OSM features on the map.
+The runner does not materialise a new layer from a tool
+recipe. For a layer you can map and share, create a
+[derived layer](items-derived-layer) or use the Analyze
+shortcuts on a data layer.
+
 ## Related
 
 - [Tool item](items-tool) for the tool item type itself.
+- [Derived layer](items-derived-layer) for saved spatial pipelines.
