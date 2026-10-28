@@ -6,13 +6,22 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-tools-run-throttle | research-cycle-10 | @Throttle 30/min on Public POST /api/tools/:id/run | This PR |
+| Q-research-cycle-11 | research-cycle-11 | Refill ship-without-input after R10 drain | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| _(empty — research-cycle-11 refill next)_ | | | |
+| R11-i18n-field-feature-sheet-chrome | research-cycle-11 | Field feature-sheet Edit/Copy/nav i18n (#162) | Highest-visibility |
+| R11-i18n-field-offline-panel-dialog | research-cycle-11 | Offline panel + download dialog i18n (#162) | Storage/Clear/titles |
+| R11-i18n-field-layers-search-chrome | research-cycle-11 | Basemap chip + address search + related list i18n | #162 |
+| R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs honesty |
+| R11-tool-help-analyze-catalog-honesty | research-cycle-11 | tool.md Analyze list + Public 30/min run | Docs after R10 |
+| R11-analyze-contour-shortcut | research-cycle-11 | Analyze Contour → PostGIS (points, auto interval) | Constrained |
+| R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | Constrained |
+| SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
+| SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Low |
+| SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | Low |
 
 ## queued (needs-maintainer)
 
@@ -27,13 +36,14 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-tools-run-throttle | 2026-10-28 | Merged #422: Public tools/run @Throttle 30/min |
 | R10-analyze-random-sample-shortcut | 2026-10-28 | Merged #421: Analyze Random sample → PostGIS derived_layer |
 | R10-recipe-overpass-truncated-honesty | 2026-10-28 | Merged #420: recipe OSM truncated flag honesty |
 | R10-analyze-top-n-shortcut | 2026-10-28 | Merged #419: Analyze Top N → PostGIS derived_layer |
 | R10-analyze-fishnet-shortcut | 2026-10-28 | Merged #418: Analyze Fishnet → PostGIS derived_layer |
 | R10-analyze-nearest-neighbor-shortcut | 2026-10-28 | Merged #417: Analyze Nearest neighbor → PostGIS derived_layer |
 | R10-data-collection-help-honesty | 2026-10-28 | Merged #416: Data collection help (offline, sync, QR) |
-| R10-i18n-field-offline-gps-chrome | 2026-10-28 | Merged #415: Field offline / GPS / related chrome i18n (#162)
+| R10-i18n-field-offline-gps-chrome | 2026-10-28 | Merged #415: Field offline / GPS / related chrome i18n (#162) |
 | Q-research-cycle-10 | 2026-10-28 | Merged #414: research-cycle-10 refill ship-without-input queue |
 | R9-analyze-calculate-geometry-shortcut | 2026-10-28 | Merged #413: Analyze Calculate geometry → PostGIS derived_layer |
 | R9-analyze-vertices-shortcut | 2026-10-28 | Merged #412: Analyze Vertices → PostGIS derived_layer |
@@ -79,51 +89,30 @@ Driver-owned. Newest proposals at the top of each section.
 | R6-analyze-erase-shortcut | 2026-10-27 | Merged #371: Analyze Erase → PostGIS derived_layer |
 | R6-sync-conflict-dismiss | 2026-10-27 | Merged #370: Dismiss syncConflicts after review / re-apply |
 | Q-research-cycle-6 | 2026-10-27 | Merged #369: research-cycle-6 refill ship-without-input queue |
-| R5-arcgis-pull-to-local | 2026-10-27 | Merged #368: Copy selected FeatureServer layers to data_layer (50k cap) |
-| R5-gdb-editor-server-ingest | 2026-10-27 | Merged #367: v3 Import stages .gdb via /ingest/stage |
-| R5-android-conflict-reapply | 2026-10-27 | Merged #366: Android Re-apply / Recreate on rejected conflicts |
-| R5-i18n-service-editors | 2026-10-27 | Merged #365: service / ArcGIS / OGC editor chrome i18n |
-| R5-analyze-clip-shortcut | 2026-10-27 | Merged #364: Analyze Clip → PostGIS derived_layer recipe |
-| R5-stac-ogc-help-honesty | 2026-10-27 | Merged #363: QGIS STAC help + honest OGC Features scope |
-| Q-research-cycle-5 | 2026-10-27 | Merged #362: research-cycle-5 refill ship-without-input queue |
 
-## rejected
+## rejected (this cycle)
 
-| id | source | reason |
-| --- | --- | --- |
-| R10-reject-node-graph-canvas | research-cycle-10 | Visual node-graph recipe canvas is polish, not honesty |
-| R10-reject-print-brand-kit | research-cycle-10 | Brand / chrome redesign fails playbook brand test |
-| R10-reject-seat-pricing | research-cycle-10 | Named-user pricing contradicts ethos |
-| R10-reject-recipe-materialize-sinks | research-cycle-10 | Materialize sinks deferred; honesty #386 points at derived_layer |
-| R10-reject-tile3d-local-rebuild | research-cycle-10 | #183 stays open; no closing on local rebuilds |
-| R10-reject-dissolve-groupby-feature | research-cycle-10 | Keyed dissolve stays on group-by; no second path |
-| R10-reject-weblate-hosting | research-cycle-10 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
-| R10-reject-analyze-contour-shortcut | research-cycle-10 | Contour levels/enrich heavier than Buffer-shaped; stay builder |
-| R10-reject-analyze-multi-input-shortcuts | research-cycle-10 | Spatial join/filter multi-picker Analyze UX too heavy |
-| R10-reject-analyze-calculate-field-shortcut | research-cycle-10 | Expression editor not a Buffer-shaped shortcut |
-| R9-reject-node-graph-canvas | research-cycle-9 | Visual node-graph recipe canvas is polish, not honesty |
-| R9-reject-print-brand-kit | research-cycle-9 | Brand / chrome redesign fails playbook brand test |
-| R9-reject-seat-pricing | research-cycle-9 | Named-user pricing contradicts ethos |
-| R9-reject-recipe-materialize-sinks | research-cycle-9 | Materialize sinks deferred; honesty #386 points at derived_layer |
-| R9-reject-tile3d-local-rebuild | research-cycle-9 | #183 stays open; no closing on local rebuilds |
-| R9-reject-dissolve-groupby-feature | research-cycle-9 | Keyed dissolve stays on group-by; no second path |
-| R9-reject-weblate-hosting | research-cycle-9 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
-| R8-reject-node-graph-canvas | research-cycle-8 | Visual node-graph recipe canvas is polish, not honesty |
-| R8-reject-print-brand-kit | research-cycle-8 | Brand / chrome redesign fails playbook brand test |
-| R8-reject-seat-pricing | research-cycle-8 | Named-user pricing contradicts ethos |
-| R8-reject-recipe-materialize-sinks | research-cycle-8 | Materialize sinks deferred; honesty #386 points at derived_layer |
-| R8-reject-tile3d-local-rebuild | research-cycle-8 | #183 stays open; no closing on local rebuilds |
-| R8-reject-dissolve-groupby-feature | research-cycle-8 | Keyed dissolve stays on group-by; no second path |
-| R8-reject-weblate-hosting | research-cycle-8 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
-| R7-reject-node-graph-canvas | research-cycle-7 | Visual node-graph recipe canvas is polish, not honesty |
-| R7-reject-print-brand-kit | research-cycle-7 | Brand / chrome redesign fails playbook brand test |
-| R7-reject-seat-pricing | research-cycle-7 | Named-user pricing contradicts ethos |
-| R7-reject-recipe-materialize-sinks | research-cycle-7 | Materialize sinks deferred; honesty #386 points at derived_layer |
-| R7-reject-tile3d-local-rebuild | research-cycle-7 | #183 stays open; no closing on local rebuilds |
-| R7-reject-dissolve-groupby-feature | research-cycle-7 | Keyed dissolve stays on group-by; no second path |
-| R7-reject-weblate-hosting | research-cycle-7 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
-| R6-reject-node-graph-canvas | research-cycle-6 | Visual node-graph recipe canvas is polish, not honesty |
-| R6-reject-print-brand-kit | research-cycle-6 | Brand / chrome redesign fails playbook brand test |
-| R6-reject-seat-pricing | research-cycle-6 | Named-user pricing contradicts ethos |
-| R6-reject-recipe-materialize-sinks | research-cycle-6 | Materialize sinks deferred; honesty PR points at derived_layer |
-| R6-reject-tile3d-local-rebuild | research-cycle-6 | #183 stays open; no closing on local rebuilds |
+| id | reason |
+| --- | --- |
+| R11-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R11-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R11-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R11-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R11-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
+| R11-reject-dissolve-groupby-feature | Keyed dissolve stays on group-by; prefer constrained Group-by Analyze |
+| R11-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R11-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
+| R11-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R11-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R11-reject-report-template-item | Report template not built; fix print_template help instead |
+| R11-reject-full-aggregate-analyze-ui | Multi-key / multi-agg Group-by form too heavy; one key + one agg only |
+| R10-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R10-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R10-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R10-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R10-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
+| R10-reject-dissolve-groupby-feature | Keyed dissolve stays on group-by; no second path |
+| R10-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R10-reject-analyze-contour-shortcut | Contour levels/enrich heavier than Buffer-shaped; stay builder |
+| R10-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
+| R10-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
