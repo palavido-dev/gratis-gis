@@ -15,7 +15,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
-- Public OGC citation `.bib` / `.ris` / `.jsonld` downloads are rate-limited at 60 requests per minute (was only the global 300/min budget).
+- Public OGC Features collection catalogue (`GET /collections` and `GET /collections/:id`) is rate-limited at 60 requests per minute.
 - Public `GET .../layers/:layerId/features-page` and
   `.../features-search` are throttled at 60/min per IP (same as
   Public OGC Records / Features items; global default is 300/min).
