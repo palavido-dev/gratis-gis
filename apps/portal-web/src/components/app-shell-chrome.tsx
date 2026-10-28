@@ -137,6 +137,15 @@ export function AppShellChrome({
   // makes the print dialog capture the wrong viewport.  Render
   // bare so the page IS the paper.
   const isPrintRender = /^\/print\/[^/]+(?:\/|$)/.test(pathname);
+  // #159 server-side Puppeteer capture. Chromium navigates here
+  // without a user session; any AppShell chrome (or the unsigned
+  // FeedbackWidget path below) ends up in the PDF. Render as a
+  // bare fragment — no wrapper, no feedback tab — so page.pdf
+  // captures only the paper.
+  const isPrintPreview = /^\/print-preview(?:\/|$)/.test(pathname);
+  if (isPrintPreview) {
+    return <>{children}</>;
+  }
   if (
     isFieldRuntime ||
     isAppRuntime ||

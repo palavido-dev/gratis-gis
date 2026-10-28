@@ -265,7 +265,7 @@ export function CommentsPanel({
     <div
       role="dialog"
       aria-label={t('mapComments.panelAria')}
-      className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-96 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
+      className="absolute right-14 top-3 z-30 flex max-h-[70vh] w-96 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
@@ -418,7 +418,7 @@ export function CommentsPanel({
                         busy ||
                         (replyDrafts[thread.id] ?? '').trim().length === 0
                       }
-                      className="rounded border border-border bg-accent px-2 py-1 text-xs text-accent-on hover:opacity-90 disabled:opacity-50"
+                      className="rounded border border-border bg-accent px-2 py-1 text-xs text-accent-foreground hover:opacity-90 disabled:opacity-50"
                     >
                       <Send className="h-3 w-3" />
                     </button>
@@ -496,7 +496,7 @@ export function CommentsPanel({
                 type="button"
                 onClick={startThread}
                 disabled={busy || draftBody.trim().length === 0}
-                className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+                className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
               >
                 <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
                 {t('mapComments.post')}
