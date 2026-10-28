@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-spatial-join-help-honesty | research-cycle-8 | spatial-join.md matches within/intersects/nearest | This PR |
+| R8-groupby-help-honesty | research-cycle-8 | group-by.md matches aggregate ST_Union + ops | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-groupby-help-honesty | research-cycle-8 | group-by.md matches aggregate ST_Union + ops | Docs honesty |
 | R8-calculate-help-honesty | research-cycle-8 | Calculate/expression docs: no fake geometry helpers | Docs honesty |
 | R8-i18n-analyze-query-builder | research-cycle-8 | #162 Analyze query-builder chrome i18n | After guides |
 | R8-analyze-convex-hull-shortcut | research-cycle-8 | Analyze Convex hull → derived_layer | Centroid-shaped |
@@ -32,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R8-spatial-join-help-honesty | 2026-10-27 | Merged #398: spatial-join help matches within/intersects/nearest |
 | Q-research-cycle-8 | 2026-10-27 | Merged #397: research-cycle-8 refill ship-without-input queue |
 | R7-recipe-aoi-honesty | 2026-10-27 | Merged #396: recipe AOI hint without wave-2 promise |
 | R7-analyze-simplify-shortcut | 2026-10-27 | Merged #395: Analyze Simplify → PostGIS derived_layer |
