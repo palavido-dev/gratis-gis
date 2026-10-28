@@ -1,7 +1,7 @@
 ---
 id: items-form
 title: Form
-summary: An item that collects new features or non-spatial responses from people in the field or at their desks. The native equivalent of a Survey123 survey.
+summary: An item that collects new features or non-spatial responses from people in the field or at their desks. A browser and field form for collecting features or non-spatial responses. Close to what Survey123 does for many surveys, with a different designer and sync model.
 category: items
 order: 30
 complexity: basic
