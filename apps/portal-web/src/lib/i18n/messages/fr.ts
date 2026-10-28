@@ -4764,6 +4764,19 @@ export const fr: Partial<CatalogShape> = {
       ". Attendez un court travail serveur, pas un résultat navigateur instantané.",
     centroidHint:
       "Centroïde géométrique uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.",
+
+    dissolveAction: 'Fusionner cette couche',
+    dissolveActionTitle:
+      'Créer une fusion de couche dérivée côté serveur (PostGIS ST_Union). Les attributs sont abandonnés.',
+    dissolveHeading: 'Fusionner cette couche (couche dérivée serveur)',
+    dissolveIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    dissolveIntroAfter:
+      'sur PostGIS en une seule entité et abandonne les attributs. Même recette que',
+    dissolveHelpLink: 'Aide Fusion',
+    dissolveIntroTail:
+      '. Pour une fusion par clé avec agrégats, utilisez Grouper par. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    dissolveHint:
+      'Les attributs sont abandonnés. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
   },
 
   serviceEditors: {

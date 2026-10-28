@@ -4754,6 +4754,19 @@ export const ptBR: Partial<CatalogShape> = {
       ". Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.",
     centroidHint:
       "Apenas centróide geométrico. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.",
+
+    dissolveAction: 'Dissolver esta camada',
+    dissolveActionTitle:
+      'Criar uma dissolução de camada derivada no servidor (PostGIS ST_Union). Os atributos são descartados.',
+    dissolveHeading: 'Dissolver esta camada (camada derivada no servidor)',
+    dissolveIntroBefore: 'Cria uma camada derivada privada que executa',
+    dissolveIntroAfter:
+      'no PostGIS em uma única feição e descarta os atributos. Mesma receita que',
+    dissolveHelpLink: 'Ajuda de dissolução',
+    dissolveIntroTail:
+      '. Para dissolução por chave com agregados, use Agrupar por. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    dissolveHint:
+      'Os atributos são descartados. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
   },
 
   serviceEditors: {
