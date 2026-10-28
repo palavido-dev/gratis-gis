@@ -4924,6 +4924,26 @@ export const en = {
     simplifyValidateUnit: 'Pick a tolerance unit.',
     simplifyValidateEmpty: 'Enter a tolerance greater than zero.',
     simplifyValidateMax: 'Tolerance must be at most {meters} m.',
+    densifyAction: 'Densify this layer',
+    densifyActionTitle:
+      'Create a server-side derived layer densify (PostGIS ST_Segmentize on geography). Meter-honest max segment length.',
+    densifyHeading: 'Densify this layer (server derived layer)',
+    densifyIntroBefore: 'Creates a private derived layer that runs',
+    densifyIntroAfter:
+      'on geography with a meter-honest max segment length. Same recipe as',
+    densifyHelpLink: 'Densify help',
+    densifyIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    densifyMaxSegment: 'Max segment length',
+    densifyMaxSegmentAria: 'Densify max segment length',
+    densifyUnit: 'Unit',
+    densifyUnitAria: 'Densify max segment length unit',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Expect a short server job; open the new item to map or refresh the result.',
+    densifyValidateUnit: 'Pick a segment-length unit.',
+    densifyValidateEmpty: 'Enter a max segment length greater than zero.',
+    densifyValidateMin: 'Max segment length must be at least {meters} m.',
+    densifyValidateMax: 'Max segment length must be at most {meters} m.',
 
     qbFields: 'Fields',
     qbFieldsNoneSelected: '(none selected = all)',

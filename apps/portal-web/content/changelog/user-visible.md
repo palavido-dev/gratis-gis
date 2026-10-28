@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Densify this layer from Analyze
+On a data layer's Analyze tab, **Densify this layer** opens a max segment length and unit form and creates a private PostGIS derived layer that adds vertices so no segment exceeds that length (`ST_Segmentize` on geography; min 1 m, soft max 100 km). Same path as Create → Derived layer → Densify. Expect a short server job, not an instant browser result.
+
 ## 2026-10-27 - Convex hulls for this layer from Analyze
 On a data layer's Analyze tab, **Convex hulls for this layer** creates a private PostGIS derived layer that replaces each feature with its convex hull (attributes kept; not one hull for the whole layer). Same path as Create → Derived layer → Convex hull. Expect a short server job, not an instant browser result.
 

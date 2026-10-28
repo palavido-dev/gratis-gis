@@ -117,6 +117,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Densify this layer** guide creates a single-step
+  `derived_layer` densify recipe via `POST /api/portal/items`,
+  reusing PostGIS `ST_Segmentize` on geography with a
+  meter-honest max segment length (min 1 m, soft max 100 km).
+  Help page `analysis/densify` documents the Analyze entry
+  point. Locale catalogs for the guide chrome
+  (en / es / fr / de / pt-BR) (R8-analyze-densify-shortcut).
 - Analyze **Convex hulls for this layer** guide creates a
   single-step `derived_layer` convex-hull recipe via
   `POST /api/portal/items`, reusing PostGIS `ST_ConvexHull`

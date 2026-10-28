@@ -4786,6 +4786,29 @@ export const ptBR: Partial<CatalogShape> = {
     simplifyValidateUnit: 'Escolha uma unidade de tolerância.',
     simplifyValidateEmpty: 'Informe uma tolerância maior que zero.',
     simplifyValidateMax: 'A tolerância deve ser no máximo {meters} m.',
+    densifyAction: 'Densificar esta camada',
+    densifyActionTitle:
+      'Criar uma densificação de camada derivada no servidor (PostGIS ST_Segmentize em geography). Comprimento máximo de segmento em metros honestos.',
+    densifyHeading: 'Densificar esta camada (camada derivada no servidor)',
+    densifyIntroBefore: 'Cria uma camada derivada privada que executa',
+    densifyIntroAfter:
+      'em geography com um comprimento máximo de segmento em metros honestos. Mesma receita que',
+    densifyHelpLink: 'Ajuda de densificação',
+    densifyIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    densifyMaxSegment: 'Comprimento máximo de segmento',
+    densifyMaxSegmentAria: 'Comprimento máximo de segmento para densificar',
+    densifyUnit: 'Unidade',
+    densifyUnitAria: 'Unidade do comprimento máximo de segmento',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Espere um trabalho curto no servidor; abra o novo item para mapear ou atualizar o resultado.',
+    densifyValidateUnit: 'Escolha uma unidade de comprimento de segmento.',
+    densifyValidateEmpty:
+      'Informe um comprimento máximo de segmento maior que zero.',
+    densifyValidateMin:
+      'O comprimento máximo de segmento deve ser pelo menos {meters} m.',
+    densifyValidateMax:
+      'O comprimento máximo de segmento deve ser no máximo {meters} m.',
 
     qbFields: 'Campos',
     qbFieldsNoneSelected: '(nenhum selecionado = todos)',
