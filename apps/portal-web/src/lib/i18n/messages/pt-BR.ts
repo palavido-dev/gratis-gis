@@ -743,6 +743,7 @@ export const ptBR: Partial<CatalogShape> = {
     basemapActive: 'ativo',
     elevationProfileButton: 'Perfil de elevação',
     visibilityButton: 'Visibilidade',
+    measureButton: 'Medir',
     createAppButton: 'Criar app',
     savingIndicator: 'Salvando...',
     saveAsTitle: 'Salvar este mapa',
@@ -750,6 +751,19 @@ export const ptBR: Partial<CatalogShape> = {
       'Dê um nome e ele vira um mapa no seu portal, pronto para compartilhar e abrir de novo.',
     mapNamePlaceholder: 'Nome do mapa',
     cancel: 'Cancelar',
+  },
+  mapMeasure: {
+    title: 'Medir',
+    closeAria: 'Fechar medição',
+    modeAria: 'Modo de medição',
+    distance: 'Distância',
+    area: 'Área',
+    unit: 'Unidade',
+    hintDistance:
+      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir.',
+    hintArea:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir.',
+    newMeasurement: 'Nova medição',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
@@ -1249,6 +1263,14 @@ export const ptBR: Partial<CatalogShape> = {
     pickSection: 'Usar um layout existente',
     pickEmpty:
       'Ainda não há layouts de impressão disponíveis. Use "Criar um novo layout" acima para criar um.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint:
+      'Passe o mouse sobre um layout para ver a estrutura da página.',
+    previewTitle: 'Prévia: {title}',
+    previewFrameAria: 'Prévia em PDF de {title}',
+    renderingPreview: 'Gerando prévia…',
+    backToLayouts: 'Voltar aos layouts',
+    downloadPdf: 'Baixar PDF',
   },
   errors: {
     generic: 'Algo deu errado',

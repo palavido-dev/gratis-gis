@@ -745,6 +745,7 @@ export const de: Partial<CatalogShape> = {
     basemapActive: 'aktiv',
     elevationProfileButton: 'Höhenprofil',
     visibilityButton: 'Sichtbarkeit',
+    measureButton: 'Messen',
     createAppButton: 'App erstellen',
     savingIndicator: 'Wird gespeichert...',
     saveAsTitle: 'Diese Karte speichern',
@@ -752,6 +753,19 @@ export const de: Partial<CatalogShape> = {
       'Geben Sie ihr einen Namen und sie wird zu einer Karte in Ihrem Portal — bereit zum Teilen und erneuten Öffnen.',
     mapNamePlaceholder: 'Kartenname',
     cancel: 'Abbrechen',
+  },
+  mapMeasure: {
+    title: 'Messen',
+    closeAria: 'Messen schließen',
+    modeAria: 'Messmodus',
+    distance: 'Entfernung',
+    area: 'Fläche',
+    unit: 'Einheit',
+    hintDistance:
+      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+    hintArea:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+    newMeasurement: 'Neue Messung',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
@@ -1253,6 +1267,14 @@ export const de: Partial<CatalogShape> = {
     pickSection: 'Vorhandenes Layout verwenden',
     pickEmpty:
       'Noch keine Drucklayouts verfügbar. Verwenden Sie oben „Neues Layout erstellen", um eins zu erstellen.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint:
+      'Fahren Sie mit der Maus über ein Layout, um die Seitenstruktur zu sehen.',
+    previewTitle: 'Vorschau: {title}',
+    previewFrameAria: 'PDF-Vorschau von {title}',
+    renderingPreview: 'Vorschau wird erstellt…',
+    backToLayouts: 'Zurück zu Layouts',
+    downloadPdf: 'PDF herunterladen',
   },
   errors: {
     generic: 'Etwas ist schiefgelaufen',

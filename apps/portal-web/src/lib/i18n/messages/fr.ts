@@ -745,6 +745,7 @@ export const fr: Partial<CatalogShape> = {
     basemapActive: 'actif',
     elevationProfileButton: "Profil d'élévation",
     visibilityButton: 'Visibilité',
+    measureButton: 'Mesurer',
     createAppButton: 'Créer une app',
     savingIndicator: 'Enregistrement...',
     saveAsTitle: 'Enregistrer cette carte',
@@ -752,6 +753,19 @@ export const fr: Partial<CatalogShape> = {
       'Donnez-lui un nom et elle devient une carte de votre portail, prête à partager et à rouvrir.',
     mapNamePlaceholder: 'Nom de la carte',
     cancel: 'Annuler',
+  },
+  mapMeasure: {
+    title: 'Mesurer',
+    closeAria: 'Fermer la mesure',
+    modeAria: 'Mode de mesure',
+    distance: 'Distance',
+    area: 'Surface',
+    unit: 'Unité',
+    hintDistance:
+      'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer.',
+    hintArea:
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer.',
+    newMeasurement: 'Nouvelle mesure',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
@@ -1252,6 +1266,14 @@ export const fr: Partial<CatalogShape> = {
     pickSection: 'Utiliser une mise en page existante',
     pickEmpty:
       "Aucune mise en page d'impression pour le moment. Utilisez « Créer une nouvelle mise en page » ci-dessus pour en créer une.",
+    layoutPreview: 'Mise en page',
+    layoutPreviewHint:
+      'Survolez une mise en page pour voir la structure de la page.',
+    previewTitle: 'Aperçu : {title}',
+    previewFrameAria: 'Aperçu PDF de {title}',
+    renderingPreview: "Génération de l'aperçu…",
+    backToLayouts: 'Retour aux mises en page',
+    downloadPdf: 'Télécharger le PDF',
   },
   errors: {
     generic: 'Une erreur est survenue',
