@@ -55,6 +55,7 @@ import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { ItemAccessMatrix } from '@/components/item-access-matrix';
 import { PublicCascadeDialog } from '@/components/public-cascade-dialog';
 import { PublicCascadeRevertDialog } from '@/components/public-cascade-revert-dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   itemId: string;
@@ -124,6 +125,7 @@ export function SharingPanel({
   geoBoundaryItems = [],
   orgLabel = 'Your organization',
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const [access, setAccess] = useState<ItemAccess>(initialAccess);
   const [accessSaveState, setAccessSaveState] = useState<RowSaveState>('idle');
@@ -984,6 +986,10 @@ export function SharingPanel({
     startTransition(() => router.refresh());
   }
 
+  const resolvedOrgLabel =
+    orgLabel === 'Your organization'
+      ? t('sharing.yourOrganization')
+      : orgLabel;
   const visibilityOptions: Array<{
     value: ItemAccess;
     label: string;
@@ -992,23 +998,23 @@ export function SharingPanel({
   }> = [
     {
       value: 'private',
-      label: 'Private',
-      desc: 'Only you and people you share with below.',
+      label: t('sharing.access.private'),
+      desc: t('sharing.accessPrivateDesc'),
       Icon: Lock,
     },
     {
       value: 'org',
-      label: orgLabel,
+      label: resolvedOrgLabel,
       desc:
         orgLabel === 'Your organization'
-          ? 'Everyone with a login in your organization can see this.'
-          : `Everyone with a login at ${orgLabel} can see this.`,
+          ? t('sharing.accessOrgDescDefault')
+          : t('sharing.accessOrgDescNamed', { org: orgLabel }),
       Icon: Building2,
     },
     {
       value: 'public',
-      label: 'Public',
-      desc: 'Anyone on the internet, no login required.',
+      label: t('sharing.access.public'),
+      desc: t('sharing.accessPublicDesc'),
       Icon: Globe2,
     },
   ];
@@ -1080,7 +1086,7 @@ export function SharingPanel({
       <div className="border-b border-border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-            Visibility
+            {t('sharing.visibility')}
           </h3>
           <span className="inline-flex h-5 w-5 items-center justify-center" aria-live="polite">
             {accessSaveState === 'saving' ? (
@@ -1090,7 +1096,11 @@ export function SharingPanel({
             ) : null}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Visibility">
+        <div
+          className="grid grid-cols-3 gap-2"
+          role="radiogroup"
+          aria-label={t('sharing.visibility')}
+        >
           {visibilityOptions.map(({ value, label, desc, Icon }) => {
             const selected = access === value;
             return (
@@ -1122,8 +1132,8 @@ export function SharingPanel({
           <p className="mt-3 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
             <strong className="font-medium">{currentOption.label}</strong>{' '}
             {access === 'org'
-              ? 'can already see this item. Shares below only matter for granting edit or admin permission on top of that.'
-              : 'means anyone on the internet can view this. Shares below only matter for granting edit or admin permission.'}
+              ? t('sharing.orgAlreadySeesRest')
+              : t('sharing.publicMeansAnyoneRest')}
           </p>
         ) : null}
         {/* #80: tier-level geographic scope. Renders only for the
@@ -1242,13 +1252,13 @@ export function SharingPanel({
                       )
                     }
                     disabled={pending}
-                    aria-label="Change permission"
+                    aria-label={t('sharing.changePermissionAria')}
                     className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                   >
-                    <option value="view">can view</option>
-                    <option value="download">can download</option>
-                    <option value="edit">can edit</option>
-                    <option value="admin">can admin</option>
+                    <option value="view">{t('sharing.canView')}</option>
+                    <option value="download">{t('sharing.canDownload')}</option>
+                    <option value="edit">{t('sharing.canEdit')}</option>
+                    <option value="admin">{t('sharing.canAdmin')}</option>
                   </select>
                   {/* Row scope (#40). Narrows the share to features
                       the principal themselves created. Hidden for
@@ -1267,12 +1277,12 @@ export function SharingPanel({
                         )
                       }
                       disabled={pending}
-                      aria-label="Row scope"
-                      title="What can they see / edit?"
+                      aria-label={t('sharing.rowScopeAria')}
+                      title={t('sharing.rowScopeTitle')}
                       className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                     >
-                      <option value="all">all features</option>
-                      <option value="own">only theirs</option>
+                      <option value="all">{t('sharing.allFeatures')}</option>
+                      <option value="own">{t('sharing.onlyTheirs')}</option>
                     </select>
                   ) : null}
                   <span
@@ -1299,10 +1309,10 @@ export function SharingPanel({
                     disabled={pending}
                     title={
                       share.geoLimit || share.geoBoundaryId
-                        ? 'Edit geographic restriction'
-                        : 'Restrict to a geographic area'
+                        ? t('sharing.editGeoRestrictionTitle')
+                        : t('sharing.restrictGeoTitle')
                     }
-                    aria-label="Restrict to area"
+                    aria-label={t('sharing.restrictToAreaAria')}
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-md disabled:opacity-50 ${
                       share.geoLimit || share.geoBoundaryId
                         ? 'bg-accent/10 text-accent hover:bg-accent/15'
@@ -1316,7 +1326,7 @@ export function SharingPanel({
                     onClick={() => removeShare(share)}
                     disabled={pending}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
-                    aria-label="Remove share"
+                    aria-label={t('sharing.removeShareAria')}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -1354,7 +1364,7 @@ export function SharingPanel({
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm ${mode === 'group' ? 'bg-accent text-accent-foreground rounded-md' : 'text-muted'}`}
             >
               <UsersIcon className="h-3.5 w-3.5" />
-              Group
+              {t('sharing.groupTab')}
             </button>
             <button
               type="button"
@@ -1362,7 +1372,7 @@ export function SharingPanel({
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm ${mode === 'user' ? 'bg-accent text-accent-foreground rounded-md' : 'text-muted'}`}
             >
               <UserIcon className="h-3.5 w-3.5" />
-              User
+              {t('sharing.userTab')}
             </button>
           </div>
 
@@ -1376,26 +1386,26 @@ export function SharingPanel({
             {mode === 'group' ? (
               <PrincipalPicker
                 key="group-picker"
-                placeholder="Search groups..."
+                placeholder={t('sharing.searchGroupsPlaceholder')}
                 search={searchGroups}
                 onPick={(opt) =>
                   void intentShare('group', opt.id, opt.title)
                 }
                 emptyInitialMessage={
                   groups.length === 0
-                    ? 'No groups yet. Create one from /groups.'
-                    : 'Start typing to filter groups.'
+                    ? t('sharing.noGroupsYet')
+                    : t('sharing.startTypingGroups')
                 }
               />
             ) : (
               <PrincipalPicker
                 key="user-picker"
-                placeholder="Search people in your org..."
+                placeholder={t('sharing.searchPeoplePlaceholder')}
                 search={searchUsers}
                 onPick={(opt) =>
                   void intentShare('user', opt.id, opt.title)
                 }
-                emptyInitialMessage="Start typing a name or username."
+                emptyInitialMessage={t('sharing.startTypingPeople')}
               />
             )}
           </div>
@@ -1405,9 +1415,9 @@ export function SharingPanel({
             onChange={(e) => setPermission(e.target.value as SharePermission)}
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
-            <option value="view">can view</option>
-            <option value="edit">can edit</option>
-            <option value="admin">can admin</option>
+            <option value="view">{t('sharing.canView')}</option>
+            <option value="edit">{t('sharing.canEdit')}</option>
+            <option value="admin">{t('sharing.canAdmin')}</option>
           </select>
         </div>
         {error ? (
@@ -1418,7 +1428,7 @@ export function SharingPanel({
         {auditingPrincipal ? (
           <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted">
             <Loader2 className="h-3 w-3 animate-spin" />
-            Checking dependency access...
+            {t('sharing.checkingDependencyAccess')}
           </p>
         ) : null}
       </div>
@@ -1426,7 +1436,7 @@ export function SharingPanel({
       {itemType === 'editor' && depChainSnapshot ? (
         <ItemAccessMatrix
           open={matrixOpen}
-          title="Editor item access"
+          title={t('sharing.editorItemAccess')}
           items={depChainSnapshot.map((node) => ({
             id: node.id,
             title: node.title,
