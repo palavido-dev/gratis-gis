@@ -5130,6 +5130,32 @@ export const ptBR: Partial<CatalogShape> = {
     randomSampleValidateCount: 'A contagem deve ser um inteiro positivo.',
     randomSampleValidateMax: 'A contagem deve ser no máximo {max}.',
     randomSampleValidateSeed: 'A semente deve ser um inteiro diferente de zero.',
+    contourAction: 'Curvas de nível desta camada',
+    contourActionTitle:
+      'Cria uma camada derivada no servidor com iso-linhas TIN a partir de um campo numérico (somente camadas de pontos).',
+    contourHeading: 'Curvas de nível desta camada (camada derivada no servidor)',
+    contourIntroBefore:
+      'Cria uma camada derivada privada que monta um TIN de Delaunay e emite iso-linhas com intervalo automático (mín/máx opcional). Só linhas com propriedade level — sem iso-polígonos. Mesma receita que',
+    contourHelpLink: 'Ajuda de curvas de nível',
+    contourIntroTail:
+      '. Espere um job no servidor; conjuntos densos de pontos podem ser lentos.',
+    contourField: 'Campo numérico',
+    contourFieldAria: 'Campo numérico para curvas de nível',
+    contourInterval: 'Intervalo',
+    contourIntervalAria: 'Intervalo de níveis de curva',
+    contourMin: 'Mín (opcional)',
+    contourMinAria: 'Nível mínimo opcional',
+    contourMax: 'Máx (opcional)',
+    contourMaxAria: 'Nível máximo opcional',
+    contourOptional: 'auto',
+    contourPickField: 'Escolha um campo numérico…',
+    contourNoNumeric: 'Não há campos numéricos nesta camada',
+    contourHint:
+      'Níveis automáticos alinham ao intervalo no intervalo do campo (cerca de {max} níveis no máximo). Listas manuais ficam em Criar → Camada derivada. Abra o novo item após o job no servidor.',
+    contourValidateNoNumeric: 'Esta camada não tem campos numéricos para curvas de nível.',
+    contourValidateField: 'Escolha um campo numérico.',
+    contourValidateInterval: 'O intervalo deve ser um número positivo.',
+    contourValidateRange: 'O mínimo deve ser estritamente menor que o máximo quando ambos estão definidos.',
   },
 
   serviceEditors: {

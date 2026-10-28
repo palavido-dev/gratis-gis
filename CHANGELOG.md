@@ -54,6 +54,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Analyze **Contour for this layer** (point layers) opens
+  numeric field, auto interval, and optional min/max controls
+  and creates a private PostGIS derived layer of TIN iso-lines
+  (`level` property; not iso-polygons). Manual level lists stay
+  in Create → Derived layer. Same path as Create → Derived layer
+  → Contour (R11-analyze-contour-shortcut).
 - Help: add **Print template** item page; rewrite Print widget,
   print-templates overview / parameters / tokens so they match
   shipped `print_template` (paper canvas + elements + parameters,

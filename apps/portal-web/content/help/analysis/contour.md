@@ -63,6 +63,16 @@ No `level_top`, and no mean/count aggregates from the source.
 Expect a server job. Dense point sets are expensive; prefer a
 bbox-filtered source or coarser spacing when exploring.
 
+## From a data layer Analyze tab
+
+On a **point** data layer's **Analyze** tab, **Contour for this
+layer** opens numeric field, auto interval, and optional min/max
+controls and creates a private derived layer with a single
+contour step (same PostGIS TIN path as above). Point layers only;
+line and polygon layers do not show the chip. Manual level-list
+authoring stays in Create → Derived layer. Expect a server job,
+not an instant browser result.
+
 ## Example: elevation iso-lines
 
 1. Source: elevation sample points with an `elev_m` field.

@@ -28,8 +28,12 @@ it. The detail page edits one of these kinds:
   do not treat a capped overlay as a complete census of the AOI.
   A recipe does **not** create a new derived layer or data layer
   as its sink — create a [derived layer](items-derived-layer)
-  item (or use Analyze Buffer / Clip / Erase / Centroid /
-  Dissolve / Simplify) when you want a saved spatial pipeline.
+  item, or use a data layer's **Analyze** guided actions (Buffer,
+  Clip, Erase, Centroids, Convex hulls, Bounding boxes, Dissolve,
+  Simplify, Densify, Vertices, Calculate geometry, Nearest
+  neighbor, Fishnet on polygons, Contour on points, Top N,
+  Random sample; see [Derived layer](items-derived-layer)), when
+  you want a saved spatial pipeline.
 - **OSM relational query**
 
 A recipe can be opened on a canvas. Dragging a step changes
@@ -39,6 +43,12 @@ does not run a branch, a join, or a union. Derived layers are
 the shipped way to keep a spatial pipeline whose result is
 itself a layer.
 
+Public `POST /api/tools/:id/run` is throttled at **30 requests
+per minute per IP** (tighter than the global API default).
+Anonymous Overpass-backed tools are an easy egress burn if left
+at the global ceiling; expect HTTP 429 when you exceed it.
+
 ## See also
 
-- **Derived layer**. A computed layer, not a reusable button action.
+- [Derived layer](items-derived-layer). A computed layer, not a
+  reusable button action — and the full Analyze shortcut list.
