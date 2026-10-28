@@ -61,6 +61,15 @@ Expect a short server job. Very small cell sizes on large
 extents are refused at save time (safety cap about one million
 cells).
 
+## From a data layer Analyze tab
+
+On a **polygon** data layer's **Analyze** tab, **Fishnet for this
+layer** opens cell size, unit, and polygons vs lines controls and
+creates a private derived layer with a single fishnet step (same
+PostGIS `ST_SquareGrid` path as above). The chip is hidden for
+point and line layers. Expect a short server job; fine grids on
+large extents may hit the save-time cell cap.
+
 ## Example: incident density by 500 m cell
 
 1. Fishnet over a city boundary polygon, square cells, 500 m

@@ -5135,6 +5135,31 @@ export const en = {
       '. Expect a short server job, not an instant browser result.',
     nnHint:
       'Same layer only. Large layers can be slow (O(N²)). Open the new item to map or refresh the result after the server job finishes.',
+    fishnetAction: 'Fishnet for this layer',
+    fishnetActionTitle:
+      'Create a server-side derived layer fishnet (PostGIS ST_SquareGrid). Polygon layers only.',
+    fishnetHeading: 'Fishnet for this layer (server derived layer)',
+    fishnetIntroBefore: 'Creates a private derived layer that runs',
+    fishnetIntroAfter:
+      'on PostGIS over this polygon layer (square cells, clipped to the source). Same recipe as',
+    fishnetHelpLink: 'Fishnet help',
+    fishnetIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    fishnetCellSize: 'Cell size',
+    fishnetCellSizeAria: 'Fishnet cell size',
+    fishnetUnit: 'Unit',
+    fishnetUnitAria: 'Fishnet cell-size unit',
+    fishnetOutput: 'Output',
+    fishnetOutputAria: 'Fishnet output mode',
+    fishnetOutput_polygons: 'polygons',
+    fishnetOutput_lines: 'lines',
+    fishnetLimitHint:
+      'Cell size {minMeters}–{maxMeters} m. Very fine grids on large extents may hit the ~{maxCells} cell save-time cap. Open the new item after the server job finishes.',
+    fishnetValidateUnit: 'Pick a cell-size unit.',
+    fishnetValidateEmpty: 'Enter a cell size greater than zero.',
+    fishnetValidateMin: 'Cell size must be at least {meters} m.',
+    fishnetValidateMax: 'Cell size must be at most {meters} m.',
+    fishnetValidateOutput: 'Pick polygons or lines output.',
   },
 
   /**

@@ -5005,6 +5005,31 @@ export const ptBR: Partial<CatalogShape> = {
       '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
     nnHint:
       'Só a mesma camada. Camadas grandes podem ser lentas (O(N²)). Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    fishnetAction: 'Fishnet desta camada',
+    fishnetActionTitle:
+      'Criar um fishnet de camada derivada no servidor (PostGIS ST_SquareGrid). Somente camadas de polígono.',
+    fishnetHeading: 'Fishnet desta camada (camada derivada no servidor)',
+    fishnetIntroBefore: 'Cria uma camada derivada privada que executa',
+    fishnetIntroAfter:
+      'no PostGIS sobre esta camada de polígono (células quadradas, recortadas à fonte). Mesma receita que',
+    fishnetHelpLink: 'Ajuda de fishnet',
+    fishnetIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    fishnetCellSize: 'Tamanho da célula',
+    fishnetCellSizeAria: 'Tamanho da célula do fishnet',
+    fishnetUnit: 'Unidade',
+    fishnetUnitAria: 'Unidade do tamanho da célula',
+    fishnetOutput: 'Saída',
+    fishnetOutputAria: 'Modo de saída do fishnet',
+    fishnetOutput_polygons: 'polígonos',
+    fishnetOutput_lines: 'linhas',
+    fishnetLimitHint:
+      'Tamanho da célula {minMeters}–{maxMeters} m. Grades muito finas em extensões grandes podem atingir o teto de ~{maxCells} células ao salvar. Abra o novo item quando o trabalho do servidor terminar.',
+    fishnetValidateUnit: 'Escolha uma unidade de tamanho de célula.',
+    fishnetValidateEmpty: 'Informe um tamanho de célula maior que zero.',
+    fishnetValidateMin: 'O tamanho da célula deve ser pelo menos {meters} m.',
+    fishnetValidateMax: 'O tamanho da célula deve ser no máximo {meters} m.',
+    fishnetValidateOutput: 'Escolha saída de polígonos ou linhas.',
   },
 
   serviceEditors: {

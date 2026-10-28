@@ -5015,6 +5015,31 @@ export const fr: Partial<CatalogShape> = {
       '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
     nnHint:
       'Même couche uniquement. Les grandes couches peuvent être lentes (O(N²)). Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    fishnetAction: 'Fishnet pour cette couche',
+    fishnetActionTitle:
+      'Créer un fishnet de couche dérivée serveur (PostGIS ST_SquareGrid). Couches polygone uniquement.',
+    fishnetHeading: 'Fishnet pour cette couche (couche dérivée serveur)',
+    fishnetIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    fishnetIntroAfter:
+      'sur PostGIS sur cette couche polygone (cellules carrées, découpées à la source). Même recette que',
+    fishnetHelpLink: 'Aide Fishnet',
+    fishnetIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    fishnetCellSize: 'Taille de cellule',
+    fishnetCellSizeAria: 'Taille de cellule du fishnet',
+    fishnetUnit: 'Unité',
+    fishnetUnitAria: 'Unité de taille de cellule',
+    fishnetOutput: 'Sortie',
+    fishnetOutputAria: 'Mode de sortie du fishnet',
+    fishnetOutput_polygons: 'polygones',
+    fishnetOutput_lines: 'lignes',
+    fishnetLimitHint:
+      'Taille de cellule {minMeters}–{maxMeters} m. Les grilles très fines sur de grandes étendues peuvent atteindre le plafond d’environ {maxCells} cellules à l’enregistrement. Ouvrez le nouvel élément une fois le travail serveur terminé.',
+    fishnetValidateUnit: 'Choisissez une unité de taille de cellule.',
+    fishnetValidateEmpty: 'Saisissez une taille de cellule supérieure à zéro.',
+    fishnetValidateMin: 'La taille de cellule doit être d’au moins {meters} m.',
+    fishnetValidateMax: 'La taille de cellule doit être d’au plus {meters} m.',
+    fishnetValidateOutput: 'Choisissez une sortie polygones ou lignes.',
   },
 
   serviceEditors: {
