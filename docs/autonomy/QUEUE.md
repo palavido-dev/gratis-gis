@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-i18n-map-settings-descriptions | research-cycle-13 | Map settings description bodies + option labels (#162) | This PR |
+| R13-i18n-editor-runtime-chrome | research-cycle-13 | Feature Editor runtime toolbar / edit / measure i18n (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-i18n-editor-runtime-chrome | research-cycle-13 | Feature Editor runtime toolbar / edit / measure i18n (#162) | Dense English island |
 | R13-i18n-builder-viewer-editor-titles | research-cycle-13 | BuilderShell Back/Close + viewer/editor panel titles (#162) | |
 | R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | Partial catalog exists |
 | R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | Guides already t() |
@@ -36,6 +35,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R13-i18n-map-settings-descriptions | 2026-10-28 | Merged #447: map settings descriptions + option labels i18n (#162) |
 | R13-i18n-map-layers-panel-title | 2026-10-28 | Merged #446: map Layers rail title via mapLayerPanel.title (#162) |
 | Q-research-cycle-13 | 2026-10-28 | Merged #445: research-cycle-13 refill ship-without-input queue |
 | SEC-public-features-page-throttle | 2026-10-28 | Merged #444: Public features-page + features-search @Throttle 60/min |

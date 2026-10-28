@@ -85,6 +85,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Feature Editor runtime toolbar, edit/measure panes, dialogs, and
+  toasts go through `editorRuntime` catalogs (en/es/fr/de/pt-BR),
+  reusing mapEditor / mapLayerPanel / common / featureEdit keys
+  where wording matches (R13-i18n-editor-runtime-chrome / #162).
 - Map settings View scope / Default extent / Search source
   descriptions, select options, geocoder kind suffixes, and
   collapsed summary labels go through en/es/fr/de/pt-BR catalogs
