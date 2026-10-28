@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public `POST /api/tools/:id/run` is throttled at 30/min per IP
+  (same as anonymous drawings writes; global default is 300/min).
+  Cuts anonymous Overpass-backed tool abuse surface without
+  changing auth behaviour (SEC-tools-run-throttle).
 - Presence WebSocket (`/api/realtime/ws`) caps each inbound frame at
   64 KiB (`maxPayload` + application check). Cursor / heartbeat
   messages are tiny; the `ws` default of 100 MiB is refused
