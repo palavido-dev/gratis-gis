@@ -2102,7 +2102,7 @@ export function MapEditor({
         leftPanelTitle="Layers"
         leftRailIcon={<LayersIcon className="h-4 w-4" />}
         rightPanel={rightPanel}
-        rightPanelTitle="Map settings"
+        rightPanelTitle={t('mapSettings.title')}
         rightRailIcon={<SettingsIcon className="h-4 w-4" />}
       >
         {/* Canvas + overlays. `absolute inset-0` over the BuilderShell
