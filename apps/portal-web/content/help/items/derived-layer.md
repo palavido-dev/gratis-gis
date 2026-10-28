@@ -27,12 +27,14 @@ For one-step recipes, a data layer's **Analyze** tab has guided
 actions that create a private derived-layer item via PostGIS on
 the server: **Buffer**, **Clip**, **Erase**, **Centroids**,
 **Convex hulls**, **Bounding boxes**, **Dissolve**,
-**Simplify**, **Densify**, **Vertices**, and **Calculate
-geometry**. Meter distances and tolerances stay honest; the
-in-browser SQL builder does not invent degree-unit geometry ops.
-See [Buffer](analysis-buffer), [Bounding box](analysis-bbox),
-[Vertices](analysis-vertices), [Calculate](analysis-calculate),
-[Simplify](analysis-simplify), and [Densify](analysis-densify).
+**Simplify**, **Densify**, **Vertices**, **Calculate
+geometry**, and **Nearest neighbor**. Meter distances and
+tolerances stay honest; the in-browser SQL builder does not invent
+degree-unit geometry ops. See [Buffer](analysis-buffer),
+[Bounding box](analysis-bbox), [Vertices](analysis-vertices),
+[Calculate](analysis-calculate), [Simplify](analysis-simplify),
+[Densify](analysis-densify), and
+[Nearest neighbor](analysis-nearest-neighbor).
 
 ## Pipeline model
 

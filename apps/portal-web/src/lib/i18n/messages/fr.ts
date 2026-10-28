@@ -5002,6 +5002,19 @@ export const fr: Partial<CatalogShape> = {
       'Le nom doit commencer par une lettre ou un souligné et ne contenir que lettres, chiffres et soulignés.',
     calcGeomValidateAreaUnit: 'Choisissez une unité de superficie.',
     calcGeomValidateLengthUnit: 'Choisissez une unité de longueur.',
+    nnAction: 'Voisin le plus proche pour cette couche',
+    nnActionTitle:
+      'Créer une couche dérivée serveur qui ajoute nearest_distance_m (auto-jointure géographique sur la même couche). O(N²).',
+    nnHeading:
+      'Voisin le plus proche pour cette couche (couche dérivée serveur)',
+    nnIntroBefore: 'Crée une couche dérivée privée qui ajoute',
+    nnIntroAfter:
+      'via une auto-jointure géographique PostGIS (mètres jusqu’à l’autre entité la plus proche). Même couche uniquement ; O(N²) ; une couche à une seule ligne donne NULL. Même recette que',
+    nnHelpLink: 'Aide Voisin le plus proche',
+    nnIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    nnHint:
+      'Même couche uniquement. Les grandes couches peuvent être lentes (O(N²)). Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
   },
 
   serviceEditors: {

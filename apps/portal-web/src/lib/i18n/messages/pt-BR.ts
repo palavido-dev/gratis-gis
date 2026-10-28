@@ -4992,6 +4992,19 @@ export const ptBR: Partial<CatalogShape> = {
       'O nome deve começar com letra ou sublinhado e conter apenas letras, números e sublinhados.',
     calcGeomValidateAreaUnit: 'Escolha uma unidade de área.',
     calcGeomValidateLengthUnit: 'Escolha uma unidade de comprimento.',
+    nnAction: 'Vizinho mais próximo desta camada',
+    nnActionTitle:
+      'Criar uma camada derivada no servidor que adiciona nearest_distance_m (autojunção geográfica na mesma camada). O(N²).',
+    nnHeading:
+      'Vizinho mais próximo desta camada (camada derivada no servidor)',
+    nnIntroBefore: 'Cria uma camada derivada privada que adiciona',
+    nnIntroAfter:
+      'via autojunção geográfica no PostGIS (metros até a outra feição mais próxima). Só a mesma camada; O(N²); uma camada de uma linha produz NULL. Mesma receita que',
+    nnHelpLink: 'Ajuda de vizinho mais próximo',
+    nnIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    nnHint:
+      'Só a mesma camada. Camadas grandes podem ser lentas (O(N²)). Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
   },
 
   serviceEditors: {

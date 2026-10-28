@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Nearest neighbor for this layer from Analyze
+On a data layer's Analyze tab, **Nearest neighbor for this layer** creates a private PostGIS derived layer that adds `nearest_distance_m` (meters to the closest other feature in the same layer). Same-layer only; large layers can be slow (O(N²)); a single-row layer yields NULL. Same path as Create → Derived layer → Nearest neighbor. Expect a short server job, not an instant browser result.
+
 ## 2026-10-28 - Data collection help for field deployments
 Help now has a **Data collection** page: what a field deployment includes (map, editable layers, forms), how QR / link share works, Download for offline and Refresh, sync queue and where to review conflicts, and an honest note that this is not Field Maps or Survey123.
 

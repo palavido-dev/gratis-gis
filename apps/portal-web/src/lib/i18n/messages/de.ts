@@ -5012,6 +5012,19 @@ export const de: Partial<CatalogShape> = {
       'Der Name muss mit einem Buchstaben oder Unterstrich beginnen und darf nur Buchstaben, Ziffern und Unterstriche enthalten.',
     calcGeomValidateAreaUnit: 'Wählen Sie eine Flächeneinheit.',
     calcGeomValidateLengthUnit: 'Wählen Sie eine Längeneinheit.',
+    nnAction: 'Nächster Nachbar für diese Ebene',
+    nnActionTitle:
+      'Serverseitigen Derived Layer erstellen, der nearest_distance_m hinzufügt (geographischer Self-Join derselben Ebene). O(N²).',
+    nnHeading:
+      'Nächster Nachbar für diese Ebene (serverseitiger Derived Layer)',
+    nnIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    nnIntroAfter:
+      'über einen PostGIS-Geographie-Self-Join hinzufügt (Meter zum nächsten anderen Feature). Nur dieselbe Ebene; O(N²); eine einzeilige Ebene ergibt NULL. Gleiches Rezept wie',
+    nnHelpLink: 'Hilfe Nächster Nachbar',
+    nnIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    nnHint:
+      'Nur dieselbe Ebene. Große Ebenen können langsam sein (O(N²)). Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
   },
 
   serviceEditors: {
