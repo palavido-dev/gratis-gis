@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-i18n-map-settings-title | research-cycle-12 | Map editor Map settings panel title i18n (#162) | This PR |
+| R12-i18n-pwa-install-chrome | research-cycle-12 | PWA Install / Dismiss / iOS copy i18n (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-i18n-pwa-install-chrome | research-cycle-12 | PWA Install / Dismiss / iOS copy i18n (#162) | field + items list |
 | R12-sync-conflict-help-crosslink | research-cycle-12 | Cross-link sync conflict Re-apply / Dismiss help | Docs discoverability |
 | R12-tool-help-post-r11-honesty | research-cycle-12 | Confirm tool.md / derived-layer.md vs Contour/Group-by | Docs spot-check |
 | R12-i18n-field-offline-basemap-row | research-cycle-12 | Spot-check offline basemap row literals after #425 | Close if clean |
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R12-i18n-map-settings-title | 2026-10-28 | Merged #437: Map settings rail title i18n (#162) |
 | R12-i18n-field-vertex-progress-chrome | 2026-10-28 | Merged #436: Field vertex progress subtitle i18n (#162) |
 | R12-i18n-field-runtime-nav-chrome | 2026-10-28 | Merged #435: Field Back/Cancel + empty-layers i18n (#162) |
 | Q-research-cycle-12 | 2026-10-28 | Merged #434: research-cycle-12 refill ship-without-input queue |

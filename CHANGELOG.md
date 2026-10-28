@@ -68,6 +68,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- PWA Install / Dismiss / iOS install-hint chrome goes through
+  en/es/fr/de/pt-BR catalogs (R12-i18n-pwa-install-chrome / #162).
 - Map editor right-rail title uses the existing `mapSettings.title`
   catalog entry instead of a hard-coded English string
   (R12-i18n-map-settings-title / #162).

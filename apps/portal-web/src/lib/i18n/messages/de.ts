@@ -5263,6 +5263,33 @@ export const de: Partial<CatalogShape> = {
   },
 
 
+  pwaInstall: {
+    install: 'Installieren',
+    installTitleIos:
+      'GratisGIS auf diesem Gerät installieren (Teilen tippen, dann Zum Home-Bildschirm)',
+    installTitleAndroid:
+      'GratisGIS auf diesem Gerät für offlinefreundlichen Speicher installieren',
+    bannerTitle: 'GratisGIS für besseren Offline-Support installieren',
+    bannerIosHint:
+      'iOS hebt die 1-GB-Speichergrenze nach der Installation auf.',
+    bannerAndroidHint:
+      'Fügt ein Symbol zum Home-Bildschirm hinzu und schützt zwischengespeicherte Daten vor dem Aufräumen.',
+    dismissAria: 'Schließen',
+    iosDialogTitle: 'Unter iOS installieren',
+    iosStep1Before: 'Tippen Sie unten in Safari auf ',
+    iosStep1Share: 'Teilen',
+    iosStep1After: ' (das Quadrat mit dem Pfeil nach oben).',
+    iosStep2Before: 'Scrollen Sie nach unten und tippen Sie auf ',
+    iosStep2Action: 'Zum Home-Bildschirm',
+    iosStep2After: '.',
+    iosStep3Before: 'Tippen Sie oben rechts auf ',
+    iosStep3Action: 'Hinzufügen',
+    iosStep3After: '.',
+    iosDialogDesc:
+      'Nach der Installation behält GratisGIS Speicher zuverlässiger, und die iOS-Grenze von 1 GB für Webspeicher gilt nicht mehr.',
+    gotIt: 'Verstanden',
+  },
+
   settingsNotifications: {
     backToProfile: 'Zurück zum Profil',
     pageTitle: 'Benachrichtigungseinstellungen',

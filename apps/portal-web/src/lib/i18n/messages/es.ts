@@ -5246,6 +5246,34 @@ export const es: Partial<CatalogShape> = {
   },
 
 
+  pwaInstall: {
+    install: 'Instalar',
+    installTitleIos:
+      'Instalar GratisGIS en este dispositivo (Toque Compartir y luego Añadir a pantalla de inicio)',
+    installTitleAndroid:
+      'Instalar GratisGIS en este dispositivo para almacenamiento apto para offline',
+    bannerTitle: 'Instale GratisGIS para mejor soporte offline',
+    bannerIosHint:
+      'iOS elimina su tope de 1 GB de almacenamiento una vez instalado.',
+    bannerAndroidHint:
+      'Añade un icono a la pantalla de inicio y protege los datos en caché de la limpieza.',
+    dismissAria: 'Descartar',
+    iosDialogTitle: 'Instalar en iOS',
+    iosStep1Before: 'Toque el botón ',
+    iosStep1Share: 'Compartir',
+    iosStep1After:
+      ' en la parte inferior de Safari (el cuadrado con una flecha hacia arriba).',
+    iosStep2Before: 'Desplácese hacia abajo y toque ',
+    iosStep2Action: 'Añadir a pantalla de inicio',
+    iosStep2After: '.',
+    iosStep3Before: 'Toque ',
+    iosStep3Action: 'Añadir',
+    iosStep3After: ' en la esquina superior derecha.',
+    iosDialogDesc:
+      'Una vez instalado, GratisGIS obtiene una retención de almacenamiento más fuerte y el tope de 1 GB de iOS en almacenamiento web deja de aplicarse.',
+    gotIt: 'Entendido',
+  },
+
   settingsNotifications: {
     backToProfile: 'Volver al perfil',
     pageTitle: 'Preferencias de notificaciones',
