@@ -26,8 +26,9 @@ because it hashes each feature id with a persisted **seed**
 - **Source layer**.
 - **Mode**:
   - **percentage** — keep roughly `value` percent of rows
-    (0 &lt; value ≤ 100). Actual count may vary slightly because
-    each row is accepted or rejected by a hash threshold.
+    (greater than 0, at most 100). Actual count may vary
+    slightly because each row is accepted or rejected by a hash
+    threshold.
   - **count** — keep exactly `value` rows (positive integer,
     soft max 100,000).
 - **Seed**. Nonzero integer stored on the recipe. Changing the
