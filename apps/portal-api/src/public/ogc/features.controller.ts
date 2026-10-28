@@ -9,6 +9,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -131,6 +132,9 @@ export class OgcFeaturesController {
   }
 
   @Public()
+  // Tighter than the global 300/min: items accept limit up to
+  // 10_000 (SEC-ogc-features-throttle; matches Records 60/min).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id/items')
   @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async items(
@@ -176,6 +180,9 @@ export class OgcFeaturesController {
    * the OGC envelope around the result differs.
    */
   @Public()
+  // Same 60/min bucket class as /items: single-feature lookups
+  // would otherwise bypass the listing throttle (SEC-ogc-features-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id/items/:featureId')
   @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async feature(

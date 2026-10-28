@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public OGC Features `GET .../collections/:id/items` and
+  `.../items/:featureId` are throttled at 60/min per IP (same as
+  Public OGC Records list; global default is 300/min). Cuts
+  anonymous collection scans that can request up to 10_000
+  features per call without changing auth or the limit clamp
+  (SEC-ogc-features-throttle).
 - Public `POST /api/feedback` is throttled at 30/min per IP
   (same as anonymous drawings writes / tools run; global default
   is 300/min). Cuts anonymous screenshot-upload bandwidth burn
