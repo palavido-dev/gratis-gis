@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-i18n-field-runtime-nav-chrome | research-cycle-12 | Field Back/Cancel + empty editable-layers i18n (#162) | This PR |
+| R12-i18n-field-vertex-progress-chrome | research-cycle-12 | Line/polygon vertex progress subtitle i18n (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R12-i18n-field-vertex-progress-chrome | research-cycle-12 | Line/polygon vertex progress subtitle i18n (#162) | tap Finish / need N |
 | R12-i18n-map-settings-title | research-cycle-12 | Map editor Map settings panel title i18n (#162) | rightPanelTitle |
 | R12-i18n-pwa-install-chrome | research-cycle-12 | PWA Install / Dismiss / iOS copy i18n (#162) | field + items list |
 | R12-sync-conflict-help-crosslink | research-cycle-12 | Cross-link sync conflict Re-apply / Dismiss help | Docs discoverability |
@@ -35,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R12-i18n-field-runtime-nav-chrome | 2026-10-28 | Merged #435: Field Back/Cancel + empty-layers i18n (#162) |
 | Q-research-cycle-12 | 2026-10-28 | Merged #434: research-cycle-12 refill ship-without-input queue |
 | SEC-ogc-features-throttle | 2026-10-28 | Merged #433: Public OGC Features items @Throttle 60/min |
 | SEC-comments-list-throttle | 2026-10-28 | Merged #432: Public GET comments @Throttle 60/min |

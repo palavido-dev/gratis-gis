@@ -1342,6 +1342,10 @@ export const fr: Partial<CatalogShape> = {
     backAria: 'Retour',
     cancelCollectAria: 'Annuler',
     noEditableLayersInMap: 'Aucune couche modifiable dans cette carte.',
+    vertexCountLabel:
+      '{count, plural, one {# sommet} other {# sommets}}',
+    vertexTapFinishSuffix: ' - touchez Terminer',
+    vertexNeedMoreSuffix: ' - encore {remaining}',
     filterPlaceholder: "Filtrer...",
     noEditableLayers: "Ce déploiement n’a pas encore de couches modifiables.",
     noTemplatesMatch: "Aucun modèle ne correspond à ce filtre.",

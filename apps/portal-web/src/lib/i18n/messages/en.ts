@@ -1387,6 +1387,11 @@ export const en = {
     backAria: 'Back',
     cancelCollectAria: 'Cancel',
     noEditableLayersInMap: 'No editable layers in this map.',
+    // Line/polygon vertex progress (R12-i18n-field-vertex-progress-chrome / #162).
+    vertexCountLabel:
+      '{count, plural, one {# vertex} other {# vertices}}',
+    vertexTapFinishSuffix: ' - tap Finish',
+    vertexNeedMoreSuffix: ' - need {remaining} more',
     filterPlaceholder: 'Filter...',
     noEditableLayers: 'This deployment has no editable layers yet.',
     noTemplatesMatch: 'No templates match that filter.',
