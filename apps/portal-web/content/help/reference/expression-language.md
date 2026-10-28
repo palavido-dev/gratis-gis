@@ -40,16 +40,9 @@ Same syntax everywhere. This page is the reference.
 
 ## Field references
 
-A bare identifier is a field on the source row: `status`,
-`created_at`. Field names match the schema; case-sensitive.
-
-Reserved identifiers always available:
-
-- `now()`: current datetime.
-- `today()`: current date.
-- `user_id()`: the running user's id (or the runner's, for
- templates).
-- `user_role()`: the running user's role.
+Field references use double braces: `{{status}}`,
+`{{created_at}}`. Names must match the schema allowlist
+(letters, digits, underscore).
 
 ## Operators
 
@@ -129,16 +122,13 @@ match. Use for "label by status," "tier by acreage."
 - `cast(x as integer)` / `cast(x as decimal)` /
  `cast(x as text)` / `cast(x as date)`.
 
-### Geometry helpers (Calculate step only)
-
-- `area_m2()` / `area_ft2()`: polygon area.
-- `length_m()` / `length_ft()`: line length.
-- `centroid_x()`, `centroid_y()`: centroid coordinates.
-- `bbox_west()`, `bbox_south()`, `bbox_east()`,
- `bbox_north()`. Bounding-box edges.
-
 ## What's NOT in the dialect
 
+- **Geometry helpers** (`area_m2()`, `length_m()`,
+  `centroid_x()`, `bbox_*`, …). Those are not expression
+  functions. Use the derived-layer **Calculate geometry** step
+  (measurement length / perimeter / area + unit + field name).
+  See [Calculate](analysis-calculate).
 - **Spatial predicates** (`ST_Intersects`, `ST_Within`). Use a
  derived layer with a Clip or Spatial join step.
 - **Arcade expressions.** Imports from AGO drop Arcade with a
