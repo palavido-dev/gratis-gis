@@ -40,8 +40,9 @@ layer when you want a summary.
   - **Bounding box**: union bbox of each group's geometries.
   - **Convex hull**: convex hull of each group's geometries.
   - **First**: the first row's geometry (cheap, semi-arbitrary).
-  - **Dissolve**: union of geometries (use **Dissolve** instead
-    if that's the only thing you want; cheaper).
+  - **Dissolve**: union of geometries per group. If you only want
+    one union of the whole layer with no keys or aggregates, use
+    the plain [Dissolve](analysis-dissolve) step instead.
 
 ## Output
 
