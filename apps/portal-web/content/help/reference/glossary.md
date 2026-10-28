@@ -157,10 +157,17 @@ values plus labels. Schema fields can reference a pick list.
 by Tile layer items. Range-readable over HTTP, no server
 compute.
 
+**Print template.** Item type for a paper layout (page size,
+positioned map / legend / text / parameters) used by the Print
+widget and the map editor Print button. Renders via the browser
+print path; not a DOCX/report document.
+
 ## R
 
-**Report template.** Item type wrapping a parametrized document
-layout that produces a populated PDF or DOCX on run.
+**Report template.** Reserved item type for a parametrized
+document layout that would produce PDF or DOCX from layer rows
+or form submissions. Not built; use a print template for paper
+maps.
 
 ## S
 

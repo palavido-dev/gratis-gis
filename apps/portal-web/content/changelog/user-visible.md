@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Honest Print template help
+Help now has a **Print template** item page, and the Print widget / print-templates section describe the shipped paper layouts (page size, map/legend/scale/north-arrow, parameters, browser print) instead of promising DOCX report merges that are not built.
+
 ## 2026-10-28 - Random sample for this layer from Analyze
 On a data layer's Analyze tab, **Random sample for this layer** opens percentage-or-count, value, and seed controls (with reshuffle) and creates a private PostGIS derived layer. The sample is deterministic for a given seed — not Postgres `random()`. Same path as Create → Derived layer → Random sample. Expect a short server job, not an instant browser result.
 
