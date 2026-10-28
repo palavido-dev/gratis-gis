@@ -57,6 +57,7 @@ import {
   PinOff,
   X,
 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /**
@@ -176,6 +177,7 @@ export function BuilderShell({
   rightRailIcon,
   children,
 }: Props) {
+  const t = useT();
   const [state, setState] = useState<ShellState>(defaultState);
   // Floating-panel open state (only relevant when unpinned). Not
   // persisted: a panel opened as a floating overlay closes on the next
@@ -318,8 +320,8 @@ export function BuilderShell({
         <Link
           href={backHref}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink-0"
-          title="Back to item"
-          aria-label="Back to item"
+          title={t('builderShell.backToItem')}
+          aria-label={t('builderShell.backToItem')}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -366,8 +368,8 @@ export function BuilderShell({
                   ? 'bg-accent text-accent-foreground'
                   : 'text-muted hover:bg-surface-2 hover:text-ink-0'
               }`}
-              title={leftPanelTitle ?? 'Open left panel'}
-              aria-label={leftPanelTitle ?? 'Open left panel'}
+              title={leftPanelTitle ?? t('builderShell.openLeftPanel')}
+              aria-label={leftPanelTitle ?? t('builderShell.openLeftPanel')}
               aria-expanded={leftFloatOpen}
             >
               {leftRailIcon ?? <PanelLeft className="h-4 w-4" />}
@@ -438,8 +440,8 @@ export function BuilderShell({
                   ? 'bg-accent text-accent-foreground'
                   : 'text-muted hover:bg-surface-2 hover:text-ink-0'
               }`}
-              title={rightPanelTitle ?? 'Open right panel'}
-              aria-label={rightPanelTitle ?? 'Open right panel'}
+              title={rightPanelTitle ?? t('builderShell.openRightPanel')}
+              aria-label={rightPanelTitle ?? t('builderShell.openRightPanel')}
               aria-expanded={rightFloatOpen}
             >
               {rightRailIcon ?? <PanelRight className="h-4 w-4" />}
@@ -468,6 +470,7 @@ function PanelHeader({
   onClose,
   allowPin = true,
 }: PanelHeaderProps) {
+  const t = useT();
   const PinIcon = pinned ? Pin : PinOff;
   const CloseIcon = side === 'left' ? PanelLeftClose : PanelRightClose;
   return (
@@ -483,8 +486,14 @@ function PanelHeader({
             type="button"
             onClick={onTogglePin}
             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-1 hover:text-ink-0"
-            title={pinned ? 'Unpin (collapse to icon)' : 'Pin panel open'}
-            aria-label={pinned ? 'Unpin panel' : 'Pin panel'}
+            title={
+              pinned
+                ? t('builderShell.unpinPanelTitle')
+                : t('builderShell.pinPanelTitle')
+            }
+            aria-label={
+              pinned ? t('builderShell.unpinPanel') : t('builderShell.pinPanel')
+            }
           >
             <PinIcon className="h-3.5 w-3.5" />
           </button>
@@ -494,8 +503,8 @@ function PanelHeader({
             type="button"
             onClick={onClose}
             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-1 hover:text-ink-0"
-            title="Close panel"
-            aria-label="Close panel"
+            title={t('builderShell.closePanel')}
+            aria-label={t('builderShell.closePanel')}
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>

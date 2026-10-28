@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
+import { useT } from '@/lib/i18n/locale-context';
 import Link from 'next/link';
 import type {
   DataLayerData,
@@ -69,6 +70,7 @@ interface Props {
  * Same shape and dirty/save flow as MapEditor and EditorDetail.
  */
 export function ViewerDetail({ itemId, initial, canEdit }: Props) {
+  const t = useT();
   // Working copy. Seed `tools` from the default palette when the
   // persisted item is older than the tools field landing (matches
   // EditorDetail's pattern).
@@ -564,10 +566,10 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         icon={<Eye className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={layersPanel}
-        leftPanelTitle="Layers"
+        leftPanelTitle={t('mapLayerPanel.title')}
         leftRailIcon={<Layers className="h-4 w-4" />}
         rightPanel={settingsPanel}
-        rightPanelTitle="Settings"
+        rightPanelTitle={t('common.settings')}
         rightRailIcon={<Settings className="h-4 w-4" />}
       >
         {/* Center pane: error banner + "what is this builder" note.

@@ -31,6 +31,17 @@ export const en = {
     settings: 'Settings',
     language: 'Language',
   },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: 'Back to item',
+    closePanel: 'Close panel',
+    pinPanel: 'Pin panel',
+    unpinPanel: 'Unpin panel',
+    pinPanelTitle: 'Pin panel open',
+    unpinPanelTitle: 'Unpin (collapse to icon)',
+    openLeftPanel: 'Open left panel',
+    openRightPanel: 'Open right panel',
+  },
   nav: {
     items: 'Items',
     home: 'Home',
@@ -786,6 +797,8 @@ export const en = {
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
+    /** BuilderShell left-panel title on the Feature Editor configure surface. */
+    targetsPanelTitle: 'Targets',
     printTitle: 'Print the current view',
     printAria: 'Print',
     formViewButton: 'Form view',
