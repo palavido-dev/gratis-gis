@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Fishnet help (`analysis/fishnet`) matches the shipped
+  generator: square `ST_SquareGrid` over a polygon source,
+  cellSize / unit / polygons|lines only, `cell_row` /
+  `cell_col` output. Hex, separate extent pickers, and
+  clip-polygon controls are not options
+  (R7-fishnet-help-honesty).
 - Dissolve help (`analysis/dissolve`) matches the no-param
   PostGIS `ST_Union` generator: one combined feature, attributes
   dropped. Key-field / aggregate dissolve stays on group-by with
