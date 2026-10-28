@@ -4932,6 +4932,33 @@ export const fr: Partial<CatalogShape> = {
       '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
     verticesHint:
       'Un point par sommet. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    calcGeomAction: 'Calculer la géométrie de cette couche',
+    calcGeomActionTitle:
+      'Créer une couche dérivée serveur avec longueur, périmètre ou superficie (géographie PostGIS). Pas les expressions Calculer un champ.',
+    calcGeomHeading:
+      'Calculer la géométrie de cette couche (couche dérivée serveur)',
+    calcGeomIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    calcGeomIntroAfter:
+      'sur geography avec une unité choisie dans un nouveau champ numérique. Même recette que',
+    calcGeomHelpLink: 'Aide Calcul',
+    calcGeomIntroTail:
+      '. Pas les expressions Calculer un champ. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    calcGeomMeasurementAria: 'Mesure',
+    calcGeomMeasurement_length: 'longueur',
+    calcGeomMeasurement_perimeter: 'périmètre',
+    calcGeomMeasurement_area: 'superficie',
+    calcGeomUnit: 'Unité',
+    calcGeomUnitAria: 'Unité de mesure',
+    calcGeomFieldName: 'Nom du champ',
+    calcGeomFieldNameAria: 'Nom du champ de sortie',
+    calcGeomHint:
+      'Mesures geography en unités honnêtes. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    calcGeomValidateFieldEmpty: 'Saisissez un nom de champ.',
+    calcGeomValidateFieldReserved: 'Le nom de champ « {name} » est réservé.',
+    calcGeomValidateFieldFormat:
+      'Le nom doit commencer par une lettre ou un souligné et ne contenir que lettres, chiffres et soulignés.',
+    calcGeomValidateAreaUnit: 'Choisissez une unité de superficie.',
+    calcGeomValidateLengthUnit: 'Choisissez une unité de longueur.',
   },
 
   serviceEditors: {

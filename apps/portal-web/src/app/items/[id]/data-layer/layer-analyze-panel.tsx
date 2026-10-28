@@ -27,6 +27,7 @@ import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import { AnalyzeBboxGuide } from './analyze-bbox-guide';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
+import { AnalyzeCalculateGeometryGuide } from './analyze-calculate-geometry-guide';
 import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
 import { AnalyzeConvexHullGuide } from './analyze-convex-hull-guide';
@@ -434,6 +435,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeVerticesGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeCalculateGeometryGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}

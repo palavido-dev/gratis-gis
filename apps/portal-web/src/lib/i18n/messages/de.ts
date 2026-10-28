@@ -4942,6 +4942,33 @@ export const de: Partial<CatalogShape> = {
       '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
     verticesHint:
       'Ein Punkt pro Stützpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    calcGeomAction: 'Geometrie für diese Ebene berechnen',
+    calcGeomActionTitle:
+      'Serverseitigen Derived Layer mit Länge, Umfang oder Fläche erstellen (PostGIS-Geographie). Keine Calculate-field-Ausdrücke.',
+    calcGeomHeading:
+      'Geometrie für diese Ebene berechnen (serverseitiger Derived Layer)',
+    calcGeomIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    calcGeomIntroAfter:
+      'auf geography mit gewählter Einheit in ein neues Zahlenfeld ausführt. Gleiches Rezept wie',
+    calcGeomHelpLink: 'Hilfe Berechnen',
+    calcGeomIntroTail:
+      '. Keine Calculate-field-Ausdrücke. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    calcGeomMeasurementAria: 'Messung',
+    calcGeomMeasurement_length: 'Länge',
+    calcGeomMeasurement_perimeter: 'Umfang',
+    calcGeomMeasurement_area: 'Fläche',
+    calcGeomUnit: 'Einheit',
+    calcGeomUnitAria: 'Maßeinheit',
+    calcGeomFieldName: 'Feldname',
+    calcGeomFieldNameAria: 'Name des Ausgabefelds',
+    calcGeomHint:
+      'Geography-Maße in ehrlichen Einheiten. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    calcGeomValidateFieldEmpty: 'Geben Sie einen Feldnamen ein.',
+    calcGeomValidateFieldReserved: 'Feldname „{name}“ ist reserviert.',
+    calcGeomValidateFieldFormat:
+      'Der Name muss mit einem Buchstaben oder Unterstrich beginnen und darf nur Buchstaben, Ziffern und Unterstriche enthalten.',
+    calcGeomValidateAreaUnit: 'Wählen Sie eine Flächeneinheit.',
+    calcGeomValidateLengthUnit: 'Wählen Sie eine Längeneinheit.',
   },
 
   serviceEditors: {

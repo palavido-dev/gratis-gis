@@ -5054,6 +5054,32 @@ export const en = {
       '. Expect a short server job, not an instant browser result.',
     verticesHint:
       'One point per vertex. Open the new item to map or refresh the result after the server job finishes.',
+    calcGeomAction: 'Calculate geometry for this layer',
+    calcGeomActionTitle:
+      'Create a server-side derived layer with length, perimeter, or area (PostGIS geography). Not Calculate field expressions.',
+    calcGeomHeading: 'Calculate geometry for this layer (server derived layer)',
+    calcGeomIntroBefore: 'Creates a private derived layer that runs',
+    calcGeomIntroAfter:
+      'on geography with a chosen unit into a new numeric field. Same recipe as',
+    calcGeomHelpLink: 'Calculate help',
+    calcGeomIntroTail:
+      '. Not Calculate field expressions. Expect a short server job, not an instant browser result.',
+    calcGeomMeasurementAria: 'Measurement',
+    calcGeomMeasurement_length: 'length',
+    calcGeomMeasurement_perimeter: 'perimeter',
+    calcGeomMeasurement_area: 'area',
+    calcGeomUnit: 'Unit',
+    calcGeomUnitAria: 'Measurement unit',
+    calcGeomFieldName: 'Field name',
+    calcGeomFieldNameAria: 'Output field name',
+    calcGeomHint:
+      'Geography measures in honest units. Open the new item to map or refresh the result after the server job finishes.',
+    calcGeomValidateFieldEmpty: 'Enter a field name.',
+    calcGeomValidateFieldReserved: 'Field name "{name}" is reserved.',
+    calcGeomValidateFieldFormat:
+      'Field name must start with a letter or underscore and contain only letters, numbers, and underscores.',
+    calcGeomValidateAreaUnit: 'Pick an area unit.',
+    calcGeomValidateLengthUnit: 'Pick a length unit.',
   },
 
   /**

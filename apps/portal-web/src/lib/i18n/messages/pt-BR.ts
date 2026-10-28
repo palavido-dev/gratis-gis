@@ -4922,6 +4922,33 @@ export const ptBR: Partial<CatalogShape> = {
       '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
     verticesHint:
       'Um ponto por vértice. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    calcGeomAction: 'Calcular geometria desta camada',
+    calcGeomActionTitle:
+      'Criar uma camada derivada no servidor com comprimento, perímetro ou área (geografia PostGIS). Não são expressões de Calcular campo.',
+    calcGeomHeading:
+      'Calcular geometria desta camada (camada derivada no servidor)',
+    calcGeomIntroBefore: 'Cria uma camada derivada privada que executa',
+    calcGeomIntroAfter:
+      'em geography com uma unidade escolhida em um novo campo numérico. Mesma receita que',
+    calcGeomHelpLink: 'Ajuda de cálculo',
+    calcGeomIntroTail:
+      '. Não são expressões de Calcular campo. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    calcGeomMeasurementAria: 'Medição',
+    calcGeomMeasurement_length: 'comprimento',
+    calcGeomMeasurement_perimeter: 'perímetro',
+    calcGeomMeasurement_area: 'área',
+    calcGeomUnit: 'Unidade',
+    calcGeomUnitAria: 'Unidade de medição',
+    calcGeomFieldName: 'Nome do campo',
+    calcGeomFieldNameAria: 'Nome do campo de saída',
+    calcGeomHint:
+      'Medidas de geography em unidades honestas. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    calcGeomValidateFieldEmpty: 'Informe um nome de campo.',
+    calcGeomValidateFieldReserved: 'O nome de campo "{name}" é reservado.',
+    calcGeomValidateFieldFormat:
+      'O nome deve começar com letra ou sublinhado e conter apenas letras, números e sublinhados.',
+    calcGeomValidateAreaUnit: 'Escolha uma unidade de área.',
+    calcGeomValidateLengthUnit: 'Escolha uma unidade de comprimento.',
   },
 
   serviceEditors: {
