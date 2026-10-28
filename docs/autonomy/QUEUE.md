@@ -6,12 +6,20 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R9-analyze-calculate-geometry-shortcut | research-cycle-9 | Analyze Calculate geometry → PostGIS derived_layer | This PR |
+| Q-research-cycle-10 | research-cycle-10 | research-cycle-10 refill ship-without-input queue | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R10-i18n-field-offline-gps-chrome | research-cycle-10 | Field offline / GPS / related chrome i18n (#162) | After collect #410 |
+| R10-data-collection-help-honesty | research-cycle-10 | data-collection item help (offline, sync, QR) | No help page today |
+| R10-analyze-nearest-neighbor-shortcut | research-cycle-10 | Analyze Nearest neighbor → PostGIS derived_layer | No-param |
+| R10-analyze-fishnet-shortcut | research-cycle-10 | Analyze Fishnet → PostGIS derived_layer | Buffer-shaped; polygon-only |
+| R10-analyze-top-n-shortcut | research-cycle-10 | Analyze Top N → PostGIS derived_layer | field + N + direction |
+| R10-recipe-overpass-truncated-honesty | research-cycle-10 | Recipe OSM overlay truncated flag honesty | Drop wave-2 lie |
+| R10-analyze-random-sample-shortcut | research-cycle-10 | Analyze Random sample → PostGIS derived_layer | mode + value + seed |
+| SEC-tools-run-throttle | research-cycle-10 | @Throttle 30/min on Public POST /api/tools/:id/run | Low; Overpass egress |
 
 ## queued (needs-maintainer)
 
@@ -26,6 +34,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R9-analyze-calculate-geometry-shortcut | 2026-10-28 | Merged #413: Analyze Calculate geometry → PostGIS derived_layer |
 | R9-analyze-vertices-shortcut | 2026-10-28 | Merged #412: Analyze Vertices → PostGIS derived_layer |
 | R9-analyze-bbox-shortcut | 2026-10-28 | Merged #411: Analyze Bounding boxes → PostGIS derived_layer |
 | R9-i18n-field-collect-chrome | 2026-10-28 | Merged #410: Field collect / GPS / remove chrome i18n (#162) |
@@ -81,6 +90,16 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | reason |
 | --- | --- | --- |
+| R10-reject-node-graph-canvas | research-cycle-10 | Visual node-graph recipe canvas is polish, not honesty |
+| R10-reject-print-brand-kit | research-cycle-10 | Brand / chrome redesign fails playbook brand test |
+| R10-reject-seat-pricing | research-cycle-10 | Named-user pricing contradicts ethos |
+| R10-reject-recipe-materialize-sinks | research-cycle-10 | Materialize sinks deferred; honesty #386 points at derived_layer |
+| R10-reject-tile3d-local-rebuild | research-cycle-10 | #183 stays open; no closing on local rebuilds |
+| R10-reject-dissolve-groupby-feature | research-cycle-10 | Keyed dissolve stays on group-by; no second path |
+| R10-reject-weblate-hosting | research-cycle-10 | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R10-reject-analyze-contour-shortcut | research-cycle-10 | Contour levels/enrich heavier than Buffer-shaped; stay builder |
+| R10-reject-analyze-multi-input-shortcuts | research-cycle-10 | Spatial join/filter multi-picker Analyze UX too heavy |
+| R10-reject-analyze-calculate-field-shortcut | research-cycle-10 | Expression editor not a Buffer-shaped shortcut |
 | R9-reject-node-graph-canvas | research-cycle-9 | Visual node-graph recipe canvas is polish, not honesty |
 | R9-reject-print-brand-kit | research-cycle-9 | Brand / chrome redesign fails playbook brand test |
 | R9-reject-seat-pricing | research-cycle-9 | Named-user pricing contradicts ethos |
