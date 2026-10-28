@@ -4805,6 +4805,29 @@ export const de: Partial<CatalogShape> = {
     simplifyValidateUnit: 'Wählen Sie eine Toleranzeinheit.',
     simplifyValidateEmpty: 'Geben Sie eine Toleranz größer als null ein.',
     simplifyValidateMax: 'Die Toleranz darf höchstens {meters} m betragen.',
+    densifyAction: 'Diese Ebene verdichten',
+    densifyActionTitle:
+      'Serverseitigen Derived Layer verdichten (PostGIS ST_Segmentize auf geography). Meter-ehrliche max. Segmentlänge.',
+    densifyHeading: 'Diese Ebene verdichten (serverseitiger Derived Layer)',
+    densifyIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    densifyIntroAfter:
+      'auf geography mit meter-ehrlicher max. Segmentlänge ausführt. Gleiches Rezept wie',
+    densifyHelpLink: 'Densify-Hilfe',
+    densifyIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    densifyMaxSegment: 'Max. Segmentlänge',
+    densifyMaxSegmentAria: 'Maximale Segmentlänge für Densify',
+    densifyUnit: 'Einheit',
+    densifyUnitAria: 'Einheit der max. Segmentlänge',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Erwarten Sie einen kurzen Server-Job; öffnen Sie das neue Element zum Kartieren oder Aktualisieren.',
+    densifyValidateUnit: 'Wählen Sie eine Einheit für die Segmentlänge.',
+    densifyValidateEmpty:
+      'Geben Sie eine max. Segmentlänge größer als null ein.',
+    densifyValidateMin:
+      'Die max. Segmentlänge muss mindestens {meters} m betragen.',
+    densifyValidateMax:
+      'Die max. Segmentlänge darf höchstens {meters} m betragen.',
 
     qbFields: 'Felder',
     qbFieldsNoneSelected: '(keine Auswahl = alle)',

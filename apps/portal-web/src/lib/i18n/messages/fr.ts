@@ -4796,6 +4796,29 @@ export const fr: Partial<CatalogShape> = {
     simplifyValidateUnit: 'Choisissez une unité de tolérance.',
     simplifyValidateEmpty: 'Saisissez une tolérance supérieure à zéro.',
     simplifyValidateMax: 'La tolérance doit être d’au plus {meters} m.',
+    densifyAction: 'Densifier cette couche',
+    densifyActionTitle:
+      'Créer une densification de couche dérivée côté serveur (PostGIS ST_Segmentize sur geography). Longueur max de segment en mètres honnêtes.',
+    densifyHeading: 'Densifier cette couche (couche dérivée serveur)',
+    densifyIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    densifyIntroAfter:
+      'sur geography avec une longueur max de segment en mètres honnêtes. Même recette que',
+    densifyHelpLink: 'Aide densify',
+    densifyIntroTail:
+      '. Attendez un court travail serveur, pas un résultat instantané dans le navigateur.',
+    densifyMaxSegment: 'Longueur max de segment',
+    densifyMaxSegmentAria: 'Longueur max de segment pour densifier',
+    densifyUnit: 'Unité',
+    densifyUnitAria: 'Unité de longueur max de segment',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Attendez un court travail serveur ; ouvrez le nouvel élément pour cartographier ou actualiser.',
+    densifyValidateUnit: 'Choisissez une unité de longueur de segment.',
+    densifyValidateEmpty:
+      'Saisissez une longueur max de segment supérieure à zéro.',
+    densifyValidateMin:
+      'La longueur max de segment doit être d’au moins {meters} m.',
+    densifyValidateMax:
+      'La longueur max de segment doit être d’au plus {meters} m.',
 
     qbFields: 'Champs',
     qbFieldsNoneSelected: '(aucun sélectionné = tous)',

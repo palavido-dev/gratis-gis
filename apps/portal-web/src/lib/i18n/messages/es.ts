@@ -4790,6 +4790,29 @@ export const es: Partial<CatalogShape> = {
     simplifyValidateUnit: 'Elija una unidad de tolerancia.',
     simplifyValidateEmpty: 'Introduzca una tolerancia mayor que cero.',
     simplifyValidateMax: 'La tolerancia debe ser como máximo {meters} m.',
+    densifyAction: 'Densificar esta capa',
+    densifyActionTitle:
+      'Crear una densificación de capa derivada en el servidor (PostGIS ST_Segmentize en geography). Longitud máxima de segmento en metros honestos.',
+    densifyHeading: 'Densificar esta capa (capa derivada en el servidor)',
+    densifyIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    densifyIntroAfter:
+      'en geography con una longitud máxima de segmento en metros honestos. Misma receta que',
+    densifyHelpLink: 'Ayuda de densificación',
+    densifyIntroTail:
+      '. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    densifyMaxSegment: 'Longitud máxima de segmento',
+    densifyMaxSegmentAria: 'Longitud máxima de segmento para densificar',
+    densifyUnit: 'Unidad',
+    densifyUnitAria: 'Unidad de longitud máxima de segmento',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Espere un trabajo breve en el servidor; abra el elemento nuevo para mapear o actualizar el resultado.',
+    densifyValidateUnit: 'Elija una unidad de longitud de segmento.',
+    densifyValidateEmpty:
+      'Introduzca una longitud máxima de segmento mayor que cero.',
+    densifyValidateMin:
+      'La longitud máxima de segmento debe ser al menos {meters} m.',
+    densifyValidateMax:
+      'La longitud máxima de segmento debe ser como máximo {meters} m.',
 
     qbFields: 'Campos',
     qbFieldsNoneSelected: '(ninguno seleccionado = todos)',
