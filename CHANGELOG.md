@@ -7,6 +7,15 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Landing What's new card links to a full `/whats-new` history page
+  that scrolls every user-visible entry. Entries under a
+  `## [X.Y.Z] - YYYY-MM-DD` banner in
+  `apps/portal-web/content/changelog/user-visible.md` group by
+  release; older undated-to-version notes stay under Earlier updates
+  (0.9.120 is marked as the first banner).
+
 ### Security
 
 - Public layer `/features` and `/geojson` mirrors are rate-limited at 60 requests per minute (MVT tiles unchanged).

@@ -3085,6 +3085,18 @@ export const es: Partial<CatalogShape> = {
     failed: 'No se pudieron cargar los datos de ejemplo',
     dismiss: 'Descartar el panel de bienvenida',
   },
+  whatsNewPage: {
+    metaTitle: 'Novedades',
+    metaDescription:
+      'Actualizaciones visibles de GratisGIS, agrupadas por versión cuando hay una.',
+    title: 'Novedades',
+    intro:
+      'Notas en lenguaje sencillo sobre funciones que los visitantes pueden ver y usar. Agrupadas por versión cuando etiquetamos una; las notas anteriores quedan en Actualizaciones anteriores.',
+    backToHome: 'Volver al inicio',
+    releaseHeading: 'Versión {version}',
+    earlierHeading: 'Actualizaciones anteriores',
+    empty: 'Aún no hay actualizaciones publicadas.',
+  },
   landing: {
     openMyItems: 'Abrir mis elementos',
     publicItemsTitle: 'Míralo en marcha',
@@ -3093,6 +3105,7 @@ export const es: Partial<CatalogShape> = {
     publicItemsEmpty:
       'Aún no se ha compartido nada públicamente. Si tienes una cuenta del portal, inicia sesión para ver el contenido compartido contigo.',
     whatsNew: 'Novedades',
+    whatsNewViewAll: 'Ver historial completo',
     builtOn: 'Construido sobre',
     projectEyebrow: 'Portal GIS de código abierto',
     projectHeadline: 'Un portal autoalojado, una PWA de campo y QGIS',

@@ -3194,6 +3194,21 @@ export const en = {
    * anonymous and apex-domain visitors. Org title/subtitle/item
    * copy stay CMS-driven and are not catalogued here.
    */
+  /**
+   * Full `/whats-new` history page (jump-out from the landing card).
+   */
+  whatsNewPage: {
+    metaTitle: "What's new",
+    metaDescription:
+      'User-visible updates to GratisGIS, grouped by release when available.',
+    title: "What's new",
+    intro:
+      'Plain-English notes on features visitors can see and use. Grouped by release when we tag one; older notes stay under Earlier updates.',
+    backToHome: 'Back to home',
+    releaseHeading: 'Version {version}',
+    earlierHeading: 'Earlier updates',
+    empty: 'No updates published yet.',
+  },
   landing: {
     openMyItems: 'Open my items',
     publicItemsTitle: 'See it running',
@@ -3202,6 +3217,7 @@ export const en = {
     publicItemsEmpty:
       'Nothing has been shared publicly yet. If you have a portal account, sign in to see content shared with you.',
     whatsNew: "What's new",
+    whatsNewViewAll: 'View full history',
     builtOn: 'Built on',
     projectEyebrow: 'Open source GIS portal',
     projectHeadline: 'A self-hosted portal, a field PWA, and QGIS',

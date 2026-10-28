@@ -10,6 +10,7 @@ import { portalUrl } from '@/lib/portal-url';
  *
  *   - / (landing)
  *   - /credits              (third-party attribution)
+ *   - /whats-new            (full user-visible history)
  *   - /help                 (help index)
  *   - /help/<slug>          (every doc under content/help/)
  *
@@ -32,6 +33,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: now,
       changeFrequency: 'monthly',
       priority: 0.4,
+    },
+    {
+      url: portalUrl('/whats-new'),
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: 0.7,
     },
     {
       url: portalUrl('/help'),

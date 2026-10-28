@@ -83,7 +83,7 @@ export default async function HomePage(
   const [data, whatsNew] = await Promise.all([
     loadLandingData(),
     // Cap at 5 entries so the landing card stays compact; the
-    // markdown file can carry more for future-proofing.
+    // full history (and release grouping) lives at /whats-new.
     loadWhatsNewEntries(5),
   ]);
   return (

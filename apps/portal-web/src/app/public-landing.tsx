@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { formatDate } from '@/lib/i18n/format';
 import { t } from '@/lib/i18n';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 import { getServerLocale } from '@/lib/i18n/server';
 import Link from 'next/link';
 import {
+  ArrowRight,
   Bell,
   Brush,
   Database,
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
+import { WhatsNewEntryList } from '@/components/whats-new-list';
 import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 import type { ItemType } from '@gratis-gis/shared-types';
 import {
@@ -311,11 +312,11 @@ export async function PublicLanding({
 
 /**
  * "What's new" card on the landing page.  Driven by entries parsed
- * from docs/changelog/user-visible.md at server-render time.  The
+ * from content/changelog/user-visible.md at server-render time.  The
  * source is plain-English on purpose -- if an entry reads like a
  * release note ("Refactored the SymbolService") it doesn't belong
- * here.  See docs/changelog/user-visible.md for the format and the
- * tone we keep.
+ * here.  Cap stays compact (page.tsx loads five); the jump-out goes
+ * to `/whats-new` for the full history, grouped by release.
  */
 function WhatsNewSection({
   entries,
@@ -327,56 +328,25 @@ function WhatsNewSection({
   return (
     <section className="mx-auto w-full max-w-6xl px-6 pt-10">
       <div className="rounded-lg border border-border bg-surface-1 p-6 shadow-card">
-        <div className="mb-4 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-accent" aria-hidden="true" />
-          <h2 className="text-base font-semibold tracking-tight text-ink-0">
-            {t('landing.whatsNew', undefined, locale)}
-          </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-accent" aria-hidden="true" />
+            <h2 className="text-base font-semibold tracking-tight text-ink-0">
+              {t('landing.whatsNew', undefined, locale)}
+            </h2>
+          </div>
+          <Link
+            href="/whats-new"
+            className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+          >
+            {t('landing.whatsNewViewAll', undefined, locale)}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
         </div>
-        <ul className="space-y-4">
-          {entries.map((e) => (
-            <li
-              key={`${e.date}-${e.name}`}
-              className="border-l-2 border-accent/40 pl-4"
-            >
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <time
-                  dateTime={e.date}
-                  className="font-mono text-xs uppercase tracking-wide text-muted"
-                >
-                  {formatChangelogDate(e.date, locale)}
-                </time>
-                <span className="text-sm font-medium text-ink-0">
-                  {e.name}
-                </span>
-              </div>
-              <p className="mt-0.5 text-sm leading-snug text-muted">
-                {e.description}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <WhatsNewEntryList entries={entries} locale={locale} />
       </div>
     </section>
   );
-}
-
-/**
- * Render the YYYY-MM-DD heading date in a friendlier short form
- * (e.g. "May 24, 2026").  We do this in-place because the landing
- * page is a server component; bringing in a date-formatting library
- * for one line would be overkill.  Falls back to the raw string if
- * the input doesn't parse, so a malformed entry still renders.
- */
-function formatChangelogDate(iso: string, locale: SupportedLocale): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return formatDate(d, locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
 }
 
 /**
