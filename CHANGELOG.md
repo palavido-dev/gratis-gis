@@ -50,6 +50,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Tool recipe editor OSM overlay AOI hint drops the "wave 2"
+  promise; copy matches the runner (drawn AOIs for everyone;
+  layer / selection AOIs need sign-in). Matching bbox errors
+  no longer claim unsupported kinds (R7-recipe-aoi-honesty).
 - CONTRIBUTING and the autonomy PLAYBOOK require documentation
   (help, CHANGELOG, What's new when user-visible, QUEUE for
   autonomy items) in the **same PR / commits** as the code —

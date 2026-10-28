@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-analyze-simplify-shortcut | research-cycle-7 | Analyze Simplify → derived_layer | This PR |
+| R7-recipe-aoi-honesty | research-cycle-7 | Recipe AOI hint: no wave-2 promise | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R7-recipe-aoi-honesty | research-cycle-7 | Recipe AOI hint: no wave-2 promise | Tiny copy |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R7-analyze-simplify-shortcut | 2026-10-27 | Merged #395: Analyze Simplify → PostGIS derived_layer |
 | R7-analyze-dissolve-shortcut | 2026-10-27 | Merged #394: Analyze Dissolve → PostGIS derived_layer |
 | R7-i18n-erase-centroid-guides | 2026-10-27 | Merged #392: Erase/Centroid Analyze chrome i18n (#162) |
 | docs-every-commit | 2026-10-27 | Merged #393: docs ship in same PR as code |

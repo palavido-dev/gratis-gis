@@ -1904,8 +1904,9 @@ function OutputSection({
             </select>
             <p className="mt-1 text-2xs text-muted">
               The Overpass call is bounded by this parameter&apos;s
-              bbox (padded by any distance parameter).  v1 supports
-              drawn AOIs; layer / selection AOIs land in wave 2.
+              bbox (padded by any distance parameter). Drawn AOIs
+              work for everyone; layer and selection AOIs need a
+              signed-in user with access to that layer.
             </p>
           </div>
         </div>
