@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-27 - Honest streaming note on large point clouds
+On a point cloud item, clouds over about 20 million points show a short note under the 3D viewer: lower in-view density and delayed rebuilds while you pan (stricter again over 100 million). This is a responsiveness tradeoff, not Potree-style LOD or 3D Tiles yet — see Point cloud help.
+
 ## 2026-10-27 - Densify this layer from Analyze
 On a data layer's Analyze tab, **Densify this layer** opens a max segment length and unit form and creates a private PostGIS derived layer that adds vertices so no segment exceeds that length (`ST_Segmentize` on geography; min 1 m, soft max 100 km). Same path as Create → Derived layer → Densify. Expect a short server job, not an instant browser result.
 

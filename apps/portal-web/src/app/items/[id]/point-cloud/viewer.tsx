@@ -9,7 +9,10 @@ import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { LidarControl } from 'maplibre-gl-lidar';
 import type { PointCloudData } from '@gratis-gis/shared-types';
 import { deferLidarUpdatesWhileMoving } from '@/lib/defer-lidar-updates';
-import { streamingOptionsForPointCount } from '@/lib/point-cloud-streaming';
+import {
+  streamingOptionsForPointCount,
+  streamingTierNotice,
+} from '@/lib/point-cloud-streaming';
 
 /**
  * In-browser COPC viewer (#179, unit 2). Wraps maplibre-gl-lidar,
@@ -32,6 +35,9 @@ export default function PointCloudViewer({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const tierNotice = streamingTierNotice(
+    streamingOptionsForPointCount(data.pointCount).tier,
+  );
 
   useEffect(() => {
     if (!containerRef.current || !data.dataUrl) return;
@@ -160,6 +166,17 @@ export default function PointCloudViewer({
         ref={containerRef}
         className="h-[480px] w-full overflow-hidden rounded-md border border-border"
       />
+      {tierNotice ? (
+        <p className="mt-2 text-2xs text-muted" role="status">
+          {tierNotice}{' '}
+          <a
+            href="/help/items/point-cloud"
+            className="underline underline-offset-2 hover:text-ink-1"
+          >
+            Point cloud help
+          </a>
+        </p>
+      ) : null}
       {loadError ? (
         <p className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           {loadError}

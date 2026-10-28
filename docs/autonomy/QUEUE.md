@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-analyze-densify-shortcut | research-cycle-8 | Analyze Densify → derived_layer | This PR |
+| R8-point-cloud-streaming-honesty | research-cycle-8 | Point-cloud help/viewer size-tier honesty | This PR; #183 stays open |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R8-point-cloud-streaming-honesty | research-cycle-8 | Point-cloud help/viewer size-tier honesty | #183 open |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R8-analyze-densify-shortcut | 2026-10-27 | Merged #403: Analyze Densify → PostGIS derived_layer |
 | R8-analyze-convex-hull-shortcut | 2026-10-27 | Merged #402: Analyze Convex hull → PostGIS derived_layer |
 | R8-i18n-analyze-query-builder | 2026-10-27 | Merged #401: Analyze query-builder chrome i18n (#162) |
 | R8-calculate-help-honesty | 2026-10-27 | Merged #400: Calculate vs Calculate geometry help honesty |

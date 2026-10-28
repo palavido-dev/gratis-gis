@@ -3,6 +3,7 @@ import {
   HUGE_POINT_COUNT,
   ULTRA_POINT_COUNT,
   streamingOptionsForPointCount,
+  streamingTierNotice,
 } from './point-cloud-streaming';
 
 describe('streamingOptionsForPointCount', () => {
@@ -41,5 +42,19 @@ describe('streamingOptionsForPointCount', () => {
       pickable: false,
     });
     expect(streamingOptionsForPointCount(209_000_000).tier).toBe('ultra');
+  });
+});
+
+describe('streamingTierNotice', () => {
+  it('is silent on the default tier', () => {
+    expect(streamingTierNotice('default')).toBeNull();
+  });
+
+  it('names huge / ultra mitigations without claiming Tile3D', () => {
+    expect(streamingTierNotice('huge')).toMatch(/20M/);
+    expect(streamingTierNotice('huge')).toMatch(/density tradeoff/i);
+    expect(streamingTierNotice('ultra')).toMatch(/100M/);
+    expect(streamingTierNotice('ultra')).not.toMatch(/Tile3D ready/i);
+    expect(streamingTierNotice('ultra')).toMatch(/not Tile3D/i);
   });
 });

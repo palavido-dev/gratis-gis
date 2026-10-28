@@ -50,6 +50,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Point cloud help (`items/point-cloud`) and the item-types
+  one-liner document size-aware streaming tiers (default / huge /
+  ultra), move-deferred rebuilds, and that this is a density
+  tradeoff — not Potree or Tile3D. The item viewer shows a muted
+  note when huge or ultra engages. Leaves #183 open
+  (R8-point-cloud-streaming-honesty).
 - Analyze query-builder chrome (Fields / Filters / Geometry /
   Group by / Sort / Limit and filter operators) goes through
   locale catalogs (en / es / fr / de / pt-BR)
