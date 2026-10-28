@@ -13,6 +13,7 @@ related:
   - items-map
   - items-geo-boundary
 ---
+![Map builder with Layers rail and map canvas](/help/map-editing/map-builder-overview.png)
 
 The **viewport** is the part of the world a map shows when a user
 opens it. Center, zoom, bearing, pitch. Set the default to

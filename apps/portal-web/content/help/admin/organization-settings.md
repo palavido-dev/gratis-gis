@@ -13,6 +13,7 @@ related:
   - admin-roles
   - admin-branding
 ---
+![Admin section in the portal sidebar](/help/admin/users.png)
 
 The **organization settings** page (admin → organization) is
 where the org-level defaults and policies live. Settings here

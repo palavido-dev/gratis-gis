@@ -13,6 +13,7 @@ related:
   - map-editing-markup
   - map-editing-presence
 ---
+![Map builder with Comments control open](/help/map-editing/comments-panel.png)
 
 Comments let you have a real conversation about a map without
 leaving the map. Open a thread, reply, resolve it when the

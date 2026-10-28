@@ -14,6 +14,7 @@ related:
   - web-apps-custom-app
   - web-apps-templates
 ---
+![Web app item detail page](/help/items/web-app-detail.png)
 
 A **web app** is an item that wraps a map with a chosen template,
 a set of widgets, and a theme, producing a standalone web page

@@ -13,6 +13,7 @@ related:
   - admin-organization-settings
   - admin-roles
 ---
+![Admin Housekeeping settings](/help/admin/housekeeping.png)
 
 The **Housekeeping** dashboard (admin → housekeeping) surfaces
 items and users that have gone stale, alongside one-click bulk

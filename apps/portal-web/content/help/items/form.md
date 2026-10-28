@@ -16,6 +16,7 @@ related:
   - forms-form-designer
   - forms-xlsform-import
 ---
+![Form designer canvas](/help/forms/form-designer-canvas.png)
 
 A **form** is an item that presents a question list to a respondent
 and writes their answers into a backing layer when they submit.

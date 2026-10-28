@@ -16,6 +16,7 @@ related:
   - analysis-spatial-join
   - analysis-filter
 ---
+![New Derived layer item type in the wizard](/help/analysis/derived-layer-new-item.png)
 
 A **derived layer** is an item whose features are computed from
 other layers by a pipeline of analysis steps. The output rows are
