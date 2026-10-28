@@ -2616,9 +2616,28 @@ export const de: Partial<CatalogShape> = {
     subtitle: 'Wie sich diese Karte darstellt und beim Gebrauch verhält.',
     viewScope: 'Ansichtsbereich',
     viewScopeEmpty: 'Erstellen Sie ein Grenzelement, um es als Ansichtsbereich zu nutzen.',
+    viewScopeDescLead:
+      'Schneiden Sie jede Ebene dieser Karte auf eine Grenze zu, sodass nur Features innerhalb gerendert werden.',
+    viewScopeDescNotAcl: 'Keine Zugriffskontrolle:',
+    viewScopeDescNotAclBody:
+      'die zugrunde liegenden Ebenen liefern weiterhin ihre vollständigen Daten.',
     defaultExtent: 'Standardausdehnung',
+    defaultExtentDesc:
+      'Der Ausschnitt, mit dem die Karte beim ersten Laden öffnet. Ohne Wert gilt die gespeicherte Kameraposition der Karte.',
     searchSource: 'Suchquelle',
     searchSourceEmpty: 'Erstellen Sie ein Geokodierungs-Service-Element, um hier Ihre eigenen Daten zu suchen.',
+    searchSourceDesc:
+      'Wo die Suchleiste Adressen und Orte nachschlägt. Standard ist Nominatim (OpenStreetMap). Interne Geocoder durchsuchen Ihre eigenen Daten.',
+    optionNoClip: '(kein Zuschnitt)',
+    optionUseSavedExtent: '(gespeicherte Ausdehnung verwenden)',
+    optionDefaultNominatim: 'Standard (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(intern)',
+    summaryNone: 'keine',
+    summarySavedCamera: 'gespeicherte Kamera',
+    summaryDeleted: '(gelöscht)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Suche',
     allowAnonymous: 'Anonyme Markierungen',
     allowAnonymousDesc:
       'Abgemeldete Besucher dürfen eigene Markierungssätze auf dieser öffentlichen Karte hinzufügen. Standardmäßig aus. Hochstufen in einen Datenlayer erfordert weiterhin eine Anmeldung.',

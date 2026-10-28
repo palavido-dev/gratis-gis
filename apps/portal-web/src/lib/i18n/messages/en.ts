@@ -2710,9 +2710,28 @@ export const en = {
     subtitle: 'How this map presents itself and behaves when used.',
     viewScope: 'View scope',
     viewScopeEmpty: 'Create a boundary item to use it as a view scope.',
+    viewScopeDescLead:
+      'Clip every layer in this map to a boundary so only features inside it render.',
+    viewScopeDescNotAcl: 'Not access control:',
+    viewScopeDescNotAclBody:
+      'the underlying layers still serve their full data.',
     defaultExtent: 'Default extent',
+    defaultExtentDesc:
+      "The frame the map opens to on first load. Falls back to the map's saved camera when unset.",
     searchSource: 'Search source',
     searchSourceEmpty: 'Create a Geocoding service item to search your own data here.',
+    searchSourceDesc:
+      'Where the search bar looks up addresses and places. Default is Nominatim (OpenStreetMap). Internal geocoders search your own data.',
+    optionNoClip: '(no clip)',
+    optionUseSavedExtent: '(use saved extent)',
+    optionDefaultNominatim: 'Default (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(internal)',
+    summaryNone: 'none',
+    summarySavedCamera: 'saved camera',
+    summaryDeleted: '(deleted)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Search',
     allowAnonymous: 'Anonymous markup',
     allowAnonymousDesc:
       'Let signed-out visitors add their own markup sets on this public map. Off by default. Promote to a data layer still requires a signed-in account.',
