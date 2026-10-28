@@ -12,14 +12,16 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-i18n-field-related-sheet-chrome | research-cycle-11 | Field related-sheet chrome i18n (#162) | Back/Collapse/Edit/Copy |
-| R11-i18n-field-offline-dialog-titles | research-cycle-11 | Offline download dialog title i18n (#162) | Failed/Ready/Downloading |
-| R11-i18n-field-related-list-chrome | research-cycle-11 | Related-record list chrome i18n (#162) | Add/empty/error |
-| R11-tool-run-throttle-help | research-cycle-11 | Document Public tool run 30/min in help | Docs after #422 |
-| R11-i18n-coming-soon-stub | research-cycle-11 | ComingSoon stub i18n (#162) | Tiny |
+| R11-i18n-field-feature-sheet-chrome | research-cycle-11 | Field feature-sheet Edit/Copy/nav i18n (#162) | Highest-visibility |
+| R11-i18n-field-offline-panel-dialog | research-cycle-11 | Offline panel + download dialog i18n (#162) | Storage/Clear/titles |
+| R11-i18n-field-layers-search-chrome | research-cycle-11 | Basemap chip + address search + related list i18n | #162 |
+| R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs honesty |
+| R11-tool-help-analyze-catalog-honesty | research-cycle-11 | tool.md Analyze list + Public 30/min run | Docs after R10 |
+| R11-analyze-contour-shortcut | research-cycle-11 | Analyze Contour → PostGIS (points, auto interval) | Constrained |
+| R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | Constrained |
 | SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
 | SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Low |
-| R11-i18n-field-status-misc | research-cycle-11 | Field Loading/Searching/Persistent i18n | Mop-up |
+| SEC-ogc-features-throttle | research-cycle-11 | @Throttle 60/min on Public OGC Features items | Low |
 
 ## queued (needs-maintainer)
 
@@ -97,12 +99,13 @@ Driver-owned. Newest proposals at the top of each section.
 | R11-reject-seat-pricing | Named-user pricing contradicts ethos |
 | R11-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty #386 points at derived_layer |
 | R11-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
-| R11-reject-dissolve-groupby-feature | Keyed dissolve stays on group-by; no second path |
+| R11-reject-dissolve-groupby-feature | Keyed dissolve stays on group-by; prefer constrained Group-by Analyze |
 | R11-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
-| R11-reject-analyze-contour-shortcut | Contour levels/enrich heavier than Buffer-shaped; stay builder |
 | R11-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
-| R11-reject-analyze-filter-calculate-field | Expression editor not a Buffer-shaped shortcut |
-| R11-reject-analyze-groupby-shortcut | Group-by ops UI heavier than Top N this cycle |
+| R11-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R11-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R11-reject-report-template-item | Report template not built; fix print_template help instead |
+| R11-reject-full-aggregate-analyze-ui | Multi-key / multi-agg Group-by form too heavy; one key + one agg only |
 | R10-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
 | R10-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
 | R10-reject-seat-pricing | Named-user pricing contradicts ethos |

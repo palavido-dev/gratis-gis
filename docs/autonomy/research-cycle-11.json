@@ -1,20 +1,20 @@
 {
   "cycle": 11,
-  "researchedAt": "2026-10-28T07:20:00Z",
-  "method": "PLAYBOOK + QUEUE + research-cycle-10; R10 ship-without-input fully drained on origin/main through #422 (field offline/GPS i18n #415, data-collection help #416, Analyze NN/fishnet/top-n/random-sample #417–#421, recipe Overpass truncated #420, SEC tools-run throttle #422). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE / incremental nodes stay needs-maintainer). Security Sentinel this cycle: clean for High/Medium; Low follow-ups proposed for Public feedback POST and Public comments GET still on the global 300/min ceiling after tools-run got 30/min. Honesty scan after R10: Analyze shortcuts now cover Buffer through Random sample for Buffer-shaped / no-param tools; remaining derived tools (filter, calculate-field, contour, spatial-join/filter, group-by) stay builder-only (expression or multi-picker). Field-runtime still hard-codes English on related-sheet chrome (Back to list / Collapse / Expand / Close / Edit / Copy titles / N items), offline download dialog titles (Download failed / Ready for offline / Downloading for offline), related-record list chrome (Add titles, Couldn't load / No records yet, child not editable), and a few status strings (Loading… / Searching… / Submit failed / Persistent badge). tool.md does not yet mention the 30/min Public run throttle. ComingSoon stub still hard-codes English. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph polish, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, keyed dissolve-on-dissolve, and heavy Analyze shortcuts rejected again.",
+  "researchedAt": "2026-10-28T07:22:00Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-10; R10 ship-without-input drained on origin/main through #422 (field offline/GPS i18n #415, data-collection help #416, Analyze NN/fishnet/top-n/random-sample #417–#421, recipe Overpass truncated #420, SEC tools-run throttle #422). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE stay needs-maintainer). Security Sentinel this cycle: clean; deep-dive SEC-* + tools-run throttle shipped; no new @Public / BFF allowlist regressions; safeFetch, zip/GDAL budgets, otherSource ACL, Records 60/min + bbox scan, ToolsController.run 30/min intact. Honesty/i18n scan after R10 (driver + research subagent): derived-layer.md Analyze blurb matches shipped shortcuts; analysis help covers the registry; recipe truncated wired. Remaining gaps: field-runtime still hard-codes English on feature-sheet Edit/Copy/Back/Close/Expand, offline download dialog titles + layers offline panel Storage/Map detail/Clear tiles, address-search Places/Searching, and related-records list chrome; help/items/print-template.md is missing while print-this-map.md links items-print-template; widgets/print.md still calls custom layouts a future extension though print_template ships; print-templates/overview.md conflates print_template with unbuilt report-template DOCX flows; tool.md Analyze list still stops at Buffer/Clip/Erase/Centroid/Dissolve/Simplify and omits post-R6 shortcuts / Public 30/min run throttle; Analyze still missing constrained Contour (field+auto interval) and Group-by (one key + one agg) shortcuts; filter / calculate-field / spatial-join / spatial-filter stay builder-only. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, keyed dissolve, heavy multi-input Analyze, calculate-field / filter expression shortcuts, full multi-agg Group-by UI, and report-template implementation rejected.",
   "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
   "securitySentinel": {
     "ranAt": "2026-10-28T07:18:00Z",
     "result": "clean",
-    "notes": "No new @Public routes or BFF anonymous allowlist entries since #422. Tools run now 30/min (#422). Drawings writes stay 30/min; Records stay 60/min + bbox scan. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; zip/GDAL budgets and derived-layer otherSource ACL intact. Deep-dive SEC-* through tools-run throttle shipped (#376–#383, #422). Remaining Public surfaces still on global 300/min without a tighter decorator: feedback POST (honeypot exists but no @Throttle), comments GET list, STAC, OGC Features/Tiles, health/portal-info (intentionally open). Low ship-without-input: SEC-feedback-post-throttle and SEC-comments-list-throttle at 30–60/min matching drawings / Records patterns. No High/Medium hardening queued this cycle."
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #422. ToolsController.run now has @Throttle 30/min (#422). Global ThrottlerGuard 300/min still covers Public controllers that lack a tighter decorator (feedback POST has honeypot / app-level hasher but no Nest @Throttle; comments GET list is Public with only the global guard; STAC and OGC Features/Tiles stay on 300/min — Features items clamp limit to 10_000). Drawings writes stay 30/min; Records stay at 60/min + bbox scan cap. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; Keycloak admin and env-configured basemap HEAD probes stay operator-trusted. Zip central-directory budget and assertSafeGdalOpenPath still guard /vsizip/; derived-layer otherSource canRead checks remain. Deep-dive SEC-* all shipped (#376–#383) plus SEC-tools-run-throttle (#422). No High hardening queued; Low follow-ups: SEC-feedback-post-throttle (30/min), SEC-comments-list-throttle (60/min), SEC-ogc-features-throttle (60/min matching Records)."
   },
   "proposals": [
     {
-      "id": "R11-i18n-field-related-sheet-chrome",
-      "title": "Continue #162 i18n on field related-sheet chrome",
-      "summary": "After R10 offline/GPS i18n (#415), field-runtime related bottom sheet still hard-codes English on Back to list, Collapse/Expand sheet, Close, Edit / Copy button labels and titles (Edit this feature / Create a new feature… / You do not have edit access…), and the list header '{n} item(s)'. Extract into fieldRuntime / fieldRelated catalogs with t() calls. No Weblate, no RTL.",
-      "rationale": "Highest-visibility remaining field chrome for EU / LatAm collectors after offline/GPS. Related drill-in is the everyday edit path on deployments with parent/child layers.",
-      "risk": "Keep hit.editable gating logic unchanged. Machine-translate non-en with Phase 1.1 pattern. Scope to sheet chrome only — offline dialog and related-list body are separate proposals.",
+      "id": "R11-i18n-field-feature-sheet-chrome",
+      "title": "Continue #162 i18n on field feature-sheet Edit / Copy / nav chrome",
+      "summary": "After R10 offline/GPS/related i18n (#415), field-runtime feature sheet still hard-codes English on aria-labels Back / Back to list / Close / Collapse sheet / Expand sheet, Edit / Copy button labels, Edit this feature / Create a new feature with these attributes / You do not have edit access titles, (unnamed), and No attributes on this feature. Extract into fieldRuntime / fieldSheet catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Highest-visibility leftover #162 field slice after #415. Collectors hit the sheet on every pick; English chrome breaks EU / LatAm demos the moment they inspect a feature.",
+      "risk": "Reuse fieldRuntime.closeAria / relatedNoEditAccess where wording matches. Scope to sheet chrome only, not FormModal / attachments. Machine-translate non-en with the Phase 1.1 pattern.",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
       "ethosFit": "Language follow-through on free field chrome. No Contour brand kit.",
@@ -24,76 +24,117 @@
         "apps/portal-web/src/lib/i18n/messages/en.ts",
         "https://github.com/palavido-dev/gratis-gis/pull/415"
       ],
-      "suggestedFirstPR": "Wire related-sheet Back/Collapse/Expand/Close/Edit/Copy/N-items strings through en/es/fr/de/pt-BR; What's new optional (i18n-only can skip).",
+      "suggestedFirstPR": "Wire feature-sheet Back/Close/Expand/Edit/Copy strings into en/es/fr/de/pt-BR catalogs with t() calls; What's new optional (i18n-only can skip).",
       "relatedIssues": [162]
     },
     {
-      "id": "R11-i18n-field-offline-dialog-titles",
-      "title": "Continue #162 i18n on offline download dialog titles",
-      "summary": "Offline download DialogTitle still hard-codes 'Download failed' / 'Ready for offline' / 'Downloading for offline' while the body already uses formatOfflineMessage(t, …) and layer/feature breakdown keys. Extract the three titles into fieldOffline and call t().",
-      "rationale": "Collectors see this dialog every time they leave signal. Body is localized; titles still flash English.",
-      "risk": "Do not invent new progress phases. Reuse fieldOffline namespace. Skip What's new if i18n-only.",
+      "id": "R11-i18n-field-offline-panel-dialog",
+      "title": "Continue #162 i18n on offline panel + download dialog chrome",
+      "summary": "Layers offline panel still hard-codes Storage / Make persistent / Persistent / of / Storage nearly full / Map detail to cache / Least detail / Most detail / Clear tiles / Cached / The basemap will not be available offline, and DownloadProgressDialog still hard-codes Download failed / Ready for offline / Downloading for offline / Close / Cancel / ~N cached. More-menu already uses fieldRuntime.storage*; extend catalogs and call t() on the panel + dialog. No Weblate, no RTL.",
+      "rationale": "Second finishable #162 field slice. Offline download is the gate before leaving signal; leftover English undoes #415 on the same surface.",
+      "risk": "Keep formatOfflineMessage progress codes as-is. Do not invent new quota UX. Reuse existing fieldRuntime.storage* keys; add download dialog + panel keys only.",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
-      "ethosFit": "Honest localized offline readiness, not Field Maps cosplay.",
+      "ethosFit": "Honest offline chrome in the collector's language. No Field Maps cosplay.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/415"
+      ],
+      "suggestedFirstPR": "i18n offline panel Storage/Map detail/Clear tiles + DownloadProgressDialog titles/buttons; CHANGELOG docs note optional; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R11-i18n-field-layers-search-chrome",
+      "title": "Continue #162 i18n on field layers basemap chip + address search",
+      "summary": "Layers panel basemap chip still hard-codes Basemap: / default / Hide / Change / No layers in this map; FieldAddressSearch still hard-codes Places / Searching... / Features section headings. Related-records block still shows Related records / Add / Couldn't load / No … records yet / Loading... in English. Extract into fieldRuntime / fieldSearch catalogs with t() calls.",
+      "rationale": "Third finishable #162 field slice after sheet + offline panel. Address search and basemap swap are frequent collector taps; Related records is the remaining English pocket next to already-i18n relatedOpen keys.",
+      "risk": "Layer labels stay author-authored. Do not translate Nominatim payloads. Scope to chrome only.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free field chrome. No Weblate hosting choice.",
       "sources": [
         "https://github.com/palavido-dev/gratis-gis/issues/162",
         "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
         "apps/portal-web/src/lib/i18n/messages/en.ts"
       ],
-      "suggestedFirstPR": "Add fieldOffline.downloadFailedTitle / readyTitle / downloadingTitle; wire DialogTitle; catalogs + locales.spec.",
+      "suggestedFirstPR": "i18n basemap chip, address-search Places/Searching/Features, and related-records list chrome; skip What's new.",
       "relatedIssues": [162]
     },
     {
-      "id": "R11-i18n-field-related-list-chrome",
-      "title": "Continue #162 i18n on related-record list chrome",
-      "summary": "Parent-feature related section still hard-codes Add button titles ('Add a new {layer} record…' / 'This child layer is not editable in this deployment'), load-error copy ('Couldn't load existing …'), empty state ('No … records yet'), plus submit/save fallbacks ('Could not save' / 'Submit failed.'). Extract with ICU placeholders for layer labels.",
-      "rationale": "Pairs with related-sheet chrome. Parent/child demos are a core data-collection pitch; English-only related lists undermine #162.",
-      "risk": "Preserve childEditable gating. Keep API error bodies as server-provided when present; only localize the fallbacks and static chrome.",
+      "id": "R11-print-template-help-honesty",
+      "title": "Honest print-template item help + fix Print widget / overview lies",
+      "summary": "print-this-map.md links items-print-template but help/items/print-template.md is missing. widgets/print.md still says Custom layouts (Print Template item) are a future extension though print_template ships (#101) and map Print chooser / server render use it. print-templates/overview.md describes DOCX / report-parameter flows that belong to the unbuilt report template. Add items-print-template.md (page size, map/legend/scale/north-arrow elements, parameters, markup), rewrite print.md custom-layout sentence, and rewrite overview.md so print_template ≠ report-template.",
+      "rationale": "Clearest docs honesty gap after R10. Authors following print-this-map hit a dead related link; Print widget help actively denies a shipped item type.",
+      "risk": "Do not invent Puppeteer Phase 2 promises beyond what print-render already does. Keep report-template.md as not-built. CHANGELOG docs note; What's new optional.",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
-      "ethosFit": "Free related-record capture without Survey123 seats.",
+      "ethosFit": "Honest about shipped paper layouts. No brand / print chrome redesign.",
       "sources": [
-        "https://github.com/palavido-dev/gratis-gis/issues/162",
-        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
-        "apps/portal-web/content/help/items/data-collection.md"
+        "apps/portal-web/content/help/print-templates/print-this-map.md",
+        "apps/portal-web/content/help/web-apps/widgets/print.md",
+        "apps/portal-web/content/help/print-templates/overview.md",
+        "apps/portal-web/content/help/items/report-template.md",
+        "apps/portal-web/src/app/items/[id]/map/print-this-map-dialog.tsx",
+        "apps/portal-web/content/help/reference/item-types.md"
       ],
-      "suggestedFirstPR": "Extract related-list Add/empty/error/submit fallbacks into catalogs; wire t(); locales.spec.",
-      "relatedIssues": [162]
-    },
-    {
-      "id": "R11-tool-run-throttle-help",
-      "title": "Document Public tool run 30/min throttle in tool help",
-      "summary": "#422 throttles POST /api/tools/:id/run at 30/min but help/items/tool.md and reference/api.md do not mention the cap. Authors embedding public OSM tools in Custom Web Apps need to know anonymous viewers share a per-IP budget with drawings writes.",
-      "rationale": "docs-every-commit left a small honesty hole: security CHANGELOG shipped, user/author help did not. Same class as recipe truncated honesty.",
-      "risk": "Do not invent per-user authenticated exemptions that the ThrottlerGuard does not implement. One short paragraph + CHANGELOG docs note; skip What's new.",
-      "shipClass": "ship-without-input",
-      "classification": "ship-without-input",
-      "ethosFit": "Honest public-tool limits. Prefer docs over silent 429 surprises.",
-      "sources": [
-        "apps/portal-api/src/tools/tools.controller.ts",
-        "apps/portal-web/content/help/items/tool.md",
-        "apps/portal-web/content/help/reference/api.md",
-        "https://github.com/palavido-dev/gratis-gis/pull/422"
-      ],
-      "suggestedFirstPR": "Add rate-limit note to tool.md (+ api.md if tools run is listed); CHANGELOG docs; QUEUE.",
+      "suggestedFirstPR": "Add help/items/print-template.md; fix print.md + overview.md honesty; link from item-types / print-this-map; CHANGELOG docs note.",
       "relatedIssues": []
     },
     {
-      "id": "R11-i18n-coming-soon-stub",
-      "title": "i18n ComingSoon item stub chrome (#162)",
-      "summary": "coming-soon.tsx hard-codes '{label}: coming soon' for item types that land on the stub. Extract into a small itemChrome / comingSoon catalog so non-en locales do not flash English on unfinished item surfaces.",
-      "rationale": "Tiny finishable #162 slice. Demo authors occasionally open stub types; English-only stub undermines locale switcher credibility.",
-      "risk": "Do not invent new item types. Keep stub behaviour; localize the label template only.",
+      "id": "R11-tool-help-analyze-catalog-honesty",
+      "title": "Honest tool.md Analyze shortcut catalog + Public run throttle",
+      "summary": "items/tool.md still tells authors to create a derived layer or use Analyze Buffer / Clip / Erase / Centroid / Dissolve / Simplify. Post-R6 Analyze also ships Convex hull, Bounding boxes, Densify, Vertices, Calculate geometry, Nearest neighbor, Fishnet, Top N, and Random sample (derived-layer.md already lists them). Expand the parenthetical to match the shipped Analyze list (or point at derived-layer.md Analyze blurb). Also note Public POST /api/tools/:id/run is throttled at 30/min per IP (#422).",
+      "rationale": "Small docs honesty pass after R10 drained Analyze shortcuts and tools-run throttle. Authors reading tool sink honesty still see a stale half-list and learn about 429s only from CHANGELOG Security.",
+      "risk": "Docs-only. Do not claim Contour / Group-by / Filter Analyze shortcuts until those ship. CHANGELOG docs note; skip What's new.",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
-      "ethosFit": "Honest unfinished surfaces in the user's language.",
+      "ethosFit": "Honest catalog of free Analyze paths and public-tool limits.",
       "sources": [
-        "https://github.com/palavido-dev/gratis-gis/issues/162",
-        "apps/portal-web/src/app/items/[id]/coming-soon.tsx"
+        "apps/portal-web/content/help/items/tool.md",
+        "apps/portal-web/content/help/items/derived-layer.md",
+        "apps/portal-api/src/tools/tools.controller.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx"
       ],
-      "suggestedFirstPR": "Add comingSoon.template key; wire t(); five catalogs; skip What's new.",
-      "relatedIssues": [162]
+      "suggestedFirstPR": "Update tool.md Analyze shortcut list + 30/min Public run note; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R11-analyze-contour-shortcut",
+      "title": "Guided Contour shortcut that creates a derived-layer recipe",
+      "summary": "contourGenerator takes numeric field + auto|manual levels (Buffer-shaped with enrich cachedLevels). Analyze has no Contour for this layer control; help/analysis/contour.md already matches TIN iso-line honesty. Mirror AnalyzeTopNGuide / Fishnet: short form (field, auto interval, optional min/max), POST single-step contour derived_layer; gate to point geometryType; surface density / MAX_LEVELS honesty. Skip manual level-list UI in v1.",
+      "rationale": "Next Buffer-shaped Analyze shortcut after R10 fishnet/top-n/random-sample. Elevation / signal iso-lines are a common free substitute for ArcGIS Contour seats; help already honest from R7. Constrained auto+interval keeps the form Buffer-shaped (R10 rejected full Contour UI).",
+      "risk": "Dense point sets are slow (generator comments). Gate to points; prefer auto+interval only; say no iso-polygons / no smoothing. Reuse Top N field picker + enrich path; do not invent hex bands.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free TIN contours on your PostGIS. Honest about density cost and line-only output.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/contour.ts",
+        "apps/portal-web/content/help/analysis/contour.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-top-n-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-contour-guide (point layers, field, auto interval); link contour.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R11-analyze-group-by-shortcut",
+      "title": "Guided Group-by shortcut that creates a derived-layer recipe",
+      "summary": "aggregateGenerator takes groupBy keys + aggs (count/sum/avg/min/max/first) with ST_Union geometry. Analyze has no Group by for this layer control; help/analysis/group-by.md already matches. Mirror Top N: constrained form with one group key (optional empty = whole-layer rollup) + one aggregate (count, or sum/avg on a numeric field); POST single-step aggregate derived_layer. Leave multi-key / multi-agg to the builder.",
+      "rationale": "Keyed dissolve / rollup is the remaining single-layer Analyze gap that is still Buffer-shaped with a field picker. Complements no-param Dissolve without inventing a second dissolve path.",
+      "risk": "Do not ship a full multi-agg spreadsheet UI. Cap to one group key + one agg in the shortcut; surface ST_Union honesty and NULL-as-group. Reuse Top N field picker + Analyze i18n pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free keyed rollup on your PostGIS. Guided field pick over ArcGIS Summary Statistics seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/aggregate.ts",
+        "apps/portal-web/content/help/analysis/group-by.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-top-n-guide.tsx",
+        "apps/portal-web/content/help/analysis/dissolve.md"
+      ],
+      "suggestedFirstPR": "Add analyze-group-by-guide (one key, one agg); link group-by.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
     },
     {
       "id": "SEC-feedback-post-throttle",
@@ -114,69 +155,72 @@
     },
     {
       "id": "SEC-comments-list-throttle",
-      "title": "Tighter throttle on Public GET /api/items/:id/comments",
-      "summary": "CommentsController.list is @Public for public items with only the global 300/min guard. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) matching Records list. Auth POSTs for create/reply stay ungated by this decorator (or inherit global).",
-      "rationale": "Public DoS checklist item for unauthenticated list endpoints. Low severity; finishes the comments surface after feature-anchored comments shipped.",
-      "risk": "Polling UIs must stay under 60/min. Confirm client poll intervals before merging if any exist.",
+      "title": "Tighter throttle on Public GET item comments list",
+      "summary": "CommentsController.list is @Public (service gates non-public via canRead) with only the global 300/min ThrottlerGuard. Anonymous callers can hammer comment threads on public items. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on list; leave authenticated create/reply/resolve unchanged.",
+      "rationale": "Low hardening called out across R8–R10 sentinel notes. Complements drawings 30/min write throttle without inventing comment product policy.",
+      "risk": "Busy public maps with many pollers may hit 60/min. Prefer 60; document in CHANGELOG Security. No change to mention / email defaults (those stay needs-maintainer).",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
-      "ethosFit": "Public list endpoints stay paginated/throttled.",
+      "ethosFit": "Self-hosted hardenings without waiting on abuse/email product calls.",
       "sources": [
         "apps/portal-api/src/items/comments.controller.ts",
-        "apps/portal-api/src/public/ogc/records.controller.ts",
-        "docs/autonomy/PLAYBOOK.md"
+        "apps/portal-api/src/items/drawings.controller.ts",
+        "apps/portal-api/src/app.module.ts",
+        "docs/autonomy/research-cycle-10.json"
       ],
-      "suggestedFirstPR": "Add @Throttle 60/min on comments list; CHANGELOG Security; skip What's new.",
+      "suggestedFirstPR": "Add @Throttle 60/min on CommentsController.list; CHANGELOG Security note; skip What's new.",
       "relatedIssues": []
     },
     {
-      "id": "R11-i18n-field-status-misc",
-      "title": "Continue #162 i18n on field Loading/Searching/Persistent chrome",
-      "summary": "field-runtime still hard-codes Loading…, Searching…, and a green Persistent storage badge span (storagePersistent key may already exist unused). Wire remaining status chrome through catalogs after the larger related/offline slices.",
-      "rationale": "Small mop-up after related-sheet / offline dialog / related-list. Keeps #162 finishable without Weblate.",
-      "risk": "Confirm storagePersistent key before adding duplicates. Skip What's new.",
+      "id": "SEC-ogc-features-throttle",
+      "title": "Tighter throttle on Public OGC Features collection items",
+      "summary": "OgcFeaturesController items / feature routes are @Public with only the global 300/min ThrottlerGuard, while Features items accept limit up to 10_000. Anonymous crawlers can scan public collections harder than Records (already 60/min + bbox scan). Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on items listing (and optionally single-feature) matching Records; keep auth behaviour and existing limit clamp.",
+      "rationale": "Standing Low follow-up from R8–R10 Security Sentinel notes after tools-run shipped. Same class as SEC-records-bbox-throttle without a product call.",
+      "risk": "Legitimate MetaSearch / QGIS clients that poll Features may hit 60/min. Prefer 60 to match Records; document in CHANGELOG Security. Do not change public tier geo clip.",
       "shipClass": "ship-without-input",
       "classification": "ship-without-input",
-      "ethosFit": "Catalog completeness for field chrome.",
+      "ethosFit": "Self-hosted hardenings without waiting on pricing or Keycloak defaults.",
       "sources": [
-        "https://github.com/palavido-dev/gratis-gis/issues/162",
-        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
-        "apps/portal-web/src/lib/i18n/messages/en.ts"
+        "apps/portal-api/src/public/ogc/features.controller.ts",
+        "apps/portal-api/src/public/ogc/features-core.ts",
+        "apps/portal-api/src/public/ogc/records.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md",
+        "docs/autonomy/research-cycle-10.json"
       ],
-      "suggestedFirstPR": "Wire Loading/Searching/Persistent (and leftover Failed to load fallbacks) via t(); catalogs.",
-      "relatedIssues": [162]
+      "suggestedFirstPR": "Add @Throttle 60/min on Public OGC Features items (+ feature if cheap); CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
     }
   ],
   "rejected": [
     {
       "id": "R11-reject-node-graph-canvas",
-      "title": "Reject visual node-graph recipe canvas polish",
-      "reason": "Phase 1 already linearizes graphs; a fancy branching canvas is polish, not honesty. Playbook prefers fewer sharper ships."
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer field i18n, print-template help honesty, Contour / Group-by Analyze shortcuts, and Low SEC."
     },
     {
       "id": "R11-reject-print-brand-kit",
-      "title": "Reject print / portal brand kit redesign",
-      "reason": "Fails playbook brand test and design-system constraints. Needs-maintainer for visual redesigns."
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print help honesty (missing items-print-template + widget lie) is the shippable docs fix; visual redesign is not."
     },
     {
       "id": "R11-reject-seat-pricing",
-      "title": "Reject named-user / seat pricing work",
-      "reason": "Contradicts self-hosted open-standards ethos. Legal/pricing needs-maintainer."
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
     },
     {
       "id": "R11-reject-recipe-materialize-sinks",
-      "title": "Reject recipe materialize-to-layer sinks",
-      "reason": "Honesty #386 points authors at derived_layer. Materialize sinks are a new pillar shape."
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty PR #386 already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
     },
     {
       "id": "R11-reject-tile3d-local-rebuild",
       "title": "Reject another local point-cloud rebuild as closing #183",
-      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer. R8 streaming honesty (#404) was docs/UI only; #183 remains OPEN."
     },
     {
       "id": "R11-reject-dissolve-groupby-feature",
       "title": "Reject implementing dissolve groupBy / aggregates now",
-      "reason": "Keyed dissolve already exists as group-by with ST_Union. Second path is scope creep."
+      "reason": "Honesty rewrite + Analyze no-param Dissolve already shipped. Keyed dissolve with aggregates already exists as group-by with ST_Union; inventing a second dissolve path is scope creep. Prefer a constrained Group-by Analyze shortcut instead."
     },
     {
       "id": "R11-reject-weblate-hosting",
@@ -184,24 +228,29 @@
       "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
     },
     {
-      "id": "R11-reject-analyze-contour-shortcut",
-      "title": "Reject Contour Analyze shortcut this cycle",
-      "reason": "Contour levels/enrich are heavier than Buffer-shaped forms. Stay builder + existing help."
-    },
-    {
       "id": "R11-reject-analyze-multi-input-shortcuts",
-      "title": "Reject Spatial join / Spatial filter Analyze shortcuts",
-      "reason": "Multi-source otherSource pickers are heavy Analyze UX. Honesty help already shipped."
+      "title": "Reject Spatial join / Spatial filter / Clip-style multi-picker Analyze shortcuts",
+      "reason": "Multi-source otherSource pickers are heavy Analyze UX. Clip/Erase already ship with mask pickers; spatial-join/filter honesty help already shipped (#398/#407). Keep those tools on the derived-layer builder."
     },
     {
-      "id": "R11-reject-analyze-filter-calculate-field",
-      "title": "Reject Filter / Calculate field Analyze shortcuts",
-      "reason": "Expression dialect needs a real expression editor, not a Buffer-shaped form. Stay builder-only."
+      "id": "R11-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor, not a Buffer-shaped form. Calculate geometry already covers meter-honest measures (#413); calculate-field stays builder-only."
     },
     {
-      "id": "R11-reject-analyze-groupby-shortcut",
-      "title": "Reject Group-by Analyze shortcut this cycle",
-      "reason": "groupBy keys + aggregate ops UI is heavier than Top N. Prefer finishing #162 field chrome + SEC throttles first."
+      "id": "R11-reject-analyze-filter-shortcut",
+      "title": "Reject Filter Analyze shortcut",
+      "reason": "Filter is a free-form {{field}} expression (same dialect risk as calculate-field). AnalyzeQueryBuilder already covers ad-hoc SQL preview; materialised filter recipes stay on the derived-layer builder."
+    },
+    {
+      "id": "R11-reject-report-template-item",
+      "title": "Reject building the Report template item type",
+      "reason": "report-template.md honestly says not built. Implementing DOCX/PDF document reports is a new pillar / product call. Fix print_template help honesty instead of shipping report templates."
+    },
+    {
+      "id": "R11-reject-full-aggregate-analyze-ui",
+      "title": "Reject full multi-key / multi-agg Group-by Analyze form",
+      "reason": "A spreadsheet of group keys + many aggregates is heavier than Buffer-shaped. If Group-by ships as an Analyze shortcut, keep one key + one agg; leave the full editor on the derived-layer builder."
     }
   ],
   "needsMaintainerCarryForward": [
