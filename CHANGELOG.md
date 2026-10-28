@@ -97,6 +97,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Analyze **Dissolve this layer** guide creates a single-step
+  `derived_layer` dissolve recipe via `POST /api/portal/items`,
+  reusing the no-param PostGIS `ST_Union` tool (attributes
+  dropped). Help documents the Analyze entry point; keyed
+  dissolve stays on group-by. Locale catalogs for the guide
+  chrome (en / es / fr / de / pt-BR)
+  (R7-analyze-dissolve-shortcut).
 - portal-mcp `search_catalog` read tool over the public OGC
   Records catalog
   (`GET /api/public/ogc/collections/catalog/items`). Filters

@@ -4773,6 +4773,19 @@ export const de: Partial<CatalogShape> = {
       ". Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.",
     centroidHint:
       "Nur geometrischer Schwerpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.",
+
+    dissolveAction: 'Diese Ebene auflösen',
+    dissolveActionTitle:
+      'Serverseitigen Derived-Layer-Dissolve erstellen (PostGIS ST_Union). Attribute werden verworfen.',
+    dissolveHeading: 'Diese Ebene auflösen (serverseitiger Derived Layer)',
+    dissolveIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    dissolveIntroAfter:
+      'auf PostGIS zu einem Feature ausführt und Attribute verwirft. Gleiches Rezept wie',
+    dissolveHelpLink: 'Dissolve-Hilfe',
+    dissolveIntroTail:
+      '. Für schlüsselbasiertes Dissolve mit Aggregaten Group by nutzen. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    dissolveHint:
+      'Attribute werden verworfen. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
   },
 
   serviceEditors: {

@@ -51,13 +51,25 @@ or use group-by when you need keys and aggregates.
 
 ## How to use it on its own
 
+### From Analyze (guided)
+
+1. Open a data layer and switch to the **Analyze** tab.
+2. Click **Dissolve this layer**.
+3. Optionally edit the title.
+4. Click **Create derived layer**.
+
+The portal creates a private derived layer and opens it. Expect a
+short server job, not an instant browser result. Attributes are
+dropped on this path.
+
+### From the new-item wizard
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
 3. Add a **Dissolve** step (no options to fill in).
 4. Save.
 
-Expect a short server job. The builder shows a short note that
-attributes are dropped.
+The builder shows a short note that attributes are dropped.
 
 ## Examples
 

@@ -4892,6 +4892,19 @@ export const en = {
       '. Expect a short server job, not an instant browser result.',
     centroidHint:
       'Geometric centroid only. Open the new item to map or refresh the result after the server job finishes.',
+
+    dissolveAction: 'Dissolve this layer',
+    dissolveActionTitle:
+      'Create a server-side derived layer dissolve (PostGIS ST_Union). Attributes are dropped.',
+    dissolveHeading: 'Dissolve this layer (server derived layer)',
+    dissolveIntroBefore: 'Creates a private derived layer that runs',
+    dissolveIntroAfter:
+      'on PostGIS into one feature and drops attributes. Same recipe as',
+    dissolveHelpLink: 'Dissolve help',
+    dissolveIntroTail:
+      '. For keyed dissolve with aggregates, use group-by. Expect a short server job, not an instant browser result.',
+    dissolveHint:
+      'Attributes are dropped. Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**

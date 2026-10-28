@@ -4758,6 +4758,19 @@ export const es: Partial<CatalogShape> = {
       ". Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.",
     centroidHint:
       "Solo centroide geométrico. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.",
+
+    dissolveAction: 'Disolver esta capa',
+    dissolveActionTitle:
+      'Crear una disolución de capa derivada en el servidor (PostGIS ST_Union). Se eliminan los atributos.',
+    dissolveHeading: 'Disolver esta capa (capa derivada en el servidor)',
+    dissolveIntroBefore: 'Crea una capa derivada privada que ejecuta',
+    dissolveIntroAfter:
+      'en PostGIS en una sola entidad y elimina los atributos. Misma receta que',
+    dissolveHelpLink: 'Ayuda de disolución',
+    dissolveIntroTail:
+      '. Para disolución por clave con agregados, use Agrupar por. Espere un trabajo breve en el servidor, no un resultado instantáneo en el navegador.',
+    dissolveHint:
+      'Se eliminan los atributos. Abra el elemento nuevo para mapear o actualizar el resultado cuando termine el trabajo del servidor.',
   },
 
   serviceEditors: {
