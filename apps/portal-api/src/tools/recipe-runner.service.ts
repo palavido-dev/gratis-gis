@@ -666,12 +666,13 @@ export class RecipeRunnerService {
       bbox = await this.computeAoiBbox(aoiVal.value);
       if (!bbox) {
         throw new BadRequestException(
-          `Could not compute a bbox from AOI parameter '${recipe.aoiParameterRef}'.  v1 only supports inline-geojson AOIs (drawn on the map).  Layer / selection AOIs land in wave 2.`,
+          `Could not compute a bbox from AOI parameter '${recipe.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
         );
       }
       // #151: capture line geometries for the corridor post-pass.
       // Only inline-geojson lines qualify -- a layer-AOI line would
-      // need ACL-gated geometry resolution; that's a wave-2 lift.
+      // need ACL-gated geometry resolution, which is not shipped.
+
       if (aoiVal.value.kind === 'inline-geojson' && aoiVal.value.geojson) {
         const g = aoiVal.value.geojson as GeoJsonGeometryLike;
         if (g && (g.type === 'LineString' || g.type === 'MultiLineString')) {
@@ -904,7 +905,7 @@ export class RecipeRunnerService {
     const bbox = await this.computeAoiBbox(aoiVal.value);
     if (!bbox) {
       throw new BadRequestException(
-        `Could not compute a bbox from AOI parameter '${action.aoiParameterRef}'.  v1 supports inline-geojson AOIs (drawn on the map) and layer / selection AOIs.`,
+        `Could not compute a bbox from AOI parameter '${action.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
       );
     }
 
