@@ -50,6 +50,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Contour help (`analysis/contour`) matches the TIN iso-line
+  generator: numeric field + auto/manual levels, line output
+  with a `level` property. Iso-polygons, smoothing, and
+  per-band aggregates are not options
+  (R7-contour-help-honesty).
 - Fishnet help (`analysis/fishnet`) matches the shipped
   generator: square `ST_SquareGrid` over a polygon source,
   cellSize / unit / polygons|lines only, `cell_row` /
