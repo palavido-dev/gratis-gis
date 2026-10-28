@@ -282,7 +282,10 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   const countField = firstTextField(layer);
   const spatial = isSpatialAvailable();
   const starters: Array<{ label: string; sql: string }> = [
-    { label: 'Preview', sql: `SELECT * FROM "${viewName}" LIMIT 100` },
+    {
+      label: t('analyzeWorkbench.starterPreview'),
+      sql: `SELECT * FROM "${viewName}" LIMIT 100`,
+    },
     // SUMMARIZE is DuckDB's built-in per-column profile: min / max /
     // distinct counts / null fraction in one click, the fastest
     // possible "what is in this layer" answer.
@@ -293,7 +296,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     ...(countField !== null
       ? [
           {
-            label: `Count by ${countField}`,
+            label: t('analyzeWorkbench.starterCountBy', { field: countField }),
             sql: `SELECT "${countField}", count(*) AS features\nFROM "${viewName}"\nGROUP BY 1\nORDER BY features DESC`,
           },
         ]
@@ -648,23 +651,18 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           </div>
         ) : null}
         <p className="text-2xs text-muted">
-          The layer is available as{' '}
+          {t('analyzeWorkbench.sqlFooterLayerAvailable')}{' '}
           <span className="font-mono">&quot;{viewName}&quot;</span>.{' '}
           {spatial ? (
             <>
-              Spatial SQL works on the{' '}
-              <span className="font-mono">geometry</span> column for
-              CRS-safe transforms and spheroid measures (area, length).
-              Meter buffers need PROJ data this browser engine does not
-              ship — use <strong>Buffer this layer</strong> above to
-              create a PostGIS derived layer instead of a degree-unit
-              trap.
+              {t('analyzeWorkbench.sqlFooterSpatialLead')}{' '}
+              <span className="font-mono">geometry</span>{' '}
+              {t('analyzeWorkbench.sqlFooterSpatialMid')}{' '}
+              <strong>{t('analyzeWorkbench.bufferAction')}</strong>{' '}
+              {t('analyzeWorkbench.sqlFooterSpatialTail')}
             </>
           ) : (
-            <>
-              The spatial extension could not be loaded, so the geometry
-              column is raw WKB and attribute SQL only for this session.
-            </>
+            t('analyzeWorkbench.sqlFooterSpatialUnavailable')
           )}
         </p>
       </div>

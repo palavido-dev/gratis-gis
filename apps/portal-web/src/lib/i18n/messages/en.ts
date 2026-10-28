@@ -5119,6 +5119,17 @@ export const en = {
     modeSqlTitle: 'Edit the SQL directly',
     starterColumnProfile: 'Column profile',
     starterGeometrySummary: 'Geometry summary',
+    /** SQL-mode starter chips + DuckDB footer (#162 / R13-i18n-analyze-sql-starters). */
+    starterPreview: 'Preview',
+    starterCountBy: 'Count by {field}',
+    sqlFooterLayerAvailable: 'The layer is available as',
+    sqlFooterSpatialLead: 'Spatial SQL works on the',
+    sqlFooterSpatialMid:
+      'column for CRS-safe transforms and spheroid measures (area, length). Meter buffers need PROJ data this browser engine does not ship — use',
+    sqlFooterSpatialTail:
+      'above to create a PostGIS derived layer instead of a degree-unit trap.',
+    sqlFooterSpatialUnavailable:
+      'The spatial extension could not be loaded, so the geometry column is raw WKB and attribute SQL only for this session.',
     browserOnlyHint: 'Runs in your browser. The server never sees a query.',
     sqlAriaLabel: 'SQL query',
     run: 'Run (Ctrl+Enter)',

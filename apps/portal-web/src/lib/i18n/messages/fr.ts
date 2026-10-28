@@ -5005,6 +5005,16 @@ export const fr: Partial<CatalogShape> = {
     modeSqlTitle: "Modifier le SQL directement",
     starterColumnProfile: "Profil des colonnes",
     starterGeometrySummary: "Résumé géométrique",
+    starterPreview: "Aperçu",
+    starterCountBy: "Compter par {field}",
+    sqlFooterLayerAvailable: "La couche est disponible sous",
+    sqlFooterSpatialLead: "Le SQL spatial fonctionne sur la colonne",
+    sqlFooterSpatialMid:
+      "pour des transformations sûres selon le SCR et des mesures sphéroïdales (aire, longueur). Les tampons en mètres nécessitent des données PROJ que ce moteur navigateur ne fournit pas — utilisez",
+    sqlFooterSpatialTail:
+      "ci-dessus pour créer une couche dérivée PostGIS plutôt qu’un piège d’unités en degrés.",
+    sqlFooterSpatialUnavailable:
+      "L’extension spatiale n’a pas pu être chargée, donc la colonne geometry est du WKB brut et seul le SQL d’attributs est disponible pour cette session.",
     browserOnlyHint: "S'exécute dans votre navigateur. Le serveur ne voit jamais la requête.",
     sqlAriaLabel: "Requête SQL",
     run: "Exécuter (Ctrl+Entrée)",
