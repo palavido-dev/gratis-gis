@@ -1,0 +1,173 @@
+{
+  "cycle": 7,
+  "researchedAt": "2026-10-28T00:44:59Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-6; R6 ship-without-input drained on origin/main through #386 (Centroid #384, MCP search_catalog #385, recipe-sink honesty #386; security deep-dive SEC-* through #383). Open issues still only #162/#183. Security Sentinel this cycle: clean — no new @Public / BFF allowlist / missing throttle on scanned paths; all deep-dive hardenings shipped. Honesty scan: dissolve.md and fishnet.md / contour.md oversell params the generators do not implement; Erase/Centroid Analyze guides still hard-coded English after Buffer/Clip i18n; recipe editor AOI hint still promises wave 2. Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Tile3D local rebuild, and dissolve groupBy feature work rejected.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T00:44:00Z",
+    "result": "clean",
+    "notes": "Deep-dive SEC-* all shipped (#376–#383). search_catalog (#385) reuses existing public Records mount + throttle. No new High/Medium hardening queued this cycle."
+  },
+  "proposals": [
+    {
+      "id": "R7-dissolve-help-honesty",
+      "title": "Honest dissolve help matching no-param ST_Union",
+      "summary": "analysis/dissolve.md still documents an optional key field, attributes to preserve, and group-by-style aggregates. dissolveGenerator is Record<string, never>: one ST_Union of every input feature with empty outputSchema (attributes dropped). The derived-layer builder already shows NoParamInfo. Rewrite dissolve.md to match shipped behavior and point authors who need key+aggregates at group-by with geometry strategy dissolve.",
+      "rationale": "Highest-visibility analysis help lie left after recipe-sink honesty. Catalog and builder are honest; the help page is not.",
+      "risk": "Authors who planned key-field dissolve will feel a downgrade. Prefer clear redirect to group-by rather than silently inventing groupBy on dissolve in this PR.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about what we are not. Prefer documented PostGIS union over fake Esri Dissolve parity.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/dissolve.md",
+        "apps/portal-api/src/derived-layers/tools/dissolve.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Rewrite dissolve.md Inputs/Output/Examples to no-param union + attribute drop; keep Dissove vs group-by section as the path for keyed dissolve; CHANGELOG docs note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R7-fishnet-help-honesty",
+      "title": "Honest fishnet help matching cellSize / unit / output",
+      "summary": "analysis/fishnet.md advertises hex cells, geo-boundary / manual extent pickers, and clip-to-polygon. FishnetParams only expose cellSize, unit, and output polygons|lines; extent comes from the pipeline source bbox. Rewrite help to match the generator and builder.",
+      "rationale": "Same class of honesty bug as dissolve. Demo authors reading help will configure options that do not exist.",
+      "risk": "Do not invent hex or clip params in this PR. Document square grid over source bbox; note hex / clip as not shipped.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Docs match the free PostGIS grid you actually get.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/fishnet.md",
+        "apps/portal-api/src/derived-layers/tools/fishnet.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Rewrite fishnet.md Inputs/Output to cellSize + unit + polygons|lines over source extent; remove hex / geo-boundary / clip claims; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R7-contour-help-honesty",
+      "title": "Honest contour help matching TIN iso-lines",
+      "summary": "analysis/contour.md documents iso-polygons, smoothing, and per-band aggregates. contourGenerator emits TIN intersection iso-lines with field + auto|manual levels only (level property). Align help with the builder ContourStepEditor.",
+      "rationale": "Third analysis help oversell in the same sweep. Contours are advanced; wrong help burns support time.",
+      "risk": "Keep auto/manual + interval/levels accurate; explicitly say iso-polygons and smoothing are not options.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest TIN contours on your PostGIS, not a fake Spatial Analyst Contour tool sheet.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/contour.md",
+        "apps/portal-api/src/derived-layers/tools/contour.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Rewrite contour.md to field + auto/manual levels, line output with level attribute; drop iso-polygon / smoothing / aggregate claims; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R7-i18n-erase-centroid-guides",
+      "title": "Continue #162 i18n on Analyze Erase and Centroid guides",
+      "summary": "Buffer/Clip Analyze guides and panel chrome went through locale catalogs in #372. Erase (#371) and Centroid (#384) shipped afterward still hard-code English (Erase this layer, Centroids for this layer, Creating…, Create derived layer, intro copy). Extract into the same analyzeWorkbench catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Only two open issues; #162 remains the finishable cross-cutting slice. Fresh R6 Analyze chrome is the most visible untranslated surface after Buffer/Clip.",
+      "risk": "Keep SQL / ST_* snippets as-is. Reuse existing analyzeWorkbench keys where Buffer already defined Creating… / Create derived layer.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free analysis chrome. No Contour brand kit.",
+      "sources": [
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-erase-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-centroid-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-buffer-guide.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/372"
+      ],
+      "suggestedFirstPR": "Extract Erase/Centroid guide strings into en/es/fr/de/pt-BR analyzeWorkbench.* catalogs with t() calls; What's new optional (i18n-only can skip).",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R7-analyze-dissolve-shortcut",
+      "title": "Guided Dissolve shortcut that creates a derived-layer recipe",
+      "summary": "After dissolve help honesty, Analyze still has no Dissolve this layer control. dissolveGenerator is no-param like centroid. Mirror AnalyzeCentroidGuide: POST a single-step dissolve derived_layer, label as server job, warn that attributes are dropped.",
+      "rationale": "Cheap Analyze honesty win after Centroid. Esri Dissolve seat pain maps onto free PostGIS ST_Union without inventing groupBy.",
+      "risk": "Users may expect key-field dissolve. Label no-param union + attribute drop; point at group-by for keyed dissolve; reuse existing worker path.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Guided PostGIS over proprietary Dissolve seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/dissolve.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-centroid-guide.tsx",
+        "apps/portal-web/src/lib/analyze-centroid-derived.ts",
+        "apps/portal-web/content/help/analysis/dissolve.md"
+      ],
+      "suggestedFirstPR": "Add analyze-dissolve-guide POSTing single-step dissolve derived_layer; refresh dissolve.md Analyze entry after honesty rewrite; What's new + CHANGELOG.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R7-analyze-simplify-shortcut",
+      "title": "Guided Simplify shortcut that creates a derived-layer recipe",
+      "summary": "simplifyGenerator already takes tolerance + unit (Buffer-shaped). Analyze has no Simplify this layer control. Mirror AnalyzeBufferGuide: short form, POST single-step simplify derived_layer, label as server job.",
+      "rationale": "Next parameterized Analyze shortcut after Buffer. Douglas-Peucker on PostGIS without a desktop seat.",
+      "risk": "Tolerance unit confusion (degrees vs meters) — reuse Buffer unit conversion honesty and MAX simplify meters already in the generator.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free generalize / simplify on your PostGIS. Prefer honest meter units over degree traps.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/simplify.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-buffer-guide.tsx",
+        "apps/portal-web/src/lib/analyze-buffer-derived.ts"
+      ],
+      "suggestedFirstPR": "Add analyze-simplify-guide + help/analysis/simplify.md; What's new + CHANGELOG.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R7-recipe-aoi-honesty",
+      "title": "Honest recipe AOI hint instead of wave 2 promise",
+      "summary": "recipe-editor OSM overlay AOI help still says drawn AOIs work and layer / selection AOIs land in wave 2. Runner only supports inline-geojson AOIs. Replace the wave-2 promise with plain English: drawn AOI only; layer/selection AOI not supported.",
+      "rationale": "Small leftover honesty after R6-recipe-sink-honesty. Roadmap language in the editor is the same class of lie as coming soon sinks.",
+      "risk": "Tiny copy change; no runner work. Do not invent layer AOI support here.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about what we are not. No aspirational wave labels in the authoring UI.",
+      "sources": [
+        "apps/portal-web/src/app/items/[id]/tool/recipe-editor.tsx",
+        "apps/portal-api/src/tools/recipe-runner.service.ts"
+      ],
+      "suggestedFirstPR": "Rewrite the AOI parameter hint under osm-features-overlay; CHANGELOG docs note; skip What's new.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R7-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer Analyze Dissolve/Simplify shortcuts on derived_layer."
+    },
+    {
+      "id": "R7-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print markup honesty already shipped."
+    },
+    {
+      "id": "R7-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R7-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty PR #386 already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
+    },
+    {
+      "id": "R7-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+    },
+    {
+      "id": "R7-reject-dissolve-groupby-feature",
+      "title": "Reject implementing dissolve groupBy / aggregates now",
+      "reason": "Honesty rewrite + Analyze no-param shortcut are enough. Keyed dissolve with aggregates already exists as group-by geometry strategy dissolve; inventing a second path is scope creep."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ]
+}
