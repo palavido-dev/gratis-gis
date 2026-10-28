@@ -27,11 +27,11 @@ For one-step recipes, a data layer's **Analyze** tab has guided
 actions that create a private derived-layer item via PostGIS on
 the server: **Buffer**, **Clip**, **Erase**, **Centroids**,
 **Convex hulls**, **Bounding boxes**, **Dissolve**,
-**Simplify**, and **Densify**. Meter distances and tolerances
-stay honest; the in-browser SQL builder does not invent
-degree-unit geometry ops. See [Buffer](analysis-buffer),
-[Bounding box](analysis-bbox), [Simplify](analysis-simplify),
-and [Densify](analysis-densify).
+**Simplify**, **Densify**, and **Vertices**. Meter distances
+and tolerances stay honest; the in-browser SQL builder does not
+invent degree-unit geometry ops. See [Buffer](analysis-buffer),
+[Bounding box](analysis-bbox), [Vertices](analysis-vertices),
+[Simplify](analysis-simplify), and [Densify](analysis-densify).
 
 ## Pipeline model
 
@@ -70,7 +70,8 @@ set as the derived-layer builder / tool registry):
   hull (`ST_ConvexHull`).
 - **[Bounding box](analysis-bbox)**. Replace each geometry with
   its envelope (`ST_Envelope`).
-- **Vertices**. Explode geometries to point vertices.
+- **[Vertices](analysis-vertices)**. Explode geometries to point
+  vertices (`ST_DumpPoints` + `vertex_index`).
 - **[Dissolve](analysis-dissolve)**. Union every input into one
   feature (attributes dropped; keyed dissolve stays on group-by).
 

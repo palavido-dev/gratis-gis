@@ -4920,6 +4920,18 @@ export const fr: Partial<CatalogShape> = {
       '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
     bboxHint:
       'Boîtes par entité uniquement. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
+    verticesAction: 'Sommets de cette couche',
+    verticesActionTitle:
+      'Créer une couche dérivée serveur de sommets (PostGIS ST_DumpPoints). Le nombre de lignes peut beaucoup augmenter.',
+    verticesHeading: 'Sommets de cette couche (couche dérivée serveur)',
+    verticesIntroBefore: 'Crée une couche dérivée privée qui exécute',
+    verticesIntroAfter:
+      'sur PostGIS (ajoute vertex_index). Le nombre de lignes peut exploser sur des formes denses ; les parties MULTI* sont déversées ensemble. Même recette que',
+    verticesHelpLink: 'Aide Sommets',
+    verticesIntroTail:
+      '. Attendez un court travail serveur, pas un résultat navigateur instantané.',
+    verticesHint:
+      'Un point par sommet. Ouvrez le nouvel élément pour cartographier ou actualiser une fois le travail serveur terminé.',
   },
 
   serviceEditors: {

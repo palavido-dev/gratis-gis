@@ -34,6 +34,7 @@ import { AnalyzeDensifyGuide } from './analyze-densify-guide';
 import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
+import { AnalyzeVerticesGuide } from './analyze-vertices-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -428,6 +429,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               sourceLabel={layer.label || layer.name || 'Layer'}
             />
             <AnalyzeDensifyGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+            />
+            <AnalyzeVerticesGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}

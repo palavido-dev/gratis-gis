@@ -4910,6 +4910,18 @@ export const ptBR: Partial<CatalogShape> = {
       '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
     bboxHint:
       'Apenas retângulos por feição. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
+    verticesAction: 'Vértices desta camada',
+    verticesActionTitle:
+      'Criar uma camada derivada no servidor com vértices (PostGIS ST_DumpPoints). A contagem de linhas pode crescer muito.',
+    verticesHeading: 'Vértices desta camada (camada derivada no servidor)',
+    verticesIntroBefore: 'Cria uma camada derivada privada que executa',
+    verticesIntroAfter:
+      'no PostGIS (adiciona vertex_index). A contagem de linhas pode explodir em formas densas; partes MULTI* são despejadas juntas. Mesma receita que',
+    verticesHelpLink: 'Ajuda de vértices',
+    verticesIntroTail:
+      '. Espere um trabalho curto no servidor, não um resultado instantâneo no navegador.',
+    verticesHint:
+      'Um ponto por vértice. Abra o novo item para mapear ou atualizar o resultado quando o trabalho do servidor terminar.',
   },
 
   serviceEditors: {

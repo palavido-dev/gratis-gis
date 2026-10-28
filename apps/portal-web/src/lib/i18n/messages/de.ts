@@ -4929,6 +4929,19 @@ export const de: Partial<CatalogShape> = {
       '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
     bboxHint:
       'Nur Rahmen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    verticesAction: 'Stützpunkte für diese Ebene',
+    verticesActionTitle:
+      'Serverseitigen Derived Layer mit Stützpunkten erstellen (PostGIS ST_DumpPoints). Die Zeilenzahl kann stark wachsen.',
+    verticesHeading:
+      'Stützpunkte für diese Ebene (serverseitiger Derived Layer)',
+    verticesIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    verticesIntroAfter:
+      'auf PostGIS ausführt (fügt vertex_index hinzu). Die Zeilenzahl kann bei dichten Formen explodieren; MULTI*-Teile werden zusammen ausgegeben. Gleiches Rezept wie',
+    verticesHelpLink: 'Hilfe Stützpunkte',
+    verticesIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    verticesHint:
+      'Ein Punkt pro Stützpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
   },
 
   serviceEditors: {

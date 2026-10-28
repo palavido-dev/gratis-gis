@@ -5042,6 +5042,18 @@ export const en = {
       '. Expect a short server job, not an instant browser result.',
     bboxHint:
       'Per-feature envelopes only. Open the new item to map or refresh the result after the server job finishes.',
+    verticesAction: 'Vertices for this layer',
+    verticesActionTitle:
+      'Create a server-side derived layer of vertices (PostGIS ST_DumpPoints). Row count can grow a lot.',
+    verticesHeading: 'Vertices for this layer (server derived layer)',
+    verticesIntroBefore: 'Creates a private derived layer that runs',
+    verticesIntroAfter:
+      'on PostGIS (adds vertex_index). Row count can explode on dense shapes; MULTI* parts are dumped together. Same recipe as',
+    verticesHelpLink: 'Vertices help',
+    verticesIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    verticesHint:
+      'One point per vertex. Open the new item to map or refresh the result after the server job finishes.',
   },
 
   /**
