@@ -556,10 +556,10 @@ export class RecipeRunnerService {
    * OSM-features-overlay output path (#OSM).  Returns the OSM
    * features Overpass produces for a bbox derived from the
    * recipe's AOI parameter, plus the user's chosen presets +
-   * tag filters.  v1 returns ALL features inside the bbox; finer
-   * spatial filtering (distance, contains, etc.) lands in wave 2
-   * when the spatial-filter generator gains a transient-scope
-   * source kind that consumes the OSM scope.
+   * tag filters. Corridor tight-filter (#151) and nearest-N
+   * (#150) post-process when configured. `truncated` is true when
+   * OsmService's raw feature count exceeded the returned slice
+   * and/or nearestLimit cut the list further.
    */
   private async runOsmOverlayInternal(
     recipe: RecipeAction,
@@ -758,6 +758,9 @@ export class RecipeRunnerService {
     // closest -- without it every feature in the search radius
     // comes back (still sorted) which is useful for "list every
     // park within 0.5 mi" but not for "give me the 10 closest."
+    // OsmService.featureCount is the pre-slice Overpass total;
+    // nearestLimit can truncate further on top of that.
+    let truncated = result.featureCount > result.features.length;
     if (centerPoint) {
       const annotated = features.map((f) => {
         const meters = approxDistanceMeters(centerPoint!, f.geometry);
@@ -773,6 +776,7 @@ export class RecipeRunnerService {
           if (Number.isFinite(clamped)) n = Math.min(n, clamped);
         }
       }
+      if (annotated.length > n) truncated = true;
       features = annotated.slice(0, n).map((a) => ({
         ...a.feature,
         properties: a.props,
@@ -785,7 +789,7 @@ export class RecipeRunnerService {
         features,
         attribution: result.attribution,
         featureCount: features.length,
-        truncated: false, // wave 2 surface when Overpass actually hit the cap
+        truncated,
         presetLabels,
       },
     };
@@ -848,7 +852,7 @@ export class RecipeRunnerService {
         features: ranked,
         attribution: result.attribution,
         featureCount: ranked.length,
-        truncated: false,
+        truncated: result.featureCount > ranked.length,
         presetLabels: [],
       },
     };
@@ -1007,6 +1011,13 @@ export class RecipeRunnerService {
     // the cache.  Drop the variable so lint doesn't flag it.
     void ttlMs;
 
+    // Overpass/raw collection size vs classified rows before the
+    // bearing filter (bearings drop anchors for geo reasons, not
+    // because a soft cap truncated the download).
+    const classifiedCount =
+      result.anchor.features.length + result.supporting.length;
+    const overpassTruncated = result.featureCount > classifiedCount;
+
     // Bearing post-pass (#153).  For each declared bearing
     // predicate, walk the surviving anchors and keep only those
     // that have AT LEAST ONE supporting feature in the indicated
@@ -1076,7 +1087,7 @@ export class RecipeRunnerService {
         buffers,
         bearings: action.bearings ?? [],
         attribution: result.attribution,
-        truncated: false,
+        truncated: overpassTruncated,
       },
     };
   }

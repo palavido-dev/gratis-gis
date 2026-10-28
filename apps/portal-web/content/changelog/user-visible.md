@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-28 - Honest OSM truncated flag on recipe tools
+When a recipe tool’s OSM overlay (or nearest-N / relational) result hits a feature cap, the response now sets truncated honestly instead of always claiming the list is complete. Zoom in or tighten the query if you need a full census of the area.
+
 ## 2026-10-28 - Top N for this layer from Analyze
 On a data layer's Analyze tab, **Top N for this layer** opens numeric field, N, and highest/lowest controls and creates a private PostGIS derived layer with those rows (NULLs last). Same path as Create → Derived layer → Top N. Expect a short server job, not an instant browser result.
 
