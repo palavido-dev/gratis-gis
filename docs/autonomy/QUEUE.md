@@ -6,18 +6,16 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-form-help-survey123-honesty | research-cycle-13 | Soften form.md Survey123 equivalence claim | PR pending |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | Partial catalog exists |
-| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | Guides already t() |
-| SEC-citation-throttle | research-cycle-13 | @Throttle 60/min on Public citation .bib/.ris/.jsonld | |
-| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | |
-| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | Leave MVT alone |
-| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | |
+| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | PR #459 conflict rebase |
+| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | PR #460 conflict rebase |
+| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | PR #454 conflict rebase |
+| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | PR #456 conflict rebase |
+| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | PR #455 conflict rebase |
 
 ## queued (needs-maintainer)
 
@@ -32,7 +30,10 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
-| R13-i18n-builder-viewer-editor-titles | 2026-10-28 | PR: BuilderShell Back/Close + viewer/editor panel titles (#162) |
+| SEC-citation-throttle | 2026-10-28 | Merged (this PR): Public OGC citation .bib/.ris/.jsonld @Throttle 60/min |
+| R13-i18n-builder-viewer-editor-titles | 2026-10-28 | Merged #458: BuilderShell Back/Close + viewer/editor panel titles (#162) |
+| R13-form-help-survey123-honesty | 2026-10-28 | Merged #453: soften Form vs Survey123 equivalence claim |
+| R13-i18n-dialog-sheet-close | 2026-10-28 | Merged #457: Dialog/Sheet Close + attribute-form Cancel aria (#162) |
 | R13-i18n-editor-runtime-chrome | 2026-10-28 | Merged #448: Feature Editor runtime toolbar / edit / measure i18n (#162) |
 | R13-i18n-map-settings-descriptions | 2026-10-28 | Merged #447: map settings descriptions + option labels i18n (#162) |
 | R13-i18n-map-layers-panel-title | 2026-10-28 | Merged #446: map Layers rail title via mapLayerPanel.title (#162) |
