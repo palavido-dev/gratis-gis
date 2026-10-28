@@ -12,8 +12,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R11-print-template-help-honesty | research-cycle-11 | Missing items-print-template + Print widget lie | Docs / #427 |
-| R11-tool-help-analyze-catalog-honesty | research-cycle-11 | tool.md Analyze list + Public 30/min run | Docs / #428 |
 | R11-analyze-group-by-shortcut | research-cycle-11 | Analyze Group-by → PostGIS (one key, one agg) | Constrained |
 | SEC-feedback-post-throttle | research-cycle-11 | @Throttle 30/min on Public POST /feedback | Low |
 | SEC-comments-list-throttle | research-cycle-11 | @Throttle 60/min on Public GET comments | Low |
@@ -32,6 +30,8 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R11-print-template-help-honesty | 2026-10-28 | Merged #427: honest print_template item + Print widget help |
+| R11-tool-help-analyze-catalog-honesty | 2026-10-28 | Closed #428 (superseded by Contour PR tool.md refresh) |
 | R11-i18n-field-layers-search-chrome | 2026-10-28 | Merged #426: Field basemap chip + search + related-list i18n (#162) |
 | R11-i18n-field-offline-panel-dialog | 2026-10-28 | Merged #425: Field offline panel + download dialog i18n (#162) |
 | R11-i18n-field-feature-sheet-chrome | 2026-10-28 | Merged #424: Field feature-sheet Edit/Copy/nav i18n (#162) |

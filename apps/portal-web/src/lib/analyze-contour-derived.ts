@@ -10,6 +10,7 @@
  */
 import {
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
+  type ContourStep,
   type DerivedLayerData,
   type FeatureField,
 } from '@gratis-gis/shared-types';
@@ -84,17 +85,18 @@ export function validateContourParams(
 export function buildContourDerivedLayerData(
   input: ContourGuideInput,
 ): DerivedLayerData {
-  const params: Record<string, unknown> = {
+  const params: ContourStep['params'] = {
     field: input.field.trim(),
     mode: 'auto',
     interval: input.interval,
+    ...(input.minLevel !== undefined && Number.isFinite(input.minLevel)
+      ? { minLevel: input.minLevel }
+      : {}),
+    ...(input.maxLevel !== undefined && Number.isFinite(input.maxLevel)
+      ? { maxLevel: input.maxLevel }
+      : {}),
   };
-  if (input.minLevel !== undefined && Number.isFinite(input.minLevel)) {
-    params.minLevel = input.minLevel;
-  }
-  if (input.maxLevel !== undefined && Number.isFinite(input.maxLevel)) {
-    params.maxLevel = input.maxLevel;
-  }
+  const step: ContourStep = { tool: 'contour', params };
   return {
     version: 1,
     source: {
@@ -102,12 +104,7 @@ export function buildContourDerivedLayerData(
       itemId: input.sourceItemId,
       ...(input.layerKey ? { layerKey: input.layerKey } : {}),
     },
-    pipeline: [
-      {
-        tool: 'contour',
-        params,
-      },
-    ],
+    pipeline: [step],
     featureLimit: DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
     outputSchema: [],
     bbox: [],

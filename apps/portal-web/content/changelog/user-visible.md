@@ -15,6 +15,9 @@ release note ("Refactored the X service") doesn't belong here.
 ## 2026-10-28 - Contour for this layer from Analyze
 On a point data layer's Analyze tab, **Contour for this layer** opens numeric field, auto interval, and optional min/max controls and creates a private PostGIS derived layer of TIN iso-lines (each line carries a `level` property). Not iso-polygons; dense point sets can be slow. Same path as Create → Derived layer → Contour. Expect a server job, not an instant browser result.
 
+## 2026-10-28 - Honest Print template help
+Help now has a **Print template** item page, and the Print widget / print-templates section describe the shipped paper layouts (page size, map/legend/scale/north-arrow, parameters, browser print) instead of promising DOCX report merges that are not built.
+
 ## 2026-10-28 - Random sample for this layer from Analyze
 On a data layer's Analyze tab, **Random sample for this layer** opens percentage-or-count, value, and seed controls (with reshuffle) and creates a private PostGIS derived layer. The sample is deterministic for a given seed — not Postgres `random()`. Same path as Create → Derived layer → Random sample. Expect a short server job, not an instant browser result.
 
