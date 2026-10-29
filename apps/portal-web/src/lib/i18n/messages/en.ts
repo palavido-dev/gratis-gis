@@ -1504,6 +1504,18 @@ export const en = {
     removeParameterAria: 'Remove parameter',
     removeStepAria: 'Remove step',
   },
+  /** Basemap item editor chrome (#162 / R15-i18n-basemap-editor-chrome). */
+  basemapEditor: {
+    source: 'Basemap source',
+    sourceHintEdit:
+      'Configure how this basemap is served. Maps that reference this item pull from the source below.',
+    sourceHintReadonly:
+      'You have read-only access to this basemap. The source is shown below; ask an admin or the owner to change it.',
+    noChanges: 'No changes.',
+    preview: 'Preview',
+    previewHint:
+      'Live render against the fields on the left. Pan and zoom to confirm tiles serve at the levels you need.',
+  },
   /** Print template designer chrome (#162 / R14-i18n-print-template-chrome). */
   printTemplate: {
     paper: 'Paper',

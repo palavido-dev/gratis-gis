@@ -1458,6 +1458,17 @@ export const de: Partial<CatalogShape> = {
     removeParameterAria: 'Parameter entfernen',
     removeStepAria: 'Schritt entfernen',
   },
+  basemapEditor: {
+    source: 'Basemap-Quelle',
+    sourceHintEdit:
+      'Konfigurieren Sie, wie diese Basemap bereitgestellt wird. Karten, die auf dieses Element verweisen, nutzen die Quelle unten.',
+    sourceHintReadonly:
+      'Sie haben Nur-Lesezugriff auf diese Basemap. Die Quelle wird unten angezeigt; bitten Sie einen Administrator oder den Eigentümer, sie zu ändern.',
+    noChanges: 'Keine Änderungen.',
+    preview: 'Vorschau',
+    previewHint:
+      'Live-Darstellung anhand der Felder links. Schwenken und zoomen Sie, um zu prüfen, dass Kacheln auf den benötigten Stufen geliefert werden.',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

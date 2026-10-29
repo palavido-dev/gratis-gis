@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Basemap editor chrome (Basemap source, Preview, No changes, save
+  footer) uses i18n catalogs (#162); save footer reuses
+  serviceEditors / common.save.
 - Tool recipe-editor chrome (Start from a template, Selection cap,
   Parameters, Area of interest, Pipeline, Remove parameter/step)
   uses i18n catalogs (#162). Binding option enums stay English for a
