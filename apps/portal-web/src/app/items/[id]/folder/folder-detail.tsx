@@ -2,6 +2,7 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -123,6 +124,7 @@ export function FolderDetail({
   folderAccess,
 }: Props) {
   const fmt = useFormat();
+  const t = useT();
   const router = useRouter();
   const [children, setChildren] = useState<ItemWithShares[]>(initialChildren);
   // Local copy of childItemIds so reorder writes don't depend on a
@@ -508,30 +510,30 @@ export function FolderDetail({
               type="button"
               onClick={() => setShareAllOpen(true)}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
-              title="Apply this folder's sharing to every item inside it. Each item ends up with the same share rows the folder has."
+              title={t('folderDetail.applyFolderSharingTitle')}
             >
               <Users className="h-3.5 w-3.5" />
-              Apply folder sharing
+              {t('folderDetail.applyFolderSharing')}
             </button>
           ) : null}
           {canCreate ? (
             <Link
               href={`/items/new?type=folder&parentFolderId=${itemId}`}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
-              title="Create a new subfolder inside this folder"
+              title={t('folderDetail.newSubfolderTitle')}
             >
               <FolderPlus className="h-3.5 w-3.5" />
-              New subfolder
+              {t('folderDetail.newSubfolder')}
             </Link>
           ) : null}
           {canEdit ? (
             <Link
               href={`/items?addToFolder=${itemId}`}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 text-xs font-medium text-white hover:bg-accent/90"
-              title="Pick existing items to add to this folder"
+              title={t('folderDetail.addItemsTitle')}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add items
+              {t('folderDetail.addItems')}
             </Link>
           ) : null}
         </div>
@@ -576,8 +578,8 @@ export function FolderDetail({
         <div className="rounded-lg border border-dashed border-border bg-surface-1 px-6 py-10 text-center text-sm text-muted">
           <Inbox className="mx-auto mb-2 h-6 w-6 text-muted/70" />
           {totalRefs === 0
-            ? 'This folder is empty. Add items from the items list, or create a subfolder.'
-            : "You can't see any of the items currently in this folder. Ask the folder author to share them with you."}
+            ? t('folderDetail.empty')
+            : t('folderDetail.emptyHidden')}
         </div>
       ) : (
         // List view (rows). Subfolders sort alphabetically at the
@@ -718,6 +720,7 @@ function ShareAllItemsDialog({
   onClose: () => void;
   onShared: () => void;
 }) {
+  const t = useT();
   const eligibleCount = items.length;
   const shareCount = folderShares.length;
   const [busy, setBusy] = useState(false);
@@ -944,7 +947,7 @@ function ShareAllItemsDialog({
             disabled={busy}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -952,7 +955,7 @@ function ShareAllItemsDialog({
             disabled={busy || shareCount === 0 || eligibleCount === 0}
             className="h-9 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy ? 'Applying...' : 'Apply sharing'}
+            {busy ? t('folderDetail.applying') : t('folderDetail.applySharing')}
           </button>
         </DialogFooter>
       </DialogContent>

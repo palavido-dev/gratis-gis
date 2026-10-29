@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | |
 | R14-i18n-print-template-chrome | research-cycle-14 | Print template designer Paper / Zoom / Delete parameter (#162) | |
 | R14-data-layer-help-honesty | research-cycle-14 | Soften data-layer.md Esri feature-service equivalence claim | Docs-only |
 | SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | |

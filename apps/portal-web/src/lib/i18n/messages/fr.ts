@@ -1396,6 +1396,21 @@ export const fr: Partial<CatalogShape> = {
   folders: {
     hide: 'Masquer les dossiers',
   },
+  folderDetail: {
+    applyFolderSharing: 'Appliquer le partage du dossier',
+    applyFolderSharingTitle:
+      'Appliquez le partage de ce dossier à chaque élément qu’il contient. Chaque élément se retrouve avec les mêmes lignes de partage que le dossier.',
+    newSubfolder: 'Nouveau sous-dossier',
+    newSubfolderTitle: 'Créer un nouveau sous-dossier dans ce dossier',
+    addItems: 'Ajouter des éléments',
+    addItemsTitle: 'Choisir des éléments existants à ajouter à ce dossier',
+    applySharing: 'Appliquer le partage',
+    applying: 'Application...',
+    empty:
+      'Ce dossier est vide. Ajoutez des éléments depuis la liste, ou créez un sous-dossier.',
+    emptyHidden:
+      'Vous ne voyez aucun des éléments de ce dossier. Demandez à l’auteur du dossier de les partager avec vous.',
+  },
   folderRail: {
     newButton: '+ Nouveau',
     collapse: 'Réduire le dossier',
