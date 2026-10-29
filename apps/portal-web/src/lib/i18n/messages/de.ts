@@ -1412,6 +1412,21 @@ export const de: Partial<CatalogShape> = {
     emptyHidden:
       'Sie können keines der Elemente in diesem Ordner sehen. Bitten Sie den Ordnerautor, sie mit Ihnen zu teilen.',
   },
+  printTemplate: {
+    paper: 'Papier',
+    size: 'Format',
+    orientation: 'Ausrichtung',
+    portrait: 'Hochformat',
+    landscape: 'Querformat',
+    marginInches: 'Rand (Zoll)',
+    zoomInAria: 'Vergrößern',
+    zoomOutAria: 'Verkleinern',
+    typeTextPlaceholder: 'Text eingeben…',
+    deleteParameterAria: 'Parameter löschen',
+    saving: 'Wird gespeichert…',
+    saveChanges: 'Änderungen speichern',
+    saved: 'Gespeichert',
+  },
   folderRail: {
     newButton: '+ Neu',
     collapse: 'Ordner einklappen',

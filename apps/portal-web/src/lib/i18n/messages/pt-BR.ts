@@ -1408,6 +1408,21 @@ export const ptBR: Partial<CatalogShape> = {
     emptyHidden:
       'Você não consegue ver nenhum dos itens desta pasta. Peça ao autor da pasta para compartilhá-los com você.',
   },
+  printTemplate: {
+    paper: 'Papel',
+    size: 'Tamanho',
+    orientation: 'Orientação',
+    portrait: 'Retrato',
+    landscape: 'Paisagem',
+    marginInches: 'Margem (polegadas)',
+    zoomInAria: 'Aumentar zoom',
+    zoomOutAria: 'Diminuir zoom',
+    typeTextPlaceholder: 'Digite o texto…',
+    deleteParameterAria: 'Excluir parâmetro',
+    saving: 'Salvando…',
+    saveChanges: 'Salvar alterações',
+    saved: 'Salvo',
+  },
   folderRail: {
     newButton: '+ Nova',
     collapse: 'Recolher pasta',

@@ -34,6 +34,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   AlignCenter,
   AlignLeft,
@@ -214,6 +215,7 @@ export function PrintTemplateDetail({
   seedKind,
   canEdit,
 }: PrintTemplateDetailProps) {
+  const t = useT();
   const [data, setData] = useState<PrintTemplateData>(() => initialBlueprint);
   const [dirty, setDirty] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -444,7 +446,7 @@ export function PrintTemplateDetail({
           type="button"
           onClick={() => setZoom((z) => Math.max(0.4, z - 0.1))}
           className="rounded border border-border bg-surface-0 px-2 py-1 text-xs hover:bg-surface-2"
-          aria-label="Zoom out"
+          aria-label={t('printTemplate.zoomOutAria')}
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -455,7 +457,7 @@ export function PrintTemplateDetail({
           type="button"
           onClick={() => setZoom((z) => Math.min(1.5, z + 0.1))}
           className="rounded border border-border bg-surface-0 px-2 py-1 text-xs hover:bg-surface-2"
-          aria-label="Zoom in"
+          aria-label={t('printTemplate.zoomInAria')}
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
@@ -467,7 +469,11 @@ export function PrintTemplateDetail({
         className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-ink-2"
       >
         <Save className="h-3.5 w-3.5" />
-        {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+        {saving
+          ? t('printTemplate.saving')
+          : dirty
+            ? t('printTemplate.saveChanges')
+            : t('printTemplate.saved')}
       </button>
     </div>
   );
@@ -874,13 +880,14 @@ function PaperPanel({
   canEdit: boolean;
   onChange: (patch: Partial<PrintPaperSpec>) => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-1 p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        Paper
+        {t('printTemplate.paper')}
       </h3>
       <label className="block text-xs text-ink-1">
-        Size
+        {t('printTemplate.size')}
         <select
           value={paper.size}
           disabled={!canEdit}
@@ -895,7 +902,7 @@ function PaperPanel({
         </select>
       </label>
       <fieldset className="mt-2 flex gap-1.5">
-        <legend className="sr-only">Orientation</legend>
+        <legend className="sr-only">{t('printTemplate.orientation')}</legend>
         <button
           type="button"
           disabled={!canEdit}
@@ -906,7 +913,7 @@ function PaperPanel({
               : 'border-border bg-surface-0 text-ink-1'
           }`}
         >
-          Portrait
+          {t('printTemplate.portrait')}
         </button>
         <button
           type="button"
@@ -918,11 +925,11 @@ function PaperPanel({
               : 'border-border bg-surface-0 text-ink-1'
           }`}
         >
-          Landscape
+          {t('printTemplate.landscape')}
         </button>
       </fieldset>
       <label className="mt-2 block text-xs text-ink-1">
-        Margin (inches)
+        {t('printTemplate.marginInches')}
         <input
           type="number"
           min={0}
@@ -1055,6 +1062,7 @@ function TextProps({
   canEdit: boolean;
   onChange: (patch: Partial<PrintTextElement>) => void;
 }) {
+  const t = useT();
   const [literalDraft, setLiteralDraft] = useState('');
 
   const insertBinding = useCallback(
@@ -1151,7 +1159,7 @@ function TextProps({
                 commitLiteralDraft();
               }
             }}
-            placeholder="Type text…"
+            placeholder={t('printTemplate.typeTextPlaceholder')}
             className="min-w-[60px] flex-1 bg-transparent text-2xs outline-hidden"
           />
         </div>
@@ -1444,6 +1452,7 @@ function ParameterPanel({
   onUpdate: (id: string, patch: Partial<PrintTemplateParameter>) => void;
   onDelete: (id: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-1 p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -1481,7 +1490,7 @@ function ParameterPanel({
                   disabled={!canEdit}
                   onClick={() => onDelete(p.id)}
                   className="text-xs text-danger hover:underline disabled:opacity-50"
-                  aria-label="Delete parameter"
+                  aria-label={t('printTemplate.deleteParameterAria')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
