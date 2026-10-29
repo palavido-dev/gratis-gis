@@ -1456,6 +1456,22 @@ export const en = {
     emptyHidden:
       "You can't see any of the items currently in this folder. Ask the folder author to share them with you.",
   },
+  /** Print template designer chrome (#162 / R14-i18n-print-template-chrome). */
+  printTemplate: {
+    paper: 'Paper',
+    size: 'Size',
+    orientation: 'Orientation',
+    portrait: 'Portrait',
+    landscape: 'Landscape',
+    marginInches: 'Margin (inches)',
+    zoomInAria: 'Zoom in',
+    zoomOutAria: 'Zoom out',
+    typeTextPlaceholder: 'Type text…',
+    deleteParameterAria: 'Delete parameter',
+    saving: 'Saving…',
+    saveChanges: 'Save changes',
+    saved: 'Saved',
+  },
   folderRail: {
     newButton: '+ New',
     collapse: 'Collapse folder',

@@ -1411,6 +1411,21 @@ export const es: Partial<CatalogShape> = {
     emptyHidden:
       'No puedes ver ninguno de los elementos de esta carpeta. Pide al autor de la carpeta que los comparta contigo.',
   },
+  printTemplate: {
+    paper: 'Papel',
+    size: 'Tamaño',
+    orientation: 'Orientación',
+    portrait: 'Vertical',
+    landscape: 'Horizontal',
+    marginInches: 'Margen (pulgadas)',
+    zoomInAria: 'Acercar',
+    zoomOutAria: 'Alejar',
+    typeTextPlaceholder: 'Escribe texto…',
+    deleteParameterAria: 'Eliminar parámetro',
+    saving: 'Guardando…',
+    saveChanges: 'Guardar cambios',
+    saved: 'Guardado',
+  },
   folderRail: {
     newButton: '+ Nueva',
     collapse: 'Contraer carpeta',

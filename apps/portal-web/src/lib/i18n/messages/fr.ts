@@ -1411,6 +1411,21 @@ export const fr: Partial<CatalogShape> = {
     emptyHidden:
       'Vous ne voyez aucun des éléments de ce dossier. Demandez à l’auteur du dossier de les partager avec vous.',
   },
+  printTemplate: {
+    paper: 'Papier',
+    size: 'Format',
+    orientation: 'Orientation',
+    portrait: 'Portrait',
+    landscape: 'Paysage',
+    marginInches: 'Marge (pouces)',
+    zoomInAria: 'Zoom avant',
+    zoomOutAria: 'Zoom arrière',
+    typeTextPlaceholder: 'Saisir du texte…',
+    deleteParameterAria: 'Supprimer le paramètre',
+    saving: 'Enregistrement…',
+    saveChanges: 'Enregistrer les modifications',
+    saved: 'Enregistré',
+  },
   folderRail: {
     newButton: '+ Nouveau',
     collapse: 'Réduire le dossier',

@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Print template designer chrome (Paper / Size / Orientation /
+  Zoom aria, Type text…, Delete parameter, Save) uses i18n
+  catalogs (#162).
 - Folder detail chrome (Apply folder sharing, New subfolder, Add
   items, empty states, Apply sharing dialog actions) uses i18n
   catalogs (#162).
