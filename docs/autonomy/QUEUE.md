@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | |
+| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | PR #477 |
 
 ## queued (ship-without-input)
 
