@@ -6,6 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-pointcloud-pip-prune-fix | prod | pointcloud-worker exit 127: pip remove pruned python | This PR |
 
 ## queued (ship-without-input)
 
