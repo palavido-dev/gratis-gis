@@ -16,6 +16,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Map Measure flattens pitched 3D while the tool is open (and restores
+  pitch on close) so a sketch that looks like it covers a parcel
+  matches the geodesic / ground area readout and the scale bar.
+  Slope surface remains the primary number when terrain is on;
+  horizontal (deed) area stays listed underneath.
+
+
 - Share Restrict-to-area dialog chrome uses i18n catalogs (#162)
   under `sharing.geoLimit`; Cancel/Save reuse common.*.
 - Basemap editor chrome (Basemap source, Preview, No changes, save

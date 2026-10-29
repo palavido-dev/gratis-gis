@@ -73,6 +73,7 @@ import {
   terrainSurfaceAreaSquareMeters,
 } from '@/lib/measure';
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
+import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
@@ -889,6 +890,14 @@ export function EditorRuntime({
       }
     };
   }, [activeTool, measureMode, mapInstance, drawReady]);
+
+  // Flatten pitched 3D while measuring so the sketched ring matches
+  // what the user sees (pitch foreshortening was the ~58 vs ~144 ac
+  // report). Restore prior pitch when leaving the tool.
+  useEffect(() => {
+    if (activeTool !== 'measure' || !mapInstance) return;
+    return flattenPitchForMeasure(mapInstance);
+  }, [activeTool, mapInstance]);
 
   // Clear the in-canvas measurement(s). Drops every feature in
   // terra-draw's store; that's safe here because the only things
