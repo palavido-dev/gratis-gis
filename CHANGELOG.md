@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.124] - 2026-10-29
+
 ### Documentation
 
 - Soften getting-started/what-is-gratisgis.md ArcGIS Online sameness
@@ -21,8 +23,6 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   matches the geodesic / ground area readout and the scale bar.
   Slope surface remains the primary number when terrain is on;
   horizontal (deed) area stays listed underneath.
-
-
 - Share Restrict-to-area dialog chrome uses i18n catalogs (#162)
   under `sharing.geoLimit`; Cancel/Save reuse common.*.
 - Basemap editor chrome (Basemap source, Preview, No changes, save
