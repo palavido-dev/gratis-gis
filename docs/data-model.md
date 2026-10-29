@@ -32,6 +32,19 @@ Optional, one row per organization (`org_ai_provider`). No row means AI is off a
 | updated\_at | timestamp | |
 | updated\_by | uuid | admin who last saved the row |
 
+### AI usage daily
+
+Per-UTC-day call counters for spend caps (`ai_usage_daily`). The
+all-zero `user_id` is the org-wide bucket; other rows are per
+signed-in user.
+
+| field | type | notes |
+| --- | --- | --- |
+| org\_id | uuid (PK part) → Organization | |
+| user\_id | uuid (PK part) | user id, or all-zeros for the org bucket |
+| day | date (PK part) | UTC calendar day |
+| calls | int | incremented before each outbound model call |
+
 ### User
 
 Authoritative user record, synced from Keycloak on first login.

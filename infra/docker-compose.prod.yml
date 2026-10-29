@@ -616,6 +616,28 @@ services:
       # stored. Unset means a per-process random salt, so the rate
       # limit resets on restart and the two replicas count separately.
       FEEDBACK_IP_SALT: ${FEEDBACK_IP_SALT:-}
+      # Public-testing hardening (#134). When on, admins cannot mint
+      # new admins; AI config save/clear is also locked (unless
+      # PORTAL_LOCK_AI_CONFIG=0) and AI build is disabled (unless
+      # PORTAL_AI_DISABLE_BUILD=0). Demo daily quotas apply when the
+      # explicit PORTAL_AI_*_CALL_LIMIT vars below are unset.
+      PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
+      PORTAL_LOCK_AI_CONFIG: ${PORTAL_LOCK_AI_CONFIG:-}
+      PORTAL_AI_DISABLE_BUILD: ${PORTAL_AI_DISABLE_BUILD:-}
+      PORTAL_AI_ORG_DAILY_CALL_LIMIT: ${PORTAL_AI_ORG_DAILY_CALL_LIMIT:-}
+      PORTAL_AI_USER_DAILY_CALL_LIMIT: ${PORTAL_AI_USER_DAILY_CALL_LIMIT:-}
+      PORTAL_AI_USER_MINUTE_CALL_LIMIT: ${PORTAL_AI_USER_MINUTE_CALL_LIMIT:-}
+      # Re-apply the org AI provider from host env on every API boot.
+      # Required for the public demo: the nightly golden restore wipes
+      # org_ai_provider, so the key must live in .env.prod (never in
+      # the golden dump) and be written back here. Leave unset on
+      # private deploys that configure AI only via Admin → AI.
+      PORTAL_AI_BOOTSTRAP_PROVIDER: ${PORTAL_AI_BOOTSTRAP_PROVIDER:-}
+      PORTAL_AI_BOOTSTRAP_MODEL: ${PORTAL_AI_BOOTSTRAP_MODEL:-}
+      PORTAL_AI_BOOTSTRAP_API_KEY: ${PORTAL_AI_BOOTSTRAP_API_KEY:-}
+      PORTAL_AI_BOOTSTRAP_BASE_URL: ${PORTAL_AI_BOOTSTRAP_BASE_URL:-}
+      PORTAL_AI_BOOTSTRAP_ORG_SLUG: ${PORTAL_AI_BOOTSTRAP_ORG_SLUG:-}
+      DEFAULT_ORG_SLUG: ${DEFAULT_ORG_SLUG:-gratis-gis}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging

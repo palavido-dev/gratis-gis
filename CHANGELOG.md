@@ -7,6 +7,15 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Public-demo AI enablement: env bootstrap (`PORTAL_AI_BOOTSTRAP_*`)
+  re-applies an encrypted org provider key on API boot (survives
+  golden restore), locks Admin → AI when public-testing hardening
+  is on, disables AI build by default in that mode, and enforces
+  shared org/user daily call quotas plus a per-user minute cap
+  before every outbound model call (429 `ai_quota_exceeded`).
+
 ### Security
 
 - Public item thumbnail SVG (`GET /api/portal/items/:id/thumbnail.svg`)
