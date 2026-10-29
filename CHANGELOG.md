@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public Aardvark harvest documents
+  (`GET /api/public/ogc/aardvark/:id.json`) are rate-limited at 60
+  requests per minute.
 - Public OGC Records single-item GETs (`/records/:id` and
   `/collections/catalog/items/:id`) are rate-limited at 60 requests
   per minute (same budget as the Records list).

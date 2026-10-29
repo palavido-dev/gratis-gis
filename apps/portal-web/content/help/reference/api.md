@@ -188,7 +188,8 @@ GET /api/public/ogc/records
 `FILE:GEO` GeoJSON enclosure so MetaSearch Add Data can load
 features. Curated DCAT / Aardvark themes live on items as
 `dcat_theme_sm` (separate from free-form keywords); harvest tools
-can also fetch `GET /api/public/ogc/aardvark/{id}.json`.
+can also fetch `GET /api/public/ogc/aardvark/{id}.json`
+(rate-limited at **60 requests per minute** per IP).
 
 ### Citation export
 
