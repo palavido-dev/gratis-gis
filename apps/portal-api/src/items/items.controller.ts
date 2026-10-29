@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
   IsDateString,
@@ -510,6 +511,9 @@ export class ItemsController {
    * ETags.
    */
   @Public()
+  // Tighter than the global 300/min: SVG render + optional outbound
+  // image inline (SEC-thumbnail-svg-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id/thumbnail.svg')
   async thumbnailSvg(
     @CurrentUser() user: AuthUser | null,

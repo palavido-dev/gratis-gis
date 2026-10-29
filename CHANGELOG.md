@@ -9,6 +9,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public item thumbnail SVG (`GET /api/portal/items/:id/thumbnail.svg`)
+  is rate-limited at 60 requests per minute.
 - Public OSM presets catalog (`GET /api/public/osm/presets`) is
   rate-limited at 60 requests per minute.
 
