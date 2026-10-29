@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | |
 
 ## queued (ship-without-input)
 
@@ -34,6 +33,8 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| release-0.9.124 | 2026-10-29 | Release stamp for Measure pitch-flatten + Public landing/item/basemap throttles |
+| SEC-public-basemap-items-throttle | 2026-10-29 | Merged #496: Public basemap items list @Throttle 60/min |
 | SEC-public-item-throttle | 2026-10-29 | Merged #495: Public items/:id @Throttle 60/min |
 | SEC-public-landing-throttle | 2026-10-29 | Merged #494: Public landing @Throttle 60/min |
 | measure-flatten-pitch | 2026-10-29 | Merged #493: Measure auto-flattens pitched 3D while open so sketch matches ground/deed acres |

@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [0.9.124] - 2026-10-29
+
+## 2026-10-29 - Measure flattens pitched 3D
+Opening Measure eases the map to top-down so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath. Public landing, item, and basemap gallery endpoints tighten anonymous rate limits further.
+
 ## [0.9.123] - 2026-10-29
 
 ## 2026-10-29 - Measure ground area on 3D terrain
