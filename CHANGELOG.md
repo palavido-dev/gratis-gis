@@ -26,6 +26,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Bundled `pmtiles` binary forces
+  `github.com/go-jose/go-jose/v4` to 4.1.6 (CVE-2026-116587 HIGH;
+  RSA JWK parse DoS). Offline tile conversion does not parse
+  attacker JWKs; the pin clears Trivy HIGH on portal-api /
+  script-runner images (SEC-pmtiles-go-jose).
 - Public layer `/features` and `/geojson` mirrors are rate-limited at 60 requests per minute (MVT tiles unchanged).
 - Public layer `/aggregate` is rate-limited at 60 requests per minute.
 - Public OGC Features collection catalogue (`GET /collections` and
