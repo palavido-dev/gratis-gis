@@ -11,6 +11,17 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-stac-collections-throttle | research-cycle-15 | Public STAC collections + collection id @Throttle 60/min | Deferred from R14; rows() scan |
+| SEC-ogc-styles-list-throttle | research-cycle-15 | Public OGC Styles list (+ style/metadata) @Throttle 60/min | Full public layer findMany |
+| SEC-records-item-throttle | research-cycle-15 | Public Records + catalog single-item GETs @Throttle 60/min | Match list 60/min gap |
+| SEC-aardvark-throttle | research-cycle-15 | Public Aardvark :itemId.json @Throttle 60/min | Harvest scrape path |
+| R15-i18n-form-responses-chrome | research-cycle-15 / #162 | Form responses Previous/Next/Submitted/empty chrome i18n | Highest-traffic leftover |
+| R15-i18n-recipe-editor-chrome | research-cycle-15 / #162 | Tool recipe-editor template/params/AOI/Pipeline chrome i18n | Binding enums later |
+| R15-i18n-basemap-editor-chrome | research-cycle-15 / #162 | Basemap editor source / unsaved chrome i18n | Small file |
+| R15-i18n-share-geo-limit-chrome | research-cycle-15 / #162 | Share Restrict-to-area dialog chrome i18n | After #459 sharing panel |
+| R15-what-is-gratisgis-honesty | research-cycle-15 | Soften what-is-gratisgis.md ArcGIS Online sameness claim | Front-door honesty |
+
+Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
 ## queued (needs-maintainer)
 
@@ -25,6 +36,8 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| Q-research-cycle-15 | 2026-10-29 | Research refill: nine ship-without-input (STAC collections / Styles / Records-item / Aardvark throttles; form responses / recipe / basemap / share-geo i18n; what-is honesty) |
+| measure-ground-slope-area | 2026-10-29 | Merged #479: Measure ground/slope primary on terrain; released v0.9.123 |
 | SEC-public-catalog-json-throttle | 2026-10-29 | Merged #477: Public catalog.json DCAT dump @Throttle 60/min |
 | SEC-csw-throttle | 2026-10-29 | Merged #476: Public CSW GetCapabilities / GetRecords @Throttle 60/min |
 | SEC-public-filtered-extent-throttle | 2026-10-29 | Merged #475: Public layer filtered-extent @Throttle 60/min |
@@ -131,6 +144,22 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | reason |
 | --- | --- |
+| R15-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R15-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R15-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R15-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty points at derived_layer |
+| R15-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
+| R15-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R15-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
+| R15-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R15-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R15-reject-report-template-item | Report template not built |
+| R15-reject-ogc-tiles-byte-throttle | Nest throttle on tile/MVT/storage/point-cloud byte routes would break maps |
+| R15-reject-health-portalinfo-nest-throttle | health = probes; portal-info = every-client bootstrap |
+| R15-reject-presence-crdt | Abuse / transport defaults stay needs-maintainer |
+| R15-reject-comments-mentions | Abuse / email defaults stay needs-maintainer |
+| R15-reject-custom-app-builder-i18n-first | Defer dense custom/detail.tsx behind sharper #162 slices |
+| R15-reject-public-landing-thumbnail-throttle-now | Defer landing/item/osm-presets/basemap/thumbnail behind R15 SEC four |
 | R13-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
 | R13-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
 | R13-reject-seat-pricing | Named-user pricing contradicts ethos |
