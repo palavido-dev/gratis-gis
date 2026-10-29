@@ -24,11 +24,11 @@ USER root
 # ships so openssl/perl/util-linux security updates land
 # (SEC-trivy-workers).
 #
-# --no-prune-deps is load-bearing: a plain `micromamba remove pip`
-# treats python (and everything that depends on it: pdal, gdal,
-# boto3, numpy, onnxruntime, psycopg2) as unused and deletes them.
+# --force is load-bearing: a plain `micromamba remove pip` (and even
+# `--no-prune-deps`) still solves away python and everything that
+# depends on it (pdal, gdal, boto3, numpy, onnxruntime, psycopg2).
 # Prod then crash-loops with exit 127 (`exec: python: not found`).
-# Force-remove only the pip package itself; keep the stack.
+# Force-remove only the pip package record; keep the stack.
 RUN micromamba install -y -n base -c conda-forge \
       python=3.14 \
       pdal=2.10 \
@@ -38,7 +38,7 @@ RUN micromamba install -y -n base -c conda-forge \
       boto3 \
       numpy \
       onnxruntime \
-    && micromamba remove -y -n base --no-prune-deps pip \
+    && micromamba remove -y -n base --force pip \
     && micromamba clean --all --yes \
     && apt-get update \
     && apt-get upgrade -y --no-install-recommends \
