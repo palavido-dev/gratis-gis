@@ -80,6 +80,9 @@ export class PublicController {
    * not because a portal ever serves more than one.
    */
   @Public()
+  // Tighter than the global 300/min: org resolve + optional
+  // publicItemsFor findMany (SEC-public-landing-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('landing')
   async landing(@Query('org') orgSlug?: string) {
     const org = orgSlug

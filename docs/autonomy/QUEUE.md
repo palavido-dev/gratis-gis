@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-public-landing-throttle | research-cycle-16 | Public landing @Throttle 60/min | |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-landing-throttle | research-cycle-16 | Public landing @Throttle 60/min | Org + publicItemsFor |
 | SEC-public-item-throttle | research-cycle-16 | Public items/:id @Throttle 60/min | Anon UUID get |
 | SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | type=basemap gallery |
 | SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | Vendored iD catalog |
@@ -36,6 +36,7 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| measure-flatten-pitch | 2026-10-29 | Merged #493: Measure auto-flattens pitched 3D while open so sketch matches ground/deed acres |
 | R15-what-is-gratisgis-honesty | 2026-10-29 | Merged #491: soften what-is-gratisgis.md ArcGIS Online sameness claims |
 | R15-i18n-share-geo-limit-chrome | 2026-10-29 | Merged #490: share Restrict-to-area dialog chrome i18n (#162) |
 | R15-i18n-basemap-editor-chrome | 2026-10-29 | Merged #489: basemap editor source / unsaved chrome i18n (#162) |

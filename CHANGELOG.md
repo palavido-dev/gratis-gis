@@ -38,6 +38,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public portal landing (`GET /api/public/landing`) is rate-limited
+  at 60 requests per minute.
 - Public Aardvark harvest documents
   (`GET /api/public/ogc/aardvark/:id.json`) are rate-limited at 60
   requests per minute.
