@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-item-page-chrome | research-cycle-14 | Item page Sharing / Back / Responses / Open builder (#162) | |
+| R14-i18n-item-page-chrome | research-cycle-14 | Item page Sharing / Back / Responses / Open builder (#162) | PR #469 |
 
 ## queued (ship-without-input)
 
