@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | |
+| SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | PR #475 |
 
 ## queued (ship-without-input)
 
