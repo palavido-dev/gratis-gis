@@ -11,8 +11,17 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-public-landing-throttle | research-cycle-16 | Public landing @Throttle 60/min | Org + publicItemsFor |
+| SEC-public-item-throttle | research-cycle-16 | Public items/:id @Throttle 60/min | Anon UUID get |
+| SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | type=basemap gallery |
+| SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | Vendored iD catalog |
+| SEC-thumbnail-svg-throttle | research-cycle-16 | Public thumbnail.svg @Throttle 60/min | SVG render path |
+| R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
+| R16-i18n-print-parameters-chrome | research-cycle-16 / #162 | Print template Parameters heading leftover i18n | After #473 Paper/Zoom |
+| R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | Secondary |
+| R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |
 
-Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
+Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
 ## queued (needs-maintainer)
 
@@ -36,6 +45,7 @@ Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). 
 | SEC-records-item-throttle | 2026-10-29 | Merged #485: Public Records + catalog single-item GETs @Throttle 60/min |
 | SEC-ogc-styles-list-throttle | 2026-10-29 | Merged #484: Public OGC Styles list + style/metadata @Throttle 60/min |
 | SEC-stac-collections-throttle | 2026-10-29 | Merged #483: Public STAC collections + collection id @Throttle 60/min |
+| Q-research-cycle-16 | 2026-10-29 | Research refill: nine ship-without-input (Public landing/item/basemap-items/osm-presets/thumbnail throttles; basemap-config / print Parameters / point-cloud panel i18n; basemap composed-map honesty) |
 | Q-research-cycle-15 | 2026-10-29 | Research refill: nine ship-without-input (STAC collections / Styles / Records-item / Aardvark throttles; form responses / recipe / basemap / share-geo i18n; what-is honesty) |
 | measure-ground-slope-area | 2026-10-29 | Merged #479: Measure ground/slope primary on terrain; released v0.9.123 |
 | SEC-public-catalog-json-throttle | 2026-10-29 | Merged #477: Public catalog.json DCAT dump @Throttle 60/min |
