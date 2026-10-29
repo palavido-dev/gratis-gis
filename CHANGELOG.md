@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.123] - 2026-10-29
+
 ### Fixed
 
 - Map Measure area with 3D terrain: primary readout is **ground (slope)
