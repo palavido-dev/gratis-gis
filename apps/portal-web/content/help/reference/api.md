@@ -225,8 +225,9 @@ per minute** per IP.
 
 The anonymous org landing payload at `GET /api/public/landing`
 (optional `?org=` slug), single public item GETs at
-`GET /api/public/items/:id`, and the public basemap gallery at
-`GET /api/public/items?type=basemap` are rate-limited at **60
+`GET /api/public/items/:id`, the public basemap gallery at
+`GET /api/public/items?type=basemap`, and the vendored OSM presets
+catalog at `GET /api/public/osm/presets` are rate-limited at **60
 requests per minute** per IP.
 
 ### DCAT catalog.json

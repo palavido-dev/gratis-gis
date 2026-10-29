@@ -229,6 +229,10 @@ export class PublicController {
    * when an operator runs scripts/sync-osm-presets.mjs.
    */
   @Public()
+  // Tighter than the global 300/min: vendored iD catalog load
+  // (SEC-osm-presets-throttle). Browser force-cache still coalesces
+  // recipe opens; Nest budget covers anonymous hammering.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('osm/presets')
   async osmPresets(@Res() res: Response) {
     const catalog = await loadOsmPresetCatalog();
