@@ -167,7 +167,9 @@ mvt.
 ### OGC API Styles
 
 A MapLibre style document per collection, served as
-`application/vnd.mapbox.style+json`.
+`application/vnd.mapbox.style+json`. Anonymous styles list and
+per-style / metadata GETs are rate-limited at **60 requests per
+minute** per IP.
 
 ### OGC API Records
 
