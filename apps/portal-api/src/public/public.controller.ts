@@ -241,6 +241,9 @@ export class PublicController {
   }
 
   @Public()
+  // Tighter than the global 300/min: anon UUID Prisma get used by
+  // public viewers for map + each layer + basemap (SEC-public-item-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id')
   async item(@Param('id') id: string) {
     // Anonymous endpoint: malformed input must produce 404, not
