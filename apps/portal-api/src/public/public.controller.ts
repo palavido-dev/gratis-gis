@@ -123,6 +123,9 @@ export class PublicController {
    * for most aggregators that just want a list of URLs + metadata.
    */
   @Public()
+  // Tighter than the global 300/min: unbounded public-item findMany
+  // for the DCAT dump (SEC-public-catalog-json-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('catalog.json')
   async catalog(@Req() req: Request, @Query('org') orgSlug?: string) {
     const org = orgSlug
