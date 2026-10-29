@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.125] - 2026-10-29
+
 ### Fixed
 
 - Measure locks the map top-down immediately (and clamps maxPitch)
