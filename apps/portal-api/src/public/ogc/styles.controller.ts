@@ -8,6 +8,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -45,6 +46,10 @@ export class OgcStylesController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Tighter than the global 300/min: styles list runs a full public
+  // data_layer findMany (SEC-ogc-styles-list-throttle; same 60/min
+  // as OGC Features / STAC list-class routes).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   async styles(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -90,6 +95,7 @@ export class OgcStylesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':styleId')
   // The styles list and the OpenAPI document have always advertised
   // this media type for the style document itself; serving plain
@@ -102,6 +108,7 @@ export class OgcStylesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':styleId/metadata')
   async metadata(
     @Req() req: Request,
