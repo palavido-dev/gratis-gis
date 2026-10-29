@@ -3152,6 +3152,40 @@ export const de: Partial<CatalogShape> = {
     expiryDialogLabel: 'Ablauf der Freigabe',
     days: '{count, plural, one {# Tag} other {# Tage}}',
     set: 'Festlegen',
+    geoLimit: {
+      title: 'Auf Gebiet beschränken',
+      description:
+        'Beschränken Sie, was {principal} an diesem Element sehen kann, auf Features innerhalb eines Polygons. Elemente, deren bbox nicht schneidet, werden ebenfalls ausgeblendet. Admins sind ausgenommen.',
+      modeBoundary: 'Grenze',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Begrenzungsrahmen',
+      boundaryLabel: 'Grenze',
+      pickBoundary: 'Grenze wählen...',
+      noBoundaries: 'Keine Grenzen sichtbar für Sie',
+      boundaryHint:
+        'Die Freigabe speichert eine Referenz auf das Grenzenelement. Geometrieänderungen wirken auf alle Freigaben, die darauf zeigen, ohne erneutes Speichern.',
+      createBoundaryLead: 'Eine zeichnen?',
+      createBoundaryLink: 'Boundary-Element erstellen',
+      createBoundaryTail:
+        '. Der Editor hat einen Zeichen-Tab zum Nachzeichnen eines Polygons auf der Karte. Speichern Sie es, dann erscheint es hier.',
+      pasteGeojson: 'GeoJSON einfügen',
+      geojsonHint:
+        'Akzeptiert Polygon, MultiPolygon, Feature oder FeatureCollection. EPSG:4326-Koordinaten (lng, lat).',
+      minLng: 'Min. Lng (West)',
+      minLat: 'Min. Lat (Süd)',
+      maxLng: 'Max. Lng (Ost)',
+      maxLat: 'Max. Lat (Nord)',
+      clearRestriction: 'Beschränkung entfernen',
+      needInput: 'Wählen Sie eine Grenze, fügen Sie ein Polygon ein oder geben Sie einen Begrenzungsrahmen ein.',
+      boundaryMissing: 'Die ausgewählte Grenze ist nicht in Ihrer sichtbaren Bibliothek.',
+      expectedGeojson:
+        'Erwartet wurde ein GeoJSON-Polygon, MultiPolygon, Feature oder FeatureCollection mit einem davon.',
+      invalidJson: 'Ungültiges JSON: {detail}',
+      minLessThanMax: 'min muss auf beiden Achsen kleiner als max sein.',
+      invalidWgs84: 'Koordinaten müssen gültiges WGS84 sein (lon ±180, lat ±90).',
+      summaryBoundary: 'Grenze: {title}',
+      summaryRectangle: 'Rechteck · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Keine Treffer.',

@@ -3133,6 +3133,40 @@ export const ptBR: Partial<CatalogShape> = {
     expiryDialogLabel: 'Expiração do compartilhamento',
     days: '{count, plural, one {# dia} other {# dias}}',
     set: 'Definir',
+    geoLimit: {
+      title: 'Restringir à área',
+      description:
+        'Limite o que {principal} pode ver neste item às feições dentro de um polígono. Itens cujo bbox não intersecta também são ocultados. Administradores estão isentos.',
+      modeBoundary: 'Limite',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Caixa delimitadora',
+      boundaryLabel: 'Limite',
+      pickBoundary: 'Escolher um limite...',
+      noBoundaries: 'Nenhum limite visível para você',
+      boundaryHint:
+        'O compartilhamento guarda uma referência ao item de limite. Edições na geometria do limite fluem para todos os compartilhamentos que o apontam sem salvar de novo.',
+      createBoundaryLead: 'Precisa desenhar um?',
+      createBoundaryLink: 'Criar um item Boundary',
+      createBoundaryTail:
+        '. O editor tem uma aba Desenhar para traçar um polígono no mapa. Salve-o e ele aparecerá aqui.',
+      pasteGeojson: 'Colar GeoJSON',
+      geojsonHint:
+        'Aceita Polygon, MultiPolygon, Feature ou FeatureCollection. Coordenadas EPSG:4326 (lng, lat).',
+      minLng: 'Lng mín. (oeste)',
+      minLat: 'Lat mín. (sul)',
+      maxLng: 'Lng máx. (leste)',
+      maxLat: 'Lat máx. (norte)',
+      clearRestriction: 'Remover restrição',
+      needInput: 'Escolha um limite, cole um polígono ou informe uma caixa delimitadora.',
+      boundaryMissing: 'O limite selecionado não está na sua biblioteca visível.',
+      expectedGeojson:
+        'Esperava-se um GeoJSON Polygon, MultiPolygon, Feature ou FeatureCollection contendo um.',
+      invalidJson: 'JSON inválido: {detail}',
+      minLessThanMax: 'o mínimo deve ser menor que o máximo nos dois eixos.',
+      invalidWgs84: 'As coordenadas devem ser WGS84 válidas (lon ±180, lat ±90).',
+      summaryBoundary: 'Limite: {title}',
+      summaryRectangle: 'Retângulo · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Sem correspondências.',

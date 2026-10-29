@@ -3143,6 +3143,40 @@ export const fr: Partial<CatalogShape> = {
     expiryDialogLabel: 'Expiration du partage',
     days: '{count, plural, one {# jour} other {# jours}}',
     set: 'Définir',
+    geoLimit: {
+      title: 'Restreindre à une zone',
+      description:
+        'Limitez ce que {principal} peut voir sur cet élément aux entités dans un polygone. Les éléments dont le bbox n’intersecte pas sont aussi masqués. Les administrateurs sont exemptés.',
+      modeBoundary: 'Périmètre',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Boîte englobante',
+      boundaryLabel: 'Périmètre',
+      pickBoundary: 'Choisir un périmètre...',
+      noBoundaries: 'Aucun périmètre visible pour vous',
+      boundaryHint:
+        'Le partage stocke une référence à l’élément périmètre. Les modifications de géométrie se propagent à tous les partages qui le pointent sans réenregistrer.',
+      createBoundaryLead: 'Besoin d’en dessiner un ?',
+      createBoundaryLink: 'Créer un élément Boundary',
+      createBoundaryTail:
+        '. Son éditeur a un onglet Dessiner pour tracer un polygone sur la carte. Enregistrez-le et il apparaîtra ici.',
+      pasteGeojson: 'Coller du GeoJSON',
+      geojsonHint:
+        'Accepte Polygon, MultiPolygon, Feature ou FeatureCollection. Coordonnées EPSG:4326 (lng, lat).',
+      minLng: 'Lng min (ouest)',
+      minLat: 'Lat min (sud)',
+      maxLng: 'Lng max (est)',
+      maxLat: 'Lat max (nord)',
+      clearRestriction: 'Effacer la restriction',
+      needInput: 'Choisissez un périmètre, collez un polygone ou saisissez une boîte englobante.',
+      boundaryMissing: 'Le périmètre sélectionné n’est pas dans votre bibliothèque visible.',
+      expectedGeojson:
+        'Un GeoJSON Polygon, MultiPolygon, Feature ou FeatureCollection en contenant un était attendu.',
+      invalidJson: 'JSON invalide : {detail}',
+      minLessThanMax: 'le min doit être inférieur au max sur les deux axes.',
+      invalidWgs84: 'Les coordonnées doivent être WGS84 valides (lon ±180, lat ±90).',
+      summaryBoundary: 'Périmètre : {title}',
+      summaryRectangle: 'Rectangle · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Aucune correspondance.',
