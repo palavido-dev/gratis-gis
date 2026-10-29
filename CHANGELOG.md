@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public OGC Records single-item GETs (`/records/:id` and
+  `/collections/catalog/items/:id`) are rate-limited at 60 requests
+  per minute (same budget as the Records list).
 - Public OGC Styles list and per-style / metadata GETs
   (`/api/public/ogc/styles`) are rate-limited at 60 requests per
   minute (list path scans every public data_layer).
