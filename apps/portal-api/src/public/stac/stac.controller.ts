@@ -102,6 +102,10 @@ export class PublicStacController {
   }
 
   @Public()
+  // Tighter than the global 300/min: collections landing runs a full
+  // public tile_layer findMany (rows()) before building the catalog
+  // (SEC-stac-collections-throttle; same 60/min as STAC items/search).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('collections')
   async collections(@Req() req: Request) {
     const root = `${absoluteBase(req)}/api/public/stac`;
@@ -120,6 +124,8 @@ export class PublicStacController {
   }
 
   @Public()
+  // Same rows() scan as GET /collections (SEC-stac-collections-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('collections/:collectionId')
   async collection(
     @Req() req: Request,
