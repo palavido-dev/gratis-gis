@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | Vendored iD catalog |
 | SEC-thumbnail-svg-throttle | research-cycle-16 | Public thumbnail.svg @Throttle 60/min | SVG render path |
 | R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
 | R16-i18n-print-parameters-chrome | research-cycle-16 / #162 | Print template Parameters heading leftover i18n | After #473 Paper/Zoom |
@@ -33,7 +33,7 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
-| release-0.9.124 | 2026-10-29 | Release stamp for Measure pitch-flatten + Public landing/item/basemap throttles |
+| release-0.9.124 | 2026-10-29 | Merged #497 + tagged/deployed v0.9.124 (Measure pitch-flatten live) |
 | SEC-public-basemap-items-throttle | 2026-10-29 | Merged #496: Public basemap items list @Throttle 60/min |
 | SEC-public-item-throttle | 2026-10-29 | Merged #495: Public items/:id @Throttle 60/min |
 | SEC-public-landing-throttle | 2026-10-29 | Merged #494: Public landing @Throttle 60/min |

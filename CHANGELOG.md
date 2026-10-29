@@ -7,6 +7,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public OSM presets catalog (`GET /api/public/osm/presets`) is
+  rate-limited at 60 requests per minute.
+
 ## [0.9.124] - 2026-10-29
 
 ### Documentation
