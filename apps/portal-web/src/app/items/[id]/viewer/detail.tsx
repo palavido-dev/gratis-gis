@@ -354,20 +354,20 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
         <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
-          Unsaved changes
+          {t('viewerDetail.unsavedChanges')}
         </span>
       ) : canEdit && saved ? (
-        <span className="text-2xs text-success">Saved</span>
+        <span className="text-2xs text-success">{t('viewerDetail.saved')}</span>
       ) : null}
       <a
         href={`/items/${itemId}/viewer/run`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
-        title="Open this viewer in a new tab"
+        title={t('viewerDetail.openViewerTitle')}
       >
         <Play className="h-3.5 w-3.5" />
-        Open viewer
+        {t('viewerDetail.openViewer')}
       </a>
       {canEdit ? (
         <>
@@ -383,7 +383,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             disabled={!dirty || saving}
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
           >
-            Discard
+            {t('viewerDetail.discard')}
           </button>
           <button
             type="button"
@@ -392,7 +392,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Save
+            {t('common.save')}
           </button>
         </>
       ) : null}
@@ -410,10 +410,10 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             type="button"
             onClick={() => setAddingFromMap(true)}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
-            title="Bulk-import layers from a map"
+            title={t('viewerDetail.addFromMapTitle')}
           >
             <MapIcon className="h-3.5 w-3.5" />
-            Add from map
+            {t('viewerDetail.addFromMap')}
           </button>
           <button
             type="button"
@@ -421,7 +421,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add layer
+            {t('viewerDetail.addLayer')}
           </button>
         </div>
       ) : null}
@@ -495,8 +495,8 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
                 type="button"
                 onClick={() => pickMap(null)}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Clear reference map"
-                title="Clear reference map"
+                aria-label={t('viewerDetail.clearReferenceMapAria')}
+                title={t('viewerDetail.clearReferenceMapAria')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -562,7 +562,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
       <BuilderShell
         storageKey="builder-shell:viewer"
         backHref="/items"
-        title="Viewer configuration"
+        title={t('viewerDetail.configurationTitle')}
         icon={<Eye className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={layersPanel}
@@ -590,7 +590,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
           <div className="mx-auto max-w-2xl rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center">
             <Eye className="mx-auto h-8 w-8 text-purple-300" />
             <h2 className="mt-2 text-sm font-semibold text-ink-0">
-              Viewer configuration
+              {t('viewerDetail.configurationTitle')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               Add layers in the left panel, pick a reference map and
@@ -604,7 +604,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
               className="mt-4 inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
             >
               <Play className="h-3.5 w-3.5" />
-              Open viewer in a new tab
+              {t('viewerDetail.openViewerNewTab')}
             </a>
           </div>
         </div>
@@ -680,6 +680,7 @@ interface TargetRowProps {
  * the target is broken (item deleted, layer key renamed, etc.).
  */
 function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRowProps) {
+  const t = useT();
   const layer = resolved?.layer ?? null;
   const item = resolved?.item ?? null;
   const broken = resolved !== null && layer === null;
@@ -726,8 +727,8 @@ function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRow
           type="button"
           onClick={onRemove}
           className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-danger"
-          aria-label="Remove layer"
-          title="Remove layer"
+          aria-label={t('viewerDetail.removeLayerAria')}
+          title={t('viewerDetail.removeLayerAria')}
         >
           <Trash2 className="h-4 w-4" />
         </button>

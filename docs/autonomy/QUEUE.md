@@ -6,25 +6,19 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| whats-new-history-releases | maintainer | Full What's new history + release groupings | PR #461 |
+| R14-i18n-viewer-editor-detail-chrome | research-cycle-14 | Viewer/editor detail builder chrome (#162) | This PR |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | PR #459 |
-| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | PR #460 |
-| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | PR #454 |
-| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | PR #456; leave MVT alone |
-| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | PR #455 |
-| R14-i18n-viewer-editor-detail-chrome | research-cycle-14 | Viewer/editor detail builder chrome (#162) | After #459/#460 |
 | R14-i18n-item-page-chrome | research-cycle-14 | Item page Sharing / Back / Responses / Open builder (#162) | |
 | R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | |
 | R14-i18n-print-template-chrome | research-cycle-14 | Print template designer Paper / Zoom / Delete parameter (#162) | |
 | R14-data-layer-help-honesty | research-cycle-14 | Soften data-layer.md Esri feature-service equivalence claim | Docs-only |
-| SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | After R13 SEC |
-| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | After R13 SEC |
-| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | After R13 SEC |
+| SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | |
+| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | |
+| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | |
 
 ## queued (needs-maintainer)
 
@@ -39,7 +33,13 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
-| Q-research-cycle-14 | 2026-10-28 | PR: research-cycle-14 refill ship-without-input queue |
+| whats-new-history-releases | 2026-10-28 | Merged #461: What's new full history + release groupings |
+| R13-i18n-analyze-sql-starters | 2026-10-28 | Merged #460: Analyze SQL Preview/Count-by + DuckDB footer i18n (#162) |
+| R13-i18n-sharing-panel-chrome | 2026-10-28 | Merged #459: Sharing panel visibility / share-row chrome (#162) |
+| SEC-public-features-geojson-throttle | 2026-10-28 | Merged #456: Public /features + /geojson @Throttle 60/min |
+| SEC-public-aggregate-throttle | 2026-10-28 | Merged #455: Public layer /aggregate @Throttle 60/min |
+| SEC-ogc-features-collections-throttle | 2026-10-28 | Merged #454: OGC Features collections @Throttle 60/min |
+| Q-research-cycle-14 | 2026-10-28 | Merged #462: research-cycle-14 refill ship-without-input queue |
 | SEC-citation-throttle | 2026-10-28 | Merged #452: Public OGC citation downloads @Throttle 60/min |
 | R13-form-help-survey123-honesty | 2026-10-28 | Merged #453: soften Form vs Survey123 equivalence claim |
 | R13-i18n-builder-viewer-editor-titles | 2026-10-28 | Merged #458: BuilderShell Back/Close + viewer/editor panel titles (#162) |
