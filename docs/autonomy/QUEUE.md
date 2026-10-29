@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-item-page-chrome | research-cycle-14 | Item page Sharing / Back / Responses / Open builder (#162) | PR #469 |
 
 ## queued (ship-without-input)
 
@@ -32,6 +31,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R14-i18n-item-page-chrome | 2026-10-29 | Merged #469: item detail Sharing/Back/Responses/Open builder i18n |
 | measure-area-scale-bar | 2026-10-29 | Merged #468: Measure pane above scale bar; geodesic math confirmed |
 | SEC-pointcloud-pip-prune-fix | 2026-10-28 | Merged #466: pointcloud-worker pip strip keeps python (exit 127) |
 | R14-i18n-viewer-editor-detail-chrome | 2026-10-28 | Merged #463: Viewer/editor detail builder chrome (#162) |
