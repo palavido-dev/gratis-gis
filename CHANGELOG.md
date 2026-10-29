@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- `pointcloud-worker` image keeps Python after the Trivy pip strip.
+  `micromamba remove pip` was pruning `python` and the PDAL/GDAL
+  stack, so prod crash-looped with exit 127 (`python: not found`).
+  Removal now uses `--no-prune-deps` and a build-time import check
+  (SEC-trivy-workers follow-up).
+
 ## [0.9.121] - 2026-10-28
 
 ### Added
