@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-print-template-chrome | research-cycle-14 | Print template designer Paper / Zoom / Delete parameter (#162) | PR #473 |
+| R14-data-layer-help-honesty | research-cycle-14 | Soften data-layer.md Esri feature-service equivalence claim | Docs-only |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-data-layer-help-honesty | research-cycle-14 | Soften data-layer.md Esri feature-service equivalence claim | Docs-only |
 | SEC-public-filtered-extent-throttle | research-cycle-14 | @Throttle 60/min on Public layer filtered-extent | |
 | SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | |
 | SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | |
@@ -30,6 +29,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R14-i18n-print-template-chrome | 2026-10-29 | Merged #473: print template designer Paper / Zoom / Delete parameter i18n |
 | R14-i18n-folder-detail-chrome | 2026-10-29 | Merged #471: folder detail Apply sharing / New subfolder / Add items i18n |
 | R14-i18n-item-page-chrome | 2026-10-29 | Merged #469: item detail Sharing/Back/Responses/Open builder i18n |
 | measure-area-scale-bar | 2026-10-29 | Merged #468: Measure pane above scale bar; geodesic math confirmed |
