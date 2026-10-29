@@ -1,7 +1,7 @@
 ---
 id: items-data-layer
 title: Data layer
-summary: An item that holds one or more PostGIS-backed feature tables.  The native equivalent of an Esri feature service.
+summary: An item that holds one or more PostGIS-backed feature tables, with OGC Features and public API surfaces. Same niche as a hosted feature service for many layers, not an ArcGIS FeatureServer drop-in.
 category: items
 order: 20
 complexity: basic
@@ -121,6 +121,19 @@ Field collectors usually first see parked edits on a
 rejected list). Resolve the durable conflict cards here on the
 **Layer data** panel of the paired data layer. This is optimistic
 concurrency review, not multi-user CRDT merge on drawings.
+
+## What this is not
+
+- **Not a hosted feature service drop-in.** Clients that speak
+  ArcGIS REST FeatureServer / FeatureLayer URLs do not point at a
+  data layer and keep working unchanged.
+- **Not ArcGIS Server.** Editing, sync, and export use the portal
+  HTTP API, OGC Features, and related public mirrors — not an
+  ArcGIS Server site or enterprise geodatabase replica.
+- **Not a promise of FeatureServer parity.** Schema, domains, and
+  attachments map well for many layers; service-level behavior
+  (versioned views, replica sync, relationship classes as AGO
+  ships them) does not.
 
 ## Related
 

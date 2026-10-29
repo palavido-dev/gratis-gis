@@ -7,6 +7,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- Data layer help no longer calls GratisGIS the "native equivalent"
+  of an Esri feature service; summary and a short "What this is not"
+  note describe PostGIS tables with OGC / public API surfaces, not
+  ArcGIS FeatureServer drop-in parity.
+
 ### Fixed
 
 - Print template designer chrome (Paper / Size / Orientation /
