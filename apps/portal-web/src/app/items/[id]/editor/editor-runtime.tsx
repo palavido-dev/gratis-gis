@@ -3319,7 +3319,9 @@ export function EditorRuntime({
                 <p className="mb-1 text-xs font-medium text-ink-1">
                   {measureMode === 'distance'
                     ? t('editorRuntime.distance')
-                    : t('editorRuntime.area')}
+                    : measureSurfaceSqm != null
+                      ? t('editorRuntime.measureGroundArea')
+                      : t('editorRuntime.area')}
                 </p>
                 <p className="font-mono text-base font-semibold text-ink-0">
                   {measureMode === 'distance'
@@ -3329,20 +3331,24 @@ export function EditorRuntime({
                           measureDistanceUnit,
                         )
                       : '—'
-                    : measureAreaSqm !== null
-                      ? formatAreaIn(measureAreaSqm, measureAreaUnit)
-                      : '—'}
+                    : measureSurfaceSqm != null
+                      ? formatAreaIn(measureSurfaceSqm, measureAreaUnit)
+                      : measureAreaSqm !== null
+                        ? formatAreaIn(measureAreaSqm, measureAreaUnit)
+                        : '—'}
                 </p>
                 {measureMode === 'area' && measureAreaSqm !== null ? (
                   <div className="mt-0.5 space-y-0.5 font-mono text-2xs text-muted">
-                    {measureAreaUnit !== 'square-meters' ? (
-                      <p>{formatAreaIn(measureAreaSqm, 'square-meters')}</p>
-                    ) : null}
                     {measureSurfaceSqm != null ? (
                       <p>
-                        {t('editorRuntime.measureSurfaceLabel')}:{' '}
-                        {formatAreaIn(measureSurfaceSqm, measureAreaUnit)}
+                        {t('editorRuntime.measureHorizontalLabel')}:{' '}
+                        {formatAreaIn(measureAreaSqm, measureAreaUnit)}
+                        {measureAreaUnit !== 'square-meters'
+                          ? ` (${formatAreaIn(measureAreaSqm, 'square-meters')})`
+                          : ''}
                       </p>
+                    ) : measureAreaUnit !== 'square-meters' ? (
+                      <p>{formatAreaIn(measureAreaSqm, 'square-meters')}</p>
                     ) : null}
                     {measurePerimeterMeters != null ? (
                       <p>
@@ -3357,7 +3363,9 @@ export function EditorRuntime({
                 ) : null}
                 <p className="mt-1 text-2xs text-muted">
                   {measureMode === 'area'
-                    ? t('editorRuntime.measureHintArea')
+                    ? measureSurfaceSqm != null
+                      ? t('editorRuntime.measureHintAreaTerrain')
+                      : t('editorRuntime.measureHintArea')
                     : t('editorRuntime.measureHintDistance')}
                 </p>
               </div>

@@ -844,7 +844,11 @@ export const en = {
     hintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     hintArea:
-      'Click to add vertices on the map. Double-click to finish. Primary area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare. When terrain is on, slope surface area is shown below.',
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare.',
+    hintAreaTerrain:
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Pitched 3D stretches what you see vs the scale bar.',
+    groundArea: 'Ground area',
+    horizontalLabel: 'Horizontal',
     surfaceLabel: 'Slope surface',
     perimeterLabel: 'Perimeter',
     newMeasurement: 'New measurement',
@@ -865,7 +869,11 @@ export const en = {
     measureHintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     measureHintArea:
-      'Click to add vertices on the map. Double-click to finish. Primary area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare. When terrain is on, slope surface area is shown below.',
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare.',
+    measureHintAreaTerrain:
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Pitched 3D stretches what you see vs the scale bar.',
+    measureGroundArea: 'Ground area',
+    measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Slope surface',
     measurePerimeterLabel: 'Perimeter',
     newMeasurement: 'New measurement',

@@ -806,7 +806,11 @@ export const es: Partial<CatalogShape> = {
     hintDistance:
       'Haz clic para añadir puntos en el mapa. Haz doble clic para terminar. Compáralo con la barra de escala.',
     hintArea:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área principal es horizontal (geodésica), la misma base que los campos de acres de parcelas. El 3D inclinado distorsiona lo que ves frente a la barra de escala; aplana el ángulo para comparar. Con terreno, la superficie en pendiente aparece abajo.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. El 3D inclinado distorsiona lo que ves frente a la barra de escala; aplana el ángulo para comparar.',
+    hintAreaTerrain:
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. El 3D inclinado distorsiona la comparación con la barra de escala.',
+    groundArea: 'Área del terreno',
+    horizontalLabel: 'Horizontal',
     surfaceLabel: 'Superficie en pendiente',
     perimeterLabel: 'Perímetro',
     newMeasurement: 'Nueva medición',
@@ -826,7 +830,11 @@ export const es: Partial<CatalogShape> = {
     measureHintDistance:
       'Haz clic para añadir puntos en el mapa. Haz doble clic para terminar. Compáralo con la barra de escala.',
     measureHintArea:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área principal es horizontal (geodésica), la misma base que los campos de acres de parcelas. El 3D inclinado distorsiona lo que ves frente a la barra de escala; aplana el ángulo para comparar. Con terreno, la superficie en pendiente aparece abajo.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. El 3D inclinado distorsiona lo que ves frente a la barra de escala; aplana el ángulo para comparar.',
+    measureHintAreaTerrain:
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. El 3D inclinado distorsiona la comparación con la barra de escala.',
+    measureGroundArea: 'Área del terreno',
+    measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Superficie en pendiente',
     measurePerimeterLabel: 'Perímetro',
     newMeasurement: 'Nueva medición',

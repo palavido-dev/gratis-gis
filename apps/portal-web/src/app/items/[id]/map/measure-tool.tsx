@@ -271,27 +271,33 @@ export function MeasureTool({
           <p className="mb-1 text-xs font-medium text-ink-1">
             {mode === 'distance'
               ? t('mapMeasure.distance')
-              : t('mapMeasure.area')}
+              : surfaceSqm != null
+                ? t('mapMeasure.groundArea')
+                : t('mapMeasure.area')}
           </p>
           <p className="font-mono text-base font-semibold text-ink-0">
             {mode === 'distance'
               ? lengthMeters !== null
                 ? formatLengthIn(lengthMeters, distanceUnit)
                 : '—'
-              : areaSqm !== null
-                ? formatAreaIn(areaSqm, areaUnit)
-                : '—'}
+              : surfaceSqm != null
+                ? formatAreaIn(surfaceSqm, areaUnit)
+                : areaSqm !== null
+                  ? formatAreaIn(areaSqm, areaUnit)
+                  : '—'}
           </p>
           {mode === 'area' && areaSqm !== null ? (
             <div className="mt-0.5 space-y-0.5 font-mono text-2xs text-muted">
-              {areaUnit !== 'square-meters' ? (
-                <p>{formatAreaIn(areaSqm, 'square-meters')}</p>
-              ) : null}
               {surfaceSqm != null ? (
                 <p>
-                  {t('mapMeasure.surfaceLabel')}:{' '}
-                  {formatAreaIn(surfaceSqm, areaUnit)}
+                  {t('mapMeasure.horizontalLabel')}:{' '}
+                  {formatAreaIn(areaSqm, areaUnit)}
+                  {areaUnit !== 'square-meters'
+                    ? ` (${formatAreaIn(areaSqm, 'square-meters')})`
+                    : ''}
                 </p>
+              ) : areaUnit !== 'square-meters' ? (
+                <p>{formatAreaIn(areaSqm, 'square-meters')}</p>
               ) : null}
               {perimeterMeters != null ? (
                 <p>
@@ -310,7 +316,9 @@ export function MeasureTool({
           ) : null}
           <p className="mt-1 text-2xs text-muted">
             {mode === 'area'
-              ? t('mapMeasure.hintArea')
+              ? surfaceSqm != null
+                ? t('mapMeasure.hintAreaTerrain')
+                : t('mapMeasure.hintArea')
               : t('mapMeasure.hintDistance')}
           </p>
         </div>

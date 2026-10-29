@@ -804,7 +804,11 @@ export const de: Partial<CatalogShape> = {
     hintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     hintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptfläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen. Mit Gelände erscheint die Hangfläche darunter.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen.',
+    hintAreaTerrain:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab.',
+    groundArea: 'Geländefläche',
+    horizontalLabel: 'Horizontal',
     surfaceLabel: 'Hangfläche',
     perimeterLabel: 'Umfang',
     newMeasurement: 'Neue Messung',
@@ -824,7 +828,11 @@ export const de: Partial<CatalogShape> = {
     measureHintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     measureHintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptfläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen. Mit Gelände erscheint die Hangfläche darunter.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen.',
+    measureHintAreaTerrain:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab.',
+    measureGroundArea: 'Geländefläche',
+    measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Hangfläche',
     measurePerimeterLabel: 'Umfang',
     newMeasurement: 'Neue Messung',
