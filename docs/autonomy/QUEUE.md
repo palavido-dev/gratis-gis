@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| measure-flatten-immediate | user report | Measure jumpTo + maxPitch lock (no mid-pitch sketch) | Hardening after #493 |
 
 ## queued (ship-without-input)
 
@@ -32,6 +31,9 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| release-0.9.125 | 2026-10-29 | Stamp Measure top-down lock + Public osm/presets + thumbnail throttles |
+| measure-flatten-immediate | 2026-10-29 | Merged #500: Measure jumpTo pitch 0 + maxPitch lock while open |
+| SEC-thumbnail-svg-throttle | 2026-10-29 | Merged #499: Public thumbnail.svg @Throttle 60/min |
 | SEC-osm-presets-throttle | 2026-10-29 | Merged #498: Public osm/presets @Throttle 60/min |
 | release-0.9.124 | 2026-10-29 | Merged #497 + tagged/deployed v0.9.124 (Measure pitch-flatten live) |
 | SEC-public-basemap-items-throttle | 2026-10-29 | Merged #496: Public basemap items list @Throttle 60/min |

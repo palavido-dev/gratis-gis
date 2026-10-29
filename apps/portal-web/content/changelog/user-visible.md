@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [0.9.125] - 2026-10-29
+
+## 2026-10-29 - Measure locks top-down for ground area
+Opening Measure jumps the map flat and keeps tilt locked so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath.
+
 ## [0.9.124] - 2026-10-29
 
 ## 2026-10-29 - Measure flattens pitched 3D
