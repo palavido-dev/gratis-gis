@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Controller, Get, Header, Query, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../auth/public.decorator.js';
@@ -35,6 +36,9 @@ export class PublicCswController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Tighter than the global 300/min: GetRecords walks public items
+  // for harvesters (SEC-csw-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get()
   @Header('content-type', 'application/xml; charset=utf-8')
   async dispatch(

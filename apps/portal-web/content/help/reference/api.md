@@ -210,7 +210,9 @@ to browse rasters without a plugin. Step-by-step setup is in
 ### CSW 2.0.2
 
 A Catalog Service for the Web endpoint at `/api/public/csw`, for
-clients that expect the older OGC catalogue protocol.
+clients that expect the older OGC catalogue protocol. Anonymous
+GetCapabilities / GetRecords calls are rate-limited at **60 requests
+per minute** per IP.
 
 Authenticated equivalents of Features and STAC live at `/api/ogc` and
 `/api/stac` and apply the caller's own sharing rules, so an API key
