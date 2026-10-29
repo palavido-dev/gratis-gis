@@ -221,6 +221,12 @@ clients that expect the older OGC catalogue protocol. Anonymous
 GetCapabilities / GetRecords calls are rate-limited at **60 requests
 per minute** per IP.
 
+### Portal landing
+
+The anonymous org landing payload at `GET /api/public/landing`
+(optional `?org=` slug) is rate-limited at **60 requests per minute**
+per IP.
+
 ### DCAT catalog.json
 
 A Project Open Data–shaped JSON catalog of every public item at

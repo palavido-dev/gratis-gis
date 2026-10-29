@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-public-landing-throttle | research-cycle-16 | Public landing @Throttle 60/min | |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-landing-throttle | research-cycle-16 | Public landing @Throttle 60/min | Org + publicItemsFor |
 | SEC-public-item-throttle | research-cycle-16 | Public items/:id @Throttle 60/min | Anon UUID get |
 | SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | type=basemap gallery |
 | SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | Vendored iD catalog |
