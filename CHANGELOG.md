@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Form responses side panel chrome (Previous/Next submission, Close,
+  Submitted by/at, Attachments empty states, repeat Entry labels)
+  uses i18n catalogs (#162).
+
 ### Security
 
 - Public Aardvark harvest documents

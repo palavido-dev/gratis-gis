@@ -1468,6 +1468,27 @@ export const en = {
     emptyHidden:
       "You can't see any of the items currently in this folder. Ask the folder author to share them with you.",
   },
+  /** Form responses side panel chrome (#162 / R15-i18n-form-responses-chrome). */
+  formResponses: {
+    previousSubmissionAria: 'Previous submission',
+    nextSubmissionAria: 'Next submission',
+    positionOf: '{current} of {total}',
+    closeFormViewAria: 'Close form view',
+    loadingSchema: 'Loading form schema...',
+    emptySelect:
+      'Select a submission on the map or in the table to view its answers.',
+    submissionFallbackTitle: 'Submission',
+    submittedBy: 'Submitted by',
+    submittedAt: 'Submitted at',
+    attachments: 'Attachments',
+    loadingAttachments: 'Loading...',
+    noAttachments: 'No attachments',
+    entrySingular: 'entry',
+    entryPlural: 'entries',
+    noEntries: 'No entries',
+    entryNumber: 'Entry {n}',
+    noAnswer: 'No answer',
+  },
   /** Print template designer chrome (#162 / R14-i18n-print-template-chrome). */
   printTemplate: {
     paper: 'Paper',

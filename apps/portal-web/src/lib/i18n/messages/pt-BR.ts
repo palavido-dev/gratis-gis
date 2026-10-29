@@ -1420,6 +1420,26 @@ export const ptBR: Partial<CatalogShape> = {
     emptyHidden:
       'Você não consegue ver nenhum dos itens desta pasta. Peça ao autor da pasta para compartilhá-los com você.',
   },
+  formResponses: {
+    previousSubmissionAria: 'Envio anterior',
+    nextSubmissionAria: 'Próximo envio',
+    positionOf: '{current} de {total}',
+    closeFormViewAria: 'Fechar visualização do formulário',
+    loadingSchema: 'Carregando esquema do formulário...',
+    emptySelect:
+      'Selecione um envio no mapa ou na tabela para ver as respostas.',
+    submissionFallbackTitle: 'Envio',
+    submittedBy: 'Enviado por',
+    submittedAt: 'Enviado em',
+    attachments: 'Anexos',
+    loadingAttachments: 'Carregando...',
+    noAttachments: 'Sem anexos',
+    entrySingular: 'entrada',
+    entryPlural: 'entradas',
+    noEntries: 'Sem entradas',
+    entryNumber: 'Entrada {n}',
+    noAnswer: 'Sem resposta',
+  },
   printTemplate: {
     paper: 'Papel',
     size: 'Tamanho',

@@ -1423,6 +1423,26 @@ export const es: Partial<CatalogShape> = {
     emptyHidden:
       'No puedes ver ninguno de los elementos de esta carpeta. Pide al autor de la carpeta que los comparta contigo.',
   },
+  formResponses: {
+    previousSubmissionAria: 'Envío anterior',
+    nextSubmissionAria: 'Envío siguiente',
+    positionOf: '{current} de {total}',
+    closeFormViewAria: 'Cerrar vista del formulario',
+    loadingSchema: 'Cargando esquema del formulario...',
+    emptySelect:
+      'Selecciona un envío en el mapa o en la tabla para ver sus respuestas.',
+    submissionFallbackTitle: 'Envío',
+    submittedBy: 'Enviado por',
+    submittedAt: 'Enviado el',
+    attachments: 'Adjuntos',
+    loadingAttachments: 'Cargando...',
+    noAttachments: 'Sin adjuntos',
+    entrySingular: 'entrada',
+    entryPlural: 'entradas',
+    noEntries: 'Sin entradas',
+    entryNumber: 'Entrada {n}',
+    noAnswer: 'Sin respuesta',
+  },
   printTemplate: {
     paper: 'Papel',
     size: 'Tamaño',
