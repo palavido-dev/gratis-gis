@@ -9,6 +9,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Map Measure pane no longer covers the ScaleControl. The geodesic
+  area/distance math was already correct (prod check: a scale-bar
+  width measures ~98.5 m against a 100 m bar); covering the bar made
+  pitched 3D sketches look “way off” with no ground-truth visible.
+  Pane sits above the scale bar, shows a raw m / m² secondary
+  readout, and the hint points at the scale bar.
 - `pointcloud-worker` image keeps Python after the Trivy pip strip.
   `micromamba remove pip` was pruning `python` and the PDAL/GDAL
   stack, so prod crash-looped with exit 127 (`python: not found`).

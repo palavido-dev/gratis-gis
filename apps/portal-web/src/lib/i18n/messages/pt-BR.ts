@@ -800,9 +800,9 @@ export const ptBR: Partial<CatalogShape> = {
     area: 'Área',
     unit: 'Unidade',
     hintDistance:
-      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     hintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
     newMeasurement: 'Nova medição',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -818,9 +818,9 @@ export const ptBR: Partial<CatalogShape> = {
     area: 'Área',
     unit: 'Unidade',
     measureHintDistance:
-      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     measureHintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
     newMeasurement: 'Nova medição',
     select: 'Selecionar',
     selectWithMode: 'Selecionar ({mode})',

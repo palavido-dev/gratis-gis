@@ -841,8 +841,10 @@ export const en = {
     distance: 'Distance',
     area: 'Area',
     unit: 'Unit',
-    hintDistance: 'Click to add points on the map. Double-click to finish.',
-    hintArea: 'Click to add vertices on the map. Double-click to finish.',
+    hintDistance:
+      'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
+    hintArea:
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic), not slope surface — check the scale bar.',
     newMeasurement: 'New measurement',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -859,9 +861,9 @@ export const en = {
     area: 'Area',
     unit: 'Unit',
     measureHintDistance:
-      'Click to add points on the map. Double-click to finish.',
+      'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     measureHintArea:
-      'Click to add vertices on the map. Double-click to finish.',
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic), not slope surface — check the scale bar.',
     newMeasurement: 'New measurement',
     select: 'Select',
     selectWithMode: 'Select ({mode})',

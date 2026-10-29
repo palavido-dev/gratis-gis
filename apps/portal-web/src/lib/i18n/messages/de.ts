@@ -802,9 +802,9 @@ export const de: Partial<CatalogShape> = {
     area: 'Fläche',
     unit: 'Einheit',
     hintDistance:
-      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     hintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Horizontale (geodätische) Fläche, keine Hangfläche — Maßstab prüfen.',
     newMeasurement: 'Neue Messung',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -820,9 +820,9 @@ export const de: Partial<CatalogShape> = {
     area: 'Fläche',
     unit: 'Einheit',
     measureHintDistance:
-      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     measureHintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Horizontale (geodätische) Fläche, keine Hangfläche — Maßstab prüfen.',
     newMeasurement: 'Neue Messung',
     select: 'Auswählen',
     selectWithMode: 'Auswählen ({mode})',
