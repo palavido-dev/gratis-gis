@@ -1423,6 +1423,26 @@ export const fr: Partial<CatalogShape> = {
     emptyHidden:
       'Vous ne voyez aucun des éléments de ce dossier. Demandez à l’auteur du dossier de les partager avec vous.',
   },
+  formResponses: {
+    previousSubmissionAria: 'Réponse précédente',
+    nextSubmissionAria: 'Réponse suivante',
+    positionOf: '{current} sur {total}',
+    closeFormViewAria: 'Fermer la vue formulaire',
+    loadingSchema: 'Chargement du schéma du formulaire...',
+    emptySelect:
+      'Sélectionnez une réponse sur la carte ou dans le tableau pour voir ses réponses.',
+    submissionFallbackTitle: 'Réponse',
+    submittedBy: 'Envoyé par',
+    submittedAt: 'Envoyé le',
+    attachments: 'Pièces jointes',
+    loadingAttachments: 'Chargement...',
+    noAttachments: 'Aucune pièce jointe',
+    entrySingular: 'entrée',
+    entryPlural: 'entrées',
+    noEntries: 'Aucune entrée',
+    entryNumber: 'Entrée {n}',
+    noAnswer: 'Sans réponse',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

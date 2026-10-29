@@ -1424,6 +1424,26 @@ export const de: Partial<CatalogShape> = {
     emptyHidden:
       'Sie können keines der Elemente in diesem Ordner sehen. Bitten Sie den Ordnerautor, sie mit Ihnen zu teilen.',
   },
+  formResponses: {
+    previousSubmissionAria: 'Vorherige Einsendung',
+    nextSubmissionAria: 'Nächste Einsendung',
+    positionOf: '{current} von {total}',
+    closeFormViewAria: 'Formularansicht schließen',
+    loadingSchema: 'Formulaschema wird geladen...',
+    emptySelect:
+      'Wählen Sie eine Einsendung auf der Karte oder in der Tabelle, um die Antworten zu sehen.',
+    submissionFallbackTitle: 'Einsendung',
+    submittedBy: 'Eingereicht von',
+    submittedAt: 'Eingereicht am',
+    attachments: 'Anhänge',
+    loadingAttachments: 'Wird geladen...',
+    noAttachments: 'Keine Anhänge',
+    entrySingular: 'Eintrag',
+    entryPlural: 'Einträge',
+    noEntries: 'Keine Einträge',
+    entryNumber: 'Eintrag {n}',
+    noAnswer: 'Keine Antwort',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

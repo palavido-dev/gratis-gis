@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-aardvark-throttle | research-cycle-15 | Public Aardvark :itemId.json @Throttle 60/min | PR open |
+| R15-i18n-form-responses-chrome | research-cycle-15 / #162 | Form responses Previous/Next/Submitted/empty chrome i18n | PR open |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R15-i18n-form-responses-chrome | research-cycle-15 / #162 | Form responses Previous/Next/Submitted/empty chrome i18n | Highest-traffic leftover |
 | R15-i18n-recipe-editor-chrome | research-cycle-15 / #162 | Tool recipe-editor template/params/AOI/Pipeline chrome i18n | Binding enums later |
 | R15-i18n-basemap-editor-chrome | research-cycle-15 / #162 | Basemap editor source / unsaved chrome i18n | Small file |
 | R15-i18n-share-geo-limit-chrome | research-cycle-15 / #162 | Share Restrict-to-area dialog chrome i18n | After #459 sharing panel |
@@ -33,6 +32,7 @@ Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-aardvark-throttle | 2026-10-29 | Merged #486: Public Aardvark :itemId.json @Throttle 60/min |
 | SEC-records-item-throttle | 2026-10-29 | Merged #485: Public Records + catalog single-item GETs @Throttle 60/min |
 | SEC-ogc-styles-list-throttle | 2026-10-29 | Merged #484: Public OGC Styles list + style/metadata @Throttle 60/min |
 | SEC-stac-collections-throttle | 2026-10-29 | Merged #483: Public STAC collections + collection id @Throttle 60/min |

@@ -15,7 +15,7 @@ import {
 import type { FormSchema, Question } from '@gratis-gis/form-schema';
 import type { MapLayer, PickListData } from '@gratis-gis/shared-types';
 import { formatDateTime } from '@/lib/i18n/format';
-import { useLocale } from '@/lib/i18n/locale-context';
+import { useLocale, useT } from '@/lib/i18n/locale-context';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 
 /**
@@ -102,6 +102,7 @@ export function FormView({
   onClose,
 }: Props) {
   const locale = useLocale();
+  const t = useT();
   // Look up _submitted_at / _created_at and _submitted_by / _created_by
   // off the row. Forms write the canonical "submitted" pair via the
   // form-mirror path (#284) but feature-tracking columns also exist
@@ -210,8 +211,8 @@ export function FormView({
             onClick={onPrev}
             disabled={selectedCount <= 1}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Previous submission"
-            aria-label="Previous submission"
+            title={t('formResponses.previousSubmissionAria')}
+            aria-label={t('formResponses.previousSubmissionAria')}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -220,14 +221,17 @@ export function FormView({
             onClick={onNext}
             disabled={selectedCount <= 1}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Next submission"
-            aria-label="Next submission"
+            title={t('formResponses.nextSubmissionAria')}
+            aria-label={t('formResponses.nextSubmissionAria')}
           >
             <ChevronRight className="h-4 w-4" />
           </button>
           {selectedCount > 0 ? (
             <span className="ml-1 text-xs tabular-nums text-muted">
-              {activeIndex + 1} of {selectedCount}
+              {t('formResponses.positionOf', {
+                current: activeIndex + 1,
+                total: selectedCount,
+              })}
             </span>
           ) : null}
         </div>
@@ -235,7 +239,7 @@ export function FormView({
           type="button"
           onClick={onClose}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0"
-          aria-label="Close form view"
+          aria-label={t('formResponses.closeFormViewAria')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -245,14 +249,11 @@ export function FormView({
         {!schema ? (
           <div className="flex h-full items-center justify-center p-6 text-center text-xs italic text-muted">
             <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            Loading form schema...
+            {t('formResponses.loadingSchema')}
           </div>
         ) : !activeProperties ? (
           <div className="flex h-full items-center justify-center p-6 text-center text-xs italic text-muted">
-            <span>
-              Select a submission on the map or in the table to view its
-              answers.
-            </span>
+            <span>{t('formResponses.emptySelect')}</span>
           </div>
         ) : (
           <div className="space-y-4 p-4">
@@ -260,13 +261,15 @@ export function FormView({
             <div>
               <h2 className="inline-flex items-center gap-2 text-base font-semibold text-ink-0">
                 <ClipboardList className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                {schema.title || 'Submission'}
+                {schema.title || t('formResponses.submissionFallbackTitle')}
               </h2>
               {(submittedBy || submittedAt) && (
                 <dl className="mt-2 space-y-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs">
                   {submittedBy && (
                     <div className="flex gap-2">
-                      <dt className="text-muted">Submitted by</dt>
+                      <dt className="text-muted">
+                        {t('formResponses.submittedBy')}
+                      </dt>
                       <dd className="font-medium text-ink-1">
                         {submittedByDisplay}
                       </dd>
@@ -274,7 +277,9 @@ export function FormView({
                   )}
                   {submittedAt && (
                     <div className="flex gap-2">
-                      <dt className="text-muted">Submitted at</dt>
+                      <dt className="text-muted">
+                        {t('formResponses.submittedAt')}
+                      </dt>
                       <dd className="font-medium text-ink-1">
                         {formatDateTime(submittedAt, locale)}
                       </dd>
@@ -324,11 +329,12 @@ function AttachmentsSection({
 }: {
   attachments: AttachmentRow[] | null;
 }) {
+  const t = useT();
   return (
     <section className="mt-4 border-t border-border pt-3">
       <h3 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
         <Paperclip className="h-3.5 w-3.5" />
-        Attachments
+        {t('formResponses.attachments')}
         {attachments && attachments.length > 0 ? (
           <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
@@ -337,10 +343,13 @@ function AttachmentsSection({
       </h3>
       {attachments === null ? (
         <p className="inline-flex items-center gap-1 text-xs italic text-muted">
-          <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+          <Loader2 className="h-3 w-3 animate-spin" />{' '}
+          {t('formResponses.loadingAttachments')}
         </p>
       ) : attachments.length === 0 ? (
-        <p className="text-xs italic text-muted">No attachments</p>
+        <p className="text-xs italic text-muted">
+          {t('formResponses.noAttachments')}
+        </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {attachments.map((a) => (
@@ -416,6 +425,7 @@ function QuestionAnswer({
   pickLists: Record<string, PickListData>;
 }) {
   const locale = useLocale();
+  const t = useT();
   // Page / group: render label as a section header + walk children.
   if (question.type === 'page' || question.type === 'group') {
     const children =
@@ -444,12 +454,16 @@ function QuestionAnswer({
               {question.label}{' '}
               <span className="ml-1 rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
                 {instances.length}{' '}
-                {instances.length === 1 ? 'entry' : 'entries'}
+                {instances.length === 1
+                  ? t('formResponses.entrySingular')
+                  : t('formResponses.entryPlural')}
               </span>
             </h3>
           )}
           {instances.length === 0 ? (
-            <p className="text-xs italic text-muted">No entries</p>
+            <p className="text-xs italic text-muted">
+              {t('formResponses.noEntries')}
+            </p>
           ) : (
             <div className="space-y-3">
               {instances.map((inst, idx) => (
@@ -458,7 +472,7 @@ function QuestionAnswer({
                   className="rounded-md border border-border bg-surface-2/50 p-2"
                 >
                   <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-muted">
-                    Entry {idx + 1}
+                    {t('formResponses.entryNumber', { n: idx + 1 })}
                   </div>
                   <div className="space-y-2">
                     {children.map((c) => (
@@ -521,7 +535,13 @@ function QuestionAnswer({
     <div>
       <div className="text-xs text-muted">{question.label || question.id}</div>
       <div className="text-sm text-ink-0">
-        {renderValue(question, raw, pickLists, locale)}
+        {renderValue(
+          question,
+          raw,
+          pickLists,
+          locale,
+          t('formResponses.noAnswer'),
+        )}
       </div>
     </div>
   );
@@ -537,9 +557,10 @@ function renderValue(
   value: unknown,
   pickLists: Record<string, PickListData>,
   locale: SupportedLocale,
+  noAnswerLabel: string,
 ): JSX.Element {
   if (value === null || value === undefined || value === '') {
-    return <span className="italic text-muted">No answer</span>;
+    return <span className="italic text-muted">{noAnswerLabel}</span>;
   }
 
   switch (q.type) {
@@ -580,7 +601,7 @@ function renderValue(
           </span>
         );
       }
-      return <span className="italic text-muted">No answer</span>;
+      return <span className="italic text-muted">{noAnswerLabel}</span>;
     }
     case 'select-one':
       return <span>{labelForCode(q, value, pickLists) ?? String(value)}</span>;
@@ -614,7 +635,7 @@ function renderValue(
           } => Boolean(d) && typeof d === 'object',
         );
         if (items.length === 0) {
-          return <span className="italic text-muted">No answer</span>;
+          return <span className="italic text-muted">{noAnswerLabel}</span>;
         }
         return <InlineAttachmentList items={items} />;
       }
