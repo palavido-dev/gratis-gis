@@ -147,9 +147,14 @@ export function MeasureTool({
   const container = map?.getContainer() ?? null;
   if (!open || !container) return null;
 
+  // Sit above MapLibre's bottom-left ScaleControl. Covering the
+  // scale bar made it impossible to sanity-check a sketch against
+  // ground distance — the WV terrain report that looked like
+  // "~144 acres" vs "10 ac" was consistent with the scale bar once
+  // it was visible again (geodesic math was already correct).
   return createPortal(
     <div
-      className="absolute bottom-3 left-3 z-30 flex w-[min(20rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
+      className="absolute bottom-12 left-3 z-30 flex w-[min(20rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
       role="dialog"
       aria-label={t('mapMeasure.title')}
     >
@@ -254,6 +259,18 @@ export function MeasureTool({
                 ? formatAreaIn(areaSqm, areaUnit)
                 : '—'}
           </p>
+          {mode === 'area' && areaSqm !== null && areaUnit !== 'square-meters' ? (
+            <p className="mt-0.5 font-mono text-2xs text-muted">
+              {formatAreaIn(areaSqm, 'square-meters')}
+            </p>
+          ) : null}
+          {mode === 'distance' &&
+          lengthMeters !== null &&
+          distanceUnit !== 'meters' ? (
+            <p className="mt-0.5 font-mono text-2xs text-muted">
+              {formatLengthIn(lengthMeters, 'meters')}
+            </p>
+          ) : null}
           <p className="mt-1 text-2xs text-muted">
             {mode === 'area'
               ? t('mapMeasure.hintArea')

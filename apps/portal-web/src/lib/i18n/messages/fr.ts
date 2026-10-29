@@ -802,9 +802,9 @@ export const fr: Partial<CatalogShape> = {
     area: 'Surface',
     unit: 'Unité',
     hintDistance:
-      'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer.',
+      'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     hintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Surface horizontale (géodésique), pas la pente — vérifiez l’échelle.',
     newMeasurement: 'Nouvelle mesure',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -820,9 +820,9 @@ export const fr: Partial<CatalogShape> = {
     area: 'Surface',
     unit: 'Unité',
     measureHintDistance:
-      'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer.',
+      'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     measureHintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Surface horizontale (géodésique), pas la pente — vérifiez l’échelle.',
     newMeasurement: 'Nouvelle mesure',
     select: 'Sélectionner',
     selectWithMode: 'Sélectionner ({mode})',
