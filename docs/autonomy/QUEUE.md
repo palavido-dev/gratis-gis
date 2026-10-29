@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | |
+| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | PR #476 |
 
 ## queued (ship-without-input)
 
