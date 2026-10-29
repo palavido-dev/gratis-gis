@@ -25,6 +25,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| measure-ground-slope-area | 2026-10-29 | Merged #479: Measure ground/slope primary on terrain; released v0.9.123 |
 | SEC-public-catalog-json-throttle | 2026-10-29 | Merged #477: Public catalog.json DCAT dump @Throttle 60/min |
 | SEC-csw-throttle | 2026-10-29 | Merged #476: Public CSW GetCapabilities / GetRecords @Throttle 60/min |
 | SEC-public-filtered-extent-throttle | 2026-10-29 | Merged #475: Public layer filtered-extent @Throttle 60/min |
