@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-pointcloud-pip-prune-fix | prod | pointcloud-worker exit 127: pip remove pruned python | This PR |
 
 ## queued (ship-without-input)
 
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-pointcloud-pip-prune-fix | 2026-10-28 | Merged #466: pointcloud-worker pip strip keeps python (exit 127) |
 | R14-i18n-viewer-editor-detail-chrome | 2026-10-28 | Merged #463: Viewer/editor detail builder chrome (#162) |
 | whats-new-history-releases | 2026-10-28 | Merged #461: What's new full history + release groupings |
 | R13-i18n-analyze-sql-starters | 2026-10-28 | Merged #460: Analyze SQL Preview/Count-by + DuckDB footer i18n (#162) |
