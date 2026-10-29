@@ -114,6 +114,9 @@ export class OgcRecordsCatalogController {
   }
 
   @Public()
+  // Match list budget (SEC-records-item-throttle): single-item GETs
+  // were still on the global 300/min default.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:recordId')
   async item(
     @Req() req: Request,

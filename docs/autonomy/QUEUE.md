@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-ogc-styles-list-throttle | research-cycle-15 | Public OGC Styles list (+ style/metadata) @Throttle 60/min | PR open |
+| SEC-records-item-throttle | research-cycle-15 | Public Records + catalog single-item GETs @Throttle 60/min | PR open |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-records-item-throttle | research-cycle-15 | Public Records + catalog single-item GETs @Throttle 60/min | Match list 60/min gap |
 | SEC-aardvark-throttle | research-cycle-15 | Public Aardvark :itemId.json @Throttle 60/min | Harvest scrape path |
 | R15-i18n-form-responses-chrome | research-cycle-15 / #162 | Form responses Previous/Next/Submitted/empty chrome i18n | Highest-traffic leftover |
 | R15-i18n-recipe-editor-chrome | research-cycle-15 / #162 | Tool recipe-editor template/params/AOI/Pipeline chrome i18n | Binding enums later |
@@ -35,6 +34,7 @@ Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-ogc-styles-list-throttle | 2026-10-29 | Merged #484: Public OGC Styles list + style/metadata @Throttle 60/min |
 | SEC-stac-collections-throttle | 2026-10-29 | Merged #483: Public STAC collections + collection id @Throttle 60/min |
 | Q-research-cycle-15 | 2026-10-29 | Research refill: nine ship-without-input (STAC collections / Styles / Records-item / Aardvark throttles; form responses / recipe / basemap / share-geo i18n; what-is honesty) |
 | measure-ground-slope-area | 2026-10-29 | Merged #479: Measure ground/slope primary on terrain; released v0.9.123 |

@@ -173,8 +173,10 @@ minute** per IP.
 
 ### OGC API Records
 
-Catalogue records for discovery. QGIS MetaSearch and similar
-clients should prefer the searchable-catalog collection:
+Catalogue records for discovery. Anonymous list and single-record
+GETs are rate-limited at **60 requests per minute** per IP. QGIS
+MetaSearch and similar clients should prefer the searchable-catalog
+collection:
 
 ```
 GET /api/public/ogc/collections/catalog
