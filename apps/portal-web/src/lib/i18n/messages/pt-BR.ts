@@ -1454,6 +1454,17 @@ export const ptBR: Partial<CatalogShape> = {
     removeParameterAria: 'Remover parâmetro',
     removeStepAria: 'Remover etapa',
   },
+  basemapEditor: {
+    source: 'Fonte do mapa base',
+    sourceHintEdit:
+      'Configure como este mapa base é servido. Mapas que referenciam este item usam a fonte abaixo.',
+    sourceHintReadonly:
+      'Você tem acesso somente leitura a este mapa base. A fonte é mostrada abaixo; peça a um administrador ou ao proprietário para alterá-la.',
+    noChanges: 'Sem alterações.',
+    preview: 'Pré-visualização',
+    previewHint:
+      'Renderização ao vivo com base nos campos à esquerda. Desloque e amplie para confirmar que os tiles são servidos nos níveis necessários.',
+  },
   printTemplate: {
     paper: 'Papel',
     size: 'Tamanho',

@@ -1457,6 +1457,17 @@ export const es: Partial<CatalogShape> = {
     removeParameterAria: 'Quitar parámetro',
     removeStepAria: 'Quitar paso',
   },
+  basemapEditor: {
+    source: 'Fuente del mapa base',
+    sourceHintEdit:
+      'Configura cómo se sirve este mapa base. Los mapas que referencian este elemento toman la fuente de abajo.',
+    sourceHintReadonly:
+      'Tienes acceso de solo lectura a este mapa base. La fuente se muestra abajo; pide a un administrador o al propietario que la cambie.',
+    noChanges: 'Sin cambios.',
+    preview: 'Vista previa',
+    previewHint:
+      'Renderizado en vivo según los campos de la izquierda. Desplázate y haz zoom para confirmar que las teselas se sirven a los niveles que necesitas.',
+  },
   printTemplate: {
     paper: 'Papel',
     size: 'Tamaño',

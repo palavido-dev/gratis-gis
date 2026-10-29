@@ -1457,6 +1457,17 @@ export const fr: Partial<CatalogShape> = {
     removeParameterAria: 'Supprimer le paramètre',
     removeStepAria: 'Supprimer l’étape',
   },
+  basemapEditor: {
+    source: 'Source du fond de carte',
+    sourceHintEdit:
+      'Configurez la façon dont ce fond de carte est servi. Les cartes qui référencent cet élément tirent de la source ci-dessous.',
+    sourceHintReadonly:
+      'Vous avez un accès en lecture seule à ce fond de carte. La source est affichée ci-dessous ; demandez à un administrateur ou au propriétaire de la modifier.',
+    noChanges: 'Aucun changement.',
+    preview: 'Aperçu',
+    previewHint:
+      'Rendu en direct d’après les champs à gauche. Déplacez et zoomez pour confirmer que les tuiles sont servies aux niveaux voulus.',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

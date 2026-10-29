@@ -7,6 +7,7 @@ import { Check, Loader2, Save } from 'lucide-react';
 import type { BasemapData } from '@gratis-gis/shared-types';
 import { BasemapConfigSection } from '../../_components/basemap-config-section';
 import { BasemapPreview } from '@/components/basemap-preview';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Detail-page editor for basemap items (#144). Closes the gap where
@@ -42,6 +43,7 @@ interface Props {
 }
 
 export function BasemapEditor({ itemId, initial, canEdit }: Props) {
+  const t = useT();
   const router = useRouter();
   const [draft, setDraft] = useState<BasemapData>(initial);
   const [saving, setSaving] = useState(false);
@@ -100,7 +102,9 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
       // permanently look like there's an unconfirmed action.
       window.setTimeout(() => setSaved(false), 2400);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.');
+      setError(
+        err instanceof Error ? err.message : t('serviceEditors.saveFailed'),
+      );
     } finally {
       setSaving(false);
     }
@@ -115,11 +119,13 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
       <div className="border-b border-border bg-surface-2 px-4 py-3">
-        <h3 className="text-sm font-medium text-ink-0">Basemap source</h3>
+        <h3 className="text-sm font-medium text-ink-0">
+          {t('basemapEditor.source')}
+        </h3>
         <p className="mt-0.5 text-xs text-muted">
           {canEdit
-            ? 'Configure how this basemap is served. Maps that reference this item pull from the source below.'
-            : 'You have read-only access to this basemap. The source is shown below; ask an admin or the owner to change it.'}
+            ? t('basemapEditor.sourceHintEdit')
+            : t('basemapEditor.sourceHintReadonly')}
         </p>
       </div>
 
@@ -128,14 +134,13 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
           <BasemapConfigSection value={draft} onChange={setDraft} />
           <div className="flex min-w-0 flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
-              Preview
+              {t('basemapEditor.preview')}
             </p>
             <div className="aspect-3/2 w-full overflow-hidden rounded-md border border-border bg-surface-2">
               <BasemapPreview data={draft} interactive />
             </div>
             <p className="text-2xs text-muted">
-              Live render against the fields on the left. Pan and zoom
-              to confirm tiles serve at the levels you need.
+              {t('basemapEditor.previewHint')}
             </p>
           </div>
         </div>
@@ -151,12 +156,12 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
             ) : saved ? (
               <p className="inline-flex items-center gap-1 text-accent">
                 <Check className="h-3.5 w-3.5" />
-                Saved
+                {t('serviceEditors.saved')}
               </p>
             ) : hasChanges ? (
-              <p className="text-muted">Unsaved changes.</p>
+              <p className="text-muted">{t('serviceEditors.unsavedChanges')}</p>
             ) : (
-              <p className="text-muted">No changes.</p>
+              <p className="text-muted">{t('basemapEditor.noChanges')}</p>
             )}
           </div>
           <button
@@ -165,7 +170,7 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
             disabled={!hasChanges || saving}
             className="inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Discard
+            {t('serviceEditors.discard')}
           </button>
           <button
             type="button"
@@ -178,7 +183,7 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? t('serviceEditors.saving') : t('common.save')}
           </button>
         </div>
       ) : null}
