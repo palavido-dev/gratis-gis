@@ -42,6 +42,44 @@ export const en = {
     openLeftPanel: 'Open left panel',
     openRightPanel: 'Open right panel',
   },
+  /**
+   * Feature Editor configure (editor-detail) builder chrome
+   * (#162 / R14-i18n-viewer-editor-detail-chrome). Runtime toolbar
+   * strings stay under editorRuntime.
+   */
+  editorDetail: {
+    unsavedChanges: 'Unsaved changes',
+    saved: 'Saved',
+    openInWorkspace: 'Open in workspace',
+    openInWorkspaceTitle: 'Open this editor in a new tab',
+    openEditorNewTab: 'Open editor in a new tab',
+    discard: 'Discard',
+    addFromMap: 'Add from map',
+    addFromMapTitle: 'Bulk-import editable layers from a map',
+    addTarget: 'Add target',
+    clearReferenceMapAria: 'Clear reference map',
+    configurationTitle: 'Editor configuration',
+    removeTargetAria: 'Remove target',
+    removeTemplateAria: 'Remove template',
+  },
+  /**
+   * Viewer configure (viewer/detail) builder chrome
+   * (#162 / R14-i18n-viewer-editor-detail-chrome).
+   */
+  viewerDetail: {
+    unsavedChanges: 'Unsaved changes',
+    saved: 'Saved',
+    openViewer: 'Open viewer',
+    openViewerTitle: 'Open this viewer in a new tab',
+    openViewerNewTab: 'Open viewer in a new tab',
+    discard: 'Discard',
+    addFromMap: 'Add from map',
+    addFromMapTitle: 'Bulk-import layers from a map',
+    addLayer: 'Add layer',
+    clearReferenceMapAria: 'Clear reference map',
+    configurationTitle: 'Viewer configuration',
+    removeLayerAria: 'Remove layer',
+  },
   nav: {
     items: 'Items',
     home: 'Home',

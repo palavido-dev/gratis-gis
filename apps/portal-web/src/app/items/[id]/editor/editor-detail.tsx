@@ -400,20 +400,20 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
         <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
-          Unsaved changes
+          {t('editorDetail.unsavedChanges')}
         </span>
       ) : canEdit && saved ? (
-        <span className="text-2xs text-success">Saved</span>
+        <span className="text-2xs text-success">{t('editorDetail.saved')}</span>
       ) : null}
       <a
         href={`/items/${itemId}/editor/run`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
-        title="Open this editor in a new tab"
+        title={t('editorDetail.openInWorkspaceTitle')}
       >
         <Play className="h-3.5 w-3.5" />
-        Open in workspace
+        {t('editorDetail.openInWorkspace')}
       </a>
       {canEdit ? (
         <>
@@ -429,7 +429,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             disabled={!dirty || saving}
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
           >
-            Discard
+            {t('editorDetail.discard')}
           </button>
           <button
             type="button"
@@ -438,7 +438,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Save
+            {t('common.save')}
           </button>
         </>
       ) : null}
@@ -456,10 +456,10 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             type="button"
             onClick={() => setAddingFromMap(true)}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
-            title="Bulk-import editable layers from a map"
+            title={t('editorDetail.addFromMapTitle')}
           >
             <MapIcon className="h-3.5 w-3.5" />
-            Add from map
+            {t('editorDetail.addFromMap')}
           </button>
           <button
             type="button"
@@ -467,7 +467,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add target
+            {t('editorDetail.addTarget')}
           </button>
         </div>
       ) : null}
@@ -542,7 +542,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
                 type="button"
                 onClick={() => pickMap(null)}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Clear reference map"
+                aria-label={t('editorDetail.clearReferenceMapAria')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -636,7 +636,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
       <BuilderShell
         storageKey="builder-shell:editor"
         backHref="/items"
-        title="Editor configuration"
+        title={t('editorDetail.configurationTitle')}
         icon={<PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={targetsPanel}
@@ -658,7 +658,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           <div className="mx-auto max-w-2xl rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center">
             <PencilRuler className="mx-auto h-8 w-8 text-purple-300" />
             <h2 className="mt-2 text-sm font-semibold text-ink-0">
-              Editor configuration
+              {t('editorDetail.configurationTitle')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               Add target layers in the left panel, configure the
@@ -672,7 +672,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
               className="mt-4 inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
             >
               <Play className="h-3.5 w-3.5" />
-              Open editor in a new tab
+              {t('editorDetail.openEditorNewTab')}
             </a>
           </div>
         </div>
@@ -741,6 +741,7 @@ function TargetRow({
   onPatch,
   onRemove,
 }: TargetRowProps) {
+  const t = useT();
   const layer = resolved?.layer ?? null;
   const item = resolved?.item ?? null;
   const broken = resolved !== null && layer === null;
@@ -816,8 +817,8 @@ function TargetRow({
             type="button"
             onClick={onRemove}
             className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-danger"
-            aria-label="Remove target"
-            title="Remove target"
+            aria-label={t('editorDetail.removeTargetAria')}
+            title={t('editorDetail.removeTargetAria')}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -1043,6 +1044,7 @@ function TemplatesSection({
   canEdit,
   onPatch,
 }: TemplatesSectionProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   function addTemplate() {
@@ -1142,8 +1144,8 @@ function TemplatesSection({
                       type="button"
                       onClick={() => removeTemplate(tpl.id)}
                       className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                      aria-label="Remove template"
-                      title="Remove template"
+                      aria-label={t('editorDetail.removeTemplateAria')}
+                      title={t('editorDetail.removeTemplateAria')}
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>

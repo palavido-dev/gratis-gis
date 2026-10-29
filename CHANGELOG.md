@@ -24,6 +24,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Viewer and Feature Editor configure builders localize toolbar
+  chrome (unsaved/saved, open runtime, Discard/Save, Add from map,
+  clear reference map, remove target/layer/template) via
+  `editorDetail` / `viewerDetail` catalogs in en/es/fr/de/pt-BR
+  (#162 / R14-i18n-viewer-editor-detail-chrome).
 - Landing What's new card links to a full `/whats-new` history page
   that scrolls every user-visible entry. Entries under a
   `## [X.Y.Z] - YYYY-MM-DD` banner in
