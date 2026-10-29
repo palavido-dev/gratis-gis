@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| SEC-stac-collections-throttle | research-cycle-15 | Public STAC collections + collection id @Throttle 60/min | PR open |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-stac-collections-throttle | research-cycle-15 | Public STAC collections + collection id @Throttle 60/min | Deferred from R14; rows() scan |
 | SEC-ogc-styles-list-throttle | research-cycle-15 | Public OGC Styles list (+ style/metadata) @Throttle 60/min | Full public layer findMany |
 | SEC-records-item-throttle | research-cycle-15 | Public Records + catalog single-item GETs @Throttle 60/min | Match list 60/min gap |
 | SEC-aardvark-throttle | research-cycle-15 | Public Aardvark :itemId.json @Throttle 60/min | Harvest scrape path |

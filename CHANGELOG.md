@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public STAC collections landing (`GET /api/public/stac/collections`
+  and `GET /collections/:id`) is rate-limited at 60 requests per
+  minute (same budget as STAC items/search).
+
 ## [0.9.123] - 2026-10-29
 
 ### Fixed

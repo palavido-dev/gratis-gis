@@ -205,7 +205,9 @@ Cite menu.
 A full STAC API root at `/api/public/stac`, with collections and both
 GET and POST item search. This is the endpoint newer QGIS releases use
 to browse rasters without a plugin. Step-by-step setup is in
-**Browse public rasters from QGIS with STAC**.
+**Browse public rasters from QGIS with STAC**. Anonymous collections
+landing (`GET /collections` and `GET /collections/:id`), items, and
+search are rate-limited at **60 requests per minute** per IP.
 
 ### CSW 2.0.2
 
