@@ -36,6 +36,7 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| measure-flatten-pitch | 2026-10-29 | Merged #493: Measure auto-flattens pitched 3D while open so sketch matches ground/deed acres |
 | R15-what-is-gratisgis-honesty | 2026-10-29 | Merged #491: soften what-is-gratisgis.md ArcGIS Online sameness claims |
 | R15-i18n-share-geo-limit-chrome | 2026-10-29 | Merged #490: share Restrict-to-area dialog chrome i18n (#162) |
 | R15-i18n-basemap-editor-chrome | 2026-10-29 | Merged #489: basemap editor source / unsaved chrome i18n (#162) |
