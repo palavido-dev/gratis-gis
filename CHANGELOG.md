@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Map Measure area with 3D terrain: primary readout is **ground (slope)
+  surface** from the DEM when terrain is on; horizontal geodesic area
+  (parcel deed basis) stays listed underneath with perimeter. Pitched
+  views still look larger than planimetric footprints — flatten pitch
+  to compare with the scale bar.
+
 ## [0.9.122] - 2026-10-29
 
 ### Security
