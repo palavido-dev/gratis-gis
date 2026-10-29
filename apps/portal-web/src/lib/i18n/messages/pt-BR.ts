@@ -802,7 +802,13 @@ export const ptBR: Partial<CatalogShape> = {
     hintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     hintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. O 3D inclinado distorce a comparação com a barra de escala; zere a inclinação para conferir.',
+    hintAreaTerrain:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. O 3D inclinado distorce a comparação com a barra de escala.',
+    groundArea: 'Área do terreno',
+    horizontalLabel: 'Horizontal',
+    surfaceLabel: 'Superfície em declive',
+    perimeterLabel: 'Perímetro',
     newMeasurement: 'Nova medição',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -820,7 +826,13 @@ export const ptBR: Partial<CatalogShape> = {
     measureHintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     measureHintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. O 3D inclinado distorce a comparação com a barra de escala; zere a inclinação para conferir.',
+    measureHintAreaTerrain:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. O 3D inclinado distorce a comparação com a barra de escala.',
+    measureGroundArea: 'Área do terreno',
+    measureHorizontalLabel: 'Horizontal',
+    measureSurfaceLabel: 'Superfície em declive',
+    measurePerimeterLabel: 'Perímetro',
     newMeasurement: 'Nova medição',
     select: 'Selecionar',
     selectWithMode: 'Selecionar ({mode})',

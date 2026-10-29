@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-29 - Measure ground area on 3D terrain
+With elevation terrain on, Measure → Area shows ground (slope) surface acres as the main number, and still lists horizontal planimetric area underneath (the same basis as parcel acre fields). Pitched 3D makes sketches look larger than their map footprint — flatten the pitch and check the scale bar when comparing.
+
 ## [0.9.122] - 2026-10-29
 
 ## 2026-10-29 - Measure scale bar, more chrome languages, honest data-layer help

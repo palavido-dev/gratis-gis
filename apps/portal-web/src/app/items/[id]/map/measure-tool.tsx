@@ -23,6 +23,8 @@ import {
   formatLengthIn,
   lineLengthMeters,
   ringAreaSquareMeters,
+  ringPerimeterMeters,
+  terrainSurfaceAreaSquareMeters,
   type AreaUnit,
   type DistanceUnit,
 } from '@/lib/measure';
@@ -54,6 +56,8 @@ export function MeasureTool({
   const [mode, setMode] = useState<MeasureMode>('distance');
   const [lengthMeters, setLengthMeters] = useState<number | null>(null);
   const [areaSqm, setAreaSqm] = useState<number | null>(null);
+  const [surfaceSqm, setSurfaceSqm] = useState<number | null>(null);
+  const [perimeterMeters, setPerimeterMeters] = useState<number | null>(null);
   const [distanceUnit, setDistanceUnit] = useState<DistanceUnit>('miles');
   const [areaUnit, setAreaUnit] = useState<AreaUnit>('acres');
 
@@ -97,11 +101,26 @@ export function MeasureTool({
         Array.isArray(g.coordinates) &&
         g.coordinates[0]
       ) {
-        setAreaSqm(
-          ringAreaSquareMeters(
-            g.coordinates[0] as Array<[number, number]>,
-          ),
-        );
+        const ring = g.coordinates[0] as Array<[number, number]>;
+        setAreaSqm(ringAreaSquareMeters(ring));
+        setPerimeterMeters(ringPerimeterMeters(ring));
+        // Terrain surface (slope) area when a DEM is active. Secondary
+        // to horizontal geodesic — pitched 3D views make parcels look
+        // larger than their planimetric footprint; surface area only
+        // closes a few percent of that gap on WV relief, but it is the
+        // honest "ground" number when users ask for it.
+        if (map?.getTerrain()) {
+          const surface = terrainSurfaceAreaSquareMeters(ring, (lng, lat) => {
+            try {
+              return map.queryTerrainElevation([lng, lat]);
+            } catch {
+              return null;
+            }
+          });
+          setSurfaceSqm(surface);
+        } else {
+          setSurfaceSqm(null);
+        }
       }
     };
     draw.on('change', handleChange);
@@ -112,7 +131,7 @@ export function MeasureTool({
         /* unmount race */
       }
     };
-  }, [draw, ready, open]);
+  }, [draw, ready, open, map]);
 
   function clearMeasurement() {
     try {
@@ -122,6 +141,8 @@ export function MeasureTool({
     }
     setLengthMeters(null);
     setAreaSqm(null);
+    setSurfaceSqm(null);
+    setPerimeterMeters(null);
   }
 
   function switchMode(next: MeasureMode) {
@@ -140,6 +161,8 @@ export function MeasureTool({
     if (!open) {
       setLengthMeters(null);
       setAreaSqm(null);
+      setSurfaceSqm(null);
+      setPerimeterMeters(null);
       setMode('distance');
     }
   }, [open]);
@@ -248,21 +271,41 @@ export function MeasureTool({
           <p className="mb-1 text-xs font-medium text-ink-1">
             {mode === 'distance'
               ? t('mapMeasure.distance')
-              : t('mapMeasure.area')}
+              : surfaceSqm != null
+                ? t('mapMeasure.groundArea')
+                : t('mapMeasure.area')}
           </p>
           <p className="font-mono text-base font-semibold text-ink-0">
             {mode === 'distance'
               ? lengthMeters !== null
                 ? formatLengthIn(lengthMeters, distanceUnit)
                 : '—'
-              : areaSqm !== null
-                ? formatAreaIn(areaSqm, areaUnit)
-                : '—'}
+              : surfaceSqm != null
+                ? formatAreaIn(surfaceSqm, areaUnit)
+                : areaSqm !== null
+                  ? formatAreaIn(areaSqm, areaUnit)
+                  : '—'}
           </p>
-          {mode === 'area' && areaSqm !== null && areaUnit !== 'square-meters' ? (
-            <p className="mt-0.5 font-mono text-2xs text-muted">
-              {formatAreaIn(areaSqm, 'square-meters')}
-            </p>
+          {mode === 'area' && areaSqm !== null ? (
+            <div className="mt-0.5 space-y-0.5 font-mono text-2xs text-muted">
+              {surfaceSqm != null ? (
+                <p>
+                  {t('mapMeasure.horizontalLabel')}:{' '}
+                  {formatAreaIn(areaSqm, areaUnit)}
+                  {areaUnit !== 'square-meters'
+                    ? ` (${formatAreaIn(areaSqm, 'square-meters')})`
+                    : ''}
+                </p>
+              ) : areaUnit !== 'square-meters' ? (
+                <p>{formatAreaIn(areaSqm, 'square-meters')}</p>
+              ) : null}
+              {perimeterMeters != null ? (
+                <p>
+                  {t('mapMeasure.perimeterLabel')}:{' '}
+                  {formatLengthIn(perimeterMeters, distanceUnit)}
+                </p>
+              ) : null}
+            </div>
           ) : null}
           {mode === 'distance' &&
           lengthMeters !== null &&
@@ -273,7 +316,9 @@ export function MeasureTool({
           ) : null}
           <p className="mt-1 text-2xs text-muted">
             {mode === 'area'
-              ? t('mapMeasure.hintArea')
+              ? surfaceSqm != null
+                ? t('mapMeasure.hintAreaTerrain')
+                : t('mapMeasure.hintArea')
               : t('mapMeasure.hintDistance')}
           </p>
         </div>

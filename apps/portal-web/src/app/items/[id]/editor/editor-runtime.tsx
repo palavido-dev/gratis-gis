@@ -69,6 +69,8 @@ import {
   formatLengthIn,
   lineLengthMeters,
   ringAreaSquareMeters,
+  ringPerimeterMeters,
+  terrainSurfaceAreaSquareMeters,
 } from '@/lib/measure';
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
 import { useT } from '@/lib/i18n/locale-context';
@@ -520,6 +522,12 @@ export function EditorRuntime({
     number | null
   >(null);
   const [measureAreaSqm, setMeasureAreaSqm] = useState<number | null>(null);
+  const [measureSurfaceSqm, setMeasureSurfaceSqm] = useState<number | null>(
+    null,
+  );
+  const [measurePerimeterMeters, setMeasurePerimeterMeters] = useState<
+    number | null
+  >(null);
   // Per-mode unit pick. Defaults track AGO's US-friendly imperial
   // defaults; the user can flip via the dropdown and the readout
   // re-formats live.
@@ -852,10 +860,24 @@ export function EditorRuntime({
         Array.isArray(g.coordinates) &&
         g.coordinates[0]
       ) {
-        const a = ringAreaSquareMeters(
-          g.coordinates[0] as Array<[number, number]>,
-        );
-        setMeasureAreaSqm(a);
+        const ring = g.coordinates[0] as Array<[number, number]>;
+        setMeasureAreaSqm(ringAreaSquareMeters(ring));
+        setMeasurePerimeterMeters(ringPerimeterMeters(ring));
+        if (mapInstance?.getTerrain()) {
+          const surface = terrainSurfaceAreaSquareMeters(
+            ring,
+            (lng, lat) => {
+              try {
+                return mapInstance.queryTerrainElevation([lng, lat]);
+              } catch {
+                return null;
+              }
+            },
+          );
+          setMeasureSurfaceSqm(surface);
+        } else {
+          setMeasureSurfaceSqm(null);
+        }
       }
     };
     draw.on('change', handleChange);
@@ -883,6 +905,8 @@ export function EditorRuntime({
     measureFeatureIdRef.current = null;
     setMeasureLengthMeters(null);
     setMeasureAreaSqm(null);
+    setMeasureSurfaceSqm(null);
+    setMeasurePerimeterMeters(null);
   }
 
   // Switch sub-mode without exiting the tool. Clears the existing
@@ -3295,7 +3319,9 @@ export function EditorRuntime({
                 <p className="mb-1 text-xs font-medium text-ink-1">
                   {measureMode === 'distance'
                     ? t('editorRuntime.distance')
-                    : t('editorRuntime.area')}
+                    : measureSurfaceSqm != null
+                      ? t('editorRuntime.measureGroundArea')
+                      : t('editorRuntime.area')}
                 </p>
                 <p className="font-mono text-base font-semibold text-ink-0">
                   {measureMode === 'distance'
@@ -3305,13 +3331,41 @@ export function EditorRuntime({
                           measureDistanceUnit,
                         )
                       : '—'
-                    : measureAreaSqm !== null
-                      ? formatAreaIn(measureAreaSqm, measureAreaUnit)
-                      : '—'}
+                    : measureSurfaceSqm != null
+                      ? formatAreaIn(measureSurfaceSqm, measureAreaUnit)
+                      : measureAreaSqm !== null
+                        ? formatAreaIn(measureAreaSqm, measureAreaUnit)
+                        : '—'}
                 </p>
+                {measureMode === 'area' && measureAreaSqm !== null ? (
+                  <div className="mt-0.5 space-y-0.5 font-mono text-2xs text-muted">
+                    {measureSurfaceSqm != null ? (
+                      <p>
+                        {t('editorRuntime.measureHorizontalLabel')}:{' '}
+                        {formatAreaIn(measureAreaSqm, measureAreaUnit)}
+                        {measureAreaUnit !== 'square-meters'
+                          ? ` (${formatAreaIn(measureAreaSqm, 'square-meters')})`
+                          : ''}
+                      </p>
+                    ) : measureAreaUnit !== 'square-meters' ? (
+                      <p>{formatAreaIn(measureAreaSqm, 'square-meters')}</p>
+                    ) : null}
+                    {measurePerimeterMeters != null ? (
+                      <p>
+                        {t('editorRuntime.measurePerimeterLabel')}:{' '}
+                        {formatLengthIn(
+                          measurePerimeterMeters,
+                          measureDistanceUnit,
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <p className="mt-1 text-2xs text-muted">
                   {measureMode === 'area'
-                    ? t('editorRuntime.measureHintArea')
+                    ? measureSurfaceSqm != null
+                      ? t('editorRuntime.measureHintAreaTerrain')
+                      : t('editorRuntime.measureHintArea')
                     : t('editorRuntime.measureHintDistance')}
                 </p>
               </div>
