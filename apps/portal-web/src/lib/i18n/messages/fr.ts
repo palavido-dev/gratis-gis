@@ -1443,6 +1443,20 @@ export const fr: Partial<CatalogShape> = {
     entryNumber: 'Entrée {n}',
     noAnswer: 'Sans réponse',
   },
+  recipeEditor: {
+    startFromTemplate: 'Partir d’un modèle',
+    startFromTemplateHint:
+      'Créez une recette fonctionnelle en un clic. Vous pourrez tout modifier ensuite.',
+    selectionCap: 'Plafond de sélection',
+    selectionCapHint:
+      'Nombre maximal d’identifiants d’entités renvoyés par exécution. La bannière d’exécution avertit l’utilisateur lorsque la limite est atteinte pour indiquer que la sélection est incomplète.',
+    parameters: 'Paramètres',
+    areaOfInterest: 'Zone d’intérêt',
+    areaOfInterestParameter: 'Paramètre de zone d’intérêt',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Supprimer le paramètre',
+    removeStepAria: 'Supprimer l’étape',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

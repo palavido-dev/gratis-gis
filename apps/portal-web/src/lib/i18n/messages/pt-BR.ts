@@ -1440,6 +1440,20 @@ export const ptBR: Partial<CatalogShape> = {
     entryNumber: 'Entrada {n}',
     noAnswer: 'Sem resposta',
   },
+  recipeEditor: {
+    startFromTemplate: 'Começar a partir de um modelo',
+    startFromTemplateHint:
+      'Monte uma receita funcional com um clique. Você pode editar tudo depois.',
+    selectionCap: 'Limite de seleção',
+    selectionCapHint:
+      'Máximo de ids de feições retornados por execução. O aviso em tempo de execução alerta quando o limite é atingido para que se saiba que a seleção está incompleta.',
+    parameters: 'Parâmetros',
+    areaOfInterest: 'Área de interesse',
+    areaOfInterestParameter: 'Parâmetro de área de interesse',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Remover parâmetro',
+    removeStepAria: 'Remover etapa',
+  },
   printTemplate: {
     paper: 'Papel',
     size: 'Tamanho',

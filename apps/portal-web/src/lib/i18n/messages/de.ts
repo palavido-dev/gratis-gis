@@ -1444,6 +1444,20 @@ export const de: Partial<CatalogShape> = {
     entryNumber: 'Eintrag {n}',
     noAnswer: 'Keine Antwort',
   },
+  recipeEditor: {
+    startFromTemplate: 'Von einer Vorlage starten',
+    startFromTemplateHint:
+      'Erzeugen Sie mit einem Klick eine funktionierende Rezeptur. Sie können danach alles bearbeiten.',
+    selectionCap: 'Auswahlobergrenze',
+    selectionCapHint:
+      'Maximale Feature-IDs pro Lauf. Die Laufzeit-Banner warnt, wenn das Limit erreicht ist, damit klar ist, dass die Auswahl unvollständig ist.',
+    parameters: 'Parameter',
+    areaOfInterest: 'Interessensgebiet',
+    areaOfInterestParameter: 'Interessensgebiet-Parameter',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Parameter entfernen',
+    removeStepAria: 'Schritt entfernen',
+  },
   printTemplate: {
     paper: 'Papier',
     size: 'Format',

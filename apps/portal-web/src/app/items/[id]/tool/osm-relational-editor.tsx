@@ -25,6 +25,7 @@ import type {
   OsmRelationalQueryAction,
   OsmTagFilter,
 } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   action: OsmRelationalQueryAction;
@@ -47,6 +48,7 @@ const rowRemoveBtnCls =
 type Catalog = Array<{ id: string; label: string; category: string }>;
 
 export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
+  const t = useT();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -472,7 +474,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
 
       <div className={sectionCls}>
         <div className={sectionHeaderCls}>
-          <span>Area of interest</span>
+          <span>{t('recipeEditor.areaOfInterest')}</span>
         </div>
         <p className="text-2xs text-muted">
           Defaulted to a drawn polygon: the runtime user draws the
