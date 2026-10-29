@@ -3134,6 +3134,40 @@ export const es: Partial<CatalogShape> = {
     expiryDialogLabel: 'Caducidad del permiso',
     days: '{count, plural, one {# día} other {# días}}',
     set: 'Definir',
+    geoLimit: {
+      title: 'Restringir a un área',
+      description:
+        'Limita lo que {principal} puede ver en este elemento a las entidades dentro de un polígono. Los elementos cuyo bbox no intersecta también se ocultan. Los administradores están exentos.',
+      modeBoundary: 'Límite',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Cuadro delimitador',
+      boundaryLabel: 'Límite',
+      pickBoundary: 'Elige un límite...',
+      noBoundaries: 'No hay límites que puedas ver',
+      boundaryHint:
+        'El permiso guarda una referencia al elemento de límite. Las ediciones a la geometría del límite se propagan a todos los permisos que lo apuntan sin volver a guardar.',
+      createBoundaryLead: '¿Necesitas dibujar uno?',
+      createBoundaryLink: 'Crear un elemento Boundary',
+      createBoundaryTail:
+        '. Su editor tiene una pestaña Dibujar para trazar un polígono en el mapa. Guárdalo y aparecerá aquí.',
+      pasteGeojson: 'Pegar GeoJSON',
+      geojsonHint:
+        'Acepta Polygon, MultiPolygon, Feature o FeatureCollection. Coordenadas EPSG:4326 (lng, lat).',
+      minLng: 'Lng mín. (oeste)',
+      minLat: 'Lat mín. (sur)',
+      maxLng: 'Lng máx. (este)',
+      maxLat: 'Lat máx. (norte)',
+      clearRestriction: 'Quitar restricción',
+      needInput: 'Elige un límite, pega un polígono o introduce un cuadro delimitador.',
+      boundaryMissing: 'El límite seleccionado no está en tu biblioteca visible.',
+      expectedGeojson:
+        'Se esperaba un GeoJSON Polygon, MultiPolygon, Feature o FeatureCollection que contenga uno.',
+      invalidJson: 'JSON no válido: {detail}',
+      minLessThanMax: 'el mínimo debe ser menor que el máximo en ambos ejes.',
+      invalidWgs84: 'Las coordenadas deben ser WGS84 válidas (lon ±180, lat ±90).',
+      summaryBoundary: 'Límite: {title}',
+      summaryRectangle: 'Rectángulo · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Sin coincidencias.',

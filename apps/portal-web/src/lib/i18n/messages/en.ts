@@ -3258,6 +3258,41 @@ export const en = {
     expiryDialogLabel: 'Share expiry',
     days: '{count, plural, one {# day} other {# days}}',
     set: 'Set',
+    /** Restrict-to-area dialog chrome (#162 / R15-i18n-share-geo-limit-chrome). */
+    geoLimit: {
+      title: 'Restrict to area',
+      description:
+        'Limit what {principal} can see on this item to features within a polygon. Items whose bbox doesn\'t intersect are also hidden. Admins are exempt.',
+      modeBoundary: 'Boundary',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Bounding box',
+      boundaryLabel: 'Boundary',
+      pickBoundary: 'Pick a boundary...',
+      noBoundaries: 'No boundaries you can see',
+      boundaryHint:
+        "The share stores a reference to the boundary item. Edits to the boundary's geometry flow through to every share that points at it without re-saving.",
+      createBoundaryLead: 'Need to draw one?',
+      createBoundaryLink: 'Create a Boundary item',
+      createBoundaryTail:
+        ". Its editor has a Draw tab that lets you trace a polygon directly on a map. Save it and it'll show up here.",
+      pasteGeojson: 'Paste GeoJSON',
+      geojsonHint:
+        'Accepts a Polygon, MultiPolygon, Feature, or FeatureCollection. EPSG:4326 coordinates (lng, lat).',
+      minLng: 'Min lng (west)',
+      minLat: 'Min lat (south)',
+      maxLng: 'Max lng (east)',
+      maxLat: 'Max lat (north)',
+      clearRestriction: 'Clear restriction',
+      needInput: 'Pick a boundary, paste a polygon, or enter a bounding box.',
+      boundaryMissing: 'Selected boundary is not in your visible library.',
+      expectedGeojson:
+        'Expected a GeoJSON Polygon, MultiPolygon, Feature, or FeatureCollection containing one.',
+      invalidJson: 'Invalid JSON: {detail}',
+      minLessThanMax: 'min must be less than max on both axes.',
+      invalidWgs84: 'Coordinates must be valid WGS84 (lon ±180, lat ±90).',
+      summaryBoundary: 'Boundary: {title}',
+      summaryRectangle: 'Rectangle · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'No matches.',

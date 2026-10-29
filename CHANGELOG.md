@@ -9,6 +9,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Share Restrict-to-area dialog chrome uses i18n catalogs (#162)
+  under `sharing.geoLimit`; Cancel/Save reuse common.*.
 - Basemap editor chrome (Basemap source, Preview, No changes, save
   footer) uses i18n catalogs (#162); save footer reuses
   serviceEditors / common.save.

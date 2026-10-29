@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R15-i18n-basemap-editor-chrome | research-cycle-15 / #162 | Basemap editor source / unsaved chrome i18n | PR open |
+| R15-i18n-share-geo-limit-chrome | research-cycle-15 / #162 | Share Restrict-to-area dialog chrome i18n | PR open |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R15-i18n-share-geo-limit-chrome | research-cycle-15 / #162 | Share Restrict-to-area dialog chrome i18n | After #459 sharing panel |
 | R15-what-is-gratisgis-honesty | research-cycle-15 | Soften what-is-gratisgis.md ArcGIS Online sameness claim | Front-door honesty |
 
 Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
@@ -30,6 +29,7 @@ Research done: [research-cycle-15.json](./research-cycle-15.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| R15-i18n-basemap-editor-chrome | 2026-10-29 | Merged #489: basemap editor source / unsaved chrome i18n (#162) |
 | R15-i18n-recipe-editor-chrome | 2026-10-29 | Merged #488: recipe-editor template/params/AOI/Pipeline chrome i18n (#162) |
 | R15-i18n-form-responses-chrome | 2026-10-29 | Merged #487: form responses Previous/Next/Submitted/empty chrome i18n (#162) |
 | SEC-aardvark-throttle | 2026-10-29 | Merged #486: Public Aardvark :itemId.json @Throttle 60/min |
