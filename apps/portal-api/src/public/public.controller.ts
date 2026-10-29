@@ -813,6 +813,9 @@ export class PublicController {
    * the features-page mirror above.
    */
   @Public()
+  // Tighter than the global 300/min: filtered-extent runs PostGIS
+  // extent work with where/via/asOf (SEC-public-filtered-extent-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/filtered-extent')
   async layerFilteredExtent(
     @Param('id') itemId: string,

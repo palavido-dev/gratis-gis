@@ -7,6 +7,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public layer `/filtered-extent` is rate-limited at 60 requests per
+  minute.
+
 ### Documentation
 
 - Data layer help no longer calls GratisGIS the "native equivalent"
