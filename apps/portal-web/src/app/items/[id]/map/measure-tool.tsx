@@ -71,8 +71,8 @@ export function MeasureTool({
 
   // Pitched 3D foreshortens the view: a sketch that looks like it
   // covers a ~144 ac parcel can honestly be ~58 ac planimetric.
-  // Flatten while measuring so the ring matches what the user sees;
-  // restore the prior pitch on close.
+  // Jump to top-down + lock maxPitch while open so every vertex
+  // lands under a flat camera; restore pitch on close.
   useEffect(() => {
     if (!open || !map) return;
     return flattenPitchForMeasure(map);

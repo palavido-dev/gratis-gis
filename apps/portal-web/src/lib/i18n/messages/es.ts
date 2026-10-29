@@ -806,9 +806,9 @@ export const es: Partial<CatalogShape> = {
     hintDistance:
       'Haz clic para añadir puntos en el mapa. Haz doble clic para terminar. Compáralo con la barra de escala.',
     hintArea:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. Medir aplana el 3D inclinado para que el dibujo coincida con la barra de escala.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. Medir bloquea el mapa en vista cenital para que el dibujo coincida con la barra de escala.',
     hintAreaTerrain:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. Medir aplana el 3D inclinado para que el dibujo coincida con la barra de escala.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. Medir bloquea el mapa en vista cenital para que el dibujo coincida con la barra de escala.',
     groundArea: 'Área del terreno',
     horizontalLabel: 'Horizontal',
     surfaceLabel: 'Superficie en pendiente',
@@ -830,9 +830,9 @@ export const es: Partial<CatalogShape> = {
     measureHintDistance:
       'Haz clic para añadir puntos en el mapa. Haz doble clic para terminar. Compáralo con la barra de escala.',
     measureHintArea:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. Medir aplana el 3D inclinado para que el dibujo coincida con la barra de escala.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El área es horizontal (geodésica), la misma base que los campos de acres de parcelas. Medir bloquea el mapa en vista cenital para que el dibujo coincida con la barra de escala.',
     measureHintAreaTerrain:
-      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. Medir aplana el 3D inclinado para que el dibujo coincida con la barra de escala.',
+      'Haz clic para añadir vértices en el mapa. Haz doble clic para terminar. El número principal es el área del terreno (pendiente) sobre el MDE. El área horizontal planimétrica (base de escrituras) aparece abajo. Medir bloquea el mapa en vista cenital para que el dibujo coincida con la barra de escala.',
     measureGroundArea: 'Área del terreno',
     measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Superficie en pendiente',

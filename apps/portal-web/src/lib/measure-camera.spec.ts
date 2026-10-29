@@ -17,31 +17,71 @@ describe('shouldFlattenPitchForMeasure', () => {
 });
 
 describe('flattenPitchForMeasure', () => {
-  it('eases to pitch 0 and restores on cleanup', () => {
-    const calls: Array<{ pitch: number; duration?: number }> = [];
+  it('jumps to pitch 0, locks maxPitch, and restores both on cleanup', () => {
+    const jumps: Array<{ pitch: number }> = [];
+    const eases: Array<{ pitch: number; duration?: number }> = [];
+    const maxPitches: number[] = [];
     const map = {
       getPitch: () => 48,
+      getMaxPitch: () => 85,
+      setMaxPitch: (p: number) => {
+        maxPitches.push(p);
+      },
+      jumpTo: (opts: { pitch: number }) => {
+        jumps.push(opts);
+      },
       easeTo: (opts: { pitch: number; duration?: number }) => {
-        calls.push(opts);
+        eases.push(opts);
       },
     };
     const restore = flattenPitchForMeasure(map);
-    expect(calls).toEqual([{ pitch: 0, duration: 280 }]);
+    expect(jumps).toEqual([{ pitch: 0 }]);
+    expect(maxPitches).toEqual([0]);
+    expect(eases).toEqual([]);
     restore();
-    expect(calls).toEqual([
-      { pitch: 0, duration: 280 },
-      { pitch: 48, duration: 280 },
-    ]);
+    expect(maxPitches).toEqual([0, 85]);
+    expect(eases).toEqual([{ pitch: 48, duration: 280 }]);
   });
 
-  it('is a no-op when already flat', () => {
-    const calls: unknown[] = [];
+  it('locks maxPitch even when already flat', () => {
+    const maxPitches: number[] = [];
+    const jumps: unknown[] = [];
     const restore = flattenPitchForMeasure({
       getPitch: () => 0,
-      easeTo: (opts) => calls.push(opts),
+      getMaxPitch: () => 85,
+      setMaxPitch: (p) => maxPitches.push(p),
+      jumpTo: (opts) => jumps.push(opts),
     });
-    expect(calls).toEqual([]);
+    expect(jumps).toEqual([]);
+    expect(maxPitches).toEqual([0]);
     restore();
-    expect(calls).toEqual([]);
+    expect(maxPitches).toEqual([0, 85]);
+  });
+
+  it('falls back to setPitch when jumpTo is missing', () => {
+    const pitches: number[] = [];
+    const map = {
+      getPitch: () => 60,
+      setPitch: (pitch: number) => {
+        pitches.push(pitch);
+      },
+    };
+    const restore = flattenPitchForMeasure(map);
+    expect(pitches).toEqual([0]);
+    restore();
+    expect(pitches).toEqual([0, 60]);
+  });
+
+  it('is a no-op when already flat and maxPitch unlocked', () => {
+    const jumps: unknown[] = [];
+    const restore = flattenPitchForMeasure({
+      getPitch: () => 0,
+      getMaxPitch: () => 0,
+      setMaxPitch: () => undefined,
+      jumpTo: (opts) => jumps.push(opts),
+    });
+    expect(jumps).toEqual([]);
+    restore();
+    expect(jumps).toEqual([]);
   });
 });

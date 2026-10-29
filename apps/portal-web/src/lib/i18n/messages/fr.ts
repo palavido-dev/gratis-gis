@@ -804,9 +804,9 @@ export const fr: Partial<CatalogShape> = {
     hintDistance:
       'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     hintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface est horizontale (géodésique) — la même base que les acres des parcelles. Mesurer aplatit le 3D incliné pour que le croquis corresponde à l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface est horizontale (géodésique) — la même base que les acres des parcelles. Mesurer verrouille la carte en vue de dessus pour que le croquis corresponde à l’échelle.',
     hintAreaTerrain:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Le chiffre principal est la surface au sol (pente) sur le MNT. La surface horizontale planimétrique (base des actes) est listée en dessous. Mesurer aplatit le 3D incliné pour que le croquis corresponde à l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Le chiffre principal est la surface au sol (pente) sur le MNT. La surface horizontale planimétrique (base des actes) est listée en dessous. Mesurer verrouille la carte en vue de dessus pour que le croquis corresponde à l’échelle.',
     groundArea: 'Surface au sol',
     horizontalLabel: 'Horizontale',
     surfaceLabel: 'Surface en pente',
@@ -828,9 +828,9 @@ export const fr: Partial<CatalogShape> = {
     measureHintDistance:
       'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     measureHintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface est horizontale (géodésique) — la même base que les acres des parcelles. Mesurer aplatit le 3D incliné pour que le croquis corresponde à l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface est horizontale (géodésique) — la même base que les acres des parcelles. Mesurer verrouille la carte en vue de dessus pour que le croquis corresponde à l’échelle.',
     measureHintAreaTerrain:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Le chiffre principal est la surface au sol (pente) sur le MNT. La surface horizontale planimétrique (base des actes) est listée en dessous. Mesurer aplatit le 3D incliné pour que le croquis corresponde à l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Le chiffre principal est la surface au sol (pente) sur le MNT. La surface horizontale planimétrique (base des actes) est listée en dessous. Mesurer verrouille la carte en vue de dessus pour que le croquis corresponde à l’échelle.',
     measureGroundArea: 'Surface au sol',
     measureHorizontalLabel: 'Horizontale',
     measureSurfaceLabel: 'Surface en pente',
