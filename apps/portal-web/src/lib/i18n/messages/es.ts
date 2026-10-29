@@ -1793,6 +1793,17 @@ export const es: Partial<CatalogShape> = {
       'Esta capa no tiene entidades con ubicación, así que no hay nada que mostrar en un mapa.',
     previewFailed: 'No se pudo cargar la vista previa',
     previewLoading: 'Cargando la vista previa',
+    backToItems: 'Volver a elementos',
+    sharingHeading: 'Compartir',
+    openForm: 'Abrir',
+    openFormTitle: 'Abrir el formulario para enviar una respuesta',
+    responses: 'Respuestas',
+    responsesTitle:
+      'Explorar las respuestas enviadas en un mapa y en la vista de formulario',
+    printTemplateDesignerTitle: 'Diseñador de plantillas de impresión',
+    printTemplateDesignerBody:
+      'Abre el constructor a pantalla completa para editar el diseño del papel, las posiciones de los elementos y los parámetros declarados.',
+    openBuilder: 'Abrir constructor',
   },
   itemTabs: {
     overview: 'Resumen',

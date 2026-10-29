@@ -580,6 +580,10 @@ export default async function ItemDetailPage(props: Props) {
     </>
   ) : null;
 
+  // Locale before accessBody / header chrome so Sharing / Back /
+  // Responses / Open builder can use catalogs (#162).
+  const locale = await getServerLocale();
+
   // Dependencies and sharing share a tab: "what else points at this"
   // and "who can see this" are the same question from two sides, and
   // both are things you check before you change or share something.
@@ -595,7 +599,7 @@ export default async function ItemDetailPage(props: Props) {
         <section id="sharing" className="mb-8">
           <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
             <Users className="h-4 w-4" />
-            Sharing
+            {t('itemDetail.sharingHeading', undefined, locale)}
           </h2>
           {/* #91: forms have a paired data_layer where every
               submission lands; the form's own ACL controls who can
@@ -657,7 +661,6 @@ export default async function ItemDetailPage(props: Props) {
   );
 
   // Tabs after Overview, which ItemTabs supplies from its children.
-  const locale = await getServerLocale();
   const sideTabs: ItemTabSpec[] = [
     ...(v3Data
       ? [
@@ -714,7 +717,7 @@ export default async function ItemDetailPage(props: Props) {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to items
+        {t('itemDetail.backToItems', undefined, locale)}
       </Link>
       {/* Compact header: single row with badge, title, chips, and
           actions. Description / owner / updated / tags collapse into
@@ -769,20 +772,20 @@ export default async function ItemDetailPage(props: Props) {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-accent px-3 text-xs font-medium text-white shadow-card hover:bg-accent/90"
-              title="Open the form to submit a response"
+              title={t('itemDetail.openFormTitle', undefined, locale)}
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Open
+              {t('itemDetail.openForm', undefined, locale)}
             </a>
             <a
               href={`/items/${item.id}/responses`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-              title="Browse submitted responses on a map and through the form view"
+              title={t('itemDetail.responsesTitle', undefined, locale)}
             >
               <ClipboardList className="h-3.5 w-3.5" />
-              Responses
+              {t('itemDetail.responses', undefined, locale)}
             </a>
           </div>
         ) : null}
@@ -1455,10 +1458,11 @@ export default async function ItemDetailPage(props: Props) {
         // chrome).
         (<section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-[min(100%,14rem)] flex-1">
-            <p className="text-sm font-medium text-ink-0">Print template designer</p>
+            <p className="text-sm font-medium text-ink-0">
+              {t('itemDetail.printTemplateDesignerTitle', undefined, locale)}
+            </p>
             <p className="mt-0.5 text-xs text-muted">
-              Open the full-screen builder to edit the paper layout,
-              element positions, and declared parameters.
+              {t('itemDetail.printTemplateDesignerBody', undefined, locale)}
             </p>
           </div>
           {canManage ? (
@@ -1466,7 +1470,7 @@ export default async function ItemDetailPage(props: Props) {
               href={`/items/${item.id}?view=configure`}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90"
             >
-              Open builder
+              {t('itemDetail.openBuilder', undefined, locale)}
             </Link>
           ) : null}
         </section>)

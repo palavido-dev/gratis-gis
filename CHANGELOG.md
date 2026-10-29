@@ -9,6 +9,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Item detail chrome (Back to items, Sharing heading, form Open /
+  Responses, print-template Open builder) uses i18n catalogs (#162).
 - Map Measure pane no longer covers the ScaleControl. The geodesic
   area/distance math was already correct (prod check: a scale-bar
   width measures ~98.5 m against a 100 m bar); covering the bar made

@@ -1797,6 +1797,17 @@ export const fr: Partial<CatalogShape> = {
       "Cette couche n'a aucune entité localisée, il n'y a donc rien à afficher sur une carte.",
     previewFailed: "L'aperçu n'a pas pu être chargé",
     previewLoading: "Chargement de l'aperçu",
+    backToItems: 'Retour aux éléments',
+    sharingHeading: 'Partage',
+    openForm: 'Ouvrir',
+    openFormTitle: 'Ouvrir le formulaire pour envoyer une réponse',
+    responses: 'Réponses',
+    responsesTitle:
+      'Parcourir les réponses envoyées sur une carte et dans la vue formulaire',
+    printTemplateDesignerTitle: "Concepteur de modèles d'impression",
+    printTemplateDesignerBody:
+      'Ouvrez le constructeur plein écran pour modifier la mise en page papier, les positions des éléments et les paramètres déclarés.',
+    openBuilder: 'Ouvrir le constructeur',
   },
   itemTabs: {
     overview: "Vue d'ensemble",

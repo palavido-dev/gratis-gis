@@ -1798,6 +1798,17 @@ export const de: Partial<CatalogShape> = {
       'Dieser Layer hat keine Features mit Standort, daher gibt es auf einer Karte nichts zu zeigen.',
     previewFailed: 'Die Vorschau konnte nicht geladen werden',
     previewLoading: 'Vorschau wird geladen',
+    backToItems: 'Zurück zu Elementen',
+    sharingHeading: 'Freigabe',
+    openForm: 'Öffnen',
+    openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
+    responses: 'Antworten',
+    responsesTitle:
+      'Eingereichte Antworten auf einer Karte und in der Formularansicht durchsuchen',
+    printTemplateDesignerTitle: 'Druckvorlagen-Designer',
+    printTemplateDesignerBody:
+      'Öffnen Sie den Vollbild-Builder, um Papierlayout, Elementpositionen und deklarierte Parameter zu bearbeiten.',
+    openBuilder: 'Builder öffnen',
   },
   itemTabs: {
     overview: 'Übersicht',

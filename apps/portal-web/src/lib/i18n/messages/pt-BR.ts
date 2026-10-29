@@ -1787,6 +1787,17 @@ export const ptBR: Partial<CatalogShape> = {
       'Esta camada não tem feições com localização, então não há nada para mostrar em um mapa.',
     previewFailed: 'Não foi possível carregar a pré-visualização',
     previewLoading: 'Carregando a pré-visualização',
+    backToItems: 'Voltar aos itens',
+    sharingHeading: 'Compartilhamento',
+    openForm: 'Abrir',
+    openFormTitle: 'Abrir o formulário para enviar uma resposta',
+    responses: 'Respostas',
+    responsesTitle:
+      'Navegar pelas respostas enviadas em um mapa e na visualização de formulário',
+    printTemplateDesignerTitle: 'Designer de modelos de impressão',
+    printTemplateDesignerBody:
+      'Abra o construtor em tela cheia para editar o layout do papel, as posições dos elementos e os parâmetros declarados.',
+    openBuilder: 'Abrir construtor',
   },
   itemTabs: {
     overview: 'Visão geral',

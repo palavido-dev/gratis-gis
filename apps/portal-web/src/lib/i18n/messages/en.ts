@@ -1885,6 +1885,18 @@ export const en = {
       'This layer has no features with a location, so there is nothing to show on a map.',
     previewFailed: 'The preview could not be loaded',
     previewLoading: 'Loading the preview',
+    // Item page chrome (#162 / R14-i18n-item-page-chrome).
+    backToItems: 'Back to items',
+    sharingHeading: 'Sharing',
+    openForm: 'Open',
+    openFormTitle: 'Open the form to submit a response',
+    responses: 'Responses',
+    responsesTitle:
+      'Browse submitted responses on a map and through the form view',
+    printTemplateDesignerTitle: 'Print template designer',
+    printTemplateDesignerBody:
+      'Open the full-screen builder to edit the paper layout, element positions, and declared parameters.',
+    openBuilder: 'Open builder',
   },
   // #74 i18n backfill for the 2026-08-24 tabs + offline arc, which
   // shipped hardcoded English against the house rule.
