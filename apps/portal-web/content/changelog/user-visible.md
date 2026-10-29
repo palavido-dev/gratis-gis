@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [0.9.122] - 2026-10-29
+
+## 2026-10-29 - Measure scale bar, more chrome languages, honest data-layer help
+The Measure pane no longer covers the map scale bar, so pitched 3D area sketches have ground truth next to the readout. Folder, item, and print-template chrome join the language catalogs. Data layer help drops the “native Esri feature service” claim. Public catalog, CSW, and zoom-to-filter endpoints tighten anonymous rate limits further.
+
 ## [0.9.121] - 2026-10-28
 
 ## 2026-10-28 - Measure, print preview, and elevation profile

@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.122] - 2026-10-29
+
 ### Security
 
 - Public DCAT `GET /api/public/catalog.json` is rate-limited at 60
