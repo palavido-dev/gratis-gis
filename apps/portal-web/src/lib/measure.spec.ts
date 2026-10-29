@@ -4,6 +4,8 @@ import {
   formatLengthIn,
   lineLengthMeters,
   ringAreaSquareMeters,
+  ringPerimeterMeters,
+  terrainSurfaceAreaSquareMeters,
 } from './measure';
 
 const SQM_PER_ACRE = 4046.8564224;
@@ -99,5 +101,57 @@ describe('formatAreaIn / formatLengthIn', () => {
   it('formats meters for the scale-bar sanity check', () => {
     expect(formatLengthIn(100, 'meters')).toBe('100.0 m');
     expect(formatLengthIn(98.52, 'meters')).toBe('98.52 m');
+  });
+
+  it('matches the reported WV readout (58.41 ac ↔ 236382.1 m²)', () => {
+    // Locked to the screenshot numbers so a conversion/regression
+    // cannot silently reopen the "under-read" report.
+    expect(formatAreaIn(236_382.1, 'acres')).toBe('58.41 ac');
+    expect(formatAreaIn(236_382.1, 'square-meters')).toBe('236382.1 m²');
+  });
+});
+
+describe('ringPerimeterMeters', () => {
+  it('equals four sides of a ~1-acre square near the equator', () => {
+    const ring = squareRingAcres(-80, 0.1, 1);
+    const side = Math.sqrt(SQM_PER_ACRE);
+    const peri = ringPerimeterMeters(ring);
+    expect(peri).toBeGreaterThan(4 * side * 0.98);
+    expect(peri).toBeLessThan(4 * side * 1.02);
+  });
+});
+
+describe('terrainSurfaceAreaSquareMeters', () => {
+  it('matches planar area on a flat DEM', () => {
+    const ring = squareRingAcres(-80.07, 38.75, 10);
+    const planar = ringAreaSquareMeters(ring);
+    const surface = terrainSurfaceAreaSquareMeters(ring, () => 800, 40);
+    expect(surface).not.toBeNull();
+    expect(surface! / planar).toBeGreaterThan(0.97);
+    expect(surface! / planar).toBeLessThan(1.03);
+  });
+
+  it('is larger than planar on a uniform slope', () => {
+    // z = grade * east_meters → surface/planar ≈ sqrt(1 + grade²).
+    const ring = squareRingAcres(-80.07, 38.75, 10);
+    const planar = ringAreaSquareMeters(ring);
+    const grade = 1; // 45°
+    const originLng = -80.07;
+    const originLat = 38.75;
+    const mPerDegLng = 111_320 * Math.cos((originLat * Math.PI) / 180);
+    const surface = terrainSurfaceAreaSquareMeters(
+      ring,
+      (lng) => 800 + grade * (lng - originLng) * mPerDegLng,
+      48,
+    );
+    expect(surface).not.toBeNull();
+    const expectedRatio = Math.sqrt(1 + grade * grade);
+    expect(surface! / planar).toBeGreaterThan(expectedRatio * 0.95);
+    expect(surface! / planar).toBeLessThan(expectedRatio * 1.05);
+  });
+
+  it('returns null when elevation is unavailable', () => {
+    const ring = squareRingAcres(-80.07, 38.75, 1);
+    expect(terrainSurfaceAreaSquareMeters(ring, () => null)).toBeNull();
   });
 });

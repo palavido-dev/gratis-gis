@@ -844,7 +844,9 @@ export const en = {
     hintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     hintArea:
-      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic), not slope surface — check the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Primary area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare. When terrain is on, slope surface area is shown below.',
+    surfaceLabel: 'Slope surface',
+    perimeterLabel: 'Perimeter',
     newMeasurement: 'New measurement',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -863,7 +865,9 @@ export const en = {
     measureHintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     measureHintArea:
-      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic), not slope surface — check the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Primary area is horizontal ground (geodesic) — the same basis as parcel acre fields. Pitched 3D stretches what you see vs the scale bar; flatten pitch to compare. When terrain is on, slope surface area is shown below.',
+    measureSurfaceLabel: 'Slope surface',
+    measurePerimeterLabel: 'Perimeter',
     newMeasurement: 'New measurement',
     select: 'Select',
     selectWithMode: 'Select ({mode})',

@@ -802,7 +802,9 @@ export const ptBR: Partial<CatalogShape> = {
     hintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     hintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área principal é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. O 3D inclinado distorce a comparação com a barra de escala; zere a inclinação para conferir. Com terreno, a superfície em declive aparece abaixo.',
+    surfaceLabel: 'Superfície em declive',
+    perimeterLabel: 'Perímetro',
     newMeasurement: 'Nova medição',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -820,7 +822,9 @@ export const ptBR: Partial<CatalogShape> = {
     measureHintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     measureHintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. Área horizontal (geodésica), não a superfície em declive — confira a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área principal é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. O 3D inclinado distorce a comparação com a barra de escala; zere a inclinação para conferir. Com terreno, a superfície em declive aparece abaixo.',
+    measureSurfaceLabel: 'Superfície em declive',
+    measurePerimeterLabel: 'Perímetro',
     newMeasurement: 'Nova medição',
     select: 'Selecionar',
     selectWithMode: 'Selecionar ({mode})',

@@ -85,6 +85,139 @@ export function ringAreaSquareMeters(
 }
 
 /**
+ * Approximate 3D surface area on a DEM for a polygon outer ring.
+ *
+ * Samples a lng/lat grid of cells whose centers fall inside the
+ * ring, lifts each cell's four corners with `elevationAt`, and sums
+ * the two triangles per cell in a local east-north-up frame. Returns
+ * `null` when every sample lacks elevation (terrain not ready) so
+ * the UI can hide the surface readout rather than show 0.
+ *
+ * This is the "slope surface" number users sometimes want on pitched
+ * 3D maps. It is larger than {@link ringAreaSquareMeters} on relief
+ * and equal (within grid error) on flat ground. Not a substitute for
+ * survey-grade TIN area — good enough for a sketch tool.
+ */
+export function terrainSurfaceAreaSquareMeters(
+  ring: Array<[number, number]>,
+  elevationAt: (lng: number, lat: number) => number | null | undefined,
+  gridSize = 32,
+): number | null {
+  if (!ring || ring.length < 3) return null;
+  const points =
+    ring.length > 1 &&
+    ring[0]![0] === ring[ring.length - 1]![0] &&
+    ring[0]![1] === ring[ring.length - 1]![1]
+      ? ring.slice(0, -1)
+      : ring;
+  if (points.length < 3) return null;
+
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const [lng, lat] of points) {
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+  }
+  if (!(maxLng > minLng) || !(maxLat > minLat)) return null;
+
+  const midLng = (minLng + maxLng) / 2;
+  const midLat = (minLat + maxLat) / 2;
+  const mPerDegLat = 111_320;
+  const mPerDegLng = 111_320 * Math.cos(toRad(midLat));
+
+  const inside = (lng: number, lat: number): boolean => {
+    let odd = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const [xi, yi] = points[i]!;
+      const [xj, yj] = points[j]!;
+      if (
+        (yi > lat) !== (yj > lat) &&
+        lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+      ) {
+        odd = !odd;
+      }
+    }
+    return odd;
+  };
+
+  const toEnu = (lng: number, lat: number, z: number): [number, number, number] => [
+    (lng - midLng) * mPerDegLng,
+    (lat - midLat) * mPerDegLat,
+    z,
+  ];
+
+  const triArea = (
+    a: [number, number, number],
+    b: [number, number, number],
+    c: [number, number, number],
+  ): number => {
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]] as const;
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]] as const;
+    const cx = ab[1] * ac[2] - ab[2] * ac[1];
+    const cy = ab[2] * ac[0] - ab[0] * ac[2];
+    const cz = ab[0] * ac[1] - ab[1] * ac[0];
+    return 0.5 * Math.hypot(cx, cy, cz);
+  };
+
+  const n = Math.max(4, Math.min(64, Math.floor(gridSize)));
+  let area = 0;
+  let samples = 0;
+  for (let iy = 0; iy < n; iy += 1) {
+    for (let ix = 0; ix < n; ix += 1) {
+      const lng0 = minLng + ((maxLng - minLng) * ix) / n;
+      const lng1 = minLng + ((maxLng - minLng) * (ix + 1)) / n;
+      const lat0 = minLat + ((maxLat - minLat) * iy) / n;
+      const lat1 = minLat + ((maxLat - minLat) * (iy + 1)) / n;
+      const cLng = (lng0 + lng1) / 2;
+      const cLat = (lat0 + lat1) / 2;
+      if (!inside(cLng, cLat)) continue;
+      const corners: Array<[number, number]> = [
+        [lng0, lat0],
+        [lng1, lat0],
+        [lng1, lat1],
+        [lng0, lat1],
+      ];
+      const zs: number[] = [];
+      let missing = false;
+      for (const [lng, lat] of corners) {
+        const z = elevationAt(lng, lat);
+        if (z == null || !Number.isFinite(z)) {
+          missing = true;
+          break;
+        }
+        zs.push(z);
+      }
+      if (missing) continue;
+      const p = corners.map(([lng, lat], i) => toEnu(lng, lat, zs[i]!));
+      area += triArea(p[0]!, p[1]!, p[2]!) + triArea(p[0]!, p[2]!, p[3]!);
+      samples += 1;
+    }
+  }
+  if (samples === 0) return null;
+  return area;
+}
+
+/**
+ * Closed-ring perimeter in meters (haversine). Drops a repeated
+ * closing vertex so it is not double-counted.
+ */
+export function ringPerimeterMeters(ring: Array<[number, number]>): number {
+  if (!ring || ring.length < 2) return 0;
+  const points =
+    ring.length > 1 &&
+    ring[0]![0] === ring[ring.length - 1]![0] &&
+    ring[0]![1] === ring[ring.length - 1]![1]
+      ? ring.slice(0, -1)
+      : ring;
+  if (points.length < 2) return 0;
+  return lineLengthMeters([...points, points[0]!]);
+}
+
+/**
  * Format a length in meters into a human-friendly string.
  * Switches to km above 1000m. One decimal of precision is enough
  * for a measure tool; users who need more can read the raw

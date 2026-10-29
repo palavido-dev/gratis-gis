@@ -804,7 +804,9 @@ export const fr: Partial<CatalogShape> = {
     hintDistance:
       'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     hintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Surface horizontale (géodésique), pas la pente — vérifiez l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface principale est horizontale (géodésique) — la même base que les acres des parcelles. Le 3D incliné fausse la comparaison avec l’échelle ; remettez le tangage à 0 pour vérifier. Avec un MNT, la surface en pente s’affiche en dessous.',
+    surfaceLabel: 'Surface en pente',
+    perimeterLabel: 'Périmètre',
     newMeasurement: 'Nouvelle mesure',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -822,7 +824,9 @@ export const fr: Partial<CatalogShape> = {
     measureHintDistance:
       'Cliquez pour ajouter des points sur la carte. Double-cliquez pour terminer. Comparez avec l’échelle.',
     measureHintArea:
-      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. Surface horizontale (géodésique), pas la pente — vérifiez l’échelle.',
+      'Cliquez pour ajouter des sommets sur la carte. Double-cliquez pour terminer. La surface principale est horizontale (géodésique) — la même base que les acres des parcelles. Le 3D incliné fausse la comparaison avec l’échelle ; remettez le tangage à 0 pour vérifier. Avec un MNT, la surface en pente s’affiche en dessous.',
+    measureSurfaceLabel: 'Surface en pente',
+    measurePerimeterLabel: 'Périmètre',
     newMeasurement: 'Nouvelle mesure',
     select: 'Sélectionner',
     selectWithMode: 'Sélectionner ({mode})',

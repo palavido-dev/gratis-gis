@@ -804,7 +804,9 @@ export const de: Partial<CatalogShape> = {
     hintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     hintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Horizontale (geodätische) Fläche, keine Hangfläche — Maßstab prüfen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptfläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen. Mit Gelände erscheint die Hangfläche darunter.',
+    surfaceLabel: 'Hangfläche',
+    perimeterLabel: 'Umfang',
     newMeasurement: 'Neue Messung',
   },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
@@ -822,7 +824,9 @@ export const de: Partial<CatalogShape> = {
     measureHintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     measureHintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Horizontale (geodätische) Fläche, keine Hangfläche — Maßstab prüfen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptfläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen. Mit Gelände erscheint die Hangfläche darunter.',
+    measureSurfaceLabel: 'Hangfläche',
+    measurePerimeterLabel: 'Umfang',
     newMeasurement: 'Neue Messung',
     select: 'Auswählen',
     selectWithMode: 'Auswählen ({mode})',
