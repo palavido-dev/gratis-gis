@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | |
+| R14-i18n-folder-detail-chrome | research-cycle-14 | Folder detail Apply sharing / New subfolder / Add items (#162) | PR #471 |
 
 ## queued (ship-without-input)
 
