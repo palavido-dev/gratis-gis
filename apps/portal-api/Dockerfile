@@ -155,6 +155,11 @@ ARG PMTILES_XCRYPTO_VERSION=0.57.0
 # once the next one lands. Nothing here runs an xDS server, so it was
 # not reachable, but the pin has to move for the scan to agree.
 ARG PMTILES_GRPC_VERSION=1.83.2
+# CVE-2026-116587, HIGH: go-pmtiles pulls github.com/go-jose/go-jose/v4
+# v4.1.4 (RSA JWK parse DoS). Fixed upstream in 4.1.6. Offline tile
+# conversion does not parse attacker JWKs, but Trivy gates HIGH on the
+# image and cannot see that. Pin + assert like the other forced deps.
+ARG PMTILES_GOJOSE_VERSION=4.1.6
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
@@ -166,7 +171,7 @@ ENV CGO_ENABLED=0
 # main package from inside a module we control picks up our upgraded
 # x/text. Keep the two `go get` lines in this order: the second one
 # only sticks once go-pmtiles is in the graph.
-# The five `go get` lines are retried as a group because they are the
+# The go get lines are retried as a group because they are the
 # only network step here and sum.golang.org fails intermittently: on
 # 2026-09-09 both the build and the workflow's own retry died on
 # "reading https://sum.golang.org/tile/8/0/x016/711: stream error ...
@@ -174,13 +179,14 @@ ENV CGO_ENABLED=0
 # clean the day before. The backoff spans a longer window than two
 # back-to-back job attempts do. Checksum verification stays ON: the
 # fix for a flaky checksum server is to ask it again, never GONOSUMDB.
-# The build and the four assertions sit outside the loop on purpose,
+# The build and the assertions sit outside the loop on purpose,
 # because a retry around an assertion could paper over a real
 # downgrade instead of failing on it.
 # Order matters: google.golang.org/grpc@1.83.2 pulls golang.org/x/net
 # v0.58.0 and will silently downgrade a earlier x/net pin (that is what
 # broke the v0.60.0 assertion for CVE-2026-78669). Pin text/crypto/grpc
-# first, then x/net last so the floor sticks through to `go build`.
+# /go-jose first, then x/net last so the floor sticks through to
+# `go build`.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
     && for attempt in 1 2 3 4 5; do \
@@ -188,6 +194,7 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
             && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
             && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
             && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
+            && go get "github.com/go-jose/go-jose/v4@v${PMTILES_GOJOSE_VERSION}" \
             && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}"; then \
            break; \
          fi; \
@@ -202,7 +209,8 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/crypto[[:space:]]*v${PMTILES_XCRYPTO_VERSION}" \
-    && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}"
+    && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}" \
+    && go version -m /go/bin/go-pmtiles | grep -q "github.com/go-jose/go-jose/v4[[:space:]]*v${PMTILES_GOJOSE_VERSION}"
 
 FROM base AS runtime
 WORKDIR /app

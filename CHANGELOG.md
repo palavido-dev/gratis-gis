@@ -7,6 +7,21 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Bundled `pmtiles` binary forces
+  `github.com/go-jose/go-jose/v4` to 4.1.6 (CVE-2026-116587 HIGH;
+  RSA JWK parse DoS). Offline tile conversion does not parse
+  attacker JWKs; the pin clears Trivy HIGH on portal-api /
+  script-runner images (SEC-pmtiles-go-jose).
+- Public layer `/features` and `/geojson` mirrors are rate-limited at 60 requests per minute (MVT tiles unchanged).
+- Public layer `/aggregate` is rate-limited at 60 requests per minute.
+- Public OGC Features collection catalogue (`GET /collections` and
+  `GET /collections/:id`) is throttled at 60/min per IP (same as
+  Public OGC Features items; global default is 300/min). Cuts
+  anonymous catalogue scans without changing auth
+  (SEC-ogc-features-collections-throttle).
+
 ### Changed
 
 - Landing What's new card links to a full `/whats-new` history page
@@ -15,16 +30,6 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `apps/portal-web/content/changelog/user-visible.md` group by
   release; older undated-to-version notes stay under Earlier updates
   (0.9.120 is marked as the first banner).
-
-### Security
-
-- Public layer `/features` and `/geojson` mirrors are rate-limited at 60 requests per minute (MVT tiles unchanged).
-- Public layer `/aggregate` is rate-limited at 60 requests per minute.
-- Public OGC Features collection catalogue (`GET /collections` and
-  `GET /collections/:id`) is throttled at 60/min per IP (same as
-  Public OGC Features items; global default is 300/min). Cuts
-  anonymous catalogue scans without changing auth
-  (SEC-ogc-features-collections-throttle).
 
 ### Documentation
 
