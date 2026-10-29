@@ -1396,6 +1396,21 @@ export const es: Partial<CatalogShape> = {
   folders: {
     hide: 'Ocultar carpetas',
   },
+  folderDetail: {
+    applyFolderSharing: 'Aplicar uso compartido de la carpeta',
+    applyFolderSharingTitle:
+      'Aplica el uso compartido de esta carpeta a cada elemento que contiene. Cada elemento termina con las mismas filas de uso compartido que la carpeta.',
+    newSubfolder: 'Nueva subcarpeta',
+    newSubfolderTitle: 'Crear una subcarpeta nueva dentro de esta carpeta',
+    addItems: 'Añadir elementos',
+    addItemsTitle: 'Elegir elementos existentes para añadir a esta carpeta',
+    applySharing: 'Aplicar uso compartido',
+    applying: 'Aplicando...',
+    empty:
+      'Esta carpeta está vacía. Añade elementos desde la lista de elementos, o crea una subcarpeta.',
+    emptyHidden:
+      'No puedes ver ninguno de los elementos de esta carpeta. Pide al autor de la carpeta que los comparta contigo.',
+  },
   folderRail: {
     newButton: '+ Nueva',
     collapse: 'Contraer carpeta',

@@ -1393,6 +1393,21 @@ export const ptBR: Partial<CatalogShape> = {
   folders: {
     hide: 'Ocultar pastas',
   },
+  folderDetail: {
+    applyFolderSharing: 'Aplicar compartilhamento da pasta',
+    applyFolderSharingTitle:
+      'Aplica o compartilhamento desta pasta a cada item dentro dela. Cada item termina com as mesmas linhas de compartilhamento que a pasta.',
+    newSubfolder: 'Nova subpasta',
+    newSubfolderTitle: 'Criar uma nova subpasta dentro desta pasta',
+    addItems: 'Adicionar itens',
+    addItemsTitle: 'Escolher itens existentes para adicionar a esta pasta',
+    applySharing: 'Aplicar compartilhamento',
+    applying: 'Aplicando...',
+    empty:
+      'Esta pasta está vazia. Adicione itens da lista de itens, ou crie uma subpasta.',
+    emptyHidden:
+      'Você não consegue ver nenhum dos itens desta pasta. Peça ao autor da pasta para compartilhá-los com você.',
+  },
   folderRail: {
     newButton: '+ Nova',
     collapse: 'Recolher pasta',

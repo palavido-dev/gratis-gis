@@ -1397,6 +1397,21 @@ export const de: Partial<CatalogShape> = {
   folders: {
     hide: 'Ordner ausblenden',
   },
+  folderDetail: {
+    applyFolderSharing: 'Ordnerfreigabe anwenden',
+    applyFolderSharingTitle:
+      'Wendet die Freigabe dieses Ordners auf jedes Element darin an. Jedes Element erhält dieselben Freigabezeilen wie der Ordner.',
+    newSubfolder: 'Neuer Unterordner',
+    newSubfolderTitle: 'Einen neuen Unterordner in diesem Ordner erstellen',
+    addItems: 'Elemente hinzufügen',
+    addItemsTitle: 'Vorhandene Elemente auswählen, um sie diesem Ordner hinzuzufügen',
+    applySharing: 'Freigabe anwenden',
+    applying: 'Wird angewendet...',
+    empty:
+      'Dieser Ordner ist leer. Fügen Sie Elemente aus der Elementliste hinzu, oder erstellen Sie einen Unterordner.',
+    emptyHidden:
+      'Sie können keines der Elemente in diesem Ordner sehen. Bitten Sie den Ordnerautor, sie mit Ihnen zu teilen.',
+  },
   folderRail: {
     newButton: '+ Neu',
     collapse: 'Ordner einklappen',

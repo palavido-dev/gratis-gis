@@ -9,6 +9,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Folder detail chrome (Apply folder sharing, New subfolder, Add
+  items, empty states, Apply sharing dialog actions) uses i18n
+  catalogs (#162).
 - Item detail chrome (Back to items, Sharing heading, form Open /
   Responses, print-template Open builder) uses i18n catalogs (#162).
 - Map Measure pane no longer covers the ScaleControl. The geodesic

@@ -1440,6 +1440,22 @@ export const en = {
   folders: {
     hide: 'Hide folders',
   },
+  /** Folder item detail chrome (#162 / R14-i18n-folder-detail-chrome). */
+  folderDetail: {
+    applyFolderSharing: 'Apply folder sharing',
+    applyFolderSharingTitle:
+      "Apply this folder's sharing to every item inside it. Each item ends up with the same share rows the folder has.",
+    newSubfolder: 'New subfolder',
+    newSubfolderTitle: 'Create a new subfolder inside this folder',
+    addItems: 'Add items',
+    addItemsTitle: 'Pick existing items to add to this folder',
+    applySharing: 'Apply sharing',
+    applying: 'Applying...',
+    empty:
+      'This folder is empty. Add items from the items list, or create a subfolder.',
+    emptyHidden:
+      "You can't see any of the items currently in this folder. Ask the folder author to share them with you.",
+  },
   folderRail: {
     newButton: '+ New',
     collapse: 'Collapse folder',
