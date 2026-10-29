@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-csw-throttle | research-cycle-14 | @Throttle 60/min on Public CSW GetCapabilities / GetRecords | PR #476 |
+| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | PR #477 |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-catalog-json-throttle | research-cycle-14 | @Throttle 60/min on Public catalog.json DCAT dump | |
 
 ## queued (needs-maintainer)
 
@@ -27,6 +26,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-csw-throttle | 2026-10-29 | Merged #476: Public CSW GetCapabilities / GetRecords @Throttle 60/min |
 | SEC-public-filtered-extent-throttle | 2026-10-29 | Merged #475: Public layer filtered-extent @Throttle 60/min |
 | R14-data-layer-help-honesty | 2026-10-29 | Merged #474: soften data-layer.md Esri feature-service claim |
 | R14-i18n-print-template-chrome | 2026-10-29 | Merged #473: print template designer Paper / Zoom / Delete parameter i18n |
