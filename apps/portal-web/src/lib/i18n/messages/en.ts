@@ -844,9 +844,9 @@ export const en = {
     hintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     hintArea:
-      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure flattens pitched 3D so the sketch matches the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure locks the map top-down so the sketch matches the scale bar.',
     hintAreaTerrain:
-      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure flattens pitched 3D so the sketch matches the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure locks the map top-down so the sketch matches the scale bar.',
     groundArea: 'Ground area',
     horizontalLabel: 'Horizontal',
     surfaceLabel: 'Slope surface',
@@ -869,9 +869,9 @@ export const en = {
     measureHintDistance:
       'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
     measureHintArea:
-      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure flattens pitched 3D so the sketch matches the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure locks the map top-down so the sketch matches the scale bar.',
     measureHintAreaTerrain:
-      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure flattens pitched 3D so the sketch matches the scale bar.',
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure locks the map top-down so the sketch matches the scale bar.',
     measureGroundArea: 'Ground area',
     measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Slope surface',

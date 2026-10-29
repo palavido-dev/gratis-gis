@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-thumbnail-svg-throttle | research-cycle-16 | Public thumbnail.svg @Throttle 60/min | |
+| measure-flatten-immediate | user report | Measure jumpTo + maxPitch lock (no mid-pitch sketch) | Hardening after #493 |
 
 ## queued (ship-without-input)
 

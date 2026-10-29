@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Measure locks the map top-down immediately (and clamps maxPitch)
+  while open, so pitched 3D can no longer foreshorten a ground-area
+  sketch before the first vertex. Pitch restores on close.
+
 ### Security
 
 - Public item thumbnail SVG (`GET /api/portal/items/:id/thumbnail.svg`)

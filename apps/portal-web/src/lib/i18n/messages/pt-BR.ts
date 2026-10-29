@@ -802,9 +802,9 @@ export const ptBR: Partial<CatalogShape> = {
     hintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     hintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir achata o 3D inclinado para o desenho bater com a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
     hintAreaTerrain:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir achata o 3D inclinado para o desenho bater com a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
     groundArea: 'Área do terreno',
     horizontalLabel: 'Horizontal',
     surfaceLabel: 'Superfície em declive',
@@ -826,9 +826,9 @@ export const ptBR: Partial<CatalogShape> = {
     measureHintDistance:
       'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     measureHintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir achata o 3D inclinado para o desenho bater com a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
     measureHintAreaTerrain:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir achata o 3D inclinado para o desenho bater com a barra de escala.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
     measureGroundArea: 'Área do terreno',
     measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Superfície em declive',

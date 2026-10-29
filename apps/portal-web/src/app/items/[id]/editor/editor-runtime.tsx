@@ -891,9 +891,9 @@ export function EditorRuntime({
     };
   }, [activeTool, measureMode, mapInstance, drawReady]);
 
-  // Flatten pitched 3D while measuring so the sketched ring matches
-  // what the user sees (pitch foreshortening was the ~58 vs ~144 ac
-  // report). Restore prior pitch when leaving the tool.
+  // Jump to top-down + lock maxPitch while measuring so the sketched
+  // ring matches what the user sees (pitch foreshortening was the
+  // ~58 vs ~144 ac report). Restore prior pitch when leaving.
   useEffect(() => {
     if (activeTool !== 'measure' || !mapInstance) return;
     return flattenPitchForMeasure(mapInstance);
