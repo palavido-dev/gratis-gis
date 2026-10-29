@@ -1489,6 +1489,21 @@ export const en = {
     entryNumber: 'Entry {n}',
     noAnswer: 'No answer',
   },
+  /** Tool recipe-editor chrome (#162 / R15-i18n-recipe-editor-chrome). */
+  recipeEditor: {
+    startFromTemplate: 'Start from a template',
+    startFromTemplateHint:
+      'Stamp out a working recipe in one click.  You can edit anything afterward.',
+    selectionCap: 'Selection cap',
+    selectionCapHint:
+      'Maximum feature ids returned per run.  The runtime banner warns the user when the limit is reached so they know the selection is incomplete.',
+    parameters: 'Parameters',
+    areaOfInterest: 'Area of interest',
+    areaOfInterestParameter: 'Area of interest parameter',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Remove parameter',
+    removeStepAria: 'Remove step',
+  },
   /** Print template designer chrome (#162 / R14-i18n-print-template-chrome). */
   printTemplate: {
     paper: 'Paper',

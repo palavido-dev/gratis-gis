@@ -47,6 +47,7 @@ import {
   UNIT_LABELS,
 } from '@gratis-gis/shared-types';
 import { commitChain, syncSteps } from '@/lib/workflow-canvas';
+import { useT } from '@/lib/i18n/locale-context';
 import { WorkflowCanvas } from './workflow-canvas';
 
 const PREDICATE_LABELS: Record<SpatialPredicate, string> = {
@@ -72,6 +73,7 @@ interface Props {
 }
 
 export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
+  const t = useT();
   const labelCls =
     'block text-xs font-medium uppercase tracking-wide text-muted';
   const inputCls =
@@ -112,11 +114,12 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
         <div className="space-y-2 rounded-md border border-accent/30 bg-accent/5 p-3">
           <div className="flex items-center gap-2 text-sm text-ink-0">
             <Sparkles className="h-4 w-4 text-accent" />
-            <span className="font-medium">Start from a template</span>
+            <span className="font-medium">
+              {t('recipeEditor.startFromTemplate')}
+            </span>
           </div>
           <p className="text-2xs text-muted">
-            Stamp out a working recipe in one click.  You can edit
-            anything afterward.
+            {t('recipeEditor.startFromTemplateHint')}
           </p>
           <div className="flex flex-wrap gap-2">
             {RECIPE_TEMPLATES.flatMap((tpl) => {
@@ -173,7 +176,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
       />
 
       <div>
-        <label className={labelCls}>Selection cap</label>
+        <label className={labelCls}>{t('recipeEditor.selectionCap')}</label>
         <input
           type="number"
           disabled={!canEdit}
@@ -188,9 +191,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
           className={inputCls}
         />
         <p className="mt-1 text-2xs text-muted">
-          Maximum feature ids returned per run.  The runtime banner
-          warns the user when the limit is reached so they know the
-          selection is incomplete.
+          {t('recipeEditor.selectionCapHint')}
         </p>
       </div>
     </div>
@@ -228,11 +229,14 @@ function ParametersSection({
     onChange(parameters.filter((_, i) => i !== index));
   }
 
+  const t = useT();
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-ink-0">Parameters</h3>
+          <h3 className="text-sm font-medium text-ink-0">
+            {t('recipeEditor.parameters')}
+          </h3>
           <p className="text-2xs text-muted">
             Slots the recipe exposes.  A parameter can be hardcoded
             into the tool or filled at run time by the host app /
@@ -302,6 +306,7 @@ function ParameterCard({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
       <div className="flex items-start justify-between gap-3">
@@ -333,7 +338,7 @@ function ParameterCard({
                 disabled={!canEdit}
                 value={parameter.label}
                 onChange={(e) => onChange({ label: e.target.value })}
-                placeholder="Area of interest"
+                placeholder={t('recipeEditor.areaOfInterest')}
                 className={inputCls}
               />
             </div>
@@ -379,7 +384,8 @@ function ParameterCard({
               type="button"
               onClick={onRemove}
               className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
-              title="Remove parameter"
+              title={t('recipeEditor.removeParameterAria')}
+              aria-label={t('recipeEditor.removeParameterAria')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -1377,11 +1383,14 @@ function PipelineSection({
     onChange(pipeline.filter((_, i) => i !== index));
   }
 
+  const t = useT();
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-ink-0">Pipeline</h3>
+          <h3 className="text-sm font-medium text-ink-0">
+            {t('recipeEditor.pipeline')}
+          </h3>
           <p className="text-2xs text-muted">
             Ordered steps that run when the recipe executes.  Each
             step&apos;s output feeds the next.
@@ -1446,6 +1455,7 @@ function StepCard({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -1457,7 +1467,8 @@ function StepCard({
             type="button"
             onClick={onRemove}
             className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
-            title="Remove step"
+            title={t('recipeEditor.removeStepAria')}
+            aria-label={t('recipeEditor.removeStepAria')}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -1743,6 +1754,7 @@ function OutputSection({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   const parameters = recipe.parameters;
   const output = recipe.output;
   const featureSourceParams = parameters.filter(
@@ -1888,7 +1900,9 @@ function OutputSection({
             </p>
           </div>
           <div>
-            <label className={labelCls}>Area of interest parameter</label>
+            <label className={labelCls}>
+              {t('recipeEditor.areaOfInterestParameter')}
+            </label>
             <select
               disabled={!canEdit}
               value={recipe.aoiParameterRef ?? ''}
