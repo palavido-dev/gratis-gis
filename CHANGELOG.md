@@ -38,6 +38,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Public basemap items list (`GET /api/public/items?type=basemap`)
+  is rate-limited at 60 requests per minute.
 - Public single-item GET (`GET /api/public/items/:id`) is
   rate-limited at 60 requests per minute.
 - Public portal landing (`GET /api/public/landing`) is rate-limited

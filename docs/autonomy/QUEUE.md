@@ -6,13 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-item-throttle | research-cycle-16 | Public items/:id @Throttle 60/min | |
+| SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| SEC-public-basemap-items-throttle | research-cycle-16 | Public basemap items list @Throttle 60/min | type=basemap gallery |
 | SEC-osm-presets-throttle | research-cycle-16 | Public osm/presets @Throttle 60/min | Vendored iD catalog |
 | SEC-thumbnail-svg-throttle | research-cycle-16 | Public thumbnail.svg @Throttle 60/min | SVG render path |
 | R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
@@ -35,6 +34,7 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| SEC-public-item-throttle | 2026-10-29 | Merged #495: Public items/:id @Throttle 60/min |
 | SEC-public-landing-throttle | 2026-10-29 | Merged #494: Public landing @Throttle 60/min |
 | measure-flatten-pitch | 2026-10-29 | Merged #493: Measure auto-flattens pitched 3D while open so sketch matches ground/deed acres |
 | R15-what-is-gratisgis-honesty | 2026-10-29 | Merged #491: soften what-is-gratisgis.md ArcGIS Online sameness claims |

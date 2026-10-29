@@ -296,6 +296,9 @@ export class PublicController {
    * unpaged total. The body stays a plain JSON array.
    */
   @Public()
+  // Tighter than the global 300/min: public basemap gallery findMany
+  // (SEC-public-basemap-items-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items')
   async items(
     @Res({ passthrough: true }) res: Response,

@@ -224,9 +224,10 @@ per minute** per IP.
 ### Portal landing and public items
 
 The anonymous org landing payload at `GET /api/public/landing`
-(optional `?org=` slug) and single public item GETs at
-`GET /api/public/items/:id` are rate-limited at **60 requests per
-minute** per IP.
+(optional `?org=` slug), single public item GETs at
+`GET /api/public/items/:id`, and the public basemap gallery at
+`GET /api/public/items?type=basemap` are rate-limited at **60
+requests per minute** per IP.
 
 ### DCAT catalog.json
 
