@@ -7,6 +7,25 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.121] - 2026-10-28
+
+### Added
+
+- Map **Measure** tool (distance and area) on the map toolbar, with
+  live readout and clear; no separate web app required.
+- Print this map: hover layout thumbnails and an on-screen preview
+  step before PDF download.
+
+### Fixed
+
+- Elevation profile samples Web Mercator GeoTIFFs (EPSG:3857 /
+  900913 / 102100) after geotiff v3 `getGeoKeys`; Profile and
+  View From stay hidden unless the map has a terrain/DEM source.
+- Print template PDFs no longer render blank (bare print-preview
+  chrome, no nested html/body, zero Puppeteer margins).
+- Markup “+ Add markup” contrast and map tool dialogs no longer
+  cover MapLibre zoom controls.
+
 ### Security
 
 - Bundled `pmtiles` binary forces

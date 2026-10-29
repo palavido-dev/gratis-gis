@@ -21,6 +21,14 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [0.9.121] - 2026-10-28
+
+## 2026-10-28 - Measure, print preview, and elevation profile
+Maps gain a Measure tool for distances and areas, Print this map shows a layout preview before PDF download (with hover thumbnails), and the elevation Profile works again on Web Mercator DEMs — Profile and View From only appear when the map has terrain. Builder and sharing chrome keep expanding through Spanish, French, German, and Brazilian Portuguese. Public layer and catalogue endpoints tighten anonymous rate limits further.
+
+## 2026-10-28 - Full What's new history
+The landing What's new card now links to a scrollable `/whats-new` page that lists every past update, grouped by release when a version banner is present.
+
 ## [0.9.120] - 2026-10-28
 
 ## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits

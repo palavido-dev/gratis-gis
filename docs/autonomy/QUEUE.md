@@ -6,7 +6,6 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R14-i18n-viewer-editor-detail-chrome | research-cycle-14 | Viewer/editor detail builder chrome (#162) | This PR |
 
 ## queued (ship-without-input)
 
@@ -33,6 +32,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | when | result |
 | --- | --- | --- |
+| R14-i18n-viewer-editor-detail-chrome | 2026-10-28 | Merged #463: Viewer/editor detail builder chrome (#162) |
 | whats-new-history-releases | 2026-10-28 | Merged #461: What's new full history + release groupings |
 | R13-i18n-analyze-sql-starters | 2026-10-28 | Merged #460: Analyze SQL Preview/Count-by + DuckDB footer i18n (#162) |
 | R13-i18n-sharing-panel-chrome | 2026-10-28 | Merged #459: Sharing panel visibility / share-row chrome (#162) |
