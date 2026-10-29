@@ -804,9 +804,9 @@ export const de: Partial<CatalogShape> = {
     hintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     hintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Messen stellt geneigtes 3D flach, damit die Skizze zum Maßstab passt.',
     hintAreaTerrain:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Messen stellt geneigtes 3D flach, damit die Skizze zum Maßstab passt.',
     groundArea: 'Geländefläche',
     horizontalLabel: 'Horizontal',
     surfaceLabel: 'Hangfläche',
@@ -828,9 +828,9 @@ export const de: Partial<CatalogShape> = {
     measureHintDistance:
       'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
     measureHintArea:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab; Pitch auf 0 setzen zum Prüfen.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Messen stellt geneigtes 3D flach, damit die Skizze zum Maßstab passt.',
     measureHintAreaTerrain:
-      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Geneigtes 3D verzerrt den Vergleich mit dem Maßstab.',
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Messen stellt geneigtes 3D flach, damit die Skizze zum Maßstab passt.',
     measureGroundArea: 'Geländefläche',
     measureHorizontalLabel: 'Horizontal',
     measureSurfaceLabel: 'Hangfläche',

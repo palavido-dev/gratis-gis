@@ -28,6 +28,7 @@ import {
   type AreaUnit,
   type DistanceUnit,
 } from '@/lib/measure';
+import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
 import {
   setDrawMode,
@@ -68,6 +69,15 @@ export function MeasureTool({
     onDrawActiveChange?.(open);
   }, [open, onDrawActiveChange]);
 
+  // Pitched 3D foreshortens the view: a sketch that looks like it
+  // covers a ~144 ac parcel can honestly be ~58 ac planimetric.
+  // Flatten while measuring so the ring matches what the user sees;
+  // restore the prior pitch on close.
+  useEffect(() => {
+    if (!open || !map) return;
+    return flattenPitchForMeasure(map);
+  }, [open, map]);
+
   // Mount terra-draw only while the tool is open so it never
   // contends with markup / feature editing for canvas clicks.
   const { draw, ready } = useTerraDraw(open ? map : null, { snapping: false });
@@ -104,11 +114,11 @@ export function MeasureTool({
         const ring = g.coordinates[0] as Array<[number, number]>;
         setAreaSqm(ringAreaSquareMeters(ring));
         setPerimeterMeters(ringPerimeterMeters(ring));
-        // Terrain surface (slope) area when a DEM is active. Secondary
-        // to horizontal geodesic — pitched 3D views make parcels look
-        // larger than their planimetric footprint; surface area only
-        // closes a few percent of that gap on WV relief, but it is the
-        // honest "ground" number when users ask for it.
+        // Terrain surface (slope) area when a DEM is active. Shown as
+        // the primary "ground" number; horizontal (deed) area stays
+        // underneath. Slope only adds a few percent on mild relief —
+        // pitch foreshortening is the big visual gap, which we flatten
+        // on open above.
         if (map?.getTerrain()) {
           const surface = terrainSurfaceAreaSquareMeters(ring, (lng, lat) => {
             try {
