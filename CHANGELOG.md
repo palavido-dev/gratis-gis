@@ -7,6 +7,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- Soften getting-started/what-is-gratisgis.md ArcGIS Online sameness
+  claims. Front door now describes a familiar self-hosted portal niche
+  and states we are not a drop-in clone (aligns with form / data-layer
+  honesty).
+
 ### Fixed
 
 - Share Restrict-to-area dialog chrome uses i18n catalogs (#162)
