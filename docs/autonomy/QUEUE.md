@@ -6,22 +6,25 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
+| analyze-tool-deeplink | analyze-workflow-ux-2026-10-30 | `?tool=` + `#data` opens Analyze guide on data_layer | First ship from plan |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R16-i18n-print-parameters-chrome | research-cycle-16 / #162 | Print template Parameters heading leftover i18n | After #473 Paper/Zoom |
+| analyze-layer-quick-actions | analyze-workflow-ux-2026-10-30 | Map kebab Buffer / Centroid / Hull → Analyze deep link | After deeplink |
 | R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | Secondary |
 | R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |
 
-Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
+Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
 ## queued (needs-maintainer)
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
+| analyze-run-history | analyze-workflow-ux-2026-10-30 | Derived-layer / recipe re-run shelf | Scope thin vertical first |
+| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After deeplink + quick actions |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | After linear recipes + history |
 | Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
 | Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
 | R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
@@ -31,6 +34,9 @@ Research done: [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). 
 
 | id | when | result |
 | --- | --- | --- |
+| Q-analyze-workflow-ux | 2026-10-30 | Research plan + queue refill (deeplink / quick actions / history) |
+| R16-i18n-basemap-config-section-chrome | 2026-10-29 | Merged #502: BasemapConfigSection chrome i18n (#162) |
+| R16-i18n-print-parameters-chrome | 2026-10-29 | Merged #503: Print template Parameters / rail chrome i18n (#162) |
 | release-0.9.125 | 2026-10-29 | Stamp Measure top-down lock + Public osm/presets + thumbnail throttles |
 | measure-flatten-immediate | 2026-10-29 | Merged #500: Measure jumpTo pitch 0 + maxPitch lock while open |
 | SEC-thumbnail-svg-throttle | 2026-10-29 | Merged #499: Public thumbnail.svg @Throttle 60/min |
