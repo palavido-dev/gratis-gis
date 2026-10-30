@@ -56,6 +56,9 @@ on multi-layer items) plus `#data`, for example
 `/items/<id>?tool=buffer&layer=<key>#data`. The Data tab opens
 Analyze with the Buffer form already expanded.
 
+From a map, open the layer kebab on a data-layer source and choose
+**Buffer…** — that opens the same deep link in a new tab.
+
 ### From the new-item wizard
 
 1. Open the new-item wizard and pick **Derived layer**.

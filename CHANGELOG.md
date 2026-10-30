@@ -12,6 +12,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Data-layer Analyze guides open from a shareable deep link:
   `/items/<id>?tool=<id>&layer=<key>#data` (stable tool ids such as
   `buffer`, `centroid`, `convex-hull`).
+- Map layer kebab offers Buffer / Centroids / Convex hull for
+  `data-layer` sources; each opens the Analyze deep link in a new
+  tab.
 
 ### Changed
 

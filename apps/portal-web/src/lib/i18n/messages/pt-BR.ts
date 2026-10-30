@@ -973,6 +973,9 @@ export const ptBR: Partial<CatalogShape> = {
   layerActionsAria: 'Ações da camada',
   menu: {
     openAttributeTable: 'Abrir tabela de atributos',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centróides…',
+    analyzeConvexHull: 'Envelope convexo…',
     hideLabels: 'Ocultar rótulos',
     showLabels: 'Mostrar rótulos',
     zoomToExtent: 'Zoom na extensão da camada',

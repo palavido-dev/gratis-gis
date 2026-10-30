@@ -976,6 +976,9 @@ export const es: Partial<CatalogShape> = {
   layerActionsAria: 'Acciones de capa',
   menu: {
     openAttributeTable: 'Abrir tabla de atributos',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centroides…',
+    analyzeConvexHull: 'Envolvente convexa…',
     hideLabels: 'Ocultar etiquetas',
     showLabels: 'Mostrar etiquetas',
     zoomToExtent: 'Acercar a la extensión de la capa',
