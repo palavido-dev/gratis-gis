@@ -1479,6 +1479,14 @@ export const ptBR: Partial<CatalogShape> = {
     saving: 'Salvando…',
     saveChanges: 'Salvar alterações',
     saved: 'Salvo',
+    elements: 'Elementos',
+    properties: 'Propriedades',
+    parameters: 'Parâmetros',
+    parametersHint:
+      'Os parâmetros viram campos de formulário que o usuário preenche antes de imprimir.',
+    addParameter: 'Adicionar',
+    removeTextAria: 'Remover texto',
+    removeChipAria: 'Remover chip',
   },
   folderRail: {
     newButton: '+ Nova',
