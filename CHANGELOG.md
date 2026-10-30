@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.126] - 2026-10-30
+
 ### Added
 
 - Data-layer Analyze guides open from a shareable deep link:

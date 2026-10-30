@@ -41,6 +41,7 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | when | result |
 | --- | --- | --- |
+| release-0.9.126 | 2026-10-30 | Stamp Analyze deep-link / map quick actions + deps + basemap honesty |
 | R16-basemap-help-composed-map-honesty | 2026-10-30 | Soften basemap.md composed-map / Portal map (Phase 2 not authored) |
 | deps-npm-minor-patch | 2026-10-30 | Merged #504: npm minor/patch sweep; Dependabot open = 0 |
 | analyze-layer-quick-actions | 2026-10-30 | PR #505: Map kebab Buffer / Centroid / Hull → Analyze deep link |
