@@ -6,13 +6,11 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| analyze-tool-deeplink | analyze-workflow-ux-2026-10-30 | `?tool=` + `#data` opens Analyze guide on data_layer | Shipping |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| analyze-layer-quick-actions | analyze-workflow-ux-2026-10-30 | Map kebab Buffer / Centroid / Hull → Analyze deep link | After deeplink |
 | R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | Secondary |
 | R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |
 
@@ -34,6 +32,9 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | when | result |
 | --- | --- | --- |
+| deps-npm-minor-patch | 2026-10-30 | Merged #504: npm minor/patch sweep; Dependabot open = 0 |
+| analyze-layer-quick-actions | 2026-10-30 | PR #505: Map kebab Buffer / Centroid / Hull → Analyze deep link |
+| analyze-tool-deeplink | 2026-10-30 | PR #506: `?tool=` + `#data` opens matching Analyze guide |
 | Q-analyze-workflow-ux | 2026-10-30 | Research plan + queue refill (deeplink / quick actions / history) |
 | R16-i18n-basemap-config-section-chrome | 2026-10-29 | Merged #502: BasemapConfigSection chrome i18n (#162) |
 | R16-i18n-print-parameters-chrome | 2026-10-29 | Merged #503: Print template Parameters / rail chrome i18n (#162) |
