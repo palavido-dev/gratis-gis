@@ -1,10 +1,11 @@
 # Local development setup
 
 Step-by-step guide for getting GratisGIS running on a developer
-workstation. The instructions assume macOS on Apple Silicon (M1
-through M4) since that's the most common dev target, but the same
-flow works on Intel Macs, Linux, and Windows with WSL2 with only
-the prereq install commands changing.
+workstation. The flow is the same on macOS, Linux, and Windows with
+WSL2. Only the prerequisite install commands change.
+
+This guide is for a local workstation. A VPS or other server install
+is [deployment.md](./deployment.md).
 
 By the end of this guide you'll have:
 
@@ -21,7 +22,7 @@ running, see [walkthrough.md](./walkthrough.md).
 
 ## 1. Prerequisites
 
-You need four things on the host machine:
+On macOS, you need four things on the host machine:
 
 | Tool | Why | Recommended install on macOS |
 | --- | --- | --- |
@@ -46,6 +47,60 @@ Rosetta they fail to start with a `no matching manifest` error.
 The other infra images (`postgis/postgis`, `quay.io/keycloak/keycloak`,
 `pgsty/silo`  -  S3-compatible MinIO fork after `minio/minio` left
 Docker Hub) all have native arm64 builds and run at full speed.
+
+
+### Linux (Ubuntu 24.04, Debian 12, Mint 22)
+
+[Discussion #238](https://github.com/palavido-dev/gratis-gis/discussions/238)
+is a setup report from Linux Mint 22.3, which uses the Ubuntu 24.04
+package base. The prerequisites below are for that family of
+workstations (Ubuntu 24.04, Debian 12, Mint 22) before section 2.
+Debian 12 uses Debian's Docker install docs for the same packages.
+On Linux Mint, use the Ubuntu 24.04 codename `noble` in Docker's apt
+repo. Mint's own codename is not a Docker suite.
+
+| Tool | Why | Install |
+| --- | --- | --- |
+| Docker Engine with the Compose v2 plugin | Runs the infra containers. `infra/install.sh` and `pnpm infra:up` both require `docker compose` to already work. | Docker's apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`. Ubuntu 24.04 and Mint 22 follow the [Ubuntu engine install](https://docs.docker.com/engine/install/ubuntu/). Debian 12 follows the [Debian engine install](https://docs.docker.com/engine/install/debian/). |
+| `docker` group | The daemon must be reachable by your user. `docker info` has to succeed before `pnpm infra:up`. | `sudo usermod -aG docker "$USER"`, then log out and back in. |
+| Node.js 24.9 or newer, via nvm | `engines` requires `>=24.9.0`. Production images are Node 24 LTS. | Install [nvm](https://github.com/nvm-sh/nvm), then `nvm install 24` and `nvm alias default 24`. |
+| pnpm 9+ via corepack | The repo pins `packageManager` to pnpm 9.12.0. | `corepack enable && corepack prepare pnpm@9.12.0 --activate` |
+| Git | Cloning and commits | `sudo apt install git` |
+
+**Port 5432 and a system Postgres.** Ubuntu, Debian, and Mint often
+have a `postgresql` package already listening on `5432`, which is the
+host port in `infra/docker-compose.yml`. Stop it for local dev:
+
+```bash
+sudo systemctl stop postgresql
+sudo systemctl disable postgresql
+```
+
+If you still need the system Postgres, leave that service running and
+publish the compose Postgres on another host port in
+`infra/docker-compose.yml`. The stack and a system Postgres cannot
+share host port 5432.
+
+Confirm the toolchain before cloning:
+
+```bash
+docker compose version
+docker info
+node -v    # v24.9.0 or newer
+pnpm -v    # 9.x
+```
+
+
+### Windows with WSL2
+
+Run the Linux steps inside the distro, with two extra constraints.
+
+- Use Docker Desktop's WSL2 backend, and turn on integration for the
+  distro (Docker Desktop, Settings, Resources, WSL integration).
+  `docker info` inside the distro should talk to that daemon.
+- Clone inside the Linux filesystem, for example `~/src/gratis-gis`.
+  A checkout under `/mnt/c` makes `pnpm install` and file watching
+  slow, and Docker bind mounts from the Windows drive are unreliable.
 
 
 ## 2. Clone and install
@@ -301,8 +356,11 @@ via "Reset password" once SMTP is healthy.
 ## 9. Common gotchas
 
 **"Port 5432 is already in use"**: you have another Postgres
-running on the host. Stop it (`brew services stop postgresql`) or
-change the port in `infra/docker-compose.yml`.
+running on the host. On macOS, stop it with
+`brew services stop postgresql`. On Ubuntu, Debian, or Mint, stop
+the system service with `sudo systemctl stop postgresql` (see the
+Linux prerequisites above). Or change the host port in
+`infra/docker-compose.yml`.
 
 **"Port 8080 is already in use"**: Keycloak's port. macOS itself
 sometimes binds 8080; check with `lsof -i :8080`.
