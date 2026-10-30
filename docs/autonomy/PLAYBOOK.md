@@ -12,9 +12,10 @@ a firehose of PRs. Every change must fit the product ethos in
 ## Roles
 
 1. **Driver** (this Cloud Agent conversation): picks work, enforces
-   ethos, merges when CI is green on no-input work, writes the daily
-   digest, and never waits on the maintainer for product-optional
-   polish.
+   ethos, merges the loop's own no-input pull requests when CI is
+   green, writes the daily digest, and never waits on the maintainer
+   for product-optional polish. Does not merge a pull request marked
+   for maintainer review.
 2. **Researcher**: scans GitHub issues/discussions (ours and peers),
    Esri Community, OSGeo / QGIS lists, Reddit (`r/gis`, `r/QGIS`,
    `r/opensource`, Felt/CARTO chatter), and our own
@@ -22,7 +23,12 @@ a firehose of PRs. Every change must fit the product ethos in
    queue. Does not write product code.
 3. **Builders**: implement one queued item at a time on
    `cursor/<slug>-2838` branches, open PRs into `main`, wait for CI,
-   merge only when the item needed no maintainer decision.
+   merge only when the item needed no maintainer decision. Do not
+   merge any other open pull request. A PR marked for maintainer
+   review (title, body, or the `needs-maintainer` label) stays open
+   for a human maintainer even when CI is green. That includes
+   product, security-default, licensing, and public-disclosure
+   changes.
 4. **Security Sentinel** (same conversation, dedicated checklist):
    runs once per work cycle and summarizes in the daily digest.
    Prefer `ship-without-input` hardenings over waiting on the
@@ -52,12 +58,30 @@ a firehose of PRs. Every change must fit the product ethos in
    Standing research note:
    [docs/research/security-deep-dive-2026-10-27.md](../research/security-deep-dive-2026-10-27.md).
 
+## Issues the loop leaves alone
+
+Skip an issue, and do not open a pull request for it, when any of
+these are true:
+
+- It is labeled `good first issue`, `help wanted`, or
+  `human-contributor`.
+- It is assigned to a person.
+
+Those issues are reserved for human contributors. A comment is
+allowed when it helps the assignee. An implementation is not.
+
+Issue [#183](https://github.com/palavido-dev/gratis-gis/issues/183)
+(point-cloud viewer performance) is assigned to a person and labeled
+`help wanted`. The loop may only comment there.
+
 ## What to build
 
 Prefer, in order:
 
-1. Open issues that are already scoped and need no product call
-   (today: finishable slices of #162, incremental progress on #183).
+1. Open issues that are already scoped and need no product call,
+   and that the skip rule above does not reserve for a person.
+   #162 and #183 are both `help wanted`, and #183 is assigned, so
+   neither is loop work.
 2. Research proposals marked `ship-without-input` that close a clear
    gap against Felt / CARTO / AGO pain without inventing a new pillar.
 3. Hardening: security, ingest safety, offline/field reliability,
@@ -70,8 +94,9 @@ Do **not** build without an explicit queue entry marked
 - New pillars or item types not already in the roadmap.
 - Pricing, hosting, or legal changes.
 - RTL / Weblate hosting choice / community translation process.
-- Real point-cloud SSE / Tile3D strategy beyond local mitigations
-  (track under #183; do not close it on tuning alone).
+- Real point-cloud SSE / Tile3D strategy, and any implementation
+  on #183. That issue is assigned to a person and labeled
+  `help wanted`. The loop may only comment there. Do not close it.
 - Brand or visual redesigns that fail the design-system brand test.
 
 ## Ethos filters (reject the proposal if any fail)
@@ -79,7 +104,8 @@ Do **not** build without an explicit queue entry marked
 - Self-hosted, open standards, no per-seat SaaS cosplay.
 - Guided UX before raw JSON / coordinate paste
   ([CONTRIBUTING.md](../../CONTRIBUTING.md)).
-- No em dashes, no AI attribution, Conventional Commits.
+- No em dashes. Follow the AI disclosure in
+  [CONTRIBUTING.md](../../CONTRIBUTING.md). Conventional Commits.
 - Honest about what we are not (not Survey123, not Experience Builder).
 - Prefer OGC / PostGIS / MapLibre shapes over proprietary lock-in.
 - `main` stays deployable; one logical change per PR.

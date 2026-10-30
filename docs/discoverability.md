@@ -3,21 +3,22 @@
 Notes on how we make GratisGIS easy to find on GitHub and the wider web
 once the repo goes public. Re-read this before any release announcement.
 
-## GitHub repo description (160-char limit)
+## GitHub repo description
 
-Recommended:
+Recommended About text (206 characters; GitHub allows 350). It names
+what ships today. It does not claim a visual tool builder. The app
+builder is the widget builder, and dashboards are web-app layouts.
+The QGIS plugin is the companion repo `gratis-gis-qgis`.
 
 ```
-Self-hosted GIS portal, field PWA, and QGIS plugin. Portal, sharing,
-field collection, and QGIS. Built on PostGIS + MapLibre.
+Self-hosted, open source GIS portal: web maps, PostGIS data layers, forms, an app builder with dashboards, an offline field PWA, OGC APIs, and a QGIS plugin. PostGIS + MapLibre + Keycloak on Docker Compose.
 ```
-
-Trim for the 160-char About field on github.com.
 
 ## GitHub topics (max 20)
 
-Pick the 20 highest-signal tags. GitHub uses these for search and the
-Explore page.
+Twenty topics. `react-native` is not one of them: the native client is
+Kotlin in `clients/android`, and it is not released. `monorepo` and
+`open-source` are dropped. `open-source-gis` stays.
 
 ```
 gis
@@ -25,7 +26,6 @@ geospatial
 mapping
 webgis
 open-source-gis
-open-source
 self-hosted
 postgis
 maplibre
@@ -37,8 +37,10 @@ keycloak
 typescript
 nextjs
 nestjs
-react-native
-monorepo
+arcgis-alternative
+qgis
+ogc-api
+pwa
 ```
 
 Apply with the command below (bash line continuations; on Windows,
@@ -46,14 +48,16 @@ cmd.exe uses `^` and PowerShell uses a backtick instead of `\`):
 
 ```bash
 gh repo edit <owner>/gratis-gis \
-  --description "Self-hosted GIS portal, field PWA, and QGIS plugin. Portal, sharing, field collection, and QGIS. Built on PostGIS + MapLibre." \
+  --description "Self-hosted, open source GIS portal: web maps, PostGIS data layers, forms, an app builder with dashboards, an offline field PWA, OGC APIs, and a QGIS plugin. PostGIS + MapLibre + Keycloak on Docker Compose." \
   --homepage "https://gratisgis.org" \
+  --remove-topic react-native --remove-topic monorepo --remove-topic open-source \
   --add-topic gis --add-topic geospatial --add-topic mapping --add-topic webgis \
-  --add-topic open-source-gis --add-topic open-source --add-topic self-hosted \
+  --add-topic open-source-gis --add-topic self-hosted \
   --add-topic postgis --add-topic maplibre --add-topic offline-first \
   --add-topic field-data-collection --add-topic form-builder --add-topic survey \
   --add-topic keycloak --add-topic typescript \
-  --add-topic nextjs --add-topic nestjs --add-topic react-native --add-topic monorepo
+  --add-topic nextjs --add-topic nestjs \
+  --add-topic arcgis-alternative --add-topic qgis --add-topic ogc-api --add-topic pwa
 ```
 
 ## README badges
@@ -75,6 +79,8 @@ bumped.
 ## package.json keywords
 
 npm search and ecosystem tools index these. Added to root `package.json`.
+`react-native` is not a keyword. The native client is Kotlin in
+`clients/android`.
 
 ## Social preview image
 

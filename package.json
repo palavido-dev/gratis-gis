@@ -21,7 +21,6 @@
     "typescript",
     "nextjs",
     "nestjs",
-    "react-native",
     "monorepo"
   ],
   "homepage": "https://github.com/palavido-dev/gratis-gis",
@@ -30,7 +29,7 @@
     "url": "https://github.com/palavido-dev/gratis-gis.git"
   },
   "license": "AGPL-3.0-or-later",
-  "author": "Matt Palavido <matthew.palavido@gmail.com>",
+  "author": "Matt Palavido <matthew@gratisgis.org>",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=24.9.0",

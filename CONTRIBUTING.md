@@ -8,8 +8,9 @@ organized and how to propose changes.
 GratisGIS is in active pre-v1 development. The core portal, web maps,
 forms, App Builder, field PWA, and the observation-log engine with
 Cedar policy authorization are all working today (see the status
-section in the [README](./README.md)); dashboards and document
-reports are planned but not yet built. The architecture is
+section in the [README](./README.md)). Dashboards already ship as
+web-app layouts, including KPI Dashboard and Operations Board. Only
+dedicated document report templates are not built. The architecture is
 stabilizing but expect the occasional pivot on internals; cross-app
 contracts in [packages/shared-types](./packages/shared-types) and the
 API surface are the parts we try hardest to keep settled. The issue
@@ -20,9 +21,16 @@ tracker reflects near-term work from [ROADMAP.md](./ROADMAP.md).
 - `main` is always deployable.
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.
-- PRs require passing CI (lint, typecheck, test, build). The project
-  currently has a single maintainer, so reviews from other contributors
-  are welcome but not required; the maintainer reviews and merges.
+- The automated loop in
+  [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md) uses
+  `cursor/<slug>-2838` for queued items it is allowed to ship. Use
+  `feat/` or `fix/` for a change a person should review.
+- PRs require passing CI (lint, typecheck, test, build). A small
+  maintainer team reviews and merges: the owner, plus collaborators
+  with write access. Reviews from other contributors are welcome.
+  The loop may merge a pull request it opened from the queue when CI
+  is green and no product decision is needed. It does not merge a PR
+  marked for maintainer review.
 
 ## Commit messages
 
@@ -57,6 +65,19 @@ text input as the primary entry point, push back and ask for the
 guided path first. The paste field can live in the PR, just not at
 the front.
 
+## How this project is built
+
+The maintainer designs, directs, and reviews. Much of the code is
+written with AI coding agents. That includes the automated loop
+described in [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md):
+it takes scoped queue items, opens pull requests, and merges on green
+CI when no product decision is needed. It also cuts releases. The
+maintainer makes the product, security-default, and licensing calls.
+
+AI-assisted contributions are welcome when the contributor takes
+responsibility for the change and says so in the pull request
+description.
+
 ## Writing style (code comments, docs, commits, PRs)
 
 These rules apply everywhere we write prose for this project: code
@@ -66,15 +87,16 @@ comments, commit messages, PR descriptions, docs, and markdown files.
   not use two consecutive hyphens as a substitute for one. Pick a comma,
   colon, period, or parenthesis based on what the sentence actually
   needs.
-- **No AI attribution or tells.** No `Claude`, `Anthropic`, `AI`,
-  `Co-Authored-By` lines that reference an LLM, `Generated with`, or
-  similar. Write in your own voice.
+- **Say when an AI coding agent did the writing.** Put that in the pull
+  request description, as described in
+  [How this project is built](#how-this-project-is-built). You still
+  own the change.
 - **Plain, direct prose.** Short sentences over long ones. Concrete nouns
   over puffy abstractions. No "we're excited to announce" style.
 - **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/)
-  and contain no em dashes, no AI attribution, and no marketing tone.
+  and contain no em dashes and no marketing tone.
 
-A pre-commit check may be added later to enforce the first two rules
+A pre-commit check may be added later to enforce the em dash rule
 automatically; until then, self-policing is expected.
 
 ## Documentation with every behavior change
@@ -117,7 +139,13 @@ PR when a queued item ships.
 | Change how sharing works | `apps/portal-api/src/items/sharing.service.ts` (review carefully!) |
 | New shared UI component | `packages/ui` |
 | New app (field-app, app-builder, …) | `apps/<name>` |
-| Infra (docker, helm, installer) | `/infra` (dev) or `/deploy` (prod) |
+| Infra (Docker Compose, installer, deploy scripts) | `/infra` |
+
+Dev and production infra both live in `/infra` (`docker-compose.yml`,
+`docker-compose.prod.yml`, `install.sh`, `deploy.sh`). There is no
+Helm chart. `/deploy` only holds a placeholder for a future
+`get.gratisgis.org` one-liner; the script there exits without
+installing anything. Stack changes do not go in `/deploy`.
 
 ## Licensing
 

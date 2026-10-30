@@ -59,6 +59,11 @@ nights and weekends by one person with kids, a full-time job, and three
 decades of GIS behind them, as a way to give back some of what working
 in this field has given me.
 
+**How it's built:** The maintainer designs, directs, and reviews; much of
+the code is written with AI coding agents, and human contributors are
+what the project needs most. See
+[CONTRIBUTING.md](./CONTRIBUTING.md#how-this-project-is-built).
+
 ## Why GratisGIS
 
 GratisGIS exists because operating a geospatial portal shouldn't require
@@ -97,9 +102,10 @@ third party's cloud.
   dated interfaces. GratisGIS targets the look and feel of modern consumer
   SaaS: considered typography, accessible components, motion that respects
   `prefers-reduced-motion`. See [docs/design-system.md](./docs/design-system.md).
-- **Stand up in under 30 minutes.** A single command on a fresh Ubuntu box
-  installs Docker, generates secrets, obtains a TLS cert, and prints your
-  admin password. No license server, no multi-machine dance.
+- **Stand up in under 30 minutes.** On a fresh Ubuntu box that already
+  has Docker Engine and the Compose plugin, one command generates
+  secrets, obtains a TLS cert, and prints your admin password. No
+  license server, no multi-machine dance.
 
 ## The Six Pillars
 
@@ -266,7 +272,7 @@ pnpm dev
 
 For new collaborators, start with these two:
 
-- [docs/SETUP.md](./docs/SETUP.md): step-by-step local dev setup (Mac-focused, also covers Linux / WSL)
+- [docs/SETUP.md](./docs/SETUP.md): step-by-step local dev setup for macOS, Linux, and WSL2
 - [docs/walkthrough.md](./docs/walkthrough.md): quick orientation to the features that exist today, with AGO ↔ GratisGIS vocabulary mapping
 
 Deeper design references:
