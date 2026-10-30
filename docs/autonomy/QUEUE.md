@@ -2,6 +2,11 @@
 
 Driver-owned. Newest proposals at the top of each section.
 
+Standing rule (see [PLAYBOOK.md](./PLAYBOOK.md)): skip issues labeled
+`good first issue`, `help wanted`, or `human-contributor`, and any
+issue assigned to a person. #183 (point-cloud viewer performance) is
+assigned and labeled `help wanted`. The loop may only comment there.
+
 ## in-progress
 
 | id | source | summary | notes |
@@ -11,10 +16,15 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | Secondary |
 | R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |
 
 Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
+
+## blocked
+
+| id | source | summary | why blocked |
+| --- | --- | --- | --- |
+| R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | #162 is `help wanted`. The loop does not take it. |
 
 ## queued (needs-maintainer)
 
@@ -24,7 +34,7 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 | analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After deeplink + quick actions |
 | recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | After linear recipes + history |
 | Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
+| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B. Assignee owns #183; the loop may only comment. |
 | R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
 | R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
 
