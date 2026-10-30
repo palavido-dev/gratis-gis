@@ -1547,6 +1547,15 @@ export const en = {
     saving: 'Saving…',
     saveChanges: 'Save changes',
     saved: 'Saved',
+    /** Parameters panel + designer chrome leftovers (#162 / R16). */
+    elements: 'Elements',
+    properties: 'Properties',
+    parameters: 'Parameters',
+    parametersHint:
+      'Parameters become form fields the user fills before printing.',
+    addParameter: 'Add',
+    removeTextAria: 'Remove text',
+    removeChipAria: 'Remove chip',
   },
   folderRail: {
     newButton: '+ New',

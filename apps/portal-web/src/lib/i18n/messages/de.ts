@@ -1498,6 +1498,14 @@ export const de: Partial<CatalogShape> = {
     saving: 'Wird gespeichert…',
     saveChanges: 'Änderungen speichern',
     saved: 'Gespeichert',
+    elements: 'Elemente',
+    properties: 'Eigenschaften',
+    parameters: 'Parameter',
+    parametersHint:
+      'Parameter werden zu Formularfeldern, die der Nutzer vor dem Drucken ausfüllt.',
+    addParameter: 'Hinzufügen',
+    removeTextAria: 'Text entfernen',
+    removeChipAria: 'Chip entfernen',
   },
   folderRail: {
     newButton: '+ Neu',

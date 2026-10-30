@@ -1497,6 +1497,14 @@ export const es: Partial<CatalogShape> = {
     saving: 'Guardando…',
     saveChanges: 'Guardar cambios',
     saved: 'Guardado',
+    elements: 'Elementos',
+    properties: 'Propiedades',
+    parameters: 'Parámetros',
+    parametersHint:
+      'Los parámetros se convierten en campos de formulario que el usuario rellena antes de imprimir.',
+    addParameter: 'Añadir',
+    removeTextAria: 'Quitar texto',
+    removeChipAria: 'Quitar chip',
   },
   folderRail: {
     newButton: '+ Nueva',

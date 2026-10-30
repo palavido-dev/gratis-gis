@@ -537,10 +537,10 @@ export function PrintTemplateDetail({
       icon={<Printer className="h-4 w-4 text-ink-1" strokeWidth={1.75} />}
       toolbarRight={toolbarRight}
       leftPanel={leftPanel}
-      leftPanelTitle="Elements"
+      leftPanelTitle={t('printTemplate.elements')}
       leftRailIcon={<Printer className="h-4 w-4" />}
       rightPanel={rightPanel}
-      rightPanelTitle="Properties"
+      rightPanelTitle={t('printTemplate.properties')}
       rightRailIcon={<Settings className="h-4 w-4" />}
     >
       <div className="absolute inset-0 overflow-auto bg-surface-2/40 p-6">
@@ -1122,7 +1122,7 @@ function TextProps({
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
                   className="ml-0.5 text-muted hover:text-danger"
-                  aria-label="Remove text"
+                  aria-label={t('printTemplate.removeTextAria')}
                 >
                   ×
                 </button>
@@ -1140,7 +1140,7 @@ function TextProps({
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
                   className="text-accent hover:text-danger"
-                  aria-label="Remove chip"
+                  aria-label={t('printTemplate.removeChipAria')}
                 >
                   ×
                 </button>
@@ -1169,7 +1169,9 @@ function TextProps({
         <div className="mt-1.5 space-y-1.5">
           {parameters.length > 0 ? (
             <div>
-              <div className="text-2xs uppercase tracking-wide text-muted">Parameters</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">
+                {t('printTemplate.parameters')}
+              </div>
               <div className="mt-0.5 flex flex-wrap gap-1">
                 {parameters.map((p) => (
                   <button
@@ -1457,7 +1459,7 @@ function ParameterPanel({
     <div className="rounded-md border border-border bg-surface-1 p-3">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-          Parameters
+          {t('printTemplate.parameters')}
         </h3>
         <button
           type="button"
@@ -1465,12 +1467,12 @@ function ParameterPanel({
           onClick={onAdd}
           className="text-xs text-accent hover:underline disabled:opacity-50"
         >
-          <Plus className="inline h-3 w-3" /> Add
+          <Plus className="inline h-3 w-3" /> {t('printTemplate.addParameter')}
         </button>
       </div>
       {parameters.length === 0 ? (
         <p className="text-2xs text-muted">
-          Parameters become form fields the user fills before printing.
+          {t('printTemplate.parametersHint')}
         </p>
       ) : (
         <div className="space-y-2">
