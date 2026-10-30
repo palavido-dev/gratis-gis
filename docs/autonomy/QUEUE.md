@@ -6,12 +6,12 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
 
 ## queued (ship-without-input)
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R16-i18n-basemap-config-section-chrome | research-cycle-16 / #162 | BasemapConfigSection source / Probe / kind chrome i18n | After #489 shell |
 | R16-i18n-print-parameters-chrome | research-cycle-16 / #162 | Print template Parameters heading leftover i18n | After #473 Paper/Zoom |
 | R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | Secondary |
 | R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |

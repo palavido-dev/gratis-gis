@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- BasemapConfigSection chrome (source heading/hint, Probe / kind
+  mode buttons, Probe/Probing, load-service errors) uses i18n
+  catalogs (#162) under `basemapEditor`.
+
 ## [0.9.125] - 2026-10-29
 
 ### Fixed

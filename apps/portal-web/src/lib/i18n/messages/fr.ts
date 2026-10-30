@@ -1463,6 +1463,21 @@ export const fr: Partial<CatalogShape> = {
       'Configurez la façon dont ce fond de carte est servi. Les cartes qui référencent cet élément tirent de la source ci-dessous.',
     sourceHintReadonly:
       'Vous avez un accès en lecture seule à ce fond de carte. La source est affichée ci-dessous ; demandez à un administrateur ou au propriétaire de la modifier.',
+    sourceHintConfig:
+      'Choisissez comment ce fond de carte est servi. Les cartes qui le référencent utilisent la source configurée ici. Le plus rapide : Probe URL — collez une URL de tuile ou de service, et nous détectons le format et remplissons les champs.',
+    modeProbe: 'Probe URL',
+    modeFromService: 'Depuis un élément de service',
+    modeXyz: 'Tuiles XYZ',
+    modeWms: 'WMS',
+    modeStyleUrl: 'URL de style',
+    probe: 'Sonder',
+    probing: 'Sondage...',
+    loadServicesHttp: 'Impossible de charger les services (HTTP {status}).',
+    loadServicesFailed: 'Impossible de charger les services.',
+    loadServiceHttp: 'Impossible de charger le service (HTTP {status}).',
+    loadServiceFailed: 'Impossible de charger le service.',
+    serviceNotBasemap:
+      'Ce service ne peut pas encore servir de fond de carte (aujourd’hui seulement WMS et services Map ArcGIS en cache).',
     noChanges: 'Aucun changement.',
     preview: 'Aperçu',
     previewHint:
