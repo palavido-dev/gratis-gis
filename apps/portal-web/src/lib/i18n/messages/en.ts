@@ -1015,6 +1015,9 @@ export const en = {
   layerActionsAria: 'Layer actions',
   menu: {
     openAttributeTable: 'Open attribute table',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centroids…',
+    analyzeConvexHull: 'Convex hull…',
     hideLabels: 'Hide labels',
     showLabels: 'Show labels',
     zoomToExtent: 'Zoom to layer extent',

@@ -975,6 +975,9 @@ export const fr: Partial<CatalogShape> = {
   layerActionsAria: 'Actions sur la couche',
   menu: {
     openAttributeTable: 'Ouvrir la table attributaire',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centroïdes…',
+    analyzeConvexHull: 'Enveloppe convexe…',
     hideLabels: 'Masquer les étiquettes',
     showLabels: 'Afficher les étiquettes',
     zoomToExtent: 'Zoomer sur l\'étendue de la couche',

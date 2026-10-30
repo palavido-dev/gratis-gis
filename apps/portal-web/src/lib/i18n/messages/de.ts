@@ -975,6 +975,9 @@ export const de: Partial<CatalogShape> = {
   layerActionsAria: 'Ebenenaktionen',
   menu: {
     openAttributeTable: 'Attributtabelle öffnen',
+    analyzeBuffer: 'Puffer…',
+    analyzeCentroid: 'Schwerpunkte…',
+    analyzeConvexHull: 'Konvexe Hülle…',
     hideLabels: 'Beschriftungen ausblenden',
     showLabels: 'Beschriftungen einblenden',
     zoomToExtent: 'Auf Ebenenausdehnung zoomen',

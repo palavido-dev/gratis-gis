@@ -3,9 +3,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  CircleDashed,
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Crosshair,
   Eye,
   EyeOff,
   Filter,
@@ -19,6 +21,7 @@ import {
   Mountain,
   MousePointerClick,
   Pencil,
+  Pentagon,
   Plus,
   Search,
   Sparkles,
@@ -28,6 +31,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  analyzeToolDeepLink,
+  type AnalyzeToolId,
+} from '@/lib/analyze-tool-ids';
 import type {
   MapLayer,
   MapLayerScale,
@@ -1172,6 +1179,10 @@ function LayerRow({
   // geometry-bound editors. Opacity + zoom-to-coverage is the whole
   // control surface.
   const isTileOverlay = layer.source.kind === 'tile';
+  // Analyze quick actions only for portal data_layer sources — the
+  // guided forms live on that item's Data tab (`?tool=` deep link).
+  const dataLayerSource =
+    layer.source.kind === 'data-layer' ? layer.source : null;
   // Narrowed alias: the JSX guard's narrowing doesn't survive into
   // onChange closures, so spreads there see the wide union without
   // this.
@@ -1810,6 +1821,52 @@ function LayerRow({
                   }}
                 />
               ) : null}
+              {/* Everyday Analyze shortcuts for data_layer sources:
+                  open the source item's guided form in a new tab so
+                  unsaved map edits stay put. */}
+              {dataLayerSource && !isTable && !isPointCloud && !isTileOverlay
+                ? (
+                  <>
+                    {(
+                      [
+                        {
+                          tool: 'buffer' as AnalyzeToolId,
+                          Icon: CircleDashed,
+                          label: t('mapLayerPanel.menu.analyzeBuffer'),
+                        },
+                        {
+                          tool: 'centroid' as AnalyzeToolId,
+                          Icon: Crosshair,
+                          label: t('mapLayerPanel.menu.analyzeCentroid'),
+                        },
+                        {
+                          tool: 'convex-hull' as AnalyzeToolId,
+                          Icon: Pentagon,
+                          label: t('mapLayerPanel.menu.analyzeConvexHull'),
+                        },
+                      ] as const
+                    ).map(({ tool, Icon, label }) => (
+                      <MenuItem
+                        key={tool}
+                        Icon={Icon}
+                        label={label}
+                        onClick={() => {
+                          setMenuOpen(false);
+                          window.open(
+                            analyzeToolDeepLink(
+                              dataLayerSource.itemId,
+                              tool,
+                              dataLayerSource.layerKey,
+                            ),
+                            '_blank',
+                            'noopener,noreferrer',
+                          );
+                        }}
+                      />
+                    ))}
+                  </>
+                )
+                : null}
               {/* Labels and zoom-to-extent are geometry-bound:
                   suppress them on table layers since they would
                   have no effect. (#73) Point clouds zoom via their
