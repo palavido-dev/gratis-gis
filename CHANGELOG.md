@@ -12,6 +12,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - BasemapConfigSection chrome (source heading/hint, Probe / kind
   mode buttons, Probe/Probing, load-service errors) uses i18n
   catalogs (#162) under `basemapEditor`.
+- Print template designer Parameters panel chrome (heading, empty
+  hint, Add), Elements/Properties rail titles, and Remove text /
+  Remove chip aria use i18n catalogs (#162) under `printTemplate`.
+- npm minor/patch dependency sweep (NestJS 12.3.x, AWS SDK, lucide,
+  terra-draw, maplibre-gl-lidar, deck.gl/maplibre, tooling patches).
+  Majors (TypeScript 7, ESLint 10, DuckDB 2, Prisma 8 RC) and the
+  pinned onnxruntime-web stay held.
 
 ## [0.9.125] - 2026-10-29
 
