@@ -1,7 +1,7 @@
 ---
 id: items-basemap
 title: Basemap
-summary: An item that wraps a single base-layer reference (style URL, tile URL, WMS, or a portal map). Maps pick one.
+summary: An item that wraps a single base-layer reference (style URL, tile URL, or WMS). Maps pick one.
 category: items
 order: 110
 complexity: basic
@@ -22,7 +22,8 @@ time.
 
 ## Basemap sources
 
-A basemap's body is a discriminated union over four source kinds:
+A basemap's body is a discriminated union over the source kinds
+the editor ships today:
 
 - **Style URL**. A MapLibre / Mapbox-GL style JSON. The basemap
  renders that style verbatim. Most public providers (MapTiler,
@@ -32,10 +33,15 @@ A basemap's body is a discriminated union over four source kinds:
  services that don't publish a style.
 - **WMS**. A WMS GetMap endpoint plus layer name(s). The basemap
  renders WMS as a raster source.
-- **Portal map**. A reference to another map item, rendered as
- tiles served by the portal. Lets you compose a curated basemap
- (parcels + your custom imagery + a labels overlay) and reuse it
- across many top-level maps.
+
+The editor also offers **Probe** (discover layers from a service
+URL) and **From service** (pick an existing service item). Those
+still resolve to one of the kinds above.
+
+A **composed-map** kind (reuse another map item as the bottom
+layer) exists in the type union for a later phase and is **not**
+authored or selectable in the UI yet. Do not expect a "portal
+map" basemap picker today.
 
 ## Where basemaps are picked
 
@@ -60,9 +66,10 @@ public maps; an org-only basemap restricts the maps that use it.
 ## Notes
 
 - **Multiple basemap stacks** aren't supported on a single map.
- If you need "imagery PLUS a labels overlay PLUS your parcel
- outline as the bottom layer," compose those as a portal-map
- basemap.
+ If you need imagery plus a labels overlay plus a parcel outline
+ under your operational layers, add those as ordinary map layers
+ above a single style / tile / WMS basemap — there is no
+ composed-map basemap builder yet.
 - **Provider keys** belong in the org-level basemap settings, not
  in the URL. The portal substitutes the key at render time so it
  doesn't leak into the client.

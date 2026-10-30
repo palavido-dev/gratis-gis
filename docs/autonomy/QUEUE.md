@@ -16,7 +16,6 @@ assigned and labeled `help wanted`. The loop may only comment there.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R16-basemap-help-composed-map-honesty | research-cycle-16 | Soften basemap.md composed-map / Portal map claim | Phase 2 not authored |
 
 Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
@@ -42,6 +41,7 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | when | result |
 | --- | --- | --- |
+| R16-basemap-help-composed-map-honesty | 2026-10-30 | Soften basemap.md composed-map / Portal map (Phase 2 not authored) |
 | deps-npm-minor-patch | 2026-10-30 | Merged #504: npm minor/patch sweep; Dependabot open = 0 |
 | analyze-layer-quick-actions | 2026-10-30 | PR #505: Map kebab Buffer / Centroid / Hull → Analyze deep link |
 | analyze-tool-deeplink | 2026-10-30 | PR #506: `?tool=` + `#data` opens matching Analyze guide |

@@ -16,6 +16,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `data-layer` sources; each opens the Analyze deep link in a new
   tab.
 
+### Documentation
+
+- Soften items/basemap.md: composed-map / Portal map is Phase 2 and
+  not selectable; document style-url / tile-url / WMS (plus Probe /
+  From service) as the shippable sources.
+
 ### Changed
 
 - BasemapConfigSection chrome (source heading/hint, Probe / kind
