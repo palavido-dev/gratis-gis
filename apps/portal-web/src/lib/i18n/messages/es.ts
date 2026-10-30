@@ -1463,6 +1463,21 @@ export const es: Partial<CatalogShape> = {
       'Configura cómo se sirve este mapa base. Los mapas que referencian este elemento toman la fuente de abajo.',
     sourceHintReadonly:
       'Tienes acceso de solo lectura a este mapa base. La fuente se muestra abajo; pide a un administrador o al propietario que la cambie.',
+    sourceHintConfig:
+      'Elige cómo se sirve este mapa base. Los mapas que lo referencian usan la fuente que configures aquí. Lo más rápido es Probe URL: pega cualquier URL de tesela o servicio y rellenamos el formato y los campos.',
+    modeProbe: 'Probe URL',
+    modeFromService: 'Desde un elemento de servicio',
+    modeXyz: 'Teselas XYZ',
+    modeWms: 'WMS',
+    modeStyleUrl: 'URL de estilo',
+    probe: 'Probar',
+    probing: 'Probando...',
+    loadServicesHttp: 'No se pudieron cargar los servicios (HTTP {status}).',
+    loadServicesFailed: 'No se pudieron cargar los servicios.',
+    loadServiceHttp: 'No se pudo cargar el servicio (HTTP {status}).',
+    loadServiceFailed: 'No se pudo cargar el servicio.',
+    serviceNotBasemap:
+      'Ese servicio aún no puede respaldar un mapa base (hoy solo WMS y servicios Map de ArcGIS en caché).',
     noChanges: 'Sin cambios.',
     preview: 'Vista previa',
     previewHint:

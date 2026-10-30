@@ -1511,6 +1511,22 @@ export const en = {
       'Configure how this basemap is served. Maps that reference this item pull from the source below.',
     sourceHintReadonly:
       'You have read-only access to this basemap. The source is shown below; ask an admin or the owner to change it.',
+    /** Shared BasemapConfigSection chrome (#162 / R16). */
+    sourceHintConfig:
+      "Pick how this basemap is served. Maps that reference this basemap pull from the source you configure here. The fastest path is Probe URL: paste any tile / service URL and we'll figure out the format and fill in the fields for you.",
+    modeProbe: 'Probe URL',
+    modeFromService: 'From a service item',
+    modeXyz: 'XYZ tiles',
+    modeWms: 'WMS',
+    modeStyleUrl: 'Style URL',
+    probe: 'Probe',
+    probing: 'Probing...',
+    loadServicesHttp: 'Could not load services (HTTP {status}).',
+    loadServicesFailed: 'Could not load services.',
+    loadServiceHttp: 'Could not load service (HTTP {status}).',
+    loadServiceFailed: 'Could not load service.',
+    serviceNotBasemap:
+      "That service can't back a basemap yet (only WMS and cached ArcGIS Map services work today).",
     noChanges: 'No changes.',
     preview: 'Preview',
     previewHint:

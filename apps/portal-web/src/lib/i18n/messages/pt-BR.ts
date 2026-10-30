@@ -1460,6 +1460,21 @@ export const ptBR: Partial<CatalogShape> = {
       'Configure como este mapa base é servido. Mapas que referenciam este item usam a fonte abaixo.',
     sourceHintReadonly:
       'Você tem acesso somente leitura a este mapa base. A fonte é mostrada abaixo; peça a um administrador ou ao proprietário para alterá-la.',
+    sourceHintConfig:
+      'Escolha como este mapa base é servido. Mapas que o referenciam usam a fonte configurada aqui. O caminho mais rápido é Probe URL: cole qualquer URL de tile ou serviço e nós detectamos o formato e preenchemos os campos.',
+    modeProbe: 'Probe URL',
+    modeFromService: 'De um item de serviço',
+    modeXyz: 'Tiles XYZ',
+    modeWms: 'WMS',
+    modeStyleUrl: 'URL de estilo',
+    probe: 'Sondar',
+    probing: 'Sondando...',
+    loadServicesHttp: 'Não foi possível carregar os serviços (HTTP {status}).',
+    loadServicesFailed: 'Não foi possível carregar os serviços.',
+    loadServiceHttp: 'Não foi possível carregar o serviço (HTTP {status}).',
+    loadServiceFailed: 'Não foi possível carregar o serviço.',
+    serviceNotBasemap:
+      'Esse serviço ainda não pode servir de mapa base (hoje só WMS e serviços Map ArcGIS em cache).',
     noChanges: 'Sem alterações.',
     preview: 'Pré-visualização',
     previewHint:

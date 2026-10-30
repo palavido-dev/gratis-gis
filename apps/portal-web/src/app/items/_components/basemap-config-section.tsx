@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import type { BasemapData, Item } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Basemap source editor (#298 / #144). Source-aware: the user picks
@@ -79,6 +80,7 @@ function inferInitialMode(value: BasemapData): SourceMode {
 }
 
 export function BasemapConfigSection({ value, onChange }: Props) {
+  const t = useT();
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
     inferInitialMode(value),
   );
@@ -111,7 +113,9 @@ export function BasemapConfigSection({ value, onChange }: Props) {
         );
         if (!res.ok) {
           if (!cancelled) {
-            setServiceError(`Could not load services (HTTP ${res.status}).`);
+            setServiceError(
+              t('basemapEditor.loadServicesHttp', { status: res.status }),
+            );
           }
           return;
         }
@@ -120,7 +124,9 @@ export function BasemapConfigSection({ value, onChange }: Props) {
       } catch (err) {
         if (!cancelled) {
           setServiceError(
-            err instanceof Error ? err.message : 'Could not load services.',
+            err instanceof Error
+              ? err.message
+              : t('basemapEditor.loadServicesFailed'),
           );
         }
       } finally {
@@ -130,7 +136,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [sourceMode, serviceItems]);
+  }, [sourceMode, serviceItems, t]);
 
   const setKind = (mode: SourceMode) => {
     setSourceMode(mode);
@@ -218,44 +224,45 @@ export function BasemapConfigSection({ value, onChange }: Props) {
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (!res.ok) {
-        setServiceError(`Could not load service (HTTP ${res.status}).`);
+        setServiceError(
+          t('basemapEditor.loadServiceHttp', { status: res.status }),
+        );
         return;
       }
       const item = (await res.json()) as Item;
       const next = serviceItemToBasemapData(item, value);
       if (!next) {
-        setServiceError(
-          "That service can't back a basemap yet (only WMS and cached ArcGIS Map services work today).",
-        );
+        setServiceError(t('basemapEditor.serviceNotBasemap'));
         return;
       }
       onChange(next);
     } catch (err) {
       setServiceError(
-        err instanceof Error ? err.message : 'Could not load service.',
+        err instanceof Error
+          ? err.message
+          : t('basemapEditor.loadServiceFailed'),
       );
     }
   }
 
+  const modeOptions = [
+    { k: 'probe' as const, label: t('basemapEditor.modeProbe') },
+    { k: 'from-service' as const, label: t('basemapEditor.modeFromService') },
+    { k: 'tile-url' as const, label: t('basemapEditor.modeXyz') },
+    { k: 'wms' as const, label: t('basemapEditor.modeWms') },
+    { k: 'style-url' as const, label: t('basemapEditor.modeStyleUrl') },
+  ];
+
   return (
     <section className="rounded-lg border border-border bg-surface-1 p-4">
-      <h2 className="mb-1 text-sm font-medium text-ink-0">Basemap source</h2>
+      <h2 className="mb-1 text-sm font-medium text-ink-0">
+        {t('basemapEditor.source')}
+      </h2>
       <p className="mb-3 text-xs text-muted">
-        Pick how this basemap is served. Maps that reference this
-        basemap pull from the source you configure here. The fastest
-        path is Probe URL: paste any tile / service URL and we&rsquo;ll
-        figure out the format and fill in the fields for you.
+        {t('basemapEditor.sourceHintConfig')}
       </p>
       <div className="mb-3 flex flex-wrap gap-2 text-xs">
-        {(
-          [
-            { k: 'probe', label: 'Probe URL' },
-            { k: 'from-service', label: 'From a service item' },
-            { k: 'tile-url', label: 'XYZ tiles' },
-            { k: 'wms', label: 'WMS' },
-            { k: 'style-url', label: 'Style URL' },
-          ] as const
-        ).map((opt) => {
+        {modeOptions.map((opt) => {
           const active = sourceMode === opt.k;
           return (
             <button
@@ -305,7 +312,9 @@ export function BasemapConfigSection({ value, onChange }: Props) {
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
-                {probing ? 'Probing...' : 'Probe'}
+                {probing
+                  ? t('basemapEditor.probing')
+                  : t('basemapEditor.probe')}
               </button>
             </div>
             <span className="mt-1 block text-2xs text-muted">

@@ -1464,6 +1464,21 @@ export const de: Partial<CatalogShape> = {
       'Konfigurieren Sie, wie diese Basemap bereitgestellt wird. Karten, die auf dieses Element verweisen, nutzen die Quelle unten.',
     sourceHintReadonly:
       'Sie haben Nur-Lesezugriff auf diese Basemap. Die Quelle wird unten angezeigt; bitten Sie einen Administrator oder den Eigentümer, sie zu ändern.',
+    sourceHintConfig:
+      'Wählen Sie, wie diese Basemap bereitgestellt wird. Karten, die darauf verweisen, nutzen die hier konfigurierte Quelle. Am schnellsten: Probe-URL — fügen Sie eine Kachel-/Dienst-URL ein, und wir erkennen das Format und füllen die Felder.',
+    modeProbe: 'Probe-URL',
+    modeFromService: 'Aus einem Dienstelement',
+    modeXyz: 'XYZ-Kacheln',
+    modeWms: 'WMS',
+    modeStyleUrl: 'Style-URL',
+    probe: 'Prüfen',
+    probing: 'Wird geprüft...',
+    loadServicesHttp: 'Dienste konnten nicht geladen werden (HTTP {status}).',
+    loadServicesFailed: 'Dienste konnten nicht geladen werden.',
+    loadServiceHttp: 'Dienst konnte nicht geladen werden (HTTP {status}).',
+    loadServiceFailed: 'Dienst konnte nicht geladen werden.',
+    serviceNotBasemap:
+      'Dieser Dienst kann noch keine Basemap speisen (heute nur WMS und zwischengespeicherte ArcGIS-Map-Dienste).',
     noChanges: 'Keine Änderungen.',
     preview: 'Vorschau',
     previewHint:
