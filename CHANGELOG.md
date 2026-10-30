@@ -7,6 +7,12 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Data-layer Analyze guides open from a shareable deep link:
+  `/items/<id>?tool=<id>&layer=<key>#data` (stable tool ids such as
+  `buffer`, `centroid`, `convex-hull`).
+
 ### Changed
 
 - BasemapConfigSection chrome (source heading/hint, Probe / kind

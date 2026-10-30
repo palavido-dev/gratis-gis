@@ -51,6 +51,9 @@ One row per non-null input geometry:
 The portal creates a private derived layer and opens it. Expect a
 short server job, not an instant browser result.
 
+Share a direct link with `?tool=convex-hull` (and
+`&layer=<sublayerId>` on multi-layer items) plus `#data`.
+
 ### From the new-item wizard
 
 1. New-item wizard → **Derived layer**.

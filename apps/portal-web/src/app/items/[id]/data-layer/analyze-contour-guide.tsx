@@ -26,6 +26,8 @@ import {
 } from '@/lib/analyze-contour-derived';
 
 interface Props {
+  /** Expand the form on mount (Analyze ?tool= deep link). */
+  defaultOpen?: boolean;
   itemId: string;
   /** v3 sublayer id; stamped as derived_layer.source.layerKey. */
   layerKey: string;
@@ -45,12 +47,13 @@ export function AnalyzeContourGuide({
   layerKey,
   sourceLabel,
   fields,
+  defaultOpen = false
 }: Props) {
   const router = useRouter();
   const fmt = useFormat();
   const t = useT();
   const numericFields = useMemo(() => numericFieldsForContour(fields), [fields]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [field, setField] = useState(numericFields[0]?.name ?? '');
   const [interval, setInterval] = useState(10);
   const [minRaw, setMinRaw] = useState('');

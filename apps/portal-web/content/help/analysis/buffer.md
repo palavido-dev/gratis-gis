@@ -51,6 +51,11 @@ degree buffer. The Analyze SQL builder deliberately does **not**
 offer meter buffers in DuckDB-WASM (no PROJ data in that build),
 so this guide is the honest path.
 
+Share a direct link with `?tool=buffer` (and `&layer=<sublayerId>`
+on multi-layer items) plus `#data`, for example
+`/items/<id>?tool=buffer&layer=<key>#data`. The Data tab opens
+Analyze with the Buffer form already expanded.
+
 ### From the new-item wizard
 
 1. Open the new-item wizard and pick **Derived layer**.

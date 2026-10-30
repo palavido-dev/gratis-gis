@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-30 - Share a link straight into Analyze
+Open a data layer with `?tool=buffer` (or centroid, convex-hull, and the other Analyze shortcuts) plus `#data` and the matching form is already expanded — handy for help pages and demos.
+
 ## [0.9.125] - 2026-10-29
 
 ## 2026-10-29 - Measure locks top-down for ground area
