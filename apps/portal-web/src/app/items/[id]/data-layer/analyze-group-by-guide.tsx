@@ -29,6 +29,8 @@ import {
 } from '@/lib/analyze-group-by-derived';
 
 interface Props {
+  /** Expand the form on mount (Analyze ?tool= deep link). */
+  defaultOpen?: boolean;
   itemId: string;
   layerKey: string;
   sourceLabel: string;
@@ -40,12 +42,13 @@ export function AnalyzeGroupByGuide({
   layerKey,
   sourceLabel,
   fields,
+  defaultOpen = false
 }: Props) {
   const router = useRouter();
   const t = useT();
   const keys = useMemo(() => groupableFields(fields), [fields]);
   const numericFields = useMemo(() => numericFieldsForGroupBy(fields), [fields]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [groupKey, setGroupKey] = useState(keys[0]?.name ?? '');
   const [op, setOp] = useState<GroupByShortcutOp>('count');
   const [aggField, setAggField] = useState(numericFields[0]?.name ?? '');

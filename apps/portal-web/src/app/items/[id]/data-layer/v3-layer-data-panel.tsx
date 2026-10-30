@@ -5,7 +5,11 @@ import { useFormat } from '@/lib/i18n/format';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  parseAnalyzeToolId,
+  type AnalyzeToolId,
+} from '@/lib/analyze-tool-ids';
 import {
   AlertTriangle,
   Check,
@@ -136,6 +140,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   const t = useT();
   const fmt = useFormat();
   const router = useRouter();
+  const searchParams = useSearchParams();
   // Busy carries the prominent upload-progress state. The previous
   // tiny inline spinner on the Import features button was easy to
   // miss while a 200 MB shapefile uploaded; now the row expands to
@@ -146,6 +151,26 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   // Single active tab (or null = collapsed). Tabs replace the old
   // independent Browse/Analyze toggles so only one view is open.
   const [activeTab, setActiveTab] = useState<LayerTab | null>(null);
+  // Deep-link tool is captured once on mount so dismissing the guide
+  // (or switching tabs) does not keep re-forcing it from the URL.
+  const [deepLinkTool, setDeepLinkTool] = useState<AnalyzeToolId | null>(
+    null,
+  );
+  const deepLinkConsumed = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkConsumed.current || !canDownload) return;
+    const tool = parseAnalyzeToolId(searchParams.get('tool'));
+    if (!tool) return;
+    const layerParam = searchParams.get('layer');
+    const targetsThisRow =
+      layerParam === layer.id ||
+      (!layerParam && allLayers.length === 1);
+    if (!targetsThisRow) return;
+    deepLinkConsumed.current = true;
+    setDeepLinkTool(tool);
+    setActiveTab('analyze');
+  }, [allLayers.length, canDownload, layer.id, searchParams]);
   const [message, setMessage] = useState<
     | { kind: 'success'; text: string }
     | { kind: 'error'; text: string }
@@ -608,7 +633,11 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       ) : null}
       {activeTab === 'analyze' ? (
         <div role="tabpanel">
-          <LayerAnalyzePanel itemId={itemId} layer={layer} />
+          <LayerAnalyzePanel
+            itemId={itemId}
+            layer={layer}
+            initialTool={deepLinkTool}
+          />
         </div>
       ) : null}
     </li>

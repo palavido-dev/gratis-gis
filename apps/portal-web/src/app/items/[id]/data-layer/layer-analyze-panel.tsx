@@ -58,10 +58,13 @@ import {
   RESULT_ROW_CAP,
   type QueryResultTable,
 } from '@/lib/duckdb-wasm';
+import type { AnalyzeToolId } from '@/lib/analyze-tool-ids';
 
 interface Props {
   itemId: string;
   layer: DataLayerSublayer;
+  /** Expand this Analyze guide on mount (`?tool=` deep link). */
+  initialTool?: AnalyzeToolId | null;
 }
 
 type Phase =
@@ -69,9 +72,10 @@ type Phase =
   | { kind: 'ready' }
   | { kind: 'boot-error'; message: string };
 
-export function LayerAnalyzePanel({ itemId, layer }: Props) {
+export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) {
   const fmt = useFormat();
   const t = useT();
+  const openTool = initialTool;
   // View name mirrors the layer's table name so queries read like
   // the schema the author already knows (SELECT * FROM facilities).
   const viewName = (layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
@@ -402,67 +406,80 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'buffer'}
             />
             <AnalyzeClipGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'clip'}
             />
             <AnalyzeEraseGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'erase'}
             />
             <AnalyzeCentroidGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'centroid'}
             />
             <AnalyzeConvexHullGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'convex-hull'}
             />
             <AnalyzeBboxGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'bbox'}
             />
             <AnalyzeDissolveGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'dissolve'}
             />
             <AnalyzeSimplifyGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'simplify'}
             />
             <AnalyzeDensifyGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'densify'}
             />
             <AnalyzeVerticesGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'vertices'}
             />
             <AnalyzeCalculateGeometryGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'calculate-geometry'}
             />
             <AnalyzeNearestNeighborGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'nearest-neighbor'}
             />
             {layer.geometryType === 'polygon' ? (
               <AnalyzeFishnetGuide
                 itemId={itemId}
                 layerKey={layer.id}
                 sourceLabel={layer.label || layer.name || 'Layer'}
+                defaultOpen={openTool === 'fishnet'}
               />
             ) : null}
             {layer.geometryType === 'point' ? (
@@ -471,6 +488,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
                 layerKey={layer.id}
                 sourceLabel={layer.label || layer.name || 'Layer'}
                 fields={layer.fields ?? []}
+                defaultOpen={openTool === 'contour'}
               />
             ) : null}
             <AnalyzeGroupByGuide
@@ -478,17 +496,20 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
               fields={layer.fields ?? []}
+              defaultOpen={openTool === 'group-by'}
             />
             <AnalyzeTopNGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
               fields={layer.fields ?? []}
+              defaultOpen={openTool === 'top-n'}
             />
             <AnalyzeRandomSampleGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'random-sample'}
             />
           </div>
         ) : null}

@@ -47,6 +47,9 @@ short server job, not an instant browser result. The in-browser
 SQL starter still offers `ST_Centroid` for ad-hoc queries; the
 guided control is the honest path when you want a saved layer.
 
+Share a direct link with `?tool=centroid` (and `&layer=<sublayerId>`
+on multi-layer items) plus `#data`.
+
 ### From the new-item wizard
 
 1. New-item wizard → **Derived layer**.

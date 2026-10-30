@@ -22,16 +22,18 @@ import {
 } from '@/lib/analyze-bbox-derived';
 
 interface Props {
+  /** Expand the form on mount (Analyze ?tool= deep link). */
+  defaultOpen?: boolean;
   itemId: string;
   /** v3 sublayer id; stamped as derived_layer.source.layerKey. */
   layerKey: string;
   sourceLabel: string;
 }
 
-export function AnalyzeBboxGuide({ itemId, layerKey, sourceLabel }: Props) {
+export function AnalyzeBboxGuide({ itemId, layerKey, sourceLabel, defaultOpen = false }: Props) {
   const router = useRouter();
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 

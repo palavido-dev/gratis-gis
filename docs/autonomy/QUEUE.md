@@ -6,7 +6,7 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| analyze-tool-deeplink | analyze-workflow-ux-2026-10-30 | `?tool=` + `#data` opens Analyze guide on data_layer | First ship from plan |
+| analyze-tool-deeplink | analyze-workflow-ux-2026-10-30 | `?tool=` + `#data` opens Analyze guide on data_layer | Shipping |
 
 ## queued (ship-without-input)
 
