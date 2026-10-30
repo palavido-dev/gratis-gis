@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Palavido
     given-names: Matt
-    email: matthew.palavido@gmail.com
+    email: matthew@gratisgis.org
 repository-code: https://github.com/palavido-dev/gratis-gis
 url: https://gratisgis.org
 license: AGPL-3.0-or-later

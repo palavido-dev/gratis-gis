@@ -8,7 +8,7 @@ for everyone who runs it.
 
 Please report suspected security issues privately, by email, to:
 
-    matthew.palavido@gmail.com
+    matthew@gratisgis.org
 
 If your finding involves data that should not be sent in cleartext
 (credentials, exploit proofs, screenshots of private data), say so in
