@@ -26,9 +26,11 @@ a firehose of PRs. Every change must fit the product ethos in
    merge only when the item needed no maintainer decision. Do not
    merge any other open pull request. A PR marked for maintainer
    review (title, body, or the `needs-maintainer` label) stays open
-   for a human maintainer even when CI is green. That includes
-   product, security-default, licensing, and public-disclosure
-   changes.
+   for Matthew even when CI is green. That includes product,
+   security-default, licensing, and public-disclosure changes.
+   Matthew is the only human reviewer for now, and the final say.
+   Chris and Yuki are contributors. Their approval is not his review,
+   and they do not merge.
 4. **Security Sentinel** (same conversation, dedicated checklist):
    runs once per work cycle and summarizes in the daily digest.
    Prefer `ship-without-input` hardenings over waiting on the
