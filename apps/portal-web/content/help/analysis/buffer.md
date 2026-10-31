@@ -95,7 +95,8 @@ you...". Just buffer.
 - **Negative distances** only do something useful on polygon
  inputs. A negative-buffered point becomes the empty geometry
  (and is dropped from the output).
-- **Buffered geometry doesn't update live** if the source layer
- edits geometry. Buffered layers are materialized. Hit the
- **Refresh** button on the derived layer's detail page to
- recompute.
+- **Buffered geometry follows the source on the next read.** A
+ Buffer Analyze shortcut creates a derived layer that stores the
+ recipe and recomputes in PostGIS whenever the map or API reads
+ it. There is no separate Refresh button on the derived-layer
+ detail page.
