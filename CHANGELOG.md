@@ -7,6 +7,17 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public print render-token consumers
+  (`POST /api/print/consume-render-token` and
+  `POST /api/print/internal/load-job`) are rate-limited at 60
+  requests per minute.
+
+### Documentation
+
+- api.md notes the print render-token Nest budget.
+
 ## [0.9.126] - 2026-10-30
 
 ### Added
