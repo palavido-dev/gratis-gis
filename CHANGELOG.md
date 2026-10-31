@@ -9,6 +9,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Map bottom-left area-scale square next to the distance scale bar:
+  a dynamic 1 / 10 / 100 / 1000… acre (or hectare / m² / km² / mi² /
+  ft²) reference that grows and shrinks with zoom. Click the square
+  to cycle units; the linear scale bar follows metric vs imperial.
 - Data-layer Analyze **Past runs** shelf lists your derived layers
   for the open layer, with **Re-run** (new private duplicate) and
   **Edit & re-run** (Analyze `?tool=` deep link when a guide exists).

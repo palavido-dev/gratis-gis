@@ -111,6 +111,10 @@ import {
 } from './point-cloud-overlay';
 import { fetchLayerBBox } from '@/lib/arcgis-rest';
 import type { SelectToolMode } from './select-tool';
+import {
+  AreaScaleControl,
+  scaleUnitForAreaUnit,
+} from './area-scale-control';
 
 /**
  * MapLibre 6 types the style setters per property key
@@ -743,7 +747,24 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     if (!hideNavigationControl) {
       m.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
     }
-    m.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    // Distance scale + area square share bottom-left. MapLibre
+    // prepends bottom-corner controls (new control becomes the
+    // first DOM child). With bottom:0 + normal block flow the
+    // *last* DOM sibling sits on the map edge — so add the scale
+    // bar first, then the area square: area ends up above, scale
+    // stays on the edge. Clicking the square cycles
+    // acres/hectares/m²/… and keeps the linear bar in the same
+    // metric/imperial family.
+    const scaleControl = new maplibregl.ScaleControl({ unit: 'metric' });
+    const areaScale = new AreaScaleControl({
+      ariaLabel: t('mapAreaScale.ariaLabel', undefined, localeRef.current),
+      title: t('mapAreaScale.title', undefined, localeRef.current),
+      onUnitChange: (unit) => {
+        scaleControl.setUnit(scaleUnitForAreaUnit(unit));
+      },
+    });
+    m.addControl(scaleControl, 'bottom-left');
+    m.addControl(areaScale, 'bottom-left');
     m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     const markCamera = (e: { originalEvent?: unknown }) => {

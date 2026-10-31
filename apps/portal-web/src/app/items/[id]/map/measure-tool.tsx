@@ -180,14 +180,16 @@ export function MeasureTool({
   const container = map?.getContainer() ?? null;
   if (!open || !container) return null;
 
-  // Sit above MapLibre's bottom-left ScaleControl. Covering the
-  // scale bar made it impossible to sanity-check a sketch against
-  // ground distance — the WV terrain report that looked like
-  // "~144 acres" vs "10 ac" was consistent with the scale bar once
-  // it was visible again (geodesic math was already correct).
+  // Sit above MapLibre's bottom-left ScaleControl + area-scale
+  // square. Covering the scale chrome made it impossible to
+  // sanity-check a sketch against ground distance — the WV
+  // terrain report that looked like "~144 acres" vs "10 ac" was
+  // consistent with the scale bar once it was visible again
+  // (geodesic math was already correct). bottom-28 clears the
+  // area square (up to ~72px) stacked above the scale bar.
   return createPortal(
     <div
-      className="absolute bottom-12 left-3 z-30 flex w-[min(20rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
+      className="absolute bottom-28 left-3 z-30 flex w-[min(20rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
       role="dialog"
       aria-label={t('mapMeasure.title')}
     >
