@@ -1,7 +1,7 @@
 ---
 id: widget-measure
 title: Measure
-summary: Draw a line or polygon on a map to read geodesic distance or area. Ships as a Viewer, Editor, and map-builder tool — not a Custom Web App widget.
+summary: Draw a line or polygon on a map to read geodesic distance or area. Ships as a Viewer, Editor, and map-builder tool, not a Custom Web App widget.
 category: web-apps/widgets
 order: 70
 complexity: basic
