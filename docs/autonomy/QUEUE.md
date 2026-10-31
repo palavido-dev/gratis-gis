@@ -11,6 +11,7 @@ assigned and labeled `help wanted`. The loop may only comment there.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| analyze-run-history | analyze-workflow-ux-2026-10-30 | Derived-layer / recipe re-run shelf | Thin vertical: Past runs on Analyze |
 
 ## queued (ship-without-input)
 
@@ -29,7 +30,6 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
-| analyze-run-history | analyze-workflow-ux-2026-10-30 | Derived-layer / recipe re-run shelf | Scope thin vertical first |
 | analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After deeplink + quick actions |
 | recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | After linear recipes + history |
 | Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
