@@ -7,6 +7,17 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Public STAC and OGC static landing docs (`/api/public/stac` +
+  conformance + api; `/api/public/ogc` + conformance + api; Records
+  catalog collection root) are rate-limited at 60 requests per
+  minute.
+
+### Documentation
+
+- api.md notes the STAC/OGC landing-doc Nest budget.
+
 ## [0.9.126] - 2026-10-30
 
 ### Added

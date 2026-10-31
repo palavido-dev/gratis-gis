@@ -47,6 +47,8 @@ export class OgcRecordsCatalogController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Static catalog collection doc (SEC-stac-ogc-landing-doc-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   catalog(@Req() req: Request) {
     const base = absoluteBase(req);
