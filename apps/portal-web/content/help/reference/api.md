@@ -231,6 +231,15 @@ catalog at `GET /api/public/osm/presets`, and per-item thumbnail
 SVGs at `GET /api/portal/items/:id/thumbnail.svg` are rate-limited
 at **60 requests per minute** per IP.
 
+### Print render tokens
+
+The Chromium print sidecar consumes single-use render tokens at
+`POST /api/print/consume-render-token` and
+`POST /api/print/internal/load-job` (both `@Public`, authorized by
+token rather than Keycloak). Those routes are rate-limited at
+**60 requests per minute** per IP in addition to single-use token
+semantics.
+
 ### DCAT catalog.json
 
 A Project Open Data–shaped JSON catalog of every public item at
