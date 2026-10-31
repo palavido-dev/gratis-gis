@@ -56,6 +56,10 @@ on multi-layer items) plus `#data`, for example
 `/items/<id>?tool=buffer&layer=<key>#data`. The Data tab opens
 Analyze with the Buffer form already expanded.
 
+The Analyze **Past runs** shelf lists your earlier derived layers
+for this source. **Re-run** posts a new private copy of the same
+recipe; **Edit & re-run** opens this Buffer form again.
+
 From a map, open the layer kebab on a data-layer source and choose
 **Buffer…** — that opens the same deep link in a new tab.
 

@@ -7,6 +7,16 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Data-layer Analyze **Past runs** shelf lists your derived layers
+  for the open layer, with **Re-run** (new private duplicate) and
+  **Edit & re-run** (Analyze `?tool=` deep link when a guide exists).
+
+### Documentation
+
+- Derived-layer and Buffer help note the Analyze Past runs shelf.
+
 ## [0.9.126] - 2026-10-30
 
 ### Added

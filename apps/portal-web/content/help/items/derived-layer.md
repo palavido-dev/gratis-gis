@@ -35,6 +35,12 @@ filter, Spatial join, and Calculate field are in the builder and
 registry below, not as Analyze shortcuts. Meter distances and
 tolerances stay honest; the in-browser SQL builder does not invent
 degree-unit geometry ops.
+
+The Analyze tab also shows a **Past runs** shelf of your
+derived layers whose source is this data layer. **Re-run** posts
+a new private item with the same recipe; **Edit & re-run** opens
+the matching guided form (`?tool=` deep link) when that tool has
+an Analyze shortcut. This is not a job ledger or recipe DAG.
 See [Buffer](analysis-buffer), [Bounding box](analysis-bbox),
 [Vertices](analysis-vertices), [Calculate](analysis-calculate),
 [Simplify](analysis-simplify), [Densify](analysis-densify),

@@ -11,7 +11,6 @@ assigned and labeled `help wanted`. The loop may only comment there.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| analyze-run-history | analyze-workflow-ux-2026-10-30 | Derived-layer / recipe re-run shelf | Thin vertical: Past runs on Analyze |
 
 ## queued (ship-without-input)
 
@@ -41,6 +40,7 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | when | result |
 | --- | --- | --- |
+| analyze-run-history | 2026-10-31 | Analyze Past runs shelf: list / Re-run / Edit & re-run |
 | release-0.9.126 | 2026-10-30 | Stamp Analyze deep-link / map quick actions + deps + basemap honesty |
 | R16-basemap-help-composed-map-honesty | 2026-10-30 | Soften basemap.md composed-map / Portal map (Phase 2 not authored) |
 | deps-npm-minor-patch | 2026-10-30 | Merged #504: npm minor/patch sweep; Dependabot open = 0 |
