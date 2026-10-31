@@ -815,6 +815,11 @@ export const es: Partial<CatalogShape> = {
     perimeterLabel: 'Perímetro',
     newMeasurement: 'Nueva medición',
   },
+  mapAreaScale: {
+    ariaLabel: 'Referencia de área a esta escala',
+    title:
+      'Área a esta escala. Haz clic para cambiar la unidad (acres, hectáreas, m², km², mi², ft²).',
+  },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
     targetsPanelTitle: 'Destinos',

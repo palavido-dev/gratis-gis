@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-31 - Area square next to the scale bar
+Maps now show a small square beside the distance scale bar — typically 1 acre, 10 acres, 100 acres, and so on as you zoom — so you can judge area at a glance, not only length. Click the square to cycle units (acres, hectares, square meters, square kilometers, square miles, square feet); the scale bar stays in the matching metric or imperial family.
+
 ## 2026-10-31 - Past runs on Analyze
 On a data layer's Analyze tab, **Past runs** lists your derived layers from that layer. Re-run creates a new private copy of the same recipe; Edit & re-run opens the matching guided form when one exists.
 

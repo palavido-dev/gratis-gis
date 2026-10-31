@@ -813,6 +813,11 @@ export const de: Partial<CatalogShape> = {
     perimeterLabel: 'Umfang',
     newMeasurement: 'Neue Messung',
   },
+  mapAreaScale: {
+    ariaLabel: 'Flächenreferenz bei diesem Maßstab',
+    title:
+      'Fläche bei diesem Maßstab. Klicken, um die Einheit zu wechseln (Acre, Hektar, m², km², mi², ft²).',
+  },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
     targetsPanelTitle: 'Ziele',

@@ -278,7 +278,7 @@ export const AREA_UNIT_LABELS: Record<AreaUnit, string> = {
   acres: 'Acres',
   'square-miles': 'Square miles',
 };
-const AREA_UNIT_SUFFIX: Record<AreaUnit, string> = {
+export const AREA_UNIT_SUFFIX: Record<AreaUnit, string> = {
   'square-meters': 'm²',
   hectares: 'ha',
   'square-kilometers': 'km²',
@@ -290,8 +290,27 @@ const AREA_UNIT_SUFFIX: Record<AreaUnit, string> = {
 const METERS_PER_FOOT = 0.3048;
 const METERS_PER_MILE = 1609.344;
 const SQM_PER_SQFT = METERS_PER_FOOT * METERS_PER_FOOT; // 0.09290304
-const SQM_PER_ACRE = 4046.8564224;
+/** International acre in m². Shared with the map area-scale indicator. */
+export const SQM_PER_ACRE = 4046.8564224;
 const SQM_PER_SQMI = METERS_PER_MILE * METERS_PER_MILE; // 2_589_988.110336
+
+/** Square meters for one unit of the given area unit. */
+export function squareMetersPerAreaUnit(unit: AreaUnit): number {
+  switch (unit) {
+    case 'square-meters':
+      return 1;
+    case 'hectares':
+      return 10_000;
+    case 'square-kilometers':
+      return 1_000_000;
+    case 'square-feet':
+      return SQM_PER_SQFT;
+    case 'acres':
+      return SQM_PER_ACRE;
+    case 'square-miles':
+      return SQM_PER_SQMI;
+  }
+}
 
 /**
  * Convert + format a length (in meters) into the requested unit.

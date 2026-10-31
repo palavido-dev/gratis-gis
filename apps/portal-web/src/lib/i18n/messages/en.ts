@@ -853,6 +853,12 @@ export const en = {
     perimeterLabel: 'Perimeter',
     newMeasurement: 'New measurement',
   },
+  /** Bottom-left area square next to the distance scale bar. */
+  mapAreaScale: {
+    ariaLabel: 'Area reference at this scale',
+    title:
+      'Area at this scale. Click to cycle units (acres, hectares, m², km², mi², ft²).',
+  },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
     /** BuilderShell left-panel title on the Feature Editor configure surface. */

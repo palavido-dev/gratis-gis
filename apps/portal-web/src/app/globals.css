@@ -619,3 +619,40 @@
     font-size: 10px;
   }
 }
+
+/* Area-scale square (sibling of .maplibregl-ctrl-scale). Compact
+   horizontal chip: outlined square sized to a round acre/hectare/…
+   amount at the current zoom, plus a short label. Click cycles units. */
+.maplibregl-ctrl-area-scale {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 4px 6px;
+  background-color: hsla(0, 0%, 100%, 0.75);
+  color: #333;
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  max-width: calc(100vw - 2rem);
+}
+.maplibregl-ctrl-area-scale:hover,
+.maplibregl-ctrl-area-scale:focus-visible {
+  background-color: hsla(0, 0%, 100%, 0.92);
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: 1px;
+}
+.maplibregl-ctrl-area-scale-square {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 2px solid #333;
+  background: hsla(0, 0%, 100%, 0.35);
+}
+.maplibregl-ctrl-area-scale-label {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 1px;
+}
