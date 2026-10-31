@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Controller, Get, Header, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -26,6 +27,9 @@ export class OgcLandingController {
    * implemented class's entry endpoint.
    */
   @Public()
+  // Static catalogue doc; tighter than global 300/min so scrapers
+  // cannot lean on that bucket alone (SEC-stac-ogc-landing-doc-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   landing(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -90,6 +94,7 @@ export class OgcLandingController {
    * authoritative as new classes land. See ROADMAP §8.5.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('conformance')
   conformance() {
     return {
@@ -160,6 +165,7 @@ export class OgcLandingController {
    * with the controller surface as endpoints are added.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('api')
   // The landing page has always advertised this media type on its
   // service-desc link; serving plain application/json made the

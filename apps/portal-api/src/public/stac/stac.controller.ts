@@ -69,6 +69,8 @@ export class PublicStacController {
   }
 
   @Public()
+  // Static catalogue doc (SEC-stac-ogc-landing-doc-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   landing(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -89,12 +91,14 @@ export class PublicStacController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('conformance')
   conformance() {
     return { conformsTo: STAC_CONFORMANCE };
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('api')
   @Header('Content-Type', 'application/vnd.oai.openapi+json;version=3.0')
   openApi(@Req() req: Request) {
