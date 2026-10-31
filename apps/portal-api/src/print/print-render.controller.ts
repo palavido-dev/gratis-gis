@@ -19,6 +19,8 @@ import {
 } from 'class-validator';
 import type { Response } from 'express';
 
+import { Throttle } from '@nestjs/throttler';
+
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -73,6 +75,7 @@ export class PrintRenderController {
    * authorization is via the single-use render token instead.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('consume-render-token')
   async consume(@Body() dto: ConsumeTokenDto) {
     const claims = await this.svc.consumeToken(dto.token);
@@ -94,6 +97,7 @@ export class PrintRenderController {
    * the single-use token.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('internal/load-job')
   async loadJob(@Body() dto: ConsumeTokenDto) {
     const bundle = await this.svc.loadJobByToken(dto.token);
