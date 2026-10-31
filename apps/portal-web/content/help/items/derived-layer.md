@@ -1,7 +1,7 @@
 ---
 id: items-derived-layer
 title: Derived layer
-summary: An item that produces features by running a pipeline of analysis steps against one or more source layers. The output is queryable like a data layer.
+summary: An item that stores an analysis recipe and computes features on every read from a source data layer (or another derived layer) via PostGIS.
 category: items
 order: 140
 complexity: intermediate
@@ -18,10 +18,15 @@ related:
 ---
 
 A **derived layer** is an item whose features are computed from
-other layers by a pipeline of analysis steps. The output rows are
-materialized into a PostGIS table and behave like any other layer:
-you can put them on a map, style them, query them, or feed them
-into another derived layer.
+other layers by a pipeline of analysis steps. The item stores the
+**recipe** (source + ordered steps), not a warehouse table of
+output rows. On every map or API read, the portal composes
+PostGIS SQL from that recipe and returns the current result.
+
+You can put a derived layer on a map, style it, query it, or feed
+it into another derived layer. Because it re-runs on read, edits
+to the source show up on the next request without a separate
+refresh button.
 
 For one-step recipes, a data layer's **Analyze** tab has guided
 actions that create a private derived-layer item via PostGIS on
@@ -99,53 +104,65 @@ set as the derived-layer builder / tool registry):
   column (TIN path).
 
 Steps feed forward in order. The last step's output is the
-derived layer's features.
+derived layer's features for that read.
 
 ## Inputs
 
-Each step takes one or more **layer references** as input. A layer
-reference is any of:
+The recipe's **source** is either:
 
-- A **data layer** sublayer (this org's, or another org's shared
- to you).
-- Another **derived layer's** output.
-- An **ArcGIS service** sublayer (streaming).
+- A **data layer** in this org (or shared with you), or
+- Another **derived layer** (chained recipes).
 
-The pipeline runs server-side; the upstream layer doesn't have to
-be loaded in a browser for the derived layer to compute.
+Overlay steps (clip, erase, spatial join, spatial filter) may
+also reference a second **data layer** as `otherSource`. There is
+no ArcGIS-service streaming input on the derived-layer recipe
+today; use a local data layer (or pull data into one) first.
 
-## Materialization
+The pipeline runs server-side in PostGIS. The upstream layer does
+not have to be open in a browser for the derived layer to compute.
 
-A derived layer is **materialized**: when you save it, the portal
-runs the pipeline and stores the result rows in a real PostGIS
-table. Downstream queries hit the table directly, not the
-pipeline.
+## How reads work
 
-This means:
+A derived layer is **computed on read**: the detail page and the
+map/API read path compose SQL from the saved recipe and run it
+against current source rows. There is no separate materialized
+output table, no **Refresh** button on the item detail page, and
+no scheduled-refresh option.
 
-- **Fast at query time.** No per-request recomputation.
-- **Stale when inputs change.** The pipeline doesn't re-run
- automatically on input edits. The detail page surfaces a
- **Refresh** button to recompute.
+The detail page shows the source, pipeline, cached output schema
+(column list recorded at save), and the recipe's **feature
+limit**.
 
-A scheduled-refresh option (every N minutes, hourly, nightly) is
-available for derived layers whose inputs change predictably.
+What this means in practice:
+
+- **Always current with the source** (within the feature limit and
+  any map bbox you pass).
+- **Cost is on every read**, not once at save. Heavy steps (for
+  example nearest-neighbor over a large layer) can be slower than
+  a plain data-layer query.
+- **Not a warehouse snapshot.** If you need a frozen copy of the
+  rows at a point in time, export or copy into a data layer; the
+  derived item itself keeps re-running the recipe.
 
 ## Cost and limits
 
-Each step has a documented cost profile. The detail page shows
-the last run's wall time and row count. Pipelines whose final
-output exceeds **5M rows** require an explicit acknowledgement
-to save; very large outputs can saturate the org's storage budget
-quickly.
+Each recipe has a **feature limit** (default **1,000**, hard
+ceiling **50,000** features per read). Map views usually also pass
+a bbox, so the limit is mainly a safety net for unbounded
+requests. There is no 5-million-row save acknowledgement UI; the
+feature limit is the guardrail.
+
+Some tools add their own save-time checks (for example fishnet
+cell-count budgets). Those still do not create a separate
+materialized table.
 
 ## Sharing
 
-Standard three-tier. A user who can read the derived layer but
-not its inputs still sees the materialized output rows (because
-those live in this item's table). This is the right call for most
-cases; if you need to lock derived output to upstream readers,
-share at the same tier as the most-restrictive input.
+Standard three-tier sharing applies to the derived-layer item.
+Reading features runs the live pipeline against the source (and
+any `otherSource` layers). Callers need read access on those
+inputs as well; this is not a detached snapshot table that can be
+shared without upstream rights.
 
 ## See also
 

@@ -72,8 +72,9 @@ equivalent of an AGO feature service.
 tracks dependencies in both directions so you can see what a
 map references and what references a map.
 
-**Derived layer.** Item type whose features are the materialized
-result of an analysis pipeline. Lives in its own PostGIS table.
+**Derived layer.** Item type that stores an analysis recipe and
+computes features on read via PostGIS. Does not keep a separate
+warehouse table of output rows.
 
 ## E
 

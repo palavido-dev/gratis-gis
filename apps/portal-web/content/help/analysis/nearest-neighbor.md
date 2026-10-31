@@ -66,9 +66,9 @@ instant browser result.
 ## Notes
 
 - **O(N²) per read.** The join runs over the full input. For more
-  than a few thousand features, expect slower materialization.
-  Recipe `featureLimit` caps output rows but does not shrink the
-  join input. A GIST / KNN path is not provisioned in v1.
+  than a few thousand features, expect slower reads. Recipe
+  `featureLimit` caps output rows but does not shrink the join
+  input. A GIST / KNN path is not provisioned in v1.
 - **Meters on the spheroid** via `ST_Distance` on geography —
   not planar degrees.
 - **Same layer only.** Other-layer proximity is spatial join
