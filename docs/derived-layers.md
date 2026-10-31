@@ -10,21 +10,23 @@ This document covers v1 scope. Out-of-scope ideas are flagged in
 
 ## Status
 
-Phase: design (this doc). Implementation has not started.
+Shipped in production (v1.0.0). This document began as the design note;
+prefer [help: Derived layer](../apps/portal-web/content/help/items/derived-layer.md)
+for the user-facing contract.
 
-v1 ships:
+What runs today:
 
-- One new item type: `derived_layer`.
-- One tool: `buffer`.
-- Source: a single `data_layer` item. No chaining of derived layers.
-- Read path: reuses `GET /api/items/:id/geojson?bbox=&at=&clip=`.
-- Storage: pure on-the-fly compute. No materialization, no caching beyond
-  what the existing read path already does.
+- Item type `derived_layer` with a structured recipe pipeline.
+- Sources: `data_layer` or another `derived_layer` (chaining allowed).
+- Many Analyze / recipe tools beyond the original buffer-only slice.
+- Read path: on-the-fly PostGIS (`featureLimit` default 1,000, ceiling
+  50,000). No warehouse materialize table, Refresh, or scheduled refresh.
+- Node-graph tool builder (Phase 7) is still not built; generators stay
+  shared so a canvas can wrap them later (see [ROADMAP.md](../ROADMAP.md)).
 
-This makes the derived-layer item a precursor to the Phase 7 tool builder
-(see [ROADMAP.md](../ROADMAP.md)). The tool registry shape introduced here
-is designed so a tool-builder node can later wrap the same generators
-without forking code.
+Sections below retain early design rationale; where they disagree with
+the help page or code (for example a buffer-only pipeline), the help page
+and code win.
 
 ## Why not store SQL?
 

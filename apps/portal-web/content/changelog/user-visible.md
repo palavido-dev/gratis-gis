@@ -21,6 +21,8 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.0.0] - 2026-10-31
+
 ## 2026-10-31 - Area square next to the scale bar
 Maps now show a small square beside the distance scale bar — typically 1 acre, 10 acres, 100 acres, and so on as you zoom — so you can judge area at a glance, not only length. Click the square to cycle units (acres, hectares, square meters, square kilometers, square miles, square feet); the scale bar stays in the matching metric or imperial family.
 

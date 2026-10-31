@@ -35,7 +35,7 @@ Esri vocabulary was already the clear word.
 | Notebook | (not built in; use a Tool item or external Jupyter against the data API) | Hosted notebooks deferred indefinitely. |
 | Tile layer (cached map service) | **Tile layer** | Same term. PMTiles at rest. |
 | Vector tile layer | **Tile layer** (vector kind) | Same item, different content. |
-| Imagery layer | (no direct equivalent today) | Raster imagery support is on the roadmap; out of v1. |
+| Imagery layer | (no direct equivalent today) | Raster imagery support is on the roadmap; not in v1.0.0. |
 | Geoenrichment / Routing services | (not built in) | Bring your own service via a tool item. |
 | Solution template | (not built) | Layer packages and widget packages are reserved types with no editor. |
 

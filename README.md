@@ -19,26 +19,26 @@ templates are not built. Runs on your own infrastructure, with open file
 formats throughout (PostGIS, GeoJSON, MVT, OGC API). No license fees;
 your only cost is the hardware (or cloud bill) you choose to run it on.
 
-**Status:** Active development, pre-v1, with tagged releases starting
-at v0.9.0 (see [CHANGELOG.md](./CHANGELOG.md)). Until v1.0.0, minor
-releases may include breaking changes, each called out in the
-changelog; the full policy is in
-[docs/VERSIONING.md](./docs/VERSIONING.md). Working today: the portal (items,
-groups, sharing with row/column/geographic limits), web map authoring on
-PostGIS-backed data layers with vector-tile rendering for large datasets,
-Esri WebMap JSON import and export, an ArcGIS Online content importer
-(hosted feature services can be copied into portal data layers; a WebMap
-JSON file on its own keeps the original service URLs), form authoring and
-submissions, App Builder (viewer, editor, and custom widget apps,
-including KPI and operations dashboards), the offline-capable field PWA,
-derived-layer analysis and tool recipes (OSM is a first-class source; the
-node-graph canvas is not built), live PostgreSQL/PostGIS connections,
-print/PDF layouts (including visible map markup), OGC API endpoints
-(Features, Tiles, Styles, Records with a MetaSearch-friendly searchable
-catalog plus DCAT / Aardvark themes), live map presence and markup /
-comments, zonal statistics on elevation layers, an open MCP server with
-read and optional write tools, a QGIS plugin, light and dark themes, five
-UI languages, and one-click sample data that seeds a complete demonstration
+**Status:** **v1.0.0** (see [CHANGELOG.md](./CHANGELOG.md)). From here,
+the public surface follows semantic versioning; the full policy is in
+[docs/VERSIONING.md](./docs/VERSIONING.md). Working today: the portal
+(items, groups, sharing with row/column/geographic limits), web map
+authoring on PostGIS-backed data layers with vector-tile rendering for
+large datasets, Esri WebMap JSON import and export, an ArcGIS Online
+content importer (hosted feature services can be copied into portal data
+layers; a WebMap JSON file on its own keeps the original service URLs),
+form authoring and submissions, App Builder (viewer, editor, and custom
+widget apps, including KPI and operations dashboards), the
+offline-capable field PWA (store-listed native Android / iOS apps are
+not required for 1.0 and are not released yet), derived-layer analysis
+and tool recipes (OSM is a first-class source; the node-graph canvas is
+not built), live PostgreSQL/PostGIS connections, print/PDF layouts
+(including visible map markup), OGC API endpoints (Features, Tiles,
+Styles, Records with a MetaSearch-friendly searchable catalog plus DCAT
+/ Aardvark themes), live map presence and markup / comments, zonal
+statistics on elevation layers, an open MCP server with read and
+optional write tools, a QGIS plugin, light and dark themes, five UI
+languages, and one-click sample data that seeds a complete demonstration
 workspace. Underneath all of it is the observation-log engine plus
 Cedar-based geometry-aware authorization. 700+ backend tests, CI on
 every push.

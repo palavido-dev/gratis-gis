@@ -7,21 +7,24 @@ pick the newest stable release tag by default; a tag with a suffix
 automatically. See [UPGRADING.md](./UPGRADING.md) for how to move
 between releases.
 
-## Before v1.0.0 (now)
-
-- Versions are `0.MINOR.PATCH`, starting at v0.9.0.
-- A minor bump (0.9 to 0.10) may include breaking changes to the
-  public surface below. Every breaking change is called out in the
-  release's changelog section with a line starting `Breaking:`.
-- A patch bump (0.9.0 to 0.9.1) contains fixes, plus additions that
-  are off by default and change nothing for a deployment that ignores
-  them. It is always a safe upgrade: no configuration change, no
-  behavior change you did not ask for.
-
 ## From v1.0.0 onward
 
-Semantic versioning applies to the public surface: breaking changes
-only in major releases, additions in minors, fixes in patches.
+Semantic versioning applies to the public surface below: breaking
+changes only in major releases, additions in minors, fixes in patches.
+Every breaking change is called out in the release's changelog section
+with a line starting `Breaking:`.
+
+A patch bump contains fixes, plus additions that are off by default and
+change nothing for a deployment that ignores them. It is always a safe
+upgrade: no configuration change, no behavior change you did not ask
+for.
+
+## Before v1.0.0 (historical)
+
+Versions were `0.MINOR.PATCH`, starting at v0.9.0. Through the 0.9.x
+line, a minor bump could include breaking changes to the public
+surface, each called out with `Breaking:` in the changelog. That
+exception ended at v1.0.0.
 
 ## The public surface (what the version number promises)
 
@@ -58,6 +61,10 @@ only in major releases, additions in minors, fixes in patches.
   by the bundled web UI and are versioned with it.
 - The demo and maintenance tooling in `infra/` (golden snapshot,
   restore, seed scripts).
+- Dedicated native mobile store listings (Android / iOS). The field
+  PWA is the supported 1.0 field client; native apps are tracked in
+  [mobile-field-app.md](./mobile-field-app.md) and are not part of the
+  version promise until released.
 - Anything undocumented. If a behavior matters to you and is not
   listed above, open an issue asking for it to be covered; that is
   cheaper for everyone than depending on it silently.
