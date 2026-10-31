@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
+import { AnalyzePastRuns } from './analyze-past-runs';
 import { AnalyzeBboxGuide } from './analyze-bbox-guide';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeCalculateGeometryGuide } from './analyze-calculate-geometry-guide';
@@ -58,7 +59,10 @@ import {
   RESULT_ROW_CAP,
   type QueryResultTable,
 } from '@/lib/duckdb-wasm';
-import type { AnalyzeToolId } from '@/lib/analyze-tool-ids';
+import {
+  analyzeToolDeepLink,
+  type AnalyzeToolId,
+} from '@/lib/analyze-tool-ids';
 
 interface Props {
   itemId: string;
@@ -75,7 +79,10 @@ type Phase =
 export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) {
   const fmt = useFormat();
   const t = useT();
-  const openTool = initialTool;
+  // Past runs "Edit & re-run" remounts the guide chips (defaultOpen
+  // is mount-only). Deep-link ?tool= still seeds the first open.
+  const [openTool, setOpenTool] = useState<AnalyzeToolId | null>(initialTool);
+  const [guideEpoch, setGuideEpoch] = useState(0);
   // View name mirrors the layer's table name so queries read like
   // the schema the author already knows (SELECT * FROM facilities).
   const viewName = (layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
@@ -100,6 +107,19 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
+
+  useEffect(() => {
+    if (initialTool) {
+      setOpenTool(initialTool);
+      setGuideEpoch((n) => n + 1);
+    }
+  }, [initialTool]);
+
+  function focusAnalyzeTool(tool: AnalyzeToolId): void {
+    setOpenTool(tool);
+    setGuideEpoch((n) => n + 1);
+    router.replace(analyzeToolDeepLink(itemId, tool, layer.id));
+  }
 
   /**
    * Unit 3 of #175: persist the CURRENT query's result as a brand
@@ -401,7 +421,10 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
             honestly. Offer a server derived_layer recipe instead of
             a lying in-browser ST_Buffer (R4-analyze-buffer-derived). */}
         {layer.geometryType ? (
-          <div className="flex flex-wrap items-start gap-2">
+          <div
+            key={guideEpoch}
+            className="flex flex-wrap items-start gap-2"
+          >
             <AnalyzeBufferGuide
               itemId={itemId}
               layerKey={layer.id}
@@ -513,6 +536,11 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
             />
           </div>
         ) : null}
+        <AnalyzePastRuns
+          itemId={itemId}
+          layerKey={layer.id}
+          onEditTool={focusAnalyzeTool}
+        />
         {mode === 'builder' ? (
           <AnalyzeQueryBuilder
             viewName={viewName}

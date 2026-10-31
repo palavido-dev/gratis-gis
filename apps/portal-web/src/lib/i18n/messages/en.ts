@@ -5748,6 +5748,29 @@ export const en = {
     groupByValidateAggField: 'Pick a numeric field for sum or avg.',
     groupByValidateOutput: 'Output name must be a letter/underscore field id.',
     groupByValidateOutputCollision: 'Output name must not collide with the group key.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Past runs',
+    pastRunsHint:
+      'Your derived layers from this layer. Re-run posts a new private copy; Edit & re-run opens the matching guide.',
+    pastRunsLoading: 'Loading past runs…',
+    pastRunsEmpty: 'No derived layers from this layer yet.',
+    pastRunsLoadFailed: 'Could not load past runs ({status}).',
+    pastRunsRetry: 'Retry',
+    pastRunsRefresh: 'Refresh',
+    pastRunsUnknownDate: 'unknown date',
+    pastRunsRerun: 'Re-run',
+    pastRunsRerunTitleAttr:
+      'Create a new private derived layer with the same recipe',
+    pastRunsEdit: 'Edit & re-run',
+    pastRunsEditTitleAttr:
+      'Open the Analyze guide for this tool so you can change parameters',
+    pastRunsRerunTitle: '{title} (re-run)',
+    pastRunsRerunDescription:
+      'Re-run of "{title}" from the Analyze Past runs shelf.',
+    pastRunsRerunToast: 'Derived layer "{title}" created',
+    pastRunsRerunFailed:
+      'Could not re-run the derived layer ({status}): {detail}',
   },
 
   /**
