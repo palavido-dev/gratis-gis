@@ -16,10 +16,6 @@ assigned and labeled `help wanted`. The loop may only comment there.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| R17-derived-layer-help-honesty | research-cycle-17 | Soften derived-layer.md materialize / Refresh / schedule / 5M / ArcGIS streaming claims | Docs-only; on-the-fly PostGIS read path |
-| R17-measure-widget-help-honesty | research-cycle-17 | Retarget measure.md from fake Custom Web App widget to Viewer/Editor/map Measure | Docs-only; no measure in CustomWidgetKind |
-| SEC-print-render-token-throttle | research-cycle-17 | @Throttle 60/min on print consume-render-token + load-job | Low; token-gated already |
-| SEC-stac-ogc-landing-doc-throttle | research-cycle-17 | Optional 60/min on STAC/OGC static landing/conformance/api + catalog root | Lowest SEC; static docs |
 
 Research done: [research-cycle-17.json](./research-cycle-17.json) (2026-10-31); [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean after R16 Public list/scrape drain. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
@@ -44,6 +40,10 @@ Research done: [research-cycle-17.json](./research-cycle-17.json) (2026-10-31); 
 
 | id | when | result |
 | --- | --- | --- |
+| R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |
+| R17-measure-widget-help-honesty | 2026-10-31 | Measure help retargeted to Viewer/Editor/map tool |
+| SEC-print-render-token-throttle | 2026-10-31 | Print consume-render-token + load-job @Throttle 60/min |
+| SEC-stac-ogc-landing-doc-throttle | 2026-10-31 | STAC/OGC landing/conformance/api + catalog root @Throttle 60/min |
 | Q-research-cycle-17 | 2026-10-31 | Research refill: five ship-without-input (derived-layer + measure honesty; analyze-run-history thin vertical; print-token + optional STAC/OGC landing throttles) |
 | analyze-run-history | 2026-10-31 | Analyze Past runs shelf: list / Re-run / Edit & re-run |
 | release-0.9.126 | 2026-10-30 | Stamp Analyze deep-link / map quick actions + deps + basemap honesty |
