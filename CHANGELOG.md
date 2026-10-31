@@ -20,8 +20,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 ### Documentation
 
 - Derived-layer and Buffer help note the Analyze Past runs shelf.
-
 - Retarget Measure help: Viewer / Editor / map-builder tool with
+  geodesic distance/area, optional ground (terrain) area, and
+  pitch flatten while open. Drop fake Custom Web App widget
+  config (MGRS/UTM, planar mode, snap-to-features).
+
 ## [0.9.126] - 2026-10-30
 
 ### Added
