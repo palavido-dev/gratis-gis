@@ -17,10 +17,18 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the open layer, with **Re-run** (new private duplicate) and
   **Edit & re-run** (Analyze `?tool=` deep link when a guide exists).
 
+### Security
+
+- Public print render-token consumers
+  (`POST /api/print/consume-render-token` and
+  `POST /api/print/internal/load-job`) are rate-limited at 60
+  requests per minute.
+
 ### Documentation
 
 - Derived-layer and Buffer help note the Analyze Past runs shelf.
 
+- api.md notes the print render-token Nest budget.
 ## [0.9.126] - 2026-10-30
 
 ### Added
