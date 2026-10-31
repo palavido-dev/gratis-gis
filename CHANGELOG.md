@@ -17,6 +17,13 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the open layer, with **Re-run** (new private duplicate) and
   **Edit & re-run** (Analyze `?tool=` deep link when a guide exists).
 
+### Security
+
+- Public print render-token consumers
+  (`POST /api/print/consume-render-token` and
+  `POST /api/print/internal/load-job`) are rate-limited at 60
+  requests per minute.
+
 ### Documentation
 
 - Soften derived-layer help: recipe is computed on every PostGIS
@@ -30,6 +37,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   pitch flatten while open. Drop fake Custom Web App widget
   config (MGRS/UTM, planar mode, snap-to-features).
 
+- api.md notes the print render-token Nest budget.
 ## [0.9.126] - 2026-10-30
 
 ### Added
