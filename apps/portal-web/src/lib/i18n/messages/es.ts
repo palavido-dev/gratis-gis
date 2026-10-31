@@ -5593,6 +5593,29 @@ export const es: Partial<CatalogShape> = {
     groupByValidateAggField: 'Elija un campo numérico para sum o avg.',
     groupByValidateOutput: 'El nombre de salida debe ser un id de campo con letra/guion bajo.',
     groupByValidateOutputCollision: 'El nombre de salida no debe coincidir con la clave de grupo.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Ejecuciones anteriores',
+    pastRunsHint:
+      'Sus capas derivadas de esta capa. Volver a ejecutar crea una copia privada nueva; Editar y volver a ejecutar abre la guía correspondiente.',
+    pastRunsLoading: 'Cargando ejecuciones anteriores…',
+    pastRunsEmpty: 'Aún no hay capas derivadas de esta capa.',
+    pastRunsLoadFailed: 'No se pudieron cargar las ejecuciones anteriores ({status}).',
+    pastRunsRetry: 'Reintentar',
+    pastRunsRefresh: 'Actualizar',
+    pastRunsUnknownDate: 'fecha desconocida',
+    pastRunsRerun: 'Volver a ejecutar',
+    pastRunsRerunTitleAttr:
+      'Crear una capa derivada privada nueva con la misma receta',
+    pastRunsEdit: 'Editar y volver a ejecutar',
+    pastRunsEditTitleAttr:
+      'Abrir la guía de Analyze de esta herramienta para cambiar parámetros',
+    pastRunsRerunTitle: '{title} (nueva ejecución)',
+    pastRunsRerunDescription:
+      'Nueva ejecución de «{title}» desde el estante Ejecuciones anteriores de Analyze.',
+    pastRunsRerunToast: 'Capa derivada «{title}» creada',
+    pastRunsRerunFailed:
+      'No se pudo volver a ejecutar la capa derivada ({status}): {detail}',
   },
 
   serviceEditors: {

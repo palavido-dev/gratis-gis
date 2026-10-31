@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-31 - Past runs on Analyze
+On a data layer's Analyze tab, **Past runs** lists your derived layers from that layer. Re-run creates a new private copy of the same recipe; Edit & re-run opens the matching guided form when one exists.
+
 ## [0.9.126] - 2026-10-30
 
 ## 2026-10-30 - Buffer from the map layer menu

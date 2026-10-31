@@ -5602,6 +5602,29 @@ export const fr: Partial<CatalogShape> = {
     groupByValidateAggField: 'Choisissez un champ numérique pour sum ou avg.',
     groupByValidateOutput: 'Le nom de sortie doit être un id de champ lettre/underscore.',
     groupByValidateOutputCollision: 'Le nom de sortie ne doit pas entrer en collision avec la clé de groupe.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Exécutions passées',
+    pastRunsHint:
+      'Vos couches dérivées depuis cette couche. Relancer crée une nouvelle copie privée ; Modifier et relancer ouvre le guide correspondant.',
+    pastRunsLoading: 'Chargement des exécutions passées…',
+    pastRunsEmpty: "Aucune couche dérivée depuis cette couche pour l'instant.",
+    pastRunsLoadFailed: 'Impossible de charger les exécutions passées ({status}).',
+    pastRunsRetry: 'Réessayer',
+    pastRunsRefresh: 'Actualiser',
+    pastRunsUnknownDate: 'date inconnue',
+    pastRunsRerun: 'Relancer',
+    pastRunsRerunTitleAttr:
+      'Créer une nouvelle couche dérivée privée avec la même recette',
+    pastRunsEdit: 'Modifier et relancer',
+    pastRunsEditTitleAttr:
+      'Ouvrir le guide Analyze de cet outil pour modifier les paramètres',
+    pastRunsRerunTitle: '{title} (relance)',
+    pastRunsRerunDescription:
+      'Relance de « {title} » depuis le rayon Exécutions passées d’Analyze.',
+    pastRunsRerunToast: 'Couche dérivée « {title} » créée',
+    pastRunsRerunFailed:
+      'Impossible de relancer la couche dérivée ({status}) : {detail}',
   },
 
   serviceEditors: {

@@ -5592,6 +5592,29 @@ export const ptBR: Partial<CatalogShape> = {
     groupByValidateAggField: 'Escolha um campo numérico para sum ou avg.',
     groupByValidateOutput: 'O nome de saída deve ser um id de campo com letra/underscore.',
     groupByValidateOutputCollision: 'O nome de saída não deve colidir com a chave de grupo.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Execuções anteriores',
+    pastRunsHint:
+      'Suas camadas derivadas desta camada. Executar de novo cria uma cópia privada nova; Editar e executar de novo abre o guia correspondente.',
+    pastRunsLoading: 'Carregando execuções anteriores…',
+    pastRunsEmpty: 'Ainda não há camadas derivadas desta camada.',
+    pastRunsLoadFailed: 'Não foi possível carregar as execuções anteriores ({status}).',
+    pastRunsRetry: 'Tentar de novo',
+    pastRunsRefresh: 'Atualizar',
+    pastRunsUnknownDate: 'data desconhecida',
+    pastRunsRerun: 'Executar de novo',
+    pastRunsRerunTitleAttr:
+      'Criar uma camada derivada privada nova com a mesma receita',
+    pastRunsEdit: 'Editar e executar de novo',
+    pastRunsEditTitleAttr:
+      'Abrir o guia do Analyze desta ferramenta para alterar parâmetros',
+    pastRunsRerunTitle: '{title} (nova execução)',
+    pastRunsRerunDescription:
+      'Nova execução de "{title}" da prateleira Execuções anteriores do Analyze.',
+    pastRunsRerunToast: 'Camada derivada "{title}" criada',
+    pastRunsRerunFailed:
+      'Não foi possível executar de novo a camada derivada ({status}): {detail}',
   },
 
   serviceEditors: {
