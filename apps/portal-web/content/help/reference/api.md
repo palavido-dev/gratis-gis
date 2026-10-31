@@ -156,7 +156,9 @@ Core, GeoJSON, and CRS conformance classes. CQL2 filtering is not
 on the roadmap for v1 (parked for a later major). `sortby` is
 intentionally rejected with HTTP 400 until a real `ORDER BY` path
 exists; items stay in stable feature-id order for paging. Do not
-treat either as "coming soon."
+treat either as "coming soon." Anonymous OGC landing, conformance,
+and OpenAPI docs (`GET /api/public/ogc`, `/conformance`, `/api`)
+are rate-limited at **60 requests per minute** per IP.
 
 ### OGC API Tiles
 
@@ -184,12 +186,15 @@ GET /api/public/ogc/collections/catalog/items
 GET /api/public/ogc/records
 ```
 
-`/records` stays as an alias. Data-layer records include a
-`FILE:GEO` GeoJSON enclosure so MetaSearch Add Data can load
-features. Curated DCAT / Aardvark themes live on items as
-`dcat_theme_sm` (separate from free-form keywords); harvest tools
-can also fetch `GET /api/public/ogc/aardvark/{id}.json`
-(rate-limited at **60 requests per minute** per IP).
+`/records` stays as an alias. The searchable-catalog collection
+document at `GET /api/public/ogc/collections/catalog` is also
+rate-limited at **60 requests per minute** per IP. Data-layer
+records include a `FILE:GEO` GeoJSON enclosure so MetaSearch Add
+Data can load features. Curated DCAT / Aardvark themes live on
+items as `dcat_theme_sm` (separate from free-form keywords);
+harvest tools can also fetch
+`GET /api/public/ogc/aardvark/{id}.json` (rate-limited at
+**60 requests per minute** per IP).
 
 ### Citation export
 
@@ -210,9 +215,11 @@ Cite menu.
 A full STAC API root at `/api/public/stac`, with collections and both
 GET and POST item search. This is the endpoint newer QGIS releases use
 to browse rasters without a plugin. Step-by-step setup is in
-**Browse public rasters from QGIS with STAC**. Anonymous collections
-landing (`GET /collections` and `GET /collections/:id`), items, and
-search are rate-limited at **60 requests per minute** per IP.
+**Browse public rasters from QGIS with STAC**. Anonymous STAC root,
+conformance, and OpenAPI docs (`GET /api/public/stac`,
+`/conformance`, `/api`), plus collections landing
+(`GET /collections` and `GET /collections/:id`), items, and search
+are rate-limited at **60 requests per minute** per IP.
 
 ### CSW 2.0.2
 
