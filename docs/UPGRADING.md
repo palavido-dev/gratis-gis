@@ -6,10 +6,11 @@ manual flow in [deployment.md](./deployment.md). Starting with v0.9.0,
 releases are git tags named `vX.Y.Z`, listed in
 [CHANGELOG.md](../CHANGELOG.md) and on the GitHub releases page.
 
-Until v1.0.0, a minor release (0.9 to 0.10) may include breaking
-changes; each one is called out in its changelog section. Read the
-section for the release you are moving to before you start. The
-policy is in [VERSIONING.md](./VERSIONING.md).
+From v1.0.0 onward, semantic versioning applies: breaking changes
+only in major releases. Each breaking change is called out in its
+changelog section with a line starting `Breaking:`. Read the section
+for the release you are moving to before you start. The policy is in
+[VERSIONING.md](./VERSIONING.md).
 
 ## 1. Back up first
 

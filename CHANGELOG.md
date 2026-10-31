@@ -2,10 +2,16 @@
 
 All notable changes to GratisGIS are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
-versioning policy, including what counts as a breaking change before
-v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
+versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-10-31
+
+First stable release. Semantic versioning now applies to the public
+surface in [docs/VERSIONING.md](./docs/VERSIONING.md). Dedicated
+store-listed Android / iOS apps remain post-1.0; the field PWA is the
+supported field client.
 
 ### Added
 
@@ -42,6 +48,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   config (MGRS/UTM, planar mode, snap-to-features).
 - api.md notes the print render-token Nest budget.
 - api.md notes the STAC/OGC landing-doc Nest budget.
+- Align item-types / glossary / engineering derived-layers note with
+  on-read PostGIS and basemap sources that actually ship.
+- Status and versioning docs call v1.0.0: README, VERSIONING,
+  UPGRADING, CONTRIBUTING, landing JSON-LD, CITATION.cff, and the
+  mobile-field-app note that 1.0 does not require a Play Store build.
 
 ## [0.9.126] - 2026-10-30
 
@@ -3366,6 +3377,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2
 [0.9.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.1
 [0.9.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.0

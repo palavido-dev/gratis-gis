@@ -28,7 +28,7 @@ end.
 |---|---|---|
 | **Map** | Composes layers, basemap, viewport for viewing or for web-app rendering. | **Map** |
 | **Data layer** | A PostGIS-backed dataset with one or more sublayers. Owned by the portal. | **Data layer** |
-| **Derived layer** | Computed output of an analysis pipeline against other layers. Materialized into its own table. | **Derived layer** |
+| **Derived layer** | Analysis recipe against other layers; features are computed on every PostGIS read (no warehouse table). | **Derived layer** |
 | **Connected service** | A reference to an external service the portal reads live: an ArcGIS map, feature, image or geocoding service, or an OGC WMS, WFS or WMTS endpoint. One type for all of them; the protocol is recorded on the item. | **Connected service** |
 | **Tile layer** | A pre-rendered tile container (PMTiles) uploaded to the portal's object storage. Range-served, and usable as a basemap source. | **Tile layer** |
 | **Point cloud** | A 3D lidar COPC item. Viewers stream octree nodes in view; large clouds use size-aware density tiers (not Potree / Tile3D yet). | **Point cloud** |

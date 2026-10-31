@@ -5,16 +5,15 @@ organized and how to propose changes.
 
 ## Project state
 
-GratisGIS is in active pre-v1 development. The core portal, web maps,
-forms, App Builder, field PWA, and the observation-log engine with
-Cedar policy authorization are all working today (see the status
-section in the [README](./README.md)). Dashboards already ship as
-web-app layouts, including KPI Dashboard and Operations Board. Only
-dedicated document report templates are not built. The architecture is
-stabilizing but expect the occasional pivot on internals; cross-app
-contracts in [packages/shared-types](./packages/shared-types) and the
-API surface are the parts we try hardest to keep settled. The issue
-tracker reflects near-term work from [ROADMAP.md](./ROADMAP.md).
+GratisGIS is at **v1.0.0**. The core portal, web maps, forms, App
+Builder, field PWA, and the observation-log engine with Cedar policy
+authorization are the supported surface (see the status section in the
+[README](./README.md)). Dashboards ship as web-app layouts, including
+KPI Dashboard and Operations Board. Dedicated document report templates
+and store-listed native mobile apps are not built yet. The public
+surface in [docs/VERSIONING.md](./docs/VERSIONING.md) follows semver;
+internals under `packages/` may still move. The issue tracker reflects
+near-term work from [ROADMAP.md](./ROADMAP.md).
 
 ## Branching & PRs
 

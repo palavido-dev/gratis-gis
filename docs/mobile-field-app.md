@@ -2,11 +2,13 @@
 
 Status: in progress in `clients/android`, and not released. The client
 is Kotlin and Jetpack Compose. There is no Play Store listing and no
-released build. Decided 2026-09-13. Revised the same day after a review
-that changed the approach to the form and sync logic (embedded engine
-instead of a Kotlin port), cut the auth prerequisite to a fraction of
-its first estimate, and added two server items the first draft missed
-(edit conflicts, engine versioning).
+released build. **v1.0.0 ships without a store-listed Android or iOS
+app**; the offline-capable field PWA is the 1.0 field surface. Decided
+2026-09-13. Revised the same day after a review that changed the
+approach to the form and sync logic (embedded engine instead of a
+Kotlin port), cut the auth prerequisite to a fraction of its first
+estimate, and added two server items the first draft missed (edit
+conflicts, engine versioning).
 
 Scope of this document: the native Android client for `data_collection`
 items, and what has to change in portal-api, Keycloak and the shared

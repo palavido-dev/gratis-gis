@@ -40,6 +40,7 @@ Research done: [research-cycle-17.json](./research-cycle-17.json) (2026-10-31); 
 
 | id | when | result |
 | --- | --- | --- |
+| release-1.0.0 | 2026-10-31 | Stamp v1.0.0: Past runs + area scale + print/STAC landing throttles + honesty/status for semver 1.0 |
 | R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |
 | R17-measure-widget-help-honesty | 2026-10-31 | Measure help retargeted to Viewer/Editor/map tool |
 | SEC-print-render-token-throttle | 2026-10-31 | Print consume-render-token + load-job @Throttle 60/min |
