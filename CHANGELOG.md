@@ -21,6 +21,7 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - Derived-layer and Buffer help note the Analyze Past runs shelf.
 
+- Retarget Measure help: Viewer / Editor / map-builder tool with
 ## [0.9.126] - 2026-10-30
 
 ### Added
