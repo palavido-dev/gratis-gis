@@ -111,12 +111,13 @@ measures run on PostGIS geography — Analyze does not invent
   expression helpers.
 - **One-off popup formatting**. Popup templates can interpolate
   fields without a derived column.
-- **Per-user values**. Calculate is per-row at materialization
-  time; it does not know who the viewer is.
+- **Per-user values**. Calculate is per-row on each read; it does
+  not know who the viewer is.
 
 ## Notes
 
-- **Materialization time.** Refresh the derived layer when the
-  source changes.
+- **Live with the source.** The derived layer re-runs the
+  pipeline on read, so source edits show up without a separate
+  refresh.
 - **NULL propagates** through arithmetic. Use `coalesce` before
   computing when you need a default.

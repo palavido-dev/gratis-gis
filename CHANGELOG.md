@@ -19,6 +19,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Documentation
 
+- Soften derived-layer help: recipe is computed on every PostGIS
+  read (featureLimit default 1k / ceiling 50k). Drop claims of a
+  warehouse materialize table, Refresh / scheduled refresh, 5M-row
+  ack, and ArcGIS streaming inputs. Align Buffer / Calculate /
+  Filter / glossary / expression / attribute-table notes.
 - Derived-layer and Buffer help note the Analyze Past runs shelf.
 
 ## [0.9.126] - 2026-10-30
