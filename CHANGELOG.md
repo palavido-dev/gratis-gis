@@ -23,6 +23,10 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   (`POST /api/print/consume-render-token` and
   `POST /api/print/internal/load-job`) are rate-limited at 60
   requests per minute.
+- Public STAC and OGC static landing docs (`/api/public/stac` +
+  conformance + api; `/api/public/ogc` + conformance + api; Records
+  catalog collection root) are rate-limited at 60 requests per
+  minute.
 
 ### Documentation
 
@@ -36,8 +40,9 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   geodesic distance/area, optional ground (terrain) area, and
   pitch flatten while open. Drop fake Custom Web App widget
   config (MGRS/UTM, planar mode, snap-to-features).
-
 - api.md notes the print render-token Nest budget.
+- api.md notes the STAC/OGC landing-doc Nest budget.
+
 ## [0.9.126] - 2026-10-30
 
 ### Added
