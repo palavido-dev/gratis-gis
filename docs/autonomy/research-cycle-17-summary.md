@@ -1,6 +1,6 @@
 # Research cycle 17 (summary for driver)
 
-Driver id: `bc-0f15f6fc-38d5-52bd-839f-833275f2575d`. Artifacts: `research-cycle-17.json`.
+Driver id: `bc-01a101a0-01ba-705b-acf4-2c1dffc02838`. Artifacts: `research-cycle-17.json`.
 
 **Drain first.** R16 ship-without-input is empty on origin/main (Public landing/item/basemap-items/osm-presets/thumbnail throttles; basemap-config / print Parameters i18n; basemap composed-map honesty; Analyze deeplink + map quick actions; Dependabot cleared). Live through v0.9.126. Point-cloud panel i18n stays blocked (#162 help wanted).
 
