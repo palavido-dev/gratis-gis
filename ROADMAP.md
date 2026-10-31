@@ -186,7 +186,7 @@ when real workflows need it."
 ## Engine Substrate (foundational, ✅)
 
 Cross-cutting work that underpins every pillar. Landed alongside Phase 4 / 6
-in pre-v1.
+alongside the 0.9.x line into v1.0.0.
 
 - [x] Observation-log table + bitemporal model (Phase 1, migration
       `20260507120000_engine_observation_log`)

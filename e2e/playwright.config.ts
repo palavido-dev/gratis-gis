@@ -19,7 +19,7 @@
  *
  * This is phase 1 of the front-end testing plan (Playwright happy
  * paths first, component tests only for genuinely stateful widgets
- * later, no visual regression pre-v1).
+ * later; visual regression not enabled yet).
  */
 import { defineConfig, devices } from '@playwright/test';
 
