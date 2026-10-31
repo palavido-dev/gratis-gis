@@ -54,7 +54,9 @@ export function AnalyzePastRuns({ itemId, layerKey, onEditTool }: Props) {
   const load = useCallback(async (signal?: AbortSignal) => {
     setPhase({ kind: 'loading' });
     try {
-      const res = await fetch(pastRunsListUrl(50), { signal });
+      const res = await fetch(pastRunsListUrl(50), {
+        signal: signal ?? null,
+      });
       if (!res.ok) {
         throw new Error(
           t('analyzeWorkbench.pastRunsLoadFailed', { status: res.status }),

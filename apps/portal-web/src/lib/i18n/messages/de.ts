@@ -5612,6 +5612,29 @@ export const de: Partial<CatalogShape> = {
     groupByValidateAggField: 'Wählen Sie ein numerisches Feld für sum oder avg.',
     groupByValidateOutput: 'Ausgabename muss eine Feld-ID mit Buchstabe/Unterstrich sein.',
     groupByValidateOutputCollision: 'Ausgabename darf nicht mit dem Gruppenschlüssel kollidieren.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Frühere Läufe',
+    pastRunsHint:
+      'Ihre Derived Layers aus dieser Ebene. Erneut ausführen legt eine neue private Kopie an; Bearbeiten und erneut ausführen öffnet die passende Anleitung.',
+    pastRunsLoading: 'Frühere Läufe werden geladen…',
+    pastRunsEmpty: 'Noch keine Derived Layers aus dieser Ebene.',
+    pastRunsLoadFailed: 'Frühere Läufe konnten nicht geladen werden ({status}).',
+    pastRunsRetry: 'Erneut versuchen',
+    pastRunsRefresh: 'Aktualisieren',
+    pastRunsUnknownDate: 'unbekanntes Datum',
+    pastRunsRerun: 'Erneut ausführen',
+    pastRunsRerunTitleAttr:
+      'Neuen privaten Derived Layer mit demselben Rezept erstellen',
+    pastRunsEdit: 'Bearbeiten und erneut ausführen',
+    pastRunsEditTitleAttr:
+      'Analyze-Anleitung für dieses Werkzeug öffnen, um Parameter zu ändern',
+    pastRunsRerunTitle: '{title} (erneut)',
+    pastRunsRerunDescription:
+      'Erneuter Lauf von „{title}“ aus dem Analyze-Regal Frühere Läufe.',
+    pastRunsRerunToast: 'Derived Layer „{title}“ erstellt',
+    pastRunsRerunFailed:
+      'Derived Layer konnte nicht erneut ausgeführt werden ({status}): {detail}',
   },
 
   serviceEditors: {
