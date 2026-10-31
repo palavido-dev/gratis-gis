@@ -84,13 +84,15 @@ guided Buffer is server-only by design; keep that honesty.
 | 1 | Research + queue refill | Q-analyze-workflow-ux | This doc |
 | 2 | Analyze `?tool=` deep link | analyze-tool-deeplink | Open `#data` + Analyze + matching guide |
 | 3 | Map layer quick analysis | analyze-layer-quick-actions | Buffer / Centroid / Hull → deep link |
-| 4 | Run history shelf | analyze-run-history | needs design pass; likely ship-without-input once scoped |
-| 5 | Manifest-driven dialog shell | analyze-param-manifests | after 2–3 guides grow stale |
-| 6 | Recipe DAG | recipe-dag | needs-maintainer if product scope expands |
+| 4 | Run history shelf | analyze-run-history | Thin vertical scoped in research-cycle-17 (Past runs on Analyze) |
+| 5 | Manifest-driven dialog shell | analyze-param-manifests | after history; needs-maintainer until guides grow stale |
+| 6 | Recipe DAG | recipe-dag | needs-maintainer until linear recipes + history land |
 
-Items 2–3 are `ship-without-input`. Items 4–5 start as
-`ship-without-input` once a thin vertical slice is obvious. Item 6
-stays `needs-maintainer` until linear recipes + history land.
+Items 2–4 are `ship-without-input` (4 scoped in research-cycle-17:
+list mine `derived_layer` for `source.itemId`; Re-run = duplicate
+POST; Edit & re-run = existing `?tool=` deep link). Item 5 stays
+`needs-maintainer` until history lands. Item 6 stays
+`needs-maintainer` until linear recipes + history land.
 
 ## Deep-link contract (item 2)
 

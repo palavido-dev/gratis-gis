@@ -17,7 +17,7 @@ assigned and labeled `help wanted`. The loop may only comment there.
 | id | source | summary | notes |
 | --- | --- | --- | --- |
 
-Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
+Research done: [research-cycle-17.json](./research-cycle-17.json) (2026-10-31); [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean after R16 Public list/scrape drain. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
 
 ## blocked
 
@@ -29,7 +29,7 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
-| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After deeplink + quick actions |
+| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After run history |
 | recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | After linear recipes + history |
 | Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
 | Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B. Assignee owns #183; the loop may only comment. |
@@ -40,6 +40,11 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | when | result |
 | --- | --- | --- |
+| R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |
+| R17-measure-widget-help-honesty | 2026-10-31 | Measure help retargeted to Viewer/Editor/map tool |
+| SEC-print-render-token-throttle | 2026-10-31 | Print consume-render-token + load-job @Throttle 60/min |
+| SEC-stac-ogc-landing-doc-throttle | 2026-10-31 | STAC/OGC landing/conformance/api + catalog root @Throttle 60/min |
+| Q-research-cycle-17 | 2026-10-31 | Research refill: five ship-without-input (derived-layer + measure honesty; analyze-run-history thin vertical; print-token + optional STAC/OGC landing throttles) |
 | analyze-run-history | 2026-10-31 | Analyze Past runs shelf: list / Re-run / Edit & re-run |
 | release-0.9.126 | 2026-10-30 | Stamp Analyze deep-link / map quick actions + deps + basemap honesty |
 | R16-basemap-help-composed-map-honesty | 2026-10-30 | Soften basemap.md composed-map / Portal map (Phase 2 not authored) |
@@ -176,6 +181,27 @@ Research done: [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-
 
 | id | reason |
 | --- | --- |
+| R17-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R17-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R17-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R17-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty points at derived_layer |
+| R17-reject-tile3d-local-rebuild | #183 stays open; help wanted + assigned |
+| R17-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R17-reject-i18n-chrome-while-162-help-wanted | #162 help wanted; leftover English recorded, not queued |
+| R17-reject-analyze-multi-input-shortcuts | Multi-source otherSource Analyze UX too heavy |
+| R17-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R17-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R17-reject-report-template-item | Report template not built |
+| R17-reject-ogc-tiles-byte-throttle | Nest throttle on tile/MVT/storage/point-cloud byte routes would break maps |
+| R17-reject-health-portalinfo-nest-throttle | health = probes; portal-info = every-client bootstrap |
+| R17-reject-presence-crdt | Abuse / transport defaults stay needs-maintainer |
+| R17-reject-comments-mentions | Abuse / email defaults stay needs-maintainer |
+| R17-reject-custom-app-builder-i18n-first | custom/detail.tsx dense; #162 help wanted |
+| R17-reject-analyze-zonal-stats-shortcut | Elevation worker path, not Buffer-shaped derived_layer |
+| R17-reject-analyze-param-manifests-now | After run history |
+| R17-reject-recipe-dag-now | After linear recipes + history |
+| R17-reject-deps-high-bump-now | No High; 3 moderate transitive only |
+| R17-reject-good-first-issue-docs | #507–#514 reserved for human contributors |
 | R15-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
 | R15-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
 | R15-reject-seat-pricing | Named-user pricing contradicts ethos |
