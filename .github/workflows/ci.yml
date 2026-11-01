@@ -56,7 +56,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # Keep in lockstep with .nvmrc (22.x LTS). The production
+          # Keep in lockstep with .nvmrc (24) and engines.node in the
+          # root package.json (>=24.9.0). The production
           # container images pin their own Node (see the app
           # Dockerfiles); this only has to match the developer
           # toolchain.
