@@ -68,9 +68,8 @@ the front.
 
 ## How this project is built
 
-Matthew designs, directs, and reviews, and he is the final say. Much
-of the code is written with AI coding agents. That includes the
-automated loop described in
+Matthew designs, directs, and reviews, and he is the final say. AI
+assists with the coding. That includes the automated loop described in
 [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md): a Researcher
 proposes, a Scoper ranks a morning list, Matthew gives yay/nay on each
 item, and a Developer implements approved items (opens PRs, merges on
@@ -78,8 +77,8 @@ green CI). Releases need an explicit ask or an approved release queue
 item. Matthew makes the product, security-default, and licensing
 calls.
 
-AI-assisted contributions are welcome when the contributor takes
-responsibility for the change and says so in the pull request
+Contributions that used AI assistance are welcome when the contributor
+takes responsibility for the change and says so in the pull request
 description.
 
 ## Writing style (code comments, docs, commits, PRs)
@@ -91,7 +90,7 @@ comments, commit messages, PR descriptions, docs, and markdown files.
   not use two consecutive hyphens as a substitute for one. Pick a comma,
   colon, period, or parenthesis based on what the sentence actually
   needs.
-- **Say when an AI coding agent did the writing.** Put that in the pull
+- **Say when AI assisted with the writing.** Put that in the pull
   request description, as described in
   [How this project is built](#how-this-project-is-built). You still
   own the change.
