@@ -28,9 +28,9 @@ Researcher  -->  Scoper  -->  morning yay/nay (Matthew)  -->  Developer
    PRs, waits for CI, merges green approved work. Does not invent new
    queue items from research.
 
-Matthew is the only human product reviewer. Chris and Yuki are
-contributors. Their approval is not his review, and they do not merge
-autonomy PRs.
+Matthew is the final product reviewer. Opening a public PR is not a
+review. Other contributors' approvals are not his review, and they do
+not merge autonomy PRs.
 
 ## Stream 1 — Researcher
 
