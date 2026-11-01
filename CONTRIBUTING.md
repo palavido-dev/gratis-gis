@@ -21,9 +21,11 @@ near-term work from [ROADMAP.md](./ROADMAP.md).
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.
 - The automated loop in
-  [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md) uses
-  `cursor/<slug>-2838` for queued items it is allowed to ship. Use
-  `feat/` or `fix/` for a change a person should review.
+  [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md) uses three
+  streams (Researcher, Scoper, Developer). The Developer uses
+  `cursor/<slug>-2838` (or `palavido-dev/<slug>-2838`) only for items
+  Matthew marked yay. Use `feat/` or `fix/` for a change a person
+  should review outside that queue.
 - PRs require passing CI (lint, typecheck, test, build). Matthew is
   the only reviewer for now, and the final say. Chris (`cstarbird`)
   and Yuki (`yukikato123123123-byte`) are contributors. They can open
@@ -72,9 +74,11 @@ Matthew designs, directs, and reviews, and he is the final say.
 Chris and Yuki contribute. They do not review. Much of the code is
 written with AI coding agents. That includes the automated loop
 described in [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md):
-it takes scoped queue items, opens pull requests, and merges on green
-CI when no product decision is needed. It also cuts releases. Matthew
-makes the product, security-default, and licensing calls.
+a Researcher proposes, a Scoper ranks a morning list, Matthew gives
+yay/nay on each item, and a Developer implements approved items (opens
+PRs, merges on green CI). Releases need an explicit ask or an approved
+release queue item. Matthew makes the product, security-default, and
+licensing calls.
 
 AI-assisted contributions are welcome when the contributor takes
 responsibility for the change and says so in the pull request

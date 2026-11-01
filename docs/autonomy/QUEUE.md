@@ -1,40 +1,58 @@
 # Autonomy work queue
 
-Driver-owned. Newest proposals at the top of each section.
+Three-stream process (see [PLAYBOOK.md](./PLAYBOOK.md)): Researcher
+proposes → Scoper ranks into [PROPOSALS.md](./PROPOSALS.md) → morning
+yay/nay → Developer builds `approved` only.
 
-Standing rule (see [PLAYBOOK.md](./PLAYBOOK.md)): skip issues labeled
-`good first issue`, `help wanted`, or `human-contributor`, and any
-issue assigned to a person. #183 (point-cloud viewer performance) is
-assigned and labeled `help wanted`. The loop may only comment there.
+Standing rule: skip issues labeled `good first issue`, `help wanted`,
+or `human-contributor`, and any issue assigned to a person. #183
+(point-cloud viewer performance) is assigned and labeled `help wanted`.
+The loop may only comment there.
+
+Process note (2026-11-01): retired autonomous `ship-without-input`
+builds. New product work needs an explicit yay. Historical done rows
+that say ship-without-input are unchanged.
+
+Research on file: [research-cycle-17.json](./research-cycle-17.json)
+(2026-10-31); [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md)
+(2026-10-30). Do not Nest-throttle MVT / OGC Tiles / storage /
+point-cloud / health / portal-info.
+
+## awaiting-decision
+
+Ranked for the next morning list. Scoper owns this section.
+
+| id | source | summary | notes |
+| --- | --- | --- | --- |
+| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | Carry-forward; Scoper should re-rank before listing |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Carry-forward; large — may stay unlisted until thinner |
+| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
+| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
+| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
+
+## approved
+
+Matthew said yay. Developer takes from the top.
+
+| id | source | summary | approved |
+| --- | --- | --- | --- |
 
 ## in-progress
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
 
-## queued (ship-without-input)
-
-| id | source | summary | notes |
-| --- | --- | --- | --- |
-
-Research done: [research-cycle-17.json](./research-cycle-17.json) (2026-10-31); [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md) (2026-10-30); [research-cycle-16.json](./research-cycle-16.json) (2026-10-29). Security Sentinel clean after R16 Public list/scrape drain. Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health / portal-info.
-
 ## blocked
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
 | R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | #162 is `help wanted`. The loop does not take it. |
+| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Assignee owns #183; the loop may only comment. |
 
-## queued (needs-maintainer)
+## rejected
 
-| id | source | summary | why blocked |
-| --- | --- | --- | --- |
-| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | After run history |
-| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | After linear recipes + history |
-| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B. Assignee owns #183; the loop may only comment. |
-| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
-| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
+| id | when | reason |
+| --- | --- | --- |
 
 ## done
 
