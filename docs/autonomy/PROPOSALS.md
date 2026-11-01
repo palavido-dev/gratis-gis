@@ -10,17 +10,14 @@ Do not implement from this file. Developer only takes ids that moved to
 
 ## Pending decision (2026-11-01)
 
-_No items yet under the three-stream process. Researcher should run a
-cycle; Scoper ranks into this section before the next 08:00
-America/Los_Angeles digest._
-
-<!-- Example row shape (delete when real items exist):
-
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
-| 1 | SEC-example | S | Low | … | … |
+| 1 | analyze-param-manifests | M | Low | One Analyze dialog shell driven by tool metadata | Past runs shipped; next thin Analyze UX vertical from the same research plan |
+| 2 | Q-162b / R5-weblate-hosting | S | Low | Choose Weblate vs Crowdin vs Tolgee + community workflow | Process call only; unblocks #162 community translation path |
+| 3 | R2-comments-mentions / R5-comments-mentions | M | Med | @-mentions on comment notifications | Needs abuse / email defaults before build |
+| 4 | R1-presence-crdt / R5-presence-crdt | L | Med | Live cursors Phase 2 CRDT on drawings | Needs abuse / transport defaults; larger than morning average |
 
--->
+Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; too large until Analyze param shell and thinner recipe work land.
 
 ## Decided this week
 
