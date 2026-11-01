@@ -24,10 +24,9 @@ workspace as in-app "Load sample data." Bugs and chat:
 [Issues](https://github.com/palavido-dev/gratis-gis/issues) ·
 [Discussions](https://github.com/palavido-dev/gratis-gis/discussions).
 
-This is a side project, not a startup. Built on nights and weekends by
-one person. Much of the code is written with AI coding agents; the
-maintainer designs, directs, and is the final reviewer. See
-[CONTRIBUTING.md](./CONTRIBUTING.md#how-this-project-is-built).
+**Contribute:** Issues and PRs welcome. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for branch naming, Conventional
+Commits, and how reviews work (the maintainer is the final reviewer).
 
 ## Stack
 
