@@ -218,10 +218,10 @@ Two cooperating defaults:
 - **Feature cap.** A hard ceiling. Default 1000. Settable per layer
   in the wizard. Applied as `LIMIT N` after the pipeline.
 
-Per Chris's call: take whichever returns fewer rows. In practice the
-bbox prefilter usually wins for map workflows; the cap is the safety
-net for "no map context" reads (e.g., a dashboard panel that opens
-the layer without a view extent).
+Take whichever returns fewer rows. In practice the bbox prefilter
+usually wins for map workflows; the cap is the safety net for "no map
+context" reads (e.g., a dashboard panel that opens the layer without a
+view extent).
 
 ## Sharing
 

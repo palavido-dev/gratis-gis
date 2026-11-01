@@ -1,7 +1,7 @@
 # Autonomy playbook
 
-Operating rules for the unattended research and coding loop that
-keeps GratisGIS moving while the maintainer only reads a daily digest.
+Operating rules for the three-stream loop that keeps GratisGIS moving
+while the maintainer decides what ships.
 
 This is a side project, not a startup. Prefer fewer, sharper ships over
 a firehose of PRs. Every change must fit the product ethos in
@@ -9,170 +9,215 @@ a firehose of PRs. Every change must fit the product ethos in
 [CONTRIBUTING.md](../../CONTRIBUTING.md), and the design principles in
 [docs/design-system.md](../design-system.md).
 
-## Roles
+## Three streams
 
-1. **Driver** (this Cloud Agent conversation): picks work, enforces
-   ethos, merges the loop's own no-input pull requests when CI is
-   green, writes the daily digest, and never waits on the maintainer
-   for product-optional polish. Does not merge a pull request marked
-   for maintainer review.
-2. **Researcher**: scans GitHub issues/discussions (ours and peers),
-   Esri Community, OSGeo / QGIS lists, Reddit (`r/gis`, `r/QGIS`,
-   `r/opensource`, Felt/CARTO chatter), and our own
-   `docs/research/*`. Proposes concrete, ethos-aligned ideas into the
-   queue. Does not write product code.
-3. **Builders**: implement one queued item at a time on
-   `cursor/<slug>-2838` branches, open PRs into `main`, wait for CI,
-   merge only when the item needed no maintainer decision. Do not
-   merge any other open pull request. A PR marked for maintainer
-   review (title, body, or the `needs-maintainer` label) stays open
-   for Matthew even when CI is green. That includes product,
-   security-default, licensing, and public-disclosure changes.
-   Matthew is the only human reviewer for now, and the final say.
-   Chris and Yuki are contributors. Their approval is not his review,
-   and they do not merge.
-4. **Security Sentinel** (same conversation, dedicated checklist):
-   runs once per work cycle and summarizes in the daily digest.
-   Prefer `ship-without-input` hardenings over waiting on the
-   maintainer unless product, legal, or Keycloak/ops defaults are
-   involved. Checklist:
+Work is split into three agent streams. They do not share jobs. Hand-off
+is through files in this folder and the morning decision list.
 
-   1. Diff gate: new `@Public()`, BFF anonymous allowlist entries,
-      or `@Throttle` changes.
-   2. Outbound fetch: user-supplied URLs must use `safeFetch` /
-      `assertSafeOutboundUrl`.
-   3. File/archive paths: GDAL open and zip extract must use
-      `assertSafeGdalOpenPath` and the ingest root guard.
-   4. Admin / secrets: new `/admin/*` routes need `AdminGuard`; no
-      API keys on admin; no secrets in logs.
-   5. Cross-user data: staging IDs, item IDs, layer keys checked on
-      read and write (including derived-layer pipeline
-      `otherSource`).
-   6. Public DoS: unauthenticated list endpoints need pagination,
-      throttle, and a max row scan.
-   7. Dependencies: Dependabot / `pnpm.overrides` vs
-      `security.yml`; flag HIGH/CRITICAL in images Trivy does not
-      yet scan (workers).
-   8. MCP / tools: write tools stay behind non-readonly keys; sinks
-      cannot touch private layers without ACL.
-   9. Regression tests when changing auth or ingest guards.
+```text
+Researcher  -->  Scoper  -->  morning yay/nay (Matthew)  -->  Developer
+```
 
-   Standing research note:
-   [docs/research/security-deep-dive-2026-10-27.md](../research/security-deep-dive-2026-10-27.md).
+1. **Researcher** — gathers ideas and evidence. Does not rank for
+   product fit beyond ethos filters, does not write product code, and
+   does not open implementation PRs.
+2. **Scoper** (spec / review) — objectively reviews Researcher output,
+   rejects weak or ethos-breaking ideas, ranks the rest, and writes the
+   morning decision list. Does not implement.
+3. **Developer** — implements only items Matthew marked **yay**. Opens
+   PRs, waits for CI, merges green approved work. Does not invent new
+   queue items from research.
 
-## Issues the loop leaves alone
+Matthew is the final product reviewer. Opening a public PR is not a
+review. Other contributors' approvals are not his review, and they do
+not merge autonomy PRs.
 
-Skip an issue, and do not open a pull request for it, when any of
-these are true:
+## Stream 1 — Researcher
 
-- It is labeled `good first issue`, `help wanted`, or
-  `human-contributor`.
-- It is assigned to a person.
+**Job:** scan and propose. Output is research artifacts, not a ranked
+build queue.
 
-Those issues are reserved for human contributors. A comment is
-allowed when it helps the assignee. An implementation is not.
+**Sources (non-exhaustive):** GitHub issues/discussions (ours and
+peers), Esri Community, OSGeo / QGIS lists, Reddit (`r/gis`, `r/QGIS`,
+`r/opensource`, Felt/CARTO chatter), and our own `docs/research/*`.
 
-Issue [#183](https://github.com/palavido-dev/gratis-gis/issues/183)
-(point-cloud viewer performance) is assigned to a person and labeled
-`help wanted`. The loop may only comment there.
+**Writes:**
 
-## What to build
+- Dated notes under `docs/research/` when worth keeping.
+- Cycle artifacts under `docs/autonomy/` (for example
+  `research-cycle-N.json` + short summary).
+- Ephemeral notes in the Cloud Agent store at
+  `/cursor/stores/self/autonomy/` when they are not ready for the repo.
 
-Prefer, in order:
+**Does not:**
 
-1. Open issues that are already scoped and need no product call,
-   and that the skip rule above does not reserve for a person.
-   #162 and #183 are both `help wanted`, and #183 is assigned, so
-   neither is loop work.
-2. Research proposals marked `ship-without-input` that close a clear
-   gap against Felt / CARTO / AGO pain without inventing a new pillar.
-3. Hardening: security, ingest safety, offline/field reliability,
-   OGC conformance, dependency bumps that CI already proves.
-4. Docs and sample-data fidelity when they unblock demos.
+- Rank items for the morning list (that is the Scoper).
+- Mark anything as approved or start a Builder PR.
+- Touch help / CHANGELOG / product code except to cite paths in research
+  notes.
 
-Do **not** build without an explicit queue entry marked
-`needs-maintainer`:
+**Ethos filter (hard reject before hand-off):** self-hosted, open
+standards, no per-seat SaaS cosplay; guided UX before raw JSON; honest
+about what we are not; OGC / PostGIS / MapLibre over proprietary
+lock-in; no em dashes; AI disclosure and Conventional Commits as in
+CONTRIBUTING.
 
-- New pillars or item types not already in the roadmap.
-- Pricing, hosting, or legal changes.
-- RTL / Weblate hosting choice / community translation process.
-- Real point-cloud SSE / Tile3D strategy, and any implementation
-  on #183. That issue is assigned to a person and labeled
-  `help wanted`. The loop may only comment there. Do not close it.
-- Brand or visual redesigns that fail the design-system brand test.
+**Skip rule (do not propose implementation):** issues labeled
+`good first issue`, `help wanted`, or `human-contributor`, or assigned
+to a person. A helpful comment is allowed; an implementation proposal
+for the Developer is not. Issue
+[#183](https://github.com/palavido-dev/gratis-gis/issues/183) stays
+comment-only.
 
-## Ethos filters (reject the proposal if any fail)
+## Stream 2 — Scoper (spec / review)
 
-- Self-hosted, open standards, no per-seat SaaS cosplay.
-- Guided UX before raw JSON / coordinate paste
-  ([CONTRIBUTING.md](../../CONTRIBUTING.md)).
-- No em dashes. Follow the AI disclosure in
-  [CONTRIBUTING.md](../../CONTRIBUTING.md). Conventional Commits.
-- Honest about what we are not (not Survey123, not Experience Builder).
-- Prefer OGC / PostGIS / MapLibre shapes over proprietary lock-in.
-- `main` stays deployable; one logical change per PR.
+**Job:** second opinion on Researcher output. Be skeptical. Prefer
+thin verticals over pillars. Prefer honesty and security over novelty.
 
-## Docs in the same commit (continuous)
+**Reads:** latest research cycle, open issues (respecting the skip
+rule), [QUEUE.md](./QUEUE.md), [PROPOSALS.md](./PROPOSALS.md), Security
+Sentinel notes, README Status / ROADMAP.
 
-Documentation is not a follow-up. Every shippable PR updates the
-docs that would otherwise go stale **in the same branch / commits
-as the code** (never "docs later" before picking the next queue
-item). Applies to feature work, hardenings, honesty fixes, and
-i18n when help or CHANGELOG would be wrong without them.
+**Writes:**
 
-Update all of the following that apply:
+- Ranked morning decision list in [PROPOSALS.md](./PROPOSALS.md)
+  (overwrite the pending section each morning).
+- Queue rows under `awaiting-decision` in [QUEUE.md](./QUEUE.md) for
+  every item on that list.
+- Short rationale per item: why now, size, risk, alternatives rejected.
 
-1. **Help** under `apps/portal-web/content/help/` (new page or
-   section; frontmatter `id` / `related` / search tags). Rewrite
-   pages that oversell params or paths the code does not ship.
-2. **What's new** at
-   `apps/portal-web/content/changelog/user-visible.md` (plain
-   English, newest first; this feeds the landing page card).
-3. **CHANGELOG.md** Unreleased (engineer-facing Keep a Changelog).
-4. **Repo docs** when the public surface moved: README Status
-   line, `docs/*` design notes, MCP / API READMEs, CONTRIBUTING
-   checklists.
-5. **QUEUE.md** when the autonomy item moves
-   (in-progress / done / rejected).
+**Ranking rubric (higher first):**
 
-Power-user or API-only changes still need help + CHANGELOG when a
-page or engineer note would be wrong; they only skip What's new
-when a non-technical visitor would not notice. Pure process /
-research-json refills still update QUEUE (and PLAYBOOK when the
-rule itself changes).
+1. Security / data integrity High or Medium.
+2. Honesty / docs that prevent false claims.
+3. Reliability of shipped surfaces (field, sync, ingest, OGC).
+4. Small UX fixes on existing flows.
+5. New capability that fits an existing pillar.
+6. Nice-to-have polish last.
 
-Builders: before opening the PR, grep the diff for user-visible
-strings and confirm matching help / CHANGELOG / What's new rows
-exist in the same diff.
+**Does not:**
+
+- Implement or open product PRs.
+- Mark items `approved` (only Matthew's yay does that).
+- Expand a proposal into a new pillar without calling that out as
+  needing an explicit product call.
+
+**Standing rejects (keep rejecting unless Matthew reverses):** seat
+pricing, brand redesigns that fail the design-system brand test, taking
+`help wanted` / assigned issues, inventing item types not already on the
+roadmap without a product call.
+
+## Morning yay / nay (Matthew)
+
+Around **08:00 America/Los_Angeles**, the Scoper posts the pending list
+from [PROPOSALS.md](./PROPOSALS.md) into the autonomy chat (format in
+[DIGEST.md](./DIGEST.md)). Matthew replies **yay** or **nay** per id
+(short notes optional).
+
+- **yay** → move the id to `approved` in QUEUE (ready for Developer).
+- **nay** → move to `rejected` with the reason (or `blocked` if
+  "later / needs more design").
+- Silence is not approval. Do not start Developer work without an
+  explicit yay.
+
+After decisions are recorded, the morning message may include a one-line
+prod / security status. It is not a free-form "what we shipped" novel.
+
+## Stream 3 — Developer
+
+**Job:** build approved items only.
+
+**Picks:** top of `approved` in [QUEUE.md](./QUEUE.md), one logical
+change at a time. Move to `in-progress` while working.
+
+**Branching / PRs:** `cursor/<slug>-2838` (or `palavido-dev/<slug>-2838`
+when that is the active Cloud Agent convention). One logical change per
+PR into `main`. Wait for CI. Merge green PRs that implement an approved
+id. Do not merge unrelated open PRs or anything marked for maintainer
+review that is outside the approved id.
+
+**Docs in the same commit (continuous):** every shippable PR updates
+the docs that would otherwise go stale in the same branch:
+
+1. Help under `apps/portal-web/content/help/` when behavior or honesty
+   changed.
+2. What's new at `apps/portal-web/content/changelog/user-visible.md`
+   when a non-technical visitor would notice.
+3. `CHANGELOG.md` Unreleased.
+4. Repo docs when the public surface moved.
+5. `QUEUE.md` (move the id to `done`).
+
+**Security Sentinel** runs in the Developer stream at the start of each
+build cycle (and summarizes in the next morning note). Prefer queuing
+hardenings onto the Scoper's next list rather than shipping unapproved
+product work. Checklist:
+
+1. Diff gate: new `@Public()`, BFF anonymous allowlist entries, or
+   `@Throttle` changes.
+2. Outbound fetch: user-supplied URLs must use `safeFetch` /
+   `assertSafeOutboundUrl`.
+3. File/archive paths: GDAL open and zip extract must use
+   `assertSafeGdalOpenPath` and the ingest root guard.
+4. Admin / secrets: new `/admin/*` routes need `AdminGuard`; no API
+   keys on admin; no secrets in logs.
+5. Cross-user data: staging IDs, item IDs, layer keys checked on read
+   and write (including derived-layer pipeline `otherSource`).
+6. Public DoS: unauthenticated list endpoints need pagination,
+   throttle, and a max row scan.
+7. Dependencies: Dependabot / `pnpm.overrides` vs `security.yml`; flag
+   HIGH/CRITICAL in images Trivy does not yet scan (workers).
+8. MCP / tools: write tools stay behind non-readonly keys; sinks
+   cannot touch private layers without ACL.
+9. Regression tests when changing auth or ingest guards.
+
+Standing research note:
+[docs/research/security-deep-dive-2026-10-27.md](../research/security-deep-dive-2026-10-27.md).
+Do not Nest-throttle MVT / OGC Tiles / storage / point-cloud / health /
+portal-info.
+
+**Does not:**
+
+- Pull fresh research into the build queue without Scoper + yay.
+- Ship "while we're here" product scope outside the approved id.
+- Take `help wanted` / assigned issues.
 
 ## Queue
 
-Canonical file: [QUEUE.md](./QUEUE.md). The driver rewrites it each
-cycle. Status values: `queued`, `in-progress`, `done`, `blocked`,
-`rejected`.
+Canonical file: [QUEUE.md](./QUEUE.md). Sections:
 
-Research artifacts land under `docs/research/` with dated names when
-they are worth keeping; ephemeral notes stay in the Cloud Agent store
-at `/cursor/stores/self/autonomy/`.
+| section | meaning |
+| --- | --- |
+| `awaiting-decision` | On the morning list; waiting for yay/nay |
+| `approved` | Matthew said yay; Developer may take it |
+| `in-progress` | Developer is building it |
+| `blocked` | Cannot proceed (label policy, missing decision, external) |
+| `rejected` | Matthew said nay, or Scoper rejected before listing |
+| `done` | Shipped (or closed with a recorded result) |
+
+Historical `ship-without-input` rows in `done` stay as history. New work
+does not use that class: everything product-facing goes through
+awaiting-decision → yay → approved.
 
 ## Cadence
 
-- **Work cycle:** at least every six hours while this conversation is
-  alive. Run the Security Sentinel checklist, then research if the
-  queue is thin; otherwise build the top `ship-without-input` item
-  (security hardenings outrank polish when severity is High/Medium)
-  to a merged PR (or a clear blocked note).
-- **Daily digest:** one short update to the maintainer around 08:00
-  America/Los_Angeles. Format in [DIGEST.md](./DIGEST.md). Include a
-  Security sentinel line even when the pass is clean.
+- **Researcher:** refill when the Scoper says the proposal pipeline is
+  thin, or on a regular research cycle. Hand off to Scoper; do not
+  wait on Matthew for research itself.
+- **Scoper:** review new research promptly; refresh
+  [PROPOSALS.md](./PROPOSALS.md) for the next morning.
+- **Morning (08:00 America/Los_Angeles):** Scoper posts the decision
+  list ([DIGEST.md](./DIGEST.md)). Matthew replies yay/nay.
+- **Developer:** while `approved` is non-empty, build the top item to a
+  merged PR (or a clear blocked note). Idle when waiting on decisions.
 - **Prod:** cut a release tag and run `infra/deploy.sh` on the demo
-  host only when the digest says so, or when main is clearly ahead of
-  the live footer version and CI is green. Never deploy a dirty tree.
+  host only when Matthew asks, or when an approved release item is in
+  the queue and CI is green. Never deploy a dirty tree.
 
 ## Stop conditions (rare)
 
-Pause and surface in the digest only when:
+Pause and surface in the morning note only when:
 
 - CI is red on `main` and the fix is not obvious.
-- A change needs a product or design decision listed above.
+- An approved item turns out to need a product call the Scoper missed
+  (move back to `awaiting-decision` with the question).
 - Cloud Agent / deploy credentials are missing or revoked.
