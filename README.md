@@ -29,44 +29,6 @@ one person. Much of the code is written with AI coding agents; the
 maintainer designs, directs, and is the final reviewer. See
 [CONTRIBUTING.md](./CONTRIBUTING.md#how-this-project-is-built).
 
-## Why it exists
-
-- **No per-user pricing.** One server, as many users as you need.
-- **Your hardware, your data.** PostGIS and MinIO inside your
-  firewall.
-- **Open standards.** GeoJSON, OGC API (Features, Tiles, Styles,
-  Records), CSW / ISO 19115, DCAT, vector tiles. Esri WebMap JSON
-  import/export and an ArcGIS Online hosted-feature importer exist;
-  they are bridges, not a full AGO clone. Details in
-  [docs/walkthrough.md](./docs/walkthrough.md).
-- **Queryable storage.** Documented Postgres + PostGIS. If the
-  project goes away, `psql` and `pg_dump` still work.
-- **One-command install** on a Docker host (see below).
-
-## Pillars
-
-1. **Portal** — users, groups, items, sharing, access control
-2. **Web maps** — PostGIS-backed authoring; WebMap JSON export at
-   `GET /items/:id/web-map.json`
-3. **App Builder** — widget apps, including KPI and operations
-   dashboard layouts
-4. **Data collection** — offline-capable field PWA (not Survey123 /
-   Field Maps)
-5. **Reporting** — dashboards as web-app layouts; dedicated
-   document report templates are not built; print templates ship
-6. **Tools** — recipe editor for analysis (including OSM); node-graph
-   canvas is not built
-
-API keys (Profile → API keys) act as the creating user, including
-share and geographic limits; they can be read-only and are refused on
-admin routes.
-
-The shared substrate is an observation-log engine (bitemporal reads,
-audit, Cedar geometry-aware auth). See
-[docs/architecture/observation-log-engine.md](./docs/architecture/observation-log-engine.md)
-and
-[docs/architecture/cedar-policy-integration.md](./docs/architecture/cedar-policy-integration.md).
-
 ## Stack
 
 | Layer | Project |
