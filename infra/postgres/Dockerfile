@@ -21,7 +21,7 @@
 # (2026-10-27): the official 18 image refuses a flat PG17 volume under
 # /var/lib/postgresql. Stay on 17-3.5 until dump/restore is run, then
 # flip the image and the compose mount together. See docs/UPGRADING.md.
-FROM postgis/postgis:17-3.5
+FROM postgis/postgis:18-3.6
 
 # This image is bullseye based and bullseye reached end of life, which
 # broke every deploy here on 2026-09-08, on a layer that has nothing to
