@@ -6,6 +6,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- `.nvmrc` now selects Node 24, so `nvm use` picks a version that
+  satisfies `engines.node` (`>=24.9.0`) and matches CI.
+
 ## [1.0.0] - 2026-10-31
 
 First stable release. Semantic versioning now applies to the public
