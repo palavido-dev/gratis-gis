@@ -8,7 +8,7 @@ the chat post is in [DIGEST.md](./DIGEST.md). Process rules are in
 Do not implement from this file. Developer only takes ids that moved to
 `approved` in [QUEUE.md](./QUEUE.md) after an explicit yay.
 
-## Pending decision (2026-11-01)
+## Pending decision (2026-11-02)
 
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
