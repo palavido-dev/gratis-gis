@@ -37,8 +37,11 @@ geometry**, **Nearest neighbor**, **Fishnet** (polygon layers),
 **Contour** (point layers, auto interval), **Group by** (one key,
 count/sum/avg), **Top N**, and **Random sample**. Filter, Spatial
 filter, Spatial join, and Calculate field are in the builder and
-registry below, not as Analyze shortcuts. Meter distances and
-tolerances stay honest; the in-browser SQL builder does not invent
+registry below, not as Analyze shortcuts. Title-only shortcuts
+(Centroids, Convex hulls, Bounding boxes, Dissolve, Vertices)
+share one form shell driven by tool metadata; tools with extra
+parameters keep their own panels. Meter distances and tolerances
+stay honest; the in-browser SQL builder does not invent
 degree-unit geometry ops.
 
 The Analyze tab also shows a **Past runs** shelf of your

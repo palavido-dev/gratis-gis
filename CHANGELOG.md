@@ -6,6 +6,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Analyze no-param shortcuts (Centroid, Convex hull, Bounding boxes,
+  Dissolve, Vertices) share one manifest-driven dialog shell instead
+  of five near-identical guide panels. Recipe POST paths are
+  unchanged.
+
 ### Fixed
 
 - `.nvmrc` now selects Node 24, so `nvm use` picks a version that

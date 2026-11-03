@@ -26,23 +26,19 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import { AnalyzePastRuns } from './analyze-past-runs';
-import { AnalyzeBboxGuide } from './analyze-bbox-guide';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
 import { AnalyzeCalculateGeometryGuide } from './analyze-calculate-geometry-guide';
-import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
 import { AnalyzeContourGuide } from './analyze-contour-guide';
-import { AnalyzeConvexHullGuide } from './analyze-convex-hull-guide';
 import { AnalyzeDensifyGuide } from './analyze-densify-guide';
-import { AnalyzeDissolveGuide } from './analyze-dissolve-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
 import { AnalyzeFishnetGuide } from './analyze-fishnet-guide';
 import { AnalyzeGroupByGuide } from './analyze-group-by-guide';
+import { AnalyzeManifestGuide } from './analyze-manifest-guide';
 import { AnalyzeNearestNeighborGuide } from './analyze-nearest-neighbor-guide';
 import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
 import { AnalyzeRandomSampleGuide } from './analyze-random-sample-guide';
 import { AnalyzeTopNGuide } from './analyze-top-n-guide';
-import { AnalyzeVerticesGuide } from './analyze-vertices-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -443,25 +439,29 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
               sourceLabel={layer.label || layer.name || 'Layer'}
               defaultOpen={openTool === 'erase'}
             />
-            <AnalyzeCentroidGuide
+            <AnalyzeManifestGuide
+              tool="centroid"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
               defaultOpen={openTool === 'centroid'}
             />
-            <AnalyzeConvexHullGuide
+            <AnalyzeManifestGuide
+              tool="convex-hull"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
               defaultOpen={openTool === 'convex-hull'}
             />
-            <AnalyzeBboxGuide
+            <AnalyzeManifestGuide
+              tool="bbox"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
               defaultOpen={openTool === 'bbox'}
             />
-            <AnalyzeDissolveGuide
+            <AnalyzeManifestGuide
+              tool="dissolve"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
@@ -479,7 +479,8 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
               sourceLabel={layer.label || layer.name || 'Layer'}
               defaultOpen={openTool === 'densify'}
             />
-            <AnalyzeVerticesGuide
+            <AnalyzeManifestGuide
+              tool="vertices"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
