@@ -21,8 +21,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `infra/docker-compose.nas.yml` is the web port on the NAS (use
   8085 when 8080 is taken). The printed address, Keycloak hostname,
   and sign-in redirects follow it. The bootstrap log says not to
-  post it publicly. CI boots this stack and checks the web UI,
-  Keycloak through Caddy, and an upload.
+  post it publicly. Caddy 2.10 accepts one path on `handle`, so
+  the generated Caddyfile uses named matchers and both the web UI
+  and `/auth` answer. The web and Chromium services listen on port
+  3000 even though the shared env file sets `PORT` for the API.
+  CI boots this stack and checks the web UI, Keycloak through
+  Caddy, and an upload.
 
 ## [1.1.0] - 2026-11-03
 
