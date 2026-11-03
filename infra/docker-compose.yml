@@ -3,8 +3,11 @@ name: gratis-gis
 services:
   postgres:
     build:
-      context: ./postgres
-      dockerfile: Dockerfile
+      # Same context as the production file. The Dockerfile copies
+      # init-prod-db.sql and init-prod-db.sh, which live in infra/,
+      # not in infra/postgres/.
+      context: .
+      dockerfile: postgres/Dockerfile
     image: gratis-gis-postgres:local
     container_name: gratis-gis-postgres
     restart: unless-stopped

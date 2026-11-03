@@ -150,10 +150,13 @@ PR when a queued item ships.
 | Infra (Docker Compose, installer, deploy scripts) | `/infra` |
 
 Dev and production infra both live in `/infra` (`docker-compose.yml`,
-`docker-compose.prod.yml`, `install.sh`, `deploy.sh`). There is no
-Helm chart. `/deploy` only holds a placeholder for a future
-`get.gratisgis.org` one-liner; the script there exits without
-installing anything. Stack changes do not go in `/deploy`.
+`docker-compose.prod.yml`, `docker-compose.nas.yml`, `install.sh`,
+`bootstrap.sh`, `deploy.sh`, `nas-init.py`). There is no Helm chart
+and no TrueNAS catalog app. `/deploy` only holds a placeholder for a
+future `get.gratisgis.org` one-liner; the script there exits without
+installing anything. Stack changes do not go in `/deploy`. The
+one-paste NAS file is `infra/docker-compose.nas.yml`, generated from
+`docker-compose.nas.yml.tmpl` and `nas-init.py`.
 
 ## Licensing
 

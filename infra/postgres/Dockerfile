@@ -71,3 +71,11 @@ RUN sed -i '/security/d' /etc/apt/sources.list \
 # cleanup migration to actually shrink the observation partitions.
 # CREATE EXTENSION lives in the migration that first uses it; this
 # Dockerfile just needs to ship the binaries.
+
+# First-boot SQL and the Keycloak database script. The production
+# compose also bind-mounts these files over the same paths. A NAS
+# install has no checkout, so the copies in the image are what run.
+# Build context is infra/ (the parent of this directory).
+COPY init-prod-db.sql /docker-entrypoint-initdb.d/10-init.sql
+COPY init-prod-db.sh /docker-entrypoint-initdb.d/20-init-keycloak-db.sh
+RUN chmod 755 /docker-entrypoint-initdb.d/20-init-keycloak-db.sh

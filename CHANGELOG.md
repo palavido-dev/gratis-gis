@@ -8,6 +8,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Home NAS install. Paste `infra/docker-compose.nas.yml` into
+  TrueNAS Install via YAML or Dockge. On first boot a bootstrap
+  container writes random secrets, a Keycloak realm, and a Caddy
+  config onto a volume, then prints the LAN address and the admin
+  password in its logs. The default listens on port 8080 (and 8900
+  for uploads), so the TrueNAS web UI can stay on 80/443 and no
+  public domain or port forward is required. `docs/truenas.md` is
+  the short guide. Optional Tailscale, Cloudflare Tunnel, and a
+  public-domain mode are documented there. GitHub Actions publishes
+  `ghcr.io/palavido-dev/gratis-gis/*` from `main` (`edge`) and from
+  stable release tags. CI runs `infra/check-nas-compose.sh`.
 - Map comments support `@username` mentions: create or reply emails
   the org member when they can view the map (notification type
   `comment_mentioned`, gated by `NOTIFICATIONS_ENABLED` and prefs).
@@ -36,6 +47,18 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - `.nvmrc` now selects Node 24, so `nvm use` picks a version that
   satisfies `engines.node` (`>=24.9.0`) and matches CI.
+- A fresh `infra/.env.prod` from the example, or from the old
+  `setup.sh`, did not set `CHROMIUM_TOKEN` or `SCRIPT_EXECUTOR_TOKEN`.
+  Compose interpolates both even when printing and user scripts are
+  unused, so the stack refused to start (`CHROMIUM_TOKEN is missing`
+  when a Dockge env box is empty). `infra/bootstrap.sh` generates
+  them, and `infra/deploy.sh` refuses to continue while they are
+  missing or still `GENERATE`.
+
+### Documentation
+
+- `docs/truenas.md` for TrueNAS SCALE 25.10 and any Docker host.
+  Deployment, upgrade, and infra notes point at it.
 
 ## [1.0.0] - 2026-10-31
 

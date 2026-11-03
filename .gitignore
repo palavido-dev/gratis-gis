@@ -51,6 +51,10 @@ e2e/playwright-report/
 # Contains substituted secrets, so never commit.
 infra/keycloak/import/
 
+# Absolute paths written by infra/bootstrap.sh for the TrueNAS /
+# Dockge include snippet. No secrets, but it is machine-specific.
+infra/truenas-include.yaml
+
 # Logs
 *.log
 npm-debug.log*

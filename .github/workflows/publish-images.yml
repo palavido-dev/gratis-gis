@@ -1,0 +1,231 @@
+# Publish the images infra/docker-compose.nas.yml pulls.
+#
+# main  -> ghcr.io/palavido-dev/gratis-gis/<name>:edge and :sha-<12>
+# vX.Y.Z (stable tags only) -> that tag, plus :latest
+#
+# linux/amd64 only. TrueNAS SCALE and the public demo are amd64, and
+# a second architecture doubles an already long build.
+#
+# Packages are private until the visibility call below succeeds. A
+# fresh package sometimes rejects that call from GITHUB_TOKEN. The
+# log says so. An admin then opens the package, Package settings,
+# Change visibility, Public. One time per image. Pulls fail with
+# "denied" until that is done.
+#
+# portal-web is built with the open-source landing section on and the
+# public-testing banner off. NEXT_PUBLIC_PORTAL_URL is not baked, so
+# SEO canonicals in the prebuilt web image stay on the code default.
+# Sign-in URLs are runtime env (PUBLIC_URL, KEYCLOAK_URL), not bake-time.
+
+name: Publish images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Publish ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgres
+            file: infra/postgres/Dockerfile
+            context: infra
+            web: false
+          - name: portal-api
+            file: apps/portal-api/Dockerfile
+            context: .
+            web: false
+          - name: portal-web
+            file: apps/portal-web/Dockerfile
+            context: .
+            web: true
+          - name: pointcloud-worker
+            file: tools/pointcloud-worker/Dockerfile
+            context: .
+            web: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: tags
+        run: |
+          set -euo pipefail
+          owner_path="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/${{ matrix.name }}"
+          short="${GITHUB_SHA::12}"
+          tags="${owner_path}:sha-${short}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tags="${tags},${owner_path}:${GITHUB_REF_NAME},${owner_path}:latest"
+            version="${GITHUB_REF_NAME}"
+          else
+            tags="${tags},${owner_path}:edge"
+            version="edge"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "short=${short}" >> "$GITHUB_OUTPUT"
+
+      # portal-web inlines NEXT_PUBLIC_* at build time. Other
+      # Dockerfiles do not declare these args; passing them would
+      # warn. The public-testing banner stays off (the arg is unset).
+      - name: Web build args
+        id: webargs
+        if: matrix.web
+        run: |
+          {
+            echo "build_args<<EOF"
+            echo "NEXT_PUBLIC_PROJECT_LANDING=1"
+            echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
+            echo "NEXT_PUBLIC_GG_VERSION=${{ steps.tags.outputs.version }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          # Attestations need id-token and are not required to pull
+          # the image. Leave them off so this job stays packages:write.
+          provenance: false
+          sbom: false
+          platforms: linux/amd64
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+          build-args: ${{ steps.webargs.outputs.build_args }}
+
+      - name: Make the package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          enc="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "gratis-gis/${{ matrix.name }}")"
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          ok=0
+          for api in \
+            "/orgs/${owner}/packages/container/${enc}/visibility" \
+            "/users/${owner}/packages/container/${enc}/visibility"
+          do
+            if gh api --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              "$api" \
+              -f visibility=public
+            then
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" != "1" ]; then
+            echo "Could not mark ghcr.io/${owner}/gratis-gis/${{ matrix.name }} public." >&2
+            echo "Open the package on GitHub, Package settings, Change visibility, Public." >&2
+            echo "Until then, docker pull answers denied and the NAS compose cannot start." >&2
+            exit 1
+          fi
+
+  script-runner:
+    name: Publish script-runner
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: tags
+        run: |
+          set -euo pipefail
+          owner_path="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/script-runner"
+          short="${GITHUB_SHA::12}"
+          base="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/portal-api:sha-${short}"
+          tags="${owner_path}:sha-${short}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tags="${tags},${owner_path}:${GITHUB_REF_NAME},${owner_path}:latest"
+          else
+            tags="${tags},${owner_path}:edge"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infra/script-runner/Dockerfile
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            PORTAL_API_IMAGE=${{ steps.tags.outputs.base }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=script-runner
+          cache-to: type=gha,scope=script-runner,mode=max
+
+      - name: Make the package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          enc="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "gratis-gis/script-runner")"
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          ok=0
+          for api in \
+            "/orgs/${owner}/packages/container/${enc}/visibility" \
+            "/users/${owner}/packages/container/${enc}/visibility"
+          do
+            if gh api --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              "$api" \
+              -f visibility=public
+            then
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" != "1" ]; then
+            echo "Could not mark the script-runner package public. See the note in this workflow." >&2
+            exit 1
+          fi

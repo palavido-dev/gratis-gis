@@ -87,6 +87,9 @@ Installs track the latest release tag (`GG_REF` to pin). See
 [docs/deployment.md](./docs/deployment.md) and
 [docs/UPGRADING.md](./docs/UPGRADING.md).
 
+Home NAS (TrueNAS or Dockge), one paste, no domain name:
+[docs/truenas.md](./docs/truenas.md).
+
 ## Developer quick start
 
 Prereqs: Node 24.9+, pnpm 9+, Docker, git.

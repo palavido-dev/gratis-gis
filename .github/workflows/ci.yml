@@ -368,3 +368,17 @@ jobs:
           pip install build twine
           python -m build
           twine check dist/*
+
+  # Interpolates the prebuilt-image compose with a generated env and
+  # the TrueNAS include wrapper. No image build and no image pull.
+  # publish-images.yml is what makes the tags real; this job only
+  # stops a compose edit from shipping a file that will not parse.
+  nas-compose:
+    name: NAS compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate NAS compose
+        run: ./infra/check-nas-compose.sh

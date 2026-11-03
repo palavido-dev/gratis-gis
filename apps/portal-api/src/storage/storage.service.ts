@@ -128,6 +128,10 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicBase: string;
+  /** Signs browser URLs. Same object as `client` when the public base
+   *  is the SDK endpoint (the VPS). A LAN install signs for the
+   *  published address while server-side calls stay on `minio:9000`. */
+  private readonly presignClient: S3Client;
   private readonly s3Endpoint: string;
   private readonly s3AccessKeyId: string;
   private readonly s3SecretAccessKey: string;
@@ -168,8 +172,7 @@ export class StorageService implements OnModuleInit {
     // in prod this should be a CDN / reverse-proxied hostname.
     this.publicBase = cfg.get<string>('MINIO_PUBLIC_BASE', endpoint);
 
-    this.client = new S3Client({
-      endpoint,
+    const s3Options = {
       region: 'us-east-1', // MinIO ignores this but the SDK requires a value.
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true, // MinIO only supports path-style addressing.
@@ -191,9 +194,16 @@ export class StorageService implements OnModuleInit {
       // is not implemented." Opting out via WHEN_REQUIRED keeps the
       // checksum on real PUT-data calls (where MinIO supports it) and
       // skips it on the metadata operations where MinIO chokes.
-      requestChecksumCalculation: 'WHEN_REQUIRED',
-      responseChecksumValidation: 'WHEN_REQUIRED',
-    });
+      requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+      responseChecksumValidation: 'WHEN_REQUIRED' as const,
+    };
+    this.client = new S3Client({ endpoint, ...s3Options });
+    const publicEndpoint = this.publicBase.replace(/\/$/, '');
+    const internalEndpoint = endpoint.replace(/\/$/, '');
+    this.presignClient =
+      publicEndpoint === internalEndpoint
+        ? this.client
+        : new S3Client({ endpoint: publicEndpoint, ...s3Options });
   }
 
   /**
@@ -369,7 +379,7 @@ export class StorageService implements OnModuleInit {
     // run multi-GB on slow uplinks, so they get the longer 600s
     // window.
     const expiresIn = isTileLayer || isPointCloud ? 600 : anyMime ? 180 : 60;
-    const uploadUrl = await getSignedUrl(this.client, cmd, { expiresIn });
+    const uploadUrl = await getSignedUrl(this.presignClient, cmd, { expiresIn });
     // Private-kind objects are served back through the api with a
     // sharing check (the bucket policy no longer permits anonymous
     // GET on those prefixes).  Public-kind objects (thumbnails,

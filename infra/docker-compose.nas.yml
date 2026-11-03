@@ -1,0 +1,948 @@
+# GratisGIS for a home NAS. Paste this whole file.
+#
+# TrueNAS SCALE 25.10: Apps, Discover Apps, the three dots next to
+# Custom App, Install via YAML. Name the app gratis-gis.
+# Dockge: new stack, paste this file, leave the env box empty.
+#
+# You do not need a domain name, a git checkout, or ports 80/443.
+# The web UI stays on 80/443. GratisGIS uses 8080. Uploads use 8900.
+#
+# Optional, before you paste. Leave these empty to auto-detect.
+#   GRATIS_BASE_URL   example http://192.168.1.20:8080
+#                     or your Tailscale address http://100.x.x.x:8080
+#   GRATIS_HTTP_PORT  published web port (default 8080)
+#   GRATIS_S3_PORT    published upload port (default 8900)
+#   GRATIS_S3_URL     only if uploads are not http://<same-host>:8900
+#   GRATIS_MODE       lan (default) or public
+#   GRATIS_TLS        empty, or internal (browser certificate warning)
+#
+# After it starts, open the bootstrap logs. They show the address
+# and the admin password. Nothing here is a default password.
+
+name: gratis-gis
+
+services:
+  bootstrap:
+    image: python:3.12-alpine
+    container_name: gratis-gis-bootstrap
+    restart: unless-stopped
+    # So the first boot can see the NAS address on the host, while
+    # this container still joins the compose network below and can
+    # reach Keycloak by name.
+    pid: host
+    environment:
+      GRATIS_MODE: ${GRATIS_MODE:-lan}
+      GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
+      GRATIS_HTTP_PORT: ${GRATIS_HTTP_PORT:-8080}
+      GRATIS_S3_PORT: ${GRATIS_S3_PORT:-8900}
+      GRATIS_S3_URL: ${GRATIS_S3_URL:-}
+      GRATIS_TLS: ${GRATIS_TLS:-}
+      GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
+      GRATIS_AUTH_DOMAIN: ${GRATIS_AUTH_DOMAIN:-}
+      GRATIS_STORAGE_DOMAIN: ${GRATIS_STORAGE_DOMAIN:-}
+      GG_IMAGE_TAG: ${GG_IMAGE_TAG:-edge}
+      BOOT_DIR: /boot
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        python - <<'END_NAS_INIT'
+        #!/usr/bin/env python3
+        # SPDX-License-Identifier: AGPL-3.0-or-later
+        """First-boot init for the pasted NAS compose file.
+
+        Runs inside the bootstrap container (python:3.12-alpine). On an empty
+        volume it generates secrets, a Keycloak realm, and a Caddyfile, then
+        prints the address and the admin password. A second start keeps the
+        same secrets.
+
+        No default passwords. Secrets are random per install.
+        """
+
+        from __future__ import annotations
+
+        import base64
+        import json
+        import os
+        import re
+        import secrets
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        from pathlib import Path
+
+        WEAK = {"password", "devpassword", "admin", "changeme", "secret", "gratisgis"}
+
+
+        def boot_dir() -> Path:
+            return Path(os.environ.get("BOOT_DIR", "/boot"))
+
+
+        def sh_quote(value: str) -> str:
+            return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+        def rand(n: int = 32) -> str:
+            # Letters and digits only, so the env file and the database URL
+            # stay easy to source.
+            alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+            return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+        def encryption_key() -> str:
+            return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+
+
+        def lan_ips_from_fib(text: str) -> list[str]:
+            """Pull private IPv4 addresses out of /proc/net/fib_trie text."""
+            found: list[str] = []
+            for match in re.finditer(r"(\d{1,3}(?:\.\d{1,3}){3})", text):
+                ip = match.group(1)
+                parts = [int(p) for p in ip.split(".")]
+                if any(p > 255 for p in parts):
+                    continue
+                if ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0":
+                    continue
+                if ip.startswith("192.168.") or ip.startswith("10."):
+                    if ip not in found:
+                        found.append(ip)
+                    continue
+                # 172.16.0.0/12, but skip the usual Docker bridges.
+                if parts[0] == 172 and 16 <= parts[1] <= 31:
+                    if parts[1] in (17, 18, 19):
+                        continue
+                    if ip not in found:
+                        found.append(ip)
+            return found
+
+
+        def detect_lan_ip() -> str:
+            explicit = os.environ.get("GRATIS_DETECT_FIB", "")
+            blobs = []
+            if explicit:
+                blobs.append(explicit)
+            for path in ("/proc/1/net/fib_trie", "/proc/net/fib_trie"):
+                try:
+                    blobs.append(Path(path).read_text(encoding="utf-8", errors="replace"))
+                except OSError:
+                    continue
+            for blob in blobs:
+                ips = lan_ips_from_fib(blob)
+                if ips:
+                    return ips[0]
+            return "127.0.0.1"
+
+
+        def write_env(path: Path, values: dict[str, str]) -> None:
+            lines = [
+                "# Generated by infra/nas-init.py. Random per install.",
+                "# Do not commit this file. It lives on the Docker volume.",
+            ]
+            for key, value in values.items():
+                lines.append(f"{key}={sh_quote(value)}")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            path.chmod(0o644)
+
+
+        def read_env(path: Path) -> dict[str, str]:
+            values: dict[str, str] = {}
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+                    value = value[1:-1].replace("'\"'\"'", "'")
+                values[key] = value
+            return values
+
+
+        def org_mappers() -> list[dict]:
+            def one(name: str) -> dict:
+                return {
+                    "name": name,
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-attribute-mapper",
+                    "consentRequired": False,
+                    "config": {
+                        "userinfo.token.claim": "true",
+                        "user.attribute": name,
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": name,
+                        "jsonType.label": "String",
+                    },
+                }
+
+            return [one("org"), one("org_role")]
+
+
+        def build_realm(values: dict[str, str]) -> dict:
+            public = values["PUBLIC_URL"]
+            auth = values["KEYCLOAK_URL"]
+            https = public.startswith("https://")
+            return {
+                "realm": "gratis-gis",
+                "enabled": True,
+                "displayName": "Portal",
+                "loginTheme": "keycloak",
+                "registrationAllowed": False,
+                "resetPasswordAllowed": True,
+                "sslRequired": "external" if https else "none",
+                "accessTokenLifespan": 300,
+                "ssoSessionIdleTimeout": 3600,
+                "ssoSessionMaxLifespan": 36000,
+                "offlineSessionIdleTimeout": 2592000,
+                "bruteForceProtected": True,
+                "failureFactor": 8,
+                "attributes": {"frontendUrl": auth},
+                "clients": [
+                    {
+                        "clientId": "portal-web",
+                        "name": "GratisGIS Portal Web",
+                        "enabled": True,
+                        "publicClient": True,
+                        "standardFlowEnabled": True,
+                        "directAccessGrantsEnabled": False,
+                        "redirectUris": [f"{public}/*"],
+                        "webOrigins": [public],
+                        "attributes": {
+                            "pkce.code.challenge.method": "S256",
+                            "post.logout.redirect.uris": f"{public}/*",
+                        },
+                        "protocolMappers": org_mappers(),
+                    },
+                    {
+                        "clientId": "portal-api",
+                        "name": "GratisGIS Portal API",
+                        "enabled": True,
+                        "bearerOnly": True,
+                    },
+                    {
+                        "clientId": "portal-api-admin",
+                        "name": "GratisGIS Portal API (admin)",
+                        "enabled": True,
+                        "publicClient": False,
+                        "serviceAccountsEnabled": True,
+                        "standardFlowEnabled": False,
+                        "directAccessGrantsEnabled": False,
+                        "clientAuthenticatorType": "client-secret",
+                        "secret": values["KEYCLOAK_ADMIN_CLIENT_SECRET"],
+                    },
+                    {
+                        "clientId": "field-app",
+                        "name": "GratisGIS Field App",
+                        "enabled": True,
+                        "publicClient": True,
+                        "standardFlowEnabled": True,
+                        "directAccessGrantsEnabled": False,
+                        "redirectUris": ["gratisgis://auth-callback"],
+                        "webOrigins": [],
+                        "attributes": {"pkce.code.challenge.method": "S256"},
+                        "protocolMappers": org_mappers(),
+                    },
+                    {
+                        "clientId": "qgis-plugin",
+                        "name": "GratisGIS QGIS Plugin",
+                        "enabled": True,
+                        "publicClient": True,
+                        "standardFlowEnabled": True,
+                        "directAccessGrantsEnabled": False,
+                        "redirectUris": ["gratisgis-qgis://auth-callback", "http://127.0.0.1*"],
+                        "attributes": {"pkce.code.challenge.method": "S256"},
+                        "protocolMappers": org_mappers(),
+                    },
+                ],
+                "roles": {
+                    "realm": [
+                        {"name": "viewer", "description": "Default user role"},
+                        {"name": "contributor", "description": "Can publish items"},
+                        {"name": "admin", "description": "Org administrator"},
+                    ]
+                },
+                "defaultRole": {"name": "viewer"},
+                "users": [
+                    {
+                        "username": "admin",
+                        "enabled": True,
+                        "email": values.get("ACME_EMAIL") or "admin@gratis.lan",
+                        "emailVerified": True,
+                        "firstName": "Site",
+                        "lastName": "Admin",
+                        "credentials": [
+                            {
+                                "type": "password",
+                                "value": values["INITIAL_USER_PASSWORD"],
+                                "temporary": True,
+                            }
+                        ],
+                        "attributes": {
+                            "org": [values["DEFAULT_ORG_SLUG"]],
+                            "org_role": ["admin"],
+                        },
+                        "realmRoles": ["admin", "offline_access"],
+                    }
+                ],
+            }
+
+
+        def caddy_lan(port: str, tls: str) -> str:
+            tls_line = "\ttls internal\n" if tls == "internal" else ""
+            site = f":{port}"
+            return f"""{{
+        	auto_https off
+        	admin off
+        }}
+
+        {site} {{
+        {tls_line}	encode gzip zstd
+        	request_body {{
+        		max_size 1GB
+        	}}
+
+        	# Keycloak lives under /auth on this same address. The admin
+        	# API and the master realm stay closed from the browser. The
+        	# bootstrap container talks to Keycloak on the docker network.
+        	handle /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* {{
+        		respond 404
+        	}}
+        	handle /auth/* {{
+        		reverse_proxy keycloak:8080
+        	}}
+
+        	handle /api/auth/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/portal/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/geocode/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/locale {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/* {{
+        		reverse_proxy portal-api:4000
+        	}}
+        	handle /docs /docs/* /health {{
+        		reverse_proxy portal-api:4000
+        	}}
+        	handle {{
+        		reverse_proxy portal-web:3000
+        	}}
+        }}
+        """
+
+
+        def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
+            return f"""{{
+        	email {email}
+        	admin off
+        }}
+
+        {portal} {{
+        	encode gzip zstd
+        	request_body {{
+        		max_size 1GB
+        	}}
+        	handle /api/auth/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/portal/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/geocode/* {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/locale {{
+        		reverse_proxy portal-web:3000
+        	}}
+        	handle /api/* {{
+        		reverse_proxy portal-api:4000
+        	}}
+        	handle /docs /docs/* /health {{
+        		reverse_proxy portal-api:4000
+        	}}
+        	handle {{
+        		reverse_proxy portal-web:3000
+        	}}
+        }}
+
+        {auth} {{
+        	handle /admin /admin/* /realms/master /realms/master/* {{
+        		respond 404
+        	}}
+        	reverse_proxy keycloak:8080
+        }}
+
+        {storage} {{
+        	reverse_proxy minio:9000
+        }}
+        """
+
+
+        def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
+            mode = os.environ.get("GRATIS_MODE", "lan").strip().lower() or "lan"
+            port = os.environ.get("GRATIS_HTTP_PORT", "8080").strip() or "8080"
+            s3_port = os.environ.get("GRATIS_S3_PORT", "8900").strip() or "8900"
+            tls = os.environ.get("GRATIS_TLS", "").strip().lower()
+            requested = os.environ.get("GRATIS_BASE_URL", "").strip().rstrip("/")
+            s3_requested = os.environ.get("GRATIS_S3_URL", "").strip().rstrip("/")
+
+            if previous and not requested:
+                public = previous["PUBLIC_URL"]
+                s3 = previous["MINIO_PUBLIC_BASE"]
+                auth = previous["KEYCLOAK_URL"]
+                return {
+                    "mode": previous.get("GRATIS_MODE", mode),
+                    "public": public,
+                    "auth": auth,
+                    "s3": s3,
+                    "tls": previous.get("GRATIS_TLS", tls),
+                }
+
+            if mode == "public":
+                if not requested:
+                    raise SystemExit("GRATIS_MODE=public needs GRATIS_BASE_URL=https://your.domain")
+                parsed = urllib.parse.urlparse(requested)
+                host = parsed.hostname or ""
+                if not host or "." not in host:
+                    raise SystemExit("GRATIS_BASE_URL must be a full https URL with a domain name")
+                scheme = "https"
+                public = f"{scheme}://{host}"
+                auth_host = os.environ.get("GRATIS_AUTH_DOMAIN", f"auth.{host}").strip()
+                storage_host = os.environ.get("GRATIS_STORAGE_DOMAIN", f"storage.{host}").strip()
+                auth = f"https://{auth_host}"
+                s3 = s3_requested or f"https://{storage_host}"
+                return {"mode": "public", "public": public, "auth": auth, "s3": s3, "tls": "acme"}
+
+            if requested:
+                public = requested
+            else:
+                ip = detect_lan_ip()
+                scheme = "https" if tls == "internal" else "http"
+                public = f"{scheme}://{ip}:{port}"
+            parsed = urllib.parse.urlparse(public)
+            host = parsed.hostname or "127.0.0.1"
+            if s3_requested:
+                s3 = s3_requested
+            else:
+                s3_scheme = parsed.scheme or "http"
+                s3 = f"{s3_scheme}://{host}:{s3_port}"
+            auth = public.rstrip("/") + "/auth"
+            return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
+
+
+        def fresh_secrets() -> dict[str, str]:
+            return {
+                "POSTGRES_PASSWORD": rand(),
+                "KEYCLOAK_DB_PASSWORD": rand(),
+                "MINIO_ROOT_PASSWORD": rand(),
+                "KEYCLOAK_ADMIN_PASSWORD": rand(),
+                "KEYCLOAK_ADMIN_CLIENT_SECRET": rand(),
+                "NEXTAUTH_SECRET": rand(),
+                "CHROMIUM_TOKEN": rand(),
+                "INITIAL_USER_PASSWORD": rand(16),
+                "CREDENTIAL_ENCRYPTION_KEY": encryption_key(),
+            }
+
+
+        def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
+            public = urls["public"]
+            auth = urls["auth"]
+            s3 = urls["s3"]
+            parsed_public = urllib.parse.urlparse(public)
+            origin = f"{parsed_public.scheme}://{parsed_public.netloc}"
+            db_pass = secret["POSTGRES_PASSWORD"]
+            kc_db = secret["KEYCLOAK_DB_PASSWORD"]
+            minio_pass = secret["MINIO_ROOT_PASSWORD"]
+            token = secret["CHROMIUM_TOKEN"]
+            email = os.environ.get("GRATIS_ACME_EMAIL", "").strip() or "admin@gratis.lan"
+            relative = "/auth" if urls["mode"] == "lan" else ""
+            internal_auth = "http://keycloak:8080" + relative
+            values = {
+                "GRATIS_MODE": urls["mode"],
+                "GRATIS_TLS": urls.get("tls") or "",
+                "PUBLIC_URL": public,
+                "NEXTAUTH_URL": public,
+                "NEXTAUTH_SECRET": secret["NEXTAUTH_SECRET"],
+                "KEYCLOAK_URL": auth,
+                "KEYCLOAK_INTERNAL_URL": internal_auth,
+                "KEYCLOAK_REALM": "gratis-gis",
+                "KEYCLOAK_ISSUER": f"{auth}/realms/gratis-gis",
+                "KEYCLOAK_CLIENT_ID_WEB": "portal-web",
+                "KEYCLOAK_CLIENT_SECRET_WEB": "",
+                "KEYCLOAK_ADMIN_CLIENT_ID": "portal-api-admin",
+                "KEYCLOAK_ADMIN_CLIENT_SECRET": secret["KEYCLOAK_ADMIN_CLIENT_SECRET"],
+                "KEYCLOAK_ADMIN": "admin",
+                "KEYCLOAK_ADMIN_PASSWORD": secret["KEYCLOAK_ADMIN_PASSWORD"],
+                "POSTGRES_DB": "gratisgis",
+                "POSTGRES_USER": "gratisgis",
+                "POSTGRES_PASSWORD": db_pass,
+                "KEYCLOAK_DB_PASSWORD": kc_db,
+                "DATABASE_URL": f"postgresql://gratisgis:{db_pass}@postgres:5432/gratisgis",
+                "KC_DB": "postgres",
+                "KC_DB_URL": "jdbc:postgresql://postgres:5432/keycloak",
+                "KC_DB_USERNAME": "keycloak",
+                "KC_DB_PASSWORD": kc_db,
+                # LAN: hostname is the site origin; /auth is the relative path.
+                # Public: Keycloak has its own hostname and no path prefix.
+                "KC_HOSTNAME": origin if urls["mode"] == "lan" else auth,
+                "KC_HTTP_ENABLED": "true",
+                "KC_HOSTNAME_STRICT": "false",
+                "KC_PROXY_HEADERS": "xforwarded",
+                "KC_BOOTSTRAP_ADMIN_USERNAME": "admin",
+                "KC_BOOTSTRAP_ADMIN_PASSWORD": secret["KEYCLOAK_ADMIN_PASSWORD"],
+                "KC_HEALTH_ENABLED": "true",
+                "MINIO_ROOT_USER": "gratisgis",
+                "MINIO_ROOT_PASSWORD": minio_pass,
+                "MINIO_ENDPOINT": "http://minio:9000",
+                "MINIO_PUBLIC_BASE": s3,
+                "MINIO_ACCESS_KEY": "gratisgis",
+                "MINIO_SECRET_KEY": minio_pass,
+                "MINIO_BUCKET": "gratisgis",
+                "S3_BUCKET": "gratisgis",
+                "STORAGE_ALLOWED_ORIGINS": public,
+                "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
+                "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],
+                "DEFAULT_ORG_SLUG": "gratis-gis",
+                "ACME_EMAIL": email,
+                "CHROMIUM_TOKEN": token,
+                "CHROMIUM_WS_ENDPOINTS": f"ws://chromium:3000?token={token}",
+                "PORTAL_API_URL": "http://portal-api:4000",
+                "NEXT_PUBLIC_API_URL": public,
+                "NODE_ENV": "production",
+                "PORT": "4000",
+                "GG_VERSION": os.environ.get("GG_IMAGE_TAG", "edge"),
+            }
+            if relative:
+                values["KC_HTTP_RELATIVE_PATH"] = relative
+            secret_keys = (
+                "POSTGRES_PASSWORD",
+                "KEYCLOAK_DB_PASSWORD",
+                "MINIO_ROOT_PASSWORD",
+                "MINIO_SECRET_KEY",
+                "KEYCLOAK_ADMIN_PASSWORD",
+                "KEYCLOAK_ADMIN_CLIENT_SECRET",
+                "KC_BOOTSTRAP_ADMIN_PASSWORD",
+                "NEXTAUTH_SECRET",
+                "CHROMIUM_TOKEN",
+                "INITIAL_USER_PASSWORD",
+                "CREDENTIAL_ENCRYPTION_KEY",
+            )
+            for key in secret_keys:
+                if values[key] in WEAK or (key != "CREDENTIAL_ENCRYPTION_KEY" and len(values[key]) < 16):
+                    raise SystemExit(f"refusing weak value for {key}")
+            return values
+
+
+        def ensure_org_attributes(schema: dict) -> bool:
+            attributes = schema.setdefault("attributes", [])
+            names = {item.get("name") for item in attributes if isinstance(item, dict)}
+            changed = False
+            specs = [
+                ("org", "Organization"),
+                ("org_role", "Org role"),
+            ]
+            for name, label in specs:
+                if name in names:
+                    continue
+                attributes.append(
+                    {
+                        "name": name,
+                        "displayName": label,
+                        "permissions": {"view": ["admin", "user"], "edit": ["admin"]},
+                        "multivalued": False,
+                    }
+                )
+                changed = True
+            return changed
+
+
+        def _request(url: str, method: str, body: bytes | None, headers: dict[str, str]) -> tuple[int, bytes]:
+            req = urllib.request.Request(url, data=body, headers=headers, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return resp.status, resp.read()
+            except urllib.error.HTTPError as exc:
+                return exc.code, exc.read()
+
+
+        def patch_keycloak(values: dict[str, str]) -> None:
+            internal = values["KEYCLOAK_INTERNAL_URL"].rstrip("/")
+            deadline = time.time() + 180
+            ready = False
+            while time.time() < deadline:
+                try:
+                    status, _ = _request("http://keycloak:9000/health/ready", "GET", None, {})
+                    if status == 200:
+                        ready = True
+                        break
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    pass
+                time.sleep(3)
+            if not ready:
+                print("WARN: Keycloak did not become ready. Sign-in may fail until the next restart.")
+                return
+            form = urllib.parse.urlencode(
+                {
+                    "client_id": "admin-cli",
+                    "username": "admin",
+                    "password": values["KEYCLOAK_ADMIN_PASSWORD"],
+                    "grant_type": "password",
+                }
+            ).encode()
+            status, raw = _request(
+                f"{internal}/realms/master/protocol/openid-connect/token",
+                "POST",
+                form,
+                {"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if status != 200:
+                print(f"WARN: could not sign in to Keycloak admin API (HTTP {status}).")
+                return
+            token = json.loads(raw).get("access_token") or ""
+            auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
+            if status != 200:
+                print(f"WARN: could not read the user-profile schema (HTTP {status}).")
+                return
+            schema = json.loads(raw)
+            if ensure_org_attributes(schema):
+                body = json.dumps(schema).encode()
+                put_headers = {**auth, "Content-Type": "application/json"}
+                status, _ = _request(
+                    f"{internal}/admin/realms/gratis-gis/users/profile",
+                    "PUT",
+                    body,
+                    put_headers,
+                )
+                if status not in (200, 204):
+                    print(f"WARN: could not update the user-profile schema (HTTP {status}).")
+                    return
+                print("Keycloak user-profile schema now includes org and org_role.")
+            # The realm import may have dropped those attributes. Put them back
+            # on the admin user so the first sign-in has an org claim.
+            status, raw = _request(
+                f"{internal}/admin/realms/gratis-gis/users?username=admin&exact=true",
+                "GET",
+                None,
+                auth,
+            )
+            if status != 200:
+                return
+            users = json.loads(raw)
+            if not users:
+                return
+            user = users[0]
+            attrs = user.get("attributes") or {}
+            attrs["org"] = ["gratis-gis"]
+            attrs["org_role"] = ["admin"]
+            user["attributes"] = attrs
+            _request(
+                f"{internal}/admin/realms/gratis-gis/users/{user['id']}",
+                "PUT",
+                json.dumps(user).encode(),
+                {**auth, "Content-Type": "application/json"},
+            )
+
+
+        def banner(values: dict[str, str]) -> str:
+            return (
+                "\n========== GratisGIS ==========\n"
+                f"Open this address:  {values['PUBLIC_URL']}\n"
+                "User:               admin\n"
+                f"Password:           {values['INITIAL_USER_PASSWORD']}\n"
+                "Keycloak will ask you to change this password.\n"
+                "Uploads use:        "
+                f"{values['MINIO_PUBLIC_BASE']}\n"
+                "Do not forward ports 8080 or 8900 on your router.\n"
+                "===============================\n"
+            )
+
+
+        def main() -> None:
+            boot = boot_dir()
+            boot.mkdir(parents=True, exist_ok=True)
+            env_path = boot / "env"
+            previous = read_env(env_path) if env_path.exists() else None
+            if previous:
+                secret = {key: previous[key] for key in (
+                    "POSTGRES_PASSWORD",
+                    "KEYCLOAK_DB_PASSWORD",
+                    "MINIO_ROOT_PASSWORD",
+                    "KEYCLOAK_ADMIN_PASSWORD",
+                    "KEYCLOAK_ADMIN_CLIENT_SECRET",
+                    "NEXTAUTH_SECRET",
+                    "CHROMIUM_TOKEN",
+                    "INITIAL_USER_PASSWORD",
+                    "CREDENTIAL_ENCRYPTION_KEY",
+                )}
+            else:
+                secret = fresh_secrets()
+            urls = resolve_urls(previous if not os.environ.get("GRATIS_BASE_URL", "").strip() else None)
+            # An explicit GRATIS_BASE_URL always wins, including on a restart.
+            if os.environ.get("GRATIS_BASE_URL", "").strip():
+                urls = resolve_urls(None)
+            values = assemble(urls, secret)
+            write_env(env_path, values)
+            realm = build_realm(values)
+            realm_path = boot / "realm-gratis-gis.json"
+            realm_path.write_text(json.dumps(realm, indent=2) + "\n", encoding="utf-8")
+            realm_path.chmod(0o644)
+            if values["GRATIS_MODE"] == "public":
+                host = urllib.parse.urlparse(values["PUBLIC_URL"]).hostname or ""
+                auth_host = urllib.parse.urlparse(values["KEYCLOAK_URL"]).hostname or ""
+                storage_host = urllib.parse.urlparse(values["MINIO_PUBLIC_BASE"]).hostname or ""
+                caddy = caddy_public(host, auth_host, storage_host, values["ACME_EMAIL"])
+            else:
+                # Caddy always listens on 8080 inside the container. The
+                # published host port is GRATIS_HTTP_PORT (mapped to 8080).
+                caddy = caddy_lan("8080", values.get("GRATIS_TLS") or "")
+            caddy_path = boot / "Caddyfile"
+            caddy_path.write_text(caddy, encoding="utf-8")
+            caddy_path.chmod(0o644)
+            text = banner(values)
+            if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
+                text += (
+                    "WARN: the address changed after the first start.\n"
+                    "WARN: Keycloak keeps the old sign-in address until you delete\n"
+                    "WARN: this app's volumes and start again.\n"
+                )
+            (boot / "LOGIN.txt").write_text(text, encoding="utf-8")
+            (boot / "ready").write_text("ok\n", encoding="utf-8")
+            print(text, flush=True)
+            if os.environ.get("GRATIS_SKIP_PATCH") == "1":
+                return
+            try:
+                patch_keycloak(values)
+            except Exception as exc:  # noqa: BLE001 - keep the stack up
+                print(f"WARN: Keycloak setup did not finish: {exc}")
+            # Stay up so TrueNAS shows this container as running and the
+            # password remains in `docker logs`.
+            os.execvp("sleep", ["sleep", "infinity"])
+
+
+        if __name__ == "__main__":
+            main()
+        END_NAS_INIT
+    volumes:
+      - boot:/boot
+    networks:
+      - gratis-net
+
+  postgres:
+    image: ghcr.io/palavido-dev/gratis-gis/postgres:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    shm_size: 512mb
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec docker-entrypoint.sh postgres \
+          -c shared_preload_libraries=pg_partman_bgw,pg_stat_statements \
+          -c pg_partman_bgw.interval=3600 \
+          -c pg_partman_bgw.role=gratisgis \
+          -c pg_partman_bgw.dbname=gratisgis \
+          -c shared_buffers=256MB \
+          -c effective_cache_size=1GB \
+          -c work_mem=16MB \
+          -c maintenance_work_mem=256MB \
+          -c jit=off
+    volumes:
+      - boot:/boot:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gratis-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --proxy-headers=xforwarded --import-realm
+    environment:
+      JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
+    volumes:
+      - boot:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Port open is enough for Compose to proceed. The bootstrap
+    # container waits for /health/ready before it touches the realm.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
+    networks:
+      - gratis-net
+
+  minio:
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        if [ -x /usr/bin/minio ]; then exec /usr/bin/minio server /data --console-address ":9001"; fi
+        exec minio server /data --console-address ":9001"
+    ports:
+      # Browser uploads. Not 80 or 443. Do not forward this on your router.
+      - "${GRATIS_S3_PORT:-8900}:9000"
+    volumes:
+      - boot:/boot:ro
+      - miniodata:/data
+    networks:
+      - gratis-net
+
+  portal-api:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1024
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  portal-worker:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        export SKIP_MIGRATE=true
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1024
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      portal-api:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  portal-web:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /usr/bin/tini -- node apps/portal-web/server.js
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      portal-api:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  chromium:
+    image: ghcr.io/browserless/chromium:latest
+    restart: unless-stopped
+    mem_limit: 768m
+    cap_add:
+      - SYS_ADMIN
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        export TOKEN="$$CHROMIUM_TOKEN"
+        if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
+        if [ -f /usr/src/app/start.sh ]; then cd /usr/src/app && exec ./start.sh; fi
+        echo "Chromium start script was not found. Printing will not work." >&2
+        exec sleep infinity
+    volumes:
+      - boot:/boot:ro
+    networks:
+      - gratis-net
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        exec caddy run --config /boot/Caddyfile --adapter caddyfile
+    ports:
+      # Host port -> Caddy's port 8080 inside the container.
+      # Not 80 or 443, so the TrueNAS web UI can stay where it is.
+      # A public domain (GRATIS_MODE=public) needs 80 and 443 instead:
+      #   - "80:80"
+      #   - "443:443"
+      # and you remove the 8080 line. See docs/truenas.md.
+      - "${GRATIS_HTTP_PORT:-8080}:8080"
+    volumes:
+      - boot:/boot:ro
+      - caddy-data:/data
+    depends_on:
+      portal-web:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+    networks:
+      - gratis-net
+
+volumes:
+  boot:
+  pgdata:
+  miniodata:
+  caddy-data:
+
+networks:
+  gratis-net:
+    driver: bridge
