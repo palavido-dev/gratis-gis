@@ -75,12 +75,64 @@ time.
 - Sample items are ordinary items. Rename them, restyle them, share
   them, or delete them; a later re-seed only restores what is
   missing.
+## Showcase dashboards
+
+A second button, **Load showcase dashboards**, loads the public
+demo's dashboards. It is on the welcome panel and on the items
+page, so an install that already has data can load them too.
+Each item is marked `sample:showcase-*`. Clicking again skips
+what is already there and does not duplicate it. Ids are new for
+each install.
+
+What it creates:
+
+- Randolph County Storm Events Dashboard, its map, and the NOAA
+  storm-events layer (625 events).
+- Twenty-five years of West Virginia water quality, its map, the
+  monitoring sites and measurements, and the Marcellus wells layer
+  shown beside them.
+- Elkins in 3D, its map, and the building footprints with
+  lidar-derived heights.
+
+The Randolph County Bridges dashboard is not included. The live
+demo's bridge file is the West Virginia Department of Transportation
+service at gis.transportation.wv.gov. That service publishes no
+redistribution license. The federal National Bridge Inventory is
+public domain, but this extract is the state service's own file, so
+it stays out.
+
+Sources that are included:
+
+- Storm events: NOAA National Centers for Environmental Information,
+  a US federal public-domain work.
+- Water quality and Marcellus wells: West Virginia GIS Technical
+  Center. MapWV's terms of use say anyone may view, copy, or
+  distribute information found there, unless a particular file says
+  otherwise. These files do not. Water quality is the EPA project
+  file `WQandWell_Data_042020` (WVDEP, USGS, and partner programmes,
+  compiled by Maneesh Sharma and colleagues). Wells are the West
+  Virginia Geological and Economic Survey file redistributed by the
+  Technical Center.
+- Elkins buildings: OpenStreetMap contributors, ODbL, for the
+  footprints. Heights are derived from public-domain 2018 lidar.
+  The lidar hillshade raster from the demo is about 56 MB and is
+  not in the image. The buildings still extrude.
+
+pg_tileserv is not used by these maps. The portal draws vector
+tiles itself. The water-quality map's watershed, county, and stream
+outlines are live map services, so those outlines need a network.
+The bundled points do not.
+
+## Behavior, continued
+
 - The bundled datasets ship inside the portal image, so seeding
   works air-gapped with no external fetches. Feature inserts are
-  chunked, so the 23,915-parcel layer loads without overrunning a
-  single statement.
-- The API surface is `POST /api/items/sample-data` (admin or
-  contributor), returning the created and skipped item markers.
+  chunked, so the 23,915-parcel layer and the water-quality
+  measurements load without overrunning a single statement.
+- The API surface is `POST /api/items/sample-data` for the Randolph
+  workspace and `POST /api/items/showcase-data` for the dashboards
+  (admin or contributor). Both return the created and skipped item
+  markers.
 
 ## Removing sample content
 

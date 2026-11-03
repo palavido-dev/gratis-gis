@@ -16,6 +16,11 @@
 #
 # UPLOAD PORT. Signed uploads need their own port. Change it here.
 #
+# ANALYSIS. on runs lidar and terrain processing. It needs about
+# 2.5 GB of RAM and free disk for scratch. Set it to off on a
+# small box. TrueNAS Install via YAML cannot turn a Compose
+# profile on, so this is a plain value.
+#
 # Optional, before the first start:
 #   GRATIS_BASE_URL   example http://192.168.1.20:8080
 #                     or your Tailscale address http://100.x.x.x:8080
@@ -31,6 +36,7 @@
 x-gratis:
   GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
   GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
+  GRATIS_ANALYSIS: &GRATIS_ANALYSIS "${GRATIS_ANALYSIS:-on}"
 
 name: gratis-gis
 
@@ -49,6 +55,7 @@ services:
       GRATIS_HTTP_PORT: *GRATIS_HTTP_PORT
       GRATIS_S3_PORT: *GRATIS_S3_PORT
       GRATIS_S3_URL: ${GRATIS_S3_URL:-}
+      GRATIS_ANALYSIS: *GRATIS_ANALYSIS
       GRATIS_TLS: ${GRATIS_TLS:-}
       GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
       GRATIS_AUTH_DOMAIN: ${GRATIS_AUTH_DOMAIN:-}
@@ -193,6 +200,8 @@ __NAS_INIT_BODY__
       NODE_OPTIONS: --max-old-space-size=1024
     volumes:
       - boot:/boot:ro
+      # Admin backup archives. Recreating the container keeps them.
+      - portal-api-backups:/app/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -242,6 +251,68 @@ __NAS_INIT_BODY__
       timeout: 5s
       retries: 18
       start_period: 40s
+    networks:
+      - gratis-net
+
+  # Lidar and terrain processing. GRATIS_ANALYSIS at the top of this
+  # file is the switch. off leaves the container sleeping so the API
+  # can answer 503 instead of queueing work nothing will run.
+  pointcloud-worker:
+    image: ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 2560m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        if [ "$$ANALYSIS_TIERS" != "server-heavy" ]; then exec sleep infinity; fi
+        echo "pointcloud-worker starting"
+        exec /usr/local/bin/_entrypoint.sh python /app/runner.py
+    environment:
+      SCRATCH_DIR: /scratch
+      # GDAL network lockdown. The worker builds local VRTs and reads
+      # /vsis3/. /vsicurl/ stays refused via the HTTP timeouts.
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_CONNECTTIMEOUT: "2"
+      GDAL_HTTP_TIMEOUT: "5"
+      CPL_VSIL_CURL_USE_HEAD: "NO"
+    volumes:
+      - boot:/boot:ro
+      - pointcloud-scratch:/scratch
+    depends_on:
+      portal-api:
+        condition: service_healthy
+    healthcheck:
+      # runner.py while analysis is on, sleep infinity while it is off.
+      # The needle is split so this check does not match its own command.
+      test:
+        - CMD
+        - /opt/conda/bin/python
+        - -c
+        - |
+          import os
+          def line(p):
+              try:
+                  return open("/proc/"+p+"/cmdline","rb").read().replace(b"\0", b" ")
+              except OSError:
+                  return b""
+          n=("runner"+"."+"py").encode()
+          ok=False
+          for p in os.listdir("/proc"):
+              if not p.isdigit():
+                  continue
+              raw=line(p)
+              if n in raw or (b"sleep" in raw and b"infinity" in raw):
+                  ok=True
+          raise SystemExit(0 if ok else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
     networks:
       - gratis-net
 
@@ -348,6 +419,8 @@ volumes:
   pgdata:
   miniodata:
   caddy-data:
+  portal-api-backups:
+  pointcloud-scratch:
 
 networks:
   gratis-net:

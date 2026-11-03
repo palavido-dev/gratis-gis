@@ -9,6 +9,7 @@ import { ItemsView } from './items-view';
 import { type FolderRailNode } from './folder-rail';
 import { FoldersDrawer } from './folders-drawer';
 import { WelcomePanel } from './welcome-panel';
+import { LoadShowcaseButton } from './load-showcase-button';
 import { getServerLocale } from '@/lib/i18n/server';
 import { t } from '@/lib/i18n';
 
@@ -186,6 +187,7 @@ export default async function ItemsPage(props: Props) {
               <MapIcon className="h-4 w-4" />
               {t('itemsPage.openMap', undefined, locale)}
             </Link>
+            <LoadShowcaseButton />
             <Link
               href="/items/new"
               className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"

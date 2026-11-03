@@ -3272,10 +3272,18 @@ export const ptBR: Partial<CatalogShape> = {
     loadSample: 'Carregar dados de exemplo',
     loadSampleDesc:
       'Explore um espaço de trabalho pronto do condado de Randolph: camadas, mapas, um formulário, aplicativos e um levantamento de campo.',
+    loadShowcase: 'Carregar painéis de demonstração',
+    loadShowcaseDesc:
+      'Tempestades, qualidade da água da Virgínia Ocidental e Elkins em 3D. Separado do espaço de Randolph, e pode ser carregado de novo.',
     loading: 'Carregando dados de exemplo...',
+    loadingShowcase: 'Carregando painéis de demonstração...',
     loaded: '{count, plural, one {# item de exemplo criado} other {# itens de exemplo criados}}',
+    loadedShowcase:
+      '{count, plural, one {# item de demonstração criado} other {# itens de demonstração criados}}',
     allSkipped: 'Os dados de exemplo já estão carregados',
+    allSkippedShowcase: 'Os painéis de demonstração já estão carregados',
     failed: 'Não foi possível carregar os dados de exemplo',
+    failedShowcase: 'Não foi possível carregar os painéis de demonstração',
     dismiss: 'Dispensar o painel de boas-vindas',
   },
   whatsNewPage: {

@@ -3397,10 +3397,18 @@ export const en = {
     loadSample: 'Load sample data',
     loadSampleDesc:
       'Explore a ready-made Randolph County workspace: layers, maps, a form, apps, and a field survey.',
+    loadShowcase: 'Load showcase dashboards',
+    loadShowcaseDesc:
+      'Storm events, West Virginia water quality, and Elkins in 3D. Separate from the Randolph workspace, and safe to load again.',
     loading: 'Loading sample data...',
+    loadingShowcase: 'Loading showcase dashboards...',
     loaded: '{count, plural, one {# sample item created} other {# sample items created}}',
+    loadedShowcase:
+      '{count, plural, one {# showcase item created} other {# showcase items created}}',
     allSkipped: 'Sample data is already loaded',
+    allSkippedShowcase: 'Showcase dashboards are already loaded',
     failed: 'Could not load sample data',
+    failedShowcase: 'Could not load showcase dashboards',
     dismiss: 'Dismiss welcome panel',
   },
   /**

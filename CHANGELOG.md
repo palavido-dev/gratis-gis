@@ -6,6 +6,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Home NAS installs run the point-cloud worker when `GRATIS_ANALYSIS`
+  is `on` (the default) and sleep it when set to `off`. Admin backups
+  are stored on a volume that survives recreating the API container.
+- Load showcase dashboards adds the public demo's storm-events
+  dashboard, West Virginia water-quality dashboard, and Elkins in
+  3D, with fresh ids per install (`sample:showcase-*`). The
+  Randolph County bridges dashboard is not included: that file is
+  the WVDOT service, which publishes no redistribution license.
+
 ### Fixed
 
 - Home NAS install. Keycloak mounts the generated boot volume at

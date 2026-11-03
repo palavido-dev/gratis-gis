@@ -111,9 +111,17 @@ shape as the VPS install in [deployment.md](./deployment.md).
   `GRATIS_TLS: internal`, Caddy makes a private certificate and the
   browser warns until you trust that certificate.
 - The sign-in page uses Keycloak's own theme.
-- One API container and one Chromium. Point-cloud processing and
-  pg_tileserv are not in this file. The portal still serves its own
-  vector tiles.
+- One API container and one Chromium. `GRATIS_ANALYSIS` at the top
+  of the file defaults to `on`, which runs lidar and terrain
+  processing and needs about 2.5 GB of RAM plus scratch disk. Set
+  it to `off` on a small box. The portal then answers those requests
+  with 503.
+- pg_tileserv is not in this file. The portal draws its own vector
+  tiles on the API. Nothing in the app calls pg_tileserv, so maps
+  do not need it.
+- Admin backups are written to a Docker volume (`portal-api-backups`)
+  so they survive recreating the API container. An archive restores
+  only on this same install. See [deployment.md](./deployment.md).
 - The address chosen on the first successful start is kept. A later
   address, after you have signed in, means deleting the app volumes
   and starting again. `GRATIS_HTTP_PORT` at the top of the file is
@@ -125,6 +133,15 @@ Passwords are random for each install. They are printed in the
 bootstrap logs and stored on the Docker volume named `boot`. Copy
 the portal password somewhere safe. Deleting that volume creates
 new passwords and an empty database.
+
+## Showcase dashboards
+
+On the items page, **Load showcase dashboards** adds the storm
+events dashboard, the water-quality dashboard, and Elkins in 3D.
+It keeps the items you already have. Lidar processing has to be
+`on` (the default) if you later derive a new hillshade. The
+buildings in Elkins in 3D already carry their heights. See
+[sample-data.md](./sample-data.md).
 
 ## Updating
 

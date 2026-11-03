@@ -32,6 +32,7 @@ cleanup() {
       > /opt/cursor/artifacts/nas-boot.log 2>&1 || true
   fi
   docker compose -p "$PROJECT" -f "$COMPOSE" down -v --remove-orphans >/dev/null 2>&1 || true
+  docker compose -p "${PROJECT}-off" -f "$COMPOSE" down -v --remove-orphans >/dev/null 2>&1 || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -119,5 +120,151 @@ curl -fsS -D - -o /dev/null -X OPTIONS "http://127.0.0.1:${S3_PORT}/ci-probe/pro
 
 docker compose -p "$PROJECT" -f "$COMPOSE" logs bootstrap 2>&1 \
   | grep -q "Do not post it publicly."
+
+docker compose -p "$PROJECT" -f "$COMPOSE" logs pointcloud-worker 2>&1 \
+  | grep -q "pointcloud-worker starting"
+
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
+  curl -fsS http://127.0.0.1:4000/api/portal-info \
+  | python3 -c 'import json,sys; info=json.load(sys.stdin); assert info["features"]["analysis"] is True, info'
+
+# Analysis off: the worker stays up without running jobs, and the API
+# refuses a derive call with 503. Different host ports so this can
+# follow the first boot after that project is removed.
+docker compose -p "$PROJECT" -f "$COMPOSE" down -v --remove-orphans >/dev/null
+docker rm -f gratis-gis-bootstrap >/dev/null 2>&1 || true
+
+export GRATIS_ANALYSIS=off
+export GRATIS_HTTP_PORT=18081
+export GRATIS_S3_PORT=18901
+export GRATIS_BASE_URL="http://127.0.0.1:18081"
+export GRATIS_S3_URL="http://127.0.0.1:18901"
+OFF="${PROJECT}-off"
+docker compose -p "$OFF" -f "$COMPOSE" up -d --remove-orphans
+python3 - "$OFF" "$COMPOSE" <<'PY'
+import json, subprocess, sys, time
+project, compose = sys.argv[1], sys.argv[2]
+deadline = time.time() + 900
+
+def rows():
+    ids = subprocess.check_output(
+        ["docker", "compose", "-p", project, "-f", compose, "ps", "-aq"],
+        text=True,
+    ).split()
+    found = []
+    for cid in ids:
+        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))[0]
+        state = data["State"]
+        health = (state.get("Health") or {}).get("Status") or "none"
+        found.append((data["Name"].lstrip("/"), state["Status"], state.get("ExitCode"), health))
+    return found
+
+last = []
+while time.time() < deadline:
+    last = rows()
+    crashed = [row for row in last if row[1] in {"exited", "dead"} or (row[1] == "restarting" and row[2] not in (0, None))]
+    if crashed:
+        print("off stack container exited", crashed)
+        sys.exit(1)
+    if last and all(row[1] == "running" and row[3] == "healthy" for row in last):
+        print(f"off stack {len(last)} services healthy")
+        sys.exit(0)
+    time.sleep(5)
+print("off stack timed out", last)
+sys.exit(1)
+PY
+
+docker compose -p "$OFF" -f "$COMPOSE" exec -T portal-api \
+  curl -fsS http://127.0.0.1:4000/api/portal-info \
+  | python3 -c 'import json,sys; info=json.load(sys.stdin); assert info["features"]["analysis"] is False, info'
+
+# A signed-in derive call is the 503. portal-web does not allow the
+# password grant until the test turns it on, and the stack is thrown
+# away at the end of this script.
+docker compose -p "$OFF" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
+import json, urllib.parse, urllib.request
+from pathlib import Path
+
+def env():
+    values = {}
+    for raw in Path("/boot/env").read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+def post(url, data, headers):
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+import urllib.error
+vals = env()
+token_body = urllib.parse.urlencode({
+    "client_id": "admin-cli",
+    "username": "admin",
+    "password": vals["KEYCLOAK_ADMIN_PASSWORD"],
+    "grant_type": "password",
+}).encode()
+status, raw = post(
+    "http://keycloak:8080/auth/realms/master/protocol/openid-connect/token",
+    token_body,
+    {"Content-Type": "application/x-www-form-urlencoded"},
+)
+if status != 200:
+    raise SystemExit(f"master token HTTP {status}")
+admin = json.loads(raw)["access_token"]
+auth = {"Authorization": f"Bearer {admin}", "Content-Type": "application/json"}
+req = urllib.request.Request(
+    "http://keycloak:8080/auth/admin/realms/gratis-gis/clients?clientId=portal-web",
+    headers={"Authorization": f"Bearer {admin}"},
+)
+with urllib.request.urlopen(req, timeout=30) as resp:
+    clients = json.loads(resp.read())
+client = clients[0]
+client["directAccessGrantsEnabled"] = True
+put = urllib.request.Request(
+    f"http://keycloak:8080/auth/admin/realms/gratis-gis/clients/{client['id']}",
+    data=json.dumps(client).encode(),
+    headers=auth,
+    method="PUT",
+)
+try:
+    with urllib.request.urlopen(put, timeout=30) as resp:
+        put_status = resp.status
+except urllib.error.HTTPError as exc:
+    put_status = exc.code
+if put_status not in (200, 204):
+    raise SystemExit(f"enable password grant HTTP {put_status}")
+user_body = urllib.parse.urlencode({
+    "client_id": "portal-web",
+    "username": "admin",
+    "password": vals["INITIAL_USER_PASSWORD"],
+    "grant_type": "password",
+}).encode()
+status, raw = post(
+    "http://keycloak:8080/auth/realms/gratis-gis/protocol/openid-connect/token",
+    user_body,
+    {"Content-Type": "application/x-www-form-urlencoded"},
+)
+if status != 200:
+    raise SystemExit(f"user token HTTP {status} {raw[:200]!r}")
+user = json.loads(raw)["access_token"]
+status, raw = post(
+    "http://portal-api:4000/api/items/00000000-0000-4000-8000-000000000001/analysis/hillshade",
+    json.dumps({"mode": "dtm", "resolution": 1}).encode(),
+    {"Authorization": f"Bearer {user}", "Content-Type": "application/json"},
+)
+if status != 503:
+    raise SystemExit(f"expected 503, got {status} {raw[:300]!r}")
+print("analysis off returns 503")
+PY
 
 echo "boot-nas-ci: ok"
