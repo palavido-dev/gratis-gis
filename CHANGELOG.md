@@ -6,6 +6,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Map comments support `@username` mentions: create or reply emails
+  the org member when they can view the map (notification type
+  `comment_mentioned`, gated by `NOTIFICATIONS_ENABLED` and prefs).
+  Cap 10 unique mentions per comment; self-mentions and unknown
+  handles are skipped. Create/reply writes are rate-limited at
+  30/min.
+
 ### Changed
 
 - Analyze no-param shortcuts (Centroid, Convex hull, Bounding boxes,

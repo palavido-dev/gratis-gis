@@ -9,30 +9,32 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from './sharing.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import {
+  commentSnippet,
+  extractMentionUsernames,
+} from './comment-mentions.js';
 
 /**
- * #155 Threaded comments service. Phase 1 ships map-level threads
- * only; the polymorphic anchoring (`parentKind`, `parentId`) is
- * persisted from the start so Phase 2 can attach threads to layer
- * features or drawing features without a schema migration.
+ * #155 Threaded comments service. Phase 1–2: map / feature / drawing
+ * anchors. Phase 3 (R2-comments-mentions): `@username` in create or
+ * reply fans out `comment_mentioned` email via NotificationsService
+ * (gated by NOTIFICATIONS_ENABLED + prefs). Unknown handles stay
+ * literal text. Self-mentions, cross-org users, deleted users, and
+ * recipients without canRead are skipped. Cap 10 unique per comment.
  *
  * Permissions:
  *   - LIST / READ: anyone with canRead on the item (anonymous OK
  *     when item is `access='public'`).
  *   - CREATE thread or reply: canRead (anyone who can view can
- *     comment). Phase 1 is signed-in only; anonymous comments land
- *     alongside anonymous markup in Phase 1.5.
+ *     comment). Signed-in only.
  *   - EDIT a comment: the comment's author within an EDIT_WINDOW_MS
  *     grace window, or the item owner / org admin (via canEdit on
- *     the item) at any time.
+ *     the item) at any time. Edits do not re-fire mention mail.
  *   - DELETE a comment: the author at any time, or the item editor.
  *   - RESOLVE / REOPEN a thread: the thread opener, or the item
  *     editor. Resolved threads are kept (not deleted) so the
  *     conversation history stays auditable.
- *
- * No notification fan-out in Phase 1; the in-portal bell + email
- * paths land in Phase 3 once we have a notifications surface that
- * can carry @-mentions.
  */
 const MAX_BODY_LEN = 10_000;
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -66,6 +68,7 @@ export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sharing: SharingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(
@@ -133,6 +136,17 @@ export class CommentsService {
       include: { comments: true },
     });
     const display = await this.resolveDisplay(user);
+    const first = created.comments[0];
+    if (first) {
+      void this.notifyMentions({
+        author: user,
+        item,
+        threadId: created.id,
+        commentId: first.id,
+        body,
+        authorDisplay: display,
+      });
+    }
     return this.threadToDto(created, new Map([[user.id, display]]));
   }
 
@@ -166,6 +180,14 @@ export class CommentsService {
       data: { updatedAt: new Date() },
     });
     const display = await this.resolveDisplay(user);
+    void this.notifyMentions({
+      author: user,
+      item,
+      threadId,
+      commentId: comment.id,
+      body,
+      authorDisplay: display,
+    });
     return this.commentToDto(comment, display);
   }
 
@@ -299,6 +321,90 @@ export class CommentsService {
   }
 
   // ---- helpers ----------------------------------------------------------
+
+  /**
+   * Resolve `@username` tokens and enqueue mention email. Fire-and-
+   * forget: failures must not fail the comment write.
+   */
+  private async notifyMentions(args: {
+    author: AuthUser;
+    item: Awaited<ReturnType<CommentsService['loadItem']>>;
+    threadId: string;
+    commentId: string;
+    body: string;
+    authorDisplay: string;
+  }): Promise<void> {
+    try {
+      const usernames = extractMentionUsernames(args.body);
+      if (usernames.length === 0) return;
+
+      const lowered = usernames.map((u) => u.toLowerCase());
+      const candidates = await this.prisma.user.findMany({
+        where: {
+          orgId: args.author.orgId,
+          deletedAt: null,
+          OR: lowered.map((u) => ({
+            username: { equals: u, mode: 'insensitive' as const },
+          })),
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          orgId: true,
+          orgRole: true,
+          org: { select: { slug: true } },
+        },
+      });
+      if (candidates.length === 0) return;
+
+      const shares = await this.prisma.itemShare.findMany({
+        where: { itemId: args.item.id },
+      });
+      const memberships = await this.prisma.groupMember.findMany({
+        where: { userId: { in: candidates.map((c) => c.id) } },
+        select: { userId: true, groupId: true },
+      });
+      const groupsByUser = new Map<string, string[]>();
+      for (const m of memberships) {
+        const list = groupsByUser.get(m.userId) ?? [];
+        list.push(m.groupId);
+        groupsByUser.set(m.userId, list);
+      }
+
+      const snippet = commentSnippet(args.body);
+      const payloadBase = {
+        itemId: args.item.id,
+        itemTitle: args.item.title,
+        threadId: args.threadId,
+        commentId: args.commentId,
+        mentionedByName: args.authorDisplay,
+        snippet,
+      };
+
+      for (const cand of candidates) {
+        if (cand.id === args.author.id) continue;
+        const recipient: AuthUser = {
+          id: cand.id,
+          orgId: cand.orgId,
+          orgSlug: cand.org.slug,
+          username: cand.username,
+          email: cand.email,
+          orgRole: cand.orgRole,
+          groupIds: groupsByUser.get(cand.id) ?? [],
+          capabilities: new Set(),
+        };
+        if (!this.sharing.canRead(recipient, args.item, shares)) continue;
+        void this.notifications.notify(
+          cand.id,
+          'comment_mentioned',
+          payloadBase,
+        );
+      }
+    } catch {
+      // Mention fan-out must never fail the comment write.
+    }
+  }
 
   private sanitizeBody(body: unknown): string {
     if (typeof body !== 'string') {

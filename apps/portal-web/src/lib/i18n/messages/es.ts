@@ -2815,7 +2815,9 @@ export const es: Partial<CatalogShape> = {
     threadOpened: 'Hilo abierto {when}',
     resolvedSuffix: ' • Resuelto',
     editedSuffix: ' (editado)',
-    newAnchoredPlaceholder: 'Comentar la selección…',
+    newAnchoredPlaceholder: 'Comentar la selección… @usuario para avisar',
+    mentionHint:
+      'Escribe @usuario para enviar un correo a un miembro de la organización que pueda ver este mapa.',
     composeHint:
       'Selecciona una entidad en el mapa para anclar un hilo, o publica a nivel de mapa.',
     composeOn: 'En {label}',

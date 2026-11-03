@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-03 - @mentions in map comments
+On a map, type `@username` in a comment or reply to email that person when they can view the map and your portal has notifications turned on. Unknown names stay as plain text.
+
 ## [1.0.0] - 2026-10-31
 
 ## 2026-10-31 - Area square next to the scale bar

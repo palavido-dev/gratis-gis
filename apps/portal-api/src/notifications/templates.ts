@@ -67,6 +67,18 @@ export interface ShareExpiryPayload {
   principalId: string;
 }
 
+/** Payload shape for `comment_mentioned` (map comment @username). */
+export interface CommentMentionedPayload {
+  itemId: string;
+  itemTitle: string;
+  threadId: string;
+  commentId: string;
+  /** Display name of the author who wrote the mention. */
+  mentionedByName: string;
+  /** Short plain-text excerpt of the comment body. */
+  snippet: string;
+}
+
 /** Payload shape for user_auto_disable_warning + user_disabled. */
 export interface UserDisablePayload {
   /** ISO timestamp at which the auto-disable will fire (warning) or
@@ -355,6 +367,27 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
       example: '(none)',
     },
   ],
+  comment_mentioned: [
+    {
+      name: 'itemId',
+      label: 'Item ID',
+      example: '00000000-0000-4000-8000-000000000001',
+    },
+    { name: 'itemTitle', label: 'Map title', example: 'City Park Review' },
+    { name: 'threadId', label: 'Thread ID' },
+    { name: 'commentId', label: 'Comment ID' },
+    {
+      name: 'mentionedByName',
+      label: 'Mentioned by',
+      example: 'Alice Author',
+    },
+    {
+      name: 'snippet',
+      label: 'Comment snippet',
+      description: 'Short plain-text excerpt of the comment.',
+      example: 'Hey @bob can you check this?',
+    },
+  ],
 };
 
 /**
@@ -618,6 +651,24 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       `Accept invitation</a></p>` +
       `<p style="font-size:12px;color:#666;">Or copy this link into your browser: ` +
       `<a href="${escapeAttr(payload.inviteLink)}">${escapeHtml(payload.inviteLink)}</a></p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  comment_mentioned: ((payload: CommentMentionedPayload, ctx) => {
+    const itemUrl =
+      `${ctx.baseUrl}/items/${payload.itemId}` +
+      `?comments=1&thread=${encodeURIComponent(payload.threadId)}`;
+    const subject = `${payload.mentionedByName} mentioned you on "${payload.itemTitle}"`;
+    const text =
+      `${payload.mentionedByName} mentioned you in a comment on "${payload.itemTitle}" on ${ctx.orgLabel}.\n\n` +
+      `"${payload.snippet}"\n\n` +
+      `Open the conversation: ${itemUrl}\n`;
+    const html =
+      `<p><strong>${escapeHtml(payload.mentionedByName)}</strong> mentioned you in a comment on ` +
+      `<strong>${escapeHtml(payload.itemTitle)}</strong> on ${escapeHtml(ctx.orgLabel)}.</p>` +
+      `<blockquote style="margin:12px 0;padding:8px 12px;border-left:3px solid #cbd5e1;color:#334155;">` +
+      `${escapeHtml(payload.snippet)}</blockquote>` +
+      `<p><a href="${escapeAttr(itemUrl)}">Open the conversation</a></p>`;
     return { subject, text, html };
   }) as Renderer<unknown>,
 };

@@ -2823,7 +2823,9 @@ export const fr: Partial<CatalogShape> = {
     threadOpened: 'Fil ouvert {when}',
     resolvedSuffix: ' • Résolu',
     editedSuffix: ' (modifié)',
-    newAnchoredPlaceholder: 'Commenter la sélection…',
+    newAnchoredPlaceholder: 'Commenter la sélection… @utilisateur pour notifier',
+    mentionHint:
+      'Tapez @utilisateur pour envoyer un e-mail à un membre de l’organisation qui peut voir cette carte.',
     composeHint:
       'Sélectionnez une entité sur la carte pour ancrer un fil, ou publiez au niveau carte.',
     composeOn: 'Sur {label}',
