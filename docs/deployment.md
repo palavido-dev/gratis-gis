@@ -43,12 +43,25 @@ cd /opt/gratis-gis
 `setup.sh` asks for your domain, the Let's Encrypt email, and an
 organization name, derives the auth and storage hostnames (overridable),
 generates every secret, and writes `infra/.env.prod` (mode 600). It
-prints the initial credentials once: the portal sign-in
+also writes `CHROMIUM_TOKEN` and `SCRIPT_EXECUTOR_TOKEN`. Compose
+reads both even when you do not print maps and do not enable user
+scripts. It prints the initial credentials once: the portal sign-in
 (`admin` plus a generated password that Keycloak forces you to change
 on first login) and the Keycloak admin console password. Save them.
 
 Non-interactive use: `./infra/setup.sh --domain gis.example.org
---acme-email you@example.org --yes`.
+--acme-email you@example.org --yes`. `./infra/setup.sh` is
+`./infra/bootstrap.sh`. Both write `CHROMIUM_TOKEN` and
+`SCRIPT_EXECUTOR_TOKEN`. Compose will not start without them, even
+if you never print a map and never enable user scripts.
+
+## TrueNAS and other NAS hosts
+
+TrueNAS SCALE, Dockge, Portainer, and a generic Docker host use the
+prebuilt-image file `infra/docker-compose.nas.yml` instead of
+building on the machine. Do not paste `infra/docker-compose.prod.yml`
+into those UIs. The steps, including why Install via YAML is the
+TrueNAS path, are in [truenas.md](./truenas.md).
 
 `deploy.sh` builds the images, starts the stack, runs database
 migrations, and reconciles the Keycloak realm. First build takes a

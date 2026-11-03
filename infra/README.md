@@ -65,3 +65,12 @@ a second are logged. Changing a memory flag needs a container
 recreate (`docker compose up -d postgres`), which the deploy script
 does when the compose file changed; expect ten to twenty seconds
 without a database while the API replicas reconnect.
+
+## TrueNAS and other Docker hosts
+
+`docker-compose.prod.yml` builds from this checkout. Pasting it into
+Dockge or TrueNAS fails: the build folders are not there, and
+Compose stops until `CHROMIUM_TOKEN` is set. `docker-compose.nas.yml`
+pulls published images instead. `bootstrap.sh` writes `.env.prod`
+and the short include file those UIs paste. The guide is
+[docs/truenas.md](../docs/truenas.md).

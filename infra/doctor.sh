@@ -148,7 +148,7 @@ fi
 
 section "Environment file"
 if [ ! -f "$ENV_FILE" ]; then
-  fail ".env.prod not found. Run ./infra/setup.sh first."
+  fail ".env.prod not found. Run ./infra/bootstrap.sh first (./infra/setup.sh is the same script)."
 else
   pass ".env.prod present"
   PERMS="$(stat -c %a "$ENV_FILE" 2>/dev/null || echo '')"
@@ -157,7 +157,7 @@ else
     *) warn ".env.prod permissions are ${PERMS:-unknown}; chmod 600 recommended (it holds every secret)" ;;
   esac
   if grep -q '=GENERATE' "$ENV_FILE"; then
-    fail ".env.prod still contains GENERATE placeholders; run ./infra/setup.sh --force or fill them in"
+    fail ".env.prod still contains GENERATE placeholders; run ./infra/bootstrap.sh --force or fill them in"
   else
     pass "no GENERATE placeholders remain"
   fi

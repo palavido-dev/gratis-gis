@@ -47,7 +47,7 @@ fi
 
 if [[ ! -f infra/.env.prod ]]; then
   echo "FATAL: infra/.env.prod is missing." >&2
-  echo "Copy infra/.env.prod.example to infra/.env.prod and fill in real values." >&2
+  echo "Run ./infra/bootstrap.sh to generate it (./infra/setup.sh is the same script)." >&2
   exit 1
 fi
 
@@ -125,41 +125,35 @@ echo "Version stamp: ${GG_VERSION:-'(none)'}"
 if grep -q '^[A-Z_]*=GENERATE$' infra/.env.prod; then
   echo "FATAL: infra/.env.prod still contains GENERATE placeholders:" >&2
   grep '^[A-Z_]*=GENERATE$' infra/.env.prod >&2
-  echo "Run: openssl rand -base64 36   to generate strong values for each." >&2
+  echo "Run ./infra/bootstrap.sh --force, or replace each GENERATE with a real secret." >&2
+  echo "CHROMIUM_TOKEN and SCRIPT_EXECUTOR_TOKEN are required even if you do not print or enable user scripts." >&2
   exit 1
 fi
 
-# Materialize the Keycloak realm import file from the template by
-# substituting env vars. envsubst only replaces $VAR / ${VAR} forms,
-# leaving JSON braces alone. Run it before bringing keycloak up so
-# the import directory is ready when the container starts.
-echo "=== Materializing Keycloak realm import ==="
-mkdir -p infra/keycloak/import
+# Materialize the Keycloak realm import before keycloak starts.
 # Parsed, not sourced. `. infra/.env.prod` lets bash expand the
 # values: a bcrypt hash like STATS_HASH turns its $$ into the deploy
 # shell's PID, Caddy then rejects the basic-auth config, and the site
 # stays down until someone reads the container log. See
-# infra/lib-env.sh.
+# infra/lib-env.sh. Substitution itself is Python (no envsubst) so
+# the same path works on a TrueNAS shell.
+echo "=== Materializing Keycloak realm import ==="
 # shellcheck source=infra/lib-env.sh
 . infra/lib-env.sh
 gg_load_env_file infra/.env.prod
+gg_require_prod_env
 # Derived AUTH_URL the realm template uses for the realm-level
 # frontendUrl. Keep this separate from PUBLIC_URL: the realm has to
 # advertise itself as the AUTH subdomain (otherwise discovery
 # returns the wrong issuer and OAuth breaks).
 export AUTH_URL="https://${AUTH_DOMAIN:-auth.gratisgis.org}"
-envsubst < infra/keycloak/realm-gratis-gis.prod.json.tmpl \
-  > infra/keycloak/import/realm-gratis-gis.json
-# The materialized file carries real secrets (client secrets, the
-# bootstrap admin password), so strip world read. Not 600: the
-# keycloak container runs as uid 1000 with gid 0 and reads this
-# through the bind mount, so the group-read bit for root's gid 0 is
-# what keeps --import-realm working on a fresh install while other
+# Mode 640 and root:root when we are root. Keycloak runs as uid 1000
+# with gid 0 and reads this through the bind mount; the group-read
+# bit for gid 0 is what keeps --import-realm working while other
 # host users still get nothing.
-chmod 640 infra/keycloak/import/realm-gratis-gis.json
-# Sanity-check: the JSON should still parse after substitution.
-python3 -c "import json,sys; json.load(open('infra/keycloak/import/realm-gratis-gis.json'))" \
-  || { echo "FATAL: realm import JSON is malformed after envsubst" >&2; exit 1; }
+gg_render_realm_import \
+  infra/keycloak/realm-gratis-gis.prod.json.tmpl \
+  infra/keycloak/import/realm-gratis-gis.json
 echo "Wrote infra/keycloak/import/realm-gratis-gis.json"
 
 COMPOSE=(docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod)

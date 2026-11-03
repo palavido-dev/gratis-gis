@@ -87,6 +87,9 @@ Installs track the latest release tag (`GG_REF` to pin). See
 [docs/deployment.md](./docs/deployment.md) and
 [docs/UPGRADING.md](./docs/UPGRADING.md).
 
+TrueNAS SCALE, Dockge, and any other Docker host that should pull
+images instead of building them: [docs/truenas.md](./docs/truenas.md).
+
 ## Developer quick start
 
 Prereqs: Node 24.9+, pnpm 9+, Docker, git.

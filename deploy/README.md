@@ -8,10 +8,12 @@ What actually exists today:
 
 | Path | Purpose |
 | --- | --- |
-| `../infra/docker-compose.prod.yml` | Production Compose stack (single-host deploy behind Caddy) |
+| `../infra/docker-compose.prod.yml` | Production Compose stack (single-host deploy behind Caddy, builds from source) |
+| `../infra/docker-compose.nas.yml` | Same stack from published images, for TrueNAS / Dockge / any Docker host |
 | `../infra/deploy.sh` | Idempotent build-and-roll deploy script |
 | `../infra/install.sh` | Working single-command installer (clone, guided setup, deploy) |
-| `../infra/setup.sh` | Guided first-run configuration (writes `.env.prod`) |
+| `../infra/bootstrap.sh` | Writes `.env.prod`, checks required secrets, renders the Keycloak realm |
+| `../infra/setup.sh` | Same script as `bootstrap.sh` |
 | `../infra/doctor.sh` | Read-only deployment diagnostics |
 | `../infra/systemd/` | Host-side units (docker cleanup, demo reset) |
 | `installer/install.sh` | `get.gratisgis.org` placeholder; exits 1, see below |

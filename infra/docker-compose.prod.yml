@@ -25,6 +25,12 @@ name: gratis-gis-prod
 #
 # Or, with the deploy.sh helper:
 #   ./infra/deploy.sh
+#
+# NAS / Dockge / TrueNAS / Portainer: do not paste this file into a
+# compose UI. It builds from local directories (./postgres, the repo
+# root) and it will not interpolate until CHROMIUM_TOKEN is set.
+# Use infra/docker-compose.nas.yml after infra/bootstrap.sh. See
+# docs/truenas.md.
 
 services:
   postgres:
@@ -548,7 +554,7 @@ services:
       # for load balancing. Token gates access so only the API can
       # reach the browser endpoints (the sidecars are on the
       # internal network but defense-in-depth).
-      CHROMIUM_WS_ENDPOINTS: ws://chromium-1:3000?token=${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod},ws://chromium-2:3000?token=${CHROMIUM_TOKEN}
+      CHROMIUM_WS_ENDPOINTS: ws://chromium-1:3000?token=${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod (run ./infra/bootstrap.sh; do not paste this file into Dockge with an empty env box)},ws://chromium-2:3000?token=${CHROMIUM_TOKEN}
       # Internal URL portal-api hands to the chromium sidecar so
       # the browser navigates to the print-preview route from
       # within the docker network rather than hairpin through
@@ -766,7 +772,7 @@ services:
       DB_POOL_MAX: "4"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       SCRIPT_EXECUTOR_URL: http://script-executor:4100
-      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
+      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod (Compose reads it even when the scripts profile is off; run ./infra/bootstrap.sh)}
       SCRIPT_TIMEOUT_SECONDS: ${SCRIPT_TIMEOUT_SECONDS:-300}
       SCRIPT_POLL_MS: ${SCRIPT_POLL_MS:-3000}
       SCRIPT_MAX_LOG_BYTES: ${SCRIPT_MAX_LOG_BYTES:-262144}
@@ -869,7 +875,7 @@ services:
       # Shared secret with the claimer. Network placement is the
       # primary control; this is the backstop for the day something
       # else lands on gg-script-net.
-      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
+      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod (Compose reads it even when the scripts profile is off; run ./infra/bootstrap.sh)}
       SCRIPT_EXECUTOR_PORT: "4100"
       # Where a script's own API calls go. Internal DNS rather than the
       # public hostname so a run does not leave the host, hairpin
@@ -1044,7 +1050,7 @@ services:
     networks:
       - gratis-net
     environment:
-      TOKEN: ${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod}
+      TOKEN: ${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod (run ./infra/bootstrap.sh; do not paste this file into Dockge with an empty env box)}
       CONCURRENT: "3"
       TIMEOUT: "30000"
     mem_limit: 1g
@@ -1060,7 +1066,7 @@ services:
     networks:
       - gratis-net
     environment:
-      TOKEN: ${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod}
+      TOKEN: ${CHROMIUM_TOKEN:?CHROMIUM_TOKEN must be set in .env.prod (run ./infra/bootstrap.sh; do not paste this file into Dockge with an empty env box)}
       CONCURRENT: "3"
       TIMEOUT: "30000"
     mem_limit: 1g

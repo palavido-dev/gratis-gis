@@ -6,10 +6,35 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- NAS and home-server install. `infra/bootstrap.sh` writes
+  `infra/.env.prod` with generated secrets, renders the Keycloak
+  realm, and writes a short TrueNAS / Dockge include file.
+  `infra/docker-compose.nas.yml` runs that stack from published
+  images (no local build context). `docs/truenas.md` is the TrueNAS
+  SCALE 25.10 guide, with the same files for Dockge, Portainer, and
+  any other Docker host. GitHub Actions publishes
+  `ghcr.io/palavido-dev/gratis-gis/*` from `main` (`edge`) and from
+  stable release tags. CI checks the NAS compose with
+  `infra/check-nas-compose.sh`.
+
 ### Fixed
 
 - `.nvmrc` now selects Node 24, so `nvm use` picks a version that
   satisfies `engines.node` (`>=24.9.0`) and matches CI.
+- A fresh `infra/.env.prod` from the example, or from the old
+  `setup.sh`, did not set `CHROMIUM_TOKEN` or `SCRIPT_EXECUTOR_TOKEN`.
+  Compose interpolates both even when printing and user scripts are
+  unused, so the stack refused to start (`CHROMIUM_TOKEN is missing`
+  when a Dockge env box is empty). `infra/bootstrap.sh` generates
+  them, and `infra/deploy.sh` refuses to continue while they are
+  missing or still `GENERATE`.
+
+### Documentation
+
+- `docs/truenas.md` for TrueNAS SCALE 25.10 and any Docker host.
+  Deployment, upgrade, and infra notes point at it.
 
 ## [1.0.0] - 2026-10-31
 

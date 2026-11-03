@@ -60,12 +60,12 @@ main() {
   echo "==================="
 
   local missing=""
-  for bin in git docker curl openssl; do
+  for bin in git docker curl openssl python3; do
     command -v "$bin" >/dev/null 2>&1 || missing="${missing} ${bin}"
   done
   if [ -n "$missing" ]; then
     echo "ERROR missing required tools:${missing}" >&2
-    echo "Install them (Docker with the compose plugin, git, curl, openssl) and re-run." >&2
+    echo "Install them (Docker with the compose plugin, git, curl, openssl, python3) and re-run." >&2
     exit 1
   fi
   if ! docker compose version >/dev/null 2>&1; then

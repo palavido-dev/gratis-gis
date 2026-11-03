@@ -1,0 +1,150 @@
+# Prebuilt-image stack for a NAS, a home server, or any Docker host
+# that should not compile GratisGIS from source.
+#
+# This file includes docker-compose.prod.yml and then replaces every
+# `build:` with a published image. It is the file TrueNAS, Dockge,
+# and Portainer should point at. Do not paste docker-compose.prod.yml
+# into those UIs: that file builds from ./postgres and the repo root,
+# which are not there if you only pasted the YAML, and Compose
+# refuses to start until CHROMIUM_TOKEN is set.
+#
+# Prepare the checkout first:
+#
+#   ./infra/bootstrap.sh --domain gis.example.org --acme-email you@example.org --yes
+#   docker compose -f infra/docker-compose.nas.yml --env-file infra/.env.prod up -d
+#
+# TrueNAS and Dockge do not pass --env-file. bootstrap.sh writes
+# infra/truenas-include.yaml, a short wrapper with the absolute paths.
+# Paste that wrapper. Leave the UI env box empty; the secrets stay in
+# infra/.env.prod (mode 600).
+#
+# Images are published by .github/workflows/publish-images.yml from
+# main (tag "edge") and from stable release tags. They are linux/amd64.
+# Until the first publish succeeds, pull fails and the build fallback
+# in docs/truenas.md is the way to start.
+#
+# Ports 80 and 443 are the only published ports, same as production.
+# On TrueNAS those ports are the web UI. Move the UI first. Do not
+# point GG_HTTP_PORT / GG_HTTPS_PORT at other numbers: the public
+# URLs do not include a port, and sign-in would break.
+#
+# `!reset` / `!override` need Compose 2.24 or newer (TrueNAS 25.10
+# and current Docker Desktop / Engine are well past that).
+
+# Same project name as production, so Docker volume names stay
+# gratis-gis-prod_*. The directory name (infra/) would otherwise win.
+name: gratis-gis-prod
+
+include:
+  - path: docker-compose.prod.yml
+
+services:
+  postgres:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/postgres:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+    # Absolute paths. A TrueNAS include runs with a project directory
+    # that is not this folder, so ./init-prod-db.sql would not resolve.
+    # GG_PGDATA defaults to the named volume `pgdata` (uid 999 inside
+    # the volume, no dataset chmod). Set it to an absolute directory
+    # only when you want the files on a ZFS dataset you snapshot
+    # yourself. That directory must be writable by uid 999, not by
+    # the TrueNAS apps user (uid 568).
+    volumes: !override
+      - ${GG_PGDATA:-pgdata}:/var/lib/postgresql/data
+      - ${GRATIS_DIR:?GRATIS_DIR must be the absolute path of the GratisGIS checkout. Run ./infra/bootstrap.sh}/infra/init-prod-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      - ${GRATIS_DIR}/infra/init-prod-db.sh:/docker-entrypoint-initdb.d/20-init-keycloak-db.sh:ro
+
+  portal-migrate:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+
+  portal-api:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+    # One replica leaves RAM for ZFS. The public demo runs two.
+    deploy:
+      replicas: ${GG_API_REPLICAS:-1}
+    # Home routers often do not hairpin. The API calls Keycloak and
+    # MinIO by their public https names, so those names must reach
+    # Caddy on this host from inside the container.
+    extra_hosts:
+      - "${PORTAL_DOMAIN:?PORTAL_DOMAIN must be set in the env file}:host-gateway"
+      - "${AUTH_DOMAIN:?AUTH_DOMAIN must be set in the env file}:host-gateway"
+      - "${STORAGE_DOMAIN:?STORAGE_DOMAIN must be set in the env file}:host-gateway"
+
+  portal-worker:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+    extra_hosts:
+      - "${PORTAL_DOMAIN}:host-gateway"
+      - "${AUTH_DOMAIN}:host-gateway"
+      - "${STORAGE_DOMAIN}:host-gateway"
+
+  portal-web:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+    extra_hosts:
+      - "${PORTAL_DOMAIN}:host-gateway"
+      - "${AUTH_DOMAIN}:host-gateway"
+      - "${STORAGE_DOMAIN}:host-gateway"
+
+  pointcloud-worker:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+
+  script-runner:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+
+  script-executor:
+    build: !reset null
+    image: ghcr.io/palavido-dev/gratis-gis/script-runner:${GG_IMAGE_TAG:-edge}
+    pull_policy: ${GG_PULL_POLICY:-always}
+
+  keycloak:
+    volumes: !override
+      - ${GRATIS_DIR}/infra/keycloak/themes/portal:/opt/keycloak/themes/portal:ro
+      - ${GRATIS_DIR}/infra/keycloak/themes/portal-demo:/opt/keycloak/themes/portal-demo:ro
+      - ${GRATIS_DIR}/infra/keycloak/import:/opt/keycloak/data/import:ro
+
+  minio:
+    volumes: !override
+      - ${GG_MINIODATA:-miniodata}:/data
+
+  # Print rendering loads the public site. Same hairpin fix as the API.
+  chromium-1:
+    extra_hosts:
+      - "${PORTAL_DOMAIN}:host-gateway"
+      - "${AUTH_DOMAIN}:host-gateway"
+      - "${STORAGE_DOMAIN}:host-gateway"
+
+  chromium-2:
+    extra_hosts:
+      - "${PORTAL_DOMAIN}:host-gateway"
+      - "${AUTH_DOMAIN}:host-gateway"
+      - "${STORAGE_DOMAIN}:host-gateway"
+
+  caddy:
+    ports: !override
+      - "${GG_HTTP_PORT:-80}:80"
+      - "${GG_HTTPS_PORT:-443}:443"
+    # Named volumes for logs and the analytics page. The production
+    # file defaults these to /var/lib/gg-analytics, which is the
+    # wrong disk on TrueNAS (the boot drive, and not kept the way
+    # a pool dataset is).
+    volumes: !override
+      - ${GRATIS_DIR}/infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - gg-caddy-logs:/var/log/caddy
+      - gg-analytics:/var/analytics:ro
+
+volumes:
+  gg-caddy-logs:
+  gg-analytics:
