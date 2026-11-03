@@ -35,10 +35,10 @@ cd /opt/gratis-gis
 ./infra/deploy.sh
 ```
 
-A NAS install that uses `infra/docker-compose.nas.yml` does not use
-this script. Update that checkout with `git pull`, run
-`./infra/bootstrap.sh --rerender` (this keeps secrets), and restart
-the app. Details are in [truenas.md](./truenas.md).
+A NAS install that was pasted from `infra/docker-compose.nas.yml`
+does not use this script. Update it by pasting the new file over
+the app and restarting. The passwords live on the `boot` volume and
+are kept. Details are in [truenas.md](./truenas.md).
 
 The deploy script takes the shared deploy lock, fetches from origin
 (tags included), resolves the target ref, hard-resets the checkout to

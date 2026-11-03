@@ -1,0 +1,269 @@
+# GratisGIS for a home NAS. Paste this whole file.
+#
+# TrueNAS SCALE 25.10: Apps, Discover Apps, the three dots next to
+# Custom App, Install via YAML. Name the app gratis-gis.
+# Dockge: new stack, paste this file, leave the env box empty.
+#
+# You do not need a domain name, a git checkout, or ports 80/443.
+# The web UI stays on 80/443. GratisGIS uses 8080. Uploads use 8900.
+#
+# Optional, before you paste. Leave these empty to auto-detect.
+#   GRATIS_BASE_URL   example http://192.168.1.20:8080
+#                     or your Tailscale address http://100.x.x.x:8080
+#   GRATIS_HTTP_PORT  published web port (default 8080)
+#   GRATIS_S3_PORT    published upload port (default 8900)
+#   GRATIS_S3_URL     only if uploads are not http://<same-host>:8900
+#   GRATIS_MODE       lan (default) or public
+#   GRATIS_TLS        empty, or internal (browser certificate warning)
+#
+# After it starts, open the bootstrap logs. They show the address
+# and the admin password. Nothing here is a default password.
+
+name: gratis-gis
+
+services:
+  bootstrap:
+    image: python:3.12-alpine
+    container_name: gratis-gis-bootstrap
+    restart: unless-stopped
+    # So the first boot can see the NAS address on the host, while
+    # this container still joins the compose network below and can
+    # reach Keycloak by name.
+    pid: host
+    environment:
+      GRATIS_MODE: ${GRATIS_MODE:-lan}
+      GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
+      GRATIS_HTTP_PORT: ${GRATIS_HTTP_PORT:-8080}
+      GRATIS_S3_PORT: ${GRATIS_S3_PORT:-8900}
+      GRATIS_S3_URL: ${GRATIS_S3_URL:-}
+      GRATIS_TLS: ${GRATIS_TLS:-}
+      GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
+      GRATIS_AUTH_DOMAIN: ${GRATIS_AUTH_DOMAIN:-}
+      GRATIS_STORAGE_DOMAIN: ${GRATIS_STORAGE_DOMAIN:-}
+      GG_IMAGE_TAG: ${GG_IMAGE_TAG:-edge}
+      BOOT_DIR: /boot
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        python - <<'END_NAS_INIT'
+__NAS_INIT_BODY__
+        END_NAS_INIT
+    volumes:
+      - boot:/boot
+    networks:
+      - gratis-net
+
+  postgres:
+    image: ghcr.io/palavido-dev/gratis-gis/postgres:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    shm_size: 512mb
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec docker-entrypoint.sh postgres \
+          -c shared_preload_libraries=pg_partman_bgw,pg_stat_statements \
+          -c pg_partman_bgw.interval=3600 \
+          -c pg_partman_bgw.role=gratisgis \
+          -c pg_partman_bgw.dbname=gratisgis \
+          -c shared_buffers=256MB \
+          -c effective_cache_size=1GB \
+          -c work_mem=16MB \
+          -c maintenance_work_mem=256MB \
+          -c jit=off
+    volumes:
+      - boot:/boot:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gratis-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --proxy-headers=xforwarded --import-realm
+    environment:
+      JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
+    volumes:
+      - boot:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Port open is enough for Compose to proceed. The bootstrap
+    # container waits for /health/ready before it touches the realm.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
+    networks:
+      - gratis-net
+
+  minio:
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        if [ -x /usr/bin/minio ]; then exec /usr/bin/minio server /data --console-address ":9001"; fi
+        exec minio server /data --console-address ":9001"
+    ports:
+      # Browser uploads. Not 80 or 443. Do not forward this on your router.
+      - "${GRATIS_S3_PORT:-8900}:9000"
+    volumes:
+      - boot:/boot:ro
+      - miniodata:/data
+    networks:
+      - gratis-net
+
+  portal-api:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1024
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  portal-worker:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        export SKIP_MIGRATE=true
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1024
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      portal-api:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  portal-web:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /usr/bin/tini -- node apps/portal-web/server.js
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      portal-api:
+        condition: service_started
+    networks:
+      - gratis-net
+
+  chromium:
+    image: ghcr.io/browserless/chromium:latest
+    restart: unless-stopped
+    mem_limit: 768m
+    cap_add:
+      - SYS_ADMIN
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        export TOKEN="$$CHROMIUM_TOKEN"
+        if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
+        if [ -f /usr/src/app/start.sh ]; then cd /usr/src/app && exec ./start.sh; fi
+        echo "Chromium start script was not found. Printing will not work." >&2
+        exec sleep infinity
+    volumes:
+      - boot:/boot:ro
+    networks:
+      - gratis-net
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /boot/ready ]; do sleep 1; done
+        exec caddy run --config /boot/Caddyfile --adapter caddyfile
+    ports:
+      # Host port -> Caddy's port 8080 inside the container.
+      # Not 80 or 443, so the TrueNAS web UI can stay where it is.
+      # A public domain (GRATIS_MODE=public) needs 80 and 443 instead:
+      #   - "80:80"
+      #   - "443:443"
+      # and you remove the 8080 line. See docs/truenas.md.
+      - "${GRATIS_HTTP_PORT:-8080}:8080"
+    volumes:
+      - boot:/boot:ro
+      - caddy-data:/data
+    depends_on:
+      portal-web:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+    networks:
+      - gratis-net
+
+volumes:
+  boot:
+  pgdata:
+  miniodata:
+  caddy-data:
+
+networks:
+  gratis-net:
+    driver: bridge

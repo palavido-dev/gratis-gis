@@ -8,16 +8,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
-- NAS and home-server install. `infra/bootstrap.sh` writes
-  `infra/.env.prod` with generated secrets, renders the Keycloak
-  realm, and writes a short TrueNAS / Dockge include file.
-  `infra/docker-compose.nas.yml` runs that stack from published
-  images (no local build context). `docs/truenas.md` is the TrueNAS
-  SCALE 25.10 guide, with the same files for Dockge, Portainer, and
-  any other Docker host. GitHub Actions publishes
+- Home NAS install. Paste `infra/docker-compose.nas.yml` into
+  TrueNAS Install via YAML or Dockge. On first boot a bootstrap
+  container writes random secrets, a Keycloak realm, and a Caddy
+  config onto a volume, then prints the LAN address and the admin
+  password in its logs. The default listens on port 8080 (and 8900
+  for uploads), so the TrueNAS web UI can stay on 80/443 and no
+  public domain or port forward is required. `docs/truenas.md` is
+  the short guide. Optional Tailscale, Cloudflare Tunnel, and a
+  public-domain mode are documented there. GitHub Actions publishes
   `ghcr.io/palavido-dev/gratis-gis/*` from `main` (`edge`) and from
-  stable release tags. CI checks the NAS compose with
-  `infra/check-nas-compose.sh`.
+  stable release tags. CI runs `infra/check-nas-compose.sh`.
 
 ### Fixed
 

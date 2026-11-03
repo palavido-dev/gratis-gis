@@ -44,7 +44,7 @@ jobs:
         include:
           - name: postgres
             file: infra/postgres/Dockerfile
-            context: infra/postgres
+            context: infra
             web: false
           - name: portal-api
             file: apps/portal-api/Dockerfile

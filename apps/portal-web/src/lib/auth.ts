@@ -4,9 +4,20 @@ import type { NextAuthOptions } from 'next-auth';
 import KeycloakProvider from 'next-auth/providers/keycloak';
 import { authCookieNaming } from './auth-cookies';
 
-const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
+const keycloakUrl = (process.env.KEYCLOAK_URL ?? 'http://localhost:8080').replace(
+  /\/$/,
+  '',
+);
+// When set (LAN / NAS install), server-side token calls stay on the
+// docker network. The browser still uses KEYCLOAK_URL, which is the
+// issuer baked into the token. Unset, both are the public URL and
+// behavior matches the VPS stack.
+const keycloakInternal = (
+  process.env.KEYCLOAK_INTERNAL_URL ?? keycloakUrl
+).replace(/\/$/, '');
 const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
-const tokenEndpoint = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`;
+const tokenEndpoint = `${keycloakInternal}/realms/${realm}/protocol/openid-connect/token`;
+const keycloakInternalDiffers = keycloakInternal !== keycloakUrl;
 
 // Cookie naming lives in its own module because middleware has to
 // derive the same names independently. See lib/auth-cookies.ts.
@@ -134,6 +145,21 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.KEYCLOAK_CLIENT_ID_WEB ?? 'portal-web',
       clientSecret: process.env.KEYCLOAK_CLIENT_SECRET_WEB ?? '',
       issuer: `${keycloakUrl}/realms/${realm}`,
+      // wellKnown discovery would follow the public issuer and make
+      // the server call back out through Caddy. Empty disables it so
+      // the explicit endpoints below are what the client uses.
+      ...(keycloakInternalDiffers
+        ? {
+            wellKnown: '',
+            token: tokenEndpoint,
+            userinfo: `${keycloakInternal}/realms/${realm}/protocol/openid-connect/userinfo`,
+            jwks_endpoint: `${keycloakInternal}/realms/${realm}/protocol/openid-connect/certs`,
+            authorization: {
+              url: `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth`,
+              params: { scope: 'openid email profile' },
+            },
+          }
+        : {}),
       // We *want* offline_access here so the refresh token survives
       // the realm's ssoSessionIdleTimeout (the bit that signs PWA
       // users out after a day or two of not opening the app). But

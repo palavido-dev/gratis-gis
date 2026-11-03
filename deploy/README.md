@@ -9,7 +9,7 @@ What actually exists today:
 | Path | Purpose |
 | --- | --- |
 | `../infra/docker-compose.prod.yml` | Production Compose stack (single-host deploy behind Caddy, builds from source) |
-| `../infra/docker-compose.nas.yml` | Same stack from published images, for TrueNAS / Dockge / any Docker host |
+| `../infra/docker-compose.nas.yml` | One-paste NAS stack. Generates secrets on first boot. |
 | `../infra/deploy.sh` | Idempotent build-and-roll deploy script |
 | `../infra/install.sh` | Working single-command installer (clone, guided setup, deploy) |
 | `../infra/bootstrap.sh` | Writes `.env.prod`, checks required secrets, renders the Keycloak realm |

@@ -20,7 +20,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   private readonly allowedAzp = parseJwtAllowedAzp();
 
   constructor(private readonly authSync: AuthSyncService) {
-    const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
+    const keycloakUrl = (process.env.KEYCLOAK_URL ?? 'http://localhost:8080').replace(
+      /\/$/,
+      '',
+    );
+    // Server-side JWKS fetch. The issuer stays the public URL (that is
+    // the `iss` claim). A LAN install reaches Keycloak on the docker
+    // network so it does not have to hairpin through the published port.
+    const jwksBase = (
+      process.env.KEYCLOAK_INTERNAL_URL ?? keycloakUrl
+    ).replace(/\/$/, '');
     const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
 
     super({
@@ -35,7 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 10,
-        jwksUri: `${keycloakUrl}/realms/${realm}/protocol/openid-connect/certs`,
+        jwksUri: `${jwksBase}/realms/${realm}/protocol/openid-connect/certs`,
       }),
     });
   }

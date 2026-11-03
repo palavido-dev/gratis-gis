@@ -55,13 +55,12 @@ Non-interactive use: `./infra/setup.sh --domain gis.example.org
 `SCRIPT_EXECUTOR_TOKEN`. Compose will not start without them, even
 if you never print a map and never enable user scripts.
 
-## TrueNAS and other NAS hosts
+## TrueNAS and a home NAS
 
-TrueNAS SCALE, Dockge, Portainer, and a generic Docker host use the
-prebuilt-image file `infra/docker-compose.nas.yml` instead of
-building on the machine. Do not paste `infra/docker-compose.prod.yml`
-into those UIs. The steps, including why Install via YAML is the
-TrueNAS path, are in [truenas.md](./truenas.md).
+Paste [`infra/docker-compose.nas.yml`](../infra/docker-compose.nas.yml)
+into TrueNAS or Dockge. The stack generates its own passwords and
+serves HTTP on port 8080. Steps are in [truenas.md](./truenas.md).
+Do not paste `infra/docker-compose.prod.yml` into those UIs.
 
 `deploy.sh` builds the images, starts the stack, runs database
 migrations, and reconciles the Keycloak realm. First build takes a

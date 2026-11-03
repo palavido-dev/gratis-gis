@@ -68,9 +68,7 @@ without a database while the API replicas reconnect.
 
 ## TrueNAS and other Docker hosts
 
-`docker-compose.prod.yml` builds from this checkout. Pasting it into
-Dockge or TrueNAS fails: the build folders are not there, and
-Compose stops until `CHROMIUM_TOKEN` is set. `docker-compose.nas.yml`
-pulls published images instead. `bootstrap.sh` writes `.env.prod`
-and the short include file those UIs paste. The guide is
-[docs/truenas.md](../docs/truenas.md).
+`docker-compose.prod.yml` builds from this checkout. Do not paste it
+into Dockge or TrueNAS. `docker-compose.nas.yml` is the one file to
+paste: it pulls published images and generates secrets on first boot.
+The guide is [docs/truenas.md](../docs/truenas.md).
