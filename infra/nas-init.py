@@ -554,6 +554,12 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
     return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
 
 
+def analysis_enabled() -> bool:
+    """GRATIS_ANALYSIS=on is the default. off skips lidar processing."""
+    raw = os.environ.get("GRATIS_ANALYSIS", "on").strip().lower() or "on"
+    return raw != "off"
+
+
 def fresh_secrets() -> dict[str, str]:
     return {
         "POSTGRES_PASSWORD": rand(),
@@ -626,6 +632,10 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "MINIO_SECRET_KEY": minio_pass,
         "MINIO_BUCKET": "gratisgis",
         "S3_BUCKET": "gratisgis",
+        # The point-cloud worker reads these four names. They match
+        # the portal's own MinIO settings above.
+        "ANALYSIS_TIERS": "server-heavy" if analysis_enabled() else "",
+        "BACKUP_DIR": "/app/backups",
         "STORAGE_ALLOWED_ORIGINS": public,
         "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
         "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],

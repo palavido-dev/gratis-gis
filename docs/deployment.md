@@ -133,17 +133,25 @@ before upgrading; the full procedure, including rollback, is in
 ## Backups
 
 Portal admins can create and download backup archives from the Backup
-page in the portal's admin area (database plus uploaded files). For
-host-level backups, snapshot the Docker volumes for PostgreSQL and
-MinIO while the stack is stopped, plus your `infra/.env.prod`. Keep
+page in the portal's admin area (the portal database plus uploaded
+files). For host-level backups, snapshot the Docker volumes for
+PostgreSQL and MinIO while the stack is stopped, plus your
+`infra/.env.prod` (on a NAS install, the `boot` volume). Keep
 `.env.prod` safe either way: `CREDENTIAL_ENCRYPTION_KEY` cannot be
 regenerated without losing encrypted credentials.
 
+A backup archive restores only on the install that created it. The
+archive does not contain the encryption key, the Keycloak realm, or
+the database password. Those live in that install's env file. Restoring
+the archive on a freshly generated install cannot decrypt stored
+credentials and will not match that install's sign-in configuration.
+Use Restore on the same portal, or on a copy of the machine that still
+has the original env file and volumes.
+
 The restore point you can promise is the newest archive you have
-copied off the host. Take one before an upgrade, restore it once
-onto a spare machine (a second directory and a second set of DNS
-names, below), and write down the time between that archive and
-the moment you took it. That interval is the recovery point.
+copied off the host. Take one before an upgrade, and write down the
+time between that archive and the moment you took it. That interval
+is the recovery point.
 `/health` answers 503 when Postgres does not respond, so a load
 balancer can take the portal out of rotation. It does not probe
 Keycloak or MinIO; `./infra/doctor.sh` does.

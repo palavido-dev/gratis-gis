@@ -5,6 +5,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SamplesService, type SeedSampleDataResult } from './samples.service.js';
+import { ShowcaseService } from './showcase.service.js';
 
 /**
  * "Load sample data" endpoint (#147 Phase 1). Lives under the items
@@ -24,10 +25,24 @@ import { SamplesService, type SeedSampleDataResult } from './samples.service.js'
 @ApiBearerAuth()
 @Controller('items')
 export class SamplesController {
-  constructor(private readonly samples: SamplesService) {}
+  constructor(
+    private readonly samples: SamplesService,
+    private readonly showcase: ShowcaseService,
+  ) {}
 
   @Post('sample-data')
   loadSampleData(@CurrentUser() user: AuthUser): Promise<SeedSampleDataResult> {
     return this.samples.seedSampleData(user);
+  }
+
+  /**
+   * POST /api/items/showcase-data
+   * Same shape as sample-data. Loads the public-demo dashboards
+   * (storm events, water quality, Elkins in 3D) under
+   * seedKind sample:showcase-*.
+   */
+  @Post('showcase-data')
+  loadShowcase(@CurrentUser() user: AuthUser): Promise<SeedSampleDataResult> {
+    return this.showcase.seed(user);
   }
 }

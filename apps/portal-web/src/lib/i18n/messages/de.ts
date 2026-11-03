@@ -3291,10 +3291,18 @@ export const de: Partial<CatalogShape> = {
     loadSample: 'Beispieldaten laden',
     loadSampleDesc:
       'Erkunden Sie einen fertigen Randolph-County-Arbeitsbereich: Layer, Karten, ein Formular, Apps und eine Felderhebung.',
+    loadShowcase: 'Showcase-Dashboards laden',
+    loadShowcaseDesc:
+      'Sturmereignisse, Wasserqualität in West Virginia und Elkins in 3D. Getrennt vom Randolph-Arbeitsbereich, und erneut ladbar.',
     loading: 'Beispieldaten werden geladen...',
+    loadingShowcase: 'Showcase-Dashboards werden geladen...',
     loaded: '{count, plural, one {# Beispielelement erstellt} other {# Beispielelemente erstellt}}',
+    loadedShowcase:
+      '{count, plural, one {# Showcase-Element erstellt} other {# Showcase-Elemente erstellt}}',
     allSkipped: 'Beispieldaten sind bereits geladen',
+    allSkippedShowcase: 'Showcase-Dashboards sind bereits geladen',
     failed: 'Beispieldaten konnten nicht geladen werden',
+    failedShowcase: 'Showcase-Dashboards konnten nicht geladen werden',
     dismiss: 'Willkommensbereich ausblenden',
   },
   whatsNewPage: {

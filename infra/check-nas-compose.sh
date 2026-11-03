@@ -109,6 +109,11 @@ assert vals["KEYCLOAK_INTERNAL_URL"] == "http://keycloak:8080/auth"
 assert vals["KC_HOSTNAME"] == "http://192.168.4.15:8080"
 assert vals["KC_HTTP_RELATIVE_PATH"] == "/auth"
 assert vals["MINIO_ENDPOINT"] == "http://minio:9000"
+assert vals["MINIO_ACCESS_KEY"]
+assert vals["MINIO_SECRET_KEY"]
+assert vals["MINIO_BUCKET"] == "gratisgis"
+assert vals["ANALYSIS_TIERS"] == "server-heavy"
+assert vals["BACKUP_DIR"] == "/app/backups"
 assert vals["MINIO_PUBLIC_BASE"] == "http://192.168.4.15:8900"
 assert vals["STORAGE_ALLOWED_ORIGINS"] == vals["PUBLIC_URL"]
 assert len(vals["INITIAL_USER_PASSWORD"]) >= 16
@@ -133,6 +138,15 @@ assert "443" not in caddy
 password = vals["INITIAL_USER_PASSWORD"]
 run(mod)
 assert mod.read_env(boot / "env")["INITIAL_USER_PASSWORD"] == password
+
+os.environ["GRATIS_ANALYSIS"] = "off"
+run(mod)
+assert mod.read_env(boot / "env")["INITIAL_USER_PASSWORD"] == password
+assert mod.read_env(boot / "env")["ANALYSIS_TIERS"] == ""
+assert mod.read_env(boot / "env")["MINIO_ACCESS_KEY"]
+os.environ.pop("GRATIS_ANALYSIS", None)
+run(mod)
+assert mod.read_env(boot / "env")["ANALYSIS_TIERS"] == "server-heavy"
 
 # A stored network address (the TrueNAS report was http://10.9.92.0:8080)
 # is replaced. Secrets stay. The published port follows GRATIS_HTTP_PORT.
@@ -262,7 +276,34 @@ if not any(str(item.get("target")) == "8080" and str(item.get("published")) == "
 minio_ports = cfg["services"]["minio"]["ports"]
 if not any(str(item.get("target")) == "9000" and str(item.get("published")) == "8900" for item in minio_ports):
     raise SystemExit(f"minio ports {minio_ports}")
-for internal in ("postgres", "keycloak", "portal-api", "portal-web", "portal-worker", "chromium", "bootstrap"):
+worker = cfg["services"]["pointcloud-worker"]
+if not str(worker.get("image", "")).startswith("ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:"):
+    raise SystemExit(worker.get("image"))
+if worker.get("ports"):
+    raise SystemExit("pointcloud-worker publishes a port")
+cmd = worker.get("command") or ""
+if isinstance(cmd, list):
+    cmd = "\n".join(str(part) for part in cmd)
+if "pointcloud-worker starting" not in cmd or "/app/runner.py" not in cmd or "sleep infinity" not in cmd:
+    raise SystemExit("pointcloud-worker command is missing the on/off switch")
+env = worker.get("environment") or {}
+if isinstance(env, list):
+    env = dict(item.split("=", 1) for item in env)
+if env.get("SCRATCH_DIR") != "/scratch":
+    raise SystemExit(f"scratch {env.get('SCRATCH_DIR')}")
+if env.get("GDAL_DISABLE_READDIR_ON_OPEN") != "EMPTY_DIR":
+    raise SystemExit("GDAL lockdown missing")
+wt = targets(worker)
+if "/boot" not in wt or "/scratch" not in wt:
+    raise SystemExit(f"worker volumes {wt}")
+api_targets = targets(cfg["services"]["portal-api"])
+if "/app/backups" not in api_targets:
+    raise SystemExit(f"portal-api volumes {api_targets}")
+limit = worker.get("mem_limit")
+# Compose reports the byte cap. 2560m is 2560 * 1024 * 1024.
+if str(limit) not in {"2560m", "2684354560", "2560M"}:
+    raise SystemExit(f"pointcloud mem_limit {limit}")
+for internal in ("postgres", "keycloak", "portal-api", "portal-web", "portal-worker", "pointcloud-worker", "chromium", "bootstrap"):
     if cfg["services"][internal].get("ports"):
         raise SystemExit(f"{internal} publishes a port")
 api = cfg["services"]["portal-api"]["image"]

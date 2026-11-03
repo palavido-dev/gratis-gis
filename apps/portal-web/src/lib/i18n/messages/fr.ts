@@ -3282,10 +3282,18 @@ export const fr: Partial<CatalogShape> = {
     loadSample: 'Charger des données d\'exemple',
     loadSampleDesc:
       'Explorez un espace de travail prêt à l\'emploi du comté de Randolph : couches, cartes, un formulaire, des applications et un relevé de terrain.',
+    loadShowcase: 'Charger les tableaux de bord',
+    loadShowcaseDesc:
+      'Tempêtes, qualité de l\'eau en Virginie-Occidentale et Elkins en 3D. À part l\'espace Randolph, et rechargeable.',
     loading: 'Chargement des données d\'exemple...',
+    loadingShowcase: 'Chargement des tableaux de bord...',
     loaded: '{count, plural, one {# élément d\'exemple créé} other {# éléments d\'exemple créés}}',
+    loadedShowcase:
+      '{count, plural, one {# élément de vitrine créé} other {# éléments de vitrine créés}}',
     allSkipped: 'Les données d\'exemple sont déjà chargées',
+    allSkippedShowcase: 'Les tableaux de bord sont déjà chargés',
     failed: 'Impossible de charger les données d\'exemple',
+    failedShowcase: 'Impossible de charger les tableaux de bord',
     dismiss: 'Fermer le panneau de bienvenue',
   },
   whatsNewPage: {
