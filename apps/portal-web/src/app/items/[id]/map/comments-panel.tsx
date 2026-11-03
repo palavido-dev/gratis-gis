@@ -23,8 +23,11 @@ import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
  *     can resolve any thread.
  *   - Resolved threads hide by default behind a "show resolved"
  *     toggle so the conversation stays auditable.
+ *   - @username in a create/reply emails the org member when they
+ *     can view the map (R2-comments-mentions). Unknown handles stay
+ *     literal text.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronDown,
@@ -392,7 +395,7 @@ export function CommentsPanel({
                         ) : null}
                       </div>
                       <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink-1">
-                        {c.body}
+                        {renderCommentBody(c.body)}
                       </p>
                     </li>
                   ))}
@@ -502,6 +505,7 @@ export function CommentsPanel({
                 {t('mapComments.post')}
               </button>
             </div>
+            <p className="text-2xs text-muted">{t('mapComments.mentionHint')}</p>
           </div>
         ) : (
           <p className="text-xs text-muted">
@@ -538,6 +542,31 @@ async function api<T = unknown>(url: string, init: RequestInit = {}): Promise<T>
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+/** Highlight `@username` tokens; unknown handles stay plain text. */
+function renderCommentBody(body: string): ReactNode {
+  const re = /(^|[^A-Za-z0-9._-])(@[A-Za-z0-9._-]{1,64})\b/g;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(body)) !== null) {
+    const full = m[0];
+    const prefix = m[1] ?? '';
+    const handle = m[2] ?? '';
+    const start = m.index;
+    if (start > last) parts.push(body.slice(last, start));
+    if (prefix) parts.push(prefix);
+    parts.push(
+      <span key={`m-${key++}`} className="font-medium text-accent">
+        {handle}
+      </span>,
+    );
+    last = start + full.length;
+  }
+  if (last < body.length) parts.push(body.slice(last));
+  return parts.length > 0 ? parts : body;
 }
 
 function formatRelative(iso: string): string {

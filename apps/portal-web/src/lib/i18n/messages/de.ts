@@ -2832,7 +2832,9 @@ export const de: Partial<CatalogShape> = {
     threadOpened: 'Thread geöffnet {when}',
     resolvedSuffix: ' • Erledigt',
     editedSuffix: ' (bearbeitet)',
-    newAnchoredPlaceholder: 'Kommentar zur Auswahl…',
+    newAnchoredPlaceholder: 'Kommentar zur Auswahl… @Benutzer benachrichtigen',
+    mentionHint:
+      'Tippen Sie @Benutzer, um ein E-Mail an ein Organisationsmitglied zu senden, das diese Karte sehen kann.',
     composeHint:
       'Wählen Sie ein Objekt auf der Karte, um einen Thread zu verankern, oder posten Sie kartenweit.',
     composeOn: 'Zu {label}',

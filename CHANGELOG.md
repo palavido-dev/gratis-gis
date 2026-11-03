@@ -19,6 +19,23 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   public-domain mode are documented there. GitHub Actions publishes
   `ghcr.io/palavido-dev/gratis-gis/*` from `main` (`edge`) and from
   stable release tags. CI runs `infra/check-nas-compose.sh`.
+- Map comments support `@username` mentions: create or reply emails
+  the org member when they can view the map (notification type
+  `comment_mentioned`, gated by `NOTIFICATIONS_ENABLED` and prefs).
+  Cap 10 unique mentions per comment; self-mentions and unknown
+  handles are skipped. Create/reply writes are rate-limited at
+  30/min.
+
+### Changed
+
+- Analyze no-param shortcuts (Centroid, Convex hull, Bounding boxes,
+  Dissolve, Vertices) share one manifest-driven dialog shell instead
+  of five near-identical guide panels. Recipe POST paths are
+  unchanged.
+- Translation platform choice recorded as **Weblate** (not Crowdin
+  or Tolgee). Community contributions stay git PRs against the
+  TypeScript catalogs until a Weblate instance is stood up; see
+  [CONTRIBUTING-TRANSLATIONS.md](./CONTRIBUTING-TRANSLATIONS.md).
 
 ### Fixed
 

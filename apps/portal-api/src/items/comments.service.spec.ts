@@ -56,6 +56,7 @@ interface FakePrisma {
   item: { findFirst: jest.Mock };
   itemShare: { findMany: jest.Mock };
   user: { findUnique: jest.Mock; findMany: jest.Mock };
+  groupMember: { findMany: jest.Mock };
   commentThread: {
     findMany: jest.Mock;
     findUnique: jest.Mock;
@@ -86,6 +87,7 @@ function makePrisma(): FakePrisma {
           { id: 'author-1', fullName: 'Alice Author', username: 'alice' },
         ]),
     },
+    groupMember: { findMany: jest.fn().mockResolvedValue([]) },
     commentThread: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
@@ -103,10 +105,21 @@ function makePrisma(): FakePrisma {
   };
 }
 
-function makeService(prisma: FakePrisma): CommentsService {
+function makeNotifications() {
+  return { notify: jest.fn().mockResolvedValue(undefined) };
+}
+
+function makeService(
+  prisma: FakePrisma,
+  notifications: ReturnType<typeof makeNotifications> = makeNotifications(),
+): CommentsService {
   const policy = new PolicyService();
   const sharing = new SharingService(prisma as never, policy);
-  return new CommentsService(prisma as never, sharing);
+  return new CommentsService(
+    prisma as never,
+    sharing,
+    notifications as never,
+  );
 }
 
 describe('CommentsService', () => {
@@ -500,6 +513,110 @@ describe('CommentsService', () => {
         { body: 'fixed' },
       );
       expect(out.body).toBe('fixed');
+    });
+  });
+
+  describe('mentions', () => {
+    it('notifies an org peer who can read on create', async () => {
+      const prisma = makePrisma();
+      const notifications = makeNotifications();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'org', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.create.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'item-1',
+        parentKind: 'map',
+        parentId: 'item-1',
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdBy: 'author-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        comments: [
+          {
+            id: 'c-1',
+            threadId: 'thread-1',
+            authorId: 'author-1',
+            body: 'hey @bob check this',
+            createdAt: new Date(),
+            editedAt: null,
+          },
+        ],
+      });
+      prisma.user.findMany.mockResolvedValue([
+        {
+          id: 'user-bob',
+          username: 'bob',
+          email: 'bob@example.com',
+          orgId: 'org-1',
+          orgRole: 'contributor',
+          org: { slug: 'org-1' },
+        },
+      ]);
+      const svc = makeService(prisma, notifications);
+      await svc.createThread(makeUser(), 'item-1', {
+        body: 'hey @bob check this',
+      });
+      // notifyMentions is fire-and-forget; flush microtasks
+      await new Promise((r) => setImmediate(r));
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'user-bob',
+        'comment_mentioned',
+        expect.objectContaining({
+          itemId: 'item-1',
+          threadId: 'thread-1',
+          commentId: 'c-1',
+          snippet: expect.stringContaining('@bob'),
+        }),
+      );
+    });
+
+    it('skips self-mentions and unknown handles', async () => {
+      const prisma = makePrisma();
+      const notifications = makeNotifications();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'org', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.create.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'item-1',
+        parentKind: 'map',
+        parentId: 'item-1',
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdBy: 'author-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        comments: [
+          {
+            id: 'c-1',
+            threadId: 'thread-1',
+            authorId: 'author-1',
+            body: 'note to @alice and @nobody',
+            createdAt: new Date(),
+            editedAt: null,
+          },
+        ],
+      });
+      prisma.user.findMany.mockResolvedValue([
+        {
+          id: 'author-1',
+          username: 'alice',
+          email: 'alice@example.com',
+          orgId: 'org-1',
+          orgRole: 'contributor',
+          org: { slug: 'org-1' },
+        },
+      ]);
+      const svc = makeService(prisma, notifications);
+      await svc.createThread(makeUser(), 'item-1', {
+        body: 'note to @alice and @nobody',
+      });
+      await new Promise((r) => setImmediate(r));
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 });

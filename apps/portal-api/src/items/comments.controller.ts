@@ -80,6 +80,9 @@ export class CommentsController {
     return this.comments.list(user, itemId);
   }
 
+  /** Tighter than the global 300/min: mention email fan-out makes
+   *  comment spam more expensive than a plain write. */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post()
   createThread(
     @CurrentUser() user: AuthUser,
@@ -94,6 +97,7 @@ export class CommentsController {
     });
   }
 
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post(':threadId/replies')
   reply(
     @CurrentUser() user: AuthUser,

@@ -2,26 +2,43 @@
 'use client';
 
 /**
- * Guided Vertices action on the Analyze workbench
- * (R9-analyze-vertices-shortcut).
+ * Shared Analyze guide shell driven by a parameter manifest
+ * (analyze-param-manifests).
  *
- * Same honesty stance as Centroid / Bbox: Analyze does not fake an
- * in-browser explode. It opens a short title form and POSTs a
- * single-step `derived_layer` recipe that runs `ST_DumpPoints` on
- * PostGIS (adds `vertex_index`). Row count can explode; MULTI*
- * parts are dumped together.
+ * First slice covers title-only / no-param tools. Chip → short form
+ * → private single-step `derived_layer` POST. Honesty copy and help
+ * links stay on the manifest; recipe builders stay in *-derived.ts.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ComponentType, type SVGProps } from 'react';
 import { useRouter } from 'next/navigation';
-import { CircleDot, Loader2 } from 'lucide-react';
+import {
+  CircleDot,
+  Crosshair,
+  Hexagon,
+  Layers2,
+  Loader2,
+  Square,
+} from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useT } from '@/lib/i18n/locale-context';
 import {
-  buildVerticesDerivedLayerCreatePayload,
-  defaultVerticesDerivedLayerTitle,
-} from '@/lib/analyze-vertices-derived';
+  getAnalyzeParamManifest,
+  type AnalyzeManifestIcon,
+} from '@/lib/analyze-param-manifest';
+import type { AnalyzeToolId } from '@/lib/analyze-tool-ids';
+
+type IconCmp = ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
+
+const ICONS: Record<AnalyzeManifestIcon, IconCmp> = {
+  crosshair: Crosshair,
+  square: Square,
+  'circle-dot': CircleDot,
+  hexagon: Hexagon,
+  'layers-2': Layers2,
+};
 
 interface Props {
+  tool: AnalyzeToolId;
   /** Expand the form on mount (Analyze ?tool= deep link). */
   defaultOpen?: boolean;
   itemId: string;
@@ -30,28 +47,37 @@ interface Props {
   sourceLabel: string;
 }
 
-export function AnalyzeVerticesGuide({
+export function AnalyzeManifestGuide({
+  tool,
   itemId,
   layerKey,
   sourceLabel,
-  defaultOpen = false
+  defaultOpen = false,
 }: Props) {
   const router = useRouter();
   const t = useT();
+  const manifest = getAnalyzeParamManifest(tool);
   const [open, setOpen] = useState(defaultOpen);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
   const suggestedTitle = useMemo(
-    () => defaultVerticesDerivedLayerTitle(sourceLabel),
-    [sourceLabel],
+    () => (manifest ? manifest.defaultTitle(sourceLabel) : ''),
+    [manifest, sourceLabel],
   );
 
-  async function createVerticesLayer(): Promise<void> {
-    if (busy) return;
+  if (!manifest) {
+    return null;
+  }
+
+  const Icon = ICONS[manifest.icon];
+  const { keys } = manifest;
+
+  async function createDerived(): Promise<void> {
+    if (busy || !manifest) return;
     setBusy(true);
     try {
-      const payload = buildVerticesDerivedLayerCreatePayload({
+      const payload = manifest.buildPayload({
         title: title.trim() || suggestedTitle,
         sourceLabel,
         sourceItemId: itemId,
@@ -93,11 +119,11 @@ export function AnalyzeVerticesGuide({
           setOpen(true);
           setTitle(suggestedTitle);
         }}
-        title={t('analyzeWorkbench.verticesActionTitle')}
+        title={t(keys.actionTitle)}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
       >
-        <CircleDot className="h-3 w-3" aria-hidden />
-        {t('analyzeWorkbench.verticesAction')}
+        <Icon className="h-3 w-3" aria-hidden />
+        {t(keys.action)}
       </button>
     );
   }
@@ -106,20 +132,18 @@ export function AnalyzeVerticesGuide({
     <div className="w-full rounded-md border border-border bg-surface-1 p-2.5 space-y-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-medium text-ink-0">
-            {t('analyzeWorkbench.verticesHeading')}
-          </p>
+          <p className="text-xs font-medium text-ink-0">{t(keys.heading)}</p>
           <p className="text-2xs text-muted">
-            {t('analyzeWorkbench.verticesIntroBefore')}{' '}
-            <span className="font-mono">ST_DumpPoints</span>{' '}
-            {t('analyzeWorkbench.verticesIntroAfter')}{' '}
+            {t(keys.introBefore)}{' '}
+            <span className="font-mono">{manifest.sqlFn}</span>{' '}
+            {t(keys.introAfter)}{' '}
             <a
-              href="/help/analysis/vertices"
+              href={manifest.helpHref}
               className="underline underline-offset-2 hover:text-ink-1"
             >
-              {t('analyzeWorkbench.verticesHelpLink')}
+              {t(keys.helpLink)}
             </a>
-            {t('analyzeWorkbench.verticesIntroTail')}
+            {t(keys.introTail)}
           </p>
         </div>
         <button
@@ -147,22 +171,18 @@ export function AnalyzeVerticesGuide({
         </label>
         <button
           type="button"
-          onClick={() => void createVerticesLayer()}
+          onClick={() => void createDerived()}
           disabled={busy}
           className="inline-flex h-7 items-center gap-1.5 rounded-md bg-ink-1 px-2.5 text-xs font-medium text-surface-0 hover:opacity-90 disabled:opacity-50"
         >
-          {busy ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-          ) : null}
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
           {busy
             ? t('analyzeWorkbench.creatingEllipsis')
             : t('analyzeWorkbench.createDerivedLayer')}
         </button>
       </div>
 
-      <p className="text-2xs text-muted">
-        {t('analyzeWorkbench.verticesHint')}
-      </p>
+      <p className="text-2xs text-muted">{t(keys.hint)}</p>
     </div>
   );
 }

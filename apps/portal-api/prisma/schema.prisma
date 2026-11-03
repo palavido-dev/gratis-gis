@@ -113,6 +113,10 @@ enum NotificationType {
   /// surfaces a pre-save admin warning + Phase C builds the
   /// field-runtime "rebuild offline area" badge.
   data_collection_schema_break    @map("data-collection-schema-break")
+  /// Someone @-mentioned the recipient in a map comment thread
+  /// (create or reply). Email only; gated by NOTIFICATIONS_ENABLED
+  /// and user/org prefs like other types.
+  comment_mentioned               @map("comment-mentioned")
 }
 
 /// Channel a notification is delivered through. Phase 1 ships email

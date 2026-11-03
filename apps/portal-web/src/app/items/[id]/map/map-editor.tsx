@@ -458,6 +458,15 @@ export function MapEditor({
     [],
   );
   const [commentFocusId, setCommentFocusId] = useState<string | null>(null);
+  // Deep link from comment_mentioned email: ?comments=1&thread=<id>
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('comments') !== '1') return;
+    setCommentsOpen(true);
+    const thread = params.get('thread');
+    if (thread) setCommentFocusId(thread);
+  }, []);
   // undefined = follow selection; null = force map-level; object = explicit
   const [composeAnchorOverride, setComposeAnchorOverride] = useState<
     CommentAnchor | null | undefined

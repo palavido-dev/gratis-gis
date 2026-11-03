@@ -146,6 +146,17 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     channels: ALL_CHANNELS,
     defaultByChannel: ALL_DEFAULT_ON,
   },
+
+  // Sharing (collaboration via shares / comments)
+  {
+    type: 'comment_mentioned',
+    category: 'sharing',
+    label: 'Mentioned in a comment',
+    description:
+      'Someone @-mentioned you in a comment on a map you can view. Email only; mute anytime in notification preferences.',
+    channels: ALL_CHANNELS,
+    defaultByChannel: ALL_DEFAULT_ON,
+  },
 ];
 
 /** Lookup by NotificationType. */

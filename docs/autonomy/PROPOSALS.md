@@ -8,14 +8,10 @@ the chat post is in [DIGEST.md](./DIGEST.md). Process rules are in
 Do not implement from this file. Developer only takes ids that moved to
 `approved` in [QUEUE.md](./QUEUE.md) after an explicit yay.
 
-## Pending decision (2026-11-02)
+## Pending decision (2026-11-03)
 
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
-| 1 | analyze-param-manifests | M | Low | One Analyze dialog shell driven by tool metadata | Past runs shipped; next thin Analyze UX vertical from the same research plan |
-| 2 | Q-162b / R5-weblate-hosting | S | Low | Choose Weblate vs Crowdin vs Tolgee + community workflow | Process call only; unblocks #162 community translation path |
-| 3 | R2-comments-mentions / R5-comments-mentions | M | Med | @-mentions on comment notifications | Needs abuse / email defaults before build |
-| 4 | R1-presence-crdt / R5-presence-crdt | L | Med | Live cursors Phase 2 CRDT on drawings | Needs abuse / transport defaults; larger than morning average |
 
 Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; too large until Analyze param shell and thinner recipe work land.
 
@@ -23,6 +19,10 @@ Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe grap
 
 | id | decision | when | note |
 | --- | --- | --- | --- |
+| analyze-param-manifests | yay | 2026-11-03 | Morning items 1–4 approved |
+| Q-162b / R5-weblate-hosting | yay | 2026-11-03 | Chose Weblate; hosting deferred; git PRs until then |
+| R2-comments-mentions / R5-comments-mentions | yay | 2026-11-03 | Shipped: email @mentions with abuse defaults |
+| R1-presence-crdt / R5-presence-crdt | yay | 2026-11-03 | Morning items 1–4 approved |
 
 ## Scoper reject log (not shown at morning)
 
