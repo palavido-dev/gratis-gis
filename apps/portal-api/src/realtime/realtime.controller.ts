@@ -26,6 +26,7 @@ import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { RealtimeService } from './realtime.service.js';
+import { DrawingsCollabService } from './drawings-collab.service.js';
 
 class CursorDto {
   @IsNumber() @Min(-180) @Max(180) lng!: number;
@@ -40,6 +41,10 @@ class HeartbeatDto {
 
 class TicketDto {
   @IsOptional() @IsString() @MaxLength(80) connectionId?: string;
+}
+
+class CollabTicketDto {
+  @IsString() @MaxLength(80) drawingSetId!: string;
 }
 
 class LeaveBodyDto {
@@ -58,7 +63,10 @@ function assertUuid(value: string): void {
 @ApiBearerAuth()
 @Controller('realtime/maps/:mapId/presence')
 export class RealtimeController {
-  constructor(private readonly realtime: RealtimeService) {}
+  constructor(
+    private readonly realtime: RealtimeService,
+    private readonly drawingsCollab: DrawingsCollabService,
+  ) {}
 
   @Post('heartbeat')
   heartbeat(
@@ -92,6 +100,29 @@ export class RealtimeController {
       user,
       mapId,
       dto.connectionId,
+    );
+  }
+
+  /**
+   * Mint a drawings CRDT ticket for one markup set
+   * (R1-presence-crdt). Writers = set author or map editor;
+   * observers = canRead. JWT never rides the WS URL.
+   */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Post('drawings-ticket')
+  drawingsTicket(
+    @CurrentUser() user: AuthUser,
+    @Param('mapId') mapId: string,
+    @Body() dto: CollabTicketDto,
+  ) {
+    assertUuid(mapId);
+    if (!dto.drawingSetId || dto.drawingSetId.trim().length === 0) {
+      throw new BadRequestException('drawingSetId is required');
+    }
+    return this.drawingsCollab.mintTicket(
+      user,
+      mapId,
+      dto.drawingSetId.trim(),
     );
   }
 

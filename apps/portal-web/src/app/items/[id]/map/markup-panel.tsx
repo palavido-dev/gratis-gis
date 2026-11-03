@@ -50,6 +50,10 @@ import type * as maplibregl from 'maplibre-gl';
 import { readAnonDrawingDisplay } from '@/lib/anon-drawing-session';
 import { downloadDrawingSetGeoJson } from '@/lib/drawings-geojson-export';
 import {
+  openDrawingsCollabSession,
+  type DrawingsCollabSession,
+} from '@/lib/drawings-collab-session';
+import {
   drawModeFor,
   setDrawMode,
   startDraw,
@@ -160,6 +164,49 @@ export function MarkupPanel({
   drawingsRef.current = drawings;
   const activeSetIdRef = useRef(activeSetId);
   activeSetIdRef.current = activeSetId;
+  const collabRef = useRef<DrawingsCollabSession | null>(null);
+
+  // R1-presence-crdt: signed-in co-editors share a Yjs room for the
+  // active markup set. Anonymous stays on REST LWW.
+  useEffect(() => {
+    if (!open || !currentUser || !activeSetId) {
+      collabRef.current?.close();
+      collabRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await openDrawingsCollabSession({
+          mapId,
+          drawingSetId: activeSetId,
+          onFeatures: (features) => {
+            if (cancelled) return;
+            setDrawings((prev) => {
+              const next = prev.map((s) =>
+                s.id === activeSetId ? { ...s, features } : s,
+              );
+              onDrawingsChange(next);
+              return next;
+            });
+          },
+        });
+        if (cancelled) {
+          session?.close();
+          return;
+        }
+        collabRef.current?.close();
+        collabRef.current = session;
+      } catch {
+        /* collab is best-effort; REST path remains */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      collabRef.current?.close();
+      collabRef.current = null;
+    };
+  }, [open, currentUser, activeSetId, mapId, onDrawingsChange]);
   const toolRef = useRef(tool);
   toolRef.current = tool;
 
@@ -307,6 +354,7 @@ export function MarkupPanel({
         );
         setDrawings(nextSets);
         onDrawingsChange(nextSets);
+        collabRef.current?.upsertFeature(feature);
       } catch (e) {
         setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {

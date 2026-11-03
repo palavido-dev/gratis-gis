@@ -59,7 +59,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "tar-stream": "^3.2.2",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.11",
