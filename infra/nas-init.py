@@ -45,44 +45,199 @@ def encryption_key() -> str:
     return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
 
 
+# Docker and TrueNAS app bridges. br0 (a LAN bridge) stays eligible.
+# br- plus a hex id is a Docker network.
+_SKIP_IFACE = re.compile(
+    r"^(lo|docker\d*|br-[0-9a-f]+|veth.+|cni\d*|flannel.+|cali.+|"
+    r"kube.*|virbr\d*|lxcbr\d*|podman\d*|weave|zt.+|"
+    r"tailscale\d*|dummy\d*|tunl\d*|cni0)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_ipv4(ip: str) -> tuple[int, int, int, int] | None:
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return None
+    nums: list[int] = []
+    for part in parts:
+        if not part.isdigit():
+            return None
+        value = int(part)
+        if value > 255:
+            return None
+        nums.append(value)
+    return (nums[0], nums[1], nums[2], nums[3])
+
+
+def _le_hex(value: str) -> int:
+    """/proc/net/route prints IPv4 addresses as little-endian hex."""
+    raw = int(value, 16)
+    return (
+        ((raw & 0xFF) << 24)
+        | ((raw & 0xFF00) << 8)
+        | ((raw & 0xFF0000) >> 8)
+        | ((raw >> 24) & 0xFF)
+    )
+
+
+def _ipv4_int(ip: str) -> int:
+    nums = _parse_ipv4(ip)
+    if nums is None:
+        return 0
+    return (nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]
+
+
+def _publishable_lan(ip: str) -> bool:
+    """A host address another computer on the LAN can open.
+
+    Network addresses (x.x.x.0) and broadcasts (x.x.x.255) appear in
+    fib_trie next to the real host address. 127.0.0.1 and link-local
+    addresses are not the NAS. 172.17/18/19 are the default Docker pools.
+    """
+    nums = _parse_ipv4(ip)
+    if nums is None:
+        return False
+    if nums[0] in (0, 127) or (nums[0] == 169 and nums[1] == 254):
+        return False
+    if nums[3] in (0, 255):
+        return False
+    if nums[0] == 10 or (nums[0] == 192 and nums[1] == 168):
+        return True
+    if nums[0] == 172 and 16 <= nums[1] <= 31 and nums[1] not in (17, 18, 19):
+        return True
+    return False
+
+
 def lan_ips_from_fib(text: str) -> list[str]:
-    """Pull private IPv4 addresses out of /proc/net/fib_trie text."""
+    """Host addresses marked `host LOCAL` in /proc/net/fib_trie."""
     found: list[str] = []
-    for match in re.finditer(r"(\d{1,3}(?:\.\d{1,3}){3})", text):
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})\s*$", line)
+        if not match:
+            continue
+        window = "\n".join(lines[index : index + 3])
+        if "host LOCAL" not in window:
+            continue
         ip = match.group(1)
-        parts = [int(p) for p in ip.split(".")]
-        if any(p > 255 for p in parts):
-            continue
-        if ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0":
-            continue
-        if ip.startswith("192.168.") or ip.startswith("10."):
-            if ip not in found:
-                found.append(ip)
-            continue
-        # 172.16.0.0/12, but skip the usual Docker bridges.
-        if parts[0] == 172 and 16 <= parts[1] <= 31:
-            if parts[1] in (17, 18, 19):
-                continue
-            if ip not in found:
-                found.append(ip)
+        if _publishable_lan(ip) and ip not in found:
+            found.append(ip)
     return found
 
 
-def detect_lan_ip() -> str:
-    explicit = os.environ.get("GRATIS_DETECT_FIB", "")
-    blobs = []
-    if explicit:
-        blobs.append(explicit)
+def routes_from_proc(text: str) -> list[tuple[str, int, int]]:
+    """Interface, network, and mask from /proc/net/route."""
+    routes: list[tuple[str, int, int]] = []
+    for line in text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 8:
+            continue
+        iface, dest, _gateway, _flags, _ref, _use, _metric, mask = parts[:8]
+        try:
+            network = _le_hex(dest)
+            netmask = _le_hex(mask)
+        except ValueError:
+            continue
+        if netmask == 0:
+            continue
+        routes.append((iface, network, netmask))
+    return routes
+
+
+def iface_for_ip(ip: str, routes: list[tuple[str, int, int]]) -> str | None:
+    ip_int = _ipv4_int(ip)
+    best: str | None = None
+    best_bits = -1
+    for iface, network, netmask in routes:
+        if ip_int & netmask == network & netmask:
+            bits = bin(netmask).count("1")
+            if bits > best_bits:
+                best = iface
+                best_bits = bits
+    return best
+
+
+def choose_lan_ip(fib: str, route: str) -> str | None:
+    """Pick a LAN address, or None when only bridge addresses exist."""
+    routes = routes_from_proc(route) if route.strip() else []
+    ranked: list[tuple[int, str]] = []
+    for ip in lan_ips_from_fib(fib):
+        iface = iface_for_ip(ip, routes) if routes else None
+        if iface and _SKIP_IFACE.match(iface):
+            continue
+        nums = _parse_ipv4(ip)
+        if nums is None:
+            continue
+        if nums[0] == 192:
+            rank = 0
+        elif nums[0] == 10:
+            rank = 1
+        else:
+            rank = 2
+        ranked.append((rank, ip))
+    if not ranked:
+        return None
+    ranked.sort()
+    return ranked[0][1]
+
+
+def read_host_tables() -> tuple[str, str]:
+    """fib_trie and route from the host network namespace when pid is host.
+
+    GRATIS_DETECT_FIB / GRATIS_DETECT_ROUTE replace both files so tests
+    do not read this machine.
+    """
+    if "GRATIS_DETECT_FIB" in os.environ or "GRATIS_DETECT_ROUTE" in os.environ:
+        return (
+            os.environ.get("GRATIS_DETECT_FIB", ""),
+            os.environ.get("GRATIS_DETECT_ROUTE", ""),
+        )
+    fib = ""
+    route = ""
     for path in ("/proc/1/net/fib_trie", "/proc/net/fib_trie"):
         try:
-            blobs.append(Path(path).read_text(encoding="utf-8", errors="replace"))
+            fib = Path(path).read_text(encoding="utf-8", errors="replace")
+            break
         except OSError:
             continue
-    for blob in blobs:
-        ips = lan_ips_from_fib(blob)
-        if ips:
-            return ips[0]
-    return "127.0.0.1"
+    for path in ("/proc/1/net/route", "/proc/net/route"):
+        try:
+            route = Path(path).read_text(encoding="utf-8", errors="replace")
+            break
+        except OSError:
+            continue
+    return fib, route
+
+
+def detect_lan_ip() -> str | None:
+    fib, route = read_host_tables()
+    return choose_lan_ip(fib, route)
+
+
+def saved_host_is_bad(host: str) -> bool:
+    """A stored address that must not be printed again.
+
+    Hostnames and Tailscale addresses (100.64/10) are kept. IPv4 network
+    and broadcast addresses, loopback, link-local, the default Docker
+    pools, and the current Docker-bridge interface are not.
+    """
+    if not host or host == "localhost" or host.startswith("127."):
+        return True
+    nums = _parse_ipv4(host)
+    if nums is None:
+        return False
+    if nums[0] == 169 and nums[1] == 254:
+        return True
+    if nums[3] in (0, 255):
+        return True
+    if nums[0] == 172 and nums[1] in (17, 18, 19):
+        return True
+    _fib, route = read_host_tables()
+    iface = iface_for_ip(host, routes_from_proc(route)) if route.strip() else None
+    if iface and _SKIP_IFACE.match(iface):
+        return True
+    return False
 
 
 def write_env(path: Path, values: dict[str, str]) -> None:
@@ -255,7 +410,10 @@ def caddy_lan(port: str, tls: str) -> str:
 	# Keycloak lives under /auth on this same address. The admin
 	# API and the master realm stay closed from the browser. The
 	# bootstrap container talks to Keycloak on the docker network.
-	handle /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* {{
+	# Caddy 2.10 accepts one path on `handle`. Several paths use a
+	# named matcher.
+	@blocked path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/*
+	handle @blocked {{
 		respond 404
 	}}
 	handle /auth/* {{
@@ -277,7 +435,8 @@ def caddy_lan(port: str, tls: str) -> str:
 	handle /api/* {{
 		reverse_proxy portal-api:4000
 	}}
-	handle /docs /docs/* /health {{
+	@docs path /docs /docs/* /health
+	handle @docs {{
 		reverse_proxy portal-api:4000
 	}}
 	handle {{
@@ -313,7 +472,8 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	handle /api/* {{
 		reverse_proxy portal-api:4000
 	}}
-	handle /docs /docs/* /health {{
+	@docs path /docs /docs/* /health
+	handle @docs {{
 		reverse_proxy portal-api:4000
 	}}
 	handle {{
@@ -322,7 +482,8 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 }}
 
 {auth} {{
-	handle /admin /admin/* /realms/master /realms/master/* {{
+	@blocked path /admin /admin/* /realms/master /realms/master/*
+	handle @blocked {{
 		respond 404
 	}}
 	reverse_proxy keycloak:8080
@@ -334,6 +495,11 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 """
 
 
+class NeedAddress(Exception):
+    def __init__(self, port: str) -> None:
+        self.port = port
+
+
 def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
     mode = os.environ.get("GRATIS_MODE", "lan").strip().lower() or "lan"
     port = os.environ.get("GRATIS_HTTP_PORT", "8080").strip() or "8080"
@@ -341,18 +507,6 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
     tls = os.environ.get("GRATIS_TLS", "").strip().lower()
     requested = os.environ.get("GRATIS_BASE_URL", "").strip().rstrip("/")
     s3_requested = os.environ.get("GRATIS_S3_URL", "").strip().rstrip("/")
-
-    if previous and not requested:
-        public = previous["PUBLIC_URL"]
-        s3 = previous["MINIO_PUBLIC_BASE"]
-        auth = previous["KEYCLOAK_URL"]
-        return {
-            "mode": previous.get("GRATIS_MODE", mode),
-            "public": public,
-            "auth": auth,
-            "s3": s3,
-            "tls": previous.get("GRATIS_TLS", tls),
-        }
 
     if mode == "public":
         if not requested:
@@ -369,18 +523,32 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
         s3 = s3_requested or f"https://{storage_host}"
         return {"mode": "public", "public": public, "auth": auth, "s3": s3, "tls": "acme"}
 
+    scheme = "https" if tls == "internal" else "http"
     if requested:
         public = requested
     else:
-        ip = detect_lan_ip()
-        scheme = "https" if tls == "internal" else "http"
-        public = f"{scheme}://{ip}:{port}"
+        host = ""
+        if previous:
+            prev = urllib.parse.urlparse(previous.get("PUBLIC_URL", ""))
+            prev_host = prev.hostname or ""
+            if prev_host and not saved_host_is_bad(prev_host):
+                host = prev_host
+                if not tls and previous.get("GRATIS_TLS") == "internal":
+                    scheme = "https"
+        if not host:
+            detected = detect_lan_ip()
+            if not detected:
+                raise NeedAddress(port)
+            host = detected
+        public = f"{scheme}://{host}:{port}"
     parsed = urllib.parse.urlparse(public)
-    host = parsed.hostname or "127.0.0.1"
+    host = parsed.hostname or ""
+    if not host:
+        raise NeedAddress(port)
     if s3_requested:
         s3 = s3_requested
     else:
-        s3_scheme = parsed.scheme or "http"
+        s3_scheme = parsed.scheme or scheme
         s3 = f"{s3_scheme}://{host}:{s3_port}"
     auth = public.rstrip("/") + "/auth"
     return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
@@ -449,6 +617,9 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "KC_HEALTH_ENABLED": "true",
         "MINIO_ROOT_USER": "gratisgis",
         "MINIO_ROOT_PASSWORD": minio_pass,
+        # Browser uploads hit the upload port from the web port.
+        # Silo reads this when the NAS service sources /boot/env.
+        "MINIO_API_CORS_ALLOW_ORIGIN": public,
         "MINIO_ENDPOINT": "http://minio:9000",
         "MINIO_PUBLIC_BASE": s3,
         "MINIO_ACCESS_KEY": "gratisgis",
@@ -600,7 +771,16 @@ def patch_keycloak(values: dict[str, str]) -> None:
     )
 
 
+def _url_port(url: str, default: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.port:
+        return str(parsed.port)
+    return default
+
+
 def banner(values: dict[str, str]) -> str:
+    http_port = _url_port(values["PUBLIC_URL"], "8080")
+    s3_port = _url_port(values["MINIO_PUBLIC_BASE"], "8900")
     return (
         "\n========== GratisGIS ==========\n"
         f"Open this address:  {values['PUBLIC_URL']}\n"
@@ -609,14 +789,46 @@ def banner(values: dict[str, str]) -> str:
         "Keycloak will ask you to change this password.\n"
         "Uploads use:        "
         f"{values['MINIO_PUBLIC_BASE']}\n"
-        "Do not forward ports 8080 or 8900 on your router.\n"
+        f"Do not forward ports {http_port} or {s3_port} on your router.\n"
+        "This log contains the admin password. Do not post it publicly.\n"
         "===============================\n"
     )
+
+
+def address_help(port: str) -> str:
+    return (
+        "\n========== GratisGIS ==========\n"
+        "Could not find a LAN address that opens from another computer.\n"
+        "Network addresses, broadcast addresses, and Docker or TrueNAS\n"
+        "bridge addresses are skipped.\n"
+        "\n"
+        "Set GRATIS_BASE_URL in the compose file to the address you open\n"
+        "in a browser, then start this app again. Example:\n"
+        f"\n    GRATIS_BASE_URL: http://192.168.1.20:{port}\n"
+        "\n"
+        "When port 8080 is already in use, change GRATIS_HTTP_PORT at the\n"
+        "top of the file and use that same port in GRATIS_BASE_URL.\n"
+        "\n"
+        "This log contains the admin password once startup succeeds.\n"
+        "Do not post it publicly.\n"
+        "===============================\n"
+    )
+
+
+def _pause_or_return() -> None:
+    if os.environ.get("GRATIS_SKIP_PATCH") == "1":
+        return
+    os.execvp("sleep", ["sleep", "infinity"])
 
 
 def main() -> None:
     boot = boot_dir()
     boot.mkdir(parents=True, exist_ok=True)
+    ready = boot / "ready"
+    # Hold every other service until this process has an address.
+    # A previous boot may have published a bridge address.
+    if ready.exists():
+        ready.unlink()
     env_path = boot / "env"
     previous = read_env(env_path) if env_path.exists() else None
     if previous:
@@ -633,10 +845,15 @@ def main() -> None:
         )}
     else:
         secret = fresh_secrets()
-    urls = resolve_urls(previous if not os.environ.get("GRATIS_BASE_URL", "").strip() else None)
     # An explicit GRATIS_BASE_URL always wins, including on a restart.
-    if os.environ.get("GRATIS_BASE_URL", "").strip():
-        urls = resolve_urls(None)
+    # A stored network or bridge address does not.
+    prior = None if os.environ.get("GRATIS_BASE_URL", "").strip() else previous
+    try:
+        urls = resolve_urls(prior)
+    except NeedAddress as exc:
+        print(address_help(exc.port), flush=True)
+        _pause_or_return()
+        return
     values = assemble(urls, secret)
     write_env(env_path, values)
     realm = build_realm(values)
@@ -659,11 +876,13 @@ def main() -> None:
     if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
         text += (
             "WARN: the address changed after the first start.\n"
-            "WARN: Keycloak keeps the old sign-in address until you delete\n"
-            "WARN: this app's volumes and start again.\n"
+            "WARN: If you already signed in, delete this app's volumes\n"
+            "WARN: and start again so Keycloak learns the new address.\n"
+            "WARN: If Keycloak never became healthy, keep the volumes.\n"
         )
     (boot / "LOGIN.txt").write_text(text, encoding="utf-8")
-    (boot / "ready").write_text("ok\n", encoding="utf-8")
+    # ready is last so Keycloak and Silo never read a half-written boot.
+    ready.write_text("ok\n", encoding="utf-8")
     print(text, flush=True)
     if os.environ.get("GRATIS_SKIP_PATCH") == "1":
         return
@@ -673,7 +892,7 @@ def main() -> None:
         print(f"WARN: Keycloak setup did not finish: {exc}")
     # Stay up so TrueNAS shows this container as running and the
     # password remains in `docker logs`.
-    os.execvp("sleep", ["sleep", "infinity"])
+    _pause_or_return()
 
 
 if __name__ == "__main__":

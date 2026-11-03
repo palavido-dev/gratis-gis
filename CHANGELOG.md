@@ -6,6 +6,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Home NAS install. Keycloak mounts the generated boot volume at
+  `/boot` as well as the realm-import path, so it can leave the
+  waiting loop and become healthy. Silo is started as `/usr/bin/silo`
+  after that volume exists (the image has no `minio` command, which
+  exited 127, and it must not format storage with the default
+  `minioadmin` password). Address detection keeps host addresses on
+  the LAN and skips network addresses, broadcast addresses, and
+  Docker or TrueNAS bridge addresses. When none is found, the
+  bootstrap log tells you to set `GRATIS_BASE_URL` and does not
+  publish a URL. `GRATIS_HTTP_PORT` at the top of
+  `infra/docker-compose.nas.yml` is the web port on the NAS (use
+  8085 when 8080 is taken). The printed address, Keycloak hostname,
+  and sign-in redirects follow it. The bootstrap log says not to
+  post it publicly. CI boots this stack and checks the web UI,
+  Keycloak through Caddy, and an upload.
+
 ## [1.1.0] - 2026-11-03
 
 ### Added

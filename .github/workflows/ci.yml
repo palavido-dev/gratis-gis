@@ -382,3 +382,17 @@ jobs:
 
       - name: Validate NAS compose
         run: ./infra/check-nas-compose.sh
+
+  # Boots the pasted file against the published edge images. Catches
+  # a Keycloak mount that never becomes healthy and a Silo process
+  # that exits 127, which `compose config` cannot see.
+  nas-boot:
+    name: NAS compose boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: nas-compose
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Boot the NAS stack
+        run: ./infra/boot-nas-ci.sh

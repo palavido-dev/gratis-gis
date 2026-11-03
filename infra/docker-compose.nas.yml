@@ -5,19 +5,32 @@
 # Dockge: new stack, paste this file, leave the env box empty.
 #
 # You do not need a domain name, a git checkout, or ports 80/443.
-# The web UI stays on 80/443. GratisGIS uses 8080. Uploads use 8900.
+# The TrueNAS web UI stays on 80/443.
 #
-# Optional, before you paste. Leave these empty to auto-detect.
+# WEB PORT. This is the only line that sets the port on the NAS.
+# 8080 is the default. If something else already uses it (an IP
+# camera is a common one), change the number below to 8085.
+# The address in the bootstrap log, Keycloak, and sign-in redirects
+# follow this number. Leave every later 8080 alone: that is the
+# port inside the container.
+#
+# UPLOAD PORT. Signed uploads need their own port. Change it here.
+#
+# Optional, before the first start:
 #   GRATIS_BASE_URL   example http://192.168.1.20:8080
 #                     or your Tailscale address http://100.x.x.x:8080
-#   GRATIS_HTTP_PORT  published web port (default 8080)
-#   GRATIS_S3_PORT    published upload port (default 8900)
-#   GRATIS_S3_URL     only if uploads are not http://<same-host>:8900
+#                     Use the same port as GRATIS_HTTP_PORT.
+#   GRATIS_S3_URL     only if uploads are not http://<same-host>:<upload port>
 #   GRATIS_MODE       lan (default) or public
 #   GRATIS_TLS        empty, or internal (browser certificate warning)
 #
 # After it starts, open the bootstrap logs. They show the address
-# and the admin password. Nothing here is a default password.
+# and the admin password. That log is private. Do not post it.
+# Nothing here is a default password.
+
+x-gratis:
+  GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
+  GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
 
 name: gratis-gis
 
@@ -33,8 +46,8 @@ services:
     environment:
       GRATIS_MODE: ${GRATIS_MODE:-lan}
       GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
-      GRATIS_HTTP_PORT: ${GRATIS_HTTP_PORT:-8080}
-      GRATIS_S3_PORT: ${GRATIS_S3_PORT:-8900}
+      GRATIS_HTTP_PORT: *GRATIS_HTTP_PORT
+      GRATIS_S3_PORT: *GRATIS_S3_PORT
       GRATIS_S3_URL: ${GRATIS_S3_URL:-}
       GRATIS_TLS: ${GRATIS_TLS:-}
       GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
@@ -93,44 +106,199 @@ services:
             return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
 
 
+        # Docker and TrueNAS app bridges. br0 (a LAN bridge) stays eligible.
+        # br- plus a hex id is a Docker network.
+        _SKIP_IFACE = re.compile(
+            r"^(lo|docker\d*|br-[0-9a-f]+|veth.+|cni\d*|flannel.+|cali.+|"
+            r"kube.*|virbr\d*|lxcbr\d*|podman\d*|weave|zt.+|"
+            r"tailscale\d*|dummy\d*|tunl\d*|cni0)$",
+            re.IGNORECASE,
+        )
+
+
+        def _parse_ipv4(ip: str) -> tuple[int, int, int, int] | None:
+            parts = ip.split(".")
+            if len(parts) != 4:
+                return None
+            nums: list[int] = []
+            for part in parts:
+                if not part.isdigit():
+                    return None
+                value = int(part)
+                if value > 255:
+                    return None
+                nums.append(value)
+            return (nums[0], nums[1], nums[2], nums[3])
+
+
+        def _le_hex(value: str) -> int:
+            """/proc/net/route prints IPv4 addresses as little-endian hex."""
+            raw = int(value, 16)
+            return (
+                ((raw & 0xFF) << 24)
+                | ((raw & 0xFF00) << 8)
+                | ((raw & 0xFF0000) >> 8)
+                | ((raw >> 24) & 0xFF)
+            )
+
+
+        def _ipv4_int(ip: str) -> int:
+            nums = _parse_ipv4(ip)
+            if nums is None:
+                return 0
+            return (nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]
+
+
+        def _publishable_lan(ip: str) -> bool:
+            """A host address another computer on the LAN can open.
+
+            Network addresses (x.x.x.0) and broadcasts (x.x.x.255) appear in
+            fib_trie next to the real host address. 127.0.0.1 and link-local
+            addresses are not the NAS. 172.17/18/19 are the default Docker pools.
+            """
+            nums = _parse_ipv4(ip)
+            if nums is None:
+                return False
+            if nums[0] in (0, 127) or (nums[0] == 169 and nums[1] == 254):
+                return False
+            if nums[3] in (0, 255):
+                return False
+            if nums[0] == 10 or (nums[0] == 192 and nums[1] == 168):
+                return True
+            if nums[0] == 172 and 16 <= nums[1] <= 31 and nums[1] not in (17, 18, 19):
+                return True
+            return False
+
+
         def lan_ips_from_fib(text: str) -> list[str]:
-            """Pull private IPv4 addresses out of /proc/net/fib_trie text."""
+            """Host addresses marked `host LOCAL` in /proc/net/fib_trie."""
             found: list[str] = []
-            for match in re.finditer(r"(\d{1,3}(?:\.\d{1,3}){3})", text):
+            lines = text.splitlines()
+            for index, line in enumerate(lines):
+                match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})\s*$", line)
+                if not match:
+                    continue
+                window = "\n".join(lines[index : index + 3])
+                if "host LOCAL" not in window:
+                    continue
                 ip = match.group(1)
-                parts = [int(p) for p in ip.split(".")]
-                if any(p > 255 for p in parts):
-                    continue
-                if ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0":
-                    continue
-                if ip.startswith("192.168.") or ip.startswith("10."):
-                    if ip not in found:
-                        found.append(ip)
-                    continue
-                # 172.16.0.0/12, but skip the usual Docker bridges.
-                if parts[0] == 172 and 16 <= parts[1] <= 31:
-                    if parts[1] in (17, 18, 19):
-                        continue
-                    if ip not in found:
-                        found.append(ip)
+                if _publishable_lan(ip) and ip not in found:
+                    found.append(ip)
             return found
 
 
-        def detect_lan_ip() -> str:
-            explicit = os.environ.get("GRATIS_DETECT_FIB", "")
-            blobs = []
-            if explicit:
-                blobs.append(explicit)
+        def routes_from_proc(text: str) -> list[tuple[str, int, int]]:
+            """Interface, network, and mask from /proc/net/route."""
+            routes: list[tuple[str, int, int]] = []
+            for line in text.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) < 8:
+                    continue
+                iface, dest, _gateway, _flags, _ref, _use, _metric, mask = parts[:8]
+                try:
+                    network = _le_hex(dest)
+                    netmask = _le_hex(mask)
+                except ValueError:
+                    continue
+                if netmask == 0:
+                    continue
+                routes.append((iface, network, netmask))
+            return routes
+
+
+        def iface_for_ip(ip: str, routes: list[tuple[str, int, int]]) -> str | None:
+            ip_int = _ipv4_int(ip)
+            best: str | None = None
+            best_bits = -1
+            for iface, network, netmask in routes:
+                if ip_int & netmask == network & netmask:
+                    bits = bin(netmask).count("1")
+                    if bits > best_bits:
+                        best = iface
+                        best_bits = bits
+            return best
+
+
+        def choose_lan_ip(fib: str, route: str) -> str | None:
+            """Pick a LAN address, or None when only bridge addresses exist."""
+            routes = routes_from_proc(route) if route.strip() else []
+            ranked: list[tuple[int, str]] = []
+            for ip in lan_ips_from_fib(fib):
+                iface = iface_for_ip(ip, routes) if routes else None
+                if iface and _SKIP_IFACE.match(iface):
+                    continue
+                nums = _parse_ipv4(ip)
+                if nums is None:
+                    continue
+                if nums[0] == 192:
+                    rank = 0
+                elif nums[0] == 10:
+                    rank = 1
+                else:
+                    rank = 2
+                ranked.append((rank, ip))
+            if not ranked:
+                return None
+            ranked.sort()
+            return ranked[0][1]
+
+
+        def read_host_tables() -> tuple[str, str]:
+            """fib_trie and route from the host network namespace when pid is host.
+
+            GRATIS_DETECT_FIB / GRATIS_DETECT_ROUTE replace both files so tests
+            do not read this machine.
+            """
+            if "GRATIS_DETECT_FIB" in os.environ or "GRATIS_DETECT_ROUTE" in os.environ:
+                return (
+                    os.environ.get("GRATIS_DETECT_FIB", ""),
+                    os.environ.get("GRATIS_DETECT_ROUTE", ""),
+                )
+            fib = ""
+            route = ""
             for path in ("/proc/1/net/fib_trie", "/proc/net/fib_trie"):
                 try:
-                    blobs.append(Path(path).read_text(encoding="utf-8", errors="replace"))
+                    fib = Path(path).read_text(encoding="utf-8", errors="replace")
+                    break
                 except OSError:
                     continue
-            for blob in blobs:
-                ips = lan_ips_from_fib(blob)
-                if ips:
-                    return ips[0]
-            return "127.0.0.1"
+            for path in ("/proc/1/net/route", "/proc/net/route"):
+                try:
+                    route = Path(path).read_text(encoding="utf-8", errors="replace")
+                    break
+                except OSError:
+                    continue
+            return fib, route
+
+
+        def detect_lan_ip() -> str | None:
+            fib, route = read_host_tables()
+            return choose_lan_ip(fib, route)
+
+
+        def saved_host_is_bad(host: str) -> bool:
+            """A stored address that must not be printed again.
+
+            Hostnames and Tailscale addresses (100.64/10) are kept. IPv4 network
+            and broadcast addresses, loopback, link-local, the default Docker
+            pools, and the current Docker-bridge interface are not.
+            """
+            if not host or host == "localhost" or host.startswith("127."):
+                return True
+            nums = _parse_ipv4(host)
+            if nums is None:
+                return False
+            if nums[0] == 169 and nums[1] == 254:
+                return True
+            if nums[3] in (0, 255):
+                return True
+            if nums[0] == 172 and nums[1] in (17, 18, 19):
+                return True
+            _fib, route = read_host_tables()
+            iface = iface_for_ip(host, routes_from_proc(route)) if route.strip() else None
+            if iface and _SKIP_IFACE.match(iface):
+                return True
+            return False
 
 
         def write_env(path: Path, values: dict[str, str]) -> None:
@@ -303,7 +471,10 @@ services:
         	# Keycloak lives under /auth on this same address. The admin
         	# API and the master realm stay closed from the browser. The
         	# bootstrap container talks to Keycloak on the docker network.
-        	handle /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* {{
+        	# Caddy 2.10 accepts one path on `handle`. Several paths use a
+        	# named matcher.
+        	@blocked path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/*
+        	handle @blocked {{
         		respond 404
         	}}
         	handle /auth/* {{
@@ -325,7 +496,8 @@ services:
         	handle /api/* {{
         		reverse_proxy portal-api:4000
         	}}
-        	handle /docs /docs/* /health {{
+        	@docs path /docs /docs/* /health
+        	handle @docs {{
         		reverse_proxy portal-api:4000
         	}}
         	handle {{
@@ -361,7 +533,8 @@ services:
         	handle /api/* {{
         		reverse_proxy portal-api:4000
         	}}
-        	handle /docs /docs/* /health {{
+        	@docs path /docs /docs/* /health
+        	handle @docs {{
         		reverse_proxy portal-api:4000
         	}}
         	handle {{
@@ -370,7 +543,8 @@ services:
         }}
 
         {auth} {{
-        	handle /admin /admin/* /realms/master /realms/master/* {{
+        	@blocked path /admin /admin/* /realms/master /realms/master/*
+        	handle @blocked {{
         		respond 404
         	}}
         	reverse_proxy keycloak:8080
@@ -382,6 +556,11 @@ services:
         """
 
 
+        class NeedAddress(Exception):
+            def __init__(self, port: str) -> None:
+                self.port = port
+
+
         def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             mode = os.environ.get("GRATIS_MODE", "lan").strip().lower() or "lan"
             port = os.environ.get("GRATIS_HTTP_PORT", "8080").strip() or "8080"
@@ -389,18 +568,6 @@ services:
             tls = os.environ.get("GRATIS_TLS", "").strip().lower()
             requested = os.environ.get("GRATIS_BASE_URL", "").strip().rstrip("/")
             s3_requested = os.environ.get("GRATIS_S3_URL", "").strip().rstrip("/")
-
-            if previous and not requested:
-                public = previous["PUBLIC_URL"]
-                s3 = previous["MINIO_PUBLIC_BASE"]
-                auth = previous["KEYCLOAK_URL"]
-                return {
-                    "mode": previous.get("GRATIS_MODE", mode),
-                    "public": public,
-                    "auth": auth,
-                    "s3": s3,
-                    "tls": previous.get("GRATIS_TLS", tls),
-                }
 
             if mode == "public":
                 if not requested:
@@ -417,18 +584,32 @@ services:
                 s3 = s3_requested or f"https://{storage_host}"
                 return {"mode": "public", "public": public, "auth": auth, "s3": s3, "tls": "acme"}
 
+            scheme = "https" if tls == "internal" else "http"
             if requested:
                 public = requested
             else:
-                ip = detect_lan_ip()
-                scheme = "https" if tls == "internal" else "http"
-                public = f"{scheme}://{ip}:{port}"
+                host = ""
+                if previous:
+                    prev = urllib.parse.urlparse(previous.get("PUBLIC_URL", ""))
+                    prev_host = prev.hostname or ""
+                    if prev_host and not saved_host_is_bad(prev_host):
+                        host = prev_host
+                        if not tls and previous.get("GRATIS_TLS") == "internal":
+                            scheme = "https"
+                if not host:
+                    detected = detect_lan_ip()
+                    if not detected:
+                        raise NeedAddress(port)
+                    host = detected
+                public = f"{scheme}://{host}:{port}"
             parsed = urllib.parse.urlparse(public)
-            host = parsed.hostname or "127.0.0.1"
+            host = parsed.hostname or ""
+            if not host:
+                raise NeedAddress(port)
             if s3_requested:
                 s3 = s3_requested
             else:
-                s3_scheme = parsed.scheme or "http"
+                s3_scheme = parsed.scheme or scheme
                 s3 = f"{s3_scheme}://{host}:{s3_port}"
             auth = public.rstrip("/") + "/auth"
             return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
@@ -497,6 +678,9 @@ services:
                 "KC_HEALTH_ENABLED": "true",
                 "MINIO_ROOT_USER": "gratisgis",
                 "MINIO_ROOT_PASSWORD": minio_pass,
+                # Browser uploads hit the upload port from the web port.
+                # Silo reads this when the NAS service sources /boot/env.
+                "MINIO_API_CORS_ALLOW_ORIGIN": public,
                 "MINIO_ENDPOINT": "http://minio:9000",
                 "MINIO_PUBLIC_BASE": s3,
                 "MINIO_ACCESS_KEY": "gratisgis",
@@ -648,7 +832,16 @@ services:
             )
 
 
+        def _url_port(url: str, default: str) -> str:
+            parsed = urllib.parse.urlparse(url)
+            if parsed.port:
+                return str(parsed.port)
+            return default
+
+
         def banner(values: dict[str, str]) -> str:
+            http_port = _url_port(values["PUBLIC_URL"], "8080")
+            s3_port = _url_port(values["MINIO_PUBLIC_BASE"], "8900")
             return (
                 "\n========== GratisGIS ==========\n"
                 f"Open this address:  {values['PUBLIC_URL']}\n"
@@ -657,14 +850,46 @@ services:
                 "Keycloak will ask you to change this password.\n"
                 "Uploads use:        "
                 f"{values['MINIO_PUBLIC_BASE']}\n"
-                "Do not forward ports 8080 or 8900 on your router.\n"
+                f"Do not forward ports {http_port} or {s3_port} on your router.\n"
+                "This log contains the admin password. Do not post it publicly.\n"
                 "===============================\n"
             )
+
+
+        def address_help(port: str) -> str:
+            return (
+                "\n========== GratisGIS ==========\n"
+                "Could not find a LAN address that opens from another computer.\n"
+                "Network addresses, broadcast addresses, and Docker or TrueNAS\n"
+                "bridge addresses are skipped.\n"
+                "\n"
+                "Set GRATIS_BASE_URL in the compose file to the address you open\n"
+                "in a browser, then start this app again. Example:\n"
+                f"\n    GRATIS_BASE_URL: http://192.168.1.20:{port}\n"
+                "\n"
+                "When port 8080 is already in use, change GRATIS_HTTP_PORT at the\n"
+                "top of the file and use that same port in GRATIS_BASE_URL.\n"
+                "\n"
+                "This log contains the admin password once startup succeeds.\n"
+                "Do not post it publicly.\n"
+                "===============================\n"
+            )
+
+
+        def _pause_or_return() -> None:
+            if os.environ.get("GRATIS_SKIP_PATCH") == "1":
+                return
+            os.execvp("sleep", ["sleep", "infinity"])
 
 
         def main() -> None:
             boot = boot_dir()
             boot.mkdir(parents=True, exist_ok=True)
+            ready = boot / "ready"
+            # Hold every other service until this process has an address.
+            # A previous boot may have published a bridge address.
+            if ready.exists():
+                ready.unlink()
             env_path = boot / "env"
             previous = read_env(env_path) if env_path.exists() else None
             if previous:
@@ -681,10 +906,15 @@ services:
                 )}
             else:
                 secret = fresh_secrets()
-            urls = resolve_urls(previous if not os.environ.get("GRATIS_BASE_URL", "").strip() else None)
             # An explicit GRATIS_BASE_URL always wins, including on a restart.
-            if os.environ.get("GRATIS_BASE_URL", "").strip():
-                urls = resolve_urls(None)
+            # A stored network or bridge address does not.
+            prior = None if os.environ.get("GRATIS_BASE_URL", "").strip() else previous
+            try:
+                urls = resolve_urls(prior)
+            except NeedAddress as exc:
+                print(address_help(exc.port), flush=True)
+                _pause_or_return()
+                return
             values = assemble(urls, secret)
             write_env(env_path, values)
             realm = build_realm(values)
@@ -707,11 +937,13 @@ services:
             if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
                 text += (
                     "WARN: the address changed after the first start.\n"
-                    "WARN: Keycloak keeps the old sign-in address until you delete\n"
-                    "WARN: this app's volumes and start again.\n"
+                    "WARN: If you already signed in, delete this app's volumes\n"
+                    "WARN: and start again so Keycloak learns the new address.\n"
+                    "WARN: If Keycloak never became healthy, keep the volumes.\n"
                 )
             (boot / "LOGIN.txt").write_text(text, encoding="utf-8")
-            (boot / "ready").write_text("ok\n", encoding="utf-8")
+            # ready is last so Keycloak and Silo never read a half-written boot.
+            ready.write_text("ok\n", encoding="utf-8")
             print(text, flush=True)
             if os.environ.get("GRATIS_SKIP_PATCH") == "1":
                 return
@@ -721,7 +953,7 @@ services:
                 print(f"WARN: Keycloak setup did not finish: {exc}")
             # Stay up so TrueNAS shows this container as running and the
             # password remains in `docker logs`.
-            os.execvp("sleep", ["sleep", "infinity"])
+            _pause_or_return()
 
 
         if __name__ == "__main__":
@@ -729,6 +961,12 @@ services:
         END_NAS_INIT
     volumes:
       - boot:/boot
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /boot/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     networks:
       - gratis-net
 
@@ -780,6 +1018,10 @@ services:
     environment:
       JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
     volumes:
+      # /boot holds /boot/env and /boot/ready. The import directory
+      # is the same volume so --import-realm still sees
+      # realm-gratis-gis.json. Keycloak imports only *.json.
+      - boot:/boot:ro
       - boot:/opt/keycloak/data/import:ro
     depends_on:
       postgres:
@@ -796,6 +1038,12 @@ services:
       - gratis-net
 
   minio:
+    # pgsty/silo ships /usr/bin/silo, not a `minio` binary. Starting
+    # `minio` exits 127. The image also has no credentials of its own:
+    # if the process starts before /boot/env exists it formats /data
+    # as minioadmin. Wait, source the generated env, then exec silo.
+    # Unset the image's *_FILE defaults so a missing relative file
+    # cannot replace the generated password.
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
@@ -805,14 +1053,24 @@ services:
         set -a
         . /boot/env
         set +a
-        if [ -x /usr/bin/minio ]; then exec /usr/bin/minio server /data --console-address ":9001"; fi
-        exec minio server /data --console-address ":9001"
+        unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        exec /usr/bin/silo server /data --console-address ":9001"
     ports:
-      # Browser uploads. Not 80 or 443. Do not forward this on your router.
-      - "${GRATIS_S3_PORT:-8900}:9000"
+      # Browser uploads. The host port is GRATIS_S3_PORT at the top
+      # of this file. 9000 stays the port inside the container.
+      # Do not forward this on your router.
+      - target: 9000
+        published: *GRATIS_S3_PORT
+        protocol: tcp
     volumes:
       - boot:/boot:ro
       - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     networks:
       - gratis-net
 
@@ -839,7 +1097,13 @@ services:
       keycloak:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 90s
     networks:
       - gratis-net
 
@@ -863,7 +1127,19 @@ services:
       - boot:/boot:ro
     depends_on:
       portal-api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      # tini is pid 1. Look for the worker in /proc. $$ so Compose
+      # leaves the regex dollar sign for node.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'const fs=require("fs"); const n="worker"+".main.js"; let ok=false; for (const p of fs.readdirSync("/proc")) { if (!/^[0-9]+$$/.test(p)) continue; try { if (fs.readFileSync("/proc/"+p+"/cmdline").includes(n)) ok=true; } catch (e) {} } process.exit(ok?0:1)'
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -878,12 +1154,21 @@ services:
         set -a
         . /boot/env
         set +a
+        # /boot/env sets PORT for the API. This server listens on 3000,
+        # which is where Caddy sends the web UI.
+        export PORT=3000
         exec /usr/bin/tini -- node apps/portal-web/server.js
     volumes:
       - boot:/boot:ro
     depends_on:
       portal-api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -900,6 +1185,10 @@ services:
         set -a
         . /boot/env
         set +a
+        # /boot/env sets PORT for the API. Browserless would follow
+        # that and leave the websocket URL (port 3000) with nothing
+        # listening.
+        export PORT=3000
         export TOKEN="$$CHROMIUM_TOKEN"
         if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
         if [ -f /usr/src/app/start.sh ]; then cd /usr/src/app && exec ./start.sh; fi
@@ -907,6 +1196,12 @@ services:
         exec sleep infinity
     volumes:
       - boot:/boot:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/3000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -920,20 +1215,29 @@ services:
         exec caddy run --config /boot/Caddyfile --adapter caddyfile
     ports:
       # Host port -> Caddy's port 8080 inside the container.
+      # The host port is GRATIS_HTTP_PORT at the top of this file.
       # Not 80 or 443, so the TrueNAS web UI can stay where it is.
       # A public domain (GRATIS_MODE=public) needs 80 and 443 instead:
       #   - "80:80"
       #   - "443:443"
-      # and you remove the 8080 line. See docs/truenas.md.
-      - "${GRATIS_HTTP_PORT:-8080}:8080"
+      # and you remove this published port. See docs/truenas.md.
+      - target: 8080
+        published: *GRATIS_HTTP_PORT
+        protocol: tcp
     volumes:
       - boot:/boot:ro
       - caddy-data:/data
     depends_on:
       portal-web:
-        condition: service_started
+        condition: service_healthy
       keycloak:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
     networks:
       - gratis-net
 
