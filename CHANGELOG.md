@@ -12,6 +12,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Dissolve, Vertices) share one manifest-driven dialog shell instead
   of five near-identical guide panels. Recipe POST paths are
   unchanged.
+- Translation platform choice recorded as **Weblate** (not Crowdin
+  or Tolgee). Community contributions stay git PRs against the
+  TypeScript catalogs until a Weblate instance is stood up; see
+  [CONTRIBUTING-TRANSLATIONS.md](./CONTRIBUTING-TRANSLATIONS.md).
 
 ### Fixed
 

@@ -20,7 +20,7 @@ Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe grap
 | id | decision | when | note |
 | --- | --- | --- | --- |
 | analyze-param-manifests | yay | 2026-11-03 | Morning items 1–4 approved |
-| Q-162b / R5-weblate-hosting | yay | 2026-11-03 | Morning items 1–4 approved |
+| Q-162b / R5-weblate-hosting | yay | 2026-11-03 | Chose Weblate; hosting deferred; git PRs until then |
 | R2-comments-mentions / R5-comments-mentions | yay | 2026-11-03 | Morning items 1–4 approved |
 | R1-presence-crdt / R5-presence-crdt | yay | 2026-11-03 | Morning items 1–4 approved |
 
