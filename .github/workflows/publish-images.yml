@@ -6,11 +6,12 @@
 # linux/amd64 only. TrueNAS SCALE and the public demo are amd64, and
 # a second architecture doubles an already long build.
 #
-# Packages are private until the visibility call below succeeds. A
-# fresh package sometimes rejects that call from GITHUB_TOKEN. The
-# log says so. An admin then opens the package, Package settings,
-# Change visibility, Public. One time per image. Pulls fail with
-# "denied" until that is done.
+# Pushing does not by itself finish the job. infra/ensure-ghcr-public.sh
+# marks each package public and then requests an anonymous GHCR token
+# plus the manifest for every required tag. A missing tag or a DENIED
+# token fails the workflow. The first revision called `gh api` with a
+# pre-encoded package name; gh encoded it again, every job went red,
+# and script-runner (which needs those jobs) never ran.
 #
 # portal-web is built with the open-source landing section on and the
 # public-testing banner off. NEXT_PUBLIC_PORTAL_URL is not baked, so
@@ -124,34 +125,6 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
           build-args: ${{ steps.webargs.outputs.build_args }}
 
-      - name: Make the package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          enc="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "gratis-gis/${{ matrix.name }}")"
-          owner="${GITHUB_REPOSITORY_OWNER}"
-          ok=0
-          for api in \
-            "/orgs/${owner}/packages/container/${enc}/visibility" \
-            "/users/${owner}/packages/container/${enc}/visibility"
-          do
-            if gh api --method PUT \
-              -H "Accept: application/vnd.github+json" \
-              "$api" \
-              -f visibility=public
-            then
-              ok=1
-              break
-            fi
-          done
-          if [ "$ok" != "1" ]; then
-            echo "Could not mark ghcr.io/${owner}/gratis-gis/${{ matrix.name }} public." >&2
-            echo "Open the package on GitHub, Package settings, Change visibility, Public." >&2
-            echo "Until then, docker pull answers denied and the NAS compose cannot start." >&2
-            exit 1
-          fi
-
   script-runner:
     name: Publish script-runner
     needs: build
@@ -204,28 +177,23 @@ jobs:
           cache-from: type=gha,scope=script-runner
           cache-to: type=gha,scope=script-runner,mode=max
 
-      - name: Make the package public
+  # Runs even when script-runner failed or was skipped, as long as the
+  # image builds were not cancelled. A missing or private package fails
+  # here with the owner click-path, instead of only a red build job.
+  ensure-public:
+    name: Packages are public
+    needs: [build, script-runner]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require anonymous pull of every image and tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          enc="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "gratis-gis/script-runner")"
-          owner="${GITHUB_REPOSITORY_OWNER}"
-          ok=0
-          for api in \
-            "/orgs/${owner}/packages/container/${enc}/visibility" \
-            "/users/${owner}/packages/container/${enc}/visibility"
-          do
-            if gh api --method PUT \
-              -H "Accept: application/vnd.github+json" \
-              "$api" \
-              -f visibility=public
-            then
-              ok=1
-              break
-            fi
-          done
-          if [ "$ok" != "1" ]; then
-            echo "Could not mark the script-runner package public. See the note in this workflow." >&2
-            exit 1
-          fi
+          OWNER: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: bash infra/ensure-ghcr-public.sh
