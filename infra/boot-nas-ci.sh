@@ -18,6 +18,8 @@ export GRATIS_HTTP_PORT="$WEB_PORT"
 export GRATIS_S3_PORT="$S3_PORT"
 export GRATIS_BASE_URL="http://127.0.0.1:${WEB_PORT}"
 export GRATIS_S3_URL="http://127.0.0.1:${S3_PORT}"
+# The boot must not call GitHub. The endpoint still reports this install.
+export UPDATE_CHECK=off
 
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "docker compose v2 is required" >&2; exit 1; }
@@ -123,6 +125,111 @@ docker compose -p "$PROJECT" -f "$COMPOSE" logs bootstrap 2>&1 \
 
 docker compose -p "$PROJECT" -f "$COMPOSE" logs pointcloud-worker 2>&1 \
   | grep -q "pointcloud-worker starting"
+
+# A file on the backup volume has to survive recreating the API.
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
+  /bin/sh -c 'echo ci-backup-probe > /app/backups/ci-probe.txt'
+docker compose -p "$PROJECT" -f "$COMPOSE" up -d --force-recreate --no-deps portal-api
+for _ in $(seq 1 40); do
+  cid="$(docker compose -p "$PROJECT" -f "$COMPOSE" ps -q portal-api)"
+  health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null || true)"
+  if [ "$health" = "healthy" ]; then
+    break
+  fi
+  sleep 3
+done
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
+  cat /app/backups/ci-probe.txt | grep -qx 'ci-backup-probe'
+
+# UPDATE_CHECK=off: current install info, and no latest release.
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
+import json, urllib.parse, urllib.request
+import urllib.error
+from pathlib import Path
+
+def env():
+    values = {}
+    for raw in Path("/boot/env").read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+def post(url, data, headers):
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+vals = env()
+status, raw = post(
+    "http://keycloak:8080/auth/realms/master/protocol/openid-connect/token",
+    urllib.parse.urlencode({
+        "client_id": "admin-cli",
+        "username": "admin",
+        "password": vals["KEYCLOAK_ADMIN_PASSWORD"],
+        "grant_type": "password",
+    }).encode(),
+    {"Content-Type": "application/x-www-form-urlencoded"},
+)
+if status != 200:
+    raise SystemExit(f"master token HTTP {status}")
+admin = json.loads(raw)["access_token"]
+req = urllib.request.Request(
+    "http://keycloak:8080/auth/admin/realms/gratis-gis/clients?clientId=portal-web",
+    headers={"Authorization": f"Bearer {admin}"},
+)
+with urllib.request.urlopen(req, timeout=30) as resp:
+    client = json.loads(resp.read())[0]
+client["directAccessGrantsEnabled"] = True
+put = urllib.request.Request(
+    f"http://keycloak:8080/auth/admin/realms/gratis-gis/clients/{client['id']}",
+    data=json.dumps(client).encode(),
+    headers={"Authorization": f"Bearer {admin}", "Content-Type": "application/json"},
+    method="PUT",
+)
+try:
+    with urllib.request.urlopen(put, timeout=30) as resp:
+        put_status = resp.status
+except urllib.error.HTTPError as exc:
+    put_status = exc.code
+if put_status not in (200, 204):
+    raise SystemExit(f"enable password grant HTTP {put_status}")
+status, raw = post(
+    "http://keycloak:8080/auth/realms/gratis-gis/protocol/openid-connect/token",
+    urllib.parse.urlencode({
+        "client_id": "portal-web",
+        "username": "admin",
+        "password": vals["INITIAL_USER_PASSWORD"],
+        "grant_type": "password",
+    }).encode(),
+    {"Content-Type": "application/x-www-form-urlencoded"},
+)
+if status != 200:
+    raise SystemExit(f"user token HTTP {status}")
+token = json.loads(raw)["access_token"]
+req = urllib.request.Request(
+    "http://portal-api:4000/api/admin/updates",
+    headers={"Authorization": f"Bearer {token}"},
+)
+with urllib.request.urlopen(req, timeout=30) as resp:
+    body = json.loads(resp.read())
+if body.get("installType") != "nas" or body.get("channel") != "edge":
+    raise SystemExit(f"unexpected update identity {body}")
+if body.get("latest") is not None:
+    raise SystemExit("UPDATE_CHECK=off still fetched a latest release")
+if not body.get("current", {}).get("version"):
+    raise SystemExit(f"missing current version {body}")
+if body.get("composeOutdated") is not False:
+    raise SystemExit(f"compose flagged outdated {body}")
+print("updates endpoint ok", body["current"]["version"])
+PY
 
 docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
   curl -fsS http://127.0.0.1:4000/api/portal-info \

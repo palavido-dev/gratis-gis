@@ -21,6 +21,13 @@
 # small box. TrueNAS Install via YAML cannot turn a Compose
 # profile on, so this is a plain value.
 #
+# IMAGE CHANNEL. edge (the default) tracks main. For the newest
+# stable release, set GG_IMAGE_TAG to latest before the first
+# start, or in Dockge's env box:
+#   GG_IMAGE_TAG=latest
+# A tag such as v1.2.3 pins that release. The admin Updates page
+# follows this channel.
+#
 # Optional, before the first start:
 #   GRATIS_BASE_URL   example http://192.168.1.20:8080
 #                     or your Tailscale address http://100.x.x.x:8080
@@ -37,6 +44,9 @@ x-gratis:
   GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
   GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
   GRATIS_ANALYSIS: &GRATIS_ANALYSIS "${GRATIS_ANALYSIS:-on}"
+  # Bump this together with REQUIRED_COMPOSE_REV in the Dockerfiles
+  # whenever this file's contract changes. CI checks they match.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "1"
 
 name: gratis-gis
 
@@ -61,6 +71,8 @@ services:
       GRATIS_AUTH_DOMAIN: ${GRATIS_AUTH_DOMAIN:-}
       GRATIS_STORAGE_DOMAIN: ${GRATIS_STORAGE_DOMAIN:-}
       GG_IMAGE_TAG: ${GG_IMAGE_TAG:-edge}
+      GRATIS_COMPOSE_REV: *GRATIS_COMPOSE_REV
+      UPDATE_CHECK: ${UPDATE_CHECK:-on}
       BOOT_DIR: /boot
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -628,6 +640,14 @@ services:
             return raw != "off"
 
 
+        def image_channel() -> str:
+            """edge, latest, or a stable vX.Y.Z tag. Anything else is edge."""
+            tag = os.environ.get("GG_IMAGE_TAG", "edge").strip() or "edge"
+            if tag == "latest" or re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+                return tag
+            return "edge"
+
+
         def fresh_secrets() -> dict[str, str]:
             return {
                 "POSTGRES_PASSWORD": rand(),
@@ -715,7 +735,12 @@ services:
                 "NEXT_PUBLIC_API_URL": public,
                 "NODE_ENV": "production",
                 "PORT": "4000",
-                "GG_VERSION": os.environ.get("GG_IMAGE_TAG", "edge"),
+                # The image bakes GG_VERSION and GIT_SHA. Do not override them
+                # with the pull tag. GG_CHANNEL is the update track.
+                "GG_CHANNEL": image_channel(),
+                "GRATIS_COMPOSE_REV": os.environ.get("GRATIS_COMPOSE_REV", "1").strip() or "1",
+                "INSTALL_TYPE": "nas",
+                "UPDATE_CHECK": os.environ.get("UPDATE_CHECK", "on").strip() or "on",
             }
             if relative:
                 values["KC_HTTP_RELATIVE_PATH"] = relative

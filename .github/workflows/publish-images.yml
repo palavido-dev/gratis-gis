@@ -62,6 +62,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # git describe --tags needs the tags, not a depth-1 checkout.
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -82,27 +85,31 @@ jobs:
           tags="${owner_path}:sha-${short}"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             tags="${tags},${owner_path}:${GITHUB_REF_NAME},${owner_path}:latest"
-            version="${GITHUB_REF_NAME}"
           else
             tags="${tags},${owner_path}:edge"
-            version="edge"
           fi
+          described="$(git describe --tags --always)"
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "described=${described}" >> "$GITHUB_OUTPUT"
           echo "short=${short}" >> "$GITHUB_OUTPUT"
 
-      # portal-web inlines NEXT_PUBLIC_* at build time. Other
-      # Dockerfiles do not declare these args; passing them would
-      # warn. The public-testing banner stays off (the arg is unset).
-      - name: Web build args
-        id: webargs
-        if: matrix.web
+      # Every image gets GG_VERSION, GIT_SHA, and REQUIRED_COMPOSE_REV.
+      # portal-web also inlines NEXT_PUBLIC_GG_VERSION. Other Dockerfiles
+      # do not declare the NEXT_PUBLIC args; passing them would warn.
+      # The public-testing banner stays off (that arg is unset).
+      - name: Build args
+        id: buildargs
         run: |
           {
             echo "build_args<<EOF"
-            echo "NEXT_PUBLIC_PROJECT_LANDING=1"
-            echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
-            echo "NEXT_PUBLIC_GG_VERSION=${{ steps.tags.outputs.version }}"
+            echo "GG_VERSION=${{ steps.tags.outputs.described }}"
+            echo "GIT_SHA=${{ github.sha }}"
+            echo "REQUIRED_COMPOSE_REV=1"
+            if [ "${{ matrix.web }}" = "true" ]; then
+              echo "NEXT_PUBLIC_PROJECT_LANDING=1"
+              echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
+              echo "NEXT_PUBLIC_GG_VERSION=${{ steps.tags.outputs.described }}"
+            fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -123,7 +130,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
-          build-args: ${{ steps.webargs.outputs.build_args }}
+          build-args: ${{ steps.buildargs.outputs.build_args }}
 
   script-runner:
     name: Publish script-runner
@@ -132,6 +139,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -158,6 +167,7 @@ jobs:
           fi
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
           echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "described=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -171,6 +181,9 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             PORTAL_API_IMAGE=${{ steps.tags.outputs.base }}
+            GG_VERSION=${{ steps.tags.outputs.described }}
+            GIT_SHA=${{ github.sha }}
+            REQUIRED_COMPOSE_REV=1
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

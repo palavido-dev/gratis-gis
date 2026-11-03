@@ -8,6 +8,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Admin **Updates** page. It compares this install with GitHub and
+  tells an admin the backup and restart steps. It does not talk to
+  Docker and it does not update the install itself. `UPDATE_CHECK=off`
+  makes no outbound calls. Published images record `GG_VERSION`,
+  `GIT_SHA`, and `REQUIRED_COMPOSE_REV`.
 - Home NAS installs run the point-cloud worker when `GRATIS_ANALYSIS`
   is `on` (the default) and sleep it when set to `off`. Admin backups
   are stored on a volume that survives recreating the API container.

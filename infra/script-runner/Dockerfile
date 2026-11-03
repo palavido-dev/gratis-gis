@@ -155,6 +155,14 @@ ENV SCRIPT_HOME=/home/ggscript
 # Scratch space for a run, owned by the script user rather than
 # shared /tmp, so one run cannot plant files another one reads.
 ENV SCRIPT_TMPDIR=/var/tmp/ggscript
+# Repeat the identity stamp so a rebuild of this layer does not drop
+# the values inherited from portal-api. publish-images.yml passes them.
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=1
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 
 # NOTE: no `USER app` here.
 #

@@ -114,6 +114,10 @@ assert vals["MINIO_SECRET_KEY"]
 assert vals["MINIO_BUCKET"] == "gratisgis"
 assert vals["ANALYSIS_TIERS"] == "server-heavy"
 assert vals["BACKUP_DIR"] == "/app/backups"
+assert vals["GG_CHANNEL"] == "edge"
+assert vals["INSTALL_TYPE"] == "nas"
+assert vals["GRATIS_COMPOSE_REV"] == "1"
+assert "GG_VERSION" not in vals
 assert vals["MINIO_PUBLIC_BASE"] == "http://192.168.4.15:8900"
 assert vals["STORAGE_ALLOWED_ORIGINS"] == vals["PUBLIC_URL"]
 assert len(vals["INITIAL_USER_PASSWORD"]) >= 16
@@ -147,6 +151,16 @@ assert mod.read_env(boot / "env")["MINIO_ACCESS_KEY"]
 os.environ.pop("GRATIS_ANALYSIS", None)
 run(mod)
 assert mod.read_env(boot / "env")["ANALYSIS_TIERS"] == "server-heavy"
+os.environ["GG_IMAGE_TAG"] = "latest"
+run(mod)
+assert mod.read_env(boot / "env")["GG_CHANNEL"] == "latest"
+os.environ["GG_IMAGE_TAG"] = "v1.2.3"
+run(mod)
+assert mod.read_env(boot / "env")["GG_CHANNEL"] == "v1.2.3"
+os.environ["GG_IMAGE_TAG"] = "sha-abcdef"
+run(mod)
+assert mod.read_env(boot / "env")["GG_CHANNEL"] == "edge"
+os.environ.pop("GG_IMAGE_TAG", None)
 
 # A stored network address (the TrueNAS report was http://10.9.92.0:8080)
 # is replaced. Secrets stay. The published port follows GRATIS_HTTP_PORT.
@@ -221,8 +235,9 @@ PY
 
 docker compose -f "$SCRIPT_DIR/docker-compose.nas.yml" config --format json > "$tmp/config.json"
 
-python3 - "$tmp/config.json" <<'PY'
+python3 - "$tmp/config.json" "$REPO_ROOT" <<'PY'
 import json, re, sys
+from pathlib import Path
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 ports = {}
 for name, svc in cfg["services"].items():
@@ -267,6 +282,22 @@ if isinstance(boot_env, list):
     boot_env = dict(item.split("=", 1) for item in boot_env)
 if str(boot_env.get("GRATIS_HTTP_PORT")) != "8080":
     raise SystemExit(f"bootstrap port {boot_env.get('GRATIS_HTTP_PORT')}")
+compose_rev = str(boot_env.get("GRATIS_COMPOSE_REV") or "")
+if not compose_rev:
+    raise SystemExit("GRATIS_COMPOSE_REV is missing from bootstrap env")
+root = Path(sys.argv[2])
+dockerfiles = [
+    root / "apps/portal-api/Dockerfile",
+    root / "apps/portal-web/Dockerfile",
+    root / "infra/postgres/Dockerfile",
+    root / "tools/pointcloud-worker/Dockerfile",
+    root / "infra/script-runner/Dockerfile",
+]
+for dockerfile in dockerfiles:
+    text = dockerfile.read_text(encoding="utf-8")
+    marker = f"ARG REQUIRED_COMPOSE_REV={compose_rev}"
+    if marker not in text:
+        raise SystemExit(f"{dockerfile} does not declare {marker}")
 for name, svc in cfg["services"].items():
     if not svc.get("healthcheck"):
         raise SystemExit(f"{name} has no healthcheck")

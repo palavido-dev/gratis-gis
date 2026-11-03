@@ -134,6 +134,32 @@ bootstrap logs and stored on the Docker volume named `boot`. Copy
 the portal password somewhere safe. Deleting that volume creates
 new passwords and an empty database.
 
+## Updates
+
+Admins open **Updates** in the admin section. The page shows the
+version that is running, the version that is available, and the
+changelog, including any line that starts with `Breaking:`. It does
+not change the install.
+
+The first step is **Create backup**. The archive stays on the
+`portal-api-backups` volume if the API container is recreated, and
+the page links to the download. An archive restores only on this
+install.
+
+When the compose file itself is out of date, copy the new
+`docker-compose.nas.yml` for your channel, paste it over the app
+(TrueNAS Edit, or the Dockge stack), and Save. Keep
+`GRATIS_HTTP_PORT` if you changed it. When only the images are
+newer, Stop then Start the app in TrueNAS, or click Update in
+Dockge.
+
+`edge` is the default image channel and tracks `main`. For the
+newest stable release, set `GG_IMAGE_TAG=latest` before the first
+start, or in Dockge's env box. A tag such as `v1.2.3` pins that
+release.
+
+Set `UPDATE_CHECK=off` to stop the page from calling GitHub.
+
 ## Showcase dashboards
 
 On the items page, **Load showcase dashboards** adds the storm

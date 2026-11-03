@@ -79,3 +79,12 @@ RUN sed -i '/security/d' /etc/apt/sources.list \
 COPY init-prod-db.sql /docker-entrypoint-initdb.d/10-init.sql
 COPY init-prod-db.sh /docker-entrypoint-initdb.d/20-init-keycloak-db.sh
 RUN chmod 755 /docker-entrypoint-initdb.d/20-init-keycloak-db.sh
+
+# Same identity stamp as the app images. This image does not serve
+# the API; the stamp keeps REQUIRED_COMPOSE_REV in one place to bump.
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=1
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV

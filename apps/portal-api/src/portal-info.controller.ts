@@ -47,6 +47,8 @@ export class PortalInfoController {
         process.env.GG_VERSION ??
         process.env.npm_package_version ??
         '0.0.0',
+      gitSha: process.env.GIT_SHA?.trim() || null,
+      channel: process.env.GG_CHANNEL?.trim() || null,
       api: {
         baseUrl: this.resolveApiBase(req),
       },

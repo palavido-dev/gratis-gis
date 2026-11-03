@@ -110,6 +110,7 @@ main() {
 
   echo ""
   echo "Deploying (first build takes a while; subsequent deploys are faster)..."
+  export INSTALL_TYPE=vps
   ./infra/deploy.sh
 
   local domain

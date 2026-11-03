@@ -32,6 +32,18 @@ export interface PortalInfo {
    */
   version: string;
 
+  /**
+   * Commit the running build was made from, when the image was
+   * published with GIT_SHA. Absent on a local `pnpm dev`.
+   */
+  gitSha?: string | null;
+
+  /**
+   * Update track: `edge`, `latest`, or a stable `vX.Y.Z` tag.
+   * Absent when the install has not set one.
+   */
+  channel?: string | null;
+
   api: {
     /**
      * Fully-qualified base URL for portal-api calls. Clients should

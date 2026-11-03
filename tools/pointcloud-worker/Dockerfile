@@ -66,6 +66,12 @@ COPY tools/pointcloud-worker/runner.py /app/runner.py
 # volume in compose so a mid-job crash doesn't bloat the container
 # layer; the runner cleans per-job subdirectories on every path.
 ENV SCRATCH_DIR=/scratch
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=1
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 RUN mkdir -p /scratch && chown mambauser /scratch /app
 USER mambauser
 
