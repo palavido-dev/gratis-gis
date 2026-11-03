@@ -39,7 +39,8 @@
     "sonner": "^2.0.8",
     "terra-draw": "^1.39.0",
     "terra-draw-maplibre-gl-adapter": "^1.5.0",
-    "undici": "^8.12.3"
+    "undici": "^8.12.3",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

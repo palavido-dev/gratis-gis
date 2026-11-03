@@ -22,7 +22,7 @@ Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe grap
 | analyze-param-manifests | yay | 2026-11-03 | Morning items 1–4 approved |
 | Q-162b / R5-weblate-hosting | yay | 2026-11-03 | Chose Weblate; hosting deferred; git PRs until then |
 | R2-comments-mentions / R5-comments-mentions | yay | 2026-11-03 | Shipped: email @mentions with abuse defaults |
-| R1-presence-crdt / R5-presence-crdt | yay | 2026-11-03 | Morning items 1–4 approved |
+| R1-presence-crdt / R5-presence-crdt | yay | 2026-11-03 | Thin signed-in Yjs markup co-edit; defaults locked |
 
 ## Scoper reject log (not shown at morning)
 

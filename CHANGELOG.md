@@ -14,6 +14,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Cap 10 unique mentions per comment; self-mentions and unknown
   handles are skipped. Create/reply writes are rate-limited at
   30/min.
+- Markup co-editing (presence Phase 2 thin vertical): signed-in
+  author/editor peers merge the active drawing set over a Yjs
+  WebSocket (`/api/realtime/drawings-ws`, 256 KiB frames) with
+  debounced snapshot back to `item.data.drawings`. Anonymous markup
+  stays REST last-write-wins. Defaults:
+  [docs/research/presence-crdt-defaults-2026-11-03.md](./docs/research/presence-crdt-defaults-2026-11-03.md).
 
 ### Changed
 
