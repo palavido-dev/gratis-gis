@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.1.0] - 2026-11-03
+
+## 2026-11-03 - Install on a home NAS
+Paste one compose file into TrueNAS or Dockge; the first boot writes secrets and prints the LAN address and admin password. Listens on 8080 by default so your NAS UI can keep 80/443. Optional Tailscale, Cloudflare Tunnel, and public-domain modes are in the TrueNAS guide.
+
 ## 2026-11-03 - Live markup with a teammate
 When you and a signed-in teammate both edit the same markup set on a map, new pins and sketches show up for each other without overwriting. Anonymous markup still saves the older way.
 
