@@ -85,7 +85,7 @@ guided Buffer is server-only by design; keep that honesty.
 | 2 | Analyze `?tool=` deep link | analyze-tool-deeplink | Open `#data` + Analyze + matching guide |
 | 3 | Map layer quick analysis | analyze-layer-quick-actions | Buffer / Centroid / Hull → deep link |
 | 4 | Run history shelf | analyze-run-history | Thin vertical scoped in research-cycle-17 (Past runs on Analyze) |
-| 5 | Manifest-driven dialog shell | analyze-param-manifests | after history; needs-maintainer until guides grow stale |
+| 5 | Manifest-driven dialog shell | analyze-param-manifests | first slice shipped 2026-11-03 (five no-param tools); param-heavy guides still bespoke |
 | 6 | Recipe DAG | recipe-dag | needs-maintainer until linear recipes + history land |
 
 Items 2–4 are `ship-without-input` (4 scoped in research-cycle-17:

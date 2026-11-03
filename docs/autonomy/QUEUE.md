@@ -24,11 +24,7 @@ Ranked for the next morning list. Scoper owns this section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| analyze-param-manifests | analyze-workflow-ux-2026-10-30 | One dialog shell from tool metadata | Carry-forward; Scoper should re-rank before listing |
-| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Carry-forward; large — may stay unlisted until thinner |
-| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
-| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked until Analyze param shell and thinner recipe work land |
 
 ## approved
 
@@ -36,6 +32,9 @@ Matthew said yay. Developer takes from the top.
 
 | id | source | summary | approved |
 | --- | --- | --- | --- |
+| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | 2026-11-03 |
+| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | 2026-11-03 |
+| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | 2026-11-03 |
 
 ## in-progress
 
@@ -58,6 +57,7 @@ Matthew said yay. Developer takes from the top.
 
 | id | when | result |
 | --- | --- | --- |
+| analyze-param-manifests | 2026-11-03 | Shared AnalyzeManifestGuide + param manifests for centroid / convex-hull / bbox / dissolve / vertices; Buffer and param-heavy guides stay bespoke |
 | release-1.0.0 | 2026-10-31 | Stamp v1.0.0: Past runs + area scale + print/STAC landing throttles + honesty/status for semver 1.0 |
 | R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |
 | R17-measure-widget-help-honesty | 2026-10-31 | Measure help retargeted to Viewer/Editor/map tool |
