@@ -93,7 +93,7 @@ export class ShowcaseService {
     private readonly features: DataLayerFeaturesService,
   ) {}
 
-  seed(user: AuthUser): Promise<SeedSampleDataResult> {
+  async seed(user: AuthUser): Promise<SeedSampleDataResult> {
     if (!hasCapability(user, 'can_publish_items')) {
       throw new ForbiddenException(
         'Loading showcase dashboards requires the contributor or admin role.',

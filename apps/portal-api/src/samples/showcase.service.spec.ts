@@ -4,6 +4,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { ForbiddenException } from '@nestjs/common';
+
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ShowcaseService } from './showcase.service.js';
 
@@ -78,9 +80,7 @@ describe('ShowcaseService', () => {
       { create: jest.fn(), update: jest.fn() } as never,
       { listFeatures: jest.fn(), insertFeatures: jest.fn() } as never,
     );
-    await expect(service.seed(viewer)).rejects.toThrow(
-      'Loading showcase dashboards requires the contributor or admin role.',
-    );
+    await expect(service.seed(viewer)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('creates items with fresh ids and rewrites placeholders', async () => {
