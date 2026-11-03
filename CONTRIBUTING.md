@@ -15,6 +15,11 @@ surface in [docs/VERSIONING.md](./docs/VERSIONING.md) follows semver;
 internals under `packages/` may still move. The issue tracker reflects
 near-term work from [ROADMAP.md](./ROADMAP.md).
 
+Translations and locale review: see
+[CONTRIBUTING-TRANSLATIONS.md](./CONTRIBUTING-TRANSLATIONS.md)
+(Weblate is the chosen platform; git PRs are the workflow until
+hosting lands).
+
 ## Branching & PRs
 
 - `main` is always deployable.
