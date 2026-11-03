@@ -5,19 +5,32 @@
 # Dockge: new stack, paste this file, leave the env box empty.
 #
 # You do not need a domain name, a git checkout, or ports 80/443.
-# The web UI stays on 80/443. GratisGIS uses 8080. Uploads use 8900.
+# The TrueNAS web UI stays on 80/443.
 #
-# Optional, before you paste. Leave these empty to auto-detect.
+# WEB PORT. This is the only line that sets the port on the NAS.
+# 8080 is the default. If something else already uses it (an IP
+# camera is a common one), change the number below to 8085.
+# The address in the bootstrap log, Keycloak, and sign-in redirects
+# follow this number. Leave every later 8080 alone: that is the
+# port inside the container.
+#
+# UPLOAD PORT. Signed uploads need their own port. Change it here.
+#
+# Optional, before the first start:
 #   GRATIS_BASE_URL   example http://192.168.1.20:8080
 #                     or your Tailscale address http://100.x.x.x:8080
-#   GRATIS_HTTP_PORT  published web port (default 8080)
-#   GRATIS_S3_PORT    published upload port (default 8900)
-#   GRATIS_S3_URL     only if uploads are not http://<same-host>:8900
+#                     Use the same port as GRATIS_HTTP_PORT.
+#   GRATIS_S3_URL     only if uploads are not http://<same-host>:<upload port>
 #   GRATIS_MODE       lan (default) or public
 #   GRATIS_TLS        empty, or internal (browser certificate warning)
 #
 # After it starts, open the bootstrap logs. They show the address
-# and the admin password. Nothing here is a default password.
+# and the admin password. That log is private. Do not post it.
+# Nothing here is a default password.
+
+x-gratis:
+  GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
+  GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
 
 name: gratis-gis
 
@@ -33,8 +46,8 @@ services:
     environment:
       GRATIS_MODE: ${GRATIS_MODE:-lan}
       GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
-      GRATIS_HTTP_PORT: ${GRATIS_HTTP_PORT:-8080}
-      GRATIS_S3_PORT: ${GRATIS_S3_PORT:-8900}
+      GRATIS_HTTP_PORT: *GRATIS_HTTP_PORT
+      GRATIS_S3_PORT: *GRATIS_S3_PORT
       GRATIS_S3_URL: ${GRATIS_S3_URL:-}
       GRATIS_TLS: ${GRATIS_TLS:-}
       GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
@@ -50,6 +63,12 @@ __NAS_INIT_BODY__
         END_NAS_INIT
     volumes:
       - boot:/boot
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /boot/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     networks:
       - gratis-net
 
@@ -101,6 +120,10 @@ __NAS_INIT_BODY__
     environment:
       JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
     volumes:
+      # /boot holds /boot/env and /boot/ready. The import directory
+      # is the same volume so --import-realm still sees
+      # realm-gratis-gis.json. Keycloak imports only *.json.
+      - boot:/boot:ro
       - boot:/opt/keycloak/data/import:ro
     depends_on:
       postgres:
@@ -117,6 +140,12 @@ __NAS_INIT_BODY__
       - gratis-net
 
   minio:
+    # pgsty/silo ships /usr/bin/silo, not a `minio` binary. Starting
+    # `minio` exits 127. The image also has no credentials of its own:
+    # if the process starts before /boot/env exists it formats /data
+    # as minioadmin. Wait, source the generated env, then exec silo.
+    # Unset the image's *_FILE defaults so a missing relative file
+    # cannot replace the generated password.
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
@@ -126,14 +155,24 @@ __NAS_INIT_BODY__
         set -a
         . /boot/env
         set +a
-        if [ -x /usr/bin/minio ]; then exec /usr/bin/minio server /data --console-address ":9001"; fi
-        exec minio server /data --console-address ":9001"
+        unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        exec /usr/bin/silo server /data --console-address ":9001"
     ports:
-      # Browser uploads. Not 80 or 443. Do not forward this on your router.
-      - "${GRATIS_S3_PORT:-8900}:9000"
+      # Browser uploads. The host port is GRATIS_S3_PORT at the top
+      # of this file. 9000 stays the port inside the container.
+      # Do not forward this on your router.
+      - target: 9000
+        published: *GRATIS_S3_PORT
+        protocol: tcp
     volumes:
       - boot:/boot:ro
       - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     networks:
       - gratis-net
 
@@ -160,7 +199,13 @@ __NAS_INIT_BODY__
       keycloak:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 90s
     networks:
       - gratis-net
 
@@ -184,7 +229,19 @@ __NAS_INIT_BODY__
       - boot:/boot:ro
     depends_on:
       portal-api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      # tini is pid 1. Look for the worker in /proc. $$ so Compose
+      # leaves the regex dollar sign for node.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'const fs=require("fs"); const n="worker"+".main.js"; let ok=false; for (const p of fs.readdirSync("/proc")) { if (!/^[0-9]+$$/.test(p)) continue; try { if (fs.readFileSync("/proc/"+p+"/cmdline").includes(n)) ok=true; } catch (e) {} } process.exit(ok?0:1)'
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -199,12 +256,21 @@ __NAS_INIT_BODY__
         set -a
         . /boot/env
         set +a
+        # /boot/env sets PORT for the API. This server listens on 3000,
+        # which is where Caddy sends the web UI.
+        export PORT=3000
         exec /usr/bin/tini -- node apps/portal-web/server.js
     volumes:
       - boot:/boot:ro
     depends_on:
       portal-api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -221,6 +287,10 @@ __NAS_INIT_BODY__
         set -a
         . /boot/env
         set +a
+        # /boot/env sets PORT for the API. Browserless would follow
+        # that and leave the websocket URL (port 3000) with nothing
+        # listening.
+        export PORT=3000
         export TOKEN="$$CHROMIUM_TOKEN"
         if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
         if [ -f /usr/src/app/start.sh ]; then cd /usr/src/app && exec ./start.sh; fi
@@ -228,6 +298,12 @@ __NAS_INIT_BODY__
         exec sleep infinity
     volumes:
       - boot:/boot:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/3000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
     networks:
       - gratis-net
 
@@ -241,20 +317,29 @@ __NAS_INIT_BODY__
         exec caddy run --config /boot/Caddyfile --adapter caddyfile
     ports:
       # Host port -> Caddy's port 8080 inside the container.
+      # The host port is GRATIS_HTTP_PORT at the top of this file.
       # Not 80 or 443, so the TrueNAS web UI can stay where it is.
       # A public domain (GRATIS_MODE=public) needs 80 and 443 instead:
       #   - "80:80"
       #   - "443:443"
-      # and you remove the 8080 line. See docs/truenas.md.
-      - "${GRATIS_HTTP_PORT:-8080}:8080"
+      # and you remove this published port. See docs/truenas.md.
+      - target: 8080
+        published: *GRATIS_HTTP_PORT
+        protocol: tcp
     volumes:
       - boot:/boot:ro
       - caddy-data:/data
     depends_on:
       portal-web:
-        condition: service_started
+        condition: service_healthy
       keycloak:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
     networks:
       - gratis-net
 

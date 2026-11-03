@@ -15,9 +15,22 @@ Images are `ghcr.io/palavido-dev/gratis-gis/*` (linux/amd64), tag
 1. In TrueNAS, open **Apps**, then **Discover Apps**.
 2. Open the **three dots** next to **Custom App**. Choose **Install via YAML**.
 3. Name the app `gratis-gis`.
-4. Copy this whole file and paste it into the box. Do not edit it.
+4. Copy this whole file and paste it into the box.
 
    https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/docker-compose.nas.yml
+
+   Leave the file as it is when port 8080 is free. When 8080 is
+   already taken (an IP camera is a common case), change one line
+   near the top before you save:
+
+```yaml
+  GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8085}"
+```
+
+   That line is the port on the NAS. The address in the log,
+   Keycloak, and the sign-in redirects follow it. Leave every
+   other `8080` in the file alone. That number is the port inside
+   the container.
 
 5. Click **Save**. The first start downloads the images. Wait until
    the app is running. Then open the **bootstrap** logs. They look
@@ -28,26 +41,38 @@ Images are `ghcr.io/palavido-dev/gratis-gis/*` (linux/amd64), tag
 Open this address:  http://192.168.1.20:8080
 User:               admin
 Password:           (a long random password)
+This log contains the admin password. Do not post it publicly.
 ```
 
 Open that address from a computer on your home network. Sign in as
 `admin`. Keycloak asks you to choose your own password.
 
+The bootstrap log contains the admin password. Keep it to yourself.
+Do not post it on a forum, in a GitHub issue, or in a screenshot.
+
 Dockge works the same way: create a stack, paste the same file,
 leave the env box empty, deploy. Then read the bootstrap logs.
 
-## If the address is 127.0.0.1
+## If the log asks you to set GRATIS_BASE_URL
 
-The stack could not see your NAS address. In the YAML you pasted,
-set this line and start the app again (delete the app's volumes
-first if it already saved the wrong address):
+The stack could not see a LAN address that opens from another
+computer. It skips network addresses (those end in `.0`), broadcast
+addresses (those end in `.255`), and Docker or TrueNAS bridge
+addresses. In the YAML you pasted, set your NAS address and start
+the app again:
 
 ```yaml
 GRATIS_BASE_URL: http://192.168.1.20:8080
 ```
 
-Use your NAS IP. Keep port **8080**. Uploads use port **8900** on
-that same IP.
+Use your NAS IP. Use the same port as `GRATIS_HTTP_PORT` (`8080`,
+or `8085` if you changed that line). Uploads use `GRATIS_S3_PORT`
+on that same IP (8900 unless you changed it).
+
+Keep the existing volumes when Keycloak never became healthy. Delete
+the app's volumes and start again when you already signed in at the
+old address, or when you want new passwords. A new boot volume
+prints a new password.
 
 ## Away from home (optional)
 
@@ -74,8 +99,8 @@ is the simpler of the two.
 
 Set `GRATIS_MODE` to `public`, `GRATIS_BASE_URL` to
 `https://gis.example.org`, and `GRATIS_ACME_EMAIL` to your email.
-In the Caddy service, replace the `8080` port with `80:80` and
-`443:443`. Move the TrueNAS web UI off 80 and 443 first, and point
+In the Caddy service, replace the `ports` list with `"80:80"` and
+`"443:443"`. Move the TrueNAS web UI off 80 and 443 first, and point
 `gis`, `auth.gis`, and `storage.gis` at the NAS. That is the same
 shape as the VPS install in [deployment.md](./deployment.md).
 
@@ -89,8 +114,10 @@ shape as the VPS install in [deployment.md](./deployment.md).
 - One API container and one Chromium. Point-cloud processing and
   pg_tileserv are not in this file. The portal still serves its own
   vector tiles.
-- The address chosen on first start is kept. A new address means
-  deleting the app volumes and starting again.
+- The address chosen on the first successful start is kept. A later
+  address, after you have signed in, means deleting the app volumes
+  and starting again. `GRATIS_HTTP_PORT` at the top of the file is
+  how you move the web port before that first successful start.
 - The Keycloak master realm and its admin API are not reachable
   from the browser.
 
@@ -98,3 +125,15 @@ Passwords are random for each install. They are printed in the
 bootstrap logs and stored on the Docker volume named `boot`. Copy
 the portal password somewhere safe. Deleting that volume creates
 new passwords and an empty database.
+
+## Updating
+
+Paste the new file over the same app and start it again. Keep the
+volumes when the first start never became healthy (Keycloak waiting,
+Silo exiting). The saved passwords stay, and Keycloak imports the
+realm on the first start that succeeds.
+
+Delete the volumes when you already signed in and the log says the
+address changed, or when you want new passwords. In Dockge that is
+the stack's volumes (`boot`, `pgdata`, `miniodata`, `caddy-data`).
+In TrueNAS, delete the app with its volumes, then install again.

@@ -33,8 +33,60 @@ spec = importlib.util.spec_from_file_location("nas", sys.argv[1])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-assert mod.lan_ips_from_fib("    |-- 172.17.0.1\n    |-- 192.168.4.15\n") == ["192.168.4.15"]
-assert "10.1.2.3" in mod.lan_ips_from_fib("| -- 10.1.2.3")
+# 10.9.92.0 is the network address of a Docker bridge (TrueNAS/Dockge).
+# 10.9.92.1 is that bridge's host address. 192.168.4.15 is the LAN.
+fib = """
+           |-- 10.9.92.0
+              /24 link UNICAST
+           |-- 10.9.92.1
+              /32 host LOCAL
+           |-- 10.9.92.255
+              /32 link BROADCAST
+           |-- 192.168.4.15
+              /32 host LOCAL
+           |-- 192.168.4.0
+              /24 link UNICAST
+           |-- 192.168.4.255
+              /32 link BROADCAST
+           |-- 127.0.0.1
+              /32 host LOCAL
+           |-- 172.17.0.1
+              /32 host LOCAL
+           |-- 172.30.0.2
+              /32 host LOCAL
+"""
+# little-endian hex: 10.9.92.0, 192.168.4.0, 172.17.0.0, 172.30.0.0
+route = (
+    "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+    "br-ed9d03cda5a1\t005C090A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+    "eth0\t0004A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+    "docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+    "enp0s3\t00001EAC\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+)
+assert mod.lan_ips_from_fib(fib) == ["10.9.92.1", "192.168.4.15", "172.30.0.2"]
+assert "10.9.92.0" not in mod.lan_ips_from_fib(fib)
+assert "192.168.4.255" not in mod.lan_ips_from_fib(fib)
+assert mod.choose_lan_ip(fib, route) == "192.168.4.15"
+docker_only = """
+           |-- 10.9.92.0
+              /24 link UNICAST
+           |-- 10.9.92.1
+              /32 host LOCAL
+           |-- 172.17.0.1
+              /32 host LOCAL
+"""
+docker_route = (
+    "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+    "br-ed9d03cda5a1\t005C090A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+    "docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+)
+assert mod.choose_lan_ip(docker_only, docker_route) is None
+# 172.30.0.2 is a real LAN on this kind of host when no 192.168 address exists.
+assert mod.choose_lan_ip(
+    "           |-- 172.30.0.2\n              /32 host LOCAL\n"
+    "           |-- 172.17.0.1\n              /32 host LOCAL\n",
+    route,
+) == "172.30.0.2"
 
 boot = Path(sys.argv[2])
 boot.mkdir(parents=True, exist_ok=True)
@@ -47,6 +99,7 @@ os.environ.pop("GRATIS_TLS", None)
 text = run(mod)
 assert "Open this address:  http://192.168.4.15:8080" in text
 assert "Password:" in text
+assert "Do not post it publicly." in text
 
 vals = mod.read_env(boot / "env")
 assert vals["PUBLIC_URL"] == "http://192.168.4.15:8080"
@@ -81,6 +134,59 @@ password = vals["INITIAL_USER_PASSWORD"]
 run(mod)
 assert mod.read_env(boot / "env")["INITIAL_USER_PASSWORD"] == password
 
+# A stored network address (the TrueNAS report was http://10.9.92.0:8080)
+# is replaced. Secrets stay. The published port follows GRATIS_HTTP_PORT.
+# Caddy inside the container still listens on 8080.
+shutil.rmtree(boot)
+boot.mkdir()
+os.environ["GRATIS_BASE_URL"] = "http://10.9.92.0:8080"
+os.environ["GRATIS_HTTP_PORT"] = "8080"
+text = run(mod)
+assert "http://10.9.92.0:8080" in text
+bad_password = mod.read_env(boot / "env")["INITIAL_USER_PASSWORD"]
+os.environ.pop("GRATIS_BASE_URL")
+os.environ["GRATIS_HTTP_PORT"] = "8085"
+os.environ["GRATIS_S3_PORT"] = "8901"
+os.environ["GRATIS_DETECT_FIB"] = fib
+os.environ["GRATIS_DETECT_ROUTE"] = route
+text = run(mod)
+assert "Open this address:  http://192.168.4.15:8085" in text
+assert "Do not forward ports 8085 or 8901" in text
+assert "keep the volumes" in text
+vals = mod.read_env(boot / "env")
+assert vals["INITIAL_USER_PASSWORD"] == bad_password
+assert vals["PUBLIC_URL"] == "http://192.168.4.15:8085"
+assert vals["NEXTAUTH_URL"] == vals["PUBLIC_URL"]
+assert vals["KEYCLOAK_URL"] == "http://192.168.4.15:8085/auth"
+assert vals["KC_HOSTNAME"] == "http://192.168.4.15:8085"
+assert vals["MINIO_PUBLIC_BASE"] == "http://192.168.4.15:8901"
+assert vals["MINIO_API_CORS_ALLOW_ORIGIN"] == vals["PUBLIC_URL"]
+assert vals["STORAGE_ALLOWED_ORIGINS"] == vals["PUBLIC_URL"]
+realm = json.loads((boot / "realm-gratis-gis.json").read_text())
+web = next(client for client in realm["clients"] if client["clientId"] == "portal-web")
+assert web["redirectUris"] == ["http://192.168.4.15:8085/*"]
+assert web["webOrigins"] == ["http://192.168.4.15:8085"]
+assert realm["attributes"]["frontendUrl"] == "http://192.168.4.15:8085/auth"
+caddy = (boot / "Caddyfile").read_text()
+assert ":8080" in caddy
+assert "8085" not in caddy
+
+# Nothing but bridge addresses: instructions, and no realm is published.
+shutil.rmtree(boot)
+boot.mkdir()
+os.environ.pop("GRATIS_HTTP_PORT", None)
+os.environ["GRATIS_DETECT_FIB"] = docker_only
+os.environ["GRATIS_DETECT_ROUTE"] = docker_route
+text = run(mod)
+assert "GRATIS_BASE_URL" in text
+assert "Do not post it publicly." in text
+assert "Password:" not in text
+assert not (boot / "ready").exists()
+assert not (boot / "realm-gratis-gis.json").exists()
+os.environ.pop("GRATIS_DETECT_FIB", None)
+os.environ.pop("GRATIS_DETECT_ROUTE", None)
+os.environ.pop("GRATIS_S3_PORT", None)
+
 shutil.rmtree(boot)
 boot.mkdir()
 os.environ["GRATIS_MODE"] = "public"
@@ -102,7 +208,7 @@ PY
 docker compose -f "$SCRIPT_DIR/docker-compose.nas.yml" config --format json > "$tmp/config.json"
 
 python3 - "$tmp/config.json" <<'PY'
-import json, sys
+import json, re, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 ports = {}
 for name, svc in cfg["services"].items():
@@ -120,6 +226,42 @@ if set(ports) != {"caddy", "minio"}:
     raise SystemExit(f"unexpected published ports: {ports}")
 if ports["caddy"] != ["8080"] or ports["minio"] != ["8900"]:
     raise SystemExit(f"port map {ports}")
+
+
+def targets(svc):
+    found = []
+    for vol in svc.get("volumes") or []:
+        if isinstance(vol, dict):
+            found.append(vol.get("target"))
+        else:
+            found.append(str(vol).split(":")[-1])
+    return found
+
+
+kc_targets = targets(cfg["services"]["keycloak"])
+if "/boot" not in kc_targets or "/opt/keycloak/data/import" not in kc_targets:
+    raise SystemExit(f"keycloak volumes {kc_targets}")
+minio_cmd = cfg["services"]["minio"].get("command") or ""
+if isinstance(minio_cmd, list):
+    minio_cmd = "\n".join(str(part) for part in minio_cmd)
+if "/usr/bin/silo" not in minio_cmd:
+    raise SystemExit("minio command does not exec silo")
+if re.search(r"exec minio( |$)", minio_cmd):
+    raise SystemExit("minio command still execs the missing minio binary")
+boot_env = cfg["services"]["bootstrap"].get("environment") or {}
+if isinstance(boot_env, list):
+    boot_env = dict(item.split("=", 1) for item in boot_env)
+if str(boot_env.get("GRATIS_HTTP_PORT")) != "8080":
+    raise SystemExit(f"bootstrap port {boot_env.get('GRATIS_HTTP_PORT')}")
+for name, svc in cfg["services"].items():
+    if not svc.get("healthcheck"):
+        raise SystemExit(f"{name} has no healthcheck")
+caddy_ports = cfg["services"]["caddy"]["ports"]
+if not any(str(item.get("target")) == "8080" and str(item.get("published")) == "8080" for item in caddy_ports):
+    raise SystemExit(f"caddy ports {caddy_ports}")
+minio_ports = cfg["services"]["minio"]["ports"]
+if not any(str(item.get("target")) == "9000" and str(item.get("published")) == "8900" for item in minio_ports):
+    raise SystemExit(f"minio ports {minio_ports}")
 for internal in ("postgres", "keycloak", "portal-api", "portal-web", "portal-worker", "chromium", "bootstrap"):
     if cfg["services"][internal].get("ports"):
         raise SystemExit(f"{internal} publishes a port")
@@ -136,6 +278,24 @@ if cfg["services"]["bootstrap"]["image"] != "python:3.12-alpine":
     raise SystemExit("bootstrap image changed")
 print("compose config ok")
 print("services", len(cfg["services"]))
+PY
+
+GRATIS_HTTP_PORT=8085 GRATIS_S3_PORT=8910 \
+  docker compose -f "$SCRIPT_DIR/docker-compose.nas.yml" config --format json > "$tmp/config-8085.json"
+
+python3 - "$tmp/config-8085.json" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+caddy = cfg["services"]["caddy"]["ports"][0]
+minio = cfg["services"]["minio"]["ports"][0]
+if str(caddy.get("published")) != "8085" or str(caddy.get("target")) != "8080":
+    raise SystemExit(f"caddy {caddy}")
+if str(minio.get("published")) != "8910" or str(minio.get("target")) != "9000":
+    raise SystemExit(f"minio {minio}")
+env = cfg["services"]["bootstrap"]["environment"]
+if str(env.get("GRATIS_HTTP_PORT")) != "8085" or str(env.get("GRATIS_S3_PORT")) != "8910":
+    raise SystemExit(env)
+print("compose port override ok")
 PY
 
 # The VPS generator still has to emit the tokens Compose requires.
