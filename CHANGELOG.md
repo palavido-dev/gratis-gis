@@ -6,6 +6,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-03
+
 ### Added
 
 - Home NAS install. Paste `infra/docker-compose.nas.yml` into
@@ -3431,6 +3433,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
 [1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2
 [0.9.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.1
