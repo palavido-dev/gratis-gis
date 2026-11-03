@@ -2812,7 +2812,9 @@ export const ptBR: Partial<CatalogShape> = {
     threadOpened: 'Tópico aberto {when}',
     resolvedSuffix: ' • Resolvido',
     editedSuffix: ' (editado)',
-    newAnchoredPlaceholder: 'Comentar a seleção…',
+    newAnchoredPlaceholder: 'Comentar a seleção… @usuário para avisar',
+    mentionHint:
+      'Digite @usuário para enviar um e-mail a um membro da organização que possa ver este mapa.',
     composeHint:
       'Selecione uma feição no mapa para ancorar um tópico, ou publique no nível do mapa.',
     composeOn: 'Em {label}',

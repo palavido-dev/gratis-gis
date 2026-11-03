@@ -32,7 +32,6 @@ Matthew said yay. Developer takes from the top.
 
 | id | source | summary | approved |
 | --- | --- | --- | --- |
-| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | 2026-11-03 |
 | R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | 2026-11-03 |
 
 ## in-progress
@@ -56,6 +55,7 @@ Matthew said yay. Developer takes from the top.
 
 | id | when | result |
 | --- | --- | --- |
+| R2-comments-mentions / R5-comments-mentions | 2026-11-03 | @username in create/reply → comment_mentioned email (cap 10, ACL, self-skip); create/reply 30/min |
 | Q-162b / R5-weblate-hosting | 2026-11-03 | Chose Weblate over Crowdin/Tolgee; git PR catalogs remain the community path until Weblate hosting is stood up |
 | analyze-param-manifests | 2026-11-03 | Shared AnalyzeManifestGuide + param manifests for centroid / convex-hull / bbox / dissolve / vertices; Buffer and param-heavy guides stay bespoke |
 | release-1.0.0 | 2026-10-31 | Stamp v1.0.0: Past runs + area scale + print/STAC landing throttles + honesty/status for semver 1.0 |

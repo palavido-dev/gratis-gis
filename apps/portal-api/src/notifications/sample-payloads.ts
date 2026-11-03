@@ -10,6 +10,7 @@ import type {
   DataCollectionSchemaBreakPayload,
   FormSubmissionReceivedPayload,
   UserInvitedPayload,
+  CommentMentionedPayload,
 } from './templates.js';
 
 /**
@@ -104,4 +105,12 @@ export const SAMPLE_PAYLOADS: { [K in NotificationType]?: unknown } = {
     droppedLayerKeys: ['burrow_points'],
     geometryChangedLayerKeys: [],
   } satisfies DataCollectionSchemaBreakPayload,
+  comment_mentioned: {
+    itemId: '00000000-0000-4000-8000-000000000001',
+    itemTitle: 'City Park Review',
+    threadId: '00000000-0000-4000-8000-0000000000c1',
+    commentId: '00000000-0000-4000-8000-0000000000c2',
+    mentionedByName: 'Alice Author',
+    snippet: 'Hey @bob can you check the north entrance pin?',
+  } satisfies CommentMentionedPayload,
 };
