@@ -45,6 +45,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The image publish job marked every package step red because `gh api`
+  re-encoded the slash in `gratis-gis/<image>`. `script-runner` waits
+  on those jobs, so it never pushed and anonymous pulls were denied.
+  The workflow now publishes `script-runner` with the same `edge` and
+  `sha-*` tags and fails if any image is missing or not anonymously
+  pullable.
 - `.nvmrc` now selects Node 24, so `nvm use` picks a version that
   satisfies `engines.node` (`>=24.9.0`) and matches CI.
 - A fresh `infra/.env.prod` from the example, or from the old
