@@ -8,12 +8,16 @@ the chat post is in [DIGEST.md](./DIGEST.md). Process rules are in
 Do not implement from this file. Developer only takes ids that moved to
 `approved` in [QUEUE.md](./QUEUE.md) after an explicit yay.
 
-## Pending decision (2026-11-03)
+## Pending decision (2026-11-04)
 
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
 
-Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; too large until Analyze param shell and thinner recipe work land.
+No Researcher hand-off since cycle 17 (2026-10-31) drained into v1.1.0. Nothing ranked for yay/nay this morning.
+
+Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; Analyze param shell shipped in v1.1.0, but the DAG remains too large until thinner recipe work is researched again.
+
+Maintainer-owned (not listed): issue [#551](https://github.com/palavido-dev/gratis-gis/issues/551) TrueNAS Scale cannot add users or layer data — Matthew said he will look; not queued for the Developer loop unless yay'd later.
 
 ## Decided this week
 
