@@ -8,6 +8,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Form location questions can be answered on a map. In the default
+  `auto` mode the GPS button now sits above a small map: tap it or
+  drag the pin to report a spot you are not standing on, or when
+  there is no fix. `map` mode shows only the map. The schema always
+  offered both modes, but the runtime drew GPS and lat/lon boxes
+  only.
+- Signature questions can be answered. A signature pad saves one PNG
+  as an attachment, uploaded with the rest of the submission's
+  attachments. A required signature is now enforced (it was skipped
+  as uncapturable).
 - Home NAS installs run the point-cloud worker when `GRATIS_ANALYSIS`
   is `on` (the default) and sleep it when set to `off`. Admin backups
   are stored on a volume that survives recreating the API container.
@@ -19,6 +29,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Map builder: the basemap menu opens again. The toolbar scrolled
+  sideways (`overflow-x-auto`), which also clips vertically, so the
+  menu dropping below the header was cut off. The toolbar wraps
+  instead.
+- Form designer: in choice and matrix rows the label box is no longer
+  squeezed to a sliver beside the value box. Both inputs carried
+  `w-full` plus a fixed width, and `w-full` won.
 - Home NAS install. Keycloak mounts the generated boot volume at
   `/boot` as well as the realm-import path, so it can leave the
   waiting loop and become healthy. Silo is started as `/usr/bin/silo`

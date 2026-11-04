@@ -64,11 +64,14 @@ a **Pick list** item (preferred for reusable vocabularies; see
 
 ## Spatial
 
-- **Location pick**. A small map; respondent taps to drop a
- pin. Compatible with `point` geometry. Optional reverse-
- geocode after the pick.
-- **Capture current location**. One-tap "use GPS" with no map.
- Compatible with `point`.
+- **Location** (`geopoint`). Compatible with `point` geometry.
+ The capture mode decides the control:
+ - **Auto** (default): a "Capture location" GPS button plus a
+   small map. Tap the map or drag the pin when you are reporting
+   a spot you are not standing on, or have no GPS fix.
+ - **Map**: the map only; tap or drag the pin.
+ - **GPS**: the GPS button only, no map.
+ - **Manual**: latitude and longitude boxes.
 - **Draw line / polygon**. A map with line/polygon draw tools.
  Compatible with `line` / `polygon` geometry.
 

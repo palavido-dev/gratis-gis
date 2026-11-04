@@ -33,6 +33,8 @@ import {
   type ValidationError,
 } from '@gratis-gis/form-schema';
 import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import { GeoPointMapPicker } from './form-inputs/geopoint-map-picker';
+import { SignatureInput } from './form-inputs/signature-input';
 import { useFormat } from '@/lib/i18n/format';
 
 /**
@@ -1062,6 +1064,19 @@ function Input({
     // what stops a respondent hunting for a control that does not
     // exist.
     case 'signature':
+      return (
+        <SignatureInput
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+          labels={{
+            aria: t('formRuntime.signatureAria'),
+            hint: t('formRuntime.signatureHint'),
+            clear: t('formRuntime.clear'),
+            signed: t('formRuntime.signatureSigned'),
+          }}
+        />
+      );
     case 'geotrace':
     case 'geoshape':
     case 'pick-feature':
@@ -2534,6 +2549,21 @@ function GeoPointInput({
             ? t('formRuntime.recapture')
             : t('formRuntime.captureLocation')}
         </button>
+      ) : null}
+      {/* `map` is tap-to-place only; `auto` (the default) offers GPS
+          first and the map for when the respondent is reporting a
+          spot they are not standing on, or has no fix. */}
+      {q.capture === 'map' || q.capture === 'auto' || q.capture === undefined ? (
+        <GeoPointMapPicker
+          value={point}
+          readOnly={readOnly}
+          onChange={(v) => {
+            setErr(null);
+            onChange(v);
+          }}
+          ariaLabel={t('formRuntime.mapPickerAria')}
+          hint={t('formRuntime.mapPickerHint')}
+        />
       ) : null}
       {!readOnly && q.capture === 'manual' ? (
         <div className="grid grid-cols-2 gap-2">

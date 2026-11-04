@@ -124,7 +124,6 @@ export type QuestionType = (typeof QUESTION_TYPES)[number];
  */
 export const UNCAPTURABLE_QUESTION_TYPES: ReadonlySet<QuestionType> =
   new Set<QuestionType>([
-    'signature',
     'geotrace',
     'geoshape',
     'pick-feature',
@@ -2152,7 +2151,26 @@ function validateType(q: Question, value: unknown): string | null {
       }
       return null;
     }
-    case 'signature':
+    case 'signature': {
+      // One PNG attachment: `{ name, mimeType, sizeBytes }` plus
+      // `dataUrl` while it waits to upload, or `url` + `key` after.
+      // A bare data URL string is accepted for answers saved before
+      // the pad wrote the attachment shape.
+      if (typeof value === 'string') {
+        return value.startsWith('data:image/') ? null : 'Expected a signature image.';
+      }
+      if (!Array.isArray(value)) return 'Expected a signature image.';
+      if (value.length > 1) return 'Only one signature is allowed.';
+      const a = value[0] as Record<string, unknown> | undefined;
+      if (
+        !a ||
+        typeof a !== 'object' ||
+        (typeof a.url !== 'string' && typeof a.dataUrl !== 'string')
+      ) {
+        return 'Expected a signature image.';
+      }
+      return null;
+    }
     case 'geopoint':
     case 'geotrace':
     case 'geoshape':
