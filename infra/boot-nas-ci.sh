@@ -141,8 +141,23 @@ done
 docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
   cat /app/backups/ci-probe.txt | grep -qx 'ci-backup-probe'
 
-# UPDATE_CHECK=off: current install info, and no latest release.
-docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
+# UPDATE_CHECK=off is written to /boot/env, which portal-api sources.
+# The published edge image answers 404 for this route until
+# publish-images runs. After that the route is admin-only and must
+# describe this install without fetching a release.
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap \
+  /bin/sh -c 'grep -q "^INSTALL_TYPE=.nas.$" /boot/env && grep -q "^GG_CHANNEL=.edge.$" /boot/env && grep -q "^UPDATE_CHECK=.off.$" /boot/env && grep -q "^GRATIS_COMPOSE_REV=.1.$" /boot/env'
+echo "boot env has nas update identity"
+route="$(docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
+  curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/api/admin/updates || true)"
+if [ "$route" = "404" ]; then
+  echo "published edge image has no /api/admin/updates yet"
+else
+  if [ "$route" != "401" ]; then
+    echo "updates route returned HTTP ${route}" >&2
+    exit 1
+  fi
+  docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
 import json, urllib.parse, urllib.request
 import urllib.error
 from pathlib import Path
@@ -230,6 +245,7 @@ if body.get("composeOutdated") is not False:
     raise SystemExit(f"compose flagged outdated {body}")
 print("updates endpoint ok", body["current"]["version"])
 PY
+fi
 
 docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
   curl -fsS http://127.0.0.1:4000/api/portal-info \

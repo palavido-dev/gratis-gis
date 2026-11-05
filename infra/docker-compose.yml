@@ -36,6 +36,10 @@ services:
       POSTGRES_DB: gratisgis
       POSTGRES_USER: gratisgis
       POSTGRES_PASSWORD: devpassword
+      # The image's first-boot script exits if this is empty. Dev
+      # Keycloak uses its own file database; this only lets init finish
+      # so `compose up --wait` does not see the container die.
+      KEYCLOAK_DB_PASSWORD: devpassword
     ports:
       - "5432:5432"
     volumes:
