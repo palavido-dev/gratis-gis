@@ -928,7 +928,7 @@ def banner(values: dict[str, str], *, reveal_password: bool) -> str:
             "Keycloak will ask you to change this password.\n"
             "This password is printed only on the first start. It is not\n"
             "written to a file. Copy it now, then change it before you\n"
-            "share this log.\n"
+            "share this log. Do not post it publicly.\n"
         )
     else:
         password = (
@@ -964,6 +964,7 @@ def address_help(port: str) -> str:
         "\n"
         "The first-start admin password is printed once, only when\n"
         "startup succeeds on an empty volume. It is not written to a file.\n"
+        "Do not post it publicly.\n"
         "===============================\n"
     )
 
