@@ -37,6 +37,14 @@ hosting lands).
   approved queue item when CI is green. It does not merge a PR marked
   for maintainer review, and it does not treat another contributor's
   approval as Matthew's review.
+- Dependabot opens dependency pull requests (see
+  `.github/dependabot.yml`). Patch and minor updates squash-merge
+  themselves once the CI and Security workflows are green
+  (`.github/workflows/dependabot-automerge.yml`). A grouped update
+  merges only when every dependency in the group is patch or minor,
+  so the highest bump is patch or minor too. A major stays open for Matthew,
+  including a group that contains one. A Node base-image bump uses
+  the same rule. The workflow does not check out the pull request.
 
 ## Commit messages
 

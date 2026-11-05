@@ -1,0 +1,375 @@
+# Squash-merge Dependabot pull requests for semver patch and minor
+# updates after CI and Security are green. A major update stays
+# open, including a grouped pull request whose highest bump is major.
+#
+# dependabot/fetch-metadata only reads pull_request and
+# pull_request_target payloads, so this workflow is
+# pull_request_target. The file that runs is the one on the default
+# branch. The job does not check out the repository and does not
+# run anything from the pull request. The token can write so it can
+# merge, which is why a checkout of the head would be unsafe. Do
+# not add one.
+#
+# `gh pr merge --auto` is the wrong tool here. allow_auto_merge is
+# false, and main does not enforce required status checks (the rules
+# list is empty and the branch summary reports enforcement_level
+# "off"). With nothing required, turning auto-merge on would merge
+# as soon as the pull request is eligible, before CI finishes. This
+# job polls the check rollup and squash-merges only when CI and
+# Security each have a passing check and every other check on the
+# head, other than this workflow, is pass or skipping.
+#
+# Do not pass `gh pr checks --required`. With no required checks
+# that flag reports nothing and would look like a green pull request.
+
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# contents: write is what the merge API needs. pull-requests: write
+# covers reading the pull request, its commits, and the status
+# rollup `gh pr checks` uses. checks: read is not requested. A 403
+# on that call fails the job and does not merge.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  patch-and-minor:
+    name: Squash-merge patch and minor
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Squash-merge when checks are green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEPS_JSON: ${{ steps.meta.outputs.updated-dependencies-json }}
+          THIS_WORKFLOW: Dependabot auto-merge
+        run: |
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/dependabot_automerge.py" <<'END_PYTHON'
+          import json
+          import os
+          import sys
+
+          ALLOWED = {
+              "version-update:semver-patch",
+              "version-update:semver-minor",
+          }
+          REQUIRED_WORKFLOWS = ("CI", "Security")
+          KNOWN_BUCKETS = {"pass", "fail", "pending", "skipping", "cancel"}
+
+          def parse_deps(raw):
+              if raw is None or not str(raw).strip():
+                  return []
+              data = json.loads(raw)
+              if isinstance(data, str):
+                  data = json.loads(data)
+              if not isinstance(data, list):
+                  raise ValueError("updated-dependencies-json is not a list")
+              return data
+
+          def eligible(update_type, deps):
+              # The action's update-type is the highest semver bump in
+              # the pull request, including a Dependabot group. Each
+              # dependency is checked too, so an unknown or major bump
+              # hidden beside a minor cannot slip through.
+              if update_type not in ALLOWED:
+                  shown = update_type if update_type else "(empty)"
+                  return False, "highest update-type is %s" % shown
+              if not deps:
+                  return False, "no dependencies in metadata"
+              for dep in deps:
+                  if not isinstance(dep, dict):
+                      return False, "dependency entry is not an object"
+                  kind = dep.get("updateType")
+                  if kind not in ALLOWED:
+                      name = dep.get("dependencyName") or "(unnamed)"
+                      shown = kind if kind else "(empty)"
+                      return False, "%s is %s" % (name, shown)
+              if len(deps) == 1:
+                  tail = "1 dependency is patch or minor"
+              else:
+                  tail = "%d dependencies are patch or minor" % len(deps)
+              return True, "highest update-type is %s; %s" % (update_type, tail)
+
+          def evaluate(checks, own_workflow):
+              if not isinstance(checks, list):
+                  print("check payload is not a list", file=sys.stderr)
+                  return "error"
+              relevant = []
+              for check in checks:
+                  if not isinstance(check, dict):
+                      print("check entry is not an object", file=sys.stderr)
+                      return "error"
+                  if check.get("workflow") == own_workflow:
+                      continue
+                  bucket = check.get("bucket")
+                  if bucket not in KNOWN_BUCKETS:
+                      print(
+                          "unknown bucket %r on %s" % (bucket, check.get("name")),
+                          file=sys.stderr,
+                      )
+                      return "pending"
+                  relevant.append(check)
+
+              def names(bucket):
+                  return [c.get("name") or "(unnamed)" for c in relevant if c.get("bucket") == bucket]
+
+              failed = names("fail")
+              if failed:
+                  print("failed: " + ", ".join(failed), file=sys.stderr)
+                  return "fail"
+              cancelled = names("cancel")
+              if cancelled:
+                  print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+                  return "cancel"
+              pending = names("pending")
+              if pending:
+                  print("pending: " + ", ".join(pending), file=sys.stderr)
+                  return "pending"
+              for workflow in REQUIRED_WORKFLOWS:
+                  rows = [c for c in relevant if c.get("workflow") == workflow]
+                  if not any(c.get("bucket") == "pass" for c in rows):
+                      print("waiting for a passing %s check" % workflow, file=sys.stderr)
+                      return "pending"
+              return "ready"
+
+          def main(argv):
+              cmd = argv[1] if len(argv) > 1 else ""
+              if cmd == "classify":
+                  try:
+                      deps = parse_deps(os.environ.get("DEPS_JSON", ""))
+                  except (ValueError, json.JSONDecodeError) as exc:
+                      print("metadata: %s" % exc, file=sys.stderr)
+                      return 1
+                  ok, reason = eligible(os.environ.get("UPDATE_TYPE", ""), deps)
+                  print(reason)
+                  return 0 if ok else 10
+              if cmd == "rollup":
+                  raw = sys.stdin.read()
+                  try:
+                      checks = json.loads(raw) if raw.strip() else []
+                  except json.JSONDecodeError as exc:
+                      print("checks: %s" % exc, file=sys.stderr)
+                      return 1
+                  word = evaluate(checks, os.environ.get("THIS_WORKFLOW", ""))
+                  if word == "error":
+                      return 1
+                  print(word)
+                  return 0
+              print("unknown command %s" % cmd, file=sys.stderr)
+              return 2
+
+          if __name__ == "__main__":
+              sys.exit(main(sys.argv))
+          END_PYTHON
+
+          py="$RUNNER_TEMP/dependabot_automerge.py"
+          positive() {
+            case "$1" in
+              ''|*[!0-9]*)
+                echo "bad $2: $1" >&2
+                exit 1
+                ;;
+            esac
+          }
+          wait_seconds="${AUTO_MERGE_WAIT_SECONDS:-4500}"
+          poll_seconds="${AUTO_MERGE_POLL_SECONDS:-30}"
+          fail_grace="${AUTO_MERGE_FAIL_GRACE_SECONDS:-900}"
+          positive "$wait_seconds" AUTO_MERGE_WAIT_SECONDS
+          positive "$poll_seconds" AUTO_MERGE_POLL_SECONDS
+          positive "$fail_grace" AUTO_MERGE_FAIL_GRACE_SECONDS
+
+          set +e
+          reason="$(python3 "$py" classify)"
+          class_rc=$?
+          set -e
+          if [ "$class_rc" -eq 10 ]; then
+            echo "::notice title=Dependabot auto-merge::not merging: $reason"
+            exit 0
+          fi
+          if [ "$class_rc" -ne 0 ]; then
+            echo "$reason" >&2
+            exit "$class_rc"
+          fi
+          echo "eligible: $reason"
+
+          pr_gate() {
+            local view state author base sha draft head_repo
+            view="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json state,isDraft,baseRefName,headRefOid,author,headRepository)" || return 2
+            state="$(jq -r '.state' <<<"$view")" || return 2
+            author="$(jq -r '.author.login // empty' <<<"$view")" || return 2
+            base="$(jq -r '.baseRefName' <<<"$view")" || return 2
+            sha="$(jq -r '.headRefOid' <<<"$view")" || return 2
+            draft="$(jq -r '.isDraft' <<<"$view")" || return 2
+            head_repo="$(jq -r '.headRepository.nameWithOwner // empty' <<<"$view")" || return 2
+            if [ "$state" != "OPEN" ]; then
+              echo "pull request is $state" >&2
+              return 1
+            fi
+            if [ "$author" != "dependabot[bot]" ]; then
+              echo "author is $author" >&2
+              return 1
+            fi
+            if [ "$base" != "main" ]; then
+              echo "base is $base" >&2
+              return 1
+            fi
+            if [ "$draft" != "false" ]; then
+              echo "pull request is a draft" >&2
+              return 1
+            fi
+            if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+              echo "head repository is ${head_repo:-unknown}" >&2
+              return 1
+            fi
+            if [ -z "$sha" ] || [ "$sha" = "null" ]; then
+              echo "missing head sha" >&2
+              return 2
+            fi
+            printf '%s\n' "$sha"
+          }
+
+          commits_ok() {
+            local rows count bad
+            rows="$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" \
+              --jq '.[] | [.sha, (.author.login // ""), ((.commit.verification.verified // false) | tostring)] | @tsv')" || return 2
+            count="$(printf '%s\n' "$rows" | sed '/^$/d' | wc -l)"
+            count=$((count))
+            if [ "$count" -lt 1 ]; then
+              echo "pull request has no commits" >&2
+              return 1
+            fi
+            bad="$(printf '%s\n' "$rows" | awk -F '\t' 'NF && ($2 != "dependabot[bot]" || $3 != "true") { print }')"
+            if [ -n "$bad" ]; then
+              echo "a commit is not a verified Dependabot commit" >&2
+              printf '%s\n' "$bad" >&2
+              return 1
+            fi
+          }
+
+          read_decision() {
+            local errfile checks_json checks_rc
+            errfile="$(mktemp)"
+            set +e
+            checks_json="$(gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json name,state,bucket,workflow 2>"$errfile")"
+            checks_rc=$?
+            set -e
+            if [ "$checks_rc" -ne 0 ]; then
+              if grep -q 'no checks reported' "$errfile"; then
+                rm -f "$errfile"
+                echo "no checks reported yet" >&2
+                echo pending
+                return 0
+              fi
+              cat "$errfile" >&2
+              rm -f "$errfile"
+              return 2
+            fi
+            rm -f "$errfile"
+            printf '%s' "$checks_json" | python3 "$py" rollup
+          }
+
+          deadline=$((SECONDS + wait_seconds))
+          fail_since=
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            set +e
+            sha="$(pr_gate)"
+            gate_rc=$?
+            set -e
+            if [ "$gate_rc" -eq 1 ]; then
+              echo "::notice title=Dependabot auto-merge::not merging"
+              exit 0
+            fi
+            if [ "$gate_rc" -ne 0 ]; then
+              exit "$gate_rc"
+            fi
+
+            set +e
+            decision="$(read_decision)"
+            decision_rc=$?
+            set -e
+            if [ "$decision_rc" -ne 0 ]; then
+              exit "$decision_rc"
+            fi
+
+            if [ "$decision" = "ready" ]; then
+              set +e
+              sha2="$(pr_gate)"
+              gate_rc=$?
+              set -e
+              if [ "$gate_rc" -eq 1 ]; then
+                echo "::notice title=Dependabot auto-merge::not merging"
+                exit 0
+              fi
+              if [ "$gate_rc" -ne 0 ]; then
+                exit "$gate_rc"
+              fi
+              if [ "$sha2" != "$sha" ]; then
+                echo "head moved from $sha to $sha2; checking the new head"
+                fail_since=
+                continue
+              fi
+              set +e
+              commits_ok
+              commits_rc=$?
+              set -e
+              if [ "$commits_rc" -eq 1 ]; then
+                echo "::warning title=Dependabot auto-merge::not merging; a commit is not a verified Dependabot commit"
+                exit 0
+              fi
+              if [ "$commits_rc" -ne 0 ]; then
+                exit "$commits_rc"
+              fi
+              gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+                --squash --match-head-commit "$sha"
+              echo "squash-merged $sha"
+              exit 0
+            fi
+
+            if [ "$decision" = "fail" ] || [ "$decision" = "cancel" ]; then
+              if [ -z "$fail_since" ]; then
+                fail_since=$SECONDS
+                echo "checks $decision; waiting up to ${fail_grace}s in case a job is re-run"
+              fi
+              if [ $((SECONDS - fail_since)) -ge "$fail_grace" ]; then
+                echo "::warning title=Dependabot auto-merge::not merging; checks $decision"
+                exit 0
+              fi
+            else
+              fail_since=
+              echo "checks $decision on $sha"
+            fi
+
+            if [ "$poll_seconds" -gt 0 ]; then
+              sleep "$poll_seconds"
+            fi
+          done
+
+          echo "::warning title=Dependabot auto-merge::timed out waiting for checks; not merging"
+          exit 0
