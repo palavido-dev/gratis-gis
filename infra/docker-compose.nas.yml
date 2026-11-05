@@ -84,8 +84,9 @@ services:
 
         Runs inside the bootstrap container (python:3.12-alpine). On an empty
         volume it generates secrets, a Keycloak realm, and a Caddyfile, then
-        prints the address and the admin password. A second start keeps the
-        same secrets.
+        prints the address. The admin password is printed only when the
+        secrets are first created, and it is not written to a file. A second
+        start keeps the same secrets and does not print the password again.
 
         No default passwords. Secrets are random per install.
         """
@@ -493,6 +494,20 @@ services:
             }
 
 
+        # Same headers as the production Caddyfile, without HSTS. HSTS on a
+        # plain-HTTP LAN address would pin the browser to HTTPS and break
+        # the default install. The portal page also sends its own content
+        # security policy from portal-web.
+        LAN_SECURITY_HEADERS = """\theader {
+        \t\tX-Content-Type-Options nosniff
+        \t\tX-Frame-Options DENY
+        \t\tReferrer-Policy strict-origin-when-cross-origin
+        \t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+        \t\t-Server
+        \t}
+        """
+
+
         def caddy_lan(port: str, tls: str) -> str:
             tls_line = "\ttls internal\n" if tls == "internal" else ""
             site = f":{port}"
@@ -506,6 +521,7 @@ services:
         	request_body {{
         		max_size 1GB
         	}}
+        {LAN_SECURITY_HEADERS}
 
         	# Keycloak lives under /auth on this same address. The admin
         	# API and the master realm stay closed from the browser. The
@@ -578,6 +594,13 @@ services:
         	}}
         	handle {{
         		reverse_proxy portal-web:3000
+        	}}
+        	header {{
+        		X-Content-Type-Options nosniff
+        		X-Frame-Options DENY
+        		Referrer-Policy strict-origin-when-cross-origin
+        		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+        		-Server
         	}}
         }}
 
@@ -976,19 +999,31 @@ services:
             return default
 
 
-        def banner(values: dict[str, str]) -> str:
+        def banner(values: dict[str, str], *, reveal_password: bool) -> str:
             http_port = _url_port(values["PUBLIC_URL"], "8080")
             s3_port = _url_port(values["MINIO_PUBLIC_BASE"], "8900")
+            if reveal_password:
+                password = (
+                    f"Password:           {values['INITIAL_USER_PASSWORD']}\n"
+                    "Keycloak will ask you to change this password.\n"
+                    "This password is printed only on the first start. It is not\n"
+                    "written to a file. Copy it now, then change it before you\n"
+                    "share this log. Do not post it publicly.\n"
+                )
+            else:
+                password = (
+                    "The first-start admin password is not printed again.\n"
+                    "Sign in with the password you chose, or delete this app's\n"
+                    "volumes to generate a new one.\n"
+                )
             return (
                 "\n========== GratisGIS ==========\n"
                 f"Open this address:  {values['PUBLIC_URL']}\n"
                 "User:               admin\n"
-                f"Password:           {values['INITIAL_USER_PASSWORD']}\n"
-                "Keycloak will ask you to change this password.\n"
+                f"{password}"
                 "Uploads use:        "
                 f"{values['MINIO_PUBLIC_BASE']}\n"
                 f"Do not forward ports {http_port} or {s3_port} on your router.\n"
-                "This log contains the admin password. Do not post it publicly.\n"
                 "===============================\n"
             )
 
@@ -1007,7 +1042,8 @@ services:
                 "When port 8080 is already in use, change GRATIS_HTTP_PORT at the\n"
                 "top of the file and use that same port in GRATIS_BASE_URL.\n"
                 "\n"
-                "This log contains the admin password once startup succeeds.\n"
+                "The first-start admin password is printed once, only when\n"
+                "startup succeeds on an empty volume. It is not written to a file.\n"
                 "Do not post it publicly.\n"
                 "===============================\n"
             )
@@ -1070,7 +1106,8 @@ services:
             caddy_path = boot / "Caddyfile"
             caddy_path.write_text(caddy, encoding="utf-8")
             caddy_path.chmod(0o644)
-            text = banner(values)
+            first_boot = previous is None
+            text = banner(values, reveal_password=first_boot)
             if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
                 text += (
                     "WARN: the address changed after the first start.\n"
@@ -1078,7 +1115,12 @@ services:
                     "WARN: and start again so Keycloak learns the new address.\n"
                     "WARN: If Keycloak never became healthy, keep the volumes.\n"
                 )
-            (boot / "LOGIN.txt").write_text(text, encoding="utf-8")
+            # Older installs wrote the admin password to LOGIN.txt on this
+            # volume, which every container can read. Remove it. The password
+            # is not written again.
+            login_txt = boot / "LOGIN.txt"
+            if login_txt.exists():
+                login_txt.unlink()
             # ready is last so Keycloak and Silo never read a half-written boot.
             ready.write_text("ok\n", encoding="utf-8")
             print(text, flush=True)

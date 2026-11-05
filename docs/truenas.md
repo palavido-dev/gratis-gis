@@ -1,8 +1,9 @@
 # GratisGIS on a home NAS
 
-Paste one file. The stack creates its own passwords and prints them
-in the logs. You do not need a domain name, a git checkout, or to
-move the TrueNAS website off ports 80 and 443.
+Paste one file. The stack creates its own passwords. The admin
+password is printed once, on the first start, and is not written to
+a file. You do not need a domain name, a git checkout, or to move
+the TrueNAS website off ports 80 and 443.
 
 This is for TrueNAS SCALE 25.10 or newer, and for Dockge. The same
 file is `infra/docker-compose.nas.yml`.
@@ -47,8 +48,11 @@ This log contains the admin password. Do not post it publicly.
 Open that address from a computer on your home network. Sign in as
 `admin`. Keycloak asks you to choose your own password.
 
-The bootstrap log contains the admin password. Keep it to yourself.
-Do not post it on a forum, in a GitHub issue, or in a screenshot.
+The password appears in the bootstrap log only on that first start.
+Copy it before you change it. A later restart does not print it
+again, and it is not saved as a file on the volume. Do not post the
+first-start log on a forum, in a GitHub issue, or in a screenshot.
+If you already changed the password, you do not need that log.
 
 Dockge works the same way: create a stack, paste the same file,
 leave the env box empty, deploy. Then read the bootstrap logs.
@@ -76,17 +80,28 @@ prints a new password.
 
 ## Away from home (optional)
 
-**Tailscale.** You already have it on the NAS. In the Tailscale
-admin page, copy the NAS address that starts with `100.`. Before
-the first start, set:
+**Tailscale HTTPS is the recommended way to open the portal from a
+phone or a laptop that is not on the same LAN.** In the Tailscale
+admin page, turn on MagicDNS and HTTPS certificates. The NAS gets a
+name like `mynas.tail1234.ts.net`. Use Tailscale Serve so that name
+is HTTPS in the browser and proxies to the portal's HTTP port on
+the NAS. Before the first start, set:
 
 ```yaml
-GRATIS_BASE_URL: http://100.x.x.x:8080
+GRATIS_BASE_URL: https://mynas.tail1234.ts.net
 ```
 
-Open that address from any device on your Tailnet. Do not turn on
-Funnel, and do not forward ports 8080 or 8900 on your router.
-Tailscale encrypts the connection. The browser still shows `http`.
+Leave the portal itself on plain HTTP. Serve terminates TLS. Do not
+turn on Funnel, and do not forward ports 8080 or 8900 on your router.
+The sign-in cookie is then marked Secure, because the address you
+open starts with `https://`.
+
+The default install is still `http://192.168.x.x:8080` on your LAN.
+That does not need Tailscale, and it does not need a certificate.
+Plain `http://100.x.x.x:8080` on the tailnet also still works.
+Tailscale encrypts that path. The browser shows `http`, and the
+sign-in cookie is not marked Secure. Use the HTTPS name above when
+the tailnet is shared with other people.
 
 **Cloudflare Tunnel.** Point one hostname at `http://<nas-ip>:8080`
 and a second hostname at `http://<nas-ip>:8900`. Before the first
@@ -107,9 +122,12 @@ shape as the VPS install in [deployment.md](./deployment.md).
 ## What this stack does not do
 
 - It speaks plain HTTP on your LAN. There is no certificate warning.
-  Do not publish ports 8080 or 8900 to the internet. If you set
-  `GRATIS_TLS: internal`, Caddy makes a private certificate and the
-  browser warns until you trust that certificate.
+  That is the default, and it stays that way. Do not publish ports
+  8080 or 8900 to the internet. For a phone or a laptop that is not
+  on that LAN, use Tailscale HTTPS above. If you set
+  `GRATIS_TLS: internal` without Tailscale's certificate, Caddy
+  makes a private certificate and the browser warns until you trust
+  that certificate.
 - The sign-in page uses Keycloak's own theme.
 - One API container and one Chromium. `GRATIS_ANALYSIS` at the top
   of the file defaults to `on`, which runs lidar and terrain
@@ -129,10 +147,12 @@ shape as the VPS install in [deployment.md](./deployment.md).
 - The Keycloak master realm and its admin API are not reachable
   from the browser.
 
-Passwords are random for each install. They are printed in the
-bootstrap logs and stored on the Docker volume named `boot`. Copy
-the portal password somewhere safe. Deleting that volume creates
-new passwords and an empty database.
+Passwords are random for each install. They are stored on the
+Docker volume named `boot`. The portal admin password is printed
+once, on the first start, and then only lives in Keycloak after you
+change it. Deleting the `boot` volume creates new passwords. Deleting
+the database volume creates an empty database. Keep both if you are
+only updating the stack.
 
 ## Updates
 
