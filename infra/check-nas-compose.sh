@@ -128,6 +128,17 @@ assert web["webOrigins"] == ["http://192.168.4.15:8080"]
 assert realm["sslRequired"] == "none"
 assert realm["attributes"]["frontendUrl"] == "http://192.168.4.15:8080/auth"
 assert "portal-api-admin" in {client["clientId"] for client in realm["clients"]}
+sa = next(
+    user for user in realm["users"]
+    if user["username"] == "service-account-portal-api-admin"
+)
+assert sa["serviceAccountClientId"] == "portal-api-admin"
+assert set(sa["clientRoles"]["realm-management"]) == {
+    "manage-users",
+    "manage-realm",
+    "view-identity-providers",
+    "manage-identity-providers",
+}
 
 caddy = (boot / "Caddyfile").read_text()
 assert ":8080" in caddy

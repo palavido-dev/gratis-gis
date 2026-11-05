@@ -123,7 +123,7 @@ __NAS_INIT_BODY__
         set -a
         . /boot/env
         set +a
-        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --proxy-headers=xforwarded --import-realm
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --health-enabled=true --proxy-headers=xforwarded --import-realm
     environment:
       JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
     volumes:

@@ -128,6 +128,134 @@ docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
   curl -fsS http://127.0.0.1:4000/api/portal-info \
   | python3 -c 'import json,sys; info=json.load(sys.stdin); assert info["features"]["analysis"] is True, info'
 
+# The Users page calls Keycloak as portal-api-admin. That service
+# account must be able to list users, and an admin must be able to
+# create a data layer. Both failed on a real NAS install.
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
+import json, urllib.parse, urllib.request, urllib.error
+from pathlib import Path
+
+def env():
+    values = {}
+    for raw in Path("/boot/env").read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+def call(url, data=None, headers=None, method=None):
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+vals = env()
+base = vals["KEYCLOAK_INTERNAL_URL"].rstrip("/")
+status, raw = call(
+    f"{base}/realms/gratis-gis/protocol/openid-connect/token",
+    urllib.parse.urlencode({
+        "client_id": "portal-api-admin",
+        "client_secret": vals["KEYCLOAK_ADMIN_CLIENT_SECRET"],
+        "grant_type": "client_credentials",
+    }).encode(),
+    {"Content-Type": "application/x-www-form-urlencoded"},
+    "POST",
+)
+if status != 200:
+    raise SystemExit(f"admin client token HTTP {status}")
+sa = json.loads(raw)["access_token"]
+status, raw = call(
+    f"{base}/admin/realms/gratis-gis/users?max=20",
+    headers={"Authorization": f"Bearer {sa}", "Accept": "application/json"},
+)
+if status != 200:
+    raise SystemExit(f"list users HTTP {status}: {raw[:200]!r}")
+users = json.loads(raw)
+if not any(user.get("username") == "admin" for user in users):
+    raise SystemExit(f"admin user missing from {users}")
+
+status, raw = call(
+    f"{base}/realms/master/protocol/openid-connect/token",
+    urllib.parse.urlencode({
+        "client_id": "admin-cli",
+        "username": "admin",
+        "password": vals["KEYCLOAK_ADMIN_PASSWORD"],
+        "grant_type": "password",
+    }).encode(),
+    {"Content-Type": "application/x-www-form-urlencoded"},
+    "POST",
+)
+if status != 200:
+    raise SystemExit(f"master token HTTP {status}")
+admin = json.loads(raw)["access_token"]
+auth = {"Authorization": f"Bearer {admin}", "Accept": "application/json"}
+status, raw = call(
+    f"{base}/admin/realms/gratis-gis/clients?clientId=portal-web",
+    headers=auth,
+)
+client = json.loads(raw)[0]
+client["directAccessGrantsEnabled"] = True
+status, _ = call(
+    f"{base}/admin/realms/gratis-gis/clients/{client['id']}",
+    json.dumps(client).encode(),
+    {**auth, "Content-Type": "application/json"},
+    "PUT",
+)
+if status not in (200, 204):
+    raise SystemExit(f"enable password grant HTTP {status}")
+status, raw = call(
+    f"{base}/realms/gratis-gis/protocol/openid-connect/token",
+    urllib.parse.urlencode({
+        "client_id": "portal-web",
+        "username": "admin",
+        "password": vals["INITIAL_USER_PASSWORD"],
+        "grant_type": "password",
+    }).encode(),
+    {"Content-Type": "application/x-www-form-urlencoded"},
+    "POST",
+)
+if status != 200:
+    raise SystemExit(f"user token HTTP {status}")
+token = json.loads(raw)["access_token"]
+body = {
+    "type": "data_layer",
+    "title": "ci probe layer",
+    "data": {
+        "version": 3,
+        "storageType": "postgis",
+        "layers": [{
+            "id": "11111111-1111-4111-8111-111111111111",
+            "label": "ci probe layer",
+            "name": "ci-probe-layer",
+            "geometryType": "point",
+            "fields": [{
+                "name": "name",
+                "type": "string",
+                "label": "Name",
+                "nullable": True,
+            }],
+            "editingEnabled": True,
+            "attachmentsEnabled": False,
+        }],
+    },
+}
+status, raw = call(
+    "http://portal-api:4000/api/items",
+    json.dumps(body).encode(),
+    {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    "POST",
+)
+if status != 201:
+    raise SystemExit(f"create layer HTTP {status}: {raw[:400]!r}")
+print("users list and data layer ok")
+PY
+
 # Analysis off: the worker stays up without running jobs, and the API
 # refuses a derive call with 503. Different host ports so this can
 # follow the first boot after that project is removed.

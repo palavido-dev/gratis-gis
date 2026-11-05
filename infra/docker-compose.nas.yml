@@ -352,6 +352,18 @@ services:
             return [one("org"), one("org_role")]
 
 
+        # Same realm-management roles the dev realm and deploy.sh grant.
+        # manage-users is what lets the Users page list people. Without it
+        # Keycloak answers 403. The service account cannot grant these to
+        # itself, so the master admin does it after import too.
+        ADMIN_CLIENT_ROLES = (
+            "manage-users",
+            "manage-realm",
+            "view-identity-providers",
+            "manage-identity-providers",
+        )
+
+
         def build_realm(values: dict[str, str]) -> dict:
             public = values["PUBLIC_URL"]
             auth = values["KEYCLOAK_URL"]
@@ -456,7 +468,15 @@ services:
                             "org_role": ["admin"],
                         },
                         "realmRoles": ["admin", "offline_access"],
-                    }
+                    },
+                    {
+                        "username": "service-account-portal-api-admin",
+                        "enabled": True,
+                        "serviceAccountClientId": "portal-api-admin",
+                        "clientRoles": {
+                            "realm-management": list(ADMIN_CLIENT_ROLES),
+                        },
+                    },
                 ],
             }
 
@@ -770,13 +790,87 @@ services:
                 return exc.code, exc.read()
 
 
+        def grant_service_account_roles(internal: str, auth: dict[str, str]) -> None:
+            """Give portal-api-admin the roles the Users page and sign-in settings need.
+
+            Realm import grants them on a first boot. An install that already
+            imported the realm, including one that is only restarted, does not
+            import again, so this runs on every start and is safe to repeat.
+            """
+            status, raw = _request(
+                f"{internal}/admin/realms/gratis-gis/clients?clientId=realm-management",
+                "GET",
+                None,
+                auth,
+            )
+            if status != 200:
+                print(f"WARN: could not find realm-management (HTTP {status}).")
+                return
+            found = json.loads(raw)
+            if not found:
+                print("WARN: realm-management client is missing.")
+                return
+            realm_mgmt = found[0]["id"]
+            roles = []
+            for name in ADMIN_CLIENT_ROLES:
+                status, raw = _request(
+                    f"{internal}/admin/realms/gratis-gis/clients/{realm_mgmt}/roles/{name}",
+                    "GET",
+                    None,
+                    auth,
+                )
+                if status != 200:
+                    print(f"WARN: realm-management role {name} is missing (HTTP {status}).")
+                    continue
+                role = json.loads(raw)
+                roles.append({"id": role["id"], "name": role["name"]})
+            if not roles:
+                return
+            status, raw = _request(
+                f"{internal}/admin/realms/gratis-gis/clients?clientId=portal-api-admin",
+                "GET",
+                None,
+                auth,
+            )
+            clients = json.loads(raw) if status == 200 else []
+            if not clients:
+                print(f"WARN: portal-api-admin client is missing (HTTP {status}).")
+                return
+            status, raw = _request(
+                f"{internal}/admin/realms/gratis-gis/clients/{clients[0]['id']}/service-account-user",
+                "GET",
+                None,
+                auth,
+            )
+            if status != 200:
+                print(f"WARN: could not read the admin service account (HTTP {status}).")
+                return
+            sa_id = json.loads(raw)["id"]
+            status, _ = _request(
+                f"{internal}/admin/realms/gratis-gis/users/{sa_id}/role-mappings/clients/{realm_mgmt}",
+                "POST",
+                json.dumps(roles).encode(),
+                {**auth, "Content-Type": "application/json"},
+            )
+            if status not in (200, 204):
+                print(f"WARN: could not grant realm-management roles (HTTP {status}).", flush=True)
+                return
+            print("Keycloak admin service account can list and manage users.", flush=True)
+
+
         def patch_keycloak(values: dict[str, str]) -> None:
             internal = values["KEYCLOAK_INTERNAL_URL"].rstrip("/")
+            # KC_HTTP_RELATIVE_PATH is /auth. Keycloak 26 serves health on the
+            # management port under that same prefix, not at /health/ready.
+            relative = (values.get("KC_HTTP_RELATIVE_PATH") or "").rstrip("/")
+            if relative and not relative.startswith("/"):
+                relative = "/" + relative
+            health_url = f"http://keycloak:9000{relative}/health/ready"
             deadline = time.time() + 180
             ready = False
             while time.time() < deadline:
                 try:
-                    status, _ = _request("http://keycloak:9000/health/ready", "GET", None, {})
+                    status, _ = _request(health_url, "GET", None, {})
                     if status == 200:
                         ready = True
                         break
@@ -805,6 +899,7 @@ services:
                 return
             token = json.loads(raw).get("access_token") or ""
             auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            grant_service_account_roles(internal, auth)
             status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
             if status != 200:
                 print(f"WARN: could not read the user-profile schema (HTTP {status}).")
@@ -1031,7 +1126,7 @@ services:
         set -a
         . /boot/env
         set +a
-        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --proxy-headers=xforwarded --import-realm
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --health-enabled=true --proxy-headers=xforwarded --import-realm
     environment:
       JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
     volumes:
