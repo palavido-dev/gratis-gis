@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Runs once, on first postgres container boot in PRODUCTION.
 -- See init-prod-db.sh for the Keycloak role + database creation
 -- (split out so we can pass the password via psql -v).

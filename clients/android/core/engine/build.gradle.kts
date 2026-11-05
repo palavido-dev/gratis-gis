@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // :core:engine hosts the field engine bundle (packages/field-engine) in
 // an embedded QuickJS and exposes its one entry point to Kotlin. The
 // bundle is a build artifact of the pnpm workspace, copied in as an
