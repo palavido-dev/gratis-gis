@@ -104,7 +104,7 @@ describe('request ids', () => {
     const req = {
       header: (name: string) =>
         name === 'x-request-id' ? 'good-id-1' : undefined,
-    } as Request;
+    } as unknown as Request;
     const res = {
       setHeader: (name: string, value: string) => {
         headers[name] = value;
@@ -176,9 +176,9 @@ describe('OgcProblemJsonFilter portal errors', () => {
       message: 'Creating items requires the contributor or admin role.',
       requestId: 'abc12345abcd',
     });
-    expect(callerIsAdmin({ user: { orgRole: 'contributor' } } as Request)).toBe(
-      false,
-    );
+    expect(
+      callerIsAdmin({ user: { orgRole: 'contributor' } } as unknown as Request),
+    ).toBe(false);
   });
 
   it('keeps OGC routes on problem+json', () => {
