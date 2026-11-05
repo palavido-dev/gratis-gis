@@ -19,8 +19,8 @@ import {
 
 import { AdminGuard } from './admin.guard.js';
 import {
-  assertSafeOutboundUrl,
   isPrivateOrLoopbackHost,
+  safeFetch,
   UnsafeOutboundUrlError,
 } from '../common/net-guards.js';
 
@@ -814,12 +814,10 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
     // rebinding case where a public hostname resolves to an internal
     // IP. Throws UnsafeOutboundUrlError on a private resolution; we
     // surface it as a 400 so the admin sees a useful message.
-    const safe = await assertSafeOutboundUrl(url);
-    const res = await fetch(safe, {
+    // safeFetch re-checks every redirect. A plain fetch() would
+    // follow a public URL that 302s to a private address.
+    const res = await safeFetch(url, {
       signal: ctrl.signal,
-      // Force a small user-agent so upstream logs see "GratisGIS"
-      // instead of "node". Some services (looking at you, ArcGIS
-      // Online tiers) gate the JSON metadata behind a UA filter.
       headers: { 'user-agent': 'GratisGIS/probe' },
     });
     return res;

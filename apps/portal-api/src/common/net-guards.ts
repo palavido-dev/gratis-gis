@@ -54,6 +54,9 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     // Carrier-grade NAT (RFC 6598).  Not strictly necessary today
     // but cheap to add and matches the spirit of the rule.
     if (aN === 100 && bN >= 64 && bN <= 127) return true;
+    // Multicast and reserved (224.0.0.0/4 and above, including
+    // 255.255.255.255).
+    if (aN >= 224) return true;
     return false;
   }
   // IPv6.  URL parsing wraps v6 hosts in brackets while DNS-lookup
@@ -68,6 +71,11 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     if (bare === '::1' || bare === '::') return true;
     // Unique-local fc00::/7.
     if (bare.startsWith('fc') || bare.startsWith('fd')) return true;
+    // Link-local fe80::/10 and multicast ff00::/8. The first group
+    // is enough: fe80-febf, and ff00-ffff.
+    const head = bare.split('%')[0]?.split(':')[0] ?? '';
+    if (/^fe[89ab][0-9a-f]$/.test(head)) return true;
+    if (/^ff[0-9a-f]{2}$/.test(head)) return true;
     // IPv4-mapped addresses (::ffff:a.b.c.d, or the equivalent
     // hex groups ::ffff:aabb:ccdd).  The socket connects to the
     // embedded IPv4 address, so the IPv4 rules decide; without
@@ -127,13 +135,20 @@ export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
   if (isPrivateOrLoopbackHost(host)) {
     throw new UnsafeOutboundUrlError(`private host: ${host}`);
   }
-  // DNS-rebinding defense: resolve and check.
+  // DNS-rebinding defense: resolve every address and check.
+  // One public A record beside a private one is still a private host.
   try {
-    const { address } = await dnsLookup(host);
-    if (isPrivateOrLoopbackHost(address)) {
-      throw new UnsafeOutboundUrlError(
-        `host ${host} resolves to private IP ${address}`,
-      );
+    const resolved = await dnsLookup(host, { all: true, verbatim: true });
+    const answers = Array.isArray(resolved) ? resolved : [resolved];
+    if (answers.length === 0) {
+      throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
+    }
+    for (const { address } of answers) {
+      if (isPrivateOrLoopbackHost(address)) {
+        throw new UnsafeOutboundUrlError(
+          `host ${host} resolves to private IP ${address}`,
+        );
+      }
     }
   } catch (e) {
     if (e instanceof UnsafeOutboundUrlError) throw e;
