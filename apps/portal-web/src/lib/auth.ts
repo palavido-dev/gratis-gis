@@ -287,6 +287,19 @@ export const authOptions: NextAuthOptions = {
   },
 };
 
+/**
+ * Drop the Keycloak access token before a session JSON body is sent
+ * to the browser. Server code still reads the token from the JWT
+ * callback via getServerSession. The cookie stays httpOnly.
+ */
+export function sessionWithoutAccessToken(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (!('accessToken' in body)) return body;
+  const copy = { ...(body as Record<string, unknown>) };
+  delete copy.accessToken;
+  return copy;
+}
+
 export type SessionWithToken = import('next-auth').Session & {
   accessToken?: string;
   error?: string;

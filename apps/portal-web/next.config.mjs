@@ -13,9 +13,7 @@ const nextConfig = {
   // every asset URL; the Docker build stage sets GG_DEPLOYMENT_ID
   // per image build. Standalone output serializes the resolved
   // config, so the runtime stage sees the same id without the env.
-  ...(process.env.GG_DEPLOYMENT_ID
-    ? { deploymentId: process.env.GG_DEPLOYMENT_ID }
-    : {}),
+  ...(process.env.GG_DEPLOYMENT_ID ? { deploymentId: process.env.GG_DEPLOYMENT_ID } : {}),
   // Don't ship `x-powered-by: Next.js` on every response.  Pure
   // information disclosure, no functional reason to advertise the
   // framework + version to every visitor.
@@ -58,6 +56,46 @@ const nextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: contentSecurityPolicy,
+          },
+        ],
+      },
+    ];
+  },
 };
+
+/**
+ * Document policy for portal pages.
+ *
+ * `script-src-attr 'none'` refuses inline event handlers. Next and
+ * MapLibre still need inline scripts, eval for some WASM loaders,
+ * and blob workers, so `script-src` stays loose on purpose.
+ * Tile and imagery hosts are chosen by the map author and may be
+ * plain HTTP on a LAN, so images and connections allow http and
+ * https rather than a host list.
+ */
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
+  "script-src-attr 'none'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https: http:",
+  "font-src 'self' data:",
+  "media-src 'self' blob: https: http:",
+  "connect-src 'self' https: http: ws: wss: blob: data:",
+  "worker-src 'self' blob:",
+  "frame-src 'self' blob:",
+].join('; ');
 
 export default nextConfig;

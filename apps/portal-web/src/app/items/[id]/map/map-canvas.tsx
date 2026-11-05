@@ -25,6 +25,7 @@ import {
   dashArrayFor,
   effectiveLayerScale,
   sanitizeAttributionHtml,
+  sanitizePopupHtml,
   scaledStyleExpression,
 } from '@gratis-gis/shared-types';
 import {
@@ -4222,7 +4223,7 @@ function renderPopupHtml(
   // branch double-escaped (e.g. "Erickson's" rendered as
   // "Erickson&#39;s" in the popup heading).
   const title = layer.popup.titleTemplate
-    ? renderTemplate(layer.popup.titleTemplate, props, locale)
+    ? sanitizePopupHtml(renderTemplate(layer.popup.titleTemplate, props, locale))
     : escapeHtml(layer.title);
 
   // Body shape depends on mode. Template mode passes through author
@@ -4233,10 +4234,8 @@ function renderPopupHtml(
   // the dedicated metadata footer renders them explicitly.
   let body: string;
   if (layer.popup.mode === 'template' && layer.popup.bodyTemplate) {
-    body = `<div class="gg-popup-body">${renderTemplate(
-      layer.popup.bodyTemplate,
-      props,
-      locale,
+    body = `<div class="gg-popup-body">${sanitizePopupHtml(
+      renderTemplate(layer.popup.bodyTemplate, props, locale),
     )}</div>`;
   } else {
     const keys =

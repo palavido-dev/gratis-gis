@@ -24,6 +24,7 @@
  * the two consumers diverge on HTML escaping).
  */
 import { useMemo, useRef } from 'react';
+import { sanitizePopupHtml } from '@gratis-gis/shared-types';
 import { formatDateTime, formatNumber } from '@/lib/i18n/format';
 import { useLocale } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
@@ -115,16 +116,15 @@ export function TemplateInput({
   const preview = useMemo(() => {
     if (!sampleProperties) return null;
     if (!value.trim()) return null;
-    return renderTemplate(value, sampleProperties, locale);
-  }, [value, sampleProperties, locale]);
+    const rendered = renderTemplate(value, sampleProperties, locale);
+    return previewAsHtml ? sanitizePopupHtml(rendered) : rendered;
+  }, [value, sampleProperties, locale, previewAsHtml]);
 
   return (
     <div className="space-y-2">
       {fields.length > 0 ? (
         <div>
-          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-            Insert a field
-          </p>
+          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Insert a field</p>
           <div className="flex flex-wrap gap-1">
             {fields.map((f) => (
               <button
@@ -143,9 +143,8 @@ export function TemplateInput({
         </div>
       ) : (
         <p className="text-2xs text-muted">
-          No field schema loaded yet. Type your template directly, then
-          re-open this layer to see field chips once the canvas reports
-          the schema.
+          No field schema loaded yet. Type your template directly, then re-open this layer to see
+          field chips once the canvas reports the schema.
         </p>
       )}
 
@@ -205,9 +204,7 @@ export function TemplateInput({
 
       {preview !== null ? (
         <div>
-          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
-            Preview
-          </p>
+          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Preview</p>
           {previewAsHtml ? (
             <div
               className="gg-popup rounded border border-dashed border-border bg-surface-1 p-2 text-xs"
@@ -216,9 +213,7 @@ export function TemplateInput({
             />
           ) : (
             <p className="truncate rounded border border-dashed border-border bg-surface-1 p-2 text-xs text-ink-1">
-              {preview || (
-                <span className="italic text-muted">(empty)</span>
-              )}
+              {preview || <span className="italic text-muted">(empty)</span>}
             </p>
           )}
         </div>
@@ -270,13 +265,9 @@ function renderTemplate(
       } else if (fmt === 'date') {
         const d = new Date(str);
         if (!Number.isNaN(d.getTime())) {
-          const style =
-            (arg?.trim() as 'short' | 'long' | 'full' | undefined) ??
-            'medium';
+          const style = (arg?.trim() as 'short' | 'long' | 'full' | undefined) ?? 'medium';
           try {
-            out = new Intl.DateTimeFormat(locale, { dateStyle: style }).format(
-              d,
-            );
+            out = new Intl.DateTimeFormat(locale, { dateStyle: style }).format(d);
           } catch {
             out = formatDateTime(d, locale);
           }
