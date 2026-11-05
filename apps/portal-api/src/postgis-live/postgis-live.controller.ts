@@ -3,12 +3,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
   IsInt,
@@ -23,6 +25,7 @@ import type { MapLayerFilter } from '@gratis-gis/shared-types';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { hasCapability } from '../auth/capabilities.js';
 import { PostgisLiveService_ } from './postgis-live.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { CredentialService } from '../items/credential.service.js';
@@ -65,11 +68,18 @@ class ReadFeaturesDto {
   @IsOptional() @IsInt() limit?: number;
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function assertUuid(name: string, value: string): void {
   if (!UUID_RE.test(value)) {
     throw new BadRequestException(`${name} must be a UUID`);
+  }
+}
+
+function assertCanAuthorPostgis(user: AuthUser): void {
+  if (!hasCapability(user, 'can_publish_items')) {
+    throw new ForbiddenException(
+      'Creating a PostGIS connection requires the contributor or admin role.',
+    );
   }
 }
 
@@ -90,11 +100,10 @@ export class PostgisLiveController {
    * the wizard so the user gets a single Save click instead of
    * three.
    */
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('create')
-  async create(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateConnectionDto,
-  ) {
+  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateConnectionDto) {
+    assertCanAuthorPostgis(user);
     // 1. Test the connection BEFORE creating the item so a bad
     //    password / wrong port doesn't leave a half-configured
     //    service item lying around.
@@ -107,9 +116,7 @@ export class PostgisLiveController {
       ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
     });
     if (!test.ok) {
-      throw new BadRequestException(
-        `Connection failed: ${test.error}`,
-      );
+      throw new BadRequestException(`Connection failed: ${test.error}`);
     }
     // 2. Create the service item with empty layers[].
     const itemData = {
@@ -157,8 +164,10 @@ export class PostgisLiveController {
    * "Test connection" button hits this; on success the wizard
    * proceeds to the probe step and then to save.
    */
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('test-connection')
-  testConnection(@Body() dto: TestConnectionDto) {
+  testConnection(@CurrentUser() user: AuthUser, @Body() dto: TestConnectionDto) {
+    assertCanAuthorPostgis(user);
     return this.svc.testConnection(dto);
   }
 
@@ -168,10 +177,7 @@ export class PostgisLiveController {
    * `layers[]`) and on demand from the service detail page.
    */
   @Post(':serviceItemId/probe')
-  probe(
-    @CurrentUser() user: AuthUser,
-    @Param('serviceItemId') serviceItemId: string,
-  ) {
+  probe(@CurrentUser() user: AuthUser, @Param('serviceItemId') serviceItemId: string) {
     assertUuid('serviceItemId', serviceItemId);
     return this.svc.probe(user, serviceItemId);
   }

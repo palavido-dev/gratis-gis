@@ -2,7 +2,11 @@
 import { BadRequestException } from '@nestjs/common';
 import type { MapLayerFilter } from '@gratis-gis/shared-types';
 
-import { compileFilter } from './postgis-live.service.js';
+import {
+  compileFilter,
+  normalizeStatementTimeout,
+  safeConnectionError,
+} from './postgis-live.service.js';
 
 describe('compileFilter (#158 Phase 1.5)', () => {
   const allowed = new Set(['acres', 'zoning', 'owner']);
@@ -49,9 +53,7 @@ describe('compileFilter (#158 Phase 1.5)', () => {
       ],
     };
     const out = compileFilter(filter, allowed, 0)!;
-    expect(out.sql).toBe(
-      '(("acres")::numeric >= $1::numeric) AND ("zoning" = $2)',
-    );
+    expect(out.sql).toBe('(("acres")::numeric >= $1::numeric) AND ("zoning" = $2)');
     expect(out.params).toEqual([5, 'R1']);
   });
 
@@ -82,9 +84,7 @@ describe('compileFilter (#158 Phase 1.5)', () => {
       combinator: 'all',
       clauses: [{ field: 'snoopy', op: '==', value: 'X' }],
     };
-    expect(() => compileFilter(filter, allowed, 0)).toThrow(
-      BadRequestException,
-    );
+    expect(() => compileFilter(filter, allowed, 0)).toThrow(BadRequestException);
   });
 
   it('quietly drops a clause with a malformed identifier', () => {
@@ -122,5 +122,26 @@ describe('compileFilter (#158 Phase 1.5)', () => {
     };
     const out = compileFilter(filter, allowed, 0)!;
     expect(out.sql).toBe('("zoning" <> $1)');
+  });
+});
+
+describe('statement timeout and connection errors', () => {
+  it('keeps an in-range integer and replaces anything else with the default', () => {
+    expect(normalizeStatementTimeout(10_000)).toBe(10_000);
+    expect(normalizeStatementTimeout(500)).toBe(10_000);
+    expect(normalizeStatementTimeout('10000; select 1')).toBe(10_000);
+    expect(normalizeStatementTimeout(undefined)).toBe(10_000);
+  });
+
+  it('maps driver codes to fixed sentences', () => {
+    expect(
+      safeConnectionError({
+        code: '28P01',
+        message: 'password authentication failed for user "gratisgis"',
+      }),
+    ).toBe('The database rejected that role or password.');
+    expect(safeConnectionError(new Error('connect ECONNREFUSED 172.18.0.2:5432'))).toBe(
+      'Could not connect. Check the host, port, database, role, and password.',
+    );
   });
 });
