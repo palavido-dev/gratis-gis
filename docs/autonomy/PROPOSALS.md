@@ -13,7 +13,9 @@ Do not implement from this file. Developer only takes ids that moved to
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
 
-Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; too large until Analyze param shell and thinner recipe work land.
+No new Researcher hand-off since cycle 17 drained. Nothing ranked for yay/nay this morning.
+
+Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; Analyze param shell landed in v1.1.0, but the DAG remains too large until thinner recipe work is researched again.
 
 ## Decided this week
 
