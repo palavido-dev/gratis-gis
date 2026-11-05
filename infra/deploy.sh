@@ -118,7 +118,16 @@ git log --oneline -1
 # portal-web build arg and the api runtime env below.
 GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
 export GG_VERSION
-echo "Version stamp: ${GG_VERSION:-'(none)'}"
+export GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo "")"
+export INSTALL_TYPE="${INSTALL_TYPE:-vps}"
+if [[ "${GG_DEPLOY_REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  export GG_CHANNEL="${GG_DEPLOY_REF}"
+elif [[ "${GG_DEPLOY_REF}" == "main" ]]; then
+  export GG_CHANNEL=edge
+else
+  export GG_CHANNEL="${GG_CHANNEL:-latest}"
+fi
+echo "Version stamp: ${GG_VERSION:-'(none)'} channel ${GG_CHANNEL} (${INSTALL_TYPE})"
 
 # All the GENERATE placeholders have to be replaced before deploy or
 # Keycloak / Postgres / NextAuth will refuse to start.

@@ -8,6 +8,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Admin **Updates** page. It compares this install with GitHub and
+  tells an admin the backup and restart steps. It does not talk to
+  Docker and it does not update the install itself. `UPDATE_CHECK=off`
+  makes no outbound calls. Published images record `GG_VERSION`,
+  `GIT_SHA`, and `REQUIRED_COMPOSE_REV`.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when
@@ -29,6 +34,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Home NAS installs grant the portal API's Keycloak service account
+  the realm-management roles the Users page needs (`manage-users`
+  and the sign-in settings roles). Keycloak starts with health
+  checks enabled so that grant runs after the realm is up. A
+  restart applies the roles on an install that already imported
+  the realm, without deleting volumes. A fresh boot also creates
+  a data layer as the admin user.
 - Map builder: the basemap menu opens again. The toolbar scrolled
   sideways (`overflow-x-auto`), which also clips vertically, so the
   menu dropping below the header was cut off. The toolbar wraps

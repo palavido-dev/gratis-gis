@@ -594,6 +594,9 @@ services:
       # Deployed ref for /api/portal-info (QGIS plugin discovery and
       # support conversations). Stamped by deploy.sh from git describe.
       GG_VERSION: ${GG_VERSION:-}
+      GIT_SHA: ${GIT_SHA:-}
+      GG_CHANNEL: ${GG_CHANNEL:-}
+      INSTALL_TYPE: ${INSTALL_TYPE:-}
       # Public origin, used to build links in outbound email. This was
       # never passed through, and the code defaults to
       # http://localhost:3000, so every notification email this portal

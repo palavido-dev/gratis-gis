@@ -36,9 +36,14 @@ cd /opt/gratis-gis
 ```
 
 A NAS install that was pasted from `infra/docker-compose.nas.yml`
-does not use this script. Update it by pasting the new file over
-the app and restarting. The passwords live on the `boot` volume and
-are kept. Details are in [truenas.md](./truenas.md).
+does not use this script. An admin opens **Updates**. That page
+shows the running version, the available version, the changelog
+(including lines that start with `Breaking:`), and the steps for
+this install. Take the backup it offers first. If the compose file
+is out of date, paste the new `docker-compose.nas.yml`. If only the
+images moved, Stop then Start in TrueNAS, or click Update in
+Dockge. The passwords live on the `boot` volume and are kept.
+Details are in [truenas.md](./truenas.md).
 
 The deploy script takes the shared deploy lock, fetches from origin
 (tags included), resolves the target ref, hard-resets the checkout to
