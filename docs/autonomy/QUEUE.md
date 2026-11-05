@@ -24,7 +24,8 @@ Ranked for the next morning list. Scoper owns this section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked until Analyze param shell and thinner recipe work land |
+| release-1.2.0 | scoper / CHANGELOG Unreleased | Stamp v1.2.0 from Unreleased | Rank 1 morning 2026-11-05; minor: NAS fixes + Updates + showcase + security |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked: param shell in v1.1.0; needs thinner recipe research before ranking |
 
 ## approved
 

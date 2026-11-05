@@ -8,12 +8,15 @@ the chat post is in [DIGEST.md](./DIGEST.md). Process rules are in
 Do not implement from this file. Developer only takes ids that moved to
 `approved` in [QUEUE.md](./QUEUE.md) after an explicit yay.
 
-## Pending decision (2026-11-03)
+## Pending decision (2026-11-05)
 
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
+| 1 | release-1.2.0 | S | low | Stamp Unreleased into v1.2.0 (NAS user/layer + UUID-on-HTTP fixes, Admin Updates page, showcase dashboards, security hardenings, SPDX/Dependabot process) | Prod still on v1.1.0 while Unreleased holds user-visible NAS fixes and additions; minor bump fits VERSIONING (additions). No Researcher refill yet — this is a process stamp only. |
 
-Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; too large until Analyze param shell and thinner recipe work land.
+Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; Analyze param shell shipped in v1.1.0; still waiting on thinner recipe research.
+
+Resolved outside the loop (not listed): issue [#551](https://github.com/palavido-dev/gratis-gis/issues/551) TrueNAS add-users/data — reporter confirmed working after the UUID-on-`http://` fix; issue still open for Matthew to close.
 
 ## Decided this week
 
