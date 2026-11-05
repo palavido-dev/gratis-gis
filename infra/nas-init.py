@@ -368,7 +368,7 @@ def build_realm(values: dict[str, str]) -> dict:
                 "publicClient": True,
                 "standardFlowEnabled": True,
                 "directAccessGrantsEnabled": False,
-                "redirectUris": ["gratisgis-qgis://auth-callback", "http://127.0.0.1*"],
+                "redirectUris": ["gratisgis-qgis://auth-callback", "http://127.0.0.1:*"],
                 "attributes": {"pkce.code.challenge.method": "S256"},
                 "protocolMappers": org_mappers(),
             },
