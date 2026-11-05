@@ -2,6 +2,7 @@
 import {
   BadRequestException,
   Body,
+  ForbiddenException,
   Controller,
   Delete,
   Get,
@@ -19,6 +20,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { canDeleteMapIcon } from './map-icon-auth.js';
 import { sanitizeSvg } from './svg-sanitizer.js';
 
 const MAX_BYTES = 1024 * 1024; // 1 MB; map icons are KB at most.
@@ -161,6 +163,11 @@ export class MapIconsController {
     });
     if (!row || row.orgId !== user.orgId) {
       throw new BadRequestException('Map icon not found.');
+    }
+    if (!canDeleteMapIcon(user, row)) {
+      throw new ForbiddenException(
+        'You can delete an icon you uploaded. An org admin can delete any icon in the org.',
+      );
     }
     await this.prisma.mapIconUpload.delete({ where: { id } });
     return { ok: true };
