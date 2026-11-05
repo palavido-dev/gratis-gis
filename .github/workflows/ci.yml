@@ -106,6 +106,20 @@ jobs:
       - name: Build
         run: pnpm build
 
+  spdx:
+    name: SPDX license headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Header check only. It does not need Postgres, pnpm, or Node.
+    # `pnpm check:spdx` is the same script without the fixture
+    # self-test; CI runs the self-test so a checker that stops
+    # noticing a missing header fails here.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check SPDX headers
+        run: bash scripts/check-spdx.sh --self-test
+
   dev-smoke:
     name: Fresh-clone pnpm dev
     runs-on: ubuntu-latest

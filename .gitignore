@@ -119,7 +119,13 @@ docs/marketing/
 # when the script-item module (#221) landed there. The failure is
 # quiet and nasty: `git add` refuses, `git commit` succeeds without
 # the files, and the build breaks for everyone else.
-/scripts/
+#
+# `/scripts/` (ignoring the directory itself) cannot be re-included
+# file by file. Ignore the contents, then un-ignore the SPDX checker,
+# which is the one script from this folder that CI runs. Load-test
+# rigs and one-off utilities stay local.
+/scripts/*
+!/scripts/check-spdx.sh
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable
