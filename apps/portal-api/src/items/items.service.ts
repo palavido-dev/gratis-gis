@@ -15,6 +15,7 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
+import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
@@ -1271,6 +1272,9 @@ export class ItemsService {
     // wizard legitimately posts a presigned key here, so this
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
+    if (input.type === 'service') {
+      await assertPostgisHostOnSave(null, resolvedData);
+    }
 
     // Attribution reaches every viewer of every map that uses this
     // item, as HTML, through a MapLibre control whose own sanitizer is
@@ -1913,6 +1917,9 @@ export class ItemsService {
     // control for every viewer of every map using this item.
     if (nextData !== undefined) {
       nextData = sanitizeAttributionInData(nextData) as Prisma.InputJsonValue;
+    }
+    if (item.type === 'service' && nextData !== undefined) {
+      await assertPostgisHostOnSave(item.data, nextData);
     }
 
     // Recompute the cached extent when the data blob changes; leave
