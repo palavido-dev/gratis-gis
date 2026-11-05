@@ -8,6 +8,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- CI checks SPDX license headers on tracked source files
+  (`pnpm check:spdx`, `scripts/check-spdx.sh`). A file needs
+  `SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10
+  lines. Prisma migrations stay exempt because editing an applied
+  migration changes its checksum, and Next.js rewrites
+  `next-env.d.ts`. Source files the header sweep had missed now
+  carry the header.
 - Admin **Updates** page. It compares this install with GitHub and
   tells an admin the backup and restart steps. It does not talk to
   Docker and it does not update the install itself. `UPDATE_CHECK=off`
