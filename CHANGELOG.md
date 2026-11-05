@@ -8,6 +8,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Dependabot patch and minor updates squash-merge after the CI and
+  Security workflows pass. A grouped update merges only when every
+  dependency in the group is patch or minor. Major updates stay open
+  for review.
 - CI checks SPDX license headers on tracked source files
   (`pnpm check:spdx`, `scripts/check-spdx.sh`). A file needs
   `SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10
