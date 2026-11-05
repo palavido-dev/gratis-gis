@@ -150,6 +150,14 @@ volumes when the first start never became healthy (Keycloak waiting,
 Silo exiting). The saved passwords stay, and Keycloak imports the
 realm on the first start that succeeds.
 
+Keep the volumes when the Users page says Keycloak returned 403.
+The next start grants the API's service account the roles that page
+needs. Do not delete `pgdata`, `miniodata`, or `boot`. Leave
+`quay.io/keycloak/keycloak:26.0` as the Keycloak image. If you
+changed that image to `latest`, set it back to `26.0` before the
+restart only when that volume has not already been migrated by a
+newer Keycloak.
+
 Delete the volumes when you already signed in and the log says the
 address changed, or when you want new passwords. In Dockge that is
 the stack's volumes (`boot`, `pgdata`, `miniodata`, `caddy-data`).

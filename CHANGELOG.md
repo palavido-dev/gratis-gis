@@ -19,6 +19,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Home NAS installs grant the portal API's Keycloak service account
+  the realm-management roles the Users page needs (`manage-users`
+  and the sign-in settings roles). Keycloak starts with health
+  checks enabled so that grant runs after the realm is up. A
+  restart applies the roles on an install that already imported
+  the realm, without deleting volumes. A fresh boot also creates
+  a data layer as the admin user.
 - Home NAS install. Keycloak mounts the generated boot volume at
   `/boot` as well as the realm-import path, so it can leave the
   waiting loop and become healthy. Silo is started as `/usr/bin/silo`
