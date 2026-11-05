@@ -150,3 +150,11 @@ updates:
       docker-infra:
         patterns:
           - "*"
+    ignore:
+      # Major postgis/postgis tags move the Postgres major (17-3.5 to
+      # 18-3.6). That is a data-directory upgrade, not a drop-in image
+      # bump. See docs/upgrades/postgres-18.md. Minor and patch updates
+      # still open.
+      - dependency-name: "postgis/postgis"
+        update-types:
+          - "version-update:semver-major"
