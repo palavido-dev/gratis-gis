@@ -62,7 +62,8 @@
   },
   "pnpm": {
     "overrides": {
-      "glob": "^11.0.0",
+      "glob": ">=14.0.2",
+      "minimatch": ">=11.0.1",
       "path-scurry": "^2.0.0",
       "fast-uri": "^3.1.9",
       "fast-xml-builder": "^1.1.7",
