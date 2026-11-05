@@ -6,6 +6,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-05
+
 ### Added
 
 - Dependabot patch and minor updates squash-merge after the CI and
@@ -35,6 +37,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Browser ids no longer call `crypto.randomUUID` directly. On a NAS
+  opened as `http://<lan-ip>`, that API is missing and Add layer,
+  Add group, and drawing features failed before the request left the
+  browser. They now use `clientUuid()` (`getRandomValues` fallback).
+  The Add layer dialog also surfaces the server reason or HTTP status
+  plus a request id when create fails.
 - Home NAS installs grant the portal API's Keycloak service account
   the realm-management roles the Users page needs (`manage-users`
   and the sign-in settings roles). Keycloak starts with health
@@ -55,12 +63,27 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `infra/docker-compose.nas.yml` is the web port on the NAS (use
   8085 when 8080 is taken). The printed address, Keycloak hostname,
   and sign-in redirects follow it. The bootstrap log says not to
-  post it publicly. Caddy 2.10 accepts one path on `handle`, so
-  the generated Caddyfile uses named matchers and both the web UI
-  and `/auth` answer. The web and Chromium services listen on port
-  3000 even though the shared env file sets `PORT` for the API.
-  CI boots this stack and checks the web UI, Keycloak through
-  Caddy, and an upload.
+  post it publicly. The admin password is printed only on first
+  boot. Caddy 2.10 accepts one path on `handle`, so the generated
+  Caddyfile uses named matchers and both the web UI and `/auth`
+  answer. The web and Chromium services listen on port 3000 even
+  though the shared env file sets `PORT` for the API. CI boots this
+  stack and checks the web UI, Keycloak through Caddy, and an
+  upload.
+- QGIS OIDC loopback redirects require an explicit port separator so
+  a malformed redirect cannot widen the allowlist.
+- Live PostGIS connections are bounded and filter clauses are
+  parameterized.
+
+### Security
+
+- Popup and attribution HTML is sanitized on save and render; the
+  NextAuth session body no longer exposes the access token to page
+  JavaScript.
+- Remaining outbound server fetches (basemap probe, pyramid worker
+  storage URLs) go through the SSRF-safe path.
+- Map-icon delete is authorization-gated; Android backup rules and
+  local-dev compose published ports are tightened.
 
 ## [1.1.0] - 2026-11-03
 
@@ -3495,6 +3518,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
 [1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
 [1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2
