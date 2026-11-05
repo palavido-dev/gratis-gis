@@ -12,7 +12,7 @@ field collection, and QGIS. It is not a full ArcGIS Online replacement,
 and it is not a drop-in for Experience Builder, Survey123, Field Maps,
 or enterprise identity depth.
 
-**Status:** [v1.1.0](./CHANGELOG.md). The public surface follows
+**Status:** [v1.2.0](./CHANGELOG.md). The public surface follows
 [semantic versioning](./docs/VERSIONING.md). For what ships today, see
 [docs/walkthrough.md](./docs/walkthrough.md) and the
 [changelog](./CHANGELOG.md). Store-listed native mobile apps are not

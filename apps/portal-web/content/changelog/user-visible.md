@@ -21,6 +21,17 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.2.0] - 2026-11-05
+
+## 2026-11-05 - Admin Updates page
+Signed-in admins get an Updates page that compares this install with GitHub and lists backup and restart steps. It does not update Docker for you.
+
+## 2026-11-05 - Showcase dashboards on Load sample
+Load showcase dashboards adds the public demo's storm-events and West Virginia water-quality dashboards plus Elkins in 3D, each with fresh ids for your install.
+
+## 2026-11-05 - Add layer works on plain HTTP NAS
+Opening GratisGIS at `http://` on a LAN address (typical TrueNAS) no longer breaks Add layer, Add group, or drawing. Failed layer creates also show the server reason.
+
 ## [1.1.0] - 2026-11-03
 
 ## 2026-11-03 - Install on a home NAS
