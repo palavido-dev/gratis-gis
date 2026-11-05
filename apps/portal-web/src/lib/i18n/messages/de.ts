@@ -2322,6 +2322,10 @@ export const de: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Geben Sie der neuen Ebene einen Namen.',
       createFailed: 'Die Ebene konnte nicht erstellt werden.',
+      addFailed: 'Die Ebene konnte nicht hinzugefügt werden.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'Anfrage-ID: {id}',
       arcgisUrlRequired:
         'Fügen Sie eine ArcGIS-MapServer- oder FeatureServer-URL ein.',
       arcgisProbeFailed:

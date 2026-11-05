@@ -6,6 +6,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module.js';
 import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
+import { requestIdMiddleware } from './common/public-error.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
 // uncaughtException OR an unhandledRejection by default; in prod that
@@ -31,6 +32,10 @@ process.on('uncaughtException', (err) => {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Every response carries an id the UI can show when a call fails,
+  // including errors written later by the exception filter. A safe
+  // incoming id is kept so the web tier and this process share one.
+  app.use(requestIdMiddleware);
   // Native ws adapter for presence Phase 1.5 (#156). Kept off
   // socket.io so we do not add another realtime protocol stack.
   app.useWebSocketAdapter(new WsAdapter(app));

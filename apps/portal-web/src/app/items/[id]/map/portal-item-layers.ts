@@ -26,6 +26,8 @@ import type {
   MetaUi,
 } from '@gratis-gis/shared-types';
 import type { Translator } from '@/lib/i18n';
+import { readApiFailure, type ApiFailure } from '@/lib/api-error';
+import { clientUuid } from '@/lib/uuid';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_LABELS,
@@ -39,7 +41,7 @@ import {
 
 export function makeLayer(title: string, source: MapLayerSource): MapLayer {
   return {
-    id: crypto.randomUUID(),
+    id: clientUuid(),
     title,
     visible: true,
     opacity: 1,
@@ -67,14 +69,18 @@ export type PortalItemWithSublayers = Item & {
  */
 export async function fetchHydratedItem(
   item: Item,
-): Promise<{ item?: Item; error?: string }> {
+): Promise<{ item?: Item; error?: string; failure?: ApiFailure }> {
   if (item.data && Object.keys(item.data as object).length > 0) {
     return { item };
   }
   try {
     const res = await fetch(`/api/portal/items/${item.id}`);
     if (!res.ok) {
-      return { error: `Could not load ${item.title} (HTTP ${res.status}).` };
+      const failure = await readApiFailure(res);
+      const bits = [`Could not load ${item.title} (HTTP ${res.status}).`];
+      if (failure.detail) bits.push(failure.detail);
+      if (failure.requestId) bits.push(`Request id: ${failure.requestId}`);
+      return { failure, error: bits.join(' ') };
     }
     return { item: (await res.json()) as Item };
   } catch (err) {

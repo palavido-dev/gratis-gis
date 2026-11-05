@@ -41,6 +41,13 @@ import {
   type ArcgisServiceLayer,
 } from '@/lib/arcgis-rest';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  presentApiFailure,
+  presentClientFailure,
+  readApiFailure,
+  type ShownApiError,
+} from '@/lib/api-error';
+import { clientUuid } from '@/lib/uuid';
 
 interface Props {
   open: boolean;
@@ -67,7 +74,23 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [url, setUrl] = useState('');
   const [paste, setPaste] = useState('');
   const [fileBusy, setFileBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<ShownApiError | null>(null);
+  // Most failures in this dialog are checks the form can explain by
+  // itself (a missing name, bad JSON). Those stay a single sentence.
+  // A call that reached the server, or threw before it could, keeps
+  // that sentence and adds the reason and request id underneath.
+  const setError = useCallback((summary: string | null) => {
+    setErrorState(
+      summary ? { summary, detail: null, requestId: null } : null,
+    );
+  }, []);
+  const statusLine = useCallback(
+    (status: number, code: string | null) =>
+      code
+        ? t('mapAddLayer.errors.errorStatusCode', { status, code })
+        : t('mapAddLayer.errors.errorStatus', { status }),
+    [t],
+  );
 
   // "New" tab (#brand-new-layer): create an empty, editable data
   // layer without ever leaving the map. The item is created behind
@@ -89,7 +112,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     setNewBusy(true);
     setError(null);
     try {
-      const layerKey = crypto.randomUUID();
+      const layerKey = clientUuid();
       const res = await fetch('/api/portal/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -128,13 +151,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string | string[];
-        } | null;
-        const msg = Array.isArray(body?.message)
-          ? body.message.join(' ')
-          : body?.message;
-        setError(msg || t('mapAddLayer.errors.createFailed'));
+        setErrorState(
+          presentApiFailure(
+            t('mapAddLayer.errors.createFailed'),
+            await readApiFailure(res),
+            statusLine,
+          ),
+        );
         return;
       }
       const created = (await res.json()) as { id: string };
@@ -147,8 +170,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       );
       setNewName('');
       onClose();
-    } catch {
-      setError(t('mapAddLayer.errors.createFailed'));
+    } catch (err) {
+      setErrorState(
+        presentClientFailure(t('mapAddLayer.errors.createFailed'), err),
+      );
     } finally {
       setNewBusy(false);
     }
@@ -246,7 +271,15 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     arcgisAbortRef.current = null;
     setError(null);
     setPendingSublayerChoice(null);
-  }, []);
+  }, [setError]);
+
+  // A failure on New was staying on screen after the person moved to
+  // Portal, so the same red sentence looked like every item had
+  // failed. The next tab starts clean.
+  function selectTab(next: Tab) {
+    setTab(next);
+    setError(null);
+  }
 
   // Load portal items when the portal tab activates or the query
   // changes. One fetch
@@ -648,6 +681,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    * arrived. data_layer items don't need `data` at all (they pass
    * just `itemId` to the layer source) so they skip the hydrate.
    */
+  function pickPortalItem(item: Item) {
+    void Promise.resolve(submitPortalItem(item)).catch((err) => {
+      setErrorState(presentClientFailure(t('mapAddLayer.errors.addFailed'), err));
+    });
+  }
+
   async function submitPortalItem(item: Item) {
     // #304 slice 5: unified Connected Service items branch on the
     // `protocol` discriminator inside data_json. ArcGIS variants
@@ -973,10 +1012,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    */
   /** Shared fetch with the dialog's error-state plumbing attached. */
   async function hydratePortalItem(item: Item): Promise<Item | null> {
-    const { item: hydrated, error } = await fetchHydratedItem(item);
+    const { item: hydrated, error: loadError, failure } =
+      await fetchHydratedItem(item);
     if (!hydrated) {
-      setError(
-        error ?? t('mapAddLayer.errors.loadItemFailed', { title: item.title }),
+      const summary = t('mapAddLayer.errors.loadItemFailed', {
+        title: item.title,
+      });
+      setErrorState(
+        failure
+          ? presentApiFailure(summary, failure, statusLine)
+          : presentClientFailure(summary, loadError ?? ''),
       );
       return null;
     }
@@ -1096,10 +1141,8 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       reset();
       onClose();
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : t('mapAddLayer.errors.fileReadFailed'),
+      setErrorState(
+        presentClientFailure(t('mapAddLayer.errors.fileReadFailed'), err),
       );
     } finally {
       setFileBusy(false);
@@ -1141,37 +1184,37 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             Icon={Database}
             label={t('mapAddLayer.tabs.portal')}
             active={tab === 'portal'}
-            onClick={() => setTab('portal')}
+            onClick={() => selectTab('portal')}
           />
           <TabButton
             Icon={Upload}
             label={t('mapAddLayer.tabs.file')}
             active={tab === 'file'}
-            onClick={() => setTab('file')}
+            onClick={() => selectTab('file')}
           />
           <TabButton
             Icon={ClipboardPaste}
             label={t('mapAddLayer.tabs.paste')}
             active={tab === 'paste'}
-            onClick={() => setTab('paste')}
+            onClick={() => selectTab('paste')}
           />
           <TabButton
             Icon={Link2}
             label={t('mapAddLayer.tabs.url')}
             active={tab === 'url'}
-            onClick={() => setTab('url')}
+            onClick={() => selectTab('url')}
           />
           <TabButton
             Icon={Layers}
             label={t('mapAddLayer.tabs.arcgis')}
             active={tab === 'arcgis'}
-            onClick={() => setTab('arcgis')}
+            onClick={() => selectTab('arcgis')}
           />
           <TabButton
             Icon={Sparkles}
             label={t('mapAddLayer.tabs.new')}
             active={tab === 'new'}
-            onClick={() => setTab('new')}
+            onClick={() => selectTab('new')}
           />
         </div>
 
@@ -1399,7 +1442,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   ) : (
                     <PortalItemList
                       items={visibleGroupItems}
-                      onPick={submitPortalItem}
+                      onPick={pickPortalItem}
                       t={t}
                     />
                   )}
@@ -1505,7 +1548,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                           <PortalItemRow
                             key={item.id}
                             item={item}
-                            onPick={submitPortalItem}
+                            onPick={pickPortalItem}
                             t={t}
                           />
                         ) : null,
@@ -1557,7 +1600,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 ) : (
                 <PortalItemList
                   items={visiblePortalItems}
-                  onPick={submitPortalItem}
+                  onPick={pickPortalItem}
                   t={t}
                 />
                 )
@@ -1665,9 +1708,17 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           )}
 
           {error ? (
-            <p role="alert" className="mt-3 text-sm text-danger">
-              {error}
-            </p>
+            <div role="alert" className="mt-3 text-sm text-danger">
+              <p>{error.summary}</p>
+              {error.detail ? (
+                <p className="mt-1 break-words text-xs">{error.detail}</p>
+              ) : null}
+              {error.requestId ? (
+                <p className="mt-1 break-all font-mono text-xs">
+                  {t('mapAddLayer.errors.requestId', { id: error.requestId })}
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

@@ -2311,6 +2311,10 @@ export const ptBR: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Dê um nome à nova camada.',
       createFailed: 'Não foi possível criar a camada.',
+      addFailed: 'Não foi possível adicionar a camada.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'ID da solicitação: {id}',
       arcgisUrlRequired:
         'Cole uma URL de ArcGIS MapServer ou FeatureServer.',
       arcgisProbeFailed:
