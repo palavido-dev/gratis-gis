@@ -82,6 +82,27 @@ export default [
     },
   },
 
+  // crypto.randomUUID throws on http://<lan-ip>, which is how a NAS
+  // install is opened. The one browser helper is clientUuid in
+  // portal-web/src/lib/uuid.ts (and its spec, which stubs the method).
+  // Node code that imports { randomUUID } from 'node:crypto' is a
+  // bare call, not a member expression, so it is not affected.
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    ignores: ['**/uuid.ts', '**/uuid.spec.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "MemberExpression[property.name='randomUUID'], MemberExpression[property.value='randomUUID']",
+          message:
+            'crypto.randomUUID throws on http://<lan-ip>, the normal NAS address. Use clientUuid() from @/lib/uuid.',
+        },
+      ],
+    },
+  },
+
   // Plain JS: mostly config files we let through with permissive
   // globals. The `public/**` service worker is excluded above.
   {

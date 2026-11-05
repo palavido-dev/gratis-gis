@@ -23,6 +23,7 @@ import {
   validateOfflineArea,
 } from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
+import { clientUuid } from '@/lib/uuid';
 import { toast } from '@/lib/toast';
 import { useConfirm } from '@/components/dialog-provider';
 import { useT } from '@/lib/i18n/locale-context';
@@ -195,7 +196,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
   async function addArea() {
     if (!mapBbox) return;
     const area: OfflineArea = {
-      id: crypto.randomUUID(),
+      id: clientUuid(),
       name: name.trim(),
       bbox: mapBbox,
       minZoom: 0,

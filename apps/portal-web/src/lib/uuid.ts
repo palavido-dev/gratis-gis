@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Identifier for a layer the browser creates before the server sees it.
+ * Identifier minted in the browser.
  *
- * `crypto.randomUUID` exists only in a secure context. A NAS install is
- * opened as `http://192.168.x.x:8080`, which is not one, so the method
- * is missing and calling it throws before the create request is sent.
- * The Add layer dialog then has no response to explain and can only
- * show the generic sentence. `getRandomValues` is available on that
- * same page, so the id is built from those bytes instead.
+ * `crypto.randomUUID` exists only in a secure context. A NAS install
+ * is opened as `http://192.168.x.x:8080`, which is not one, so the
+ * method is missing and a direct call throws. `getRandomValues` is
+ * available on that same page. Every browser id goes through here.
+ * A direct `.randomUUID` anywhere else in the web client fails lint.
  */
 export function clientUuid(): string {
   const webcrypto = globalThis.crypto;
