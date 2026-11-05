@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { authOptions, type SessionWithToken } from '@/lib/auth';
 import { isSessionStale } from '@/lib/session-state';
+import { mintRequestId } from '@/lib/api-error';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -449,6 +450,10 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // forwarding everything.
   const editorId = req.headers.get('x-editor-id');
   if (editorId) headers['x-editor-id'] = editorId;
+  // One id for this attempt. portal-api keeps it when it is a safe
+  // token and puts the same value on the error JSON and in its log.
+  const requestId = mintRequestId();
+  headers['x-request-id'] = requestId;
   // Field deployment runtime sends `x-data-collection-id` on every
   // write so the API can fire the data_collection_feature_created
   // notification (#229). Same allowlist pattern as x-editor-id.
@@ -507,7 +512,25 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     init.dispatcher = await getLongRunningAgent();
   }
 
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // The browser gets a sentence and the id. The reason (a refused
+    // connection, a DNS failure) stays in this log.
+    console.error(
+      `[bff] ${requestId} ${req.method} /api/${suffix} failed: ${reason}`,
+    );
+    return NextResponse.json(
+      {
+        message: 'The portal API could not be reached.',
+        statusCode: 502,
+        requestId,
+      },
+      { status: 502, headers: { 'x-request-id': requestId } },
+    );
+  }
   const tUpstream = trace ? Date.now() : 0;
   // Stream-pass the response body so the browser receives bytes the
   // moment portal-api flushes them. The previous arrayBuffer() round-
@@ -590,6 +613,10 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // browser can page without an envelope around the JSON array.
   const totalCount = upstream.headers.get('x-total-count');
   if (totalCount) outHeaders.set('x-total-count', totalCount);
+  outHeaders.set(
+    'x-request-id',
+    upstream.headers.get('x-request-id') ?? requestId,
+  );
   // #154: portal-api mints `gg_anon_drawing` on anon markup writes.
   // Forward every Set-Cookie so the browser keeps the session.
   const setCookies =

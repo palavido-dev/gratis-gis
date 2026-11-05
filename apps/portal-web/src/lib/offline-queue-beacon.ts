@@ -28,6 +28,7 @@
  */
 
 import type { OfflineMessage } from '@gratis-gis/shared-types';
+import { clientUuid } from './uuid';
 
 import {
   listDeployments,
@@ -90,17 +91,9 @@ export function getDeviceFingerprint(): string {
 }
 
 function newFingerprint(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  // Fallback: timestamp + random; only used in obscure no-crypto
-  // environments. Doesn't need to be cryptographically random.
-  return (
-    'dev-' +
-    Date.now().toString(36) +
-    '-' +
-    Math.random().toString(36).slice(2, 10)
-  );
+  // Stable per browser profile. clientUuid still returns an id when
+  // the page is http://<lan-ip> and crypto.randomUUID is missing.
+  return clientUuid();
 }
 
 /**

@@ -2323,6 +2323,10 @@ export const fr: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Donnez un nom à la nouvelle couche.',
       createFailed: 'Impossible de créer la couche.',
+      addFailed: 'Impossible d’ajouter la couche.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'Identifiant de la requête : {id}',
       arcgisUrlRequired:
         'Collez une URL ArcGIS MapServer ou FeatureServer.',
       arcgisProbeFailed:

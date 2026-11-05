@@ -765,8 +765,8 @@ async function throwIfNotOk(
 
 /**
  * Generate a v4 UUID for the client-side globalId on a queued
- * insert. Cheap; uses crypto.randomUUID where available and falls
- * back to a Math.random-based RFC4122 shape on older browsers.
+ * insert. Same generator as the queue (`newUuid` / `clientUuid`),
+ * including on a plain-HTTP NAS address.
  *
  * Exposed here (rather than inline in the runtime) so tests can
  * deterministically stub it and so the queue + runtime use the

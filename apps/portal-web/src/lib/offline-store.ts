@@ -26,6 +26,7 @@ import {
 } from '@gratis-gis/shared-types';
 import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
+import { clientUuid } from './uuid';
 
 /** Database name for the portal-web origin. One DB across all
  *  deployments cached on this device; the store keys carry the
@@ -971,22 +972,11 @@ export function requestBackgroundSync(): void {
 /**
  * Generate a v4 UUID. Used for both operation ids and the client-side
  * globalId on a queued insert, so the two share one generator.
+ * Delegates to clientUuid, which still works when the page is opened
+ * as http://<lan-ip> and crypto.randomUUID is missing.
  */
 export function newUuid(): string {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof crypto.randomUUID === 'function'
-  ) {
-    return crypto.randomUUID();
-  }
-  // RFC 4122 v4 shape. Not cryptographically strong; only reached on
-  // browsers without crypto.randomUUID, and on a non-secure origin,
-  // where the whole offline arc is unavailable anyway.
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return clientUuid();
 }
 
 /** One field edit, as the runtime hands it over. The store assigns the

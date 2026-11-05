@@ -2317,6 +2317,10 @@ export const es: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Pon un nombre a la capa nueva.',
       createFailed: 'No se pudo crear la capa.',
+      addFailed: 'No se pudo añadir la capa.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'ID de la solicitud: {id}',
       arcgisUrlRequired:
         'Pega una URL de ArcGIS MapServer o FeatureServer.',
       arcgisProbeFailed:
