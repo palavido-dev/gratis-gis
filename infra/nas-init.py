@@ -580,6 +580,14 @@ def analysis_enabled() -> bool:
     return raw != "off"
 
 
+def image_channel() -> str:
+    """edge, latest, or a stable vX.Y.Z tag. Anything else is edge."""
+    tag = os.environ.get("GG_IMAGE_TAG", "edge").strip() or "edge"
+    if tag == "latest" or re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        return tag
+    return "edge"
+
+
 def fresh_secrets() -> dict[str, str]:
     return {
         "POSTGRES_PASSWORD": rand(),
@@ -667,7 +675,12 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "NEXT_PUBLIC_API_URL": public,
         "NODE_ENV": "production",
         "PORT": "4000",
-        "GG_VERSION": os.environ.get("GG_IMAGE_TAG", "edge"),
+        # The image bakes GG_VERSION and GIT_SHA. Do not override them
+        # with the pull tag. GG_CHANNEL is the update track.
+        "GG_CHANNEL": image_channel(),
+        "GRATIS_COMPOSE_REV": os.environ.get("GRATIS_COMPOSE_REV", "1").strip() or "1",
+        "INSTALL_TYPE": "nas",
+        "UPDATE_CHECK": os.environ.get("UPDATE_CHECK", "on").strip() or "on",
     }
     if relative:
         values["KC_HTTP_RELATIVE_PATH"] = relative

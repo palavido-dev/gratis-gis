@@ -25,6 +25,8 @@ import { NotificationsAdminController } from '../notifications/admin.controller.
 import { StorageModule } from '../storage/storage.module.js';
 import { FieldQueueModule } from '../field-queue/field-queue.module.js';
 import { FieldQueueAdminController } from '../field-queue/field-queue-admin.controller.js';
+import { UpdatesController } from '../updates/updates.controller.js';
+import { UpdatesService } from '../updates/updates.service.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -59,6 +61,7 @@ import { FieldQueueAdminController } from '../field-queue/field-queue-admin.cont
     HousekeepingController,
     NotificationsAdminController,
     FieldQueueAdminController,
+    UpdatesController,
   ],
   providers: [
     KeycloakAdminService,
@@ -68,6 +71,7 @@ import { FieldQueueAdminController } from '../field-queue/field-queue-admin.cont
     HousekeepingScheduleService,
     HousekeepingCronService,
     OnboardingService,
+    UpdatesService,
   ],
   exports: [KeycloakAdminService, KeycloakSyncService],
 })

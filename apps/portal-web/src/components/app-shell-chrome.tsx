@@ -16,6 +16,7 @@ import {
   Menu as MenuIcon,
   MessageSquarePlus,
   Paintbrush,
+  RefreshCw,
   Rocket,
   Shield,
   Sparkles,
@@ -32,6 +33,7 @@ import { TopBarSearch } from './top-bar-search';
 import { HelpButton } from './help-button';
 import { FeedbackWidget } from './feedback-widget';
 import { UserMenu } from './user-menu';
+import { UpdateBanner } from './update-banner';
 import { BrandWordmark } from './brand-mark';
 import { Sheet, SheetContent } from './ui/sheet';
 
@@ -231,6 +233,7 @@ export function AppShellChrome({
           </div>
         </header>
 
+        <UpdateBanner admin={me?.orgRole === 'admin'} />
         <main className="flex-1 animate-fade-in">{children}</main>
       </div>
       <FeedbackWidget
@@ -335,6 +338,13 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.backup')}
+          </NavLink>
+          <NavLink
+            href="/admin/updates"
+            icon={<RefreshCw className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.updates')}
           </NavLink>
           <NavLink
             href="/admin/housekeeping"
