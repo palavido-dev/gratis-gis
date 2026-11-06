@@ -69,7 +69,9 @@ a **Pick list** item (preferred for reusable vocabularies; see
  - **Auto** (default): a "Capture location" GPS button plus a
    small map. Tap the map or drag the pin when you are reporting
    a spot you are not standing on, or have no GPS fix.
- - **Map**: the map only; tap or drag the pin.
+ - **Map**: the map only; tap or drag the pin. If the map cannot
+   load (no WebGL, or the map library is blocked), the GPS button
+   and latitude and longitude boxes appear instead.
  - **GPS**: the GPS button only, no map.
  - **Manual**: latitude and longitude boxes.
 - **Draw line / polygon**. A map with line/polygon draw tools.
@@ -83,7 +85,8 @@ a **Pick list** item (preferred for reusable vocabularies; see
 - **Video**. Camera capture or upload. Often size-capped per
  org settings.
 - **Signature**. Touch-pad signature capture. Stored as a PNG
- attachment.
+ attachment: uploaded as soon as you stop signing when there is a
+ connection, otherwise when the response syncs.
 - **File**. Any document upload (PDF, DOCX, etc.).
 
 ## Special
