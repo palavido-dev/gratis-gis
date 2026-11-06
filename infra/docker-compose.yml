@@ -40,8 +40,10 @@ services:
       # Keycloak uses its own file database; this only lets init finish
       # so `compose up --wait` does not see the container die.
       KEYCLOAK_DB_PASSWORD: devpassword
+    # Dev-only ports are bound to loopback. The passwords in this file
+    # are fixed, so they must not be reachable from the LAN.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # Keep PG17 volume layout (/data). PG18 (#306) needs dump/restore
       # before flipping this mount to /var/lib/postgresql.
@@ -71,7 +73,7 @@ services:
       # happen within minutes of idle.
       KC_DB: dev-file
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./keycloak/realm-gratis-gis.json:/opt/keycloak/data/import/realm-gratis-gis.json:ro
       # Custom login / account theme. Mounted under /opt/keycloak/themes
@@ -93,8 +95,8 @@ services:
       MINIO_ROOT_USER: gratisgis
       MINIO_ROOT_PASSWORD: devpassword
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
     volumes:
       - miniodata:/data
     healthcheck:
@@ -113,7 +115,7 @@ services:
     environment:
       DATABASE_URL: postgresql://gratisgis:devpassword@postgres:5432/gratisgis
     ports:
-      - "7800:7800"
+      - "127.0.0.1:7800:7800"
 
   # Self-hosted geocoder. Defaults to the full OSM planet so the stack
   # is production-ready as-deployed; see infra/NOMINATIM.md for what
@@ -157,7 +159,7 @@ services:
       NOMINATIM_PASSWORD: devpassword
       THREADS: ${NOMINATIM_THREADS:-8}
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     volumes:
       - nominatim-data:/var/lib/postgresql/16/main
       - nominatim-flatnode:/nominatim/flatnode

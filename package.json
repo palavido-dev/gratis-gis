@@ -1,6 +1,6 @@
 {
   "name": "gratis-gis",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Self-hosted GIS portal, field PWA, and QGIS plugin for teams leaving ArcGIS Online seat costs. Portal, sharing, field collection, and QGIS. Built on Postgres, PostGIS, and MapLibre.",
   "keywords": [
@@ -43,26 +43,28 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "check:spdx": "bash scripts/check-spdx.sh",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "infra:reset": "docker compose -f infra/docker-compose.yml down -v && pnpm infra:up"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "^16.4.3",
+    "@next/eslint-plugin-next": "^16.4.4",
     "@types/node": "^26.6.6",
     "concurrently": "^10.0.6",
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.13.0",
+    "globals": "^17.14.0",
     "prettier": "^3.9.10",
     "turbo": "^2.11.10",
     "typescript": "^6.0.3"
   },
   "pnpm": {
     "overrides": {
-      "glob": "^11.0.0",
+      "glob": ">=14.0.2",
+      "minimatch": ">=11.0.1",
       "path-scurry": "^2.0.0",
       "fast-uri": "^3.1.9",
       "fast-xml-builder": "^1.1.7",

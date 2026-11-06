@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // :feature:sync: take a collection offline and bring edits back.
 // Orchestration only. Which rows to replay, whether a row is
 // claimable, how edits fold, and what an HTTP status means for a

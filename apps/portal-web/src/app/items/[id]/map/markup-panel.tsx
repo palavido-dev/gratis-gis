@@ -48,6 +48,7 @@ import {
 } from '@gratis-gis/shared-types';
 import type * as maplibregl from 'maplibre-gl';
 import { readAnonDrawingDisplay } from '@/lib/anon-drawing-session';
+import { clientUuid } from '@/lib/uuid';
 import { downloadDrawingSetGeoJson } from '@/lib/drawings-geojson-export';
 import {
   openDrawingsCollabSession,
@@ -270,7 +271,7 @@ export function MarkupPanel({
         label = typed.trim() || undefined;
       }
       const feature: DrawingFeature = {
-        id: cryptoRandomUuid(),
+        id: clientUuid(),
         kind,
         geometry: f.geometry,
         ...(label !== undefined ? { label } : {}),
@@ -413,7 +414,7 @@ export function MarkupPanel({
       const [lng, lat] = mapCenterRef.current;
       const now = new Date().toISOString();
       await appendFeature(setId, {
-        id: cryptoRandomUuid(),
+        id: clientUuid(),
         kind: 'pin',
         geometry: { type: 'Point', coordinates: [lng, lat] },
         createdAt: now,
@@ -1005,30 +1006,6 @@ async function portalJson<T = unknown>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
-}
-
-/**
- * UUID v4 generator. Browser crypto.randomUUID is available in
- * every modern browser; the polyfill handles the (vanishingly
- * rare) older environment without throwing.
- */
-function cryptoRandomUuid(): string {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof (crypto as Crypto & { randomUUID?: () => string }).randomUUID ===
-      'function'
-  ) {
-    return (crypto as Crypto & { randomUUID: () => string }).randomUUID();
-  }
-  // Fallback: timestamp + random bits. Not RFC 4122 compliant
-  // but unique enough for our short-lived client-side ids; the
-  // server will replace any malformed id on next persist anyway.
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**

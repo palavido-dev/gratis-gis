@@ -2460,6 +2460,10 @@ export const en = {
     errors: {
       newNameRequired: 'Give the new layer a name.',
       createFailed: 'The layer could not be created.',
+      addFailed: 'The layer could not be added.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'Request id: {id}',
       arcgisUrlRequired:
         'Paste an ArcGIS MapServer or FeatureServer URL.',
       arcgisProbeFailed:

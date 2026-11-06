@@ -16,7 +16,9 @@
 
 import {
   MAX_ATTRIBUTION_LENGTH,
+  safeHttpHref,
   sanitizeAttributionHtml,
+  sanitizePopupHtml,
 } from './attribution-html';
 
 /** Every start/end tag name present in the output. */
@@ -129,9 +131,7 @@ describe('sanitizeAttributionHtml: hostile hrefs', () => {
 
 describe('sanitizeAttributionHtml: hostile attributes and elements', () => {
   it('drops onclick from an otherwise valid anchor', () => {
-    const out = sanitizeAttributionHtml(
-      '<a href="https://osm.org" onclick="alert(1)">OSM</a>',
-    );
+    const out = sanitizeAttributionHtml('<a href="https://osm.org" onclick="alert(1)">OSM</a>');
     expectInert(out);
     expect(out).toContain('href="https://osm.org"');
     expect(out).not.toContain('onclick');
@@ -149,9 +149,7 @@ describe('sanitizeAttributionHtml: hostile attributes and elements', () => {
     for (const handler of ['onclick', 'onerror', 'onmouseover', 'onfocus']) {
       expect(out).not.toContain(handler);
     }
-    expect(out).toBe(
-      '<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>',
-    );
+    expect(out).toBe('<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>');
   });
 
   it('drops a handler that repeats, where a skip-one bug leaves the second', () => {
@@ -221,18 +219,14 @@ describe('sanitizeAttributionHtml: hostile attributes and elements', () => {
     const out = sanitizeAttributionHtml(
       '<a href="https://osm.org" target="_self" rel="opener">OSM</a>',
     );
-    expect(out).toBe(
-      '<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>',
-    );
+    expect(out).toBe('<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>');
   });
 
   it('drops style, id, class and srcdoc from an anchor', () => {
     const out = sanitizeAttributionHtml(
       '<a href="https://osm.org" style="position:fixed;inset:0" id="x" class="y" srcdoc="z">OSM</a>',
     );
-    expect(out).toBe(
-      '<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>',
-    );
+    expect(out).toBe('<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>');
   });
 
   it('allows the formatting set but strips its attributes', () => {
@@ -240,9 +234,7 @@ describe('sanitizeAttributionHtml: hostile attributes and elements', () => {
       '<b onclick="a()">bold</b><span style="x">s</span><em>e</em><i>i</i><strong>st</strong>',
     );
     expectInert(out);
-    expect(out).toBe(
-      '<b>bold</b><span>s</span><em>e</em><i>i</i><strong>st</strong>',
-    );
+    expect(out).toBe('<b>bold</b><span>s</span><em>e</em><i>i</i><strong>st</strong>');
   });
 });
 
@@ -267,9 +259,7 @@ describe('sanitizeAttributionHtml: malformed markup', () => {
 
   it('closes an unclosed anchor', () => {
     const out = sanitizeAttributionHtml('<a href="https://osm.org">OSM');
-    expect(out).toBe(
-      '<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>',
-    );
+    expect(out).toBe('<a href="https://osm.org" target="_blank" rel="noopener noreferrer">OSM</a>');
   });
 
   it('keeps an attribute value that contains a greater-than sign', () => {
@@ -362,9 +352,7 @@ describe('sanitizeAttributionHtml: legitimate attribution survives', () => {
   });
 
   it('keeps a plain-text attribution with an ampersand, HTML-encoded', () => {
-    expect(sanitizeAttributionHtml('Smith & Sons Surveying')).toBe(
-      'Smith &amp; Sons Surveying',
-    );
+    expect(sanitizeAttributionHtml('Smith & Sons Surveying')).toBe('Smith &amp; Sons Surveying');
   });
 
   it('keeps a multi-provider attribution with two links', () => {
@@ -382,23 +370,17 @@ describe('sanitizeAttributionHtml: legitimate attribution survives', () => {
   });
 
   it('keeps http as well as https', () => {
-    const out = sanitizeAttributionHtml(
-      '<a href="http://legacy.example.gov/terms">Terms</a>',
-    );
+    const out = sanitizeAttributionHtml('<a href="http://legacy.example.gov/terms">Terms</a>');
     expect(hrefsIn(out)).toEqual(['http://legacy.example.gov/terms']);
   });
 
   it('keeps query strings and fragments intact through the escape', () => {
-    const out = sanitizeAttributionHtml(
-      '<a href="https://example.org/a?b=1&amp;c=2#frag">x</a>',
-    );
+    const out = sanitizeAttributionHtml('<a href="https://example.org/a?b=1&amp;c=2#frag">x</a>');
     expect(out).toContain('href="https://example.org/a?b=1&amp;c=2#frag"');
   });
 
   it('preserves a copyright sign written literally', () => {
-    expect(sanitizeAttributionHtml('© OpenStreetMap')).toBe(
-      '© OpenStreetMap',
-    );
+    expect(sanitizeAttributionHtml('© OpenStreetMap')).toBe('© OpenStreetMap');
   });
 });
 
@@ -425,5 +407,43 @@ describe('sanitizeAttributionHtml: idempotence', () => {
     const once = sanitizeAttributionHtml(input);
     expect(sanitizeAttributionHtml(once)).toBe(once);
     expect(sanitizeAttributionHtml(sanitizeAttributionHtml(once))).toBe(once);
+  });
+});
+
+describe('sanitizePopupHtml', () => {
+  it('keeps the formatting authors already store', () => {
+    const out = sanitizePopupHtml(
+      'Line<br><strong>Bold</strong> <a href="https://example.org/p">link</a>',
+    );
+    expect(out).toContain('<br>');
+    expect(out).toContain('<strong>Bold</strong>');
+    expect(out).toContain('href="https://example.org/p"');
+  });
+
+  it('shows an image tag as text instead of an element', () => {
+    const out = sanitizePopupHtml('<img src=x onerror=alert(1)>');
+    expect(out).not.toContain('<img');
+    expect(out).toContain('&lt;img');
+  });
+
+  it('does not emit an anchor for a javascript link', () => {
+    const out = sanitizePopupHtml('<a href="javascript:alert(1)">click</a>');
+    expect(out).not.toContain('<a');
+    expect(out).not.toMatch(/href\s*=\s*"javascript/i);
+    expect(out).toContain('click');
+  });
+
+  it('is idempotent for a stored template', () => {
+    const once = sanitizePopupHtml('A<br>B <strong>C</strong>');
+    expect(sanitizePopupHtml(once)).toBe(once);
+  });
+});
+
+describe('safeHttpHref', () => {
+  it('allows http and https and refuses other schemes', () => {
+    expect(safeHttpHref('https://example.org/a')).toBe('https://example.org/a');
+    expect(safeHttpHref('http://192.168.1.20/tile')).toBe('http://192.168.1.20/tile');
+    expect(safeHttpHref('javascript:alert(1)')).toBeNull();
+    expect(safeHttpHref('data:text/html,hi')).toBeNull();
   });
 });

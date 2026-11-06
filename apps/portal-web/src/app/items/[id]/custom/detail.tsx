@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { safeHttpHref } from '@gratis-gis/shared-types';
 import {
   AlertTriangle,
   BarChart3,
@@ -6493,16 +6494,21 @@ function renderInlineMd(s: string): React.ReactNode {
         </span>,
       );
     } else if (m[4]) {
+      const href = safeHttpHref(m[6] ?? '');
       tokens.push(
-        <a
-          key={key++}
-          href={m[6]}
-          target="_blank"
-          rel="noreferrer"
-          className="text-accent hover:underline"
-        >
-          {m[5]}
-        </a>,
+        href ? (
+          <a
+            key={key++}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent hover:underline"
+          >
+            {m[5]}
+          </a>
+        ) : (
+          <span key={key++}>{m[5]}</span>
+        ),
       );
     } else if (m[7]) {
       tokens.push(
@@ -6937,8 +6943,9 @@ function inlineMdToHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => {
-    const safeHref = String(href).replace(/"/g, '&quot;');
-    return `<a href="${safeHref}">${text}</a>`;
+    const safeHref = safeHttpHref(String(href));
+    if (!safeHref) return String(text);
+    return `<a href="${safeHref.replace(/"/g, '&quot;')}">${text}</a>`;
   });
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');

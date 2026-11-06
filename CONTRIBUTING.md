@@ -37,6 +37,14 @@ hosting lands).
   approved queue item when CI is green. It does not merge a PR marked
   for maintainer review, and it does not treat another contributor's
   approval as Matthew's review.
+- Dependabot opens dependency pull requests (see
+  `.github/dependabot.yml`). Patch and minor updates squash-merge
+  themselves once the CI and Security workflows are green
+  (`.github/workflows/dependabot-automerge.yml`). A grouped update
+  merges only when every dependency in the group is patch or minor,
+  so the highest bump is patch or minor too. A major stays open for Matthew,
+  including a group that contains one. A Node base-image bump uses
+  the same rule. The workflow does not check out the pull request.
 
 ## Commit messages
 
@@ -175,6 +183,17 @@ New source files should carry an SPDX header on the first line:
 // SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
-(Or the equivalent comment syntax for the file's language.) The
-existing tree was swept in one pass; please do not remove headers when
-editing.
+(Or the equivalent comment syntax for the file's language.) A shell
+script keeps its shebang on line 1 and puts the header on the next
+line. A `'use client'` file keeps that directive as the first
+statement, with the header comment on the line above it, which is
+what the existing client components do. The existing tree was swept
+in one pass; please do not remove headers when editing.
+
+`pnpm check:spdx` (CI runs `scripts/check-spdx.sh`) fails when a
+tracked source file is missing
+`SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10 lines.
+Do not add a header to an applied Prisma migration under
+`apps/portal-api/prisma/migrations/`: editing one changes its
+checksum. `next-env.d.ts` is exempt because Next.js rewrites it.
+The rest of the exemption list is in the script.

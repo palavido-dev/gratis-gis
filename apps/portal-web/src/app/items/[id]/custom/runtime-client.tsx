@@ -13,6 +13,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
+import { safeHttpHref } from '@gratis-gis/shared-types';
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -4831,16 +4832,21 @@ function renderInline(s: string): React.ReactNode {
         </span>,
       );
     } else if (m[4]) {
+      const href = safeHttpHref(m[6] ?? '');
       tokens.push(
-        <a
-          key={key++}
-          href={m[6]}
-          target="_blank"
-          rel="noreferrer"
-          className="text-[hsl(var(--app-accent))] hover:underline"
-        >
-          {m[5]}
-        </a>,
+        href ? (
+          <a
+            key={key++}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[hsl(var(--app-accent))] hover:underline"
+          >
+            {m[5]}
+          </a>
+        ) : (
+          <span key={key++}>{m[5]}</span>
+        ),
       );
     } else if (m[7]) {
       tokens.push(

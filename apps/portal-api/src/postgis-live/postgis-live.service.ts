@@ -23,6 +23,8 @@ import {
   MAX_TEST_CONNECTION_TABLES,
   type PostgisTablePreview,
 } from './postgis-table-preview.js';
+import { assertPostgisHost } from './postgis-host.js';
+import { compileSafeWhere } from './postgis-where.js';
 
 export {
   listGeometryTablesPreview,
@@ -49,9 +51,9 @@ export {
  *     a runaway query (bad index, accidental sequential scan on
  *     a multi-billion row table) can't tie up the database.
  *   - The schema and table names go through a strict identifier
- *     regex before they're interpolated into the SELECT; the
- *     WHERE clause (when supplied) gets the same gate. No
- *     statement terminators, no comment sequences.
+ *     regex before they're interpolated into the SELECT. A saved
+ *     whereClause is compiled to parameters (see postgis-where.ts)
+ *     rather than pasted into the query.
  *   - Output rows are bounded by a hard cap so a wide bbox over
  *     a dense table can't fill the browser.
  *
@@ -62,8 +64,9 @@ export {
  */
 const MAX_FEATURES_PER_REQUEST = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 10_000;
+const MIN_STATEMENT_TIMEOUT_MS = 1_000;
+const MAX_STATEMENT_TIMEOUT_MS = 120_000;
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
-const WHERE_CLAUSE_BLOCKLIST = /[;]|--|\/\*|\*\//;
 
 @Injectable()
 export class PostgisLiveService_ {
@@ -86,23 +89,17 @@ export class PostgisLiveService_ {
    * during create to seed `layers[]` on the service item and
    * again on demand from the detail page to refresh.
    */
-  async probe(
-    user: AuthUser,
-    serviceItemId: string,
-  ): Promise<PostgisLiveLayerSnapshot[]> {
+  async probe(user: AuthUser, serviceItemId: string): Promise<PostgisLiveLayerSnapshot[]> {
     const item = await this.loadService(user, serviceItemId);
     const data = item.data as unknown as PostgisLiveService;
     const pool = await this.getPool(serviceItemId, data);
     const client = await pool.connect();
     try {
-      await client.query(
-        `SET statement_timeout = ${data.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS}`,
-      );
+      await applyStatementTimeout(client, data.statementTimeoutMs);
       const schema = data.defaultSchema ?? 'public';
       if (!IDENTIFIER_RE.test(schema)) {
         throw new BadRequestException(
-          `Invalid schema name "${schema}". Schemas must match ` +
-            `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
+          `Invalid schema name "${schema}". Schemas must match ` + `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
         );
       }
       // List geometry columns first (one row per geometry column
@@ -140,7 +137,12 @@ export class PostgisLiveService_ {
         // can run a deeper refresh on demand.
         let bbox: [number, number, number, number] | undefined;
         try {
-          const ext = await client.query<{ minx: number; miny: number; maxx: number; maxy: number }>(
+          const ext = await client.query<{
+            minx: number;
+            miny: number;
+            maxx: number;
+            maxy: number;
+          }>(
             `SELECT ST_XMin(b) AS minx, ST_YMin(b) AS miny,
                     ST_XMax(b) AS maxx, ST_YMax(b) AS maxy
              FROM (
@@ -202,9 +204,9 @@ export class PostgisLiveService_ {
        * parameterized SQL fragment server-side. Lets the visual
        * filter editor narrow the row set at the database instead
        * of pulling the bbox-wide result back to the browser and
-       * filtering in MapLibre. The free-form `whereClause` field
-       * stays as the power-user escape hatch and is ANDed in
-       * alongside.
+       * filtering in MapLibre. `whereClause` is compiled to the same
+       * kind of parameterized fragment. A clause the compiler cannot
+       * check is refused.
        */
       filter?: MapLayerFilter | null;
       limit?: number;
@@ -220,9 +222,7 @@ export class PostgisLiveService_ {
       (l) => l.name === args.tableName,
     );
     if (!layer) {
-      throw new NotFoundException(
-        `Table "${args.tableName}" is not registered on this service`,
-      );
+      throw new NotFoundException(`Table "${args.tableName}" is not registered on this service`);
     }
     const [schema, table] = splitTableName(args.tableName);
     if (!IDENTIFIER_RE.test(schema) || !IDENTIFIER_RE.test(table)) {
@@ -258,22 +258,18 @@ export class PostgisLiveService_ {
       const envelope =
         `ST_MakeEnvelope($${params.length - 3}, $${params.length - 2}, ` +
         `$${params.length - 1}, $${params.length}, 4326)`;
-      const envelopeInSrcSrid = needsReproject
-        ? `ST_Transform(${envelope}, ${srcSrid})`
-        : envelope;
+      const envelopeInSrcSrid = needsReproject ? `ST_Transform(${envelope}, ${srcSrid})` : envelope;
       where.push(`${quoteIdent(geomCol)} && ${envelopeInSrcSrid}`);
     }
     if (args.whereClause && args.whereClause.trim().length > 0) {
       const clause = args.whereClause.trim();
-      if (WHERE_CLAUSE_BLOCKLIST.test(clause)) {
-        throw new BadRequestException(
-          'WHERE clause cannot contain `;`, comment markers, or block comments',
-        );
-      }
       if (clause.length > 2000) {
         throw new BadRequestException('WHERE clause is too long (max 2000 chars)');
       }
-      where.push(`(${clause})`);
+      const allowed = new Set(layer.columns.map((c) => c.name));
+      const compiled = compileSafeWhere(clause, allowed, params.length);
+      where.push(`(${compiled.sql})`);
+      params.push(...compiled.params);
     }
     // #158 Phase 1.5: structured filter -> parameterized SQL.
     // Each clause goes through compileFilterClause, which only
@@ -310,14 +306,10 @@ export class PostgisLiveService_ {
     const pool = await this.getPool(serviceItemId, data);
     const client = await pool.connect();
     try {
-      await client.query(
-        `SET statement_timeout = ${data.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS}`,
-      );
+      await applyStatementTimeout(client, data.statementTimeoutMs);
       const res = await client.query<{ feature: unknown }>(sql, params);
       const truncated = res.rows.length > limit;
-      const features = (truncated ? res.rows.slice(0, limit) : res.rows).map(
-        (r) => r.feature,
-      );
+      const features = (truncated ? res.rows.slice(0, limit) : res.rows).map((r) => r.feature);
       return { type: 'FeatureCollection', features, truncated };
     } finally {
       client.release();
@@ -352,13 +344,20 @@ export class PostgisLiveService_ {
     if (!args.host || !args.database || !args.role) {
       return { ok: false, error: 'host, database, and role are required' };
     }
+    try {
+      await assertPostgisHost(args.host);
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'That host is not allowed.',
+      };
+    }
     const schema = args.defaultSchema?.trim() || 'public';
     if (!IDENTIFIER_RE.test(schema)) {
       return {
         ok: false,
         error:
-          `Invalid schema name "${schema}". Schemas must match ` +
-          `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
+          `Invalid schema name "${schema}". Schemas must match ` + `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
       };
     }
     const port = Number.isFinite(args.port) && args.port > 0 ? args.port : 5432;
@@ -376,9 +375,7 @@ export class PostgisLiveService_ {
       const client = await pool.connect();
       try {
         await client.query(`SET statement_timeout = 5000`);
-        const res = await client.query<{ v: string }>(
-          `SELECT postgis_lib_version() AS v`,
-        );
+        const res = await client.query<{ v: string }>(`SELECT postgis_lib_version() AS v`);
         const inventory = await listGeometryTablesPreview(
           client,
           schema,
@@ -396,10 +393,7 @@ export class PostgisLiveService_ {
         client.release();
       }
     } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      return { ok: false, error: safeConnectionError(err) };
     } finally {
       await pool.end().catch(() => undefined);
     }
@@ -418,9 +412,7 @@ export class PostgisLiveService_ {
     if (!item) throw new NotFoundException('Service item not found');
     const data = item.data as { protocol?: string } | null;
     if (data?.protocol !== 'postgis_live') {
-      throw new BadRequestException(
-        'This endpoint is only valid for postgis_live service items',
-      );
+      throw new BadRequestException('This endpoint is only valid for postgis_live service items');
     }
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: serviceItemId },
@@ -431,15 +423,10 @@ export class PostgisLiveService_ {
     return item;
   }
 
-  private async getPool(
-    itemId: string,
-    data: PostgisLiveService,
-  ): Promise<Pool> {
+  private async getPool(itemId: string, data: PostgisLiveService): Promise<Pool> {
     const existing = this.pools.get(itemId);
     if (existing) return existing;
-    const cred = await this.credentials
-      .getCredentialForProxy(itemId)
-      .catch(() => null);
+    const cred = await this.credentials.getCredentialForProxy(itemId).catch(() => null);
     if (!cred || cred.kind !== 'basic') {
       throw new ForbiddenException(
         'No password stored for this service. Re-save with the test-connection wizard.',
@@ -492,6 +479,60 @@ function splitTableName(name: string): [string, string] {
 
 function isFiniteIn(n: unknown, min: number, max: number): boolean {
   return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+}
+
+/**
+ * Bound and bind the statement timeout. The value lives in item JSON,
+ * so it is not trusted as a number. `set_config` takes a text
+ * parameter, which keeps it out of the SQL text.
+ */
+async function applyStatementTimeout(
+  client: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  raw: unknown,
+): Promise<void> {
+  await client.query(`SELECT set_config('statement_timeout', $1, false)`, [
+    String(normalizeStatementTimeout(raw)),
+  ]);
+}
+
+export function normalizeStatementTimeout(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number.NaN;
+  if (!Number.isInteger(n)) return DEFAULT_STATEMENT_TIMEOUT_MS;
+  if (n < MIN_STATEMENT_TIMEOUT_MS || n > MAX_STATEMENT_TIMEOUT_MS) {
+    return DEFAULT_STATEMENT_TIMEOUT_MS;
+  }
+  return n;
+}
+
+/**
+ * A sentence a caller can see. The driver's own message can include
+ * the server version, a file path, or the text of a query, so it
+ * stays in the log and does not go out on the response.
+ */
+export function safeConnectionError(err: unknown): string {
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+  switch (code) {
+    case '28P01':
+    case '28000':
+      return 'The database rejected that role or password.';
+    case '3D000':
+      return 'That database does not exist.';
+    case '42883':
+      return 'That database does not have PostGIS available.';
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return 'That host could not be resolved.';
+    case 'ECONNREFUSED':
+      return 'Nothing accepted a connection on that host and port.';
+    case 'ETIMEDOUT':
+    case 'CONNECT_TIMEOUT':
+      return 'The connection timed out.';
+    default:
+      return 'Could not connect. Check the host, port, database, role, and password.';
+  }
 }
 
 /**
@@ -579,10 +620,7 @@ function compileFilterClause(
     case 'contains': {
       // ILIKE with %-escaped value; client-supplied %s + _s are
       // escaped so the user can't broaden the match accidentally.
-      const escaped = clause.value
-        .replace(/\\/g, '\\\\')
-        .replace(/%/g, '\\%')
-        .replace(/_/g, '\\_');
+      const escaped = clause.value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
       params.push(`%${escaped}%`);
       const ph = `$${paramOffset + params.length}`;
       return { sql: `(${col})::text ILIKE ${ph}`, params };

@@ -61,12 +61,24 @@ describe('isPrivateOrLoopbackHost', () => {
     expect(isPrivateOrLoopbackHost('::ffff:8.8.8.8')).toBe(false);
   });
 
-  it.each(['[::1]', '::1', '[::]', '::', '[fc00::1]', 'fd12:3456::1'])(
-    'blocks IPv6 loopback / unspecified / unique-local %s',
-    (host) => {
-      expect(isPrivateOrLoopbackHost(host)).toBe(true);
-    },
-  );
+  it.each([
+    '[::1]',
+    '::1',
+    '[::]',
+    '::',
+    '[fc00::1]',
+    'fd12:3456::1',
+    'fe80::1',
+    '[fe80::1]',
+    'ff02::1',
+  ])('blocks IPv6 loopback / unspecified / unique-local / link-local / multicast %s', (host) => {
+    expect(isPrivateOrLoopbackHost(host)).toBe(true);
+  });
+
+  it('blocks IPv4 multicast', () => {
+    expect(isPrivateOrLoopbackHost('224.0.0.1')).toBe(true);
+    expect(isPrivateOrLoopbackHost('255.255.255.255')).toBe(true);
+  });
 
   it('allows a public bracketed IPv6 address', () => {
     expect(isPrivateOrLoopbackHost('[2606:4700::1111]')).toBe(false);
@@ -111,6 +123,16 @@ describe('assertSafeOutboundUrl', () => {
 
   it('rejects a hostname that resolves to an IPv4-mapped loopback', async () => {
     lookupMock.mockResolvedValueOnce({ address: '::ffff:127.0.0.1', family: 6 });
+    await expect(
+      assertSafeOutboundUrl('https://rebind.example.com/'),
+    ).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+  });
+
+  it('rejects a hostname when any resolved address is private', async () => {
+    lookupMock.mockResolvedValueOnce([
+      { address: '151.101.1.1', family: 4 },
+      { address: '10.1.1.1', family: 4 },
+    ]);
     await expect(
       assertSafeOutboundUrl('https://rebind.example.com/'),
     ).rejects.toBeInstanceOf(UnsafeOutboundUrlError);

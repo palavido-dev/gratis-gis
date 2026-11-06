@@ -20,6 +20,8 @@
  * doesn't pull in another dep just to wrap promises.
  */
 
+import { clientUuid } from './uuid';
+
 // LOCKSTEP: public/sw.js duplicates this DB name, the store name, and
 // the queued-submission record shape for its Background Sync drain (a
 // service worker cannot import TS). Any change here must be mirrored
@@ -70,19 +72,9 @@ function tx(
 }
 
 function genClientId(): string {
-  // RFC 4122 v4 via crypto when available; otherwise a high-entropy
-  // fallback. Either way it's idempotency-strong enough for our use.
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof (crypto as Crypto & { randomUUID?: () => string }).randomUUID === 'function'
-  ) {
-    return (crypto as Crypto & { randomUUID: () => string }).randomUUID();
-  }
-  return `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  // Idempotency key for a queued submission. clientUuid works on
+  // the plain-HTTP address a NAS uses; a direct randomUUID does not.
+  return clientUuid();
 }
 
 /**

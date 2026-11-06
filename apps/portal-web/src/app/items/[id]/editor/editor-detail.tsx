@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import { useT } from '@/lib/i18n/locale-context';
+import { clientUuid } from '@/lib/uuid';
 import Link from 'next/link';
 import type {
   DataLayerData,
@@ -1048,10 +1049,7 @@ function TemplatesSection({
   const [expanded, setExpanded] = useState<string | null>(null);
 
   function addTemplate() {
-    const id =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `tpl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id = clientUuid();
     const next: EditorFeatureTemplate = {
       id,
       label: `Template ${templates.length + 1}`,

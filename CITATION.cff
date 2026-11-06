@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: If you use GratisGIS in your work, please cite it as below.
 title: GratisGIS
 type: software
-version: 1.1.0
-date-released: '2026-11-03'
+version: 1.2.0
+date-released: '2026-11-05'
 authors:
   - family-names: Palavido
     given-names: Matt

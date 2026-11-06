@@ -11,6 +11,10 @@ import {
 
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
+import {
+  qgisRedirectUris,
+  qgisRedirectsChanged,
+} from './qgis-redirects.js';
 
 /**
  * Thin wrapper around Keycloak's Admin REST API.
@@ -158,6 +162,16 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
         `Could not auto-grant manage-realm to admin service-account: ` +
           `${String(err)}. The admin Keycloak client needs realm-admin ` +
           `(or just manage-realm directly) for SMTP sync to work.`,
+      );
+    }
+    // Tighten the QGIS client's loopback redirect on realms that were
+    // imported before that URI required a port separator. Idempotent.
+    // Failure does not stop startup.
+    try {
+      await this.ensureQgisRedirects();
+    } catch (err) {
+      this.logger.warn(
+        `Could not update the qgis-plugin redirect URIs: ${String(err)}.`,
       );
     }
     // Skip the sync when SMTP isn't configured yet (no DB row, no
@@ -726,6 +740,53 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     this.tokenCache = null;
     this.logger.log(
       `Granted ${missing.join(', ')} to admin service-account '${clientId}' on realm '${this.realm}'.`,
+    );
+  }
+
+  /**
+   * Replace an open loopback redirect on the qgis-plugin client.
+   * Reads the client, edits redirectUris, and writes the same
+   * representation back. Users, credentials, and other clients are
+   * left as they are. A missing client is ignored so a realm that
+   * does not ship the plugin still boots.
+   */
+  async ensureQgisRedirects(): Promise<void> {
+    if (!this.isConfigured()) return;
+    const token = await this.getAccessToken();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    };
+    const listRes = await fetch(
+      this.adminUrl(`/clients?clientId=qgis-plugin`),
+      { headers },
+    );
+    if (!listRes.ok) {
+      throw new Error(`qgis-plugin lookup failed: ${listRes.status}`);
+    }
+    const clients = (await listRes.json()) as Array<{ id: string }>;
+    if (clients.length === 0) return;
+    const id = clients[0]!.id;
+    const getRes = await fetch(this.adminUrl(`/clients/${id}`), { headers });
+    if (!getRes.ok) {
+      throw new Error(`qgis-plugin read failed: ${getRes.status}`);
+    }
+    const client = (await getRes.json()) as {
+      redirectUris?: string[];
+    };
+    if (!qgisRedirectsChanged(client.redirectUris)) return;
+    client.redirectUris = qgisRedirectUris(client.redirectUris);
+    const putRes = await fetch(this.adminUrl(`/clients/${id}`), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(client),
+    });
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      throw new Error(`qgis-plugin update failed: ${putRes.status} :: ${text}`);
+    }
+    this.logger.log(
+      `Updated qgis-plugin redirect URIs on realm '${this.realm}'.`,
     );
   }
 

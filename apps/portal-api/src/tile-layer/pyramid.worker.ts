@@ -13,6 +13,7 @@ import { isTileLayerData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { isOwnStorageUrl, storageBasesFromEnv } from './pyramid-storage-url.js';
 
 /**
  * Background worker that builds a PMTiles raster pyramid from
@@ -586,9 +587,14 @@ export class TileLayerPyramidWorker implements OnModuleInit {
   // -----------------------------------------------------------
 
   private async downloadTo(url: string, dest: string): Promise<void> {
+    if (!isOwnStorageUrl(url, storageBasesFromEnv())) {
+      throw new Error(
+        'COG URL is not this portal\'s object storage. Re-upload the raster so it has a storage key.',
+      );
+    }
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Download failed (HTTP ${res.status}) from ${url}`);
+      throw new Error(`Download failed (HTTP ${res.status})`);
     }
     if (!res.body) {
       throw new Error(`Download returned no body from ${url}`);

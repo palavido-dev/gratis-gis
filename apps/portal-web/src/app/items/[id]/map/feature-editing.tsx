@@ -52,6 +52,7 @@ import {
 import type { FeatureField, MapLayer, PickListData } from '@gratis-gis/shared-types';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
+import { clientUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n/locale-context';
 import { useConfirm } from '@/components/dialog-provider';
 import {
@@ -406,7 +407,7 @@ export function useFeatureEditing({
             body: JSON.stringify({
               features: [
                 {
-                  globalId: crypto.randomUUID(),
+                  globalId: clientUuid(),
                   geometry: roundCoordsToPrecision(pendingCreate.geometry),
                   properties: values,
                 },

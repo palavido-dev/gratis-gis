@@ -8,11 +8,6 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
-- Admin **Updates** page. It compares this install with GitHub and
-  tells an admin the backup and restart steps. It does not talk to
-  Docker and it does not update the install itself. `UPDATE_CHECK=off`
-  makes no outbound calls. Published images record `GG_VERSION`,
-  `GIT_SHA`, and `REQUIRED_COMPOSE_REV`.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when
@@ -32,6 +27,37 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   submissions without one. The Android app skips signature questions
   until it has a pad, so on Android a required one cannot be answered
   yet.
+
+### Fixed
+
+- Map builder: the basemap menu opens again. The toolbar scrolled
+  sideways (`overflow-x-auto`), which also clips vertically, so the
+  menu dropping below the header was cut off. The toolbar wraps
+  instead.
+- Form designer: in choice and matrix rows the label box is no longer
+  squeezed to a sliver beside the value box. Both inputs carried
+  `w-full` plus a fixed width, and `w-full` won.
+
+## [1.2.0] - 2026-11-05
+
+### Added
+
+- Dependabot patch and minor updates squash-merge after the CI and
+  Security workflows pass. A grouped update merges only when every
+  dependency in the group is patch or minor. Major updates stay open
+  for review.
+- CI checks SPDX license headers on tracked source files
+  (`pnpm check:spdx`, `scripts/check-spdx.sh`). A file needs
+  `SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10
+  lines. Prisma migrations stay exempt because editing an applied
+  migration changes its checksum, and Next.js rewrites
+  `next-env.d.ts`. Source files the header sweep had missed now
+  carry the header.
+- Admin **Updates** page. It compares this install with GitHub and
+  tells an admin the backup and restart steps. It does not talk to
+  Docker and it does not update the install itself. `UPDATE_CHECK=off`
+  makes no outbound calls. Published images record `GG_VERSION`,
+  `GIT_SHA`, and `REQUIRED_COMPOSE_REV`.
 - Home NAS installs run the point-cloud worker when `GRATIS_ANALYSIS`
   is `on` (the default) and sleep it when set to `off`. Admin backups
   are stored on a volume that survives recreating the API container.
@@ -43,6 +69,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Browser ids no longer call `crypto.randomUUID` directly. On a NAS
+  opened as `http://<lan-ip>`, that API is missing and Add layer,
+  Add group, and drawing features failed before the request left the
+  browser. They now use `clientUuid()` (`getRandomValues` fallback).
+  The Add layer dialog also surfaces the server reason or HTTP status
+  plus a request id when create fails.
 - Home NAS installs grant the portal API's Keycloak service account
   the realm-management roles the Users page needs (`manage-users`
   and the sign-in settings roles). Keycloak starts with health
@@ -50,13 +82,6 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   restart applies the roles on an install that already imported
   the realm, without deleting volumes. A fresh boot also creates
   a data layer as the admin user.
-- Map builder: the basemap menu opens again. The toolbar scrolled
-  sideways (`overflow-x-auto`), which also clips vertically, so the
-  menu dropping below the header was cut off. The toolbar wraps
-  instead.
-- Form designer: in choice and matrix rows the label box is no longer
-  squeezed to a sliver beside the value box. Both inputs carried
-  `w-full` plus a fixed width, and `w-full` won.
 - Home NAS install. Keycloak mounts the generated boot volume at
   `/boot` as well as the realm-import path, so it can leave the
   waiting loop and become healthy. Silo is started as `/usr/bin/silo`
@@ -70,12 +95,27 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `infra/docker-compose.nas.yml` is the web port on the NAS (use
   8085 when 8080 is taken). The printed address, Keycloak hostname,
   and sign-in redirects follow it. The bootstrap log says not to
-  post it publicly. Caddy 2.10 accepts one path on `handle`, so
-  the generated Caddyfile uses named matchers and both the web UI
-  and `/auth` answer. The web and Chromium services listen on port
-  3000 even though the shared env file sets `PORT` for the API.
-  CI boots this stack and checks the web UI, Keycloak through
-  Caddy, and an upload.
+  post it publicly. The admin password is printed only on first
+  boot. Caddy 2.10 accepts one path on `handle`, so the generated
+  Caddyfile uses named matchers and both the web UI and `/auth`
+  answer. The web and Chromium services listen on port 3000 even
+  though the shared env file sets `PORT` for the API. CI boots this
+  stack and checks the web UI, Keycloak through Caddy, and an
+  upload.
+- QGIS OIDC loopback redirects require an explicit port separator so
+  a malformed redirect cannot widen the allowlist.
+- Live PostGIS connections are bounded and filter clauses are
+  parameterized.
+
+### Security
+
+- Popup and attribution HTML is sanitized on save and render; the
+  NextAuth session body no longer exposes the access token to page
+  JavaScript.
+- Remaining outbound server fetches (basemap probe, pyramid worker
+  storage URLs) go through the SSRF-safe path.
+- Map-icon delete is authorization-gated; Android backup rules and
+  local-dev compose published ports are tightened.
 
 ## [1.1.0] - 2026-11-03
 
@@ -3510,6 +3550,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
 [1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
 [1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2

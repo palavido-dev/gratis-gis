@@ -8,6 +8,11 @@ import {
 } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import type { Request, Response } from 'express';
+import {
+  callerIsAdmin,
+  portalErrorBody,
+  requestIdOf,
+} from '../../common/public-error.js';
 
 /**
  * RFC 7807 problem+json filter scoped to the OGC API surface. The
@@ -28,14 +33,17 @@ import type { Request, Response } from 'express';
  * The slug is derived from the exception message so common shapes
  * (collection-not-found, feature-not-found, invalid-bbox) get
  * stable type URIs that clients can match on. Unknown exceptions
- * fall back to an `internal` slug; non-OGC paths keep the default
- * filter unchanged.
+ * fall back to an `internal` slug. Non-OGC paths keep that same
+ * plain-JSON shape, plus a `requestId`, instead of Nest's default
+ * filter: this filter is global, so it has to write those
+ * responses itself.
  *
- * Scope: this filter is registered globally but only rewrites the
- * response when the request URL starts with `/api/public/ogc/` -
- * other surfaces (portal, public catalog, public features v1) keep
- * the existing envelope. That avoids breaking any client that
- * already parses the portal's plain-JSON error shape.
+ * Scope: problem+json is only for URLs under `/api/public/ogc/`.
+ * Other surfaces (portal, public catalog, public features v1) keep
+ * the plain-JSON envelope. That avoids breaking any client that
+ * already parses it. Stack traces stay in the log. An admin may
+ * also receive one redacted line; everyone else gets the status
+ * and the request id.
  */
 @Catch()
 export class OgcProblemJsonFilter extends BaseExceptionFilter {
@@ -46,19 +54,14 @@ export class OgcProblemJsonFilter extends BaseExceptionFilter {
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();
 
-    // Out-of-scope paths: delegate to Nest's base filter so they
-    // keep the standard plain-JSON envelope (#197). The previous
-    // code THREW here on the assumption Nest's default handler
-    // would pick the exception back up; it does not. An exception
-    // thrown from inside an exception filter escapes Nest entirely
-    // and lands in Express's default error handler, which renders
-    // a bare HTML page. Net effect: from the day this filter
-    // shipped, every error on every non-OGC route came back as
-    // text/html with no message, which clients then surfaced as
-    // unreadable raw markup.
+    // Out-of-scope paths keep the plain-JSON envelope (#197) and
+    // gain a request id. This filter must write that response
+    // itself. Throwing here does not fall through to Nest's default
+    // filter: it escapes to Express, which renders a bare HTML page,
+    // and the browser then has no message to show.
     const url = req.originalUrl ?? req.url ?? '';
     if (!url.startsWith('/api/public/ogc/') && url !== '/api/public/ogc') {
-      super.catch(exception, host);
+      this.replyPortal(exception, req, res);
       return;
     }
 
@@ -102,8 +105,34 @@ export class OgcProblemJsonFilter extends BaseExceptionFilter {
         title,
         status,
         detail,
-        instance: url,
-      });
+      instance: url,
+    });
+  }
+
+  /**
+   * Plain JSON for portal routes. Unexpected failures are logged
+   * with the request id and answered without a stack. The query
+   * string is left out of the log line because it can carry a token.
+   */
+  private replyPortal(exception: unknown, req: Request, res: Response): void {
+    const requestId = requestIdOf(req);
+    const { status, body } = portalErrorBody(exception, {
+      requestId,
+      admin: callerIsAdmin(req),
+    });
+    if (status >= 500) {
+      const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+      const stack =
+        exception instanceof Error
+          ? (exception.stack ?? exception.message)
+          : String(exception);
+      this.log.error(`requestId=${requestId} ${req.method} ${path} ${stack}`);
+    }
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.status(status).json(body);
   }
 }
 

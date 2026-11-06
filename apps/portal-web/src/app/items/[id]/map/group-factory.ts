@@ -10,6 +10,7 @@ import {
   DEFAULT_LAYER_STYLE,
 } from '@gratis-gis/shared-types';
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { clientUuid } from '@/lib/uuid';
 
 /**
  * Build an empty group-layer row (#70, #72). All the editor's
@@ -19,7 +20,7 @@ import type { MapLayer } from '@gratis-gis/shared-types';
  */
 export function makeEmptyGroupLayer(title: string): MapLayer {
   return {
-    id: crypto.randomUUID(),
+    id: clientUuid(),
     title,
     visible: true,
     opacity: 1,

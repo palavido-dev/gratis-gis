@@ -20,6 +20,7 @@ import type {
   GeoBoundaryGeometry,
 } from '@gratis-gis/shared-types';
 import { importSpatialFile } from '@/lib/spatial-import';
+import { clientUuid } from '@/lib/uuid';
 import {
   TerraDraw,
   TerraDrawPolygonMode,
@@ -407,9 +408,9 @@ function DrawPanel({
       // Bug fix: TerraDraw v1 validates each seeded feature's id
       // as a UUID and silently throws when it isn't. The previous
       // `existing-${i}` ids failed that check, which surfaced as
-      // "saved boundary doesn't render in the editor." Use proper
-      // UUIDs (crypto.randomUUID is available in modern browsers
-      // and on the SSR path) so TerraDraw accepts the seed.
+      // "saved boundary doesn't render in the editor." clientUuid
+      // is a real UUID on the SSR path and on http://<lan-ip>,
+      // where crypto.randomUUID is missing.
       if (geometry) {
         try {
           const polys: number[][][][] =
@@ -418,7 +419,7 @@ function DrawPanel({
               : (geometry.coordinates as unknown as number[][][][]);
           draw.addFeatures(
             polys.map((coords) => ({
-              id: crypto.randomUUID(),
+              id: clientUuid(),
               type: 'Feature' as const,
               geometry: {
                 type: 'Polygon' as const,

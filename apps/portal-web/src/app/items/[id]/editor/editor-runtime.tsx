@@ -27,6 +27,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
+import { clientUuid } from '@/lib/uuid';
 import { LayerPanel } from '../map/layer-panel';
 import {
   discoverLayerMetadata,
@@ -1820,10 +1821,7 @@ export function EditorRuntime({
       // round-trip cleanly.
       let createdGlobalId: string | null = null;
       if (pendingFeature.mode === 'create') {
-        createdGlobalId =
-          typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+        createdGlobalId = clientUuid();
         res = await fetch(baseUrl, {
           method: 'POST',
           headers: writeHeaders,
