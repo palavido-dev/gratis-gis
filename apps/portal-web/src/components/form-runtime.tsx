@@ -33,6 +33,8 @@ import {
   type ValidationError,
 } from '@gratis-gis/form-schema';
 import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import { GeoPointMapPicker } from './form-inputs/geopoint-map-picker';
+import { SignatureInput } from './form-inputs/signature-input';
 import { useFormat } from '@/lib/i18n/format';
 
 /**
@@ -1062,6 +1064,19 @@ function Input({
     // what stops a respondent hunting for a control that does not
     // exist.
     case 'signature':
+      return (
+        <SignatureInput
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+          labels={{
+            aria: t('formRuntime.signatureAria'),
+            hint: t('formRuntime.signatureHint'),
+            clear: t('formRuntime.clear'),
+            signed: t('formRuntime.signatureSigned'),
+          }}
+        />
+      );
     case 'geotrace':
     case 'geoshape':
     case 'pick-feature':
@@ -2480,6 +2495,11 @@ function GeoPointInput({
   const point = (value as { lat: number; lng: number; accuracy?: number } | null) ?? null;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // `map` mode offers nothing but the map, so when the map cannot load
+  // the respondent falls back to GPS and typed coordinates instead of
+  // being left with no way to answer.
+  const [mapFailed, setMapFailed] = useState(false);
+  const mapOnlyFailed = q.capture === 'map' && mapFailed;
 
   function capture() {
     if (!('geolocation' in navigator)) {
@@ -2522,7 +2542,10 @@ function GeoPointInput({
         <p className="text-sm text-muted">{t('formRuntime.noLocationYet')}</p>
       )}
       {!readOnly &&
-      (q.capture === 'auto' || q.capture === 'gps' || q.capture === undefined) ? (
+      (q.capture === 'auto' ||
+        q.capture === 'gps' ||
+        q.capture === undefined ||
+        mapOnlyFailed) ? (
         <button
           type="button"
           onClick={capture}
@@ -2535,7 +2558,26 @@ function GeoPointInput({
             : t('formRuntime.captureLocation')}
         </button>
       ) : null}
-      {!readOnly && q.capture === 'manual' ? (
+      {/* `map` is tap-to-place only; `auto` (the default) offers GPS
+          first and the map for when the respondent is reporting a
+          spot they are not standing on, or has no fix. */}
+      {q.capture === 'map' || q.capture === 'auto' || q.capture === undefined ? (
+        <GeoPointMapPicker
+          value={point}
+          readOnly={readOnly}
+          onChange={(v) => {
+            setErr(null);
+            onChange(v);
+          }}
+          ariaLabel={t('formRuntime.mapPickerAria')}
+          hint={t('formRuntime.mapPickerHint')}
+          onFailed={() => setMapFailed(true)}
+        />
+      ) : null}
+      {mapOnlyFailed ? (
+        <p className="text-xs text-muted">{t('formRuntime.mapPickerFailed')}</p>
+      ) : null}
+      {!readOnly && (q.capture === 'manual' || mapOnlyFailed) ? (
         <div className="grid grid-cols-2 gap-2">
           <input
             type="number"

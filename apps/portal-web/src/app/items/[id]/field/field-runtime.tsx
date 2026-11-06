@@ -136,6 +136,7 @@ import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
 import { stampGpsMetadata } from './gps-metadata-stamp';
 import { FieldAttachments } from './field-attachments';
+import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
@@ -4350,6 +4351,20 @@ function FormModal({
 
     try {
       if (isOnline) {
+        // Photos and signatures still pending ({ dataUrl }) go to
+        // storage first, so the row keeps attachment descriptors, not
+        // base64 (the form's own inputs upload when they can; this
+        // catches what they could not). A failure here keeps the record
+        // and queues it; the sync drain uploads them later.
+        try {
+          await uploadPendingAttachmentsInResponse(
+            properties as Record<string, unknown>,
+          );
+        } catch {
+          await applyLocally();
+          onSubmitted();
+          return;
+        }
         // Online path. Try the live API first. On non-2xx (validation
         // error, schema mismatch, anything 4xx) we propagate to the
         // user so they can fix and retry; this is NOT a queue case.

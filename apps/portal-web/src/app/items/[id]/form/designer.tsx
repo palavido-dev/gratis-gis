@@ -3538,8 +3538,17 @@ function GroupRepeatEditor({
   );
 }
 
-const inputCls =
-  'block w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+/**
+ * Shared input chrome without a width. Rows that place a fixed-width
+ * input beside a `flex-1` one (choice value + label, matrix rows and
+ * columns) must not inherit `w-full`: it conflicts with `w-20`/`w-24`,
+ * and when `w-full` wins the first input takes the whole row and the
+ * label input is squeezed to a sliver.
+ */
+const inputBaseCls =
+  'block rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+
+const inputCls = `${inputBaseCls} w-full`;
 
 function Field({
   label,
@@ -3591,7 +3600,7 @@ function ChoicesEditor({
                   ),
                 )
               }
-              className={`${inputCls} font-mono w-24`}
+              className={`${inputBaseCls} font-mono w-24 shrink-0`}
             />
             <input
               type="text"
@@ -3605,7 +3614,7 @@ function ChoicesEditor({
                   ),
                 )
               }
-              className={`${inputCls} flex-1`}
+              className={`${inputBaseCls} min-w-0 flex-1`}
             />
             {canEdit ? (
               <button
@@ -3679,7 +3688,7 @@ function MatrixEditor({
                     ),
                   })
                 }
-                className={`${inputCls} font-mono w-20`}
+                className={`${inputBaseCls} font-mono w-20 shrink-0`}
               />
               <input
                 type="text"
@@ -3693,7 +3702,7 @@ function MatrixEditor({
                     ),
                   })
                 }
-                className={`${inputCls} flex-1`}
+                className={`${inputBaseCls} min-w-0 flex-1`}
               />
               {canEdit ? (
                 <button
@@ -3753,7 +3762,7 @@ function MatrixEditor({
                     ),
                   })
                 }
-                className={`${inputCls} font-mono w-20`}
+                className={`${inputBaseCls} font-mono w-20 shrink-0`}
               />
               <input
                 type="text"
@@ -3767,7 +3776,7 @@ function MatrixEditor({
                     ),
                   })
                 }
-                className={`${inputCls} flex-1`}
+                className={`${inputBaseCls} min-w-0 flex-1`}
               />
               {canEdit ? (
                 <button
@@ -3843,7 +3852,7 @@ function MatrixRowsEditor({
                   ),
                 )
               }
-              className={`${inputCls} font-mono w-20`}
+              className={`${inputBaseCls} font-mono w-20 shrink-0`}
             />
             <input
               type="text"
@@ -3857,7 +3866,7 @@ function MatrixRowsEditor({
                   ),
                 )
               }
-              className={`${inputCls} flex-1`}
+              className={`${inputBaseCls} min-w-0 flex-1`}
             />
             {canEdit ? (
               <button
@@ -3942,7 +3951,7 @@ function MatrixDropdownEditor({
                       ),
                     })
                   }
-                  className={`${inputCls} font-mono w-20`}
+                  className={`${inputBaseCls} font-mono w-20 shrink-0`}
                 />
                 <input
                   type="text"
@@ -3956,7 +3965,7 @@ function MatrixDropdownEditor({
                       ),
                     })
                   }
-                  className={`${inputCls} flex-1`}
+                  className={`${inputBaseCls} min-w-0 flex-1`}
                 />
                 {canEdit ? (
                   <button
@@ -4063,7 +4072,7 @@ function ImageChoicesEditor({
                     ),
                   )
                 }
-                className={`${inputCls} font-mono w-24`}
+                className={`${inputBaseCls} font-mono w-24 shrink-0`}
               />
               <input
                 type="text"
@@ -4077,7 +4086,7 @@ function ImageChoicesEditor({
                     ),
                   )
                 }
-                className={`${inputCls} flex-1`}
+                className={`${inputBaseCls} min-w-0 flex-1`}
               />
               {canEdit ? (
                 <button

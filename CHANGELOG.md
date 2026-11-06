@@ -6,6 +6,38 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Form location questions can be answered on a map. In the default
+  `auto` mode the GPS button now sits above a small map: tap it or
+  drag the pin to report a spot you are not standing on, or when
+  there is no fix. `map` mode shows only the map, and falls back to
+  GPS and typed coordinates if the map cannot load. The schema always
+  offered both modes, but the runtime drew GPS and lat/lon boxes
+  only. **Note:** existing geopoint questions in `auto` mode (the
+  default) now show the map as well.
+- Signature questions can be answered. A signature pad saves one PNG
+  as an attachment: uploaded right away when online, like a photo, or
+  with the submission's other attachments when it syncs (the respond
+  page's outbox and the field app's queue both upload it first, so it
+  is never stored as base64). The server accepts only a PNG data URL
+  of up to 512 KB, or a storage or http(s) URL. **Note:** a required
+  signature is now enforced (it was skipped as uncapturable), so
+  existing forms with a required signature start rejecting
+  submissions without one. The Android app skips signature questions
+  until it has a pad, so on Android a required one cannot be answered
+  yet.
+
+### Fixed
+
+- Map builder: the basemap menu opens again. The toolbar scrolled
+  sideways (`overflow-x-auto`), which also clips vertically, so the
+  menu dropping below the header was cut off. The toolbar wraps
+  instead.
+- Form designer: in choice and matrix rows the label box is no longer
+  squeezed to a sliver beside the value box. Both inputs carried
+  `w-full` plus a fixed width, and `w-full` won.
+
 ## [1.2.0] - 2026-11-05
 
 ### Added

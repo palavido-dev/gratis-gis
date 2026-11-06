@@ -328,7 +328,11 @@ export function BuilderShell({
         {icon ? <span className="shrink-0">{icon}</span> : null}
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
         {toolbarRight ? (
-          <div className="ml-auto flex max-w-full items-center gap-2 overflow-x-auto max-md:ml-0 max-md:basis-full">
+          // Wraps instead of scrolling: any overflow value other than
+          // `visible` clips on both axes, which hid absolutely
+          // positioned menus that open from the toolbar (basemap
+          // picker, layout menus) below the 48px header.
+          <div className="ml-auto flex max-w-full flex-wrap items-center gap-2 max-md:ml-0 max-md:basis-full">
             {toolbarRight}
           </div>
         ) : null}

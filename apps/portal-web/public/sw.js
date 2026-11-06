@@ -984,9 +984,15 @@ async function drainFeatureQueue() {
     );
     // One row per feature (its oldest claimable one), in capture
     // order. Same rule as the in-app drain.
+    // A row whose properties still embed a pending form attachment (a
+    // photo or signature answer saved as { dataUrl } offline) is left
+    // for the page too: the in-app replay uploads those first
+    // (offline-sync.ts uploadPendingInProperties), and sending it from
+    // here would store the image as base64 in the feature.
     const todo = chainHeads(rows, now).filter(
       (r) =>
-        !owesUpload.has(r.dataLayerId + ' ' + r.layerKey + ' ' + r.globalId),
+        !owesUpload.has(r.dataLayerId + ' ' + r.layerKey + ' ' + r.globalId) &&
+        !responseHasPendingAttachment(r.properties),
     );
     let retry = false;
     for (const record of todo) {
