@@ -24,6 +24,9 @@ Ranked for the next morning list. Scoper owns this section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
+| Q-573-nas-datalayer-polygon | issue #573 | Shapefile/KMZ/GeoJSON → data_layer empty or fails on TrueNAS | Rank 1 morning 2026-11-06 |
+| Q-575-nas-tailscale-redirect | issue #575 | Tailscale login redirects to LAN IP | Rank 2 morning 2026-11-06 |
+| Q-574-nas-http-locate | issue #574 | Address / my-location fail on plain-HTTP NAS | Rank 3 morning 2026-11-06 |
 | recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked: param shell in v1.1.0; needs thinner recipe research before ranking |
 
 ## approved
