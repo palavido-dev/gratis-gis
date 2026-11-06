@@ -4870,6 +4870,7 @@ export const en = {
     geolocationUnsupported: "Geolocation not supported on this device.",
     mapPickerAria: "Map for choosing the location",
     mapPickerHint: "Tap the map or drag the pin to set the location.",
+    mapPickerFailed: 'The map could not load. Use GPS or type the coordinates.',
     signatureAria: "Signature pad",
     signatureHint: "Sign inside the box with your finger, stylus, or mouse.",
     signatureSigned: "Signed",

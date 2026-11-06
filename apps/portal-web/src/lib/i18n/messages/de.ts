@@ -4744,6 +4744,7 @@ export const de: Partial<CatalogShape> = {
     geolocationUnsupported: "Geolokalisierung wird auf diesem Gerät nicht unterstützt.",
     mapPickerAria: "Karte zur Auswahl des Standorts",
     mapPickerHint: "Tippe auf die Karte oder ziehe die Markierung, um den Standort festzulegen.",
+    mapPickerFailed: 'Die Karte konnte nicht geladen werden. Nutzen Sie GPS oder geben Sie die Koordinaten ein.',
     signatureAria: "Unterschriftenfeld",
     signatureHint: "Unterschreibe im Feld mit Finger, Stift oder Maus.",
     signatureSigned: "Unterschrieben",

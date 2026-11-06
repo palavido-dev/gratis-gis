@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  MAX_SIGNATURE_DATA_URL_CHARS,
   UNCAPTURABLE_QUESTION_TYPES,
   isUncapturable,
   validate,
@@ -128,5 +129,34 @@ describe('signature question', () => {
     expect(two.errors).toHaveLength(1);
     const text = validate(sig(), { sig: 'my name' } as unknown as Response);
     expect(text.errors).toHaveLength(1);
+  });
+
+  const one = (a: Record<string, unknown>) =>
+    validate(sig(), {
+      sig: [{ name: 'signature.png', mimeType: 'image/png', sizeBytes: 8, ...a }],
+    } as unknown as Response).errors.length;
+
+  it('accepts only a PNG data URL', () => {
+    expect(one({ dataUrl: png })).toBe(0);
+    expect(one({ dataUrl: 'data:image/jpeg;base64,/9j/4AAQ' })).toBe(1);
+    expect(one({ dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=' })).toBe(1);
+    expect(
+      validate(sig(), { sig: 'data:image/svg+xml,<svg/>' } as unknown as Response).errors,
+    ).toHaveLength(1);
+  });
+
+  it('caps the data URL length', () => {
+    const atCap = png + 'A'.repeat(MAX_SIGNATURE_DATA_URL_CHARS - png.length);
+    expect(one({ dataUrl: atCap })).toBe(0);
+    expect(one({ dataUrl: atCap + 'A' })).toBe(1);
+  });
+
+  it('accepts a storage path or an http(s) url, nothing else', () => {
+    expect(one({ url: '/api/portal/storage/private/feature-attachment/k.png', key: 'k' })).toBe(0);
+    expect(one({ url: 'http://localhost:9000/bucket/k.png', key: 'k' })).toBe(0);
+    expect(one({ url: 'https://cdn.example.org/k.png', key: 'k' })).toBe(0);
+    expect(one({ url: 'javascript:alert(1)', key: 'k' })).toBe(1);
+    expect(one({ url: png, key: 'k' })).toBe(1);
+    expect(one({ url: '/etc/passwd', key: 'k' })).toBe(1);
   });
 });

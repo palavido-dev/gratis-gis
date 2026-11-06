@@ -284,9 +284,11 @@ class FormViewModel(
     }
 
   companion object {
+    // "signature" until the app has a real pad: drawn as a text box,
+    // anything typed fails the server's "Expected a signature image."
     private val SKIP_TYPES = setOf(
       "geopoint", "geotrace", "geoshape", "image", "audio", "video", "file",
-      "acknowledge", "note", "rank", "hidden",
+      "acknowledge", "note", "rank", "hidden", "signature",
     )
   }
 }

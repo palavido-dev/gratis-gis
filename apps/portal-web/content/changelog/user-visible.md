@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-06 - Pick a location on a map, and sign forms
+Location questions in forms now show a small map: tap it or drag the pin to report a spot you are not standing on. Signature questions show a pad to sign with a finger, stylus, or mouse; the signature is saved as an image with the response.
+
 ## [1.1.0] - 2026-11-03
 
 ## 2026-11-03 - Install on a home NAS

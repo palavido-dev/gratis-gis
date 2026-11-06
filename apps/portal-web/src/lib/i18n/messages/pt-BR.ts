@@ -4725,6 +4725,7 @@ export const ptBR: Partial<CatalogShape> = {
     geolocationUnsupported: "Geolocalização não é suportada neste dispositivo.",
     mapPickerAria: "Mapa para escolher o local",
     mapPickerHint: "Toque no mapa ou arraste o marcador para definir o local.",
+    mapPickerFailed: 'Não foi possível carregar o mapa. Use o GPS ou digite as coordenadas.',
     signatureAria: "Área de assinatura",
     signatureHint: "Assine dentro da caixa com o dedo, uma caneta ou o mouse.",
     signatureSigned: "Assinado",

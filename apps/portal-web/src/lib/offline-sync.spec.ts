@@ -507,3 +507,76 @@ describe('uploadPendingBlobsForFeature', () => {
     expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
   });
 });
+
+describe('syncQueue: form attachments pending in the properties', () => {
+  // A signature (or photo) answer captured offline in the field app is
+  // a { dataUrl } attachment inside the feature's properties. The
+  // replay uploads it first, so the row stores a descriptor, not base64.
+  const DATA_URL = 'data:image/png;base64,QQ==';
+  const pendingSig = () => [
+    { name: 'signature.png', mimeType: 'image/png', sizeBytes: 1, dataUrl: DATA_URL },
+  ];
+
+  it('uploads it before the write and sends the descriptor', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      if (url === '/api/portal/storage/presign-upload') return json(200, PRESIGN_OK);
+      if (url === PRESIGN_OK.uploadUrl) return new Response(null, { status: 200 });
+      if (url === FEATURES_PATH && init?.method === 'POST') return json(201, {});
+      throw new Error(`unexpected ${init?.method ?? 'GET'} ${url}`);
+    });
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(calls().filter((c) => !c.url.startsWith('data:'))).toEqual([
+      { url: '/api/portal/storage/presign-upload', method: 'POST' },
+      { url: PRESIGN_OK.uploadUrl, method: 'PUT' },
+      { url: FEATURES_PATH, method: 'POST' },
+    ]);
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) => url === FEATURES_PATH && init?.method === 'POST',
+    )!;
+    const sent = JSON.parse(String(post[1]!.body)) as {
+      features: Array<{ properties: Record<string, unknown> }>;
+    };
+    expect(sent.features[0]!.properties).toEqual({
+      species: 'oak',
+      sig: [
+        {
+          name: 'signature.png',
+          mimeType: 'image/png',
+          sizeBytes: 1,
+          url: PRESIGN_OK.publicUrl,
+          key: PRESIGN_OK.key,
+        },
+      ],
+    });
+    expect(await listQueue(DC, USER)).toEqual([]);
+  });
+
+  it('keeps the row, and its pending image, when the upload cannot reach the network', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      throw new TypeError('Failed to fetch');
+    });
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(0);
+    expect(result.errors[0]?.terminal).toBe(false);
+    const [row] = await listQueue(DC, USER);
+    // An outage, not the row's fault: back as it was, image still
+    // pending for the next drain, and no feature write was attempted.
+    expect(row!.syncStatus).toBe('pending');
+    expect(row!.retryCount).toBeUndefined();
+    expect(row!.properties).toEqual({ species: 'oak', sig: pendingSig() });
+    expect(calls().some((c) => c.url === FEATURES_PATH)).toBe(false);
+  });
+});

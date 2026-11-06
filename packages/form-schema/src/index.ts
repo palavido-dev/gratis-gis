@@ -1559,6 +1559,33 @@ export interface ValidationResult {
 }
 
 /**
+ * Longest signature data URL accepted, in characters. The pad exports
+ * a 900x300 PNG of a few strokes, usually tens of KB of base64; this
+ * leaves room for a dense signature and refuses anything that is
+ * plainly not one.
+ */
+export const MAX_SIGNATURE_DATA_URL_CHARS = 512 * 1024;
+
+/** A signature waiting to upload: a base64 PNG data URL, size-capped. */
+export function isSignatureDataUrl(v: string): boolean {
+  return (
+    v.startsWith('data:image/png;base64,') &&
+    v.length <= MAX_SIGNATURE_DATA_URL_CHARS
+  );
+}
+
+/**
+ * Where an uploaded signature may live: this deployment's storage
+ * route (private kinds are served through the api, see
+ * StorageService.apiUrlFor) or an http(s) URL (public storage).
+ * Anything else, such as a `javascript:` or `data:` URL in the url
+ * slot, is refused.
+ */
+export function isSignatureUrl(v: string): boolean {
+  return v.startsWith('/api/portal/storage/') || /^https?:\/\//i.test(v);
+}
+
+/**
  * Validate a response against the schema. Honors visibility (hidden
  * fields are not validated), required (incl. required-if), constraint
  * expressions, and per-type bounds (min/max length, min/max value,
@@ -2155,21 +2182,22 @@ function validateType(q: Question, value: unknown): string | null {
       // One PNG attachment: `{ name, mimeType, sizeBytes }` plus
       // `dataUrl` while it waits to upload, or `url` + `key` after.
       // A bare data URL string is accepted for answers saved before
-      // the pad wrote the attachment shape.
+      // the pad wrote the attachment shape. See isSignatureDataUrl and
+      // isSignatureUrl for what each may hold.
       if (typeof value === 'string') {
-        return value.startsWith('data:image/') ? null : 'Expected a signature image.';
+        return isSignatureDataUrl(value) ? null : 'Expected a signature image.';
       }
       if (!Array.isArray(value)) return 'Expected a signature image.';
       if (value.length > 1) return 'Only one signature is allowed.';
       const a = value[0] as Record<string, unknown> | undefined;
-      if (
-        !a ||
-        typeof a !== 'object' ||
-        (typeof a.url !== 'string' && typeof a.dataUrl !== 'string')
-      ) {
-        return 'Expected a signature image.';
+      if (!a || typeof a !== 'object') return 'Expected a signature image.';
+      if (typeof a.url === 'string') {
+        return isSignatureUrl(a.url) ? null : 'Expected a signature image.';
       }
-      return null;
+      if (typeof a.dataUrl === 'string') {
+        return isSignatureDataUrl(a.dataUrl) ? null : 'Expected a signature image.';
+      }
+      return 'Expected a signature image.';
     }
     case 'geopoint':
     case 'geotrace':

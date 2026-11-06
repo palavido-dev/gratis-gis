@@ -19,23 +19,31 @@
  *   - the responses view already renders signature answers through
  *     the shared attachment list.
  *
- * Nothing is uploaded per stroke. A signature is a few dozen strokes,
- * and the drain uploads the final image once.
+ * When online, the finished image is also uploaded straight away, the
+ * way PhotoInput uploads a photo, and the answer becomes the uploaded
+ * descriptor. That matters outside the respond page: the field app
+ * saves form answers as feature properties, and a pending data URL
+ * there would otherwise sit in the row as base64. Nothing is uploaded
+ * per stroke: the upload waits until the pen has rested for a moment
+ * (UPLOAD_IDLE_MS), and an upload overtaken by a later stroke or a
+ * clear is dropped. Until it lands, and whenever it fails or there is
+ * no signal, the answer stays pending for the queue drain to upload.
  *
  * The canvas is painted white before any ink so the exported PNG reads
  * the same in a dark-themed portal, a PDF report, or an email.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
+import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import {
+  SIGNATURE_FILE_NAME,
+  SIGNATURE_MIME,
+  pendingSignature,
+  signatureSrc,
+} from '@/lib/signature';
 
-interface SignatureAttachment {
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  dataUrl?: string;
-  url?: string;
-  key?: string;
-}
+/** How long the pen must rest before the image is uploaded. */
+const UPLOAD_IDLE_MS = 1200;
 
 interface Props {
   value: unknown;
@@ -53,24 +61,6 @@ interface Props {
 const W = 900;
 const H = 300;
 const INK = '#111827';
-
-/** Read the existing answer, tolerating a legacy bare data URL. */
-export function signatureSrc(value: unknown): string | null {
-  if (typeof value === 'string' && value.startsWith('data:image/')) return value;
-  if (!Array.isArray(value) || value.length === 0) return null;
-  const first = value[0] as SignatureAttachment | null;
-  if (!first || typeof first !== 'object') return null;
-  if (typeof first.url === 'string') return first.url;
-  if (typeof first.dataUrl === 'string') return first.dataUrl;
-  return null;
-}
-
-function dataUrlBytes(dataUrl: string): number {
-  const comma = dataUrl.indexOf(',');
-  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-  const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((b64.length * 3) / 4) - padding);
-}
 
 function paintBlank(ctx: CanvasRenderingContext2D) {
   ctx.save();
@@ -94,6 +84,10 @@ export function SignatureInput({ value, readOnly, onChange, labels }: Props) {
   /** The data URL this pad last emitted, so its own echo is not
    *  repainted (which would flash the pad blank while it reloads). */
   const emitted = useRef<string | null>(null);
+  /** Bumped by every stroke and clear, so an upload that a later
+   *  change overtook can tell and drop its result. */
+  const version = useRef(0);
+  const uploadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const existing = signatureSrc(value);
   const [hasValue, setHasValue] = useState(existing !== null);
 
@@ -131,9 +125,43 @@ export function SignatureInput({ value, readOnly, onChange, labels }: Props) {
     };
   }
 
+  function cancelUpload() {
+    if (uploadTimer.current) {
+      clearTimeout(uploadTimer.current);
+      uploadTimer.current = null;
+    }
+  }
+
+  useEffect(() => cancelUpload, []);
+
+  /** Upload the pad's image once the pen has rested; online only. */
+  function scheduleUpload(dataUrl: string) {
+    cancelUpload();
+    if (typeof navigator === 'undefined' || !navigator.onLine) return;
+    const v = version.current;
+    uploadTimer.current = setTimeout(() => {
+      uploadTimer.current = null;
+      void (async () => {
+        try {
+          const blob = await fetch(dataUrl).then((r) => r.blob());
+          const file = new File([blob], SIGNATURE_FILE_NAME, { type: SIGNATURE_MIME });
+          const uploaded = await uploadFormAttachment(file);
+          if (version.current !== v) return; // overtaken by a stroke or a clear
+          // The pad already shows this image; do not repaint it.
+          emitted.current = uploaded.url;
+          onChange([uploaded]);
+        } catch {
+          // Stays pending: the queue drain uploads it later.
+        }
+      })();
+    }, UPLOAD_IDLE_MS);
+  }
+
   function start(e: React.PointerEvent<HTMLCanvasElement>) {
     if (readOnly) return;
     e.preventDefault();
+    version.current += 1;
+    cancelUpload();
     drawing.current = true;
     last.current = toCanvas(e);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -175,20 +203,16 @@ export function SignatureInput({ value, readOnly, onChange, labels }: Props) {
     last.current = null;
     const c = canvasRef.current;
     if (!c || !inked.current) return;
-    const dataUrl = c.toDataURL('image/png');
+    const dataUrl = c.toDataURL(SIGNATURE_MIME);
     emitted.current = dataUrl;
     setHasValue(true);
-    onChange([
-      {
-        name: 'signature.png',
-        mimeType: 'image/png',
-        sizeBytes: dataUrlBytes(dataUrl),
-        dataUrl,
-      },
-    ]);
+    onChange(pendingSignature(dataUrl));
+    scheduleUpload(dataUrl);
   }
 
   function clear() {
+    version.current += 1;
+    cancelUpload();
     const ctx = canvasRef.current?.getContext('2d');
     if (ctx) paintBlank(ctx);
     inked.current = false;

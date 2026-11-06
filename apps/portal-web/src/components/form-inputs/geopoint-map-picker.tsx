@@ -39,6 +39,10 @@ interface Props {
   ariaLabel: string;
   /** Hint shown under the map while it is editable. */
   hint: string;
+  /** The map could not be built (MapLibre failed to load, no WebGL).
+   *  The picker then renders nothing; the caller offers another way
+   *  to answer. */
+  onFailed?: () => void;
 }
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
@@ -76,7 +80,14 @@ function round6(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
 
-export function GeoPointMapPicker({ value, readOnly, onChange, ariaLabel, hint }: Props) {
+export function GeoPointMapPicker({
+  value,
+  readOnly,
+  onChange,
+  ariaLabel,
+  hint,
+  onFailed,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -86,6 +97,8 @@ export function GeoPointMapPicker({ value, readOnly, onChange, ariaLabel, hint }
   // Latest props for handlers registered once at mount.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onFailedRef = useRef(onFailed);
+  onFailedRef.current = onFailed;
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const valueRef = useRef(value);
@@ -143,7 +156,10 @@ export function GeoPointMapPicker({ value, readOnly, onChange, ariaLabel, hint }
           onChangeRef.current({ lat, lng });
         });
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setFailed(true);
+          onFailedRef.current?.();
+        }
       }
     })();
     return () => {

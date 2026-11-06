@@ -2495,6 +2495,11 @@ function GeoPointInput({
   const point = (value as { lat: number; lng: number; accuracy?: number } | null) ?? null;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // `map` mode offers nothing but the map, so when the map cannot load
+  // the respondent falls back to GPS and typed coordinates instead of
+  // being left with no way to answer.
+  const [mapFailed, setMapFailed] = useState(false);
+  const mapOnlyFailed = q.capture === 'map' && mapFailed;
 
   function capture() {
     if (!('geolocation' in navigator)) {
@@ -2537,7 +2542,10 @@ function GeoPointInput({
         <p className="text-sm text-muted">{t('formRuntime.noLocationYet')}</p>
       )}
       {!readOnly &&
-      (q.capture === 'auto' || q.capture === 'gps' || q.capture === undefined) ? (
+      (q.capture === 'auto' ||
+        q.capture === 'gps' ||
+        q.capture === undefined ||
+        mapOnlyFailed) ? (
         <button
           type="button"
           onClick={capture}
@@ -2563,9 +2571,13 @@ function GeoPointInput({
           }}
           ariaLabel={t('formRuntime.mapPickerAria')}
           hint={t('formRuntime.mapPickerHint')}
+          onFailed={() => setMapFailed(true)}
         />
       ) : null}
-      {!readOnly && q.capture === 'manual' ? (
+      {mapOnlyFailed ? (
+        <p className="text-xs text-muted">{t('formRuntime.mapPickerFailed')}</p>
+      ) : null}
+      {!readOnly && (q.capture === 'manual' || mapOnlyFailed) ? (
         <div className="grid grid-cols-2 gap-2">
           <input
             type="number"

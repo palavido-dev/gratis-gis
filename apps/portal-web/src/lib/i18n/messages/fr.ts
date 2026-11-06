@@ -4735,6 +4735,7 @@ export const fr: Partial<CatalogShape> = {
     geolocationUnsupported: "La géolocalisation n'est pas prise en charge sur cet appareil.",
     mapPickerAria: "Carte pour choisir l'emplacement",
     mapPickerHint: "Touchez la carte ou faites glisser le repère pour définir l'emplacement.",
+    mapPickerFailed: "La carte n'a pas pu se charger. Utilisez le GPS ou saisissez les coordonnées.",
     signatureAria: "Zone de signature",
     signatureHint: "Signez dans le cadre avec le doigt, un stylet ou la souris.",
     signatureSigned: "Signé",
