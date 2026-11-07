@@ -8,12 +8,19 @@ the chat post is in [DIGEST.md](./DIGEST.md). Process rules are in
 Do not implement from this file. Developer only takes ids that moved to
 `approved` in [QUEUE.md](./QUEUE.md) after an explicit yay.
 
-## Pending decision (2026-11-05)
+## Pending decision (2026-11-07)
 
 | rank | id | size | risk | summary | why now |
 | --- | --- | --- | --- | --- | --- |
+| 1 | Q-573-nas-datalayer-polygon | M | med | TrueNAS: shapefile zip / KMZ / GeoJSON into a data layer fails or yields an empty layer (#573); GeoJSON-on-map works | Still open, no maintainer reply. Blocks dashboards that require data_layer sources. |
+| 2 | Q-575-nas-tailscale-redirect | S | med | Tailscale reachability: login bounces back to LAN IP instead of the Tailscale hostname (#575) | Still open. Documented Tailscale mode unusable if auth redirects wrong. |
+| 3 | Q-574-nas-http-locate | S | low | Locate address / my location fails on plain-HTTP NAS (#574); reporter suspects insecure context | Still open. Prefer honest UX + docs; fix address search if it shares the failure. |
 
-Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; Analyze param shell shipped in v1.1.0; still waiting on thinner recipe research.
+Re-listed from 2026-11-06; silence is not approval.
+
+Parked (not listed this morning): `recipe-dag` — PostGIS branching recipe graph; still waiting on thinner recipe research.
+
+Resolved outside the loop (not listed): [#551](https://github.com/palavido-dev/gratis-gis/issues/551) reporter-confirmed fixed; still open for Matthew to close.
 
 ## Decided this week
 
