@@ -87,7 +87,7 @@ ADMIN_PW="$(
       . /boot/env
       set +a
     fi
-    printf "%s" "${KC_BOOTSTRAP_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN:-${KEYCLOAK_ADMIN_PASSWORD:-}}}"
+    printf "%s" "${KC_BOOTSTRAP_ADMIN_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-}}"
   '
 )"
 if [[ -z "$ADMIN_PW" ]]; then
@@ -116,7 +116,7 @@ docker exec \
       set +a
     fi
     /opt/keycloak/bin/kcadm.sh config credentials \
-      --server http://127.0.0.1:8080 \
+      --server "http://127.0.0.1:8080${KC_HTTP_RELATIVE_PATH:-}" \
       --realm master \
       --user "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
       --password "$GG_KC_ADMIN_PW" >/dev/null
