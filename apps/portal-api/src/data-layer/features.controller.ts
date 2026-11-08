@@ -10,6 +10,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Param,
+  PayloadTooLargeException,
   Patch,
   Post,
   Query,
@@ -79,7 +80,11 @@ import {
   type CsvExportOptions,
 } from './csv-export.js';
 import { parseDeltaLimit, parseSinceParam } from './layer-delta.js';
-import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
+import {
+  FeatureQueryBudgetError,
+  parsePagingParams,
+  unpagedFeatureReadAllowed,
+} from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 
@@ -316,18 +321,25 @@ export class DataLayerFeaturesController {
     // 100k features and serialising them in one synchronous pass,
     // which could OOM a replica (anonymously, on the public mirror).
     // Same opts the CSV export already streams over.
-    res.setHeader(
-      'X-Gratis-Export',
-      `/api/items/${itemId}/layers/${layerId}/csv`,
-    );
+    const exportPath = `/api/items/${itemId}/layers/${layerId}/csv`;
+    res.setHeader('X-Gratis-Export', exportPath);
+    res.setHeader('Link', `<${exportPath}>; rel="export"`);
     const iterOpts: Parameters<typeof this.v3.iterateFeatures>[2] = {
       ...opts,
     };
     if (at) iterOpts.at = at;
-    await streamFeatureCollection(
-      res,
-      this.v3.iterateFeatures(itemId, layerId, iterOpts),
-    );
+    try {
+      await streamFeatureCollection(
+        res,
+        this.v3.iterateFeatures(itemId, layerId, iterOpts),
+      );
+    } catch (err) {
+      if (err instanceof FeatureQueryBudgetError && !res.headersSent) {
+        throw new PayloadTooLargeException(err.message);
+      }
+      if (res.headersSent) return;
+      throw err;
+    }
   }
 
   /**

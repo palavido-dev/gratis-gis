@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Response } from 'express';
 
+import {
+  FeatureQueryBudgetError,
+  type FeatureStreamBudget,
+  featureStreamBudget,
+} from './feature-paging.js';
+
 /**
  * Await a writable's `drain` when `res.write` has signalled
  * backpressure, resolving on drain and rejecting if the client
@@ -51,15 +57,42 @@ export function onceDrain(res: Response): Promise<void> {
 export async function streamFeatureCollection(
   res: Response,
   batches: AsyncIterable<unknown[]>,
+  budget: FeatureStreamBudget = featureStreamBudget(),
 ): Promise<void> {
   const iterator = batches[Symbol.asyncIterator]();
+  const started = Date.now();
+  let written = 0;
+  const charge = (text: string) => {
+    written += Buffer.byteLength(text);
+    if (budget.maxBytes != null && written > budget.maxBytes) {
+      throw new FeatureQueryBudgetError();
+    }
+    if (budget.maxMs != null && Date.now() - started > budget.maxMs) {
+      throw new FeatureQueryBudgetError();
+    }
+  };
   // May throw; headers are not sent yet, so it propagates cleanly.
   let step = await iterator.next();
+  let firstChunk = '';
+  let first = true;
+  if (!step.done) {
+    for (const feature of step.value) {
+      if (!first) firstChunk += ',';
+      firstChunk += JSON.stringify(feature);
+      first = false;
+    }
+    charge(firstChunk);
+  }
+  const opening = '{"type":"FeatureCollection","features":[';
+  charge(opening);
 
   res.setHeader('content-type', 'application/json; charset=utf-8');
-  res.write('{"type":"FeatureCollection","features":[');
-  let first = true;
+  let headersOut = false;
   try {
+    if (!res.write(opening)) await onceDrain(res);
+    headersOut = true;
+    if (firstChunk && !res.write(firstChunk)) await onceDrain(res);
+    if (!step.done) step = await iterator.next();
     while (!step.done) {
       let chunk = '';
       for (const feature of step.value) {
@@ -67,16 +100,18 @@ export async function streamFeatureCollection(
         chunk += JSON.stringify(feature);
         first = false;
       }
-      if (chunk && !res.write(chunk)) {
-        await onceDrain(res);
-      }
+      charge(chunk);
+      if (chunk && !res.write(chunk)) await onceDrain(res);
       step = await iterator.next();
     }
-    res.write(']}');
+    const close = ']}';
+    charge(close);
+    res.write(close);
     res.end();
-  } catch {
-    // Headers are already out; end the truncated body and let the
-    // iterator release its DB cursor.
+  } catch (err) {
+    if (!headersOut) throw err;
+    // Headers are already out. Do not write the closing bytes: a
+    // complete FeatureCollection would look like a successful read.
     try {
       res.end();
     } catch {
@@ -87,5 +122,6 @@ export async function streamFeatureCollection(
     } catch {
       /* best effort */
     }
+    throw err;
   }
 }

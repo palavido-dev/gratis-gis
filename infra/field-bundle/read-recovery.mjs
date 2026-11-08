@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Read a device offline-recovery zip back into records and file bytes.
- * This is the copy the phone exported. It is not a promise that a phone
- * which never saved or uploaded those edits can be restored.
+ * This reads a zip the phone already exported. It does not import or
+ * replay those records into the current form or layer schema, and it
+ * does not store a payload the device uploaded. A replay needs a
+ * signed-in user to confirm the bundle, then an idempotent write of
+ * records and attachments. Edits that never left the phone are a
+ * separate physical limit. A server copy of bytes the phone did send
+ * is not that limit, and this reader is not that copy.
  */
 import { inflateRawSync } from 'node:zlib';
 

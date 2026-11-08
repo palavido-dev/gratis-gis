@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -121,18 +122,33 @@ export class JobsMonitorService {
   private async cancelAnalysis(user: AuthUser, id: string): Promise<JobRow> {
     const row = await this.prisma.analysisJob.findUnique({ where: { id } });
     if (!row || row.orgId !== user.orgId) throw new NotFoundException('Analysis job not found.');
-    if (row.state === 'queued') {
-      await this.prisma.analysisJob.updateMany({
-        where: { id, state: 'queued' },
-        data: { state: 'cancelled', finishedAt: new Date() },
-      });
-    } else if (row.state === 'running') {
-      await this.prisma.analysisJob.updateMany({
-        where: { id, state: 'running' },
-        data: { state: 'cancel_requested' },
-      });
-    } else {
+    if (row.state !== 'queued' && row.state !== 'running') {
       throw new BadRequestException('Only a queued or running analysis can be cancelled.');
+    }
+    const nextState = row.state === 'queued' ? 'cancelled' : 'cancel_requested';
+    const updated = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      WITH lease AS (
+        SELECT set_config('gratis.reclaim', '1', true)
+      )
+      UPDATE analysis_job
+      SET state = ${nextState},
+          finished_at = CASE WHEN ${nextState} = 'cancelled' THEN now() ELSE finished_at END
+      WHERE id = ${id}::uuid
+        AND org_id = ${user.orgId}::uuid
+        AND state = ${row.state}
+        AND (SELECT count(*) FROM lease) = 1
+      RETURNING id
+    `;
+    if (updated.length !== 1) {
+      await this.audit.record({
+        orgId: user.orgId,
+        actorUserId: user.id,
+        action: 'job.cancel',
+        targetType: 'analysis',
+        targetId: id,
+        outcome: 'failed',
+      });
+      throw new ConflictException('The analysis could not be cancelled.');
     }
     await this.audit.record({
       orgId: user.orgId,

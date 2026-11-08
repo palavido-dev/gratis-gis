@@ -171,6 +171,9 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         source_item_id: string;
       }>
     >`
+      WITH lease AS (
+        SELECT set_config('gratis.reclaim', '1', true)
+      )
       UPDATE analysis_job
       SET state = 'failed',
           error = 'The analysis result could not be staged for import (worker stopped responding).',
@@ -179,6 +182,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         AND (params->>'importJobId') IS NULL
         AND COALESCE(heartbeat_at, started_at, created_at)
             < now() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})
+        AND (SELECT count(*) FROM lease) = 1
       RETURNING id, kind, target_item_id, source_item_id
     `;
     for (const row of stranded) {
@@ -205,11 +209,18 @@ export class AnalysisBridgeWorker implements OnModuleInit {
       take: 3,
     });
     for (const job of candidates) {
-      const claimed = await this.prisma.analysisJob.updateMany({
-        where: { id: job.id, state: 'ingest' },
-        data: { state: 'importing', progress: 82 },
-      });
-      if (claimed.count === 0) continue; // another replica took it
+      const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        WITH lease AS (
+          SELECT set_config('gratis.claim_token', ${job.claimToken ?? ''}, true)
+        )
+        UPDATE analysis_job
+        SET state = 'importing', progress = 82
+        WHERE id = ${job.id}::uuid
+          AND state = 'ingest'
+          AND (SELECT count(*) FROM lease) = 1
+        RETURNING id
+      `;
+      if (claimed.length === 0) continue; // another replica took it, or the lease was refused
       try {
         const params = (job.params ?? {}) as {
           artifactKey?: string;

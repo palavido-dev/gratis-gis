@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { FeatureFieldType } from '@gratis-gis/shared-types';
 
+import { patchLayerCounts } from './layer-json-patch.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -228,28 +229,16 @@ export class DataLayerTablesService {
       return false;
     }
     let changed = false;
-    const nextLayers: Array<Record<string, unknown>> = [];
+    const counts: Record<string, number> = {};
     for (const layer of data.layers) {
       const layerId = (layer as { id?: unknown }).id;
-      if (typeof layerId !== 'string' || layerId === '') {
-        nextLayers.push(layer);
-        continue;
-      }
+      if (typeof layerId !== 'string' || layerId === '') continue;
       const count = await this.countLiveEntities(itemId, layerId);
-      if (layer.featureCount === count) {
-        nextLayers.push(layer);
-        continue;
-      }
-      nextLayers.push({ ...layer, featureCount: count });
-      changed = true;
+      counts[layerId] = count;
+      if (layer.featureCount !== count) changed = true;
     }
     if (!changed) return false;
-    await this.prisma.item.update({
-      where: { id: itemId },
-      data: {
-        data: { ...(data as object), layers: nextLayers } as never,
-      },
-    });
+    await patchLayerCounts(this.prisma, itemId, counts);
     return true;
   }
 

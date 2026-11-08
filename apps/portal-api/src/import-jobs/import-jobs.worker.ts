@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { ImportJob, Prisma } from '@prisma/client';
+import type { ImportJob } from '@prisma/client';
 
 import { ImportJobsService } from './import-jobs.service.js';
 import { IngestService } from '../ingest/ingest.service.js';
@@ -10,6 +10,7 @@ import {
   DataLayerTablesService,
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
+import { patchLayerField } from '../data-layer/layer-json-patch.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
@@ -491,22 +492,7 @@ export class ImportJobsWorker implements OnModuleInit {
       sourceSrs?: string | null;
     },
   ): Promise<void> {
-    const row = await this.prisma.item.findUnique({
-      where: { id: itemId },
-      select: { data: true },
-    });
-    const data = row?.data as
-      | { version?: number; layers?: Array<Record<string, unknown>> }
-      | null;
-    if (!data || data.version !== 3 || !Array.isArray(data.layers)) return;
-    const nextLayers = data.layers.map((l) =>
-      (l as { id?: string }).id === layerId ? { ...l, source } : l,
-    );
-    const nextData = { ...(data as object), layers: nextLayers };
-    await this.prisma.item.update({
-      where: { id: itemId },
-      data: { data: nextData as unknown as Prisma.InputJsonValue },
-    });
+    await patchLayerField(this.prisma, itemId, layerId, 'source', source);
   }
 }
 

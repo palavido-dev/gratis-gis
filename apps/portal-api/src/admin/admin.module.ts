@@ -8,6 +8,7 @@ import { AdminBasemapProbeController } from './admin-basemap-probe.controller.js
 import { AdminBrandingController } from './admin-branding.controller.js';
 import { AdminCapabilitiesController } from './admin-capabilities.controller.js';
 import { AdminIntegrationsController } from './admin-integrations.controller.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminGuard } from './admin.guard.js';
 import { HousekeepingController } from './housekeeping.controller.js';
 import { HousekeepingService } from './housekeeping.service.js';
@@ -92,6 +93,7 @@ import { UpdatesService } from '../updates/updates.service.js';
     KeycloakAdminService,
     KeycloakSyncService,
     AdminGuard,
+    OperatorOrgGuard,
     HousekeepingService,
     HousekeepingScheduleService,
     HousekeepingCronService,

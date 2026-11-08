@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 /**
  * AES-256-GCM encryption for stored credentials (#36).
@@ -121,12 +122,40 @@ export function decryptWithKey(
   return plain.toString('utf8');
 }
 
+function ringKeys(): Buffer[] {
+  const path = process.env.GRATIS_CREDENTIAL_KEYRING;
+  if (!path) return [];
+  let text = '';
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return [];
+  }
+  const keys: Buffer[] = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const key = Buffer.from(trimmed, 'base64');
+    if (key.length === KEY_LENGTH) keys.push(key);
+  }
+  return keys;
+}
+
 export function decryptCredential(
   ciphertext: string,
   iv: string,
   aad: string,
 ): string {
-  return decryptWithKey(ciphertext, iv, aad, loadKey());
+  const keys = [loadKey(), ...ringKeys()];
+  let last: unknown;
+  for (const key of keys) {
+    try {
+      return decryptWithKey(ciphertext, iv, aad, key);
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last instanceof Error ? last : new Error('credential unusable');
 }
 
 /**

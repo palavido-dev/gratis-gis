@@ -5,11 +5,13 @@
  */
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
+import { Readable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib';
 
 import {
   _setSafeFetchTransportForTests,
@@ -17,6 +19,7 @@ import {
   pinnedRequest,
   safeFetch,
   UnsafeOutboundUrlError,
+  UnsupportedRequestBodyError,
 } from './net-guards.js';
 
 jest.mock('node:dns/promises', () => ({
@@ -158,6 +161,194 @@ describe('pinned HTTP dial', () => {
           { ca: pem },
         ),
       ).rejects.toThrow(/altname|hostname|certificate/i);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('stops a chunked body and a decoded gzip bomb at the cap', async () => {
+    const server = createHttpServer((_req, res) => {
+      if (_req.url === '/chunked') {
+        res.writeHead(200);
+        res.write('x'.repeat(64));
+        res.end();
+        return;
+      }
+      const bomb = gzipSync('A'.repeat(50_000));
+      res.writeHead(200, { 'content-encoding': 'gzip' });
+      res.end(bomb);
+    });
+    const port = await listen(server);
+    try {
+      const chunked = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/chunked`),
+        undefined,
+        '127.0.0.1',
+        { maxBytes: 16 },
+      );
+      await expect(chunked.text()).rejects.toThrow(/larger than 16/);
+      const bomb = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/bomb`),
+        undefined,
+        '127.0.0.1',
+        { maxBytes: 1024 },
+      );
+      await expect(bomb.text()).rejects.toThrow(/larger than 1024/);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('decodes gzip, deflate, and brotli the way fetch does', async () => {
+    const plain = 'decoded-body';
+    const server = createHttpServer((_req, res) => {
+      const encoding = _req.url?.slice(1) ?? '';
+      const body =
+        encoding === 'gzip'
+          ? gzipSync(plain)
+          : encoding === 'deflate'
+            ? deflateSync(plain)
+            : brotliCompressSync(plain);
+      res.writeHead(200, { 'content-encoding': encoding });
+      res.end(body);
+    });
+    const port = await listen(server);
+    try {
+      for (const encoding of ['gzip', 'deflate', 'br']) {
+        const res = await pinnedRequest(
+          new URL(`http://tiles.example:${port}/${encoding}`),
+          undefined,
+          '127.0.0.1',
+        );
+        expect(res.headers.get('content-encoding')).toBeNull();
+        await expect(res.text()).resolves.toBe(plain);
+      }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('honors GRATIS_SAFE_FETCH_TIMEOUT_MS', async () => {
+    const server = createHttpServer(() => {
+      /* hang */
+    });
+    const port = await listen(server);
+    const previous = process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS;
+    process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS = '200';
+    try {
+      await expect(
+        pinnedRequest(new URL(`http://tiles.example:${port}/hang`), undefined, '127.0.0.1'),
+      ).rejects.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS;
+      else process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS = previous;
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('destroys the socket when the caller aborts', async () => {
+    let closed = false;
+    let connected = false;
+    const server = createHttpServer(() => {
+      /* hang */
+    });
+    server.on('connection', (socket) => {
+      connected = true;
+      socket.on('close', () => {
+        closed = true;
+      });
+    });
+    const port = await listen(server);
+    const controller = new AbortController();
+    const pending = pinnedRequest(
+      new URL(`http://tiles.example:${port}/hang`),
+      { signal: controller.signal },
+      '127.0.0.1',
+    );
+    for (let i = 0; i < 50 && !connected; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(connected).toBe(true);
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    for (let i = 0; i < 50 && !closed; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(closed).toBe(true);
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it('sends URLSearchParams and rejects an unsupported body', async () => {
+    const seen: string[] = [];
+    const server = createHttpServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        seen.push(Buffer.concat(chunks).toString());
+        res.end('ok');
+      });
+    });
+    const port = await listen(server);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/form`),
+        { method: 'POST', body: new URLSearchParams({ a: '1' }) },
+        '127.0.0.1',
+      );
+      await expect(res.text()).resolves.toBe('ok');
+      expect(seen).toEqual(['a=1']);
+      await expect(
+        pinnedRequest(
+          new URL(`http://tiles.example:${port}/nope`),
+          { method: 'POST', body: { nope: true } as never },
+          '127.0.0.1',
+        ),
+      ).rejects.toBeInstanceOf(UnsupportedRequestBodyError);
+      expect(seen).toEqual(['a=1']);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('does not send Authorization to a redirected origin', async () => {
+    const seen: Array<string | undefined> = [];
+    const second = createHttpServer((req, res) => {
+      seen.push(req.headers.authorization);
+      res.end('landed');
+    });
+    const portB = await listen(second);
+    const first = createHttpServer((_req, res) => {
+      res.writeHead(302, { location: `http://other.example:${portB}/landed` });
+      res.end();
+    });
+    const portA = await listen(first);
+    _setSafeFetchTransportForTests((url, init) => pinnedRequest(url, init, '127.0.0.1'));
+    try {
+      const res = await safeFetch(`http://origin.example:${portA}/start`, {
+        headers: { authorization: 'Bearer secret' },
+      });
+      await expect(res.text()).resolves.toBe('landed');
+      expect(seen).toEqual([undefined]);
+    } finally {
+      await new Promise((resolve) => first.close(resolve));
+      await new Promise((resolve) => second.close(resolve));
+    }
+  });
+
+  it('pipes a node stream body', async () => {
+    const server = createHttpServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => res.end(Buffer.concat(chunks)));
+    });
+    const port = await listen(server);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/stream`),
+        { method: 'POST', body: Readable.from(['abc', 'def']) as never },
+        '127.0.0.1',
+      );
+      await expect(res.text()).resolves.toBe('abcdef');
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

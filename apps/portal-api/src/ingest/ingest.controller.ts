@@ -22,6 +22,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { ItemsService } from '../items/items.service.js';
+import { patchLayerField } from '../data-layer/layer-json-patch.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { FeaturesService } from '../features/features.service.js';
@@ -767,8 +768,8 @@ export class IngestController {
 
   /**
    * Merge a `source` block onto the named layer inside the item's
-   * v3 data blob. Read-modify-write is safe here: this endpoint is
-   * the only writer of layer.source, and we guard with canEdit above.
+   * v3 data blob. The write sets only `source` on the current row,
+   * so a syncVersion committed after this method started is kept.
    */
   private async stampV3LayerSource(
     itemId: string,
@@ -783,22 +784,7 @@ export class IngestController {
       sourceSrs?: string | null;
     },
   ) {
-    const row = await this.prisma.item.findUnique({
-      where: { id: itemId },
-      select: { data: true },
-    });
-    const data = row?.data as
-      | { version?: number; layers?: Array<Record<string, unknown>> }
-      | null;
-    if (!data || data.version !== 3 || !Array.isArray(data.layers)) return;
-    const nextLayers = data.layers.map((l) =>
-      (l as { id?: string }).id === layerId ? { ...l, source } : l,
-    );
-    const nextData = { ...(data as object), layers: nextLayers };
-    await this.prisma.item.update({
-      where: { id: itemId },
-      data: { data: nextData as unknown as Prisma.InputJsonValue },
-    });
+    await patchLayerField(this.prisma, itemId, layerId, 'source', source);
   }
 }
 

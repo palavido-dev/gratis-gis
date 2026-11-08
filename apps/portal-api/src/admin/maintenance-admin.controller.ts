@@ -14,6 +14,7 @@ import { IsBoolean, IsOptional } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { MaintenanceModeService } from '../backup/maintenance-mode.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 
@@ -35,7 +36,7 @@ export function failedRestore(reason: string | null): boolean {
 @ApiTags('admin', 'maintenance')
 @ApiBearerAuth()
 @Controller('admin/maintenance')
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 export class MaintenanceAdminController {
   constructor(
     private readonly mode: MaintenanceModeService,

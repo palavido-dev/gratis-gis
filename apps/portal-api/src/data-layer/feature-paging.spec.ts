@@ -2,8 +2,11 @@
 import { BadRequestException } from '@nestjs/common';
 
 import {
+  DEFAULT_FEATURE_STREAM_BYTES,
+  DEFAULT_FEATURE_STREAM_MS,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
+  featureStreamBudget,
   parsePagingParams,
   unpagedFeatureReadAllowed,
 } from './feature-paging.js';
@@ -75,5 +78,22 @@ describe('unpagedFeatureReadAllowed', () => {
     expect(unpagedFeatureReadAllowed(undefined)).toBe(true);
     expect(unpagedFeatureReadAllowed('')).toBe(true);
     expect(unpagedFeatureReadAllowed('required')).toBe(false);
+  });
+});
+
+describe('featureStreamBudget', () => {
+  it('bounds an unpaged stream unless the operator sets 0', () => {
+    expect(featureStreamBudget(undefined, undefined)).toEqual({
+      maxBytes: DEFAULT_FEATURE_STREAM_BYTES,
+      maxMs: DEFAULT_FEATURE_STREAM_MS,
+    });
+    expect(featureStreamBudget('0', '0')).toEqual({
+      maxBytes: null,
+      maxMs: null,
+    });
+    expect(featureStreamBudget('4096', '1500')).toEqual({
+      maxBytes: 4096,
+      maxMs: 1500,
+    });
   });
 });

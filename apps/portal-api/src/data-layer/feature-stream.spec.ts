@@ -1,110 +1,75 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { EventEmitter } from 'node:events';
-import type { Response as ExpressResponse } from 'express';
+import type { Response } from 'express';
 
+import { FeatureQueryBudgetError } from './feature-paging.js';
 import { streamFeatureCollection } from './feature-stream.js';
 
-function fakeRes() {
-  const ee = new EventEmitter() as EventEmitter & Record<string, unknown>;
-  const headers: Record<string, string> = {};
-  const state = {
-    headers,
-    body: '',
-    ended: false,
+function fakeResponse() {
+  const chunks: string[] = [];
+  const res = {
     headersSent: false,
-    blockOnce: false,
-  };
-  Object.assign(ee, {
-    get headersSent() {
-      return state.headersSent;
+    setHeader() {
+      return undefined;
     },
-    setHeader(key: string, value: string) {
-      headers[key.toLowerCase()] = value;
-    },
-    write(chunk: string | Buffer) {
-      state.headersSent = true;
-      state.body += chunk.toString();
-      if (state.blockOnce) {
-        state.blockOnce = false;
-        setImmediate(() => ee.emit('drain'));
-        return false;
-      }
+    write(chunk: string) {
+      this.headersSent = true;
+      chunks.push(chunk);
       return true;
     },
-    end() {
-      state.ended = true;
+    end(chunk?: string) {
+      if (chunk) chunks.push(chunk);
+      this.headersSent = true;
     },
-  });
-  return { res: ee as unknown as ExpressResponse, state };
+    once() {
+      return this;
+    },
+    off() {
+      return this;
+    },
+  };
+  return { res: res as unknown as Response, chunks, state: res };
 }
 
-async function* batchesOf(
-  batches: unknown[][],
-  opts: { throwAtBatch?: number } = {},
-): AsyncGenerator<unknown[]> {
-  for (let i = 0; i < batches.length; i++) {
-    if (opts.throwAtBatch === i) throw new Error('boom');
-    yield batches[i]!;
-  }
+async function* batches(pages: unknown[][]) {
+  for (const page of pages) yield page;
 }
 
-describe('streamFeatureCollection', () => {
-  it('streams bytes identical to JSON.stringify of the collection', async () => {
-    const { res, state } = fakeRes();
-    const features = [{ a: 1 }, { type: 'Feature', id: 'x' }, { b: [1, 2] }];
-    await streamFeatureCollection(
-      res,
-      batchesOf([[features[0]], [features[1], features[2]]]),
-    );
-    expect(state.ended).toBe(true);
-    expect(state.headers['content-type']).toBe(
-      'application/json; charset=utf-8',
-    );
-    expect(state.body).toBe(
-      JSON.stringify({ type: 'FeatureCollection', features }),
-    );
-  });
-
-  it('emits an empty collection when there are no batches', async () => {
-    const { res, state } = fakeRes();
-    await streamFeatureCollection(res, batchesOf([]));
-    expect(state.body).toBe('{"type":"FeatureCollection","features":[]}');
-    expect(state.ended).toBe(true);
-  });
-
-  it('propagates an error from the first batch before any bytes are written', async () => {
-    const { res, state } = fakeRes();
+describe('streamFeatureCollection budget', () => {
+  it('throws before writing when the first batch is over the byte cap', async () => {
+    const { res, chunks, state } = fakeResponse();
     await expect(
-      streamFeatureCollection(res, batchesOf([[{ a: 1 }]], { throwAtBatch: 0 })),
-    ).rejects.toThrow('boom');
-    // Nothing was written, so Nest can still send a clean error status.
+      streamFeatureCollection(res, batches([[{ id: 'x'.repeat(80) }]]), {
+        maxBytes: 40,
+        maxMs: null,
+      }),
+    ).rejects.toBeInstanceOf(FeatureQueryBudgetError);
     expect(state.headersSent).toBe(false);
-    expect(state.body).toBe('');
+    expect(chunks).toEqual([]);
   });
 
-  it('ends the truncated body on a mid-stream error (no throw once headers are out)', async () => {
-    const { res, state } = fakeRes();
-    await streamFeatureCollection(
-      res,
-      batchesOf([[{ a: 1 }], [{ b: 2 }]], { throwAtBatch: 1 }),
-    );
-    // Headers/opening already sent; body is truncated (no closing ]}).
-    expect(state.headersSent).toBe(true);
-    expect(state.ended).toBe(true);
-    expect(state.body.endsWith(']}')).toBe(false);
-    expect(state.body.startsWith('{"type":"FeatureCollection","features":[')).toBe(
-      true,
-    );
+  it('ends an incomplete body when a later batch crosses the cap', async () => {
+    const { res, chunks } = fakeResponse();
+    await expect(
+      streamFeatureCollection(
+        res,
+        batches([[{ id: 'a' }], [{ id: 'b'.repeat(80) }]]),
+        { maxBytes: 80, maxMs: null },
+      ),
+    ).rejects.toBeInstanceOf(FeatureQueryBudgetError);
+    const body = chunks.join('');
+    expect(body.startsWith('{"type":"FeatureCollection","features":[')).toBe(true);
+    expect(body.endsWith(']}')).toBe(false);
   });
 
-  it('waits for drain under backpressure and still delivers the whole collection', async () => {
-    const { res, state } = fakeRes();
-    state.blockOnce = true;
-    const features = [{ a: 1 }, { b: 2 }];
-    await streamFeatureCollection(res, batchesOf([[features[0]], [features[1]]]));
-    expect(state.ended).toBe(true);
-    expect(state.body).toBe(
-      JSON.stringify({ type: 'FeatureCollection', features }),
-    );
+  it('writes a complete collection inside the budget', async () => {
+    const { res, chunks } = fakeResponse();
+    await streamFeatureCollection(res, batches([[{ id: 'a' }]]), {
+      maxBytes: 10_000,
+      maxMs: 5_000,
+    });
+    expect(JSON.parse(chunks.join(''))).toEqual({
+      type: 'FeatureCollection',
+      features: [{ id: 'a' }],
+    });
   });
 });

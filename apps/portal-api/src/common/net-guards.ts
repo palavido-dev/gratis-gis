@@ -37,7 +37,12 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
-import type { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
+import {
+  createBrotliDecompress,
+  createGunzip,
+  createInflate,
+} from 'node:zlib';
 
 export interface PinnedAddress {
   address: string;
@@ -306,13 +311,14 @@ const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie'];
 export async function safeFetch(
   rawUrl: string,
   init?: RequestInit,
+  options?: { maxBytes?: number },
 ): Promise<Response> {
   // Caller opted out of following ('manual' returns the 3xx as-is,
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
   if (init?.redirect === 'manual' || init?.redirect === 'error') {
     const pinned = await resolveSafe(rawUrl);
-    return connectPinned(pinned, init);
+    return connectPinned(pinned, init, options);
   }
 
   let pinned = await resolveSafe(rawUrl);
@@ -340,7 +346,7 @@ export async function safeFetch(
     } else {
       hopInit.body = body;
     }
-    const res = await connectPinned(pinned, hopInit);
+    const res = await connectPinned(pinned, hopInit, options);
     if (!REDIRECT_STATUSES.has(res.status)) return res;
     const location = res.headers.get('location');
     // Redirect status without a Location is not followable; hand
@@ -391,7 +397,70 @@ type PinnedTransport = (
   url: URL,
   init: RequestInit | undefined,
   addresses: PinnedAddress[],
+  options?: PinnedRequestOptions,
 ) => Promise<Response>;
+
+export class UnsupportedRequestBodyError extends Error {
+  constructor() {
+    super(
+      'Unsupported request body. Send a string, bytes, URLSearchParams, Blob, or a stream.',
+    );
+    this.name = 'UnsupportedRequestBodyError';
+  }
+}
+
+async function requestPayload(
+  body: RequestInit['body'] | null | undefined,
+  maxBytes: number,
+): Promise<Buffer | Readable | null> {
+  if (body == null || body === '') return null;
+  if (typeof body === 'string') return Buffer.from(body);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  }
+  if (body instanceof URLSearchParams) return Buffer.from(body.toString());
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    const bytes = Buffer.from(await body.arrayBuffer());
+    if (bytes.length > maxBytes) {
+      throw new UnsafeOutboundUrlError(`request body is larger than ${maxBytes} bytes`);
+    }
+    return bytes;
+  }
+  if (typeof (body as { pipe?: unknown }).pipe === 'function') {
+    return body as Readable;
+  }
+  if (typeof (body as { getReader?: unknown }).getReader === 'function') {
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        const buf = Buffer.from(next.value);
+        total += buf.length;
+        if (total > maxBytes) {
+          throw new UnsafeOutboundUrlError(`request body is larger than ${maxBytes} bytes`);
+        }
+        chunks.push(buf);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks);
+  }
+  throw new UnsupportedRequestBodyError();
+}
+
+function decoderFor(encoding: string) {
+  if (encoding === '' || encoding === 'identity') return null;
+  if (encoding === 'gzip' || encoding === 'x-gzip') return createGunzip();
+  if (encoding === 'deflate') return createInflate();
+  if (encoding === 'br') return createBrotliDecompress();
+  throw new UnsafeOutboundUrlError(`unsupported content-encoding ${encoding}`);
+}
 
 /** Default cap so a hostile body cannot be buffered without limit. */
 export function safeFetchMaxBytes(): number {
@@ -414,16 +483,23 @@ export interface PinnedRequestOptions {
  * `connectHost` in production. The certificate is checked against
  * `url.hostname`, not the dial address.
  */
-export function pinnedRequest(
+export async function pinnedRequest(
   url: URL,
   init: RequestInit | undefined,
   dialHost: string,
   options: PinnedRequestOptions = {},
 ): Promise<Response> {
   const maxBytes = options.maxBytes ?? safeFetchMaxBytes();
+  const payload = await requestPayload(init?.body, maxBytes);
   const lib = url.protocol === 'https:' ? https : http;
   const headers = new Headers(init?.headers);
   headers.set('host', url.host);
+  if (!headers.has('accept-encoding')) {
+    headers.set('accept-encoding', 'gzip, deflate, br');
+  }
+  if (init?.body instanceof URLSearchParams && !headers.has('content-type')) {
+    headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8');
+  }
   const path = `${url.pathname}${url.search}`;
   const timeoutMs = Number(process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS ?? '');
   const signals: AbortSignal[] = [];
@@ -452,34 +528,92 @@ export function pinnedRequest(
         const declared = Number(incoming.headers['content-length'] ?? '');
         if (Number.isFinite(declared) && declared > maxBytes) {
           incoming.destroy();
+          req.destroy();
           reject(new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`));
+          return;
+        }
+        const encoding = String(incoming.headers['content-encoding'] ?? '').toLowerCase();
+        let decoder;
+        try {
+          decoder = decoderFor(encoding);
+        } catch (err) {
+          incoming.destroy();
+          req.destroy();
+          reject(err);
           return;
         }
         const responseHeaders = new Headers();
         for (const [key, value] of Object.entries(incoming.headers)) {
+          if (key.toLowerCase() === 'content-encoding' && decoder) continue;
+          if (key.toLowerCase() === 'content-length' && decoder) continue;
           if (typeof value === 'string') responseHeaders.append(key, value);
           else if (Array.isArray(value)) {
             for (const item of value) responseHeaders.append(key, item);
           }
         }
-        let received = 0;
+        let compressed = 0;
+        const counted = new Transform({
+          transform(chunk, _enc, cb) {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            compressed += buf.length;
+            if (compressed > maxBytes) {
+              cb(new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`));
+              return;
+            }
+            cb(null, buf);
+          },
+        });
+        const source = decoder ? incoming.pipe(counted).pipe(decoder) : incoming.pipe(counted);
+        source.pause();
+        let decoded = 0;
+        const take = (): Promise<Buffer | null> =>
+          new Promise((resolveChunk, rejectChunk) => {
+            const ready = source.read() as Buffer | null;
+            if (ready) {
+              resolveChunk(ready);
+              return;
+            }
+            const cleanup = () => {
+              source.off('readable', onReadable);
+              source.off('end', onEnd);
+              source.off('error', onError);
+            };
+            const onReadable = () => {
+              cleanup();
+              resolveChunk(source.read() as Buffer | null);
+            };
+            const onEnd = () => {
+              cleanup();
+              resolveChunk(null);
+            };
+            const onError = (err: Error) => {
+              cleanup();
+              rejectChunk(err);
+            };
+            source.once('readable', onReadable);
+            source.once('end', onEnd);
+            source.once('error', onError);
+          });
         const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            incoming.on('data', (chunk: Buffer) => {
-              received += chunk.length;
-              if (received > maxBytes) {
-                controller.error(
-                  new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
-                );
-                incoming.destroy();
-                return;
-              }
-              controller.enqueue(new Uint8Array(chunk));
-            });
-            incoming.on('end', () => controller.close());
-            incoming.on('error', (err) => controller.error(err));
+          async pull(controller) {
+            const chunk = await take();
+            if (!chunk) {
+              controller.close();
+              return;
+            }
+            decoded += chunk.length;
+            if (decoded > maxBytes) {
+              source.destroy();
+              incoming.destroy();
+              controller.error(
+                new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
+              );
+              return;
+            }
+            controller.enqueue(new Uint8Array(chunk));
           },
           cancel() {
+            source.destroy();
             incoming.destroy();
           },
         });
@@ -493,6 +627,7 @@ export function pinnedRequest(
     );
     const fail = (err: unknown) => {
       req.destroy();
+      if (payload instanceof Readable) payload.destroy();
       if (err instanceof Error) {
         reject(err);
         return;
@@ -509,20 +644,29 @@ export function pinnedRequest(
       req.on('close', () => signal.removeEventListener('abort', onAbort));
     }
     req.on('error', fail);
-    const body = init?.body;
-    if (body == null || body === '') {
+    if (payload == null) {
       req.end();
       return;
     }
-    if (typeof body === 'string' || Buffer.isBuffer(body) || body instanceof Uint8Array) {
-      req.end(body);
+    if (Buffer.isBuffer(payload)) {
+      req.end(payload);
       return;
     }
-    if (typeof (body as { pipe?: unknown }).pipe === 'function') {
-      (body as Readable).pipe(req);
-      return;
-    }
-    req.end();
+    let sent = 0;
+    const limited = new Transform({
+      transform(chunk, _enc, cb) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        sent += buf.length;
+        if (sent > maxBytes) {
+          cb(new UnsafeOutboundUrlError(`request body is larger than ${maxBytes} bytes`));
+          return;
+        }
+        cb(null, buf);
+      },
+    });
+    limited.on('error', fail);
+    payload.on('error', fail);
+    payload.pipe(limited).pipe(req);
   });
 }
 
@@ -530,10 +674,11 @@ function nodePinnedRequest(
   url: URL,
   init: RequestInit | undefined,
   addresses: PinnedAddress[],
+  options?: PinnedRequestOptions,
 ): Promise<Response> {
   const chosen = addresses[0];
   if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
-  return pinnedRequest(url, init, connectHost(chosen.address));
+  return pinnedRequest(url, init, connectHost(chosen.address), options ?? {});
 }
 
 let transport: PinnedTransport = nodePinnedRequest;
@@ -546,6 +691,7 @@ export function _setSafeFetchTransportForTests(next: PinnedTransport | null): vo
 function connectPinned(
   pinned: { url: URL; addresses: PinnedAddress[] },
   init: RequestInit | undefined,
+  options?: PinnedRequestOptions,
 ): Promise<Response> {
-  return transport(pinned.url, init, pinned.addresses);
+  return transport(pinned.url, init, pinned.addresses, options);
 }

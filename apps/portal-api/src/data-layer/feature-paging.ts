@@ -46,6 +46,47 @@ export function unpagedFeatureReadAllowed(
   return raw !== 'required';
 }
 
+/** Default bounds for the unpaged JSON stream. `0` lifts that one bound. */
+export const DEFAULT_FEATURE_STREAM_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_FEATURE_STREAM_MS = 60_000;
+
+export interface FeatureStreamBudget {
+  maxBytes: number | null;
+  maxMs: number | null;
+}
+
+function parseBudget(raw: string | undefined, fallback: number): number | null {
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === '0') return null;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 1) return fallback;
+  return n;
+}
+
+/**
+ * Byte and time bounds applied while an unpaged feature stream is
+ * written. Pagination and the csv / geoparquet exports are separate
+ * routes and do not use this budget.
+ */
+export function featureStreamBudget(
+  bytes = process.env.GRATIS_FEATURE_QUERY_MAX_BYTES,
+  ms = process.env.GRATIS_FEATURE_QUERY_MAX_MS,
+): FeatureStreamBudget {
+  return {
+    maxBytes: parseBudget(bytes, DEFAULT_FEATURE_STREAM_BYTES),
+    maxMs: parseBudget(ms, DEFAULT_FEATURE_STREAM_MS),
+  };
+}
+
+export class FeatureQueryBudgetError extends Error {
+  constructor() {
+    super(
+      'Feature query exceeded the byte or time budget. Use limit and cursor, or the csv or geoparquet export. The response was not a complete collection.',
+    );
+    this.name = 'FeatureQueryBudgetError';
+  }
+}
+
 export function parsePagingParams(
   limit: string | undefined,
   cursor: string | undefined,

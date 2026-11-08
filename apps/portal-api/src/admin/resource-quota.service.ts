@@ -8,6 +8,20 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { quotaDecision } from './resource-quota.js';
 
+export function stagingDir(): string {
+  const configured = process.env.STAGING_DIR?.trim();
+  return configured && configured.length > 0 ? configured : tmpdir();
+}
+
+export async function freeBytesAt(dir: string): Promise<bigint | null> {
+  try {
+    const stat = await statfs(dir);
+    return BigInt(stat.bsize) * BigInt(stat.bavail);
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class ResourceQuotaService {
   constructor(private readonly prisma: PrismaService) {}
@@ -74,22 +88,30 @@ export class ResourceQuotaService {
       const existing = await tx.storageReservation.findFirst({
         where: { orgId, purpose: heldPurpose },
       });
-      if (existing) return;
       const quota = await tx.orgResourceQuota.findUnique({ where: { orgId } });
-      const used = await tx.storageReservation.aggregate({
+      const reservations = await tx.storageReservation.findMany({
         where: { orgId },
-        _sum: { bytes: true },
+        select: { purpose: true, bytes: true },
       });
-      const active = await tx.importJob.count({
+      const jobs = await tx.importJob.findMany({
         where: { orgId, status: { in: ['queued', 'running'] } },
+        select: { id: true, stagingId: true },
       });
-      const free = await this.freeBytes();
+      const slots = new Set<string>();
+      for (const job of jobs) {
+        slots.add(job.id);
+        if (job.stagingId) slots.add(job.stagingId);
+      }
+      for (const reservation of reservations) slots.add(reservation.purpose);
+      const others = existing ? Math.max(0, slots.size - 1) : slots.size;
+      const usedBytes = reservations.reduce((sum, row) => sum + row.bytes, 0n);
+      const free = await freeBytesAt(stagingDir());
       const decision = quotaDecision({
         maxBytes: quota?.maxStorageBytes ?? null,
-        usedBytes: used._sum.bytes ?? 0n,
-        requestedBytes: bytes,
+        usedBytes: existing ? usedBytes - existing.bytes : usedBytes,
+        requestedBytes: existing ? existing.bytes : bytes,
         maxConcurrentImports: quota?.maxConcurrentImports ?? null,
-        activeImports: active,
+        activeImports: others,
         freeBytes: free,
       });
       if (!decision.ok) {
@@ -101,11 +123,16 @@ export class ResourceQuotaService {
               : 'This organization is at its storage limit.',
         );
       }
+      if (existing) return;
       await tx.storageReservation.create({
         data: { id, orgId, bytes, purpose: heldPurpose },
       });
     });
-    return { id };
+    const held = await this.prisma.storageReservation.findFirst({
+      where: { orgId, purpose: heldPurpose },
+      select: { id: true },
+    });
+    return { id: held?.id ?? id };
   }
 
   async release(id: string): Promise<void> {
@@ -116,12 +143,4 @@ export class ResourceQuotaService {
     await this.prisma.storageReservation.deleteMany({ where: { purpose } }).catch(() => undefined);
   }
 
-  private async freeBytes(): Promise<bigint | null> {
-    try {
-      const stat = await statfs(tmpdir());
-      return BigInt(stat.bsize) * BigInt(stat.bavail);
-    } catch {
-      return null;
-    }
-  }
 }

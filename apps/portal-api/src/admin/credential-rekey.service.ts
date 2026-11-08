@@ -40,8 +40,8 @@ export class CredentialRekeyService {
     return { rotates: ['item credentials', 'org ai provider secret'], notCovered: [...NOT_COVERED] };
   }
 
-  async preflight(): Promise<{ credentials: number; aiProviders: number; unreadable: number }> {
-    const rows = await this.loadRows();
+  async preflight(orgId: string): Promise<{ credentials: number; aiProviders: number; unreadable: number }> {
+    const rows = await this.loadRows(orgId);
     const key = loadKeyFromEnv();
     let unreadable = 0;
     for (const row of rows) {
@@ -83,12 +83,14 @@ export class CredentialRekeyService {
     return this.refuse(user);
   }
 
-  private async loadRows(): Promise<CipherRow[]> {
+  private async loadRows(orgId: string): Promise<CipherRow[]> {
     const [credentials, providers] = await Promise.all([
       this.prisma.itemCredential.findMany({
+        where: { item: { orgId } },
         select: { id: true, itemId: true, encryptedPayload: true, iv: true },
       }),
       this.prisma.orgAiProvider.findMany({
+        where: { orgId },
         select: { orgId: true, encryptedSecret: true, encryptedSecretIv: true },
       }),
     ]);

@@ -11,10 +11,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Install-wide backup is not an organization admin power. The
- * operator organization is GRATIS_OPERATOR_ORG_ID when that is a
- * UUID, otherwise the oldest organization. A one-organization
- * install is unchanged. Admins of any later organization are not
- * operators.
+ * operator organization is the oldest organization when
+ * GRATIS_OPERATOR_ORG_ID is unset. A value that is not a UUID of
+ * an organization that exists fails closed. It does not fall
+ * back to the oldest organization.
  */
 export async function operatorOrgId(prisma: {
   organization: {
@@ -26,7 +26,10 @@ export async function operatorOrgId(prisma: {
   };
 }): Promise<string | null> {
   const fromEnv = process.env.GRATIS_OPERATOR_ORG_ID?.trim();
-  if (fromEnv && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fromEnv)) {
+  if (fromEnv) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fromEnv)) {
+      return null;
+    }
     const row = await prisma.organization.findFirst({
       where: { id: fromEnv },
       select: { id: true },

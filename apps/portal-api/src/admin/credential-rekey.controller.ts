@@ -5,6 +5,7 @@ import { IsString, MaxLength } from 'class-validator';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminGuard } from './admin.guard.js';
 import { CredentialRekeyService } from './credential-rekey.service.js';
 
@@ -17,13 +18,13 @@ class RekeyDto {
 @ApiTags('admin', 'rekey')
 @ApiBearerAuth()
 @Controller('admin/rekey')
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 export class CredentialRekeyController {
   constructor(private readonly rekey: CredentialRekeyService) {}
 
   @Get()
-  preflight() {
-    return this.rekey.preflight().then((counts) => ({
+  preflight(@CurrentUser() user: AuthUser) {
+    return this.rekey.preflight(user.orgId).then((counts) => ({
       ...counts,
       ...this.rekey.coverage(),
     }));

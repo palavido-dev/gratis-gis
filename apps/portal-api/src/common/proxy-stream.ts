@@ -17,7 +17,7 @@ export const PROXY_FETCH_TIMEOUT_MS = 30_000;
  * buffering it whole would be a memory-exhaustion vector. 64 MB is
  * far above any legitimate tile or metadata response.
  */
-const DEFAULT_MAX_PROXY_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_MAX_PROXY_BYTES = 64 * 1024 * 1024;
 
 /**
  * Ceiling for a probe that has to hold the upstream body in memory
@@ -41,12 +41,9 @@ export class UpstreamBodyTooLargeError extends Error {
  * hard byte ceiling and real backpressure, instead of buffering the
  * entire body in memory with `arrayBuffer()`.
  *
- * Content-length is deliberately NOT forwarded: Node's fetch
- * transparently decompresses gzip / br, so the upstream's byte count
- * describes the compressed payload while the bytes we emit are
- * decompressed. Letting the transfer be chunked from what we
- * actually write avoids the truncation-mid-document bug a forwarded,
- * wrong content-length caused.
+ * Content-length and content-encoding are not forwarded. The pinned
+ * dial decompresses gzip, deflate, and brotli and strips those
+ * headers, so the bytes written here are the decoded body.
  *
  * If the client disconnects mid-stream we cancel the upstream reader
  * so its socket returns to the pool rather than idling until timeout,

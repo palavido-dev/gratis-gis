@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminGuard } from './admin.guard.js';
 import { DiagnosticsService } from './diagnostics.service.js';
 
@@ -13,7 +14,7 @@ import { DiagnosticsService } from './diagnostics.service.js';
 @ApiTags('admin', 'diagnostics')
 @ApiBearerAuth()
 @Controller('admin/diagnostics')
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 export class DiagnosticsController {
   constructor(private readonly diagnostics: DiagnosticsService) {}
 
