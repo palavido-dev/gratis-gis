@@ -34,9 +34,10 @@
  * (loopback, RFC1918, single-label docker names) stay on plain
  * fetch in the AI client and are not blocked here.
  */
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { createRequire } from 'node:module';
+import http from 'node:http';
+import https from 'node:https';
+import { Readable } from 'node:stream';
 
 export interface PinnedAddress {
   address: string;
@@ -49,12 +50,9 @@ type LookupCallback = (
   family?: number,
 ) => void;
 
-const connectPins = new AsyncLocalStorage<PinnedAddress[]>();
-
 /**
- * DNS lookup used by the pinned agent. It never calls the system
- * resolver. The addresses are the ones `resolveSafe` already
- * accepted for this hop.
+ * The addresses `resolveSafe` already accepted. Used by tests to
+ * show a later DNS answer is not what we dial.
  */
 export function answerPinnedLookup(
   list: PinnedAddress[] | undefined,
@@ -86,24 +84,32 @@ export function answerPinnedLookup(
   callback(null, first.address, first.family);
 }
 
-export function pinnedLookup(
-  _hostname: string,
-  options: unknown,
-  callback?: LookupCallback,
-): void {
-  const cb = (typeof options === 'function' ? options : callback) as LookupCallback;
-  answerPinnedLookup(connectPins.getStore(), options, cb);
+/**
+ * The dial target. An IPv4 address is rebuilt from the octets that
+ * passed the private-range check, so the socket host is that number
+ * and not the caller-supplied URL string.
+ */
+export function connectHost(address: string): string {
+  if (isPrivateOrLoopbackHost(address)) {
+    throw new UnsafeOutboundUrlError(`private address: ${address}`);
+  }
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(address);
+  if (v4) {
+    const nums = v4.slice(1).map((part) => Number(part));
+    if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      throw new UnsafeOutboundUrlError(`bad address: ${address}`);
+    }
+    const rebuilt = `${nums[0]}.${nums[1]}.${nums[2]}.${nums[3]}`;
+    if (isPrivateOrLoopbackHost(rebuilt)) {
+      throw new UnsafeOutboundUrlError(`private address: ${rebuilt}`);
+    }
+    return rebuilt;
+  }
+  if (!/^[0-9a-f:]+$/i.test(address)) {
+    throw new UnsafeOutboundUrlError(`bad address: ${address}`);
+  }
+  return address;
 }
-
-type FetchDispatcher = NonNullable<RequestInit['dispatcher']>;
-const { Agent } = createRequire(__filename)('undici') as {
-  Agent: new (opts: {
-    connect: { lookup: typeof pinnedLookup };
-  }) => FetchDispatcher;
-};
-const pinnedAgent = new Agent({
-  connect: { lookup: pinnedLookup },
-});
 
 export function isPrivateOrLoopbackHost(host: string): boolean {
   // Numeric IPv4. Block RFC1918 + loopback + link-local.
@@ -378,15 +384,84 @@ export async function safeFetch(
   }
 }
 
+type PinnedTransport = (
+  url: URL,
+  init: RequestInit | undefined,
+  addresses: PinnedAddress[],
+) => Promise<Response>;
+
+/**
+ * Dial the checked address, not the name in the URL. `servername`
+ * keeps TLS SNI and certificate hostname verification on the name
+ * the caller asked for. The socket host is `connectHost(address)`.
+ */
+function nodePinnedRequest(
+  url: URL,
+  init: RequestInit | undefined,
+  addresses: PinnedAddress[],
+): Promise<Response> {
+  const chosen = addresses[0];
+  if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
+  const host = connectHost(chosen.address);
+  const lib = url.protocol === 'https:' ? https : http;
+  const headers = new Headers(init?.headers);
+  headers.set('host', url.host);
+  const path = `${url.pathname}${url.search}`;
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        host,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        method: init?.method ?? 'GET',
+        path,
+        headers: Object.fromEntries(headers.entries()),
+        servername: url.hostname,
+        rejectUnauthorized: true,
+      },
+      (incoming) => {
+        const responseHeaders = new Headers();
+        for (const [key, value] of Object.entries(incoming.headers)) {
+          if (typeof value === 'string') responseHeaders.append(key, value);
+          else if (Array.isArray(value)) {
+            for (const item of value) responseHeaders.append(key, item);
+          }
+        }
+        const body = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
+        resolve(
+          new Response(body, {
+            status: incoming.statusCode ?? 0,
+            headers: responseHeaders,
+          }),
+        );
+      },
+    );
+    const onAbort = () => req.destroy();
+    init?.signal?.addEventListener('abort', onAbort, { once: true });
+    req.on('error', reject);
+    req.on('close', () => init?.signal?.removeEventListener('abort', onAbort));
+    const body = init?.body;
+    if (body == null) {
+      req.end();
+      return;
+    }
+    if (typeof body === 'string' || Buffer.isBuffer(body) || body instanceof Uint8Array) {
+      req.end(body);
+      return;
+    }
+    req.end();
+  });
+}
+
+let transport: PinnedTransport = nodePinnedRequest;
+
+/** Tests substitute a fake dial. Production uses `nodePinnedRequest`. */
+export function _setSafeFetchTransportForTests(next: PinnedTransport | null): void {
+  transport = next ?? nodePinnedRequest;
+}
+
 function connectPinned(
   pinned: { url: URL; addresses: PinnedAddress[] },
   init: RequestInit | undefined,
 ): Promise<Response> {
-  const hopInit = {
-    ...(init ?? {}),
-    dispatcher: pinnedAgent,
-  };
-  // The hostname stays on the URL. undici uses it for SNI and for
-  // the certificate name check while `pinnedLookup` supplies the IP.
-  return connectPins.run(pinned.addresses, () => fetch(pinned.url, hopInit));
+  return transport(pinned.url, init, pinned.addresses);
 }
