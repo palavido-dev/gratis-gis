@@ -393,6 +393,7 @@ export function NewItemWizard({
         ? (searchParams.get('type') as ItemType)
         : null;
   const [step, setStep] = useState<Step>(queryType ? 'details' : 'pick');
+  const [showMoreTypes, setShowMoreTypes] = useState(false);
   // #259: 'viewer' is a wizard-only sentinel that maps to web_app +
   // template='viewer' at submit time. It isn't a persisted ItemType
   // (the picker stays an Esri-friendly noun while the storage stays
@@ -1655,14 +1656,18 @@ export function NewItemWizard({
     // Drop any type the portal cannot actually service, and any group
     // left empty as a result, so a disabled feature leaves no heading
     // hanging over nothing.
+    const PRIMARY = new Set(['data_layer', 'map', 'form']);
     const visibleGroups = TYPE_GROUPS.map((g) => ({
       ...g,
       options: g.options.filter(
-        (o) => o.value !== 'script' || scriptsEnabled,
+        (o) =>
+          (o.value !== 'script' || scriptsEnabled) &&
+          (showMoreTypes || PRIMARY.has(o.value) || queryType === o.value),
       ),
     })).filter((g) => g.options.length > 0);
     return (
       <div className="space-y-8">
+        <p className="text-sm text-ink-1">{t('newItem.taskIntro')}</p>
         {visibleGroups.map((group) => (
           <section key={group.groupKey}>
             {/* Group header inherits the group color via a small
@@ -1727,6 +1732,14 @@ export function NewItemWizard({
             </div>
           </section>
         ))}
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          aria-expanded={showMoreTypes}
+          onClick={() => setShowMoreTypes((value) => !value)}
+        >
+          {showMoreTypes ? t('newItem.fewerTypes') : t('newItem.moreTypes')}
+        </button>
       </div>
     );
   }
