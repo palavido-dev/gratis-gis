@@ -6,29 +6,6 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
-### Fixed
-
-- Stamping an import's source on a layer no longer rewrites the whole
-  item document. It locks the row and changes only that layer's
-  `source`, so a sync cursor bumped during the import can no longer go
-  backwards and make field clients skip edits.
-- Outbound fetches of user-supplied URLs connect only to the addresses
-  the safety check already accepted. The hostname stays on the URL for
-  TLS. A deleted public geographic boundary no longer reveals the
-  whole layer. Install backup is limited to the operator organization.
-  Thumbnail images accept raster data only. Portal session length can
-  be set without changing the 365-day default or revoking Keycloak
-  sessions.
-- A malformed GRATIS_OPERATOR_ORG_ID no longer falls back to the
-  oldest organization. No organization is the operator until it is
-  fixed, and a warning is logged.
-- Pinned outbound fetches read the socket only as the caller pulls,
-  so a slow reader no longer buffers the body in memory. The item and
-  public proxies cap the dial at their 64 MiB relay limit.
-- The CI Semgrep rule now flags GeoJSON pasted into
-  ST_GeomFromGeoJSON through an untagged template, and CI runs the
-  rule fixtures so this cannot regress.
-
 ### Added
 
 - Opt-in host recovery for a compose project the operator names twice.
@@ -115,8 +92,6 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   until it has a pad, so on Android a required one cannot be answered
   yet.
 
-### Added
-
 - Org admins can list imports and analyses for their organization,
   and cancel or retry only the states those jobs support. Every job
   read and write is scoped to the admin's organization. Cancel is one
@@ -174,6 +149,27 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   image. No volume reset.
 
 ### Fixed
+
+- Stamping an import's source on a layer no longer rewrites the whole
+  item document. It locks the row and changes only that layer's
+  `source`, so a sync cursor bumped during the import can no longer go
+  backwards and make field clients skip edits.
+- Outbound fetches of user-supplied URLs connect only to the addresses
+  the safety check already accepted. The hostname stays on the URL for
+  TLS. A deleted public geographic boundary no longer reveals the
+  whole layer. Install backup is limited to the operator organization.
+  Thumbnail images accept raster data only. Portal session length can
+  be set without changing the 365-day default or revoking Keycloak
+  sessions.
+- A malformed GRATIS_OPERATOR_ORG_ID no longer falls back to the
+  oldest organization. No organization is the operator until it is
+  fixed, and a warning is logged.
+- Pinned outbound fetches read the socket only as the caller pulls,
+  so a slow reader no longer buffers the body in memory. The item and
+  public proxies cap the dial at their 64 MiB relay limit.
+- The CI Semgrep rule now flags GeoJSON pasted into
+  ST_GeomFromGeoJSON through an untagged template, and CI runs the
+  rule fixtures so this cannot regress.
 
 - An upload is stored inside the temp directory this process created
   as its file stem, with anything outside letters, digits, and `.` `_`
