@@ -107,6 +107,9 @@ export const en = {
     migrations: 'Migrations',
     feedback: 'Feedback',
     gettingStarted: 'Getting started',
+    audit: 'Audit',
+    permissions: 'Permissions',
+    diagnostics: 'Diagnostics',
   },
   updates: {
     title: 'Updates',
@@ -3648,6 +3651,53 @@ export const en = {
     docsDesc:
       'The built-in guide covers roles, backups, branding, and housekeeping. Ten minutes now saves surprises later.',
     docsAction: 'Open the guide',
+    secondAdminTitle: 'Add a second admin',
+    secondAdminDesc:
+      '{count, plural, one {# enabled admin} other {# enabled admins}}. A second admin can recover the organization if the first one cannot sign in. The portal keeps working with a single admin, and this item cannot be checked off by hand.',
+    secondAdminAction: 'Open users',
+  },
+
+  adminAudit: {
+    title: 'Audit',
+    intro:
+      'Privileged changes in this organization: users, roles, sharing, ownership, backup, and admin settings. This is not the history of map features. Passwords and message bodies are not stored.',
+    refresh: 'Load events',
+    loading: 'Loading…',
+    loadFailed: 'Could not load the audit.',
+    empty: 'No admin events yet. Load the list, or make a privileged change and load it again.',
+    more: 'Older events',
+    when: 'When',
+    action: 'Action',
+    actor: 'Actor',
+    target: 'Target',
+    outcome: 'Outcome',
+  },
+  adminPermissions: {
+    title: 'Permissions',
+    intro:
+      'This is the current sharing snapshot: each item’s public, organization, group, and user access, the owner, and principals that no longer exist. It is not a history of past changes.',
+    refresh: 'Load snapshot',
+    loading: 'Loading…',
+    loadFailed: 'Could not load permissions.',
+    download: 'Download CSV',
+    generated: 'Snapshot taken {at}.',
+    empty: 'No items in this organization.',
+    item: 'Item',
+    access: 'Access',
+    owner: 'Owner',
+    share: 'Share',
+    missingOwner: 'Missing owner',
+    missingPrincipal: 'missing principal',
+    tierOnly: 'Access tier only',
+  },
+  adminDiagnostics: {
+    title: 'Diagnostics',
+    intro:
+      'Create a support bundle on purpose. It includes versions, whether the database answered, maintenance, and counts of import, analysis, and backup jobs. Secrets and names are removed. Nothing here runs a shell command.',
+    create: 'Create bundle',
+    working: 'Creating…',
+    failed: 'Could not create the bundle.',
+    download: 'Download JSON',
   },
 
   /** Settings → API keys (#162). */

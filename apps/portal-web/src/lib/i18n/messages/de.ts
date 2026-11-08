@@ -92,6 +92,9 @@ export const de: Partial<CatalogShape> = {
     migrations: 'Migrationen',
     feedback: 'Feedback',
     gettingStarted: 'Erste Schritte',
+    audit: 'Protokoll',
+    permissions: 'Berechtigungen',
+    diagnostics: 'Diagnose',
     updates: 'Aktualisierungen',
   },
   updates: {
@@ -3526,6 +3529,52 @@ export const de: Partial<CatalogShape> = {
     docsDesc:
       'Der eingebaute Leitfaden deckt Rollen, Backups, Branding und Wartung ab. Zehn Minuten jetzt vermeiden später Überraschungen.',
     docsAction: 'Leitfaden öffnen',
+    secondAdminTitle: 'Zweiten Admin hinzufügen',
+    secondAdminDesc:
+      '{count, plural, one {# aktiver Admin} other {# aktive Admins}}. Ein zweiter Admin kann die Organisation übernehmen, wenn der erste sich nicht anmelden kann. Das Portal läuft auch mit einem Admin weiter, und dieser Punkt lässt sich nicht von Hand abhaken.',
+    secondAdminAction: 'Benutzer öffnen',
+  },
+  adminAudit: {
+    title: 'Protokoll',
+    intro:
+      'Privilegierte Änderungen dieser Organisation: Benutzer, Rollen, Freigaben, Besitz, Sicherung und Admin-Einstellungen. Das ist nicht die Historie der Kartenobjekte. Passwörter und Nachrichtentexte werden nicht gespeichert.',
+    refresh: 'Ereignisse laden',
+    loading: 'Wird geladen…',
+    loadFailed: 'Das Protokoll konnte nicht geladen werden.',
+    empty: 'Noch keine Ereignisse. Liste laden oder eine privilegierte Änderung vornehmen und erneut laden.',
+    more: 'Ältere Ereignisse',
+    when: 'Wann',
+    action: 'Aktion',
+    actor: 'Akteur',
+    target: 'Ziel',
+    outcome: 'Ergebnis',
+  },
+  adminPermissions: {
+    title: 'Berechtigungen',
+    intro:
+      'Aktuelle Freigabe: öffentlicher, Organisations-, Gruppen- und Benutzerzugriff, Eigentümer und fehlende Prinzipale. Keine erfundene Änderungshistorie.',
+    refresh: 'Stand laden',
+    loading: 'Wird geladen…',
+    loadFailed: 'Berechtigungen konnten nicht geladen werden.',
+    download: 'CSV herunterladen',
+    generated: 'Stand von {at}.',
+    empty: 'Keine Elemente in dieser Organisation.',
+    item: 'Element',
+    access: 'Zugriff',
+    owner: 'Eigentümer',
+    share: 'Freigabe',
+    missingOwner: 'Eigentümer fehlt',
+    missingPrincipal: 'Principal fehlt',
+    tierOnly: 'Nur Zugriffsstufe',
+  },
+  adminDiagnostics: {
+    title: 'Diagnose',
+    intro:
+      'Erstellen Sie bewusst ein Support-Paket. Es enthält Versionen, ob die Datenbank antwortete, Wartung und Zähler für Import-, Analyse- und Sicherungsaufträge. Geheimnisse und Namen werden entfernt. Es wird kein Shell-Befehl ausgeführt.',
+    create: 'Paket erstellen',
+    working: 'Wird erstellt…',
+    failed: 'Das Paket konnte nicht erstellt werden.',
+    download: 'JSON herunterladen',
   },
   apiKeys: {
     copyTitle: 'Kopieren Sie Ihren Schlüssel jetzt',

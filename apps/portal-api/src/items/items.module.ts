@@ -22,6 +22,7 @@ import { DerivedLayersModule } from '../derived-layers/derived-layers.module.js'
 import { PolicyModule } from '../policy/policy.module.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { OfflinePackageCoreModule } from '../offline-package/offline-package-core.module.js';
+import { AdminAuditModule } from '../admin/admin-audit.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { OfflinePackageCoreModule } from '../offline-package/offline-package-cor
     // data_collection's areas are saved. The Prisma-only core
     // module avoids the ItemsModule <-> OfflinePackageModule cycle.
     OfflinePackageCoreModule,
+    AdminAuditModule,
   ],
   controllers: [
     ItemsController,

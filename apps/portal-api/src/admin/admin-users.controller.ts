@@ -8,6 +8,7 @@ import {
   Get,
   HttpCode,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -34,6 +35,7 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
 
 /** Keycloak user enriched with portal-specific fields we track ourselves. */
 export type AdminUserRep = KeycloakUserRep & {
@@ -107,7 +109,27 @@ export class AdminUsersController {
     private readonly kc: KeycloakAdminService,
     private readonly prisma: PrismaService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
+
+  private note(
+    me: AuthUser,
+    action: 'user.invite' | 'user.role' | 'user.enabled' | 'user.auto_disable' | 'user.delete' | 'user.password_reset',
+    targetId: string,
+    outcome: 'succeeded' | 'failed',
+    detail?: Record<string, unknown>,
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action,
+      targetType: 'user',
+      targetId,
+      outcome,
+      ...(detail ? { detail } : {}),
+    });
+  }
 
   @Get('_meta')
   meta(): { configured: boolean } {
@@ -223,7 +245,18 @@ export class AdminUsersController {
     if (dto.firstName !== undefined) input.firstName = dto.firstName;
     if (dto.lastName !== undefined) input.lastName = dto.lastName;
     if (dto.orgRole !== undefined) input.orgRole = dto.orgRole;
-    return this.kc.createUser(input);
+    return this.kc.createUser(input).then(
+      (created) => {
+        this.note(me, 'user.invite', created.id, 'succeeded', {
+          role: dto.orgRole ?? 'viewer',
+        });
+        return created;
+      },
+      (err: unknown) => {
+        this.note(me, 'user.invite', '', 'failed', { role: dto.orgRole ?? 'viewer' });
+        throw err;
+      },
+    );
   }
 
   @Patch(':id')
@@ -337,7 +370,25 @@ export class AdminUsersController {
         });
       }
     }
-    const kcUserAfter = await this.kc.updateUser(id, patch);
+    let kcUserAfter: KeycloakUserRep;
+    try {
+      kcUserAfter = await this.kc.updateUser(id, patch);
+    } catch (err) {
+      if (dto.orgRole !== undefined) {
+        this.note(me, 'user.role', id, 'failed', { role: dto.orgRole });
+      }
+      if (dto.enabled !== undefined || patch.enabled !== undefined) {
+        this.note(me, 'user.enabled', id, 'failed', {
+          enabled: patch.enabled === true,
+        });
+      }
+      if (dto.autoDisableAt !== undefined) {
+        this.note(me, 'user.auto_disable', id, 'failed', {
+          cleared: dto.autoDisableAt === null,
+        });
+      }
+      throw err;
+    }
     // Enrich with the local-only fields so the FE row update gets a
     // complete AdminUserRep (matches what /admin/users list returns).
     // Without this, the dialog's spread merge keeps the stale
@@ -354,6 +405,19 @@ export class AdminUsersController {
           },
         })
       : null;
+    if (dto.orgRole !== undefined) {
+      this.note(me, 'user.role', id, 'succeeded', { role: dto.orgRole });
+    }
+    if (dto.enabled !== undefined || patch.enabled !== undefined) {
+      this.note(me, 'user.enabled', id, 'succeeded', {
+        enabled: patch.enabled === true,
+      });
+    }
+    if (dto.autoDisableAt !== undefined) {
+      this.note(me, 'user.auto_disable', id, 'succeeded', {
+        cleared: dto.autoDisableAt === null,
+      });
+    }
     return {
       ...kcUserAfter,
       lastSeenAt: local?.lastSeenAt?.toISOString() ?? null,
@@ -435,10 +499,12 @@ export class AdminUsersController {
     // they were operating on a fully ghost row -- the UI can refresh
     // its list to re-sync.
     if (!deletedUpstream && !deletedLocal) {
+      this.note(me, 'user.delete', id, 'failed');
       throw new NotFoundException(
         `User ${id} not found in Keycloak or local store.`,
       );
     }
+    this.note(me, 'user.delete', id, 'succeeded');
   }
 
   /**
@@ -467,6 +533,7 @@ export class AdminUsersController {
       'UPDATE_PASSWORD',
       'VERIFY_EMAIL',
     ]);
+    this.note(me, 'user.password_reset', id, 'succeeded');
   }
 
   /**

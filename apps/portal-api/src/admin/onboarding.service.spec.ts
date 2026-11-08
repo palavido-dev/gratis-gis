@@ -18,6 +18,7 @@ import type {
 interface StubWorld {
   smtp: SmtpConfig | null;
   userCount: number;
+  admins: Array<{ username: string; autoDisableAt: Date | null }>;
   hasMapOrSample: boolean;
   onboarding: unknown;
   writes: unknown[];
@@ -27,6 +28,7 @@ function makeService(world: StubWorld): OnboardingService {
   const prisma = {
     user: {
       count: jest.fn(async () => world.userCount),
+      findMany: jest.fn(async () => world.admins),
     },
     item: {
       findFirst: jest.fn(async () =>
@@ -67,6 +69,7 @@ function freshWorld(overrides: Partial<StubWorld> = {}): StubWorld {
   return {
     smtp: null,
     userCount: 1,
+    admins: [{ username: 'ada', autoDisableAt: null }],
     hasMapOrSample: false,
     onboarding: {},
     writes: [],
@@ -80,9 +83,9 @@ describe('OnboardingService.getStatus derivation', () => {
   it('fresh org: everything open, badge counts all four', async () => {
     const svc = makeService(freshWorld());
     const status = await svc.getStatus(ORG);
-    expect(status.items).toHaveLength(4);
+    expect(status.items).toHaveLength(5);
     expect(status.items.every((i) => !i.done && !i.dismissed)).toBe(true);
-    expect(status.openCount).toBe(4);
+    expect(status.openCount).toBe(5);
   });
 
   it('smtp row present but disabled does not count as done', async () => {
@@ -127,7 +130,7 @@ describe('OnboardingService.getStatus derivation', () => {
       onboarding: { dismissed: ['invite-team'] },
     });
     const status = await makeService(world).getStatus(ORG);
-    expect(status.openCount).toBe(2); // first-map + admin-docs
+    expect(status.openCount).toBe(3); // second-admin + first-map + admin-docs
   });
 
   it('hand-mangled stored state cannot crash the read', async () => {
@@ -135,7 +138,7 @@ describe('OnboardingService.getStatus derivation', () => {
       const status = await makeService(
         freshWorld({ onboarding: bad }),
       ).getStatus(ORG);
-      expect(status.openCount).toBe(4);
+      expect(status.openCount).toBe(5);
     }
   });
 });
@@ -158,6 +161,36 @@ describe('mutations', () => {
     const svc = makeService(world);
     const status = await svc.complete(ORG, 'admin-docs');
     expect(status.items.find((i) => i.key === 'admin-docs')?.done).toBe(true);
+  });
+
+  it('second-admin follows the enabled admin count and cannot be ticked', async () => {
+    const one = await makeService(freshWorld()).getStatus(ORG);
+    expect(one.items.find((i) => i.key === 'second-admin')?.done).toBe(false);
+    expect(one.items.find((i) => i.key === 'second-admin')?.detail.enabledAdminCount).toBe(1);
+
+    const two = await makeService(
+      freshWorld({
+        admins: [
+          { username: 'ada', autoDisableAt: null },
+          { username: 'bea', autoDisableAt: null },
+        ],
+      }),
+    ).getStatus(ORG);
+    expect(two.items.find((i) => i.key === 'second-admin')?.done).toBe(true);
+
+    const expired = await makeService(
+      freshWorld({
+        admins: [
+          { username: 'ada', autoDisableAt: null },
+          { username: 'bea', autoDisableAt: new Date(Date.now() - 60_000) },
+        ],
+      }),
+    ).getStatus(ORG);
+    expect(expired.items.find((i) => i.key === 'second-admin')?.done).toBe(false);
+
+    await expect(makeService(freshWorld()).complete(ORG, 'second-admin')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('complete rejects derived items', async () => {
