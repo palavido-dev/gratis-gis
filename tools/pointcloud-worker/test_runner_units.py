@@ -227,6 +227,45 @@ def test_compute_zonal_stats_arrays():
     assert 0 not in out
 
 
+def test_finish_job_keeps_the_lease():
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+            self.args = None
+
+        def execute(self, sql, args):
+            self.sql = sql
+            self.args = args
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.cur
+
+        def commit(self):
+            self.commits += 1
+
+    conn = Conn()
+    runner.finish_job(conn, "job-1", None, "11111111-1111-1111-1111-111111111111")
+    assert "state IN ('running', 'cancel_requested')" in conn.cur.sql
+    assert "claim_token" in conn.cur.sql
+    assert conn.cur.args[0] == "job-1"
+    assert conn.commits == 1
+    failed = Conn()
+    runner.finish_job(failed, "job-2", "boom", None)
+    assert failed.cur.args[0] == "boom"
+    assert "state IN ('running', 'cancel_requested')" in failed.cur.sql
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -238,4 +277,5 @@ if __name__ == "__main__":
     test_plan_grid_chunks_elkins_shape()
     test_pdal_bounds_str()
     test_compute_zonal_stats_arrays()
+    test_finish_job_keeps_the_lease()
     print("test_runner_units: all assertions passed")

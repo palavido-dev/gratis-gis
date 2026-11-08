@@ -342,7 +342,15 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
-          await writer.end();
+          await writer.sealCopy();
+          if (job.mode === 'append') {
+            // A retry after the previous COPY committed must not
+            // insert a second live feature for the same globalId.
+            await writer.dropShadowingCreates(
+              dataLayerScope(job.itemId, job.layerId),
+            );
+          }
+          await writer.commit();
           copyClosed = true;
           copyCommitted = true;
         }

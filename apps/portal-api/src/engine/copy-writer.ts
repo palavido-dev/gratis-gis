@@ -92,13 +92,11 @@ export class CopyWriter {
    *  the transaction (see `deleteScope`). Pair with `beginCopy()`. */
   async begin(): Promise<void> {
     this.client = await this.pool.connect();
-    // SET LOCAL synchronous_commit=off for this transaction.
-    // Bulk imports are re-runnable; trading per-commit fsync
-    // durability for ~20-30% throughput is the right call here.
-    // The setting reverts at transaction end so other queries on
-    // the same client (none in this design) get default behavior.
+    // synchronous_commit stays ON. Turning it off let COMMIT return
+    // before the WAL flush, so a power loss could drop a load the
+    // job row later called succeeded, or leave rows behind a job
+    // the reaper marked failed. County imports pay the fsync.
     await this.client.query('BEGIN');
-    await this.client.query('SET LOCAL synchronous_commit = OFF');
   }
 
   /**
@@ -260,14 +258,14 @@ export class CopyWriter {
   }
 
   /**
-   * Close the COPY stream and commit the transaction. Returns the
-   * number of rows written. Errors during stream-end or commit
-   * roll back the transaction, so a partially-streamed batch
-   * never lands.
+   * Finish the COPY stream and leave the transaction open so the
+   * caller can delete duplicate appends before commit. A partial
+   * stream that throws never reaches here; abort() destroys the
+   * connection and Postgres rolls the transaction back.
    */
-  async end(): Promise<number> {
+  async sealCopy(): Promise<void> {
     if (!this.stream || !this.client) {
-      throw new Error('CopyWriter.end called before start().');
+      throw new Error('CopyWriter.sealCopy called before start().');
     }
     const stream = this.stream;
     await new Promise<void>((resolve, reject) => {
@@ -275,15 +273,60 @@ export class CopyWriter {
       stream.on('error', reject);
       stream.end();
     });
-    await this.client.query('COMMIT');
-    this.client.release();
-    this.client = null;
     this.stream = null;
     if (this.encoder) {
       await this.encoder.terminate();
       this.encoder = null;
     }
+  }
+
+  /**
+   * Drop create-rows from this transaction that land on an entity
+   * which already has a live observation. Append retries after a
+   * crash use this so a second copy of the same globalId does not
+   * stick. A create after a delete is kept (resurrection).
+   */
+  async dropShadowingCreates(scope: string): Promise<number> {
+    if (!this.client) {
+      throw new Error('CopyWriter.dropShadowingCreates called without a connection.');
+    }
+    const result = await this.client.query(
+      `DELETE FROM observation AS fresh
+       WHERE fresh.scope = $1
+         AND fresh.kind = 'create'
+         AND EXISTS (
+           SELECT 1
+           FROM (
+             SELECT prev.kind
+             FROM observation AS prev
+             WHERE prev.scope = fresh.scope
+               AND prev.entity = fresh.entity
+               AND prev.id <> fresh.id
+               AND (prev.tx_time < fresh.tx_time
+                    OR (prev.tx_time = fresh.tx_time AND prev.id < fresh.id))
+             ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
+             LIMIT 1
+           ) latest
+           WHERE latest.kind <> 'delete'
+         )`,
+      [scope],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async commit(): Promise<number> {
+    if (!this.client) {
+      throw new Error('CopyWriter.commit called without a connection.');
+    }
+    await this.client.query('COMMIT');
+    this.client.release();
+    this.client = null;
     return this.rowCount;
+  }
+
+  async end(): Promise<number> {
+    await this.sealCopy();
+    return this.commit();
   }
 
   /** Abort the in-flight COPY and roll back. Call from a finally

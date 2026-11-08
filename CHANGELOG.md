@@ -30,6 +30,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A bulk import commit now waits for the WAL flush. Append mode
+  drops create-rows that would duplicate a feature that is already
+  live, including a retry after a crash between commit and the job
+  being marked succeeded. Replace mode is unchanged. Existing
+  installs pick this up by updating the portal-api image. No volume
+  reset.
+- A point-cloud worker can no longer mark a job done after the
+  reclaim sweep has already failed it, or after another claim has
+  taken the row. `analysis_job.claim_token` is new. The migration
+  adds a nullable column. Apply it before the new worker image
+  starts (`portal-migrate` already runs first). No volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

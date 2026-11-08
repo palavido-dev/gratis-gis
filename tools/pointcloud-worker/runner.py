@@ -634,15 +634,18 @@ def claim_job(conn):
         # heartbeat_at starts at claim time so the reclaim window
         # opens from the moment this worker owns the row, not from
         # its first progress write.
+        token = str(uuid.uuid4())
         cur.execute(
             """
             UPDATE analysis_job
             SET state = 'running', started_at = now(),
-                heartbeat_at = now(), progress = 1
+                heartbeat_at = now(), progress = 1,
+                claim_token = %s
             WHERE id = %s
             """,
-            (job["id"],),
+            (token, job["id"]),
         )
+        job["claim_token"] = token
     conn.commit()
     return job
 
@@ -663,7 +666,17 @@ def mark_cancelled(conn, job_id: str) -> None:
     conn.commit()
 
 
-def finish_job(conn, job_id: str, error: str | None) -> None:
+def finish_job(conn, job_id: str, error: str | None, claim_token: str | None = None) -> None:
+    """Terminal stamp for the worker that owns the row.
+
+    `state IN ('running', 'cancel_requested')` stops a worker whose
+    heartbeat went stale from flipping a reclaimed `failed` row back
+    to `done`. `claim_token`, when the column is present and this
+    worker stored one at claim time, stops a worker from finishing a
+    row a newer claim has taken over even if that row is `running`
+    again. A NULL token matches only rows that have no token, which
+    is every job until the column is written.
+    """
     with conn.cursor() as cur:
         if error is None:
             cur.execute(
@@ -671,8 +684,14 @@ def finish_job(conn, job_id: str, error: str | None) -> None:
                 UPDATE analysis_job
                 SET state = 'done', progress = 100, finished_at = now()
                 WHERE id = %s
+                  AND state IN ('running', 'cancel_requested')
+                  AND (
+                    %s IS NULL
+                    OR claim_token IS NULL
+                    OR claim_token = %s::uuid
+                  )
                 """,
-                (job_id,),
+                (job_id, claim_token, claim_token),
             )
         else:
             cur.execute(
@@ -680,8 +699,14 @@ def finish_job(conn, job_id: str, error: str | None) -> None:
                 UPDATE analysis_job
                 SET state = 'failed', error = %s, finished_at = now()
                 WHERE id = %s
+                  AND state IN ('running', 'cancel_requested')
+                  AND (
+                    %s IS NULL
+                    OR claim_token IS NULL
+                    OR claim_token = %s::uuid
+                  )
                 """,
-                (error[:2000], job_id),
+                (error[:2000], job_id, claim_token, claim_token),
             )
     conn.commit()
 
@@ -3321,6 +3346,7 @@ def main() -> None:
                     conn,
                     job["id"],
                     f"This worker does not understand job kind '{kind}'.",
+                    job.get("claim_token"),
                 )
                 continue
             try:
@@ -3331,7 +3357,7 @@ def main() -> None:
                     # API-side bridge). Do not mark it done.
                     log(f"job {job['id']}: handed off")
                 else:
-                    finish_job(conn, job["id"], None)
+                    finish_job(conn, job["id"], None, job.get("claim_token"))
                     log(f"job {job['id']}: done")
             except JobCancelled:
                 # Before the generic handler on purpose (it IS an
@@ -3354,7 +3380,7 @@ def main() -> None:
             except Exception as err:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")
-                finish_job(conn, job["id"], str(err))
+                finish_job(conn, job["id"], str(err), job.get("claim_token"))
                 # Raster jobs pre-create their target tile_layer item;
                 # without this stamp a failure leaves that item as a
                 # blank husk with no state and no explanation.
