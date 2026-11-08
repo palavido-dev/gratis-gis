@@ -37,6 +37,27 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   that deletes npm, and the build fails if `/usr/local/bin/npm` is
   present there. No Trivy ignore was added. The point-cloud model
   download is unchanged.
+- An upload named `..`, or a name with a directory in it, is stored as
+  `payload` plus a known extension inside the temp directory this
+  process created. The server opens that file only after the real path
+  stays inside the directory. The source label kept on the item
+  is that name with only letters, digits, spaces, and `.` `_` `-`.
+  The progress stream does not repeat the upload name or the
+  server's exception text. Existing installs pick this up by
+  updating the portal-api image. No setting change and no volume reset.
+- Uploading a file to turn it into GeoJSON, or ingesting it straight
+  onto a data layer, no longer holds the whole file in the API
+  process. The file stays on disk, one parse runs per user, two at
+  a time on each process, and the temp directory is removed when the
+  request ends. The request is refused when the disk cannot hold the
+  file plus 256 MB. Viewers can still use the GeoJSON parse, because
+  an edit share is checked when the features are saved. Existing
+  installs pick this up by updating the portal-api image. No setting
+  change and no volume reset.
+- The field download control now says that unsynced edits and photos
+  stay on the device until they sync, and that clearing the browser
+  deletes them. The same sentence is in Spanish, Brazilian Portuguese,
+  French, and German. No server change.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

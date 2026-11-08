@@ -355,7 +355,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       // just forward whichever mode the caller picked.
       const out = await uploadWithProgress<{
         driver: string;
-        sourceLayer: string;
+        sourceLayer: string | null;
         inserted: number;
         mode: 'replace' | 'append';
         replaced?: number;
@@ -380,7 +380,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
         kind: 'success',
         text: `${fmt.number(out.inserted)} feature${
           out.inserted === 1 ? '' : 's'
-        } ${out.mode === 'append' ? 'appended' : 'imported'} from ${out.sourceLayer} (${out.driver})${replacedSuffix}`,
+        } ${out.mode === 'append' ? 'appended' : 'imported'} from ${file.name} (${out.driver})${replacedSuffix}`,
       });
       // Refresh the server-rendered detail page so featureCount /
       // bbox on the header match the new state.

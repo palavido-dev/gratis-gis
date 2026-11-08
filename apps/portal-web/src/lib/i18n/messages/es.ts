@@ -1786,6 +1786,8 @@ export const es: Partial<CatalogShape> = {
     removeWillLoseOthers:
       '{count, plural, one {# de ellas pertenece a otra cuenta.} other {# de ellas pertenecen a otra cuenta.}}',
     downloadForOffline: 'Descargar para usar sin conexión',
+    deviceOnlyWarning:
+      'Las ediciones y las fotos se quedan en este dispositivo hasta que se sincronicen. No están en el servidor ni en una copia de seguridad del portal. Descartar una, o borrar los datos de este navegador, las elimina.',
     refreshOfflineCache: 'Actualizar caché sin conexión',
     confirmRefresh: 'Confirmar actualización',
     refreshUnsyncedWarn:
