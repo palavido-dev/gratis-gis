@@ -21,6 +21,7 @@ It is not trying to mirror every route the portal exposes.
 from __future__ import annotations
 
 import json
+import re
 import os
 from mimetypes import guess_type
 from pathlib import Path
@@ -222,6 +223,38 @@ def layer(
     }
 
 
+
+def _bare_file_name(name: Any) -> str:
+    """Last path segment of ``name`` with POSIX and Windows separators,
+    drive prefixes and NUL removed. Returns "" when nothing usable is
+    left (empty, ``.`` or ``..``)."""
+    if not isinstance(name, str):
+        return ""
+    seg = re.split(r"[\\/]", name.replace("\x00", ""))[-1]
+    # "C:evil.exe" or an NTFS stream suffix: keep what follows the colon.
+    seg = seg.rsplit(":", 1)[-1].strip()
+    return "" if seg in ("", ".", "..") else seg
+
+
+def _attachment_target(directory: Path, file_name: Any, att_id: str) -> Path:
+    """Where to write an attachment downloaded into ``directory``.
+
+    The stored ``fileName`` is user supplied, so a name such as
+    ``../../.bashrc`` or ``/etc/cron.d/x`` must not choose the path.
+    """
+    name = _bare_file_name(file_name) or _bare_file_name(att_id)
+    if not name:
+        raise ValueError("Attachment has no usable file name; pass a file path instead.")
+    base = directory.resolve()
+    target = (base / name).resolve()
+    if target.parent != base:
+        raise ValueError(
+            f"Attachment file name {file_name!r} resolves outside {directory}; "
+            "pass an explicit file path instead."
+        )
+    return target
+
+
 class GratisGIS:
     """A connection to one portal, authenticated with an API key.
 
@@ -366,8 +399,11 @@ class GratisGIS:
             raise NotFoundError(message, **shared)
         if code == 409:
             raise ConflictError(message, **shared)
-        if code == 429:
-            retry = response.headers.get("retry-after")
+        retry = response.headers.get("retry-after")
+        if code == 429 or (code == 503 and retry and retry.isdigit()):
+            # 503 with a numeric Retry-After is the portal's "busy, come
+            # back in N seconds" from a saturated lane, so it is the same
+            # back-off signal as 429. A bare 503 stays a PortalError.
             raise RateLimitError(
                 message,
                 retry_after=float(retry) if retry and retry.isdigit() else None,
@@ -809,11 +845,9 @@ class GratisGIS:
 
         Two things worth knowing before you pick a format.
 
-        ``geoparquet`` walks the layer with the keyset iterator, so it
-        exports everything. ``csv`` goes through the read path and stops
-        at the portal's 100,000 row ceiling, silently. On a big layer
-        those two give different answers, and only one of them is the
-        whole layer.
+        ``geoparquet`` and ``csv`` both walk the whole layer with the
+        keyset iterator, so either one is a full export. (Older portals
+        stopped ``csv`` at 100,000 rows; current ones do not.)
 
         ``csv`` also takes ``geometry``: ``none``, ``wkt``, ``lonlat``,
         or ``auto``.
@@ -1343,7 +1377,12 @@ class GratisGIS:
         never has to parse ``storageUrl``. With ``path``, writes to that
         file and returns the :class:`pathlib.Path`; without it, returns
         the bytes. Pass a directory and the attachment's own
-        ``fileName`` is used inside it.
+        ``fileName`` is used inside it, reduced to a bare file name: any
+        directory part, drive prefix, ``.`` or ``..`` is dropped (the
+        attachment id is used when nothing usable is left), and the
+        result must stay inside that directory. The stored name comes
+        from whoever registered the attachment, so it is not trusted as
+        a path.
         """
         att_id = attachment.get("id") if isinstance(attachment, dict) else None
         if not isinstance(att_id, str) or not att_id:
@@ -1359,7 +1398,7 @@ class GratisGIS:
         if path is not None:
             target = Path(path)
             if target.is_dir():
-                target = target / str(attachment.get("fileName") or att_id)
+                target = _attachment_target(target, attachment.get("fileName"), att_id)
 
         try:
             with self._client.stream("GET", url) as response:
