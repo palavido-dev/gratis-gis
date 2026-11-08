@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { randomUUID } from 'node:crypto';
 import { statfs } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -38,7 +39,7 @@ export class ResourceQuotaService {
    * the cap still fits. Two concurrent callers cannot both pass.
    */
   async reserve(orgId: string, bytes: bigint, purpose: string): Promise<{ id: string }> {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const heldPurpose = purpose.slice(0, 80);
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('gratis-storage-reserve', 0))`;
