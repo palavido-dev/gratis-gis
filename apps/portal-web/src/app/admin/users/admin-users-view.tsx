@@ -718,11 +718,15 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     });
     setSubmitting(false);
     if (!res.ok) {
+      await res.text().catch(() => '');
       setError(
-        t('adminUsers.invite.errInviteFailed', {
-          status: String(res.status),
-          detail: await res.text(),
-        }),
+        res.status === 409
+          ? t('adminUsers.invite.errDuplicate')
+          : res.status === 502
+            ? t('adminUsers.invite.errUpstream')
+            : t('adminUsers.invite.errInviteFailed', {
+                status: String(res.status),
+              }),
       );
       return;
     }
@@ -735,10 +739,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
       await alert({
         title: t('adminUsers.invite.alertEmailFailedTitle'),
         tone: 'warn',
-        message: t('adminUsers.invite.alertEmailFailedMessage', {
-          username: created.username,
-          error: created.setupEmailError,
-        }),
+        message: t('adminUsers.invite.alertEmailFailedMessage'),
       });
     }
     onInvited(created);
