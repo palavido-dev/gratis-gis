@@ -84,6 +84,7 @@ export const ptBR: Partial<CatalogShape> = {
     notifications: 'Notificações',
     ai: 'IA',
     build: 'Criar',
+    buildHint: 'Descreva uma camada, um mapa, um formulário ou um app',
     security: 'Acesso',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
@@ -120,8 +121,9 @@ export const ptBR: Partial<CatalogShape> = {
     closeNavigation: 'Fechar navegação',
   },
   search: {
-    placeholder: 'Pesquisar itens...',
+    placeholder: 'Pesquisar só itens',
     label: 'Pesquisar itens',
+    scopeHint: 'Pesquisa títulos, descrições e etiquetas de itens. Pessoas e grupos não entram.',
   },
   help: {
     buttonTitle: 'Ajuda (pressione ? a qualquer momento)',
@@ -182,6 +184,9 @@ export const ptBR: Partial<CatalogShape> = {
     viewerBlocked:
       'Sua conta tem a função Visualizador, que pode abrir e baixar itens, mas não criá-los. Um administrador da organização pode alterar sua função ou conceder apenas a capacidade de publicar.',
     changeType: 'Alterar tipo',
+    taskIntro: 'Comece com um envio, um mapa ou um formulário. Os outros tipos ficam em Mais, e um link que nomeia o tipo continua abrindo.',
+    moreTypes: 'Mais tipos de item',
+    fewerTypes: 'Menos tipos de item',
     detailsEyebrow: 'Novo {type}',
     detailsEyebrowFallback: 'item',
     titleLabel: 'Título',
@@ -263,7 +268,7 @@ export const ptBR: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Web app',
-    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    desc: 'Aplicativo web de mapa e widgets. Um painel é um modelo deste tipo, não um item separado. Escolha um modelo na próxima tela ou comece em branco.',
   },
   theme: {
     label: 'Theme',
@@ -1577,6 +1582,20 @@ export const ptBR: Partial<CatalogShape> = {
     copyLink: 'Copiar link',
     copied: 'Copiado',
     openOnPhone: 'Abrir em um celular',
+    eyebrow: 'Conteúdo',
+    intro: 'Implantações para abrir em campo, com cache offline e estado de sincronização deste dispositivo.',
+    newDeployment: 'Nova implantação',
+    sessionExpiredTitle: 'A sessão expirou',
+    sessionExpiredBody: 'Entre de novo para carregar as implantações. Isto não é um catálogo vazio. O que já foi salvo neste dispositivo permanece e sincroniza depois do acesso.',
+    emptyTitle: 'Nenhuma implantação de campo ainda',
+    emptyBody: 'Uma implantação aponta para um mapa e para o formulário preenchido ao adicionar feições.',
+    createDeployment: 'Criar uma implantação',
+    loadFailedTitle: 'Não foi possível carregar as implantações',
+    loadFailedBody: 'O catálogo não respondeu. Isto não é uma lista vazia. Tente de novo em instantes.',
+  },
+  buildPage: {
+    title: 'Criar a partir de uma descrição',
+    intro: 'Descreva uma camada, um mapa, um formulário ou um app. Um painel é um modelo de aplicativo web, não esta página. Nada é criado até você escolher criar.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1934,6 +1953,8 @@ export const ptBR: Partial<CatalogShape> = {
     sharingHeading: 'Compartilhamento',
     publicBoundaryWarning:
       'O limite geográfico público está ausente ou sem geometria. Leitores públicos não veem feições até que um limite existente seja escolhido.',
+    shareAction: 'Compartilhar',
+    shareActionHint: 'Abre compartilhamento e acesso. As dependências aparecem nessa aba antes de publicar.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir o formulário para enviar uma resposta',
     responses: 'Respostas',
@@ -3946,10 +3967,12 @@ export const ptBR: Partial<CatalogShape> = {
       sendInvite: 'Enviar convite',
       errUsernameMin: 'O usuário deve ter pelo menos 2 caracteres.',
       errEmailInvalid: 'Digite um endereço de e-mail válido.',
-      errInviteFailed: 'Falha no convite: {status} {detail}',
-      alertEmailFailedTitle: 'Usuário criado, e-mail falhou',
+      errDuplicate: 'Já existe uma conta com esse nome ou e-mail. O endereço não aparece aqui.',
+      errDelivery: 'O servidor de identidade não conseguiu enviar o e-mail. Verifique o SMTP em Notificações e tente de novo. O endereço não aparece aqui.',
+      errInviteFailed: 'O convite não terminou (status {status}). Nenhum detalhe da conta é mostrado.',
+      alertEmailFailedTitle: 'Conta criada, e-mail não enviado',
       alertEmailFailedMessage:
-        'O usuário "{username}" foi criado, mas o e-mail de configuração de senha não pôde ser enviado:\n\n{error}\n\nQuando o SMTP estiver ok, clique em "Redefinir senha" neste usuário para reenviar o e-mail.',
+        'A conta foi criada, mas o e-mail de acesso não foi enviado. Abra Notificações, corrija o SMTP e use Redefinir senha na conta nova. Esta mensagem não inclui o endereço.',
     },
     edit: {
       title: 'Editar usuário',

@@ -88,6 +88,7 @@ export const es: Partial<CatalogShape> = {
     notifications: 'Notificaciones',
     ai: 'IA',
     build: 'Crear',
+    buildHint: 'Describe una capa, un mapa, un formulario o una app',
     security: 'Acceso',
     fieldQueues: 'Colas de campo',
     migrations: 'Migraciones',
@@ -124,8 +125,9 @@ export const es: Partial<CatalogShape> = {
     closeNavigation: 'Cerrar navegación',
   },
   search: {
-    placeholder: 'Buscar elementos...',
+    placeholder: 'Buscar solo elementos',
     label: 'Buscar elementos',
+    scopeHint: 'Busca títulos, descripciones y etiquetas de elementos. No incluye personas ni grupos.',
   },
   help: {
     buttonTitle: 'Ayuda (pulsa ? en cualquier momento)',
@@ -186,6 +188,9 @@ export const es: Partial<CatalogShape> = {
     viewerBlocked:
       'Tu cuenta tiene el rol Visor, que puede abrir y descargar elementos pero no crearlos. Un administrador de la organización puede cambiar tu rol u otorgarte solo la capacidad de publicar.',
     changeType: 'Cambiar tipo',
+    taskIntro: 'Empiece con una carga, un mapa o un formulario. Los demás tipos están en Más, y un enlace que nombra un tipo lo abre igual.',
+    moreTypes: 'Más tipos de elemento',
+    fewerTypes: 'Menos tipos de elemento',
     detailsEyebrow: 'Nuevo {type}',
     detailsEyebrowFallback: 'elemento',
     titleLabel: 'Título',
@@ -267,7 +272,7 @@ export const es: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Aplicación web',
-    desc: 'Diseño de mapa + widgets, barra lateral, encabezado y grupos plegables. Elige una plantilla inicial en la siguiente pantalla o empieza en blanco.',
+    desc: 'Aplicación web de mapa y widgets. Un tablero es una plantilla de este tipo, no un elemento aparte. Elige una plantilla en la siguiente pantalla o empieza en blanco.',
   },
   theme: {
     label: 'Tema',
@@ -1580,6 +1585,20 @@ export const es: Partial<CatalogShape> = {
     copyLink: 'Copiar enlace',
     copied: 'Copiado',
     openOnPhone: 'Abrir en un teléfono',
+    eyebrow: 'Contenido',
+    intro: 'Despliegues que puedes abrir en campo, con caché sin conexión y estado de sincronización de este dispositivo.',
+    newDeployment: 'Nuevo despliegue',
+    sessionExpiredTitle: 'La sesión expiró',
+    sessionExpiredBody: 'Vuelve a iniciar sesión para cargar los despliegues. Esto no es un catálogo vacío. Lo guardado en este dispositivo permanece y se sincroniza al entrar.',
+    emptyTitle: 'Aún no hay despliegues de campo',
+    emptyBody: 'Un despliegue apunta a un mapa y al formulario que se rellena al añadir entidades.',
+    createDeployment: 'Crear un despliegue',
+    loadFailedTitle: 'No se pudieron cargar los despliegues',
+    loadFailedBody: 'El catálogo no respondió. Esto no es una lista vacía. Inténtalo de nuevo en un momento.',
+  },
+  buildPage: {
+    title: 'Crear a partir de una descripción',
+    intro: 'Describe una capa, un mapa, un formulario o una app. Un tablero es una plantilla de aplicación web, no esta página. No se crea nada hasta que elijas crearlo.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1940,6 +1959,8 @@ export const es: Partial<CatalogShape> = {
     sharingHeading: 'Compartir',
     publicBoundaryWarning:
       'Falta el límite geográfico público o no tiene geometría. Quien consulte en público no ve entidades hasta que elija un límite que siga existiendo.',
+    shareAction: 'Compartir',
+    shareActionHint: 'Abre el uso compartido y el acceso. Las dependencias aparecen en esa pestaña antes de publicar.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir el formulario para enviar una respuesta',
     responses: 'Respuestas',
@@ -3947,10 +3968,12 @@ export const es: Partial<CatalogShape> = {
       sendInvite: 'Enviar invitación',
       errUsernameMin: 'El usuario debe tener al menos 2 caracteres.',
       errEmailInvalid: 'Introduce una dirección de correo válida.',
-      errInviteFailed: 'Error al invitar: {status} {detail}',
-      alertEmailFailedTitle: 'Usuario creado, correo fallido',
+      errDuplicate: 'Ya existe una cuenta con ese usuario o correo. Aquí no se muestra la dirección.',
+      errDelivery: 'El servidor de identidad no pudo enviar el correo. Revisa SMTP en Notificaciones y vuelve a intentarlo. Aquí no se muestra la dirección.',
+      errInviteFailed: 'La invitación no terminó (estado {status}). No se muestra el detalle de la cuenta.',
+      alertEmailFailedTitle: 'Cuenta creada, correo no enviado',
       alertEmailFailedMessage:
-        'El usuario "{username}" se creó, pero no se pudo enviar el correo de configuración de contraseña:\n\n{error}\n\nCuando SMTP funcione, haz clic en "Restablecer contraseña" en este usuario para reenviar el correo.',
+        'La cuenta se creó, pero el correo de acceso no se envió. Abre Notificaciones, corrige SMTP y usa Restablecer contraseña en la cuenta nueva. Este mensaje no incluye la dirección.',
     },
     edit: {
       title: 'Editar usuario',
