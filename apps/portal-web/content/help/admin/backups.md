@@ -1,7 +1,7 @@
 ---
 id: admin-backups
 title: Backups
-summary: How GratisGIS backups work, where they live, how to restore, and what they don't cover.
+summary: What an admin backup contains, how to restore it, and what it does not cover.
 category: admin
 order: 30
 complexity: advanced
@@ -15,83 +15,78 @@ related:
   - admin-organization-settings
 ---
 
-GratisGIS persists state in two places: **PostgreSQL** (every
-item's metadata, every feature, the observation log) and **MinIO**
-(uploaded files, tile layers, attachments, generated PDFs).
-Backups have to cover both, and a restore has to restore both
-together.
+GratisGIS keeps portal content in two places: **PostgreSQL** (items,
+features, the observation log, sharing, form submissions) and
+**object storage** (uploads, tile files, photos, signatures, and
+other attachments). An admin backup is one `.tar.gz` that holds both.
 
-## What's backed up
+Create and restore archives from **Admin → Backup**. The schedule
+defaults to daily at 02:00 in the server's clock, and retention
+keeps the **7** newest archives unless you change the count on that
+page. A run that fails is marked failed on that page. It does not
+send mail.
 
-- **PostgreSQL** dump. The default backup job runs `pg_dump` on
- the `gratisgis` database with the custom format (`-Fc`).
- Includes schema, data, and the observation log.
-- **MinIO bucket sync**. `mc mirror` of the `gratisgis` bucket
- to the backup store. Preserves the directory tree and content
- types.
+## What's in the archive
 
-Both run on the same schedule so a recovery point is consistent
-(give or take seconds; in-flight uploads at backup time may
-appear in PG but not in MinIO yet).
+- A `pg_dump` custom-format dump of the **portal** database
+  (`gratisgis`), including schema, features, and the observation log.
+- A copy of every object in the portal bucket at the moment the
+  backup read it.
+- A `manifest.json` with the time, sizes, and the portal version
+  when it was recorded.
 
-## Backup destinations
+An upload that is still in flight can land in one of those and not
+the other. The gap is seconds, not a second copy of the system.
 
-The portal supports three backup destinations:
+## What is not in the archive
 
-- **Local disk** (a host path mounted into the container). Cheap
- and simple; not safe against host loss.
-- **S3-compatible** (another MinIO instance, AWS S3, Backblaze
- B2). Set credentials in admin → backups.
-- **SFTP** (host, port, key). Useful for "ship to the org's
- existing fileserver" deployments.
-
-Multiple destinations are supported; backups fan-out.
-
-## Schedule
-
-The default schedule is **nightly at 2am local time**. Adjust at
-admin → backups → schedule. The portal supports a fuller cron
-expression if you need it.
-
-Retention is **N most recent** by default (default N: 14). Older
-backups are pruned automatically.
+- **Identity.** Usernames and passwords live in Keycloak's own
+  database. The archive does not include that database, the realm,
+  or client configuration. Item ownership in the portal database is
+  the username, so the same usernames still own the same items after
+  a portal restore. A person recreated under a different username
+  does not inherit the old items. Signing in with a different role
+  overwrites the restored role.
+- **The encryption key and deployment secrets.**
+  `CREDENTIAL_ENCRYPTION_KEY`, database passwords, and the sign-in
+  URL live in `infra/.env.prod` or, on a home NAS, the `boot`
+  volume. Without that same key, credentials the portal stored for
+  external services cannot be decrypted. A freshly generated install
+  has a new key. Restore the archive on this portal, or on a copy
+  of the machine that still has the original env file and volumes.
+- **Encryption of the archive itself.** The `.tar.gz` is not
+  encrypted. If you need that, wrap the file with your own tool
+  before it leaves the machine.
+- **Off-site storage.** The archive is written to the
+  `portal-api-backups` volume on this host. Downloading it to a
+  browser on this same machine is not an off-site copy. Copy the
+  file, and the env file or `boot` volume, to another disk.
+- **Phones and browsers.** The field app's unsynced edits stay on
+  the device until they sync. A portal backup cannot see them.
+- **Point-in-time recovery.** There is no WAL archive. The recovery
+  point is the newest archive you have stored somewhere else.
 
 ## Restore
 
-There is no one-click restore from inside the portal; restoring
-is a deliberate operation by a sysadmin. The high-level
-procedure:
+Restore is a button on **Admin → Backup**. It asks you to type the
+portal's name, turns maintenance mode on, replaces the portal
+database and the object bucket from the archive, then turns
+maintenance mode off only if that finishes.
 
-1. Stop the portal-api and portal-web containers.
-2. Restore Postgres from the dump: `pg_restore -d gratisgis
- backup.dump`.
-3. Restore MinIO from the bucket sync: `mc mirror backup-store
- minio/gratisgis`.
-4. Start the containers; the portal boots against the restored
- state.
+If restore fails, maintenance stays on so a half-applied database is
+not served. Do not clear that flag until the database is known good.
+The host steps are in `docs/deployment.md` under "When a restore
+fails", and the checker is `infra/restore-maintenance.sh`. It will
+not clear maintenance while the portal tables are missing.
 
-The detailed restore runbook lives at **docs/operations/
-restore.md** in the repo (out of scope for this help page; this
-page is the operator's reference for what the backup system
-does).
+Take a snapshot of the PostgreSQL and object-storage volumes before
+the first restore. The in-portal restore is destructive.
 
-## What's NOT backed up
+Keycloak is not restored by this button. If you also need identity
+from a particular time, you need a separate dump of the Keycloak
+database taken at the same time. The portal archive is not that dump.
 
-- **Keycloak's database.** Users, realms, and credentials live
- in Keycloak's own Postgres database, backed up separately.
- Restoring portal state without Keycloak leaves you with items
- but no one to log in as.
-- **Local-disk caches** (the field PWA's IndexedDB, the
- browser's MapLibre tile cache). These regenerate on demand
- and don't need to be preserved.
-- **In-memory state**. Active sessions, in-progress feature
- edits not yet saved. Lost on restart by design.
+## Before an upgrade
 
-## Notes
-
-- **Backup health.** The dashboard at admin → backups shows last
- success/failure timestamps and file sizes. A failed backup
- surfaces an admin notification.
-- **Test restores periodically.** A backup you've never
- restored is a backup you don't have. Cycle a restore against
- a staging instance quarterly at minimum.
+Create a backup, download it, and copy it off the host together with
+`infra/.env.prod` or the NAS `boot` volume. The upgrade guide is `docs/UPGRADING.md`.

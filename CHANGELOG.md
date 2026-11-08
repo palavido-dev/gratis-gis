@@ -30,6 +30,21 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Admin backup help described a different backup system (`mc mirror`,
+  S3 and SFTP destinations, no in-portal restore). The help page now
+  matches the archive the portal writes: a portal database dump plus
+  object storage, Keycloak and the encryption key not included, and
+  maintenance left on if restore fails. The backup screen no longer
+  says a fresh install can be restored just by recreating users.
+  `infra/restore-maintenance.sh` checks that the portal tables exist
+  before it will clear that flag, and it does not delete volumes.
+  `infra/reset-portal-password.sh` resets one Keycloak user from the
+  host without deleting data and without opening the master realm on
+  the proxy. The NAS second-boot log no longer says to delete volumes
+  to get a new password. Existing installs pick up the docs and
+  scripts by updating the checkout. No volume reset. A paste-only NAS
+  install copies the script onto the host. No setting change inside
+  the portal.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as
