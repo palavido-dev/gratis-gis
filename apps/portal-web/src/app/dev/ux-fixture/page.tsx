@@ -7,12 +7,20 @@ import { TopBarSearch } from '@/components/top-bar-search';
 export const dynamic = 'force-dynamic';
 
 /**
- * Synthetic surface for the task-first wizard, item search, and the
- * notifications link. It 404s unless GRATIS_UX_FIXTURE=1, so a normal
- * portal does not publish it.
+ * Dev-only surface for the real new-item wizard, the real search
+ * box, and the real notifications link. It has no session and loads
+ * no portal data. It 404s in production even if GRATIS_UX_FIXTURE=1,
+ * and it 404s in development unless that variable is exactly 1.
  */
 export default function UxFixturePage() {
-  if (process.env.GRATIS_UX_FIXTURE !== '1') notFound();
+  // Production never serves this route, even if the variable is set.
+  // It renders the real wizard with no session and no portal data.
+  if (
+    process.env.NODE_ENV === 'production' ||
+    process.env.GRATIS_UX_FIXTURE !== '1'
+  ) {
+    notFound();
+  }
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-6">
       <h1 className="text-xl font-semibold">UX fixture</h1>
