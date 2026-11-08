@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { serializeJsonLd } from './json-ld';
 
 describe('serializeJsonLd', () => {
@@ -30,12 +32,6 @@ describe('JSON-LD call sites', () => {
   // A JSON-LD block filled with raw JSON.stringify is the stored XSS
   // this helper closes. Fail if any block skips it.
   it('serialize every ld+json block through serializeJsonLd', () => {
-    const { readdirSync, readFileSync, statSync } = jest.requireActual<
-      typeof import('node:fs')
-    >('node:fs');
-    const { join, relative } = jest.requireActual<typeof import('node:path')>(
-      'node:path',
-    );
     const root = join(__dirname, '..', '..');
     const files: string[] = [];
     const walk = (dir: string): void => {

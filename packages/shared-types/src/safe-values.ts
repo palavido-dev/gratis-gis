@@ -6,6 +6,9 @@
  */
 import { safeHttpHref } from './attribution-html';
 
+// Matching control characters is the point here (browsers strip them
+// from URLs before reading the scheme), so no-control-regex is wrong.
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 /**
