@@ -342,7 +342,15 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
-          await writer.end();
+          await writer.sealCopy();
+          if (job.mode === 'append') {
+            // Only rows this transaction inserted. Committed history
+            // is not deleted. See CopyWriter.dropDuplicateAppendCreates.
+            await writer.dropDuplicateAppendCreates(
+              dataLayerScope(job.itemId, job.layerId),
+            );
+          }
+          await writer.commit();
           copyClosed = true;
           copyCommitted = true;
         }

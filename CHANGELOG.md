@@ -65,6 +65,26 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stay on the device until they sync, and that clearing the browser
   deletes them. The same sentence is in Spanish, Brazilian Portuguese,
   French, and German. No server change.
+- A bulk import commit now waits for the WAL flush. An append
+  removes only create rows that the same transaction just inserted
+  when that entity already has a live observation, or when the load
+  inserted the same entity twice. The comparison uses this
+  transaction's xid, so it still matches after the 32-bit counter
+  wraps. Committed history, edits, other
+  scopes, and duplicates that were already stored are not deleted.
+  A create after a delete is kept. Existing installs pick this up
+  by updating the portal-api image. No volume reset.
+- A point-cloud worker heartbeats, finishes, cancels, and publishes
+  an item result only while it still holds that job's claim token.
+  The item update and the token check are one statement, so a reclaim
+  that commits first is the write that sticks.
+  A database trigger ignores updates from an older worker image that
+  does not present the token, once a row has one. Claiming a queued
+  row and the stale-job reclaim sweep still work. The migration adds
+  nullable `analysis_job.claim_token` and the trigger. Apply it
+  before starting the new worker image. An old worker can keep
+  running; it cannot overwrite a row a new worker has leased. No
+  volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

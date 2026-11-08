@@ -227,6 +227,106 @@ def test_compute_zonal_stats_arrays():
     assert 0 not in out
 
 
+def test_finish_job_keeps_the_lease():
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+            self.args = None
+
+        def execute(self, sql, args):
+            self.sql = sql
+            self.args = args
+            self.rowcount = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.cur
+
+        def commit(self):
+            self.commits += 1
+
+    conn = Conn()
+    token = "11111111-1111-1111-1111-111111111111"
+    assert runner.finish_job(conn, "job-1", None, token) is True
+    assert "state IN ('running', 'cancel_requested')" in conn.cur.sql
+    assert "claim_token = %s::uuid" in conn.cur.sql
+    assert "IS NULL" not in conn.cur.sql
+    assert conn.cur.args == ("job-1", token)
+    assert conn.commits == 1
+    refused = Conn()
+    assert runner.finish_job(refused, "job-2", "boom", None) is False
+    assert refused.cur.args is None
+    runner.remember_lease("job-3", token)
+    beat = Conn()
+    try:
+        runner.set_progress(beat, "job-3", 10)
+    except Exception:
+        pass
+    assert "claim_token = %s::uuid" in beat.cur.sql
+
+
+def test_merge_item_data_checks_the_lease_in_the_write():
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+            self.rowcount = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, _args=None):
+            self.sql += "\n" + sql
+            if "UPDATE item" in sql:
+                self.rowcount = 0
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.commits = 0
+            self.rolled = 0
+
+        def cursor(self):
+            return self.cur
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            self.rolled += 1
+
+    token = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    runner.remember_lease("job-pub", token)
+    runner._current_job_id = "job-pub"
+    conn = Conn()
+    try:
+        raised = False
+        try:
+            runner.merge_item_data(conn, "item-1", {"processingState": "ready"})
+        except runner.JobLost:
+            raised = True
+        assert raised
+        assert "FOR UPDATE" in conn.cur.sql
+        assert "UPDATE item" in conn.cur.sql
+        assert "EXISTS (SELECT 1 FROM held)" in conn.cur.sql
+        assert conn.rolled == 1
+        assert conn.commits == 0
+    finally:
+        runner._current_job_id = None
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -238,4 +338,6 @@ if __name__ == "__main__":
     test_plan_grid_chunks_elkins_shape()
     test_pdal_bounds_str()
     test_compute_zonal_stats_arrays()
+    test_finish_job_keeps_the_lease()
+    test_merge_item_data_checks_the_lease_in_the_write()
     print("test_runner_units: all assertions passed")
