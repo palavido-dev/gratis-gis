@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
@@ -17,6 +16,11 @@ import { FormsService } from './forms.service.js';
  * DataLayerFeaturesModule is imported (#281e) so submissions can also be
  * mirrored into the paired data_layer that ItemsService.create
  * auto-provisions for every form item (#283 / #281c).
+ *
+ * The repair pass uses its own timer. It does not call
+ * ScheduleModule.forRoot(). A fifth copy of that root hung boot
+ * (app.module.spec keeps the set at the four modules that already
+ * own it).
  */
 @Module({
   imports: [
@@ -24,7 +28,6 @@ import { FormsService } from './forms.service.js';
     NotificationsModule,
     DataLayerFeaturesModule,
     LeaderElectionModule,
-    ScheduleModule.forRoot(),
   ],
   controllers: [FormsController],
   providers: [FormsService],

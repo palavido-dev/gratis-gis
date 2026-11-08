@@ -31,9 +31,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 ### Fixed
 
 - A form submission whose paired data layer did not get the mirror
-  row is retried three times, and once a minute the cron leader
-  looks for submissions that still have no live observation and
-  mirrors them again. The feature id is the submission id, so a
+  row is retried three times, and once a minute the process that
+  holds the cron lock looks for submissions that still have no live
+  observation and mirrors them again. That pass keeps its own timer.
+  It does not register another application-wide scheduler. The feature
+  id is the submission id, so a
   retry does not create a second feature. Followers do not run the
   repair. Existing installs pick this up by updating the portal-api
   image. No migration and no volume reset.

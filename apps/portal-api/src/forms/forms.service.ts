@@ -6,8 +6,9 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { validate } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
@@ -40,9 +41,15 @@ import {
  *   - Listing submissions requires either ownership of the form or
  *     org-admin role.
  */
+/** How often a leader looks for submissions the mirror did not land. */
+const MIRROR_REPAIR_MS = 60_000;
+
 @Injectable()
-export class FormsService {
+export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(FormsService.name);
+  private repairTimer: ReturnType<typeof setInterval> | null = null;
+  private stopping = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
@@ -50,6 +57,39 @@ export class FormsService {
     private readonly dataLayerAttachments: DataLayerAttachmentsService,
     @Optional() private readonly leader?: LeaderElectionService,
   ) {}
+
+  /**
+   * Own the interval here. Leadership can move, so the tick itself
+   * checks shouldRun() instead of deciding once at boot. The timer
+   * is unref'd so a test process that constructs the service and
+   * starts it does not hold the event loop open.
+   */
+  onApplicationBootstrap(): void {
+    this.repairTimer = setInterval(() => {
+      void this.repairSafely();
+    }, MIRROR_REPAIR_MS);
+    this.repairTimer.unref?.();
+    void this.repairSafely();
+  }
+
+  onModuleDestroy(): void {
+    this.stopping = true;
+    if (this.repairTimer) clearInterval(this.repairTimer);
+    this.repairTimer = null;
+  }
+
+  private async repairSafely(): Promise<void> {
+    if (this.stopping) return;
+    try {
+      await this.reconcileFormMirrors();
+    } catch (err) {
+      this.log.warn(
+        `form mirror repair tick failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
 
   /** Fetch the form item, gating by visibility for the caller. Used
    *  to look up the orgId we'll stamp on the submission. Selects
@@ -272,8 +312,8 @@ export class FormsService {
    * live observation for that submission id and mirrors them again.
    * Followers return without writing. Missing leader (unit tests)
    * also returns, so a test process does not scan the database.
+   * Called once a minute by the timer started in onApplicationBootstrap.
    */
-  @Cron(CronExpression.EVERY_MINUTE)
   async reconcileFormMirrors(): Promise<number> {
     if (!this.leader?.shouldRun()) return 0;
     const rows = await this.prisma.$queryRaw<
