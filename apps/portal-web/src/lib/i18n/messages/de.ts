@@ -412,7 +412,7 @@ export const de: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Jede Ebene in der Datei wird hinzugefügt. Beim Anlegen des Elements oder beim Speichern des Schemas werden die Objekte geladen. Ein Dashboard kann die Ebene danach verwenden.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2077,7 +2077,9 @@ export const de: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Layer-Struktur',
     structureIntro:
-      'Bearbeiten Sie hier Layer, Felder, Domänen und Einschränkungen. Speichern wirkt sofort; Importieren und Durchsuchen von Zeilen finden Sie auf dem Tab Daten.',
+      'Bearbeiten Sie hier Layer, Felder, Domänen und Einschränkungen. Speichern sichert das Schema und startet den Import der gerade hinzugefügten Datei. Zeilen bleiben auf dem Tab Daten.',
+    pendingImportNote:
+      'Speichern Sie das Schema, um die Objekte aus der Datei zu laden. Bis dahin hat der Layer keine Zeilen.',
     dataTitle: 'Layer-Daten',
     dataIntro:
       'Durchsuchen Sie die Zeilen jedes Layers, fügen Sie Daten hinzu oder laden Sie sie herunter.',

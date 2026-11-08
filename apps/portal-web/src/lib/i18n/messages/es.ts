@@ -414,7 +414,7 @@ export const es: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Se añaden todas las capas del archivo. Crear el elemento, o guardar el esquema, carga las entidades. Un panel puede usar la capa cuando termine esa importación.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2072,7 +2072,9 @@ export const es: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Estructura de la capa',
     structureIntro:
-      'Edita aquí capas, campos, dominios y restricciones. Guardar tiene efecto inmediato; importar y explorar filas está en la pestaña Datos.',
+      'Edita aquí capas, campos, dominios y restricciones. Guardar almacena el esquema e inicia la importación del archivo que acabas de añadir. Explorar filas sigue en la pestaña Datos.',
+    pendingImportNote:
+      'Guarda el esquema para cargar las entidades del archivo. Hasta que termine, la capa no tiene filas.',
     dataTitle: 'Datos de la capa',
     dataIntro: 'Explora las filas de cada capa, añade más datos o descárgalos.',
   },
