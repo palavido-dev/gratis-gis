@@ -3388,6 +3388,11 @@ export const ptBR: Partial<CatalogShape> = {
     redirecting: 'Redirecionando para o login...',
     redirectFallback: 'Se nada acontecer,',
     continueToKeycloak: 'continue para o Keycloak',
+    wrongHostTitle: 'O login usa outro endereço',
+    wrongHostBody:
+      'Você abriu {opened}. O login está configurado para {canonical}, então continuar enviaria o navegador para lá. Defina isto no arquivo compose e reinicie:',
+    wrongHostRestart:
+      'Mantenha os volumes. A próxima inicialização atualiza o Keycloak. Para HTTPS no Tailscale, use o nome MagicDNS com https:// e o Tailscale Serve. Um IP da tailnet continua em http:// com a porta.',
   },
   adminSecurity: {
     pageIntro:

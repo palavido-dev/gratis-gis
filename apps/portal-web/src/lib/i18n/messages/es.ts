@@ -3389,6 +3389,11 @@ export const es: Partial<CatalogShape> = {
     redirecting: 'Redirigiendo al inicio de sesión...',
     redirectFallback: 'Si no ocurre nada,',
     continueToKeycloak: 'continúa a Keycloak',
+    wrongHostTitle: 'El inicio de sesión usa otra dirección',
+    wrongHostBody:
+      'Abriste {opened}. El inicio de sesión está configurado para {canonical}, así que continuar enviaría el navegador allí. Define esto en el compose y reinicia:',
+    wrongHostRestart:
+      'Conserva los volúmenes. El siguiente arranque actualiza Keycloak. Para HTTPS con Tailscale, usa el nombre MagicDNS con https:// y Tailscale Serve. Una IP de la tailnet sigue en http:// con el puerto.',
   },
   adminSecurity: {
     pageIntro:

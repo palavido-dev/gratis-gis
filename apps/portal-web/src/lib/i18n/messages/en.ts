@@ -3526,6 +3526,11 @@ export const en = {
     redirecting: 'Redirecting to sign in...',
     redirectFallback: 'If nothing happens,',
     continueToKeycloak: 'continue to Keycloak',
+    wrongHostTitle: 'Sign-in uses a different address',
+    wrongHostBody:
+      'You opened {opened}. Sign-in is configured for {canonical}, so continuing would send the browser there. Set this in the compose file, then restart:',
+    wrongHostRestart:
+      'Keep the existing volumes. The next start updates Keycloak. For Tailscale HTTPS, use the MagicDNS name with https:// and Tailscale Serve. A tailnet IP keeps http:// and the port.',
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {

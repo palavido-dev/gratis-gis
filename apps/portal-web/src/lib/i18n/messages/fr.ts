@@ -3398,6 +3398,11 @@ export const fr: Partial<CatalogShape> = {
     redirecting: 'Redirection vers la connexion...',
     redirectFallback: 'Si rien ne se passe,',
     continueToKeycloak: 'continuez vers Keycloak',
+    wrongHostTitle: 'La connexion utilise une autre adresse',
+    wrongHostBody:
+      'Vous avez ouvert {opened}. La connexion est configurée pour {canonical}, donc continuer enverrait le navigateur là-bas. Définissez ceci dans le compose, puis redémarrez :',
+    wrongHostRestart:
+      'Conservez les volumes. Le prochain démarrage met Keycloak à jour. Pour le HTTPS Tailscale, utilisez le nom MagicDNS avec https:// et Tailscale Serve. Une IP du tailnet reste en http:// avec le port.',
   },
   adminSecurity: {
     pageIntro:
