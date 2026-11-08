@@ -210,7 +210,11 @@ jobs:
     # dies with 0A000 "extension pg_partman is not available" without
     # it. verify gets away with the stock image only because it never
     # applies the migration chain. The real image is built from
-    # infra/postgres, so this job uses that, below.
+    # infra/postgres, so this job uses that, below. Keep this image.
+    # The syncVersion spec's monthly partitions are a substitute for
+    # machines without pg_partman, not proof this migration ran.
+    # Asserting the partition invariant after migrate is still a
+    # separate queued job.
 
     env:
       # Straight from .env.example, so the quickstart's own
@@ -248,6 +252,7 @@ jobs:
         # Same compose file and same service definition, one service.
         # That gets the pg_partman image, the pg_partman_bgw preload
         # and init-db.sql, which is what the migration chain needs.
+        # Do not point this step at stock postgis/postgis.
         run: docker compose -f infra/docker-compose.yml up -d --wait postgres
 
       - name: Migrate and generate the client
@@ -273,6 +278,9 @@ jobs:
         run: |
           pnpm --filter @gratis-gis/portal-api db:migrate:deploy
           pnpm --filter @gratis-gis/portal-api db:generate
+          # Real pg_partman on the project image. The Jest spec's
+          # monthly partitions are a substitute and do not prove this.
+          bash infra/assert-partition-invariant.sh
 
       # db:seed is the quickstart's next line and is deliberately
       # skipped. It loads demo data; it is not needed for the servers
