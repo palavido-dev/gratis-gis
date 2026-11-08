@@ -104,7 +104,10 @@ export class IngestStagingService implements OnModuleInit {
    *  worker (reader). Without the shared volume the worker would
    *  ENOENT on every staged file because they live in a different
    *  container's tmpfs. */
-  private readonly root = process.env.STAGING_DIR?.trim() || join(tmpdir(), 'gg-staging');
+  private readonly root =
+    process.env.STAGING_DIR && process.env.STAGING_DIR.trim().length > 0
+      ? process.env.STAGING_DIR
+      : join(tmpdir(), 'gg-staging');
 
   async onModuleInit() {
     // Make sure the staging root exists before anybody tries to write
@@ -142,10 +145,10 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
-    await writeFile(filePath, input.buffer);
+    await writeFile(filePath, input.buffer, { mode: 0o600 });
     const meta: StagingMeta = {
       ownerId: input.ownerId,
       originalName: plainLabel(input.originalName),
@@ -153,7 +156,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes: input.buffer.length,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${input.buffer.length} B) as ${stagingId}`);
     return {
       stagingId,
@@ -183,7 +186,7 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     // The source path was chosen by the disk-upload pin, not by the
     // request filename. Resolve it and refuse anything that is not
     // that file, then keep the same server-chosen name in staging.
@@ -215,7 +218,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${sizeBytes} B) as ${stagingId}`);
     return {
       stagingId,
@@ -247,11 +250,11 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     try {
-      await pipeline(input.stream, createWriteStream(filePath));
+      await pipeline(input.stream, createWriteStream(filePath, { mode: 0o600 }));
     } catch (err) {
       // A half-written staging must not survive: the id was never
       // returned so nothing references it, and meta.json is written
@@ -270,7 +273,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${sizeBytes} B, streamed) as ${stagingId}`);
     return {
       stagingId,
