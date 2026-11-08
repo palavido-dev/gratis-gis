@@ -13,7 +13,14 @@ import { useT } from '@/lib/i18n/locale-context';
 export function SignInClient() {
   const t = useT();
   const params = useSearchParams();
-  const callbackUrl = params.get('callbackUrl') ?? '/';
+  const requested = params.get('callbackUrl');
+  const callbackUrl =
+    requested &&
+    requested.startsWith('/') &&
+    !requested.startsWith('//') &&
+    requested !== '/'
+      ? requested
+      : '/items';
 
   useEffect(() => {
     void signIn('keycloak', { callbackUrl });

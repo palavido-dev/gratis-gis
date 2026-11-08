@@ -5,6 +5,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { validate } from '@gratis-gis/form-schema';
@@ -15,6 +18,8 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { dataLayerScope } from '../engine/data-layer.js';
 import {
   formatSubmissionReceipt,
   receiptFilename,
@@ -36,15 +41,79 @@ import {
  *   - Listing submissions requires either ownership of the form or
  *     org-admin role.
  */
+/** How often a leader looks for submissions the mirror did not land. */
+const MIRROR_REPAIR_MS = 60_000;
+/** Submissions repaired per tick. */
+const MIRROR_REPAIR_BATCH = 20;
+/** Candidates read per tick, so rows still backing off do not fill the batch. */
+const MIRROR_REPAIR_SCAN = 200;
+/**
+ * Only submissions this recent are repaired. The pass exists to catch
+ * a mirror that failed at submit time, not to backfill a layer that was
+ * linked to a form long after its submissions came in.
+ */
+const MIRROR_REPAIR_WINDOW_DAYS = 7;
+/** First retry delay for a submission the repair could not mirror. */
+const MIRROR_REPAIR_BACKOFF_MS = 5 * 60_000;
+/** Longest wait between repair attempts for one submission. */
+const MIRROR_REPAIR_BACKOFF_MAX_MS = 6 * 60 * 60_000;
+
 @Injectable()
-export class FormsService {
+export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(FormsService.name);
+  private repairTimer: ReturnType<typeof setInterval> | null = null;
+  private stopping = false;
+  /**
+   * Submissions the repair failed to mirror, with when to try again.
+   * In memory on purpose: a restart or a leader change retries them
+   * once more, and a submission that keeps failing backs off instead
+   * of holding a batch slot every minute.
+   */
+  private readonly repairBackoff = new Map<
+    string,
+    { failures: number; nextAt: number }
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerAttachments: DataLayerAttachmentsService,
+    @Optional() private readonly leader?: LeaderElectionService,
   ) {}
+
+  /**
+   * Own the interval here. Leadership can move, so the tick itself
+   * checks shouldRun() instead of deciding once at boot. The timer
+   * is unref'd so a test process that constructs the service and
+   * starts it does not hold the event loop open.
+   */
+  onApplicationBootstrap(): void {
+    this.repairTimer = setInterval(() => {
+      void this.repairSafely();
+    }, MIRROR_REPAIR_MS);
+    this.repairTimer.unref?.();
+    void this.repairSafely();
+  }
+
+  onModuleDestroy(): void {
+    this.stopping = true;
+    if (this.repairTimer) clearInterval(this.repairTimer);
+    this.repairTimer = null;
+  }
+
+  private async repairSafely(): Promise<void> {
+    if (this.stopping) return;
+    try {
+      await this.reconcileFormMirrors();
+    } catch (err) {
+      this.log.warn(
+        `form mirror repair tick failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
 
   /** Fetch the form item, gating by visibility for the caller. Used
    *  to look up the orgId we'll stamp on the submission. Selects
@@ -208,7 +277,7 @@ export class FormsService {
       // the layer row. Failures are non-fatal: form_submission is
       // the durable source of truth; a missed mirror just means the
       // layer is out of date until a backfill pass.
-      void this.mirrorToPairedLayer({
+      void this.mirrorWithRetry({
         form,
         clientId: dto.clientId,
         submissionId: result.id,
@@ -217,12 +286,6 @@ export class FormsService {
         submittedBy: user.id,
         capturedAt: captured,
         user,
-      }).catch((err) => {
-        this.log.warn(
-          `mirrorToPairedLayer failed for submission ${result.id}: ${
-            err instanceof Error ? err.message : err
-          }`,
-        );
       });
     }
     return { id: result.id, created: justCreated };
@@ -243,6 +306,129 @@ export class FormsService {
    * v3 feature-tracking convention (#39 / #118) and stay distinct
    * from any user-defined question name.
    */
+  /**
+   * The submission row is already durable. Retry the paired-layer
+   * mirror a few times here. insertFeatures is idempotent on
+   * globalId = submission id, so a retry cannot duplicate the feature.
+   * A later leader pass picks up anything that still failed.
+   * Returns false when every attempt failed. It never throws.
+   */
+  private async mirrorWithRetry(
+    args: Parameters<FormsService['mirrorToPairedLayer']>[0],
+  ): Promise<boolean> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await this.mirrorToPairedLayer(args);
+        return true;
+      } catch (err) {
+        last = err;
+      }
+    }
+    this.log.warn(
+      `mirrorToPairedLayer failed for submission ${args.submissionId}: ${
+        last instanceof Error ? last.message : last
+      }`,
+    );
+    return false;
+  }
+
+  /**
+   * Leader-only repair. Finds submissions whose paired layer has no
+   * live observation for that submission id and mirrors them again.
+   * Followers return without writing. Missing leader (unit tests)
+   * also returns, so a test process does not scan the database.
+   * Called once a minute by the timer started in onApplicationBootstrap.
+   *
+   * Only recent submissions on live forms and live layers are
+   * considered. A submission that fails here backs off (5 minutes,
+   * doubling to 6 hours), so a few that can never mirror do not hold
+   * the batch and starve newer ones.
+   */
+  async reconcileFormMirrors(now: number = Date.now()): Promise<number> {
+    if (!this.leader?.shouldRun()) return 0;
+    const rows = await this.prisma.$queryRaw<
+      Array<{ id: string }>
+    >`
+      SELECT s.id
+      FROM form_submission s
+      JOIN item f ON f.id = s.form_id AND f.deleted_at IS NULL
+      JOIN item l ON l.id::text = f.data->>'linkedLayerId'
+        AND l.deleted_at IS NULL
+      WHERE jsonb_typeof(f.data->'linkedLayerId') = 'string'
+        AND s.created_at > now() - make_interval(days => ${MIRROR_REPAIR_WINDOW_DAYS})
+        AND NOT EXISTS (
+          SELECT 1
+          FROM observation o
+          WHERE o.entity = s.id
+            AND o.scope = 'data_layer:' || (f.data->>'linkedLayerId')
+              || ':' || COALESCE(f.data->>'linkedLayerKey', 'submissions')
+            AND o.kind <> 'delete'
+        )
+      ORDER BY s.created_at
+      LIMIT ${MIRROR_REPAIR_SCAN}
+    `;
+    // Scope text must stay equal to dataLayerScope(layerId, layerKey).
+    if (dataLayerScope('a', 'b') !== 'data_layer:a:b') {
+      throw new Error('form mirror scope drifted from dataLayerScope');
+    }
+    const pending = new Set(rows.map((r) => r.id));
+    for (const id of [...this.repairBackoff.keys()]) {
+      // Mirrored by someone else, aged out of the window, or trashed.
+      if (!pending.has(id)) this.repairBackoff.delete(id);
+    }
+    const due = rows
+      .filter((r) => (this.repairBackoff.get(r.id)?.nextAt ?? 0) <= now)
+      .slice(0, MIRROR_REPAIR_BATCH);
+    let repaired = 0;
+    for (const row of due) {
+      const submission = await this.prisma.formSubmission.findUnique({
+        where: { id: row.id },
+      });
+      if (!submission) continue;
+      const form = await this.prisma.item.findUnique({
+        where: { id: submission.formId },
+      });
+      if (!form) continue;
+      const user = {
+        id: submission.submittedBy ?? 'system',
+        orgId: submission.orgId,
+        orgSlug: '',
+        username: 'mirror-repair',
+        email: '',
+        orgRole: 'admin' as const,
+        groupIds: [],
+        capabilities: new Set<string>(),
+      } as AuthUser;
+      const ok = await this.mirrorWithRetry({
+        form: { id: form.id, data: form.data },
+        clientId: submission.clientId,
+        submissionId: submission.id,
+        schemaVersion: submission.schemaVersion,
+        response: submission.response as Record<string, unknown>,
+        submittedBy: user.id,
+        capturedAt: submission.capturedAt,
+        user,
+      });
+      if (ok) {
+        this.repairBackoff.delete(submission.id);
+        repaired += 1;
+        continue;
+      }
+      const failures = (this.repairBackoff.get(submission.id)?.failures ?? 0) + 1;
+      const delay = Math.min(
+        MIRROR_REPAIR_BACKOFF_MS * 2 ** (failures - 1),
+        MIRROR_REPAIR_BACKOFF_MAX_MS,
+      );
+      this.repairBackoff.set(submission.id, { failures, nextAt: now + delay });
+      this.log.warn(
+        `form mirror repair failed for ${submission.id} ` +
+          `(attempt ${failures}, next in ${Math.round(delay / 60_000)} min)`,
+      );
+    }
+    return repaired;
+  }
+
   private async mirrorToPairedLayer(args: {
     form: { id: string; data: Prisma.JsonValue };
     clientId: string;
