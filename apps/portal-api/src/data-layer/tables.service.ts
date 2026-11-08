@@ -227,30 +227,46 @@ export class DataLayerTablesService {
     if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
       return false;
     }
-    let changed = false;
-    const nextLayers: Array<Record<string, unknown>> = [];
+    // Count outside any lock: it can be slow on a big layer.
+    const counts = new Map<string, number>();
     for (const layer of data.layers) {
       const layerId = (layer as { id?: unknown }).id;
-      if (typeof layerId !== 'string' || layerId === '') {
-        nextLayers.push(layer);
-        continue;
-      }
-      const count = await this.countLiveEntities(itemId, layerId);
-      if (layer.featureCount === count) {
-        nextLayers.push(layer);
-        continue;
-      }
-      nextLayers.push({ ...layer, featureCount: count });
-      changed = true;
+      if (typeof layerId !== 'string' || layerId === '') continue;
+      counts.set(layerId, await this.countLiveEntities(itemId, layerId));
     }
-    if (!changed) return false;
-    await this.prisma.item.update({
-      where: { id: itemId },
-      data: {
-        data: { ...(data as object), layers: nextLayers } as never,
-      },
+    // Then write only featureCount, against the row as it is now and
+    // under the same row lock commitLayerSync takes. Writing back the
+    // `data` read above would put a stale syncVersion back if an edit
+    // committed while we counted, and the cursor would go backwards.
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ data: unknown }>>`
+        SELECT data_json AS data FROM item WHERE id = ${itemId}::uuid FOR UPDATE
+      `;
+      const current = locked[0]?.data as
+        | { version?: number; layers?: Array<Record<string, unknown>> }
+        | null
+        | undefined;
+      if (!current || current.version !== 3 || !Array.isArray(current.layers)) {
+        return false;
+      }
+      let changed = false;
+      const nextLayers = current.layers.map((layer) => {
+        const layerId = (layer as { id?: unknown }).id;
+        if (typeof layerId !== 'string' || !counts.has(layerId)) return layer;
+        const count = counts.get(layerId);
+        if (layer.featureCount === count) return layer;
+        changed = true;
+        return { ...layer, featureCount: count };
+      });
+      if (!changed) return false;
+      await tx.item.update({
+        where: { id: itemId },
+        data: {
+          data: { ...(current as object), layers: nextLayers } as never,
+        },
+      });
+      return true;
     });
-    return true;
   }
 
   async countLiveEntities(

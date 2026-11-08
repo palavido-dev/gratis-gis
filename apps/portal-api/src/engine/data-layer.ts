@@ -1774,7 +1774,10 @@ export class DataLayerEngine {
     isTable?: boolean;
   }): Promise<DeltaChange[]> {
     const scope = this.scope(args.itemId, args.layerId);
-    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10000);
+    // 10001, not 10000: listDelta probes one row past the client's page
+    // (clients ask for 10000) to set `truncated`. Capping at 10000 hid
+    // that probe row, so a delta over 10000 rows never reported more.
+    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10001);
     validateGeoJson(args.geoLimit);
 
     const filters: Prisma.Sql[] = [

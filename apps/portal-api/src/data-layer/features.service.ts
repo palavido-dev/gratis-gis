@@ -1963,6 +1963,12 @@ export class DataLayerFeaturesService {
     truncated: boolean;
   }> {
     const limit = opts.limit ?? 1000;
+    // Read the cursor before the changes. Read after, a write that
+    // commits between the two statements would advance syncVersion
+    // without appearing in `changes`, and the client would skip it for
+    // good. Read before, that write is sent again next time, which is
+    // harmless because applying a change is idempotent.
+    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
     const changes = await this.dataLayer.listDeltaSince({
       itemId,
       layerId,
@@ -1976,7 +1982,6 @@ export class DataLayerFeaturesService {
     });
     const truncated = changes.length > limit;
     const page = truncated ? changes.slice(0, limit) : changes;
-    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
     return { syncVersion, since, changes: page, truncated };
   }
 }
