@@ -197,3 +197,72 @@ export function buildV3LayerData(args: {
     ],
   };
 }
+
+export interface AppendOutcome {
+  inserted: number;
+  deduplicated: number;
+  batchesDone: number;
+  batches: number;
+  /** 1-based index of the batch that failed, when one did. */
+  failedBatch?: number;
+  error?: string;
+}
+
+/**
+ * POST each batch in order and stop at the first failure, returning
+ * what landed so far instead of throwing. The caller then still knows
+ * the itemId and can resume into it rather than creating a second
+ * item. A response without an `inserted` count counts as 0, not as the
+ * whole batch, so the totals never over-report.
+ */
+export async function appendInBatches(
+  batches: AppendFeature[][],
+  post: (batch: AppendFeature[]) => Promise<unknown>,
+): Promise<AppendOutcome> {
+  const out: AppendOutcome = {
+    inserted: 0,
+    deduplicated: 0,
+    batchesDone: 0,
+    batches: batches.length,
+  };
+  for (const [i, batch] of batches.entries()) {
+    let res: unknown;
+    try {
+      res = await post(batch);
+    } catch (err) {
+      out.failedBatch = i + 1;
+      out.error = err instanceof Error ? err.message : String(err);
+      return out;
+    }
+    const body = (res && typeof res === 'object' ? res : {}) as {
+      inserted?: unknown;
+      deduplicated?: unknown;
+    };
+    out.inserted += typeof body.inserted === 'number' ? body.inserted : 0;
+    out.deduplicated +=
+      typeof body.deduplicated === 'number' ? body.deduplicated : 0;
+    out.batchesDone += 1;
+  }
+  return out;
+}
+
+/**
+ * The item-level /items/:id/geojson route takes no limit (it returns
+ * up to the server's own cap), so trim the FeatureCollection here and
+ * say so in the result rather than handing the model more than asked.
+ */
+export function capFeatureCollection(
+  json: unknown,
+  limit: number,
+): unknown {
+  if (!json || typeof json !== 'object') return json;
+  const fc = json as { features?: unknown };
+  if (!Array.isArray(fc.features) || fc.features.length <= limit) return json;
+  return {
+    ...fc,
+    features: fc.features.slice(0, limit),
+    truncated: true,
+    returned: limit,
+    receivedFromPortal: fc.features.length,
+  };
+}

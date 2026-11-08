@@ -309,6 +309,11 @@ for dockerfile in dockerfiles:
     marker = f"ARG REQUIRED_COMPOSE_REV={compose_rev}"
     if marker not in text:
         raise SystemExit(f"{dockerfile} does not declare {marker}")
+# A build arg in a workflow would override the Dockerfile default this
+# check just read, and published images would report a stale rev.
+for workflow in sorted((root / ".github/workflows").glob("*.y*ml")):
+    if re.search(r"REQUIRED_COMPOSE_REV\s*=", workflow.read_text(encoding="utf-8")):
+        raise SystemExit(f"{workflow} sets REQUIRED_COMPOSE_REV; let the Dockerfile default apply")
 for name, svc in cfg["services"].items():
     if not svc.get("healthcheck"):
         raise SystemExit(f"{name} has no healthcheck")
@@ -341,6 +346,39 @@ if "/boot" not in wt or "/scratch" not in wt:
 api_targets = targets(cfg["services"]["portal-api"])
 if "/app/backups" not in api_targets:
     raise SystemExit(f"portal-api volumes {api_targets}")
+
+
+def env_of(svc):
+    found = svc.get("environment") or {}
+    if isinstance(found, list):
+        found = dict(item.split("=", 1) for item in found)
+    return found
+
+
+def volume_source(svc, target):
+    for vol in svc.get("volumes") or []:
+        if isinstance(vol, dict) and vol.get("target") == target:
+            return vol.get("source")
+        if isinstance(vol, str) and vol.split(":")[1:2] == [target]:
+            return vol.split(":")[0]
+    return None
+
+
+# portal-api stages uploads and portal-worker imports them. They must
+# point STAGING_DIR at one path backed by the same named volume, or
+# every queued import fails with "Source file expired".
+staging = {}
+for name in ("portal-api", "portal-worker"):
+    svc = cfg["services"][name]
+    path = env_of(svc).get("STAGING_DIR")
+    if not path:
+        raise SystemExit(f"{name} has no STAGING_DIR")
+    source = volume_source(svc, path)
+    if not source:
+        raise SystemExit(f"{name} does not mount a volume at STAGING_DIR {path}")
+    staging[name] = (path, source)
+if staging["portal-api"] != staging["portal-worker"]:
+    raise SystemExit(f"portal-api and portal-worker staging differ: {staging}")
 limit = worker.get("mem_limit")
 # Compose reports the byte cap. 2560m is 2560 * 1024 * 1024.
 if str(limit) not in {"2560m", "2684354560", "2560M"}:

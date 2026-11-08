@@ -93,7 +93,9 @@ jobs:
           echo "described=${described}" >> "$GITHUB_OUTPUT"
           echo "short=${short}" >> "$GITHUB_OUTPUT"
 
-      # Every image gets GG_VERSION, GIT_SHA, and REQUIRED_COMPOSE_REV.
+      # Every image gets GG_VERSION and GIT_SHA. REQUIRED_COMPOSE_REV is
+      # not passed: each Dockerfile's ARG default applies, and
+      # check-nas-compose.sh checks those defaults against the NAS file.
       # portal-web also inlines NEXT_PUBLIC_GG_VERSION. Other Dockerfiles
       # do not declare the NEXT_PUBLIC args; passing them would warn.
       # The public-testing banner stays off (that arg is unset).
@@ -104,7 +106,6 @@ jobs:
             echo "build_args<<EOF"
             echo "GG_VERSION=${{ steps.tags.outputs.described }}"
             echo "GIT_SHA=${{ github.sha }}"
-            echo "REQUIRED_COMPOSE_REV=1"
             if [ "${{ matrix.web }}" = "true" ]; then
               echo "NEXT_PUBLIC_PROJECT_LANDING=1"
               echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
@@ -183,7 +184,6 @@ jobs:
             PORTAL_API_IMAGE=${{ steps.tags.outputs.base }}
             GG_VERSION=${{ steps.tags.outputs.described }}
             GIT_SHA=${{ github.sha }}
-            REQUIRED_COMPOSE_REV=1
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
