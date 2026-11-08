@@ -18,6 +18,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field mode can save a zip of unsynced edits and the photo or file
+  bytes that have not uploaded yet. The file is named
+  `pending-<deployment>-<user>-<date>.zip` and contains
+  `pending-edits.json` plus `files/`. It is a copy on the device, not
+  a portal backup, and the server still does not receive those rows
+  until sync. The field menu says that in English, Spanish,
+  Brazilian Portuguese, French, and German. No server change.
 - Opt-in WAL point-in-time recovery for a throwaway compose project
   the operator names twice (`infra/wal`). `archive_mode` is not
   turned on for the dev, NAS, or VPS stacks. A synthetic drill takes
@@ -72,6 +79,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stay on the device until they sync, and that clearing the browser
   deletes them. The same sentence is in Spanish, Brazilian Portuguese,
   French, and German. No server change.
+- A form submission whose paired data layer did not get the mirror
+  row is retried three times, and once a minute the process that
+  holds the cron lock looks for submissions from the last 7 days,
+  on forms and layers that are not in the trash, that still have no
+  live observation, and mirrors them again. A submission that keeps
+  failing backs off (5 minutes, doubling to 6 hours) so it cannot
+  starve newer ones. Linking a layer to an older form does not
+  backfill its history. That pass keeps its own timer.
+  It does not register another application-wide scheduler. The feature
+  id is the submission id, so a
+  retry does not create a second feature. Followers do not run the
+  repair. Existing installs pick this up by updating the portal-api
+  image. No migration and no volume reset.
 - Admin backup help described a different backup system (`mc mirror`,
   S3 and SFTP destinations, no in-portal restore). The help page now
   matches the archive the portal writes: a portal database dump plus

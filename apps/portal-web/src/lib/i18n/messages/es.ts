@@ -1788,6 +1788,8 @@ export const es: Partial<CatalogShape> = {
     downloadForOffline: 'Descargar para usar sin conexión',
     deviceOnlyWarning:
       'Las ediciones y las fotos se quedan en este dispositivo hasta que se sincronicen. No están en el servidor ni en una copia de seguridad del portal. Descartar una, o borrar los datos de este navegador, las elimina.',
+      'Las ediciones y las fotos se quedan en este dispositivo hasta que se sincronicen. No están en el servidor ni en una copia de seguridad del portal. Guarda una copia si necesitas las fotos y las formas antes de sincronizar.',
+    saveUnsyncedCopy: 'Guardar una copia del trabajo sin sincronizar',
     refreshOfflineCache: 'Actualizar caché sin conexión',
     confirmRefresh: 'Confirmar actualización',
     refreshUnsyncedWarn:

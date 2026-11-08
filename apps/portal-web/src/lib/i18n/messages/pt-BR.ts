@@ -1786,6 +1786,8 @@ export const ptBR: Partial<CatalogShape> = {
     downloadForOffline: 'Baixar para uso offline',
     deviceOnlyWarning:
       'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Descartar uma, ou limpar os dados deste navegador, apaga esse trabalho.',
+      'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Salve uma cópia se precisar das fotos e das formas antes da sincronização.',
+    saveUnsyncedCopy: 'Salvar uma cópia do trabalho não sincronizado',
     refreshOfflineCache: 'Atualizar cache offline',
     confirmRefresh: 'Confirmar atualização',
     refreshUnsyncedWarn:
