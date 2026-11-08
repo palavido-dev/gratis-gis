@@ -130,7 +130,6 @@ export class ImportJobsService {
           finishedAt: new Date(),
         },
       });
-      await this.quota?.releasePurpose(jobId);
       await this.quota?.releasePurpose(updated.stagingId);
       return updated;
     }
@@ -200,7 +199,7 @@ export class ImportJobsService {
     jobId: string,
     insertedFeatures: number,
   ): Promise<void> {
-    await this.prisma.importJob.update({
+    const done = await this.prisma.importJob.update({
       where: { id: jobId },
       data: {
         status: 'succeeded',
@@ -208,12 +207,9 @@ export class ImportJobsService {
         insertedFeatures,
       },
     });
-      await this.quota?.releasePurpose(jobId);
-      const finished = await this.prisma.importJob.findUnique({
-        where: { id: jobId },
-        select: { stagingId: true },
-      });
-      if (finished) await this.quota?.releasePurpose(finished.stagingId);
+    if (this.quota && done?.stagingId) {
+      await this.quota.releasePurpose(done.stagingId);
+    }
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
@@ -223,7 +219,7 @@ export class ImportJobsService {
    *  detail-page banner can show it; the worker has already logged
    *  the full stack. */
   async markFailed(jobId: string, errorMessage: string): Promise<void> {
-    await this.prisma.importJob.update({
+    const done = await this.prisma.importJob.update({
       where: { id: jobId },
       data: {
         status: 'failed',
@@ -231,12 +227,9 @@ export class ImportJobsService {
         errorMessage,
       },
     });
-    await this.quota?.releasePurpose(jobId);
-    const finished = await this.prisma.importJob.findUnique({
-      where: { id: jobId },
-      select: { stagingId: true },
-    });
-    if (finished) await this.quota?.releasePurpose(finished.stagingId);
+    if (this.quota && done?.stagingId) {
+      await this.quota.releasePurpose(done.stagingId);
+    }
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 

@@ -61,15 +61,11 @@ function loadKey(): Buffer {
  * GCM tag; pass the item id so a row can't silently move between
  * items at the SQL level.
  */
-export function loadKeyFromEnv(): Buffer {
-  return Buffer.from(loadKey());
-}
-
-export function encryptWithKey(
+export function encryptCredential(
   plaintext: string,
   aad: string,
-  key: Buffer,
 ): { ciphertext: string; iv: string } {
+  const key = loadKey();
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(Buffer.from(aad, 'utf8'));
@@ -84,13 +80,6 @@ export function encryptWithKey(
   };
 }
 
-export function encryptCredential(
-  plaintext: string,
-  aad: string,
-): { ciphertext: string; iv: string } {
-  return encryptWithKey(plaintext, aad, loadKey());
-}
-
 /**
  * Decrypt a stored credential. Throws if the AAD (item id) does
  * not match what was encrypted, the key is wrong, or the payload
@@ -98,12 +87,12 @@ export function encryptCredential(
  * Error from this function as "credential unusable, behave as if
  * the item has no credential."
  */
-export function decryptWithKey(
+export function decryptCredential(
   ciphertext: string,
   iv: string,
   aad: string,
-  key: Buffer,
 ): string {
+  const key = loadKey();
   const ivBuf = Buffer.from(iv, 'base64');
   if (ivBuf.length !== IV_LENGTH) {
     throw new Error(`IV must be ${IV_LENGTH} bytes after base64 decode.`);
@@ -119,14 +108,6 @@ export function decryptWithKey(
   decipher.setAuthTag(tag);
   const plain = Buffer.concat([decipher.update(ct), decipher.final()]);
   return plain.toString('utf8');
-}
-
-export function decryptCredential(
-  ciphertext: string,
-  iv: string,
-  aad: string,
-): string {
-  return decryptWithKey(ciphertext, iv, aad, loadKey());
 }
 
 /**

@@ -86,4 +86,18 @@ describe('ImportJobsService counter honesty', () => {
     expect(arg.data.status).toBe('failed');
     expect(arg.data.errorMessage).toBe('boom');
   });
+
+  it('releases the staging reservation from the update result without another read', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'job-4', stagingId: 'stage-4' });
+    const releasePurpose = jest.fn().mockResolvedValue(undefined);
+    const prisma = { importJob: { update } } as unknown as PrismaService;
+    const svc = new ImportJobsService(prisma, {
+      releasePurpose,
+    } as unknown as ConstructorParameters<typeof ImportJobsService>[1]);
+    await svc.markFailed('job-4', 'boom');
+    await svc.markSucceeded('job-4', 3);
+    expect(releasePurpose).toHaveBeenCalledTimes(2);
+    expect(releasePurpose).toHaveBeenNthCalledWith(1, 'stage-4');
+    expect(releasePurpose).toHaveBeenNthCalledWith(2, 'stage-4');
+  });
 });
