@@ -1111,7 +1111,9 @@ export function FieldRuntime({
       records,
       blobs,
     });
-    const file = new Blob([bytes], { type: 'application/zip' });
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    const file = new Blob([copy], { type: 'application/zip' });
     const url = URL.createObjectURL(file);
     const link = document.createElement('a');
     link.href = url;
