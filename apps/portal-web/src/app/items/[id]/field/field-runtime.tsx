@@ -1106,7 +1106,7 @@ export function FieldRuntime({
     const { filename, bytes } = await buildOfflineRecoveryZip({
       dataCollectionId,
       deploymentTitle: title,
-      username: currentUserId,
+      userId: currentUserId,
       exportedAt: new Date().toISOString(),
       records,
       blobs,
@@ -1119,7 +1119,9 @@ export function FieldRuntime({
     link.href = url;
     link.download = filename;
     link.click();
-    URL.revokeObjectURL(url);
+    // Revoking in the same tick can cancel the download on mobile
+    // Safari, and this menu is mostly used on phones. Free it later.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
   // Auto-sync when isOnline flips from false -> true. Captured via a

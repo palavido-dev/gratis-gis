@@ -5,7 +5,8 @@ import { zipStore, type ZipEntry } from './zip-store';
 export interface OfflineRecoveryInput {
   dataCollectionId: string;
   deploymentTitle: string;
-  username: string;
+  /** The collector's user id. Ids, not display names, so the file is unambiguous. */
+  userId: string;
   /** When the file was built, ISO-8601. The caller passes it so tests are stable. */
   exportedAt: string;
   records: QueueRecord[];
@@ -48,7 +49,7 @@ export async function buildOfflineRecoveryZip(
     version: 1,
     dataCollectionId: input.dataCollectionId,
     deploymentTitle: input.deploymentTitle,
-    username: input.username,
+    userId: input.userId,
     exportedAt: input.exportedAt,
     note:
       'These edits and files had not synced when this copy was saved. They are not a portal backup.',
@@ -76,7 +77,7 @@ export async function buildOfflineRecoveryZip(
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 40) || 'deployment';
-  const who = input.username
+  const who = input.userId
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')

@@ -49,7 +49,7 @@ describe('buildOfflineRecoveryZip', () => {
     const { filename, bytes } = await buildOfflineRecoveryZip({
       dataCollectionId: 'dc-1',
       deploymentTitle: 'Maple Street',
-      username: 'ada',
+      userId: 'ada',
       exportedAt: '2026-11-08T15:00:00.000Z',
       records: [record()],
       blobs: [photo()],
