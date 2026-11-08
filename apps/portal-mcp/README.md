@@ -3,7 +3,8 @@
 A small [Model Context Protocol](https://modelcontextprotocol.io) server that
 exposes a GratisGIS portal to MCP clients (Claude Desktop, Cursor, custom
 agents). Connects over stdio. Phase 1 ships five read tools; Phase 2 adds
-two write tools.
+two write tools, which are off unless the operator turns them on (see
+[Read-only by default](#read-only-by-default)).
 
 The server ships with the platform under AGPL-3.0-or-later and works
 against any GratisGIS portal you can sign into.
@@ -31,15 +32,46 @@ against any GratisGIS portal you can sign into.
 
 ### Phase 2 (write)
 
-Requires a **non-read-only** portal API key (and `can_publish_items` for
-creates). Read-only keys still work for Phase 1; portal-api returns 403
-on these POSTs.
+Requires `GRATIS_MCP_ALLOW_WRITES=1` on the MCP server **and** a
+non-read-only portal API key (and `can_publish_items` for creates).
+Without the env flag these tools are not listed and are refused by name.
+Read-only keys still work for Phase 1; portal-api returns 403 on these
+POSTs.
 
 - `run_tool`: execute a Tool recipe (`POST /api/tools/:id/run`). Use
   `get_item` first to discover `data.action.parameters`.
 - `create_data_layer_from_geojson`: create a v3 `data_layer` from GeoJSON
   features, or append into an existing `itemId`. Feature `id` values that
-  are UUIDs become idempotent `globalId`s. Batches of at most 5000.
+  are UUIDs become idempotent `globalId`s. Batches of at most 5000. If a
+  batch fails, the result still reports the `itemId` and how many
+  features landed, so the agent can resume into that item instead of
+  creating a second one. New layers are private unless
+  `GRATIS_MCP_MAX_ACCESS` allows `org` or `public`; appending into an
+  existing item wider than that ceiling is refused too.
+
+## Read-only by default
+
+Feature attributes, item descriptions and OpenStreetMap tags are written
+by other people (for OSM, by anyone). An agent that reads them can be
+steered by text inside them. The server limits what such text can do:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `GRATIS_MCP_ALLOW_WRITES` | off | `1` lists and allows `run_tool` and `create_data_layer_from_geojson`. Anything else keeps them hidden and refused. |
+| `GRATIS_MCP_MAX_ACCESS` | `private` | Widest sharing a write tool may create or append into: `private`, `org` or `public`. |
+
+Every result that carries portal or OSM content is wrapped in an
+`<untrusted-data source="..." boundary="...">` block with a random
+boundary and a note telling the model to treat it as data. That helps;
+it does not make prompt injection impossible. A read-only API key is
+still the strongest control, and auto-approving write tools in your MCP
+client is not recommended.
+
+**Upgrading:** earlier versions exposed the write tools whenever the
+server ran. If you use `run_tool` or `create_data_layer_from_geojson`,
+add `GRATIS_MCP_ALLOW_WRITES=1` to the server's `env`, and
+`GRATIS_MCP_MAX_ACCESS=org` or `public` if agents should be able to
+share layers that widely.
 
 ## Quick start
 
@@ -114,7 +146,8 @@ Session tokens expire in minutes and will break MCP mid-conversation.
 1. Sign into the portal.
 2. Open **Profile / API keys** (`/settings/api-keys`).
 3. Mint a key. Choose read-only for Phase 1 only; leave read-only off if
-   you need `run_tool` or `create_data_layer_from_geojson`.
+   you need `run_tool` or `create_data_layer_from_geojson` (and set
+   `GRATIS_MCP_ALLOW_WRITES=1`).
 4. Copy the `ggk_...` secret once and set `GRATIS_GIS_TOKEN` to it.
 
 Keys authenticate as `Authorization: Bearer <token>` against portal-api
