@@ -43,11 +43,29 @@ import type {
 
 /**
  * Bump when evaluation behaviour changes. Additions register their
- * introduction version in the tables below; behavioural fixes to
- * existing features bump this without adding a table entry, because
- * the corpus cases they change are only valid from this version on.
+ * introduction version in the tables below. A behavioural change to
+ * an existing feature bumps this AND registers the change in
+ * `BEHAVIOUR_ENGINE_VERSION`, with a rule in the walker that says
+ * which forms are affected. Bumping without registering leaves every
+ * stamp where it was, and then no client is ever gated.
+ *
+ * History:
+ *   2: a required signature is validated (signature left the
+ *      UNCAPTURABLE set). A v1 evaluator passes a form whose required
+ *      signature is empty, and the server then refuses it.
  */
-export const ENGINE_VERSION = 1;
+export const ENGINE_VERSION = 2;
+
+/**
+ * Behaviour changes to features that already existed, keyed by a
+ * name the walker uses, with the version the new behaviour arrived
+ * in. Only forms that actually use the changed behaviour need it, so
+ * an app update is not forced for forms that do not.
+ */
+export const BEHAVIOUR_ENGINE_VERSION = {
+  /** A signature question with `required` set (true or an expression). */
+  'required-signature': 2,
+} as const;
 
 export type ExpressionOp = Expression['op'];
 
@@ -265,6 +283,9 @@ export function engineRequirement(form: FormSchema): EngineRequirement {
         : undefined,
       `question-type:${type}`,
     );
+    if (type === 'signature' && q.required !== undefined && q.required !== false) {
+      need(BEHAVIOUR_ENGINE_VERSION['required-signature'], 'behaviour:required-signature');
+    }
     walkExpression(q.visibleIf);
     if (typeof q.required === 'object') walkExpression(q.required);
     walkExpression(q.constraint);
