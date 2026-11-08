@@ -137,14 +137,22 @@ jobs:
   pointcloud-units:
     name: Point-cloud worker unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    # Pure helpers. boto3 and psycopg2 are stubbed by the test file.
-    # This does not run PDAL or GDAL.
+    timeout-minutes: 10
+    # boto3 and psycopg2 are stubbed by the test file. numpy is not:
+    # compute_zonal_stats_arrays imports it, and that test runs before
+    # the lease assertions. PDAL and GDAL are not required here.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install unit-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          python3 -m venv /tmp/pc-units
+          /tmp/pc-units/bin/pip install -r tools/pointcloud-worker/requirements-unit.txt
+
       - name: runner unit tests
-        run: python3 tools/pointcloud-worker/test_runner_units.py
+        run: /tmp/pc-units/bin/python tools/pointcloud-worker/test_runner_units.py
 
   observation-guards:
     name: Append idempotency and analysis lease
