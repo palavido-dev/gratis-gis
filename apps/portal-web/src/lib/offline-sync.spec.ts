@@ -580,3 +580,97 @@ describe('syncQueue: form attachments pending in the properties', () => {
     expect(calls().some((c) => c.url === FEATURES_PATH)).toBe(false);
   });
 });
+
+describe('syncQueue: conflict guard (docs/sync-protocol.md)', () => {
+  function bodyOf(i: number): Record<string, unknown> {
+    return JSON.parse(String(fetchMock.mock.calls[i]![1]!.body)) as Record<string, unknown>;
+  }
+
+  it('sends baseObservationId on the dry run and the real PATCH', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock
+      .mockResolvedValueOnce(json(200, { ok: true }))
+      .mockResolvedValueOnce(
+        json(200, { type: 'Feature', id: 'feature-1', properties: { _observation_id: 'obs-new' } }),
+      );
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    expect(bodyOf(0).baseObservationId).toBe('obs-base');
+    expect(bodyOf(1).baseObservationId).toBe('obs-base');
+  });
+
+  it('sends baseObservationId on the dry run and the real DELETE', async () => {
+    await enqueueEdit(
+      edit({ op: 'delete', geometry: null, properties: null, baseObservationId: 'obs-base' }),
+    );
+    fetchMock
+      .mockResolvedValueOnce(json(200, { ok: true }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    expect(bodyOf(0)).toEqual({ baseObservationId: 'obs-base', checkOnly: true });
+    expect(bodyOf(1)).toEqual({ baseObservationId: 'obs-base' });
+  });
+
+  it('a folded chain keeps the first row base', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-first' }));
+    await enqueueEdit(
+      edit({
+        op: 'update',
+        geometry: null,
+        properties: { species: 'elm' },
+        baseObservationId: 'obs-later',
+      }),
+    );
+    const rows = await listQueue(DC, USER);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.baseObservationId).toBe('obs-first');
+  });
+
+  it('never puts a base on an insert', async () => {
+    await enqueueEdit(edit({ baseObservationId: 'obs-x' }));
+    const [row] = await listQueue(DC, USER);
+    expect(row!.baseObservationId).toBeUndefined();
+  });
+
+  it('treats a 409 that already holds the queued values as its own landed write', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock.mockResolvedValueOnce(
+      json(409, {
+        statusCode: 409,
+        code: 'feature-conflict',
+        current: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 2] },
+          properties: { species: 'oak', _observation_id: 'obs-mine' },
+        },
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(await listQueue(DC, USER)).toEqual([]);
+    // Only the dry run: nothing to send.
+    expect(calls()).toHaveLength(1);
+  });
+
+  it('still parks a 409 whose current differs', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock.mockResolvedValue(
+      json(409, {
+        statusCode: 409,
+        code: 'feature-conflict',
+        message: 'This feature was changed by someone else since you last read it.',
+        current: { type: 'Feature', geometry: null, properties: { species: 'pine' } },
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.rejected).toBe(1);
+  });
+});
