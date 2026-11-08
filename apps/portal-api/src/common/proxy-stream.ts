@@ -17,7 +17,7 @@ export const PROXY_FETCH_TIMEOUT_MS = 30_000;
  * buffering it whole would be a memory-exhaustion vector. 64 MB is
  * far above any legitimate tile or metadata response.
  */
-const DEFAULT_MAX_PROXY_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_MAX_PROXY_BYTES = 64 * 1024 * 1024;
 
 /**
  * Ceiling for a probe that has to hold the upstream body in memory

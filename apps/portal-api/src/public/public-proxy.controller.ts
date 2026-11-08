@@ -29,6 +29,7 @@ import {
 import { isUuidShape } from './public.controller.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
+  DEFAULT_MAX_PROXY_BYTES,
   PROXY_FETCH_TIMEOUT_MS,
   streamUpstreamToResponse,
 } from '../common/proxy-stream.js';
@@ -161,11 +162,18 @@ export class PublicProxyController {
     // service is refused too, not just a directly-internal url.
     let upstream: globalThis.Response;
     try {
-      upstream = await safeFetch(target, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
-      });
+      upstream = await safeFetch(
+        target,
+        {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+        },
+        // The relay caps the body at the same ceiling, so the dial
+        // refuses a larger one instead of reading toward the 1 GiB
+        // default.
+        { maxBytes: DEFAULT_MAX_PROXY_BYTES },
+      );
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         res.status(400).json({ message: err.message });
