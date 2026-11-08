@@ -1788,6 +1788,9 @@ export const fr: Partial<CatalogShape> = {
     removeWillLoseOthers:
       "{count, plural, one {# d'entre elles appartient à un autre compte.} other {# d'entre elles appartiennent à un autre compte.}}",
     downloadForOffline: 'Télécharger pour le hors ligne',
+    deviceOnlyWarning:
+      'Les modifications et les photos restent sur cet appareil jusqu’à la synchronisation. Elles ne sont ni sur le serveur ni dans une sauvegarde du portail. Enregistrez une copie si vous avez besoin des photos et des formes avant la synchronisation.',
+    saveUnsyncedCopy: 'Enregistrer une copie du travail non synchronisé',
     refreshOfflineCache: 'Actualiser le cache hors ligne',
     confirmRefresh: 'Confirmer l’actualisation',
     refreshUnsyncedWarn:

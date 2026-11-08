@@ -18,6 +18,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field mode can save a zip of unsynced edits and the photo or file
+  bytes that have not uploaded yet. The file is named
+  `pending-<deployment>-<user>-<date>.zip` and contains
+  `pending-edits.json` plus `files/`. It is a copy on the device, not
+  a portal backup, and the server still does not receive those rows
+  until sync. The field menu says that in English, Spanish,
+  Brazilian Portuguese, French, and German. No server change.
 - Opt-in WAL point-in-time recovery for a throwaway compose project
   the operator names twice (`infra/wal`). `archive_mode` is not
   turned on for the dev, NAS, or VPS stacks. A synthetic drill takes
