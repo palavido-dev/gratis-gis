@@ -86,7 +86,9 @@ d('COPY syncVersion through the import worker', () => {
     };
   }
 
-  function worker(rows: Array<{ properties: Record<string, unknown> }>) {
+  function worker(
+    rows: Array<{ properties: Record<string, unknown>; globalId?: string }>,
+  ) {
     const ingest = {
       streamLayerFromPath: async (
         _file: string,
@@ -101,6 +103,7 @@ d('COPY syncVersion through the import worker', () => {
           rows.map((row, i) => ({
             geometry: point(i + 1),
             properties: row.properties,
+            ...(row.globalId !== undefined ? { globalId: row.globalId } : {}),
           })),
           { processed: rows.length, total: rows.length },
         );
@@ -215,6 +218,17 @@ d('COPY syncVersion through the import worker', () => {
     expect(first.map((row) => row.kind).sort()).toEqual(['create', 'create']);
     expect(first.every((row) => row.syncVersion === 1)).toBe(true);
     const kept = first.map((row) => row.entity);
+
+    await worker(
+      kept.map((entity) => ({ properties: { name: 'again' }, globalId: entity })),
+    ).runJob(job('append'));
+    expect(await cursor()).toBe(1);
+    const afterDup = await engine.listDeltaSince({
+      itemId: ITEM,
+      layerId: LAYER,
+      since: 1,
+    });
+    expect(afterDup).toEqual([]);
 
     await worker([{ properties: { name: 'three' } }]).runJob(job('replace'));
     expect(await cursor()).toBe(2);

@@ -254,9 +254,8 @@ export class ImportJobsWorker implements OnModuleInit {
       // COPY FROM STDIN is the bulk-load wire protocol -- 5-10x
       // faster than batched multi-row INSERTs because the server
       // skips per-row SQL parsing and parameter binding. We run
-      // SET LOCAL synchronous_commit=off inside the transaction so
-      // a re-runnable bulk import doesn't pay an fsync per batch
-      // commit. The writer is closed cleanly on success and
+      // synchronous_commit stays ON so a succeeded job cannot sit
+      // ahead of a WAL flush. The writer is closed cleanly on success and
       // aborted on any throw or cancel so a partial run never
       // stays half-written.
       //
@@ -303,10 +302,16 @@ export class ImportJobsWorker implements OnModuleInit {
               cancelled = true;
               return;
             }
-            const filtered = batch.map((b) => ({
-              geometry: b.geometry,
-              properties: filterProps(b.properties),
-            }));
+            const filtered = batch.map((b) => {
+              const row = b as typeof b & { globalId?: string };
+              return {
+                geometry: row.geometry,
+                properties: filterProps(row.properties),
+                ...(typeof row.globalId === 'string'
+                  ? { globalId: row.globalId }
+                  : {}),
+              };
+            });
             const { inserted } =
               await this.dataLayerFeatures.bulkInsertFeatures(
                 job.itemId,
@@ -345,12 +350,16 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
-          // Seal, then stamp, then commit. The import-guard branch
-          // drops duplicate appends between seal and the stamp. The
-          // stamp has to stay after that delete: a load whose rows
-          // were all duplicates must not move the cursor. Abort
-          // before commit leaves the cursor unchanged.
+          // Seal, drop duplicate appends, then stamp, then commit.
+          // The stamp stays after the delete: a load whose rows were
+          // all duplicates must not move the cursor. Abort before
+          // commit leaves the cursor unchanged.
           await writer.sealCopy();
+          if (job.mode === 'append') {
+            await writer.dropDuplicateAppendCreates(
+              dataLayerScope(job.itemId, job.layerId),
+            );
+          }
           await this.dataLayerFeatures.commitCopiedLayer(writer, {
             itemId: job.itemId,
             layerId: job.layerId,

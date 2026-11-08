@@ -36,13 +36,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   and leaves the rest of the URL, including percent-encoding,
   unchanged. It does not print the URL.
 - A COPY import, including a replace, now stamps the layer sync
-  cursor in the same transaction as the rows. The stamp is written
-  after the copy stream closes and before commit, on that
-  connection. Cancelling or a failed read leaves the cursor where
-  it was. A replace writes a delete observation for each live
-  feature the new file does not contain, so a device that already
-  has a cursor sees those removals. An import that lands no rows
-  does not move the cursor.
+  cursor in the same transaction as the rows. On an append the
+  duplicate-create delete runs after the stream closes and before
+  the stamp, so a load whose rows were all duplicates does not move
+  the cursor. The stamp is on that connection. Cancelling or a
+  failed read leaves the cursor where it was. A replace writes a
+  delete observation for each live feature the new file does not
+  contain, so a device that already has a cursor sees those
+  removals. An import that lands no rows does not move the cursor.
 - Saving a feature, deleting one, importing rows, or running
   Calculate Field advances that layer's sync cursor only when the
   observation itself commits. A conflicting edit, a retried import
@@ -52,6 +53,26 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   feature from the same head produce one saved edit and one conflict.
   Existing installs pick this up by updating the portal-api image.
   No migration and no volume reset.
+- A bulk import commit now waits for the WAL flush. An append
+  removes only create rows that the same transaction just inserted
+  when that entity already has a live observation, or when the load
+  inserted the same entity twice. The comparison uses this
+  transaction's xid, so it still matches after the 32-bit counter
+  wraps. Committed history, edits, other
+  scopes, and duplicates that were already stored are not deleted.
+  A create after a delete is kept. Existing installs pick this up
+  by updating the portal-api image. No volume reset.
+- A point-cloud worker heartbeats, finishes, cancels, and publishes
+  an item result only while it still holds that job's claim token.
+  The item update and the token check are one statement, so a reclaim
+  that commits first is the write that sticks.
+  A database trigger ignores updates from an older worker image that
+  does not present the token, once a row has one. Claiming a queued
+  row and the stale-job reclaim sweep still work. The migration adds
+  nullable `analysis_job.claim_token` and the trigger. Apply it
+  before starting the new worker image. An old worker can keep
+  running; it cannot overwrite a row a new worker has leased. No
+  volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

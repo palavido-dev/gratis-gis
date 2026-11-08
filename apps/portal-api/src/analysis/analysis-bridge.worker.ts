@@ -119,6 +119,9 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         source_item_id: string;
       }>
     >`
+      WITH lease AS (
+        SELECT set_config('gratis.reclaim', '1', true)
+      )
       UPDATE analysis_job
       SET state = CASE WHEN state = 'cancel_requested'
                        THEN 'cancelled' ELSE 'failed' END,
@@ -128,6 +131,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
       WHERE state IN ('running', 'cancel_requested')
         AND COALESCE(heartbeat_at, started_at, created_at)
             < now() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})
+        AND (SELECT count(*) FROM lease) = 1
       RETURNING id, kind, state, target_item_id, source_item_id
     `;
     for (const row of rows) {
