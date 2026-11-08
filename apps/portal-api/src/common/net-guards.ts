@@ -27,13 +27,83 @@
  * trip on the single-label hostname check; they call `fetch()`
  * directly.
  *
- * TOCTOU note: there is a small window between the DNS lookup and
- * the underlying TCP connect where DNS could re-resolve.  A complete
- * defense pins the connection to the resolved IP and ships the
- * Host header for SNI.  We're not doing that yet; flagged as a
- * future hardening.
+ * The TCP connect uses only the addresses that check already
+ * accepted. The URL hostname is left in place so TLS SNI and the
+ * certificate check still use that name, not the IP. A later DNS
+ * answer cannot move the socket. Admin-configured local model hosts
+ * (loopback, RFC1918, single-label docker names) stay on plain
+ * fetch in the AI client and are not blocked here.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { createRequire } from 'node:module';
+
+export interface PinnedAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | PinnedAddress[],
+  family?: number,
+) => void;
+
+const connectPins = new AsyncLocalStorage<PinnedAddress[]>();
+
+/**
+ * DNS lookup used by the pinned agent. It never calls the system
+ * resolver. The addresses are the ones `resolveSafe` already
+ * accepted for this hop.
+ */
+export function answerPinnedLookup(
+  list: PinnedAddress[] | undefined,
+  options: unknown,
+  callback: LookupCallback,
+): void {
+  if (!list || list.length === 0) {
+    const err = new Error('no pinned address') as NodeJS.ErrnoException;
+    err.code = 'ENOTFOUND';
+    callback(err, '');
+    return;
+  }
+  const all =
+    typeof options === 'object' &&
+    options !== null &&
+    'all' in options &&
+    (options as { all?: boolean }).all === true;
+  if (all) {
+    callback(null, list);
+    return;
+  }
+  const first = list[0];
+  if (!first) {
+    const err = new Error('no pinned address') as NodeJS.ErrnoException;
+    err.code = 'ENOTFOUND';
+    callback(err, '');
+    return;
+  }
+  callback(null, first.address, first.family);
+}
+
+export function pinnedLookup(
+  _hostname: string,
+  options: unknown,
+  callback?: LookupCallback,
+): void {
+  const cb = (typeof options === 'function' ? options : callback) as LookupCallback;
+  answerPinnedLookup(connectPins.getStore(), options, cb);
+}
+
+type FetchDispatcher = NonNullable<RequestInit['dispatcher']>;
+const { Agent } = createRequire(__filename)('undici') as {
+  Agent: new (opts: {
+    connect: { lookup: typeof pinnedLookup };
+  }) => FetchDispatcher;
+};
+const pinnedAgent = new Agent({
+  connect: { lookup: pinnedLookup },
+});
 
 export function isPrivateOrLoopbackHost(host: string): boolean {
   // Numeric IPv4. Block RFC1918 + loopback + link-local.
@@ -94,6 +164,16 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     }
   }
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  const lower = host.toLowerCase();
+  if (
+    lower === 'metadata.google.internal' ||
+    lower.endsWith('.metadata.google.internal')
+  ) {
+    return true;
+  }
+  // Short numeric forms such as 127.1 and bare decimals. They are
+  // not public names, and some stacks treat them as IPv4.
+  if (/^\d+(\.\d+){0,2}$/.test(host)) return true;
   // Any bare single-label hostname in our prod deploy is a docker
   // compose service name and must not be fetched from a
   // user-supplied URL.  Real external services always have FQDNs.
@@ -119,7 +199,9 @@ export class UnsafeOutboundUrlError extends Error {
  *   2. DNS lookup of the hostname resolves to a non-private IP
  * The second is the DNS-rebinding defense.
  */
-export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
+async function resolveSafe(
+  rawUrl: string,
+): Promise<{ url: URL; addresses: PinnedAddress[] }> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -135,29 +217,32 @@ export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
   if (isPrivateOrLoopbackHost(host)) {
     throw new UnsafeOutboundUrlError(`private host: ${host}`);
   }
-  // DNS-rebinding defense: resolve every address and check.
-  // One public A record beside a private one is still a private host.
+  // One public address beside a private one is still a private host.
+  let answers: Array<{ address: string; family: number }>;
   try {
     const resolved = await dnsLookup(host, { all: true, verbatim: true });
-    const answers = Array.isArray(resolved) ? resolved : [resolved];
-    if (answers.length === 0) {
-      throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
-    }
-    for (const { address } of answers) {
-      if (isPrivateOrLoopbackHost(address)) {
-        throw new UnsafeOutboundUrlError(
-          `host ${host} resolves to private IP ${address}`,
-        );
-      }
-    }
+    answers = Array.isArray(resolved) ? resolved : [resolved];
   } catch (e) {
     if (e instanceof UnsafeOutboundUrlError) throw e;
-    // Unresolvable host: refuse rather than letting fetch report a
-    // generic error.  This keeps the error message specific and
-    // prevents an attacker from probing internal DNS via timing.
     throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
   }
-  return url;
+  if (answers.length === 0) {
+    throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
+  }
+  const addresses: PinnedAddress[] = [];
+  for (const { address, family } of answers) {
+    if (isPrivateOrLoopbackHost(address)) {
+      throw new UnsafeOutboundUrlError(
+        `host ${host} resolves to private IP ${address}`,
+      );
+    }
+    addresses.push({ address, family: family === 6 ? 6 : 4 });
+  }
+  return { url, addresses };
+}
+
+export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
+  return (await resolveSafe(rawUrl)).url;
 }
 
 /** Statuses the fetch spec treats as followable redirects. */
@@ -217,11 +302,12 @@ export async function safeFetch(
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
   if (init?.redirect === 'manual' || init?.redirect === 'error') {
-    const url = await assertSafeOutboundUrl(rawUrl);
-    return fetch(url, init);
+    const pinned = await resolveSafe(rawUrl);
+    return connectPinned(pinned, init);
   }
 
-  let currentUrl = await assertSafeOutboundUrl(rawUrl);
+  let pinned = await resolveSafe(rawUrl);
+  let currentUrl = pinned.url;
   let method = (init?.method ?? 'GET').toUpperCase();
   // Typed via RequestInit['body'] so we don't depend on the DOM
   // lib's BodyInit name (portal-api compiles with node types only);
@@ -245,7 +331,7 @@ export async function safeFetch(
     } else {
       hopInit.body = body;
     }
-    const res = await fetch(currentUrl, hopInit);
+    const res = await connectPinned(pinned, hopInit);
     if (!REDIRECT_STATUSES.has(res.status)) return res;
     const location = res.headers.get('location');
     // Redirect status without a Location is not followable; hand
@@ -264,7 +350,8 @@ export async function safeFetch(
     } catch {
       throw new UnsafeOutboundUrlError(`invalid redirect Location: ${location}`);
     }
-    const nextUrl = await assertSafeOutboundUrl(nextRaw);
+    const nextPinned = await resolveSafe(nextRaw);
+    const nextUrl = nextPinned.url;
     // We won't read this hop's body; release it so the connection
     // can be reused instead of idling until timeout.
     try {
@@ -287,5 +374,19 @@ export async function safeFetch(
       for (const h of CREDENTIAL_HEADERS) headers.delete(h);
     }
     currentUrl = nextUrl;
+    pinned = nextPinned;
   }
+}
+
+function connectPinned(
+  pinned: { url: URL; addresses: PinnedAddress[] },
+  init: RequestInit | undefined,
+): Promise<Response> {
+  const hopInit = {
+    ...(init ?? {}),
+    dispatcher: pinnedAgent,
+  };
+  // The hostname stays on the URL. undici uses it for SNI and for
+  // the certificate name check while `pinnedLookup` supplies the IP.
+  return connectPins.run(pinned.addresses, () => fetch(pinned.url, hopInit));
 }

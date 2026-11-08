@@ -12,6 +12,7 @@ jest.mock('node:dns/promises', () => ({
 import { lookup } from 'node:dns/promises';
 
 import {
+  answerPinnedLookup,
   assertSafeOutboundUrl,
   isPrivateOrLoopbackHost,
   safeFetch,
@@ -73,6 +74,13 @@ describe('isPrivateOrLoopbackHost', () => {
     'ff02::1',
   ])('blocks IPv6 loopback / unspecified / unique-local / link-local / multicast %s', (host) => {
     expect(isPrivateOrLoopbackHost(host)).toBe(true);
+  });
+
+  it('blocks metadata names and short numeric hosts', () => {
+    expect(isPrivateOrLoopbackHost('metadata.google.internal')).toBe(true);
+    expect(isPrivateOrLoopbackHost('127.1')).toBe(true);
+    expect(isPrivateOrLoopbackHost('169.254.169.254')).toBe(true);
+    expect(isPrivateOrLoopbackHost('[::ffff:169.254.169.254]')).toBe(true);
   });
 
   it('blocks IPv4 multicast', () => {
@@ -178,6 +186,26 @@ describe('safeFetch redirect handling', () => {
     // per-hop validation.
     expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
     expect(fetchMock.mock.calls[1][1].redirect).toBe('manual');
+    expect(new URL(String(fetchMock.mock.calls[0][0])).hostname).toBe(
+      'origin.example.com',
+    );
+    expect(fetchMock.mock.calls[0][1].dispatcher).toBeDefined();
+  });
+
+  it('connects to the address checked before the call, not a later answer', () => {
+    lookupMock.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+    let chosen = '';
+    answerPinnedLookup(
+      [{ address: '151.101.1.1', family: 4 }],
+      {},
+      (err, address) => {
+        expect(err).toBeNull();
+        if (typeof address === 'string') chosen = address;
+      },
+    );
+    expect(chosen).toBe('151.101.1.1');
+    expect(lookupMock).not.toHaveBeenCalled();
+    lookupMock.mockImplementation(async () => ({ address: '151.101.1.1', family: 4 }));
   });
 
   it('resolves a relative Location against the redirecting hop', async () => {
