@@ -64,7 +64,8 @@ class ConflictError(PortalError):
 
 
 class RateLimitError(PortalError):
-    """429. Includes `retry_after` seconds when the portal sent it."""
+    """429, or 503 with a numeric Retry-After (a busy lane asking you to
+    back off). Includes `retry_after` seconds when the portal sent it."""
 
     def __init__(self, *args: Any, retry_after: Optional[float] = None, **kw: Any):
         super().__init__(*args, **kw)
