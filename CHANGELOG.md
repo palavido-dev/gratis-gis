@@ -190,6 +190,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   before starting the new worker image. An old worker can keep
   running; it cannot overwrite a row a new worker has leased. No
   volume reset.
+- A form submission whose paired data layer did not get the mirror
+  row is retried three times, and once a minute the process that
+  holds the cron lock looks for submissions that still have no live
+  observation and mirrors them again. That pass keeps its own timer.
+  It does not register another application-wide scheduler. The feature
+  id is the submission id, so a
+  retry does not create a second feature. Followers do not run the
+  repair. Existing installs pick this up by updating the portal-api
+  image. No migration and no volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as
