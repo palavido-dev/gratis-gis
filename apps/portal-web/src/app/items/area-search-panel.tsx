@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { Crosshair, MapPin, X } from 'lucide-react';
+import { geolocationBlock } from '@/lib/geolocation-context';
 import { useT } from '@/lib/i18n/locale-context';
 
 /**
@@ -58,6 +59,7 @@ export function AreaSearchPanel({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [bufferKm, setBufferKm] = useState<number>(initialBufferKm);
+  const [locationNote, setLocationNote] = useState<string | null>(null);
   const [bufferText, setBufferText] = useState<string>(String(initialBufferKm));
 
   // Boot a single map instance for the lifetime of this panel.
@@ -136,6 +138,11 @@ export function AreaSearchPanel({
 
   function flyToMyLocation() {
     const map = mapRef.current;
+    if (geolocationBlock() === 'insecure-context') {
+      setLocationNote(t('common.geolocationInsecure'));
+      return;
+    }
+    setLocationNote(null);
     if (!map || typeof navigator === 'undefined' || !navigator.geolocation) {
       return;
     }
@@ -209,6 +216,9 @@ export function AreaSearchPanel({
           <MapPin className="h-3 w-3" />
           {t('areaSearch.myLocation')}
         </button>
+        {locationNote ? (
+          <p className="w-full text-xs text-muted">{locationNote}</p>
+        ) : null}
         <label className="inline-flex items-center gap-2 text-xs text-muted">
           {t('areaSearch.padAreaBy')}
           <input

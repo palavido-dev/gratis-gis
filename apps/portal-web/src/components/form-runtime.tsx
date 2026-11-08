@@ -2,6 +2,10 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  geolocationBlock,
+  isInsecureGeolocationMessage,
+} from '@/lib/geolocation-context';
 import { useT } from '@/lib/i18n/locale-context';
 import {
   Camera,
@@ -2502,6 +2506,10 @@ function GeoPointInput({
   const mapOnlyFailed = q.capture === 'map' && mapFailed;
 
   function capture() {
+    if (geolocationBlock() === 'insecure-context') {
+      setErr(t('common.geolocationInsecure'));
+      return;
+    }
     if (!('geolocation' in navigator)) {
       setErr(t('formRuntime.geolocationUnsupported'));
       return;
@@ -2518,7 +2526,11 @@ function GeoPointInput({
         setBusy(false);
       },
       (e) => {
-        setErr(e.message);
+        setErr(
+          isInsecureGeolocationMessage(e.message)
+            ? t('common.geolocationInsecure')
+            : e.message,
+        );
         setBusy(false);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },

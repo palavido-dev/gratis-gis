@@ -153,6 +153,10 @@ import {
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
+import {
+  geolocationBlock,
+  isInsecureGeolocationMessage,
+} from '@/lib/geolocation-context';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import {
@@ -8465,8 +8469,13 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
       setError('Bind a map widget.');
       return;
     }
-    if (!('geolocation' in navigator)) {
-      setError('Geolocation is not available in this browser.');
+    const blocked = geolocationBlock();
+    if (blocked === 'insecure-context') {
+      setError(t('common.geolocationInsecure'));
+      return;
+    }
+    if (blocked === 'unsupported') {
+      setError(t('customRuntime.errors.geolocationUnavailable'));
       return;
     }
     setBusy(true);
@@ -8488,7 +8497,11 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
       },
       (err) => {
         setBusy(false);
-        setError(err.message || 'Could not get location.');
+        setError(
+          isInsecureGeolocationMessage(err.message)
+            ? t('common.geolocationInsecure')
+            : err.message || t('customRuntime.errors.couldNotGetLocation'),
+        );
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
