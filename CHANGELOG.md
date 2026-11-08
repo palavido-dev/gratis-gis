@@ -30,6 +30,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Saving a feature, deleting one, importing rows, or running
+  Calculate Field advances that layer's sync cursor only when the
+  observation itself commits. A conflicting edit, a retried import
+  that was already stored, or a write that rolls back leaves the
+  cursor where it was. Calculate Field refuses a row whose head
+  changed and records that conflict. Two people editing the same
+  feature from the same head produce one saved edit and one conflict.
+  Existing installs pick this up by updating the portal-api image.
+  No migration and no volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as
