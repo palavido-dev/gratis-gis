@@ -240,8 +240,18 @@ buildings in Elkins in 3D already carry their heights. See
 
 ## Updating
 
-Paste the new file over the same app and start it again. Keep the
-volumes when the first start never became healthy (Keycloak waiting,
+Paste the new file over the same app and start it again. Pasting
+keeps every existing volume. Compose creates any volume the new file
+adds, empty, on the next start.
+
+Compose file revision 2 adds the `gg-staging` volume that
+portal-api and portal-worker share. On revision 1, creating a data
+layer from a file left the layer empty with "Source file expired
+before the import started". The Updates page says the compose file
+is out of date until you paste revision 2. Nothing else changes, and
+no data moves.
+
+Keep the volumes when the first start never became healthy (Keycloak waiting,
 Silo exiting). The saved passwords stay, and Keycloak imports the
 realm on the first start that succeeds.
 
@@ -256,6 +266,8 @@ newer Keycloak.
 A changed sign-in address does not need new volumes. Keep `boot`,
 `pgdata`, and `miniodata`. Delete those volumes only when you mean
 to throw the portal away and start empty. That is not a password
-reset. In Dockge the volumes are `boot`, `pgdata`, `miniodata`, and
-`caddy-data`. In TrueNAS, deleting the app with its volumes does the
+reset. In Dockge the volumes are `boot`, `pgdata`, `miniodata`,
+`caddy-data`, `portal-api-backups`, `pointcloud-scratch`, and
+`gg-staging`. `portal-api-backups` holds admin backup archives, so
+delete it too when you start empty. In TrueNAS, deleting the app with its volumes does the
 same thing.
