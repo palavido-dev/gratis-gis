@@ -1138,8 +1138,11 @@ services:
             else:
                 password = (
                     "The first-start admin password is not printed again.\n"
-                    "Sign in with the password you chose, or delete this app's\n"
-                    "volumes to generate a new one.\n"
+                    "Sign in with the password you chose. If you forgot it, reset\n"
+                    "that user from the host. The steps are in docs/truenas.md\n"
+                    "and infra/reset-portal-password.sh. Do not delete this app's\n"
+                    "volumes to get a new password. That erases the database and\n"
+                    "the uploaded files.\n"
                 )
             return (
                 "\n========== GratisGIS ==========\n"

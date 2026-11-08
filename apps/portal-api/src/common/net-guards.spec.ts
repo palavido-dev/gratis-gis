@@ -12,7 +12,10 @@ jest.mock('node:dns/promises', () => ({
 import { lookup } from 'node:dns/promises';
 
 import {
+  _setSafeFetchTransportForTests,
+  answerPinnedLookup,
   assertSafeOutboundUrl,
+  connectHost,
   isPrivateOrLoopbackHost,
   safeFetch,
   UnsafeOutboundUrlError,
@@ -73,6 +76,19 @@ describe('isPrivateOrLoopbackHost', () => {
     'ff02::1',
   ])('blocks IPv6 loopback / unspecified / unique-local / link-local / multicast %s', (host) => {
     expect(isPrivateOrLoopbackHost(host)).toBe(true);
+  });
+
+  it('dials a rebuilt public IPv4 address and refuses metadata', () => {
+    expect(connectHost('151.101.1.1')).toBe('151.101.1.1');
+    expect(() => connectHost('169.254.169.254')).toThrow(UnsafeOutboundUrlError);
+    expect(() => connectHost('127.0.0.1')).toThrow(UnsafeOutboundUrlError);
+  });
+
+  it('blocks metadata names and short numeric hosts', () => {
+    expect(isPrivateOrLoopbackHost('metadata.google.internal')).toBe(true);
+    expect(isPrivateOrLoopbackHost('127.1')).toBe(true);
+    expect(isPrivateOrLoopbackHost('169.254.169.254')).toBe(true);
+    expect(isPrivateOrLoopbackHost('[::ffff:169.254.169.254]')).toBe(true);
   });
 
   it('blocks IPv4 multicast', () => {
@@ -145,16 +161,18 @@ describe('assertSafeOutboundUrl', () => {
 });
 
 describe('safeFetch redirect handling', () => {
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    _setSafeFetchTransportForTests(null);
     lookupMock.mockClear();
   });
+
+  function useMock(
+    fetchMock: jest.Mock,
+  ): void {
+    _setSafeFetchTransportForTests(async (url, init, addresses) =>
+      fetchMock(url, init, addresses),
+    );
+  }
 
   function redirectTo(location: string, status = 302): Response {
     return new Response(null, { status, headers: { location } });
@@ -165,7 +183,7 @@ describe('safeFetch redirect handling', () => {
       .fn()
       .mockResolvedValueOnce(redirectTo('https://cdn.example.com/file'))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     const res = await safeFetch('https://origin.example.com/start');
     expect(res.status).toBe(200);
@@ -178,6 +196,26 @@ describe('safeFetch redirect handling', () => {
     // per-hop validation.
     expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
     expect(fetchMock.mock.calls[1][1].redirect).toBe('manual');
+    expect(new URL(String(fetchMock.mock.calls[0][0])).hostname).toBe(
+      'origin.example.com',
+    );
+    expect(fetchMock.mock.calls[0][2][0].address).toBe('151.101.1.1');
+  });
+
+  it('connects to the address checked before the call, not a later answer', () => {
+    lookupMock.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+    let chosen = '';
+    answerPinnedLookup(
+      [{ address: '151.101.1.1', family: 4 }],
+      {},
+      (err, address) => {
+        expect(err).toBeNull();
+        if (typeof address === 'string') chosen = address;
+      },
+    );
+    expect(chosen).toBe('151.101.1.1');
+    expect(lookupMock).not.toHaveBeenCalled();
+    lookupMock.mockImplementation(async () => ({ address: '151.101.1.1', family: 4 }));
   });
 
   it('resolves a relative Location against the redirecting hop', async () => {
@@ -185,7 +223,7 @@ describe('safeFetch redirect handling', () => {
       .fn()
       .mockResolvedValueOnce(redirectTo('/inner?f=1'))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await safeFetch('https://origin.example.com/outer/path');
     expect(String(fetchMock.mock.calls[1][0])).toBe(
@@ -197,7 +235,7 @@ describe('safeFetch redirect handling', () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce(redirectTo('http://169.254.169.254/latest/meta-data/'));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await expect(
       safeFetch('https://origin.example.com/start'),
@@ -209,7 +247,7 @@ describe('safeFetch redirect handling', () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce(redirectTo('http://0.0.0.0:9000/bucket/secret'));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await expect(
       safeFetch('https://origin.example.com/start'),
@@ -221,7 +259,7 @@ describe('safeFetch redirect handling', () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce(redirectTo('https://rebind.example.com/'));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
     // First lookup (original host) resolves public, second (the
     // redirect target) resolves private.
     lookupMock
@@ -240,7 +278,7 @@ describe('safeFetch redirect handling', () => {
       n += 1;
       return redirectTo(`https://hop${n}.example.com/next`);
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await expect(
       safeFetch('https://origin.example.com/start'),
@@ -253,7 +291,7 @@ describe('safeFetch redirect handling', () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce(redirectTo('https://cdn.example.com/file'));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     const res = await safeFetch('https://origin.example.com/start', {
       redirect: 'manual',
@@ -266,7 +304,7 @@ describe('safeFetch redirect handling', () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 302 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     const res = await safeFetch('https://origin.example.com/start');
     expect(res.status).toBe(302);
@@ -278,7 +316,7 @@ describe('safeFetch redirect handling', () => {
       .fn()
       .mockResolvedValueOnce(redirectTo('https://origin.example.com/done', 303))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await safeFetch('https://origin.example.com/form', {
       method: 'POST',
@@ -298,7 +336,7 @@ describe('safeFetch redirect handling', () => {
       .fn()
       .mockResolvedValueOnce(redirectTo('https://elsewhere.example.com/file'))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await safeFetch('https://origin.example.com/start', {
       headers: { authorization: 'Bearer secret', accept: 'application/json' },
@@ -314,7 +352,7 @@ describe('safeFetch redirect handling', () => {
       .fn()
       .mockResolvedValueOnce(redirectTo('https://origin.example.com/moved'))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    useMock(fetchMock);
 
     await safeFetch('https://origin.example.com/start', {
       headers: { authorization: 'Bearer secret' },

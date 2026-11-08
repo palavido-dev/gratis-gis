@@ -27,13 +27,89 @@
  * trip on the single-label hostname check; they call `fetch()`
  * directly.
  *
- * TOCTOU note: there is a small window between the DNS lookup and
- * the underlying TCP connect where DNS could re-resolve.  A complete
- * defense pins the connection to the resolved IP and ships the
- * Host header for SNI.  We're not doing that yet; flagged as a
- * future hardening.
+ * The TCP connect uses only the addresses that check already
+ * accepted. The URL hostname is left in place so TLS SNI and the
+ * certificate check still use that name, not the IP. A later DNS
+ * answer cannot move the socket. Admin-configured local model hosts
+ * (loopback, RFC1918, single-label docker names) stay on plain
+ * fetch in the AI client and are not blocked here.
  */
 import { lookup as dnsLookup } from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
+import type { Readable } from 'node:stream';
+
+export interface PinnedAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | PinnedAddress[],
+  family?: number,
+) => void;
+
+/**
+ * The addresses `resolveSafe` already accepted. Used by tests to
+ * show a later DNS answer is not what we dial.
+ */
+export function answerPinnedLookup(
+  list: PinnedAddress[] | undefined,
+  options: unknown,
+  callback: LookupCallback,
+): void {
+  if (!list || list.length === 0) {
+    const err = new Error('no pinned address') as NodeJS.ErrnoException;
+    err.code = 'ENOTFOUND';
+    callback(err, '');
+    return;
+  }
+  const all =
+    typeof options === 'object' &&
+    options !== null &&
+    'all' in options &&
+    (options as { all?: boolean }).all === true;
+  if (all) {
+    callback(null, list);
+    return;
+  }
+  const first = list[0];
+  if (!first) {
+    const err = new Error('no pinned address') as NodeJS.ErrnoException;
+    err.code = 'ENOTFOUND';
+    callback(err, '');
+    return;
+  }
+  callback(null, first.address, first.family);
+}
+
+/**
+ * The dial target. An IPv4 address is rebuilt from the octets that
+ * passed the private-range check, so the socket host is that number
+ * and not the caller-supplied URL string.
+ */
+export function connectHost(address: string): string {
+  if (isPrivateOrLoopbackHost(address)) {
+    throw new UnsafeOutboundUrlError(`private address: ${address}`);
+  }
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(address);
+  if (v4) {
+    const nums = v4.slice(1).map((part) => Number(part));
+    if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      throw new UnsafeOutboundUrlError(`bad address: ${address}`);
+    }
+    const rebuilt = `${nums[0]}.${nums[1]}.${nums[2]}.${nums[3]}`;
+    if (isPrivateOrLoopbackHost(rebuilt)) {
+      throw new UnsafeOutboundUrlError(`private address: ${rebuilt}`);
+    }
+    return rebuilt;
+  }
+  if (!/^[0-9a-f:]+$/i.test(address)) {
+    throw new UnsafeOutboundUrlError(`bad address: ${address}`);
+  }
+  return address;
+}
 
 export function isPrivateOrLoopbackHost(host: string): boolean {
   // Numeric IPv4. Block RFC1918 + loopback + link-local.
@@ -92,8 +168,21 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
       const quad = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
       if (isPrivateOrLoopbackHost(quad)) return true;
     }
+    // A colon address that was not a private range is a public IPv6
+    // address. It is not a docker service name.
+    return false;
   }
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  const lower = host.toLowerCase();
+  if (
+    lower === 'metadata.google.internal' ||
+    lower.endsWith('.metadata.google.internal')
+  ) {
+    return true;
+  }
+  // Short numeric forms such as 127.1 and bare decimals. They are
+  // not public names, and some stacks treat them as IPv4.
+  if (/^\d+(\.\d+){0,2}$/.test(host)) return true;
   // Any bare single-label hostname in our prod deploy is a docker
   // compose service name and must not be fetched from a
   // user-supplied URL.  Real external services always have FQDNs.
@@ -119,7 +208,9 @@ export class UnsafeOutboundUrlError extends Error {
  *   2. DNS lookup of the hostname resolves to a non-private IP
  * The second is the DNS-rebinding defense.
  */
-export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
+async function resolveSafe(
+  rawUrl: string,
+): Promise<{ url: URL; addresses: PinnedAddress[] }> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -135,29 +226,32 @@ export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
   if (isPrivateOrLoopbackHost(host)) {
     throw new UnsafeOutboundUrlError(`private host: ${host}`);
   }
-  // DNS-rebinding defense: resolve every address and check.
-  // One public A record beside a private one is still a private host.
+  // One public address beside a private one is still a private host.
+  let answers: Array<{ address: string; family: number }>;
   try {
     const resolved = await dnsLookup(host, { all: true, verbatim: true });
-    const answers = Array.isArray(resolved) ? resolved : [resolved];
-    if (answers.length === 0) {
-      throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
-    }
-    for (const { address } of answers) {
-      if (isPrivateOrLoopbackHost(address)) {
-        throw new UnsafeOutboundUrlError(
-          `host ${host} resolves to private IP ${address}`,
-        );
-      }
-    }
+    answers = Array.isArray(resolved) ? resolved : [resolved];
   } catch (e) {
     if (e instanceof UnsafeOutboundUrlError) throw e;
-    // Unresolvable host: refuse rather than letting fetch report a
-    // generic error.  This keeps the error message specific and
-    // prevents an attacker from probing internal DNS via timing.
     throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
   }
-  return url;
+  if (answers.length === 0) {
+    throw new UnsafeOutboundUrlError(`unresolvable host: ${host}`);
+  }
+  const addresses: PinnedAddress[] = [];
+  for (const { address, family } of answers) {
+    if (isPrivateOrLoopbackHost(address)) {
+      throw new UnsafeOutboundUrlError(
+        `host ${host} resolves to private IP ${address}`,
+      );
+    }
+    addresses.push({ address, family: family === 6 ? 6 : 4 });
+  }
+  return { url, addresses };
+}
+
+export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
+  return (await resolveSafe(rawUrl)).url;
 }
 
 /** Statuses the fetch spec treats as followable redirects. */
@@ -217,11 +311,12 @@ export async function safeFetch(
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
   if (init?.redirect === 'manual' || init?.redirect === 'error') {
-    const url = await assertSafeOutboundUrl(rawUrl);
-    return fetch(url, init);
+    const pinned = await resolveSafe(rawUrl);
+    return connectPinned(pinned, init);
   }
 
-  let currentUrl = await assertSafeOutboundUrl(rawUrl);
+  let pinned = await resolveSafe(rawUrl);
+  let currentUrl = pinned.url;
   let method = (init?.method ?? 'GET').toUpperCase();
   // Typed via RequestInit['body'] so we don't depend on the DOM
   // lib's BodyInit name (portal-api compiles with node types only);
@@ -245,7 +340,7 @@ export async function safeFetch(
     } else {
       hopInit.body = body;
     }
-    const res = await fetch(currentUrl, hopInit);
+    const res = await connectPinned(pinned, hopInit);
     if (!REDIRECT_STATUSES.has(res.status)) return res;
     const location = res.headers.get('location');
     // Redirect status without a Location is not followable; hand
@@ -264,7 +359,8 @@ export async function safeFetch(
     } catch {
       throw new UnsafeOutboundUrlError(`invalid redirect Location: ${location}`);
     }
-    const nextUrl = await assertSafeOutboundUrl(nextRaw);
+    const nextPinned = await resolveSafe(nextRaw);
+    const nextUrl = nextPinned.url;
     // We won't read this hop's body; release it so the connection
     // can be reused instead of idling until timeout.
     try {
@@ -287,5 +383,169 @@ export async function safeFetch(
       for (const h of CREDENTIAL_HEADERS) headers.delete(h);
     }
     currentUrl = nextUrl;
+    pinned = nextPinned;
   }
+}
+
+type PinnedTransport = (
+  url: URL,
+  init: RequestInit | undefined,
+  addresses: PinnedAddress[],
+) => Promise<Response>;
+
+/** Default cap so a hostile body cannot be buffered without limit. */
+export function safeFetchMaxBytes(): number {
+  const raw = process.env.GRATIS_SAFE_FETCH_MAX_BYTES;
+  if (raw && /^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n) && n >= 1024) return n;
+  }
+  return 1024 * 1024 * 1024;
+}
+
+export interface PinnedRequestOptions {
+  /** Test-only trust anchor. Production leaves this unset. */
+  ca?: string | Buffer;
+  maxBytes?: number;
+}
+
+/**
+ * Dial `dialHost`, which the caller has already passed through
+ * `connectHost` in production. The certificate is checked against
+ * `url.hostname`, not the dial address.
+ */
+export function pinnedRequest(
+  url: URL,
+  init: RequestInit | undefined,
+  dialHost: string,
+  options: PinnedRequestOptions = {},
+): Promise<Response> {
+  const maxBytes = options.maxBytes ?? safeFetchMaxBytes();
+  const lib = url.protocol === 'https:' ? https : http;
+  const headers = new Headers(init?.headers);
+  headers.set('host', url.host);
+  const path = `${url.pathname}${url.search}`;
+  const timeoutMs = Number(process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS ?? '');
+  const signals: AbortSignal[] = [];
+  if (init?.signal) signals.push(init.signal);
+  if (Number.isFinite(timeoutMs) && timeoutMs >= 1) {
+    signals.push(AbortSignal.timeout(timeoutMs));
+  }
+  const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('aborted'));
+      return;
+    }
+    const req = lib.request(
+      {
+        host: dialHost,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        method: init?.method ?? 'GET',
+        path,
+        headers: Object.fromEntries(headers.entries()),
+        servername: url.hostname,
+        rejectUnauthorized: true,
+        ...(options.ca ? { ca: options.ca } : {}),
+      },
+      (incoming) => {
+        const declared = Number(incoming.headers['content-length'] ?? '');
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          incoming.destroy();
+          reject(new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`));
+          return;
+        }
+        const responseHeaders = new Headers();
+        for (const [key, value] of Object.entries(incoming.headers)) {
+          if (typeof value === 'string') responseHeaders.append(key, value);
+          else if (Array.isArray(value)) {
+            for (const item of value) responseHeaders.append(key, item);
+          }
+        }
+        let received = 0;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            incoming.on('data', (chunk: Buffer) => {
+              received += chunk.length;
+              if (received > maxBytes) {
+                controller.error(
+                  new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
+                );
+                incoming.destroy();
+                return;
+              }
+              controller.enqueue(new Uint8Array(chunk));
+            });
+            incoming.on('end', () => controller.close());
+            incoming.on('error', (err) => controller.error(err));
+          },
+          cancel() {
+            incoming.destroy();
+          },
+        });
+        resolve(
+          new Response(body, {
+            status: incoming.statusCode ?? 0,
+            headers: responseHeaders,
+          }),
+        );
+      },
+    );
+    const fail = (err: unknown) => {
+      req.destroy();
+      if (err instanceof Error) {
+        reject(err);
+        return;
+      }
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : 'request failed';
+      reject(new Error(message));
+    };
+    if (signal) {
+      const onAbort = () => fail(signal.reason ?? new Error('aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      req.on('close', () => signal.removeEventListener('abort', onAbort));
+    }
+    req.on('error', fail);
+    const body = init?.body;
+    if (body == null || body === '') {
+      req.end();
+      return;
+    }
+    if (typeof body === 'string' || Buffer.isBuffer(body) || body instanceof Uint8Array) {
+      req.end(body);
+      return;
+    }
+    if (typeof (body as { pipe?: unknown }).pipe === 'function') {
+      (body as Readable).pipe(req);
+      return;
+    }
+    req.end();
+  });
+}
+
+function nodePinnedRequest(
+  url: URL,
+  init: RequestInit | undefined,
+  addresses: PinnedAddress[],
+): Promise<Response> {
+  const chosen = addresses[0];
+  if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
+  return pinnedRequest(url, init, connectHost(chosen.address));
+}
+
+let transport: PinnedTransport = nodePinnedRequest;
+
+/** Tests substitute a fake dial. Production uses `nodePinnedRequest`. */
+export function _setSafeFetchTransportForTests(next: PinnedTransport | null): void {
+  transport = next ?? nodePinnedRequest;
+}
+
+function connectPinned(
+  pinned: { url: URL; addresses: PinnedAddress[] },
+  init: RequestInit | undefined,
+): Promise<Response> {
+  return transport(pinned.url, init, pinned.addresses);
 }

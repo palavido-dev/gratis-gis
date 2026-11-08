@@ -1932,6 +1932,8 @@ export const ptBR: Partial<CatalogShape> = {
     previewLoading: 'Carregando a pré-visualização',
     backToItems: 'Voltar aos itens',
     sharingHeading: 'Compartilhamento',
+    publicBoundaryWarning:
+      'O limite geográfico público está ausente ou sem geometria. Leitores públicos não veem feições até que um limite existente seja escolhido.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir o formulário para enviar uma resposta',
     responses: 'Respostas',

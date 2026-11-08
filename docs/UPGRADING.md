@@ -26,7 +26,10 @@ Before any upgrade:
    snapshot the PostgreSQL and MinIO Docker volumes at the host level.
 
 See the Backups section of [deployment.md](./deployment.md) for
-details on both backup surfaces.
+details on both backup surfaces. If a restore fails and the portal
+stays in maintenance mode, follow "When a restore fails" in that
+guide. `infra/restore-maintenance.sh` will not clear the flag while
+the portal tables are missing.
 
 ## 2. Upgrade
 

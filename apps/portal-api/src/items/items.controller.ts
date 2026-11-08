@@ -73,6 +73,11 @@ import { DataSnapshotService } from './data-snapshot.service.js';
 import { WebMapJsonService } from './web-map-json.service.js';
 import { WebMapJsonImportService } from './web-map-json-import.service.js';
 import { SharingService } from './sharing.service.js';
+import { CLOSED_GEO_LIMIT } from '../common/closed-geo-limit.js';
+import {
+  PUBLIC_BOUNDARY_WARNING,
+  publicTierGeoLimit,
+} from '../public/public-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
 
@@ -477,6 +482,17 @@ export class ItemsController {
     // The write goes through LastUsageStamp, not prisma.item.update,
     // so it cannot drag `updatedAt` along with it. See that file.
     this.lastUsage.stamp(id);
+    const boundaryId = (item as { publicGeoBoundaryId?: string | null })
+      .publicGeoBoundaryId;
+    const canFix =
+      item.ownerId === user.id ||
+      (user.orgRole === 'admin' && item.orgId === user.orgId);
+    if (item.access === 'public' && boundaryId && canFix) {
+      const clip = await publicTierGeoLimit(this.prisma, boundaryId);
+      if (clip === CLOSED_GEO_LIMIT) {
+        return { ...item, publicBoundaryWarning: PUBLIC_BOUNDARY_WARNING };
+      }
+    }
     return item;
   }
 
@@ -574,6 +590,11 @@ export class ItemsController {
       type: item.type,
     });
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; script-src 'none'; object-src 'none'",
+    );
     // 5 min revalidation; the URL has an updatedAt cache-buster so
     // a longer window only helps when the design hasn't changed.
     res.setHeader('Cache-Control', 'private, max-age=300');
@@ -598,7 +619,7 @@ export class ItemsController {
   ): Promise<string | null | undefined> {
     // href is falsy here (null / undefined / empty string).
     if (!href) return null;
-    if (href.startsWith('data:')) return href;
+    if (href.startsWith('data:')) return rasterDataUrl(href);
     try {
       // safeFetch, not fetch: the URL comes straight out of user-
       // controlled item fields (thumbnailDesign / basemap config),
@@ -615,7 +636,9 @@ export class ItemsController {
         res.headers.get('content-type') ?? 'application/octet-stream';
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length > 5 * 1024 * 1024) return null;
-      return `data:${contentType};base64,${buf.toString('base64')}`;
+      const media = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+      if (!RASTER_MEDIA.has(media)) return null;
+      return `data:${media};base64,${buf.toString('base64')}`;
     } catch {
       return null;
     }
@@ -1095,4 +1118,22 @@ function deriveBasemapTileUrl(itemData: unknown): string | null {
   }
 
   return null;
+}
+
+const RASTER_MEDIA = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+
+/** Keep a caller-supplied data URL only when it is a raster image.
+ *  SVG and HTML data URLs are dropped: this response is an SVG
+ *  document, and those types are not thumbnail pixels. */
+export function rasterDataUrl(href: string): string | null {
+  const match = /^data:([^;,]+)/i.exec(href);
+  const media = match?.[1]?.trim().toLowerCase() ?? '';
+  if (!RASTER_MEDIA.has(media)) return null;
+  if (href.length > 6 * 1024 * 1024) return null;
+  return href;
 }
