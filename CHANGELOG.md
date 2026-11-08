@@ -57,7 +57,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   released when the import finishes, fails, or is cancelled. There
   are no per-org storage or concurrency caps. Signed-in admins can
   read service readiness with a short timeout. Public health stays
-  the database check. Maintenance can be turned on. A failed restore
+  the database check. Admins of the operator organization can turn
+  maintenance on, like install-wide backup. A failed restore
   stays on until a restore finishes; acknowledging it does not resume
   a partial database. A backup that fails queues one notice through
   the existing notification settings. Rotating the credential

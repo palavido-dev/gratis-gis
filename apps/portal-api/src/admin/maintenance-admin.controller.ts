@@ -14,6 +14,7 @@ import { IsBoolean, IsOptional } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { MaintenanceModeService } from '../backup/maintenance-mode.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 
@@ -35,7 +36,9 @@ export function failedRestore(reason: string | null): boolean {
 @ApiTags('admin', 'maintenance')
 @ApiBearerAuth()
 @Controller('admin/maintenance')
-@UseGuards(AdminGuard)
+// Maintenance returns 503 for every org, so it is an operator power
+// like install-wide backup, not an org admin power.
+@UseGuards(AdminGuard, OperatorOrgGuard)
 export class MaintenanceAdminController {
   constructor(
     private readonly mode: MaintenanceModeService,
