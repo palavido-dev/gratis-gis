@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { randomUUID } from 'node:crypto';
 import { statfs } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 
+import { stagingDiskPath } from '../ingest/ingest-staging.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { diskDecision } from './resource-quota.js';
 
@@ -20,6 +20,14 @@ export class ResourceQuotaService {
    * no per-org storage or concurrency cap.
    */
   async reserve(orgId: string, bytes: bigint, purpose: string): Promise<{ id: string }> {
+    // Callers pass these from request data. Refuse anything that is
+    // not a plain string before it reaches slice() or SQL.
+    if (typeof orgId !== 'string' || orgId.length === 0) {
+      throw new BadRequestException('A reservation needs an organization id.');
+    }
+    if (typeof purpose !== 'string' || purpose.length === 0) {
+      throw new BadRequestException('A reservation needs a purpose.');
+    }
     const id = randomUUID();
     const heldPurpose = purpose.slice(0, 80);
     await this.prisma.$transaction(async (tx) => {
@@ -79,7 +87,7 @@ export class ResourceQuotaService {
 
   private async freeBytes(): Promise<bigint | null> {
     try {
-      const stat = await statfs(tmpdir());
+      const stat = await statfs(stagingDiskPath());
       return BigInt(stat.bsize) * BigInt(stat.bavail);
     } catch {
       return null;

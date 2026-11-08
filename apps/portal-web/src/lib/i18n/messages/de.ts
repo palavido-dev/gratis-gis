@@ -3603,6 +3603,7 @@ export const de: Partial<CatalogShape> = {
     maintenanceOn: 'Wartung einschalten',
     maintenanceOff: 'Wartung ausschalten',
     failed: 'Die Anfrage ist fehlgeschlagen.',
+    operatorOnly: 'Bereitschaft und Wartung betreffen die gesamte Installation. Nur Admins der Betreiberorganisation können sie verwenden.',
   },
   opsBackup: {
     failureBanner: 'Eine Sicherung ist nicht fertig geworden. Lesen Sie den fehlgeschlagenen Lauf. Eine Meldung geht genau einmal raus, wenn Benachrichtigungen an sind.',

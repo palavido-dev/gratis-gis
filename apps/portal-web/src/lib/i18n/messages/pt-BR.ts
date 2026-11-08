@@ -3584,6 +3584,7 @@ export const ptBR: Partial<CatalogShape> = {
     maintenanceOn: 'Ligar manutenção',
     maintenanceOff: 'Desligar manutenção',
     failed: 'A solicitação falhou.',
+    operatorOnly: 'Prontidão e manutenção valem para toda a instalação, então só administradores da organização operadora podem usá-las.',
   },
   opsBackup: {
     failureBanner: 'Uma cópia não terminou. Leia a execução que falhou. Um aviso é enviado uma vez se as notificações estiverem ativas.',

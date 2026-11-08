@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable } from '@nestjs/common';
 
+import { stagingDiskPath } from '../ingest/ingest-staging.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const TIMEOUT_MS = 2000;
@@ -98,8 +99,7 @@ export class ReadinessService {
   private async lowDisk(): Promise<boolean> {
     try {
       const { statfs } = await import('node:fs/promises');
-      const { tmpdir } = await import('node:os');
-      const stat = await statfs(tmpdir());
+      const stat = await statfs(stagingDiskPath());
       const free = BigInt(stat.bsize) * BigInt(stat.bavail);
       return free < 2n * 1024n * 1024n * 1024n;
     } catch {

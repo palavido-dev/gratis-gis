@@ -3726,6 +3726,7 @@ export const en = {
     maintenanceOn: 'Turn maintenance on',
     maintenanceOff: 'Turn maintenance off',
     failed: 'The request failed.',
+    operatorOnly: 'Readiness and maintenance cover the whole install, so only admins of the operator organization can use them.',
   },
   opsBackup: {
     failureBanner: 'A backup did not finish. Read the failed run below. A notice is sent once for that run when notifications are enabled.',

@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 import { useT } from '@/lib/i18n/locale-context';
 
-export function OperationsView() {
+export function OperationsView({ operator }: { operator: boolean }) {
   const t = useT();
   const [readiness, setReadiness] = useState<string | null>(null);
   const [maintenance, setMaintenance] = useState<string | null>(null);
@@ -33,58 +33,71 @@ export function OperationsView() {
         <h1 className="text-xl font-semibold text-ink-0">{t('opsPage.title')}</h1>
         <p className="mt-2 text-sm text-ink-1">{t('opsPage.intro')}</p>
       </div>
+      {!operator ? <p className="text-sm text-ink-1">{t('opsPage.operatorOnly')}</p> : null}
       {error ? (
         <p className="text-sm text-red-700" role="alert">
           {error}
         </p>
       ) : null}
-      <section>
-        <h2 className="text-sm font-medium">{t('opsPage.readiness')}</h2>
-        <button
-          type="button"
-          className="mt-2 rounded-md bg-accent px-3 py-2 text-sm text-white disabled:opacity-60"
-          disabled={busy}
-          onClick={() => void run('/api/portal/admin/readiness', undefined, setReadiness)}
-        >
-          {t('opsPage.check')}
-        </button>
-        {readiness ? <pre className="mt-3 overflow-x-auto text-xs">{readiness}</pre> : null}
-      </section>
-      <section>
-        <h2 className="text-sm font-medium">{t('opsPage.maintenance')}</h2>
-        <p className="mt-1 text-sm text-ink-1">{t('opsPage.maintenanceHint')}</p>
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            className="rounded-md border border-line px-3 py-2 text-sm"
-            disabled={busy}
-            onClick={() =>
-              void run(
-                '/api/portal/admin/maintenance',
-                { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ active: true }) },
-                setMaintenance,
-              )
-            }
-          >
-            {t('opsPage.maintenanceOn')}
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-line px-3 py-2 text-sm"
-            disabled={busy}
-            onClick={() =>
-              void run(
-                '/api/portal/admin/maintenance',
-                { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ active: false }) },
-                setMaintenance,
-              )
-            }
-          >
-            {t('opsPage.maintenanceOff')}
-          </button>
-        </div>
-        {maintenance ? <pre className="mt-3 overflow-x-auto text-xs">{maintenance}</pre> : null}
-      </section>
+      {operator ? (
+        <>
+          <section>
+            <h2 className="text-sm font-medium">{t('opsPage.readiness')}</h2>
+            <button
+              type="button"
+              className="mt-2 rounded-md bg-accent px-3 py-2 text-sm text-white disabled:opacity-60"
+              disabled={busy}
+              onClick={() => void run('/api/portal/admin/readiness', undefined, setReadiness)}
+            >
+              {t('opsPage.check')}
+            </button>
+            {readiness ? <pre className="mt-3 overflow-x-auto text-xs">{readiness}</pre> : null}
+          </section>
+          <section>
+            <h2 className="text-sm font-medium">{t('opsPage.maintenance')}</h2>
+            <p className="mt-1 text-sm text-ink-1">{t('opsPage.maintenanceHint')}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-line px-3 py-2 text-sm"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    '/api/portal/admin/maintenance',
+                    {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ active: true }),
+                    },
+                    setMaintenance,
+                  )
+                }
+              >
+                {t('opsPage.maintenanceOn')}
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-line px-3 py-2 text-sm"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    '/api/portal/admin/maintenance',
+                    {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ active: false }),
+                    },
+                    setMaintenance,
+                  )
+                }
+              >
+                {t('opsPage.maintenanceOff')}
+              </button>
+            </div>
+            {maintenance ? <pre className="mt-3 overflow-x-auto text-xs">{maintenance}</pre> : null}
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

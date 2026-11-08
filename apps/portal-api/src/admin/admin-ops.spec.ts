@@ -11,6 +11,8 @@ import {
 } from './admin-audit.service.js';
 import { DiagnosticsController } from './diagnostics.controller.js';
 import { DiagnosticsService, redactDiagnostics } from './diagnostics.service.js';
+import { ReadinessController } from './readiness.controller.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { PermissionsReportController } from './permissions-report.controller.js';
 import { csvCell, permissionsToCsv, type PermissionRow } from './permissions-report.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -185,6 +187,7 @@ describe('diagnostics redaction', () => {
       importJob: { groupBy: jest.fn(async () => [{ status: 'failed', _count: { _all: 2 } }]) },
       analysisJob: { groupBy: jest.fn(async () => []) },
       backupRun: { groupBy: jest.fn(async () => [{ status: 'succeeded', _count: { _all: 1 } }]) },
+      organization: { findFirst: jest.fn(async () => ({ id: 'org-1' })) },
     };
     const audit = { record: jest.fn(async (row) => { created.push(row); }) };
     const bundle = await new DiagnosticsService(
@@ -192,9 +195,39 @@ describe('diagnostics redaction', () => {
       audit as unknown as AdminAuditService,
     ).bundle('org-1', 'user-1');
     expect(bundle.kind).toBe('gratis-admin-diagnostics');
+    expect(bundle.scope).toBe('install');
     expect((bundle.readiness as { database: string }).database).toBe('ok');
+    expect((bundle.backup as { byStatus: { succeeded: number } }).byStatus.succeeded).toBe(1);
     expect((bundle.jobs as { import: { failed: number } }).import.failed).toBe(2);
     expect(JSON.stringify(bundle)).not.toContain('user-1');
     expect(created).toHaveLength(1);
+  });
+});
+
+describe('install-wide admin data', () => {
+  it('limits readiness to the operator organization', () => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, ReadinessController) as unknown[];
+    expect(guards).toEqual([AdminGuard, OperatorOrgGuard]);
+  });
+
+  it('leaves backup counts and readiness out of a non-operator bundle', async () => {
+    const backupGroupBy = jest.fn(async () => [{ status: 'succeeded', _count: { _all: 1 } }]);
+    const prisma = {
+      $queryRaw: jest.fn(async () => [{ one: 1 }]),
+      systemSetting: { findUnique: jest.fn(async () => null) },
+      importJob: { groupBy: jest.fn(async () => [{ status: 'queued', _count: { _all: 3 } }]) },
+      analysisJob: { groupBy: jest.fn(async () => []) },
+      backupRun: { groupBy: backupGroupBy },
+      organization: { findFirst: jest.fn(async () => ({ id: 'org-operator' })) },
+    };
+    const bundle = await new DiagnosticsService(
+      prisma as unknown as PrismaService,
+      { record: jest.fn(async () => undefined) } as unknown as AdminAuditService,
+    ).bundle('org-2', 'user-2');
+    expect(bundle.scope).toBe('org');
+    expect(bundle).not.toHaveProperty('backup');
+    expect(bundle).not.toHaveProperty('readiness');
+    expect(backupGroupBy).not.toHaveBeenCalled();
+    expect((bundle.jobs as { import: { queued: number } }).import.queued).toBe(3);
   });
 });

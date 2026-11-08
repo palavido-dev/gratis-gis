@@ -21,7 +21,7 @@ import {
 import { createWriteStream, existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -61,6 +61,26 @@ export function isStagingId(value: unknown): value is string {
   return typeof value === 'string' && STAGING_ID.test(value);
 }
 
+/**
+ * The filesystem that holds staged uploads. Prod mounts STAGING_DIR
+ * as its own volume, so free-space checks must look there and not at
+ * the container's tmpdir. Without STAGING_DIR the staging tree sits
+ * under tmpdir(), so that is the filesystem to measure.
+ */
+export function stagingDiskPath(): string {
+  return process.env.STAGING_DIR?.trim() || tmpdir();
+}
+
+/**
+ * Resolve `child` under `root` and refuse anything that lands outside
+ * it. Returns null for an escape so callers pick their own error.
+ */
+function insideRoot(root: string, ...parts: string[]): string | null {
+  const base = resolve(root);
+  const target = resolve(base, ...parts);
+  return target.startsWith(base + sep) ? target : null;
+}
+
 @Injectable()
 export class IngestStagingService implements OnModuleInit {
   private readonly log = new Logger(IngestStagingService.name);
@@ -76,10 +96,7 @@ export class IngestStagingService implements OnModuleInit {
    *  worker (reader). Without the shared volume the worker would
    *  ENOENT on every staged file because they live in a different
    *  container's tmpfs. */
-  private readonly root =
-    process.env.STAGING_DIR && process.env.STAGING_DIR.trim().length > 0
-      ? process.env.STAGING_DIR
-      : join(tmpdir(), 'gg-staging');
+  private readonly root = process.env.STAGING_DIR?.trim() || join(tmpdir(), 'gg-staging');
 
   async onModuleInit() {
     // Make sure the staging root exists before anybody tries to write
@@ -261,10 +278,15 @@ export class IngestStagingService implements OnModuleInit {
     stagingId: string,
     callerUserId: string,
   ): Promise<{ filePath: string; originalName: string; sizeBytes: number }> {
-    if (!stagingId || !/^[0-9a-f-]{8,40}$/i.test(stagingId)) {
-      throw new NotFoundException(`Unknown stagingId "${stagingId}".`);
+    // Only a UUID minted by stage() is a staging id, and the resolved
+    // directory must sit directly inside the staging root.
+    if (!isStagingId(stagingId)) {
+      throw new NotFoundException('Unknown stagingId.');
     }
-    const dir = join(this.root, stagingId);
+    const dir = insideRoot(this.root, stagingId);
+    if (!dir) {
+      throw new NotFoundException('Unknown stagingId.');
+    }
     if (!existsSync(dir)) {
       throw new NotFoundException(
         `Staging "${stagingId}" not found (it may have expired; re-upload to retry).`,
@@ -291,8 +313,8 @@ export class IngestStagingService implements OnModuleInit {
         'That staging belongs to a different user.',
       );
     }
-    const filePath = join(dir, safeFilename(meta.originalName));
-    if (!existsSync(filePath)) {
+    const filePath = insideRoot(dir, safeFilename(meta.originalName));
+    if (!filePath || !existsSync(filePath)) {
       throw new NotFoundException(
         `Staging "${stagingId}" file is missing (re-upload to retry).`,
       );

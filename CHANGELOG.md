@@ -65,10 +65,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stay on the Backup page. An upload or import is refused when the
   staging disk does not have room for it, and its byte hold is
   released when the import finishes, fails, or is cancelled. There
-  are no per-org storage or concurrency caps. Signed-in admins can
-  read service readiness with a short timeout. Public health stays
-  the database check. Admins of the operator organization can turn
-  maintenance on, like install-wide backup. A failed restore
+  are no per-org storage or concurrency caps. The free-space check
+  measures the `STAGING_DIR` volume when it is set. Admins of the
+  operator organization can read service readiness with a short
+  timeout and turn maintenance on, like install-wide backup; other
+  org admins see a note instead of those panels, and their
+  diagnostics bundle leaves out install-wide backup counts and
+  readiness. Public health stays the database check. A failed restore
   stays on until a restore finishes; acknowledging it does not resume
   a partial database. A backup that fails queues one notice through
   the existing notification settings. Rotating the credential

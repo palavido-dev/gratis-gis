@@ -7,7 +7,14 @@ import {
 import { ResourceQuotaService } from './resource-quota.service.js';
 
 import { diskDecision } from './resource-quota.js';
-import { isStagingId } from '../ingest/ingest-staging.service.js';
+import {
+  IngestStagingService,
+  isStagingId,
+  stagingDiskPath,
+} from '../ingest/ingest-staging.service.js';
+import type { LeaderElectionService } from '../cron/leader-election.service.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { redactJobError } from './jobs-monitor.service.js';
 import { JobsMonitorService } from './jobs-monitor.service.js';
 import { BackupFailureNotice } from '../backup/backup-failure-notice.js';
@@ -240,6 +247,80 @@ describe('storage reservation', () => {
     await svc.reserve('org-1', 10n, 'upload-1');
     expect(sql.some((row) => row.includes('pg_advisory_xact_lock'))).toBe(true);
     expect(sql.some((row) => row.includes('DELETE FROM storage_reservation'))).toBe(true);
+  });
+});
+
+describe('storage reservation input', () => {
+  const prisma = {
+    $transaction: jest.fn(),
+  };
+  const svc = new ResourceQuotaService(prisma as unknown as PrismaService);
+
+  it('refuses a purpose or org id that is not a string', async () => {
+    await expect(
+      svc.reserve('org-1', 1n, ['a', 'b'] as unknown as string),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.reserve({ id: 'org-1' } as unknown as string, 1n, 'upload-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('staging disk', () => {
+  const saved = process.env.STAGING_DIR;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.STAGING_DIR;
+    else process.env.STAGING_DIR = saved;
+  });
+
+  it('measures STAGING_DIR when it is set and tmpdir otherwise', () => {
+    process.env.STAGING_DIR = '  /var/lib/gg-staging ';
+    expect(stagingDiskPath()).toBe('/var/lib/gg-staging');
+    process.env.STAGING_DIR = '   ';
+    expect(stagingDiskPath()).toBe(tmpdir());
+    delete process.env.STAGING_DIR;
+    expect(stagingDiskPath()).toBe(tmpdir());
+  });
+
+  function reserveWith() {
+    const created: unknown[] = [];
+    const tx = {
+      $executeRaw: async () => undefined,
+      storageReservation: {
+        findFirst: async () => null,
+        create: async (row: unknown) => {
+          created.push(row);
+          return {};
+        },
+      },
+    };
+    const prisma = {
+      $transaction: async (fn: (inner: typeof tx) => Promise<void>) => fn(tx),
+    };
+    return { svc: new ResourceQuotaService(prisma as unknown as PrismaService), created };
+  }
+
+  it('checks free space on the STAGING_DIR filesystem', async () => {
+    // A huge request against a real filesystem is refused.
+    process.env.STAGING_DIR = tmpdir();
+    const real = reserveWith();
+    await expect(real.svc.reserve('org-1', 1n << 62n, 'upload-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    // The same request against a STAGING_DIR that cannot be measured
+    // fails open, which shows the probe read STAGING_DIR and not tmpdir.
+    process.env.STAGING_DIR = join(tmpdir(), 'gg-no-such-staging-volume-for-test');
+    const missing = reserveWith();
+    await missing.svc.reserve('org-1', 1n << 62n, 'upload-1');
+    expect(missing.created).toHaveLength(1);
+  });
+
+  it('refuses a staging id that is not a UUID', async () => {
+    const staging = new IngestStagingService({} as unknown as LeaderElectionService);
+    for (const id of ['../../etc', '0000000-../x', 'abcdef12', '']) {
+      await expect(staging.getStaging(id, 'user-1')).rejects.toBeInstanceOf(NotFoundException);
+    }
   });
 });
 

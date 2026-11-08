@@ -13,5 +13,14 @@ export default async function AdminOperationsPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
-  return <OperationsView />;
+  // Readiness and maintenance are install-wide, so the API limits them
+  // to admins of the operator organization. Probe once so other org
+  // admins see a note instead of panels that would only return 403.
+  let operator = true;
+  try {
+    await apiFetch('/api/admin/maintenance');
+  } catch (err) {
+    if ((err as { status?: number }).status === 403) operator = false;
+  }
+  return <OperationsView operator={operator} />;
 }

@@ -3585,6 +3585,7 @@ export const es: Partial<CatalogShape> = {
     maintenanceOn: 'Activar mantenimiento',
     maintenanceOff: 'Desactivar mantenimiento',
     failed: 'La solicitud falló.',
+    operatorOnly: 'La preparación y el mantenimiento afectan a toda la instalación, así que solo los administradores de la organización operadora pueden usarlos.',
   },
   opsBackup: {
     failureBanner: 'Una copia no terminó. Lea la ejecución fallida. Se envía un aviso una sola vez si las notificaciones están activas.',

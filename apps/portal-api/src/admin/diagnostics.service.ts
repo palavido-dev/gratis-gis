@@ -3,13 +3,16 @@ import { existsSync } from 'node:fs';
 
 import { Injectable } from '@nestjs/common';
 
+import { operatorOrgId } from '../backup/operator-org.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
 
 /**
- * Support bundle for one signed-in org admin. It counts jobs and
- * reads the maintenance flag. It does not run a shell command and
- * it does not open a path the caller supplied.
+ * Support bundle for one signed-in org admin. It counts the org's
+ * jobs. Only admins of the operator organization also get install
+ * readiness (database, maintenance) and backup counts across every
+ * org. It does not run a shell command and it does not open a path
+ * the caller supplied.
  */
 
 const SECRET_KEY = /pass|secret|token|authorization|cookie|credential|email|user.?name/i;
@@ -59,6 +62,7 @@ export class DiagnosticsService {
   ) {}
 
   async bundle(orgId: string, actorUserId: string): Promise<Record<string, unknown>> {
+    const operator = (await operatorOrgId(this.prisma).catch(() => null)) === orgId;
     let database: 'ok' | 'error' = 'ok';
     try {
       await this.prisma.$queryRaw`SELECT 1`;
@@ -82,10 +86,12 @@ export class DiagnosticsService {
         where: { orgId },
         _count: { _all: true },
       }),
-      this.prisma.backupRun.groupBy({
-        by: ['status'],
-        _count: { _all: true },
-      }),
+      operator
+        ? this.prisma.backupRun.groupBy({
+            by: ['status'],
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const body = {
@@ -97,10 +103,15 @@ export class DiagnosticsService {
           : 'dev',
         node: process.version,
       },
-      readiness: {
-        database,
-        maintenance: maintenanceActive,
-      },
+      scope: operator ? 'install' : 'org',
+      ...(operator
+        ? {
+            readiness: {
+              database,
+              maintenance: maintenanceActive,
+            },
+          }
+        : {}),
       jobs: {
         import: await countsBy(
           imports.map((row) => ({ key: row.status, n: row._count._all })),
@@ -109,11 +120,15 @@ export class DiagnosticsService {
           analysis.map((row) => ({ key: row.state, n: row._count._all })),
         ),
       },
-      backup: {
-        byStatus: await countsBy(
-          backups.map((row) => ({ key: row.status, n: row._count._all })),
-        ),
-      },
+      ...(operator
+        ? {
+            backup: {
+              byStatus: await countsBy(
+                backups.map((row) => ({ key: row.status, n: row._count._all })),
+              ),
+            },
+          }
+        : {}),
     };
     const redacted = redactDiagnostics(body) as Record<string, unknown>;
     await this.audit.record({

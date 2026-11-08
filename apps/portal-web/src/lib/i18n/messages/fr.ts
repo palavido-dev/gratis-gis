@@ -3594,6 +3594,7 @@ export const fr: Partial<CatalogShape> = {
     maintenanceOn: 'Activer la maintenance',
     maintenanceOff: 'Arrêter la maintenance',
     failed: 'La requête a échoué.',
+    operatorOnly: 'La disponibilité et la maintenance concernent toute l\'installation : seuls les admins de l\'organisation opératrice peuvent les utiliser.',
   },
   opsBackup: {
     failureBanner: 'Une sauvegarde n’a pas fini. Lisez l’exécution en échec. Un avis part une seule fois si les notifications sont actives.',
