@@ -100,6 +100,13 @@ describe('findUnsafeMapColors', () => {
     expect(findUnsafeMapColors(data)).toEqual([]);
   });
 
+  it('accepts a cleared (empty) color', () => {
+    const data = {
+      layers: [{ style: { point: { color: '' }, renderer: { colors: ['', '#fff'] } } }],
+    };
+    expect(findUnsafeMapColors(data)).toEqual([]);
+  });
+
   it('returns nothing for data without layers', () => {
     expect(findUnsafeMapColors(null)).toEqual([]);
     expect(findUnsafeMapColors({ color: '<x>' })).toEqual([]);

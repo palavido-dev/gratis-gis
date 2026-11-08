@@ -82,7 +82,11 @@ function walkColors(
 ): void {
   if (depth > MAX_DEPTH || out.length >= 20) return;
   if (typeof value === 'string') {
-    if (underColorKey && !isSafeCssColor(value)) out.push(path);
+    // An empty string is a cleared color field, which renderers
+    // already treat as "use the default". It cannot break out of
+    // anything, and rejecting it would 400 every later save of a map
+    // that has one.
+    if (underColorKey && value !== '' && !isSafeCssColor(value)) out.push(path);
     return;
   }
   if (Array.isArray(value)) {

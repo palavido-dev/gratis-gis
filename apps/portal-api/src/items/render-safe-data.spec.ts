@@ -133,6 +133,14 @@ describe('map style colors on save', () => {
     expect(captured.data).toBeUndefined();
   });
 
+  it('accepts a cleared color on update', async () => {
+    const captured: Captured = {};
+    const data = { layers: [{ id: 'l1', style: { point: { color: '' } } }] };
+    const svc = serviceForUpdate(captured, { type: 'map', data });
+    await svc.update(contributor(), 'item-1', { data } as never);
+    expect(captured.data).toEqual(data);
+  });
+
   it('accepts ordinary colors', async () => {
     const captured: Captured = {};
     const data = {
