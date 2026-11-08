@@ -90,15 +90,19 @@ export class JobsMonitorService {
   }
 
   private async cancelImport(user: AuthUser, id: string): Promise<JobRow> {
-    const row = await this.prisma.importJob.findUnique({ where: { id } });
-    if (!row || row.orgId !== user.orgId) throw new NotFoundException('Import job not found.');
-    if (row.status !== 'queued' && row.status !== 'running') {
-      throw new BadRequestException('Only a queued or running import can be cancelled.');
-    }
-    const updated = await this.prisma.importJob.update({
-      where: { id },
+    // One conditional write: a job that finishes between a read and
+    // the write cannot be flipped back to cancelled.
+    const flipped = await this.prisma.importJob.updateMany({
+      where: { id, orgId: user.orgId, status: { in: ['queued', 'running'] } },
       data: { status: 'cancelled', finishedAt: new Date() },
     });
+    const updated = await this.prisma.importJob.findUnique({ where: { id } });
+    if (!updated || updated.orgId !== user.orgId) {
+      throw new NotFoundException('Import job not found.');
+    }
+    if (flipped.count === 0) {
+      throw new BadRequestException('Only a queued or running import can be cancelled.');
+    }
     await this.audit.record({
       orgId: user.orgId,
       actorUserId: user.id,
@@ -119,19 +123,23 @@ export class JobsMonitorService {
   }
 
   private async cancelAnalysis(user: AuthUser, id: string): Promise<JobRow> {
-    const row = await this.prisma.analysisJob.findUnique({ where: { id } });
-    if (!row || row.orgId !== user.orgId) throw new NotFoundException('Analysis job not found.');
-    if (row.state === 'queued') {
-      await this.prisma.analysisJob.updateMany({
-        where: { id, state: 'queued' },
-        data: { state: 'cancelled', finishedAt: new Date() },
-      });
-    } else if (row.state === 'running') {
-      await this.prisma.analysisJob.updateMany({
-        where: { id, state: 'running' },
-        data: { state: 'cancel_requested' },
-      });
-    } else {
+    // Each branch is one conditional write scoped to the org. A count
+    // of zero on both means the job is gone, in another org, or has
+    // already moved past queued or running.
+    const queued = await this.prisma.analysisJob.updateMany({
+      where: { id, orgId: user.orgId, state: 'queued' },
+      data: { state: 'cancelled', finishedAt: new Date() },
+    });
+    const running =
+      queued.count > 0
+        ? queued
+        : await this.prisma.analysisJob.updateMany({
+            where: { id, orgId: user.orgId, state: 'running' },
+            data: { state: 'cancel_requested' },
+          });
+    if (running.count === 0) {
+      const row = await this.prisma.analysisJob.findUnique({ where: { id } });
+      if (!row || row.orgId !== user.orgId) throw new NotFoundException('Analysis job not found.');
       throw new BadRequestException('Only a queued or running analysis can be cancelled.');
     }
     await this.audit.record({
