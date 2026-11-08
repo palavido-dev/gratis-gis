@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
 import {
@@ -2479,7 +2479,7 @@ function ServiceConfigSection({
               {data.serviceTitle ? (
                 <>
                   <span className="font-medium text-ink-0">{data.serviceTitle}</span>
-                  {' Â· '}
+                  {' · '}
                 </>
               ) : null}
               {data.layers.length} layer{data.layers.length === 1 ? '' : 's'}
@@ -2638,10 +2638,10 @@ function OgcConfigSection({
               {probeResult.title ? (
                 <>
                   <span className="font-medium text-ink-0">{probeResult.title}</span>
-                  {' Â· '}
+                  {' · '}
                 </>
               ) : null}
-              {protocolLabel} {probeResult.protocolVersion} Â· {probeResult.layers.length}{' '}
+              {protocolLabel} {probeResult.protocolVersion} · {probeResult.layers.length}{' '}
               {layerWord}
               {probeResult.layers.length === 1 ? '' : 's'}
             </div>
@@ -2966,12 +2966,12 @@ function ArcgisConfigSection({
               </p>
               <p className="mt-0.5 flex items-center gap-1 text-2xs text-muted">
                 <span>{probeResult.serviceType}</span>
-                <span aria-hidden="true">Â·</span>
+                <span aria-hidden="true">·</span>
                 <span>
                   {probeResult.layers.length}{' '}
                   {probeResult.layers.length === 1 ? 'layer' : 'layers'}
                 </span>
-                <span aria-hidden="true">Â·</span>
+                <span aria-hidden="true">·</span>
                 <a
                   href={`${probeResult.url}?f=html`}
                   target="_blank"

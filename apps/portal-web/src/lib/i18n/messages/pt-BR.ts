@@ -896,7 +896,7 @@ export const ptBR: Partial<CatalogShape> = {
     editableLayersCount:
       '{count, plural, one {# camada editável} other {# camadas editáveis}}',
     toolAdd: 'Adicionar',
-    toolMagic: 'Magic outline-solid',
+    toolMagic: 'Magic outline',
     toolSnap: 'Ajuste',
     toolUndo: 'Desfazer',
     toolRedo: 'Refazer',
@@ -924,12 +924,12 @@ export const ptBR: Partial<CatalogShape> = {
     deleteThisFeature: 'Excluir esta feição',
     layerFallback: 'Camada',
     magicNeedsImagery:
-      'Adicione uma camada de imagens a este mapa para usar outline-solid.',
+      'Adicione uma camada de imagens a este mapa para usar Magic Outline.',
     outlining: 'Contornando...',
     magicProblem:
-      'A ferramenta outline-solid encontrou um problema. Tente de novo.',
+      'A ferramenta Magic Outline encontrou um problema. Tente de novo.',
     magicNeedsPolygon:
-      'A ferramenta outline-solid precisa de uma camada de polígonos editável como destino. Abra a configuração do editor para adicionar uma.',
+      'A ferramenta Magic Outline precisa de uma camada de polígonos editável como destino. Abra a configuração do editor para adicionar uma.',
     noEditableTargetsAdd:
       'Nenhuma camada de destino editável configurada. Abra a configuração do editor para adicionar uma.',
     noEditableTargetsEdit:
@@ -1325,29 +1325,6 @@ export const ptBR: Partial<CatalogShape> = {
   },
   presence: {
     youSuffix: ' (você)',
-  },
-  comments: {
-    title: 'Comentários',
-    showResolved: 'Mostrar resolvidos',
-    startThread: 'Iniciar um novo tópico...',
-    post: 'Publicar',
-    reply: 'Responder...',
-    resolve: 'Resolver',
-    reopen: 'Reabrir',
-    threadCount: '{count, plural, one {# tópico} other {# tópicos}}',
-    noOpen:
-      'Nenhum tópico aberto. Ative "Mostrar resolvidos" para ver os fechados.',
-    noComments:
-      'Ainda sem comentários. Inicie a conversa abaixo.',
-    signInPrompt: 'Entre para comentar neste mapa.',
-  },
-  markup: {
-    title: 'Anotações',
-    add: 'Adicionar anotação',
-    empty:
-      'Sem anotações ainda. Adicione um conjunto e então coloque marcadores para anotar o mapa.',
-    dropPin: 'Colocar marcador no centro',
-    signInPrompt: 'Entre para adicionar anotações neste mapa.',
   },
   print: {
     chooserTitle: 'Imprimir este mapa',
@@ -2153,15 +2130,6 @@ export const ptBR: Partial<CatalogShape> = {
     noFeaturesInExtent: 'Nenhuma feição nesta extensão do mapa.',
     noFeatures: 'Nenhuma feição para mostrar.',
     sortAndCalculate: 'Clique para ordenar, clique com o botão direito para Calcular campo',
-  },
-  addToMap: {
-    newMap: 'Novo mapa',
-    existingMap: 'Um mapa existente',
-    loadingMaps: 'Carregando mapas...',
-    noMaps: 'Nenhum mapa ainda',
-    layerGone: '{item} não tem mais uma camada "{layerKey}".',
-    tableNoShapes:
-      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
     export: 'Exportar',
     exportAllRows: 'Todas as linhas ({count})',
     exportSelectedRows: 'Linhas selecionadas ({count})',
@@ -2244,6 +2212,15 @@ export const ptBR: Partial<CatalogShape> = {
     savingCell: 'Salvando...',
     readOnlyHere:
       'Esta tabela é somente leitura aqui. As linhas podem ser editadas em camadas que você tem permissão para alterar.',
+  },
+  addToMap: {
+    newMap: 'Novo mapa',
+    existingMap: 'Um mapa existente',
+    loadingMaps: 'Carregando mapas...',
+    noMaps: 'Nenhum mapa ainda',
+    layerGone: '{item} não tem mais uma camada "{layerKey}".',
+    tableNoShapes:
+      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
   },
   mapAddLayer: {
     title: 'Adicionar camada',
@@ -5016,21 +4993,21 @@ export const ptBR: Partial<CatalogShape> = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
@@ -5098,7 +5075,6 @@ export const ptBR: Partial<CatalogShape> = {
       layers: "Camadas",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Imprimir",

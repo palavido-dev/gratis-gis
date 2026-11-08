@@ -141,8 +141,8 @@ import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
-import { formatDate, useFormat } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
+import { RelativeTime } from '@/components/relative-time';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -3742,7 +3742,7 @@ function LayerVisibilityPanel({
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
             {panelT('fieldOffline.cachedSummary', {
-              when: formatRelativeTime(cachedDeployment.cachedAt),
+              when: fmt.relativeTime(cachedDeployment.cachedAt),
               size: formatBytes(cachedDeployment.estimatedSize),
             })}
           </p>
@@ -5638,7 +5638,7 @@ function FieldMoreMenu({
                   {t('fieldRuntime.lastCached')}
                 </span>
                 <span className="text-ink-1">
-                  {formatRelativeTime(cachedAt)}
+                  <RelativeTime value={cachedAt} />
                 </span>
               </li>
             ) : null}
@@ -6418,27 +6418,6 @@ function groupFeatureResultsByLayer(
     out[i]!.results.push(r);
   }
   return out;
-}
-
-/**
- * Render an ISO timestamp as a relative-friendly string ("2 hours
- * ago", "yesterday", "3 days ago"). Used in the cached-deployment
- * line so the user knows how stale their offline data is at a
- * glance. Falls through to a date string past 30 days.
- */
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day === 1) return 'yesterday';
-  if (day < 30) return `${day}d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
 }
 
 /**
