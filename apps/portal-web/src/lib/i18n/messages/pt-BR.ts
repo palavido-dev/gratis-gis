@@ -1784,6 +1784,9 @@ export const ptBR: Partial<CatalogShape> = {
     removeWillLoseOthers:
       '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
     downloadForOffline: 'Baixar para uso offline',
+    deviceOnlyWarning:
+      'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Salve uma cópia se precisar das fotos e das formas antes da sincronização.',
+    saveUnsyncedCopy: 'Salvar uma cópia do trabalho não sincronizado',
     refreshOfflineCache: 'Atualizar cache offline',
     confirmRefresh: 'Confirmar atualização',
     refreshUnsyncedWarn:
@@ -1932,6 +1935,8 @@ export const ptBR: Partial<CatalogShape> = {
     previewLoading: 'Carregando a pré-visualização',
     backToItems: 'Voltar aos itens',
     sharingHeading: 'Compartilhamento',
+    publicBoundaryWarning:
+      'O limite geográfico público está ausente ou sem geometria. Leitores públicos não veem feições até que um limite existente seja escolhido.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir o formulário para enviar uma resposta',
     responses: 'Respostas',
