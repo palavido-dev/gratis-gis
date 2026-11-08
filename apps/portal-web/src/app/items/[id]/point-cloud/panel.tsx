@@ -37,6 +37,7 @@ import {
   type PresignResponse,
 } from '@/lib/presign-upload';
 import { useFormat } from '@/lib/i18n/format';
+import { itemDataFromBody } from '@/lib/item-response';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -129,11 +130,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
       try {
         const res = await fetch(`/api/portal/items/${itemId}`);
         if (!res.ok) return;
-        const body = (await res.json()) as {
-          data?: unknown;
-          item?: { data?: unknown };
-        };
-        const d = body.item?.data ?? body.data;
+        const d = itemDataFromBody(await res.json());
         if (!cancelled && isPointCloudData(d)) setData(d);
       } catch {
         /* transient; the next tick retries */
@@ -220,11 +217,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (!res.ok) return;
-      const body = (await res.json()) as {
-        data?: unknown;
-        item?: { data?: unknown };
-      };
-      const d = body.item?.data ?? body.data;
+      const d = itemDataFromBody(await res.json());
       if (isPointCloudData(d)) setData(d);
     } catch {
       /* the building poll will pick up the state shortly */

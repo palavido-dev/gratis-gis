@@ -21,6 +21,7 @@ import {
   squareMetersPerAreaUnit,
   type AreaUnit,
 } from '@/lib/measure';
+import { metersPerPixel as webMercatorMetersPerPixel } from './web-mercator';
 
 /** localStorage key for the area-scale unit preference. */
 export const AREA_SCALE_UNIT_KEY = 'gg-area-scale-unit';
@@ -54,17 +55,9 @@ export type AreaScaleSelection = {
   label: string;
 };
 
-/**
- * Web-mercator meters per pixel at a latitude + zoom. Matches the
- * GPS accuracy-ring and print scalebar formula used elsewhere in
- * the portal (equatorial circumference / 256 / 2^z * cos(lat)).
- */
+/** Meters per pixel at a latitude + MapLibre zoom (512 px tiles). */
 export function metersPerPixel(latDeg: number, zoom: number): number {
-  const cosLat = Math.cos((latDeg * Math.PI) / 180);
-  // Guard poles / bad input so callers never get Infinity / NaN.
-  const cos = Number.isFinite(cosLat) ? Math.max(Math.abs(cosLat), 1e-6) : 1e-6;
-  const z = Number.isFinite(zoom) ? zoom : 0;
-  return (40_075_016.686 * cos) / (256 * Math.pow(2, z));
+  return webMercatorMetersPerPixel(latDeg, zoom);
 }
 
 /**

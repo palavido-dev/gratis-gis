@@ -49,6 +49,7 @@ import {
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { useDerivedLayerCatalog } from './use-derived-layer-catalog';
+import { StableKeys } from '@/lib/stable-keys';
 
 /**
  * Inline builder for derived layers.
@@ -917,6 +918,10 @@ function PipelineSection({
   // is the pipeline index where the picked tool will be spliced in
   // when the user makes a selection; null means the modal is closed.
   const [pickerSlotIndex, setPickerSlotIndex] = useState<number | null>(null);
+  // Keys that follow each step through inserts and removals, so a
+  // step card's preview state stays with its step.
+  const [stepKeys] = useState(() => new StableKeys());
+  const keys = stepKeys.for(pipeline.length);
   return (
     <section className="space-y-2">
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -936,7 +941,7 @@ function PipelineSection({
         />
 
         {pipeline.map((step, idx) => (
-          <div key={idx} className="space-y-2">
+          <div key={keys[idx]} className="space-y-2">
             <StepCard
               index={idx}
               step={step}
@@ -945,7 +950,10 @@ function PipelineSection({
               sourceFields={sourceFields}
               sourcePicked={sourcePicked}
               onChange={(next) => onReplaceStep(idx, next)}
-              onRemove={() => onRemoveStep(idx)}
+              onRemove={() => {
+                stepKeys.remove(idx);
+                onRemoveStep(idx);
+              }}
             />
             {/* Insertion slot AFTER each step. The last one acts as
                 the "Add a step" call to action at the bottom of the
@@ -970,6 +978,7 @@ function PipelineSection({
         onClose={() => setPickerSlotIndex(null)}
         onPick={(kind) => {
           if (pickerSlotIndex !== null) {
+            stepKeys.insert(pickerSlotIndex);
             onInsertStep(pickerSlotIndex, kind);
           }
           setPickerSlotIndex(null);
