@@ -163,3 +163,27 @@ updates:
       - dependency-name: "postgis/postgis"
         update-types:
           - "version-update:semver-major"
+
+  # Docker base image for the PDAL/GDAL analysis worker. It parses
+  # uploaded point clouds and rasters, so its base image gets the same
+  # weekly check as the others.
+  - package-ecosystem: "docker"
+    directory: "/tools/pointcloud-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    labels:
+      - "dependencies"
+      - "docker"
+    reviewers:
+      - "palavido-dev"
+    assignees:
+      - "palavido-dev"
+    commit-message:
+      prefix: "chore(docker)"
+    groups:
+      docker-pointcloud:
+        patterns:
+          - "*"
