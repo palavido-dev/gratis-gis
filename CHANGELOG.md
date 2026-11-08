@@ -30,6 +30,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The portal-api image build can compile `gdal-async` from source.
+  That package's node-gyp step runs `npm`, and the image had deleted
+  npm in the base stage before `pnpm fetch`. npm is copied back into
+  the build stage only. The runtime image is still based on the stage
+  that deletes npm, and the build fails if `/usr/local/bin/npm` is
+  present there. No Trivy ignore was added. The point-cloud model
+  download is unchanged.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

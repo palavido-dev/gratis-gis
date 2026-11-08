@@ -42,6 +42,18 @@ RUN npm install -g pnpm@9.12.0 \
 
 FROM base AS build
 WORKDIR /repo
+# gdal-async 3.12.3 falls back to a source build during `pnpm fetch`.
+# Its node-gyp after_build step runs `npm` to emit lib/index.d.ts.
+# The base stage deletes npm so the runtime image does not ship the
+# vulnerable bundled copy. This stage is not that image. Put the same
+# pinned Node image's npm back here, and only here. The runtime stage
+# is `FROM base`, so this copy does not land in the final image.
+COPY --from=node:24.22.2-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+# The image's npm and npx entries are symlinks into that directory.
+# COPY follows the link and writes a regular file, whose relative
+# require then misses lib/cli.js. Recreate the links.
+RUN ln -sfn ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sfn ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 # Build deps: gdal-async, prisma, and the @nestjs/cli all need build
 # tools at install/generate time. Removed in the runtime stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -68,6 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # manifest is read.
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
+# Fail here, before the fetch, if the npm copy above did not resolve.
+# gdal-async's makefile calls `npm` with no path of its own.
+RUN npm --version
 RUN pnpm fetch
 
 # Manifests + sources come in only after the store is warm. pnpm's
@@ -348,6 +363,13 @@ RUN mkdir -p /app/backups /app/data /var/lib/gg-staging && chown -R app:app /app
 # codes so the container fails fast on a bad deploy.
 COPY --chown=app:app apps/portal-api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# npm is restored only in the build stage. This image is FROM base,
+# which deletes it. Fail the build if a later change brings it back.
+RUN if [ -e /usr/local/bin/npm ] || [ -e /usr/local/bin/npx ] || [ -d /usr/local/lib/node_modules/npm ]; then \
+      echo 'runtime image must not contain npm' >&2; \
+      exit 1; \
+    fi
 
 USER app
 EXPOSE 4000
