@@ -370,7 +370,25 @@ export class AdminUsersController {
         });
       }
     }
-    const kcUserAfter = await this.kc.updateUser(id, patch);
+    let kcUserAfter: KeycloakUserRep;
+    try {
+      kcUserAfter = await this.kc.updateUser(id, patch);
+    } catch (err) {
+      if (dto.orgRole !== undefined) {
+        this.note(me, 'user.role', id, 'failed', { role: dto.orgRole });
+      }
+      if (dto.enabled !== undefined || patch.enabled !== undefined) {
+        this.note(me, 'user.enabled', id, 'failed', {
+          enabled: patch.enabled === true,
+        });
+      }
+      if (dto.autoDisableAt !== undefined) {
+        this.note(me, 'user.auto_disable', id, 'failed', {
+          cleared: dto.autoDisableAt === null,
+        });
+      }
+      throw err;
+    }
     // Enrich with the local-only fields so the FE row update gets a
     // complete AdminUserRep (matches what /admin/users list returns).
     // Without this, the dialog's spread merge keeps the stale
