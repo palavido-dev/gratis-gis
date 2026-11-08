@@ -48,13 +48,23 @@ works even without a key):
   degree, and results are capped (default 1000, max 5000)
   so continent-scale or unbounded queries are refused.
 
-Write tools (need a key without the read-only flag):
+Write tools (off by default; need `GRATIS_MCP_ALLOW_WRITES=1`
+in the server's environment and a key without the read-only
+flag):
 
 - **run_tool**: run an existing portal tool item by id with
   the same inputs the browser uses.
 - **create_data_layer_from_geojson**: create a private data
   layer from a GeoJSON FeatureCollection (thin facade over
-  item create plus feature append).
+  item create plus feature append). Sharing it with the org
+  or the public is refused unless the operator sets
+  `GRATIS_MCP_MAX_ACCESS` to `org` or `public`.
+
+Feature attributes, item descriptions and OSM tags are
+written by other people, and an AI client reading them can be
+steered by text inside them. The server marks every such
+result as untrusted data and keeps write tools off unless you
+turn them on. A read-only key remains the safest setup.
 
 Anything the bearer token can't do via the regular HTTP API,
 the MCP server can't do either.
@@ -100,7 +110,8 @@ config.
 - **Read only** if the client should only browse and inspect.
   Then no prompt can change your data through this connection.
 - Leave read-only off only when you intentionally want
-  `run_tool` or `create_data_layer_from_geojson`.
+  `run_tool` or `create_data_layer_from_geojson`, and also set
+  `GRATIS_MCP_ALLOW_WRITES=1` in the MCP client config.
 
 The key acts as the account that created it and keeps working
 until it expires or you revoke it. See
