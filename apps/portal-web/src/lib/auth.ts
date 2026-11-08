@@ -28,6 +28,9 @@ const cookieNaming = authCookieNaming(process.env.NEXTAUTH_URL);
  *  request doesn't race the boundary and end up with an expired token. */
 const REFRESH_LEEWAY_SECONDS = 30;
 
+/** How often a request moves the idle-timeout activity stamp. */
+export const ACTIVITY_STAMP_INTERVAL_MS = 60_000;
+
 /**
  * Refresh failures repeat on every request for as long as a browser
  * holds a dead refresh token (for example after the golden restore
@@ -61,6 +64,46 @@ function warnRefreshFailure(reason: string): void {
 const inFlightRefreshes = new Map<string, Promise<JWT>>();
 
 /**
+ * Successful refreshes, kept for a short while after they settle and
+ * keyed by the refresh token they spent.
+ *
+ * A refresh that runs where no cookie can be written (server
+ * components call getServerSession, which cannot set cookies in the
+ * App Router) leaves the browser holding the old refresh token. The
+ * next request presents it again. With refresh-token rotation that
+ * token is already spent and Keycloak refuses it, so the session
+ * would fail mid-use. Answering the repeat from here gives it the
+ * same tokens the first refresh got, until a request that can write
+ * the cookie (the BFF, see session-roll.ts) persists them.
+ */
+const RECENT_REFRESH_TTL_MS = 120_000;
+const recentRefreshes = new Map<string, { at: number; token: JWT }>();
+
+function rememberRefresh(spent: string, token: JWT): void {
+  const now = Date.now();
+  for (const [key, entry] of recentRefreshes) {
+    if (now - entry.at > RECENT_REFRESH_TTL_MS) recentRefreshes.delete(key);
+  }
+  recentRefreshes.set(spent, { at: now, token });
+}
+
+function recentRefreshFor(refreshToken: string): JWT | null {
+  const entry = recentRefreshes.get(refreshToken);
+  if (!entry) return null;
+  if (Date.now() - entry.at > RECENT_REFRESH_TTL_MS) {
+    recentRefreshes.delete(refreshToken);
+    return null;
+  }
+  return entry.token;
+}
+
+/** Test hook: forget refresh state between cases. */
+export function resetRefreshStateForTests(): void {
+  inFlightRefreshes.clear();
+  recentRefreshes.clear();
+}
+
+/**
  * Trade the captured refresh_token for a fresh access_token + new
  * refresh_token from Keycloak. Returns an updated JWT mirror; on
  * failure, marks the token with `error: 'RefreshAccessTokenError'`
@@ -79,11 +122,18 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
     warnRefreshFailure('no refresh token on session');
     return { ...token, error: 'RefreshAccessTokenError' };
   }
+  const recent = recentRefreshFor(refreshToken);
+  if (recent) return { ...token, ...recent, lastActive: token.lastActive } as JWT;
   const inFlight = inFlightRefreshes.get(refreshToken);
   if (inFlight) return inFlight;
-  const pending = requestRefreshedToken(token, refreshToken).finally(() => {
-    inFlightRefreshes.delete(refreshToken);
-  });
+  const pending = requestRefreshedToken(token, refreshToken)
+    .then((next) => {
+      if (!next.error) rememberRefresh(refreshToken, next);
+      return next;
+    })
+    .finally(() => {
+      inFlightRefreshes.delete(refreshToken);
+    });
   inFlightRefreshes.set(refreshToken, pending);
   return pending;
 }
@@ -204,7 +254,17 @@ export const authOptions: NextAuthOptions = {
           return { ...token, error: 'IdleTimeout' };
         }
       }
-      if (idle !== null) token.lastActive = Date.now();
+      // Stamp activity at most once a minute. The stamp only counts
+      // once a route handler writes it back to the cookie (see
+      // session-roll.ts), and rewriting the cookie on every one of a
+      // map view's dozens of requests would be pure overhead.
+      if (
+        idle !== null &&
+        (typeof token.lastActive !== 'number' ||
+          Date.now() - token.lastActive >= ACTIVITY_STAMP_INTERVAL_MS)
+      ) {
+        token.lastActive = Date.now();
+      }
 
       // 2. Subsequent calls: if the access token is still fresh,
       //    return as-is. Subtract a leeway so we refresh slightly

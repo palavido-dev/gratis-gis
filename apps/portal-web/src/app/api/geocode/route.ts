@@ -18,6 +18,7 @@
 import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
+import { hasUsableSession } from '@/lib/session-state';
 
 const NOMINATIM_URL = process.env.NOMINATIM_URL ?? 'http://localhost:8081';
 const USER_AGENT =
@@ -37,7 +38,9 @@ async function searchNominatim(base: string, params: URLSearchParams): Promise<R
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) {
+  // Same rule as the BFF: a session whose refresh failed or that hit
+  // the idle timeout is signed out.
+  if (!hasUsableSession(session)) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 

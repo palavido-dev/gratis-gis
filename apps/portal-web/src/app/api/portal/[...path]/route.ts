@@ -7,10 +7,9 @@
  *
  * Only verbs we currently use are wired; add more as needed.
  */
-import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { authOptions, type SessionWithToken } from '@/lib/auth';
+import { resolveRouteSession, type CookieWrite } from '@/lib/session-roll';
 import { isSessionStale } from '@/lib/session-state';
 import { mintRequestId } from '@/lib/api-error';
 
@@ -340,6 +339,15 @@ function isDotOrEmptySegment(segment: string): boolean {
 }
 
 async function forward(req: NextRequest, pathSegments: string[]) {
+  const { response, cookies } = await forwardInner(req, pathSegments);
+  for (const c of cookies) response.cookies.set(c.name, c.value, c.options);
+  return response;
+}
+
+async function forwardInner(
+  req: NextRequest,
+  pathSegments: string[],
+): Promise<{ response: NextResponse; cookies: CookieWrite[] }> {
   // Per-hop timing log behind the BFF_TIMING flag. Lets us split a
   // slow page load into "cookie + getServerSession" vs "upstream
   // fetch to portal-api" vs "body shaping". With ~24 items in the
@@ -348,7 +356,11 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   const trace = process.env.BFF_TIMING === '1';
   const t0 = trace ? Date.now() : 0;
 
-  const session = (await getServerSession(authOptions)) as SessionWithToken | null;
+  // Not getServerSession: it runs the jwt callback (token refresh,
+  // idle activity stamp) but cannot write the result back in a route
+  // handler. resolveRouteSession returns the cookie writes, which
+  // forward() puts on whatever response it returns.
+  const { session, cookies: sessionCookies } = await resolveRouteSession(req);
   const tSession = trace ? Date.now() : 0;
 
   const suffix = pathSegments.join('/');
@@ -365,7 +377,10 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // No legitimate client sends dot or empty segments, so a flat 400
   // is safe for authenticated callers as well.
   if (suffix.split('/').some(isDotOrEmptySegment)) {
-    return NextResponse.json({ message: 'Bad request' }, { status: 400 });
+    return {
+      response: NextResponse.json({ message: 'Bad request' }, { status: 400 }),
+      cookies: sessionCookies,
+    };
   }
 
   // #195: a session whose Keycloak refresh has failed still carries
@@ -417,12 +432,14 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     // sign-in decayed"; the session-expired banner keys off the
     // session object itself, but API consumers (QGIS plugin, tests)
     // get an honest machine-readable reason too.
-    return NextResponse.json(
+    return {
+      response: NextResponse.json(
       sessionStale
         ? { message: 'Unauthorized', code: 'session-expired' }
         : { message: 'Unauthorized' },
-      { status: 401 },
-    );
+      { status: 401 },),
+      cookies: sessionCookies,
+    };
   }
 
   const effectiveSuffix = publicRewrite ?? suffix;
@@ -522,14 +539,16 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     console.error(
       `[bff] ${requestId} ${req.method} /api/${suffix} failed: ${reason}`,
     );
-    return NextResponse.json(
+    return {
+      response: NextResponse.json(
       {
         message: 'The portal API could not be reached.',
         statusCode: 502,
         requestId,
       },
-      { status: 502, headers: { 'x-request-id': requestId } },
-    );
+      { status: 502, headers: { 'x-request-id': requestId } },),
+      cookies: sessionCookies,
+    };
   }
   const tUpstream = trace ? Date.now() : 0;
   // Stream-pass the response body so the browser receives bytes the
@@ -627,10 +646,13 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     outHeaders.append('set-cookie', c);
   }
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: outHeaders,
-  });
+  return {
+    response: new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: outHeaders,
+    }),
+    cookies: sessionCookies,
+  };
 }
 
 // Next 15 changed Route Handler params from a sync object to a
