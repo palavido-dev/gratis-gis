@@ -43,6 +43,8 @@ class NasInitTests(unittest.TestCase):
         self.assertNotIn("Strict-Transport-Security", caddy)
         self.assertIn("auto_https off", caddy)
         self.assertIn("/auth/realms/master", caddy)
+        self.assertIn("path /api/geocode /api/geocode/*", caddy)
+        self.assertNotIn("handle /api/geocode/*", caddy)
 
     def test_sign_in_client_follows_the_current_address(self):
         old = {
@@ -96,6 +98,7 @@ class NasInitTests(unittest.TestCase):
         )
         self.assertIn("Strict-Transport-Security", caddy)
         self.assertIn("/realms/master", caddy)
+        self.assertIn("path /api/geocode /api/geocode/*", caddy)
 
 
 if __name__ == "__main__":
