@@ -36,9 +36,7 @@ export const AUDIT_ACTIONS = [
   'admin.diagnostics',
   'job.cancel',
   'job.retry',
-  'quota.update',
   'maintenance.set',
-  'credential.rekey',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

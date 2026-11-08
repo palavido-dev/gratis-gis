@@ -253,7 +253,6 @@ model Organization {
   aiProvider            OrgAiProvider?
   /// Privileged admin actions. Not the feature observation log.
   adminAuditEvents      AdminAuditEvent[]
-  resourceQuota         OrgResourceQuota?
   storageReservations   StorageReservation[]
 
   @@map("organization")
@@ -301,18 +300,8 @@ model AdminAuditEvent {
   @@map("admin_audit_event")
 }
 
-/// Absent row: no org storage cap and no import-slot cap.
-model OrgResourceQuota {
-  orgId                String   @id @map("org_id") @db.Uuid
-  maxStorageBytes      BigInt?  @map("max_storage_bytes")
-  maxConcurrentImports Int?     @map("max_concurrent_imports")
-  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("org_resource_quota")
-}
-
+/// Bytes held by one staged upload or queued import. Released when
+/// the import finishes or fails. No per-org cap sums these rows.
 model StorageReservation {
   id        String   @id @default(uuid()) @db.Uuid
   orgId     String   @map("org_id") @db.Uuid

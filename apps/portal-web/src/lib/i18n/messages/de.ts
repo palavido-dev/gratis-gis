@@ -3569,16 +3569,13 @@ export const de: Partial<CatalogShape> = {
   },
   opsPage: {
     title: 'Betrieb',
-    intro: 'Die Bereitschaft ist für Admins. Die öffentliche Gesundheit bleibt die Datenbank. Eine fehlgeschlagene Wiederherstellung bleibt an, bis eine Wiederherstellung fertig ist. Das Umschlüsseln zählt nur und schreibt den Geheimtext nicht um.',
+    intro: 'Die Bereitschaft ist für Admins. Die öffentliche Gesundheit bleibt die Datenbank. Eine fehlgeschlagene Wiederherstellung bleibt an, bis eine Wiederherstellung fertig ist.',
     readiness: 'Bereitschaft',
     check: 'Dienste prüfen',
     maintenance: 'Wartung',
     maintenanceHint: 'Wartung an lässt das Portal mit 503 antworten, außer Gesundheit und dieser Schalter. Eine fehlgeschlagene Wiederherstellung bleibt an, bis eine Wiederherstellung fertig ist. Bestätigen nimmt sie nicht weg.',
     maintenanceOn: 'Wartung einschalten',
     maintenanceOff: 'Wartung ausschalten',
-    rekey: 'Schlüsselwechsel',
-    rekeyHint: 'Die Vorprüfung zählt nur Anwendungsgeheimnisse. Umschreiben ist nicht verfügbar, weil andere Prozesse weiter den aktuellen Schlüssel nutzen. Datenbank und Keycloak gehören nicht zu dieser Prüfung.',
-    rekeyPreflight: 'Vorprüfung starten',
     failed: 'Die Anfrage ist fehlgeschlagen.',
   },
   opsBackup: {

@@ -3551,16 +3551,13 @@ export const es: Partial<CatalogShape> = {
   },
   opsPage: {
     title: 'Operaciones',
-    intro: 'La preparación es para administradores. La salud pública sigue siendo la base de datos. Una restauración fallida permanece hasta que otra restauración termina. El recifrado solo cuenta credenciales y no reescribe el texto cifrado.',
+    intro: 'La preparación es para administradores. La salud pública sigue siendo la base de datos. Una restauración fallida permanece hasta que otra restauración termina.',
     readiness: 'Preparación',
     check: 'Comprobar servicios',
     maintenance: 'Mantenimiento',
     maintenanceHint: 'Activar el mantenimiento hace que el portal responda 503, salvo la salud y este control. Una restauración fallida permanece hasta que otra restauración termina. Reconocerla no la quita.',
     maintenanceOn: 'Activar mantenimiento',
     maintenanceOff: 'Desactivar mantenimiento',
-    rekey: 'Recifrado de credenciales',
-    rekeyHint: 'La comprobación solo cuenta credenciales de la aplicación. Reescribirlas no está disponible, porque los demás procesos seguirían con la clave actual. La base y Keycloak no forman parte de esta comprobación.',
-    rekeyPreflight: 'Ejecutar comprobación',
     failed: 'La solicitud falló.',
   },
   opsBackup: {

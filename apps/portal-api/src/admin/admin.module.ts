@@ -21,8 +21,6 @@ import { AdminAuditModule } from './admin-audit.module.js';
 import { DiagnosticsController } from './diagnostics.controller.js';
 import { DiagnosticsService } from './diagnostics.service.js';
 import { PermissionsReportController } from './permissions-report.controller.js';
-import { CredentialRekeyController } from './credential-rekey.controller.js';
-import { CredentialRekeyService } from './credential-rekey.service.js';
 import { JobsMonitorController } from './jobs-monitor.controller.js';
 import { JobsMonitorService } from './jobs-monitor.service.js';
 import { MaintenanceAdminController } from './maintenance-admin.controller.js';
@@ -77,7 +75,6 @@ import { UpdatesService } from '../updates/updates.service.js';
     AdminAuditController,
     AdminOnboardingController,
     DiagnosticsController,
-    CredentialRekeyController,
     JobsMonitorController,
     MaintenanceAdminController,
     PermissionsReportController,
@@ -97,7 +94,6 @@ import { UpdatesService } from '../updates/updates.service.js';
     HousekeepingCronService,
     DiagnosticsService,
     OnboardingService,
-    CredentialRekeyService,
     JobsMonitorService,
     PermissionsReportService,
     ReadinessService,

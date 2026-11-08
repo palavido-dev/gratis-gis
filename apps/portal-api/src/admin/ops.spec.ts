@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, ConflictException } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import {
   failedRestore,
   MaintenanceAdminController,
 } from './maintenance-admin.controller.js';
 import { ResourceQuotaService } from './resource-quota.service.js';
 
-import { quotaDecision } from './resource-quota.js';
+import { diskDecision } from './resource-quota.js';
+import { isStagingId } from '../ingest/ingest-staging.service.js';
 import { redactJobError } from './jobs-monitor.service.js';
 import { JobsMonitorService } from './jobs-monitor.service.js';
 import { BackupFailureNotice } from '../backup/backup-failure-notice.js';
-import { CredentialRekeyService } from './credential-rekey.service.js';
-import { encryptWithKey } from '../items/credential-cipher.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import type { AdminAuditService } from './admin-audit.service.js';
@@ -30,48 +28,24 @@ const user: AuthUser = {
   capabilities: new Set(),
 };
 
-describe('quotaDecision', () => {
-  it('allows an unlimited org and refuses a full disk or a cap', () => {
-    expect(
-      quotaDecision({
-        maxBytes: null,
-        usedBytes: 0n,
-        requestedBytes: 10n,
-        maxConcurrentImports: null,
-        activeImports: 4,
-        freeBytes: 100n,
-      }).ok,
-    ).toBe(true);
-    expect(
-      quotaDecision({
-        maxBytes: null,
-        usedBytes: 0n,
-        requestedBytes: 50n,
-        maxConcurrentImports: null,
-        activeImports: 0,
-        freeBytes: 40n,
-      }),
-    ).toEqual({ ok: false, reason: 'disk' });
-    expect(
-      quotaDecision({
-        maxBytes: 100n,
-        usedBytes: 90n,
-        requestedBytes: 20n,
-        maxConcurrentImports: null,
-        activeImports: 0,
-        freeBytes: 1000n,
-      }),
-    ).toEqual({ ok: false, reason: 'storage' });
-    expect(
-      quotaDecision({
-        maxBytes: null,
-        usedBytes: 0n,
-        requestedBytes: 0n,
-        maxConcurrentImports: 1,
-        activeImports: 1,
-        freeBytes: 1000n,
-      }),
-    ).toEqual({ ok: false, reason: 'concurrent' });
+describe('diskDecision', () => {
+  it('refuses only a request larger than the free disk', () => {
+    expect(diskDecision({ requestedBytes: 10n, freeBytes: 100n })).toEqual({ ok: true });
+    expect(diskDecision({ requestedBytes: 50n, freeBytes: 40n })).toEqual({
+      ok: false,
+      reason: 'disk',
+    });
+    expect(diskDecision({ requestedBytes: 50n, freeBytes: null })).toEqual({ ok: true });
+  });
+});
+
+describe('isStagingId', () => {
+  it('accepts one UUID string and nothing else', () => {
+    expect(isStagingId('3f2b8c4e-1d2a-4b5c-9e8f-0a1b2c3d4e5f')).toBe(true);
+    expect(isStagingId(['3f2b8c4e-1d2a-4b5c-9e8f-0a1b2c3d4e5f'])).toBe(false);
+    expect(isStagingId('../../etc')).toBe(false);
+    expect(isStagingId({ length: 36 })).toBe(false);
+    expect(isStagingId(undefined)).toBe(false);
   });
 });
 
@@ -152,6 +126,58 @@ describe('job monitor', () => {
     expect(first.type).toBe('append');
   });
 
+  it('cancels with one conditional write and refuses a job that already finished', async () => {
+    const where: unknown[] = [];
+    let status = 'running';
+    const prisma = {
+      importJob: {
+        updateMany: async (args: { where: { status: { in: string[] } } }) => {
+          where.push(args.where);
+          if (!args.where.status.in.includes(status)) return { count: 0 };
+          status = 'cancelled';
+          return { count: 1 };
+        },
+        findUnique: async () => ({
+          id: 'job-1',
+          orgId: 'org-1',
+          sourceFileName: 'a.geojson',
+          mode: 'append',
+          status,
+          errorMessage: null,
+        }),
+      },
+    };
+    const svc = new JobsMonitorService(
+      prisma as unknown as PrismaService,
+      { record: async () => undefined } as unknown as AdminAuditService,
+    );
+    const first = await svc.cancel(user, 'import', 'job-1');
+    expect(first.status).toBe('cancelled');
+    expect(where[0]).toEqual({
+      id: 'job-1',
+      orgId: 'org-1',
+      status: { in: ['queued', 'running'] },
+    });
+    await expect(svc.cancel(user, 'import', 'job-1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('does not cancel an import in another org', async () => {
+    const svc = new JobsMonitorService(
+      {
+        importJob: {
+          updateMany: async () => ({ count: 0 }),
+          findUnique: async () => ({ id: 'job-2', orgId: 'org-2', status: 'running' }),
+        },
+      } as unknown as PrismaService,
+      { record: async () => undefined } as unknown as AdminAuditService,
+    );
+    await expect(svc.cancel(user, 'import', 'job-2')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('refuses to cancel a finished backup', async () => {
     const svc = new JobsMonitorService(
       {
@@ -204,11 +230,8 @@ describe('storage reservation', () => {
       },
       storageReservation: {
         findFirst: async () => null,
-        aggregate: async () => ({ _sum: { bytes: 0n } }),
         create: async () => ({}),
       },
-      orgResourceQuota: { findUnique: async () => null },
-      importJob: { count: async () => 0 },
     };
     const prisma = {
       $transaction: async (fn: (inner: typeof tx) => Promise<void>) => fn(tx),
@@ -217,53 +240,6 @@ describe('storage reservation', () => {
     await svc.reserve('org-1', 10n, 'upload-1');
     expect(sql.some((row) => row.includes('pg_advisory_xact_lock'))).toBe(true);
     expect(sql.some((row) => row.includes('DELETE FROM storage_reservation'))).toBe(true);
-  });
-});
-
-describe('credential rekey', () => {
-  it('refuses the mutation and does not write ciphertext', async () => {
-    const key = randomBytes(32);
-    const enc = encryptWithKey('s3cret-value', 'item-1', key);
-    const rows = [
-      { id: 'cred-1', itemId: 'item-1', encryptedPayload: enc.ciphertext, iv: enc.iv },
-    ];
-    let updates = 0;
-    const prisma = {
-      itemCredential: {
-        findMany: async () => rows,
-        update: async () => {
-          updates += 1;
-        },
-      },
-      orgAiProvider: { findMany: async () => [], update: async () => ({}) },
-      $transaction: async () => {
-        throw new Error('write failed');
-      },
-    };
-    process.env.CREDENTIAL_ENCRYPTION_KEY = key.toString('base64');
-    const { _resetKeyCacheForTests } = await import('../items/credential-cipher.js');
-    _resetKeyCacheForTests();
-    const audits: string[] = [];
-    const svc = new CredentialRekeyService(
-      prisma as unknown as PrismaService,
-      { record: async (row: { outcome: string }) => { audits.push(row.outcome); } } as unknown as AdminAuditService,
-    );
-    expect(svc.coverage().notCovered).toEqual([
-      'postgres password',
-      'keycloak client secret',
-      'keycloak admin secret',
-      'minio root credentials',
-    ]);
-    const file = '/tmp/gg-rekey-key.txt';
-    const { writeFileSync } = await import('node:fs');
-    writeFileSync(file, randomBytes(32).toString('base64'));
-    process.env.GRATIS_REKEY_NEW_KEY_FILE = file;
-    await expect(svc.rekey(user, 'rekey-application-credentials')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    expect(audits).toEqual(['failed']);
-    expect(updates).toBe(0);
-    expect(JSON.stringify(audits)).not.toContain('s3cret');
   });
 });
 

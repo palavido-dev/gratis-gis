@@ -31,20 +31,22 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 ### Added
 
 - Org admins can list imports and analyses for their organization,
-  and cancel or retry only the states those jobs support. A retry
-  checks that the original item and requester are still in the
+  and cancel or retry only the states those jobs support. Every job
+  read and write is scoped to the admin's organization. Cancel is one
+  conditional write, so a job that already finished is refused. A
+  retry checks that the original item and requester are still in the
   organization and keeps the original requester. Install-wide backups
-  stay on the Backup page. Storage quotas are optional: no row means
-  unlimited. A reservation takes an advisory lock, drops a stale hold,
-  and is released when the import or direct upload finishes or fails.
-  A full disk refuses the reservation even when no quota is set.
-  Signed-in admins can read service readiness with a short timeout.
-  Public health stays the database check. Maintenance can be turned
-  on. A failed restore stays on until a restore finishes; acknowledging
-  it does not resume a partial database. A backup that fails queues
-  one notice through the existing notification settings. Application
-  credential rekey is a preflight only. The rewrite is not enabled.
-  `GRATIS_ANALYSIS` stays on unless the install sets it off.
+  stay on the Backup page. An upload or import is refused when the
+  staging disk does not have room for it, and its byte hold is
+  released when the import finishes, fails, or is cancelled. There
+  are no per-org storage or concurrency caps. Signed-in admins can
+  read service readiness with a short timeout. Public health stays
+  the database check. Maintenance can be turned on. A failed restore
+  stays on until a restore finishes; acknowledging it does not resume
+  a partial database. A backup that fails queues one notice through
+  the existing notification settings. Rotating the credential
+  encryption key is not supported yet. `GRATIS_ANALYSIS` stays on
+  unless the install sets it off.
 - Org admins can read a persisted audit of privileged changes
   (users, roles, sharing, ownership, backup, and admin settings),
   download the current permissions snapshot as CSV, and create a

@@ -3560,16 +3560,13 @@ export const fr: Partial<CatalogShape> = {
   },
   opsPage: {
     title: 'Exploitation',
-    intro: 'La disponibilité est réservée aux administrateurs. La santé publique reste le contrôle de la base. Une restauration échouée reste active jusqu’à ce qu’une restauration se termine. Le rechiffrement compte les secrets et ne réécrit pas le texte chiffré.',
+    intro: 'La disponibilité est réservée aux administrateurs. La santé publique reste le contrôle de la base. Une restauration échouée reste active jusqu’à ce qu’une restauration se termine.',
     readiness: 'Disponibilité',
     check: 'Vérifier les services',
     maintenance: 'Maintenance',
     maintenanceHint: 'Activer la maintenance fait répondre 503, sauf la santé et ce contrôle. Une restauration échouée reste active jusqu’à ce qu’une restauration se termine. La confirmer ne l’enlève pas.',
     maintenanceOn: 'Activer la maintenance',
     maintenanceOff: 'Arrêter la maintenance',
-    rekey: 'Rechiffrement',
-    rekeyHint: 'Le contrôle compte seulement les secrets d’application. Les réécrire n’est pas disponible, car les autres processus utiliseraient encore la clé actuelle. La base et Keycloak ne font pas partie de ce contrôle.',
-    rekeyPreflight: 'Lancer le contrôle',
     failed: 'La requête a échoué.',
   },
   opsBackup: {

@@ -9,7 +9,6 @@ export function OperationsView() {
   const t = useT();
   const [readiness, setReadiness] = useState<string | null>(null);
   const [maintenance, setMaintenance] = useState<string | null>(null);
-  const [rekey, setRekey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -85,19 +84,6 @@ export function OperationsView() {
           </button>
         </div>
         {maintenance ? <pre className="mt-3 overflow-x-auto text-xs">{maintenance}</pre> : null}
-      </section>
-      <section>
-        <h2 className="text-sm font-medium">{t('opsPage.rekey')}</h2>
-        <p className="mt-1 text-sm text-ink-1">{t('opsPage.rekeyHint')}</p>
-        <button
-          type="button"
-          className="mt-2 rounded-md border border-line px-3 py-2 text-sm"
-          disabled={busy}
-          onClick={() => void run('/api/portal/admin/rekey', undefined, setRekey)}
-        >
-          {t('opsPage.rekeyPreflight')}
-        </button>
-        {rekey ? <pre className="mt-3 overflow-x-auto text-xs">{rekey}</pre> : null}
       </section>
     </div>
   );

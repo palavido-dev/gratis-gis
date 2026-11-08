@@ -3550,16 +3550,13 @@ export const ptBR: Partial<CatalogShape> = {
   },
   opsPage: {
     title: 'Operações',
-    intro: 'A prontidão é para administradores. A saúde pública continua sendo o banco. Uma restauração que falhou permanece até outra restauração terminar. A troca de chave só conta credenciais e não reescreve o texto cifrado.',
+    intro: 'A prontidão é para administradores. A saúde pública continua sendo o banco. Uma restauração que falhou permanece até outra restauração terminar.',
     readiness: 'Prontidão',
     check: 'Verificar serviços',
     maintenance: 'Manutenção',
     maintenanceHint: 'Ligar a manutenção faz o portal responder 503, exceto a saúde e este controle. Uma restauração que falhou permanece até outra restauração terminar. Reconhecê-la não a remove.',
     maintenanceOn: 'Ligar manutenção',
     maintenanceOff: 'Desligar manutenção',
-    rekey: 'Troca de chave',
-    rekeyHint: 'A verificação só conta credenciais do aplicativo. Reescrevê-las não está disponível, porque os outros processos ainda usariam a chave atual. Banco e Keycloak não fazem parte desta verificação.',
-    rekeyPreflight: 'Executar verificação',
     failed: 'A solicitação falhou.',
   },
   opsBackup: {

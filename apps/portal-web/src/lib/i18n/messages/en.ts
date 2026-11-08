@@ -3692,16 +3692,13 @@ export const en = {
   },
   opsPage: {
     title: 'Operations',
-    intro: 'Readiness is for signed-in admins. Public health stays a database check. A failed restore stays on until a restore finishes. Credential rekey is a count only and does not rewrite ciphertext.',
+    intro: 'Readiness is for signed-in admins. Public health stays a database check. A failed restore stays on until a restore finishes.',
     readiness: 'Readiness',
     check: 'Check services',
     maintenance: 'Maintenance',
     maintenanceHint: 'Turning maintenance on makes the portal return 503 except for health and this control. A failed restore stays on until a restore finishes. It cannot be cleared by acknowledging it.',
     maintenanceOn: 'Turn maintenance on',
     maintenanceOff: 'Turn maintenance off',
-    rekey: 'Credential rekey',
-    rekeyHint: 'Preflight counts application credentials only. Rewriting them is not available, because other API and worker processes would still be using the current key. Database and Keycloak secrets are not part of this check.',
-    rekeyPreflight: 'Run preflight',
     failed: 'The request failed.',
   },
   opsBackup: {
