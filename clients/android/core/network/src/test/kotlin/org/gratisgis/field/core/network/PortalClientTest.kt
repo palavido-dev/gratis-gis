@@ -157,4 +157,38 @@ class PortalClientTest {
       assertEquals("update", body.changes[0].kind)
     }
   }
+
+  @Test
+  fun getLayerDeltaPassesAfterAndReadsNextCursor() = runTest {
+    val engine = MockEngine { request ->
+      assertEquals(
+        "https://portal.example/api/items/dl1/layers/main/delta?since=43&after=o1&limit=10000",
+        request.url.toString(),
+      )
+      respond(
+        """{"syncVersion":50,"since":43,"truncated":true,"nextSince":43,"nextAfter":"o2","changes":[{"observationId":"o2","entity":"e2","kind":"create","syncVersion":43,"createdBy":"u1","createdAt":"2026-11-08T00:00:00.000Z","geometry":null,"properties":{}}]}""",
+        HttpStatusCode.OK,
+        jsonHeaders,
+      )
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      val body = client.getLayerDelta("dl1", "main", since = 43, limit = 10_000, after = "o1")
+      assertEquals(43L, body.nextSince)
+      assertEquals("o2", body.nextAfter)
+      assertEquals("u1", body.changes[0].createdBy)
+    }
+  }
+
+  @Test
+  fun getLayerGeoJsonPagesWithLimitCursorAndAt() = runTest {
+    val engine = MockEngine { request ->
+      assertEquals("5000", request.url.parameters["limit"])
+      assertEquals("c1", request.url.parameters["cursor"])
+      assertEquals("2026-11-08T00:00:00.000Z", request.url.parameters["at"])
+      respond("""{"type":"FeatureCollection","features":[],"nextCursor":null}""", HttpStatusCode.OK, jsonHeaders)
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      client.getLayerGeoJson("dl1", "main", limit = 5_000, cursor = "c1", at = "2026-11-08T00:00:00.000Z")
+    }
+  }
 }
