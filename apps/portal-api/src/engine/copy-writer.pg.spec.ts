@@ -31,6 +31,31 @@ if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
 
 jest.setTimeout(120_000);
 
+/**
+ * This suite drops and recreates `observation` and `item`. Jest runs
+ * pg suites in parallel, so on the shared TEST_DATABASE_URL that raced
+ * other suites mid-test ("relation observation does not exist" in
+ * data-layer.pg.spec). Use a database of its own, like copy-sync.
+ */
+const DB_NAME = 'gg_copy_writer';
+let dbReady: Promise<string> | null = null;
+function ownDatabase(): Promise<string> {
+  dbReady ??= (async () => {
+    const admin = new Pool({ connectionString: TEST_URL, max: 1 });
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE)`);
+      await admin.query(`CREATE DATABASE ${DB_NAME}`);
+    } finally {
+      await admin.end();
+    }
+    const url = new URL(TEST_URL!);
+    url.pathname = `/${DB_NAME}`;
+    return url.toString();
+  })();
+  return dbReady;
+}
+let DB_URL = '';
+
 const SCOPE = 'data_layer:copy-itest:layer';
 const AUTHOR = { sub: 'copy-user', displayName: 'Copy user' };
 
@@ -61,7 +86,8 @@ d('CopyWriter on PostGIS', () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: TEST_URL, max: 4 });
+    DB_URL = await ownDatabase();
+    pool = new Pool({ connectionString: DB_URL, max: 4 });
     await pool.query('CREATE EXTENSION IF NOT EXISTS postgis');
     await pool.query('DROP TABLE IF EXISTS observation CASCADE');
     await pool.query(`
@@ -134,7 +160,7 @@ d('CopyWriter on PostGIS', () => {
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2',
       ],
     );
-    const writer = new CopyWriter(TEST_URL!);
+    const writer = new CopyWriter(DB_URL);
     await writer.begin();
     writer.beginCopy();
     const t0 = new Date('2026-06-01T00:00:00Z');
@@ -187,7 +213,7 @@ d('CopyWriter on PostGIS', () => {
        VALUES ($1, '2026-03-01', '2026-03-01', $2, $3, 'create', '{}', 'past', '{"kind":"web"}')`,
       ['cccccccc-cccc-cccc-cccc-ccccccccccc1', SCOPE, entity],
     );
-    const writer = new CopyWriter(TEST_URL!);
+    const writer = new CopyWriter(DB_URL);
     await writer.begin();
     await writer.deleteScope(SCOPE);
     writer.beginCopy();
@@ -209,7 +235,7 @@ d('CopyWriter on PostGIS', () => {
   it('lets two appends of one new entity commit exactly one create', async () => {
     const entity = '44444444-4444-4444-4444-444444444444';
     const writeOne = async (id: string, when: string) => {
-      const writer = new CopyWriter(TEST_URL!);
+      const writer = new CopyWriter(DB_URL);
       await writer.begin();
       writer.beginCopy();
       await writer.writeBatch([row(entity, id, new Date(when))]);
@@ -242,7 +268,7 @@ d('CopyWriter on PostGIS', () => {
       const hex = i.toString(16).padStart(12, '0');
       rows.push(row(`55555555-5555-4555-8555-${hex}`, `66666666-6666-4666-8666-${hex}`, when));
     }
-    const writer = new CopyWriter(TEST_URL!);
+    const writer = new CopyWriter(DB_URL);
     let removed: number;
     let held: { rows: Array<{ n: string }> };
     try {
@@ -296,7 +322,7 @@ d('CopyWriter on PostGIS', () => {
     `);
     await pool.query('INSERT INTO item (id) VALUES ($1)', [item]);
     const editor = await pool.connect();
-    const writer = new CopyWriter(TEST_URL!);
+    const writer = new CopyWriter(DB_URL);
     try {
       await editor.query('BEGIN');
       await editor.query('SELECT 1 FROM item WHERE id = $1 FOR UPDATE', [item]);
@@ -336,7 +362,8 @@ d('analysis item publish on PostGIS', () => {
   let pool: Pool;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: TEST_URL, max: 4 });
+    DB_URL = await ownDatabase();
+    pool = new Pool({ connectionString: DB_URL, max: 4 });
     await pool.query('DROP TABLE IF EXISTS item');
     await pool.query('DROP TABLE IF EXISTS analysis_job');
     await pool.query(`
