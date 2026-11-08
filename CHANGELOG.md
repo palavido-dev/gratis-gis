@@ -21,6 +21,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Pinned outbound fetches read the socket only as the caller pulls,
   so a slow reader no longer buffers the body in memory. The item and
   public proxies cap the dial at their 64 MiB relay limit.
+- The CI Semgrep rule now flags GeoJSON pasted into
+  ST_GeomFromGeoJSON through an untagged template, and CI runs the
+  rule fixtures so this cannot regress.
 
 ### Added
 

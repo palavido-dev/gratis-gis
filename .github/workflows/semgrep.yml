@@ -12,5 +12,7 @@ jobs:
       image: semgrep/semgrep:1.183.0
     steps:
       - uses: actions/checkout@v4
+      - name: Project rule fixtures
+        run: sh infra/semgrep/run-fixtures.sh
       - name: Project rules only
         run: semgrep scan --config .semgrep.yml --error --metrics=off
