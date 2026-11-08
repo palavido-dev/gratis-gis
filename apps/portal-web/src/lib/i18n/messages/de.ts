@@ -1789,6 +1789,9 @@ export const de: Partial<CatalogShape> = {
     removeWillLoseOthers:
       '{count, plural, one {# davon gehört einem anderen Konto.} other {# davon gehören einem anderen Konto.}}',
     downloadForOffline: 'Für Offline herunterladen',
+    deviceOnlyWarning:
+      'Bearbeitungen und Fotos bleiben auf diesem Gerät, bis sie synchronisiert werden. Sie liegen nicht auf dem Server und nicht in einer Portal-Sicherung. Speichern Sie eine Kopie, wenn Sie die Fotos und die Formen vor der Synchronisierung brauchen.',
+    saveUnsyncedCopy: 'Kopie der nicht synchronisierten Arbeit speichern',
     refreshOfflineCache: 'Offline-Cache aktualisieren',
     confirmRefresh: 'Aktualisierung bestätigen',
     refreshUnsyncedWarn:
@@ -1943,6 +1946,8 @@ export const de: Partial<CatalogShape> = {
     previewLoading: 'Vorschau wird geladen',
     backToItems: 'Zurück zu Elementen',
     sharingHeading: 'Freigabe',
+    publicBoundaryWarning:
+      'Die öffentliche geografische Grenze fehlt oder hat keine Geometrie. Öffentliche Leser sehen keine Objekte, bis eine vorhandene Grenze gewählt ist.',
     openForm: 'Öffnen',
     openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
     responses: 'Antworten',

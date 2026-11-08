@@ -601,6 +601,14 @@ export default async function ItemDetailPage(props: Props) {
             <Users className="h-4 w-4" />
             {t('itemDetail.sharingHeading', undefined, locale)}
           </h2>
+          {(item as { publicBoundaryWarning?: string }).publicBoundaryWarning ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink-1"
+            >
+              {t('itemDetail.publicBoundaryWarning', undefined, locale)}
+            </p>
+          ) : null}
           {/* #91: forms have a paired data_layer where every
               submission lands; the form's own ACL controls who can
               SUBMIT, the layer's ACL controls who can VIEW

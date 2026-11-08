@@ -1869,6 +1869,9 @@ export const en = {
     removeWillLoseOthers:
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
     downloadForOffline: 'Download for offline',
+    deviceOnlyWarning:
+      "Edits and photos stay on this device until they sync. They are not on the server and they are not in a portal backup. Save a copy if you need the photos and the shapes before they sync.",
+    saveUnsyncedCopy: 'Save a copy of unsynced work',
     refreshOfflineCache: 'Refresh offline cache',
     confirmRefresh: 'Confirm refresh',
     refreshUnsyncedWarn:
@@ -2043,6 +2046,8 @@ export const en = {
     // Item page chrome (#162 / R14-i18n-item-page-chrome).
     backToItems: 'Back to items',
     sharingHeading: 'Sharing',
+    publicBoundaryWarning:
+      'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.',
     openForm: 'Open',
     openFormTitle: 'Open the form to submit a response',
     responses: 'Responses',
