@@ -90,6 +90,9 @@ export const ptBR: Partial<CatalogShape> = {
     migrations: 'Migrações',
     feedback: 'Feedback',
     gettingStarted: 'Primeiros passos',
+    audit: 'Auditoria',
+    permissions: 'Permissões',
+    diagnostics: 'Diagnóstico',
     updates: 'Atualizações',
   },
   updates: {
@@ -1804,7 +1807,7 @@ export const ptBR: Partial<CatalogShape> = {
       '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
     downloadForOffline: 'Baixar para uso offline',
     deviceOnlyWarning:
-      'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Salve uma cópia se precisar das fotos e das formas antes da sincronização.',
+      'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Descartar uma, ou limpar os dados deste navegador, apaga esse trabalho. Salve uma cópia se precisar das fotos e das formas antes da sincronização.',
     saveUnsyncedCopy: 'Salvar uma cópia do trabalho não sincronizado',
     refreshOfflineCache: 'Atualizar cache offline',
     confirmRefresh: 'Confirmar atualização',
@@ -3507,6 +3510,52 @@ export const ptBR: Partial<CatalogShape> = {
     docsDesc:
       'O guia integrado cobre papéis, backups, marca e manutenção. Dez minutos agora evitam surpresas depois.',
     docsAction: 'Abrir o guia',
+    secondAdminTitle: 'Adicionar um segundo administrador',
+    secondAdminDesc:
+      '{count, plural, one {# administrador ativo} other {# administradores ativos}}. Um segundo administrador pode recuperar a organização se o primeiro não conseguir entrar. O portal continua funcionando com um só, e este item não pode ser marcado à mão.',
+    secondAdminAction: 'Abrir usuários',
+  },
+  adminAudit: {
+    title: 'Auditoria',
+    intro:
+      'Mudanças privilegiadas desta organização: usuários, papéis, compartilhamento, propriedade, cópia e ajustes de administração. Não é o histórico das feições do mapa. Senhas e corpos de mensagem não são gravados.',
+    refresh: 'Carregar eventos',
+    loading: 'Carregando…',
+    loadFailed: 'Não foi possível carregar a auditoria.',
+    empty: 'Ainda não há eventos. Carregue a lista ou faça uma mudança privilegiada e carregue de novo.',
+    more: 'Eventos anteriores',
+    when: 'Quando',
+    action: 'Ação',
+    actor: 'Ator',
+    target: 'Alvo',
+    outcome: 'Resultado',
+  },
+  adminPermissions: {
+    title: 'Permissões',
+    intro:
+      'Instantâneo atual do compartilhamento: acesso público, da organização, de grupo e de usuário, o dono e os principais que não existem mais. Não é um histórico.',
+    refresh: 'Carregar instantâneo',
+    loading: 'Carregando…',
+    loadFailed: 'Não foi possível carregar as permissões.',
+    download: 'Baixar CSV',
+    generated: 'Instantâneo de {at}.',
+    empty: 'Nenhum item nesta organização.',
+    item: 'Item',
+    access: 'Acesso',
+    owner: 'Dono',
+    share: 'Compartilhamento',
+    missingOwner: 'Dono ausente',
+    missingPrincipal: 'principal ausente',
+    tierOnly: 'Só o nível de acesso',
+  },
+  adminDiagnostics: {
+    title: 'Diagnóstico',
+    intro:
+      'Crie um pacote de suporte de propósito. Ele inclui versões, se o banco respondeu, a manutenção e contagens de trabalhos de importação, análise e cópia. Segredos e nomes são removidos. Nenhum comando de shell é executado.',
+    create: 'Criar pacote',
+    working: 'Criando…',
+    failed: 'Não foi possível criar o pacote.',
+    download: 'Baixar JSON',
   },
   apiKeys: {
     copyTitle: 'Copie sua chave agora',

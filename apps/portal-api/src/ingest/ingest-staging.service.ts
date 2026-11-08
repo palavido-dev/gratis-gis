@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -21,8 +22,10 @@ import {
 import { createWriteStream, existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
 
 /**
  * Staged-upload service. The data_layer create wizard uploads a
@@ -39,8 +42,13 @@ import { randomUUID } from 'node:crypto';
  * On-disk layout (one directory per stagingId):
  *
  *   /tmp/gg-staging/<uuid>/
- *     <safe-original-name>     -- the actual bytes
- *     meta.json                -- { ownerId, originalName, sizeBytes, createdAt }
+ *     <stored-name>            the actual bytes
+ *     meta.json                { ownerId, originalName, storedName, sizeBytes, createdAt }
+ *
+ * `storedName` is the plain file name the bytes were written under.
+ * Stagings written before it existed have no `storedName`; for those
+ * getStaging() falls back to safeFilename(originalName), the rule
+ * those versions used.
  *
  * Authorization is per-user: we record the userId at stage time and
  * refuse a getStaging() lookup from anyone else. This is also why the
@@ -111,23 +119,22 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
+    const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     await writeFile(filePath, input.buffer);
     const meta: StagingMeta = {
       ownerId: input.ownerId,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
+      storedName: fileName,
       sizeBytes: input.buffer.length,
       createdAt: new Date().toISOString(),
     };
     await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
-    this.log.log(
-      `Staged ${input.originalName} (${input.buffer.length} B) as ${stagingId} for user ${input.ownerId}`,
-    );
+    this.log.log(`Staged upload (${input.buffer.length} B) as ${stagingId}`);
     return {
       stagingId,
       filePath,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
       sizeBytes: input.buffer.length,
     };
   }
@@ -153,17 +160,25 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
-    const filePath = join(dir, fileName);
+    // The source path was chosen by the disk-upload pin, not by the
+    // request filename. Resolve it and refuse anything that is not
+    // that file, then keep the same server-chosen name in staging.
+    const source = containedPayloadFile(input.filePath);
+    const payloadName = payloadFileName(basename(source));
+    const storedName = payloadName ? notMetaFile(payloadName) : null;
+    if (!storedName) {
+      throw new BadRequestException('Upload file was not accepted.');
+    }
+    const filePath = join(dir, storedName);
     // rename is instant within a filesystem; fall back to copy+unlink
     // across devices (multer's tmpdir may be on a different mount than
     // the staging root).
     try {
-      await rename(input.filePath, filePath);
+      await rename(source, filePath);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-        await copyFile(input.filePath, filePath);
-        await rm(input.filePath, { force: true }).catch(() => {});
+        await copyFile(source, filePath);
+        await rm(source, { force: true }).catch(() => {});
       } else {
         throw err;
       }
@@ -171,18 +186,17 @@ export class IngestStagingService implements OnModuleInit {
     const sizeBytes = (await stat(filePath)).size;
     const meta: StagingMeta = {
       ownerId: input.ownerId,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
+      storedName,
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
     await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
-    this.log.log(
-      `Staged ${input.originalName} (${sizeBytes} B) as ${stagingId} for user ${input.ownerId}`,
-    );
+    this.log.log(`Staged upload (${sizeBytes} B) as ${stagingId}`);
     return {
       stagingId,
       filePath,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
       sizeBytes,
     };
   }
@@ -210,7 +224,7 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
+    const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     try {
       await pipeline(input.stream, createWriteStream(filePath));
@@ -227,18 +241,17 @@ export class IngestStagingService implements OnModuleInit {
     const sizeBytes = (await stat(filePath)).size;
     const meta: StagingMeta = {
       ownerId: input.ownerId,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
+      storedName: fileName,
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
     await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
-    this.log.log(
-      `Staged ${input.originalName} (${sizeBytes} B, streamed) as ${stagingId} for user ${input.ownerId}`,
-    );
+    this.log.log(`Staged upload (${sizeBytes} B, streamed) as ${stagingId}`);
     return {
       stagingId,
       filePath,
-      originalName: input.originalName,
+      originalName: plainLabel(input.originalName),
       sizeBytes,
     };
   }
@@ -254,21 +267,29 @@ export class IngestStagingService implements OnModuleInit {
     stagingId: string,
     callerUserId: string,
   ): Promise<{ filePath: string; originalName: string; sizeBytes: number }> {
-    if (!stagingId || !/^[0-9a-f-]{8,40}$/i.test(stagingId)) {
-      throw new NotFoundException(`Unknown stagingId "${stagingId}".`);
+    const match = /^[0-9a-f-]{8,40}$/i.exec(stagingId);
+    if (!match) {
+      throw new NotFoundException('Unknown staging id.');
     }
-    const dir = join(this.root, stagingId);
+    const id = match[0];
+    const dir = join(this.root, id);
     if (!existsSync(dir)) {
       throw new NotFoundException(
-        `Staging "${stagingId}" not found (it may have expired; re-upload to retry).`,
+        'Staging was not found. It may have expired; re-upload to retry.',
       );
     }
-    const metaRaw = await readFile(join(dir, 'meta.json'), 'utf8').catch(
+    const rootReal = realpathSync(this.root);
+    const dirReal = realpathSync(dir);
+    const rel = relative(rootReal, dirReal);
+    if (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel) || rel !== id) {
+      throw new NotFoundException('Staging was not found.');
+    }
+    const metaRaw = await readFile(join(dirReal, 'meta.json'), 'utf8').catch(
       () => null,
     );
     if (!metaRaw) {
       throw new NotFoundException(
-        `Staging "${stagingId}" is missing its meta record (re-upload to retry).`,
+        'Staging is missing its meta record. Re-upload to retry.',
       );
     }
     let meta: StagingMeta;
@@ -276,7 +297,7 @@ export class IngestStagingService implements OnModuleInit {
       meta = JSON.parse(metaRaw) as StagingMeta;
     } catch {
       throw new NotFoundException(
-        `Staging "${stagingId}" has a corrupt meta record (re-upload to retry).`,
+        'Staging has a corrupt meta record. Re-upload to retry.',
       );
     }
     if (meta.ownerId !== callerUserId) {
@@ -284,10 +305,18 @@ export class IngestStagingService implements OnModuleInit {
         'That staging belongs to a different user.',
       );
     }
-    const filePath = join(dir, safeFilename(meta.originalName));
+    const stored = storedFileName(meta);
+    if (!stored) {
+      throw new NotFoundException('Staging file was not accepted.');
+    }
+    const filePath = join(dirReal, stored);
+    const fileRel = relative(dirReal, filePath);
+    if (fileRel !== stored || isAbsolute(fileRel)) {
+      throw new NotFoundException('Staging file was not accepted.');
+    }
     if (!existsSync(filePath)) {
       throw new NotFoundException(
-        `Staging "${stagingId}" file is missing (re-upload to retry).`,
+        'Staging file is missing. Re-upload to retry.',
       );
     }
     return {
@@ -389,8 +418,64 @@ export class IngestStagingService implements OnModuleInit {
 interface StagingMeta {
   ownerId: string;
   originalName: string;
+  /** File name inside the staging directory. Absent on stagings
+   *  written before this field existed. */
+  storedName?: string;
   sizeBytes: number;
   createdAt: string;
+}
+
+/** Display label for an upload name: printable ASCII, no path. */
+function plainLabel(name: string): string {
+  const base = basename(typeof name === 'string' ? name : '');
+  const chars: string[] = [];
+  for (let i = 0; i < base.length && chars.length < 120; i += 1) {
+    const ch = base.charAt(i);
+    const ok =
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '.' ||
+      ch === '_' ||
+      ch === '-' ||
+      ch === ' ';
+    if (ok) chars.push(ch);
+  }
+  return chars.join('') || 'upload';
+}
+
+/**
+ * File name of the staged bytes, or null when meta.json names
+ * anything other than a plain file inside the staging directory.
+ * Disk uploads store a `serverUploadName` result; buffer and stream
+ * stagings store safeFilename(originalName). Both are fixed points of
+ * their own rule, so a value that a rule would change (a separator,
+ * `..`, a leading dot) is refused. Stagings written before
+ * `storedName` existed fall back to safeFilename(originalName).
+ */
+function storedFileName(meta: StagingMeta): string | null {
+  const candidate =
+    typeof meta.storedName === 'string'
+      ? meta.storedName
+      : typeof meta.originalName === 'string'
+        ? safeFilename(meta.originalName)
+        : '';
+  if (
+    candidate.length === 0 ||
+    candidate === '.' ||
+    candidate === '..' ||
+    candidate === 'meta.json'
+  ) {
+    return null;
+  }
+  if (candidate.includes('/') || candidate.includes('\\')) return null;
+  if (payloadFileName(candidate)) return candidate;
+  return safeFilename(candidate) === candidate ? candidate : null;
+}
+
+/** An upload literally named meta.json must not overwrite the record. */
+function notMetaFile(name: string): string {
+  return name === 'meta.json' ? 'upload_meta.json' : name;
 }
 
 /**

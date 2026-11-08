@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, extname, join } from 'node:path';
+import { join } from 'node:path';
 import { diskStorage } from 'multer';
+
+import { attachDiskFileName, pinDiskUpload, serverUploadName } from './ingest-disk-path.js';
 
 /** 1 GB, matching IngestService.maxBytes. */
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
@@ -14,32 +16,33 @@ const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
  * for the duration of the request, so two concurrent county-scale
  * imports could exceed the box; disk storage bounds memory to nothing.
  *
- * Each upload gets its own `mkdtemp` dir with the sanitised original
- * filename inside, mirroring IngestService.materializeBufferToTemp, so
- * GDAL/OGR still sees the extension it needs to select a driver and one
- * upload's file cannot collide with another's. The handler removes
- * `file.destination` (the temp dir) when it is done, unless the file
- * was moved out of it (the stage path renames it away).
+ * Each upload gets its own `mkdtemp` directory. The file inside it is
+ * a sanitized stem of the request's filename plus an extension from a
+ * fixed list, so GDAL still sees a format hint and names a GeoJSON or
+ * CSV layer after the picked file, and the stored name is not a path.
+ * `..` used to survive as a filename and `join(tempDir, '..')` left
+ * the directory. Handlers open the path recorded here, then delete
+ * that directory. They do not open `file.path`.
  */
 export const INGEST_DISK_UPLOAD = {
   storage: diskStorage({
-    destination: (_req, _file, cb) => {
+    destination: (req, _file, cb) => {
       mkdtemp(join(tmpdir(), 'gg-ingest-')).then(
-        (dir) => cb(null, dir),
+        (dir) => {
+          pinDiskUpload(req, dir);
+          cb(null, dir);
+        },
         (err) => cb(err instanceof Error ? err : new Error(String(err)), ''),
       );
     },
-    filename: (_req, file, cb) => cb(null, safeUploadName(file.originalname)),
+    filename: (req, file, cb) => {
+      const name = serverUploadName(file.originalname);
+      if (!attachDiskFileName(req, name)) {
+        cb(new Error('Upload directory was not created.'), '');
+        return;
+      }
+      cb(null, name);
+    },
   }),
   limits: { fileSize: MAX_UPLOAD_BYTES },
 };
-
-/**
- * Strip directory components and anything outside a conservative
- * allowlist, but keep the extension so GDAL can still sniff the format
- * from the path.
- */
-function safeUploadName(name: string): string {
-  const cleaned = basename(name).replace(/[^\w.\- ]+/g, '_').slice(0, 200);
-  return cleaned.length > 0 ? cleaned : `upload${extname(name)}`;
-}

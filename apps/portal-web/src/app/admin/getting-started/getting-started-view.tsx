@@ -25,6 +25,7 @@ import {
   Mail,
   Map as MapIcon,
   RotateCcw,
+  ShieldCheck,
   UserPlus,
 } from 'lucide-react';
 
@@ -33,7 +34,7 @@ import type { Translator } from '@/lib/i18n';
 import { useT } from '@/lib/i18n/locale-context';
 
 export interface OnboardingItem {
-  key: 'configure-email' | 'invite-team' | 'first-map' | 'admin-docs';
+  key: 'configure-email' | 'invite-team' | 'second-admin' | 'first-map' | 'admin-docs';
   kind: 'derived' | 'manual';
   done: boolean;
   dismissed: boolean;
@@ -65,6 +66,19 @@ function buildRowMeta(t: Translator): Record<OnboardingItem['key'], RowMeta> {
       description: () => t('gettingStarted.emailDesc'),
       actionLabel: t('gettingStarted.emailAction'),
       href: '/admin/notifications',
+    },
+    'second-admin': {
+      icon: <ShieldCheck className="h-4 w-4" />,
+      title: t('gettingStarted.secondAdminTitle'),
+      description: (item) => {
+        const n =
+          typeof item.detail.enabledAdminCount === 'number'
+            ? item.detail.enabledAdminCount
+            : 0;
+        return t('gettingStarted.secondAdminDesc', { count: n });
+      },
+      actionLabel: t('gettingStarted.secondAdminAction'),
+      href: '/admin/users',
     },
     'invite-team': {
       icon: <UserPlus className="h-4 w-4" />,

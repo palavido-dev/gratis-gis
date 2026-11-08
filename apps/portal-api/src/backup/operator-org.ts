@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -11,11 +12,21 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Install-wide backup is not an organization admin power. The
- * operator organization is GRATIS_OPERATOR_ORG_ID when that is a
- * UUID, otherwise the oldest organization. A one-organization
- * install is unchanged. Admins of any later organization are not
- * operators.
+ * operator organization is GRATIS_OPERATOR_ORG_ID when that is set,
+ * otherwise the oldest organization. A one-organization install is
+ * unchanged. Admins of any later organization are not operators.
+ * A set but malformed GRATIS_OPERATOR_ORG_ID fails closed: no
+ * organization is the operator, and a warning is logged once.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const logger = new Logger('OperatorOrg');
+let warnedInvalidEnv = false;
+
+/** Test hook: lets a spec observe the once-only warning again. */
+export function resetOperatorOrgWarningForTests(): void {
+  warnedInvalidEnv = false;
+}
+
 export async function operatorOrgId(prisma: {
   organization: {
     findFirst: (args: {
@@ -26,7 +37,16 @@ export async function operatorOrgId(prisma: {
   };
 }): Promise<string | null> {
   const fromEnv = process.env.GRATIS_OPERATOR_ORG_ID?.trim();
-  if (fromEnv && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fromEnv)) {
+  if (fromEnv) {
+    if (!UUID_RE.test(fromEnv)) {
+      if (!warnedInvalidEnv) {
+        warnedInvalidEnv = true;
+        logger.warn(
+          'GRATIS_OPERATOR_ORG_ID is set but is not a UUID; no organization is the operator.',
+        );
+      }
+      return null;
+    }
     const row = await prisma.organization.findFirst({
       where: { id: fromEnv },
       select: { id: true },

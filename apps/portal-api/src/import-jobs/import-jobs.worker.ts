@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { ImportJob, Prisma } from '@prisma/client';
+import type { ImportJob } from '@prisma/client';
 
 import { ImportJobsService } from './import-jobs.service.js';
 import { IngestService } from '../ingest/ingest.service.js';
@@ -10,6 +10,7 @@ import {
   DataLayerTablesService,
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
+import { stampV3LayerSource } from '../data-layer/stamp-layer-source.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
@@ -403,7 +404,7 @@ export class ImportJobsWorker implements OnModuleInit {
 
       // Stamp source provenance on the layer (the detail page
       // surfaces "Imported from X.gdb.zip on Y by Z").
-      await this.stampV3LayerSource(job.itemId, job.layerId, {
+      await stampV3LayerSource(this.prisma, job.itemId, job.layerId, {
         fileName: job.sourceFileName,
         format: driverToFormat(lastDriver),
         sizeBytes: staged.sizeBytes,
@@ -481,43 +482,6 @@ export class ImportJobsWorker implements OnModuleInit {
         await this.jobs.zeroInsertedForFailed(job.id);
       }
     }
-  }
-
-  /**
-   * Same shape the ingest controller's stampV3LayerSource writes.
-   * Duplicated here to avoid pulling the controller's private
-   * helper into the public surface; a future cleanup pass could
-   * extract this into a shared LayerSourceStamper.
-   */
-  private async stampV3LayerSource(
-    itemId: string,
-    layerId: string,
-    source: {
-      fileName: string;
-      format: string;
-      sizeBytes: number;
-      importedAt: string;
-      importedBy: string;
-      note?: string;
-      sourceSrs?: string | null;
-    },
-  ): Promise<void> {
-    const row = await this.prisma.item.findUnique({
-      where: { id: itemId },
-      select: { data: true },
-    });
-    const data = row?.data as
-      | { version?: number; layers?: Array<Record<string, unknown>> }
-      | null;
-    if (!data || data.version !== 3 || !Array.isArray(data.layers)) return;
-    const nextLayers = data.layers.map((l) =>
-      (l as { id?: string }).id === layerId ? { ...l, source } : l,
-    );
-    const nextData = { ...(data as object), layers: nextLayers };
-    await this.prisma.item.update({
-      where: { id: itemId },
-      data: { data: nextData as unknown as Prisma.InputJsonValue },
-    });
   }
 }
 

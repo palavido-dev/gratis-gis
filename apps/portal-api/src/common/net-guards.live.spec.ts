@@ -126,6 +126,153 @@ describe('pinned HTTP dial', () => {
     }
   });
 
+  it('reads the socket only as fast as the consumer pulls', async () => {
+    const chunk = Buffer.alloc(64 * 1024, 0x61);
+    const total = 64 * 1024 * 1024;
+    let written = 0;
+    let blocked = false;
+    let socketClosed!: Promise<void>;
+    const server = createHttpServer((req, res) => {
+      socketClosed = new Promise((resolve) => req.socket.once('close', () => resolve()));
+      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      const pump = () => {
+        while (written < total) {
+          written += chunk.length;
+          if (!res.write(chunk)) {
+            blocked = true;
+            res.once('drain', pump);
+            return;
+          }
+        }
+        res.end();
+      };
+      pump();
+    });
+    const port = await listen(server);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/slow`),
+        undefined,
+        '127.0.0.1',
+      );
+      const reader = res.body!.getReader();
+      let pulled = 0;
+      const first = await reader.read();
+      pulled += first.value?.byteLength ?? 0;
+      // A slow consumer: wait while the server keeps trying to write.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const writtenWhileIdle = written;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(blocked).toBe(true);
+      // The server stalled: nothing more went out while we did not pull.
+      expect(written).toBe(writtenWhileIdle);
+      // Only the kernel socket buffers and one stream chunk sit between
+      // the two ends, far less than the body.
+      expect(written).toBeLessThan(total / 4);
+      for (let i = 0; i < 4; i++) {
+        const next = await reader.read();
+        pulled += next.value?.byteLength ?? 0;
+      }
+      expect(pulled).toBeGreaterThan(0);
+      await reader.cancel();
+      await socketClosed;
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('errors the reader when a streamed body crosses the cap', async () => {
+    let socketClosed!: Promise<void>;
+    const server = createHttpServer((req, res) => {
+      socketClosed = new Promise((resolve) => req.socket.once('close', () => resolve()));
+      res.writeHead(200);
+      const chunk = Buffer.alloc(16 * 1024, 0x62);
+      let left = 64;
+      const pump = () => {
+        while (left > 0) {
+          left -= 1;
+          if (!res.write(chunk)) {
+            res.once('drain', pump);
+            return;
+          }
+        }
+        res.end();
+      };
+      pump();
+    });
+    const port = await listen(server);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/stream`),
+        undefined,
+        '127.0.0.1',
+        { maxBytes: 100 * 1024 },
+      );
+      const reader = res.body!.getReader();
+      let got = 0;
+      const drain = async () => {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          got += value.byteLength;
+        }
+      };
+      await expect(drain()).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+      expect(got).toBeLessThanOrEqual(100 * 1024);
+      await socketClosed;
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('closes the socket when the reader cancels', async () => {
+    let socketClosed!: Promise<void>;
+    const server = createHttpServer((req, res) => {
+      socketClosed = new Promise((resolve) => req.socket.once('close', () => resolve()));
+      res.writeHead(200);
+      // Never ends on its own.
+      res.write('first');
+    });
+    const port = await listen(server);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/open`),
+        undefined,
+        '127.0.0.1',
+      );
+      const reader = res.body!.getReader();
+      const first = await reader.read();
+      expect(Buffer.from(first.value!).toString()).toBe('first');
+      await reader.cancel();
+      await socketClosed;
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('applies a per-call maxBytes passed to safeFetch', async () => {
+    const server = createHttpServer((_req, res) => {
+      res.writeHead(200, { 'content-length': '40' });
+      res.end('x'.repeat(40));
+    });
+    const port = await listen(server);
+    _setSafeFetchTransportForTests((url, init, _addresses, options) =>
+      pinnedRequest(url, init, '127.0.0.1', options?.maxBytes ? { maxBytes: options.maxBytes } : {}),
+    );
+    try {
+      await expect(
+        safeFetch(`http://tiles.example:${port}/big`, undefined, { maxBytes: 16 }),
+      ).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+      const ok = await safeFetch(`http://tiles.example:${port}/big`, undefined, { maxBytes: 64 });
+      await expect(ok.text()).resolves.toBe('x'.repeat(40));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
   it('checks the certificate against the original name, not the dial address', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gg-pin-'));
     const key = join(dir, 'key.pem');
