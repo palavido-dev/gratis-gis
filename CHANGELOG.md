@@ -30,6 +30,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Portal web production build. The My location helper used the `in`
+  operator in a function-parameter default, which the Next.js
+  compiler rejects, so `next build` and the portal-web image scan
+  failed.
 - Data layer import of a zipped shapefile, KMZ, GeoPackage, or
   GeoJSON. The server allowlist split driver names on spaces, so
   `ESRI Shapefile` was rejected after GDAL opened the file. A KMZ

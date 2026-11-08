@@ -13,13 +13,22 @@ export const INSECURE_GEOLOCATION_MESSAGE =
 
 export type GeolocationBlock = 'insecure-context' | 'unsupported';
 
+// Default arguments are parsed by SWC. An `in` operator written
+// directly in a parameter default is a syntax error there
+// ("Expected ',', got 'in'"), which fails `next build`.
+function pageIsSecureContext(): boolean | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return window.isSecureContext;
+}
+
+function pageHasGeolocation(): boolean | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return typeof navigator.geolocation !== 'undefined';
+}
+
 export function geolocationBlock(
-  isSecureContext: boolean | undefined = typeof window === 'undefined'
-    ? undefined
-    : window.isSecureContext,
-  hasGeolocation: boolean | undefined = typeof navigator === 'undefined'
-    ? undefined
-    : 'geolocation' in navigator,
+  isSecureContext: boolean | undefined = pageIsSecureContext(),
+  hasGeolocation: boolean | undefined = pageHasGeolocation(),
 ): GeolocationBlock | null {
   if (isSecureContext === false) return 'insecure-context';
   if (hasGeolocation === false) return 'unsupported';
