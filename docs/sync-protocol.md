@@ -126,12 +126,14 @@ read:
 - Own rows: an entity is in scope when its create observation is the
   caller's. Every later observation of it is returned, whoever wrote
   it, so a supervisor's edit or delete reaches the worker.
-- Geo limit: an observation inside the clip is returned as is. An
-  observation outside the clip, of an entity that has ever been
-  inside it, is returned as `kind: "delete"` with null geometry and
-  properties, so a feature moved out of the share's area leaves the
-  device. Entities never inside the clip are never returned. A closed
-  clip returns nothing.
+- Geo limit: a non-delete observation inside the clip (or with no
+  geometry, as on reads) is returned as is. A delete, or an
+  observation outside the clip, is returned as `kind: "delete"` with
+  null geometry and properties only when an earlier observation of
+  the entity was visible, so a feature moved out of the share's area
+  leaves the device. An entity the caller could never see is never
+  returned, tombstones included, so its id and creator do not leak.
+  A closed clip returns nothing.
 
 ## Sending edits back
 

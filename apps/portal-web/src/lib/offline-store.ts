@@ -1296,34 +1296,50 @@ export async function updateQueueRecord(record: QueueRecord): Promise<void> {
 }
 
 /**
- * After an update of `globalId` landed with head `observationId`,
- * move the guard forward: any other queued row of the same feature
- * that carries a base, and the cached feature's `_observation_id`,
- * now point at the write this device just made. Without this the next
- * queued edit of the feature would 409 against the device's own write.
+ * After the queued update `landed` reached the server with head
+ * `observationId`, move the guard forward for what this device wrote
+ * on top of it:
+ *
+ * - Other pending / failed rows of the same feature, owned by the
+ *   SAME account and queued AFTER `landed`. Those were authored on top
+ *   of this edit, so without the move they would 409 against the
+ *   device's own write. A row another account queued on a shared
+ *   device, or one queued earlier, was authored against something
+ *   else; moving its base would let it overwrite this write with no
+ *   conflict, so it keeps its own base.
+ * - The cached feature's `_observation_id`, but only while it still
+ *   holds the base `landed` was made against (or none). A newer token
+ *   that already arrived by delta is never moved backwards.
  */
 export async function rebaseFeatureHead(
-  ref: {
-    dataCollectionId: string;
-    dataLayerId: string;
-    layerKey: string;
-    globalId: string;
-  },
+  landed: Pick<
+    QueueRecord,
+    | 'id'
+    | 'dataCollectionId'
+    | 'dataLayerId'
+    | 'layerKey'
+    | 'globalId'
+    | 'queuedAt'
+    | 'ownerUserId'
+    | 'baseObservationId'
+  >,
   observationId: string,
-  excludeQueueId: string,
 ): Promise<void> {
   await withStore(STORES.queue, 'readwrite', async (store) => {
     const idx = store.index('by_deployment');
     const rows =
       ((await reqAsPromise(
-        idx.getAll(IDBKeyRange.only(ref.dataCollectionId)),
+        idx.getAll(IDBKeyRange.only(landed.dataCollectionId)),
       )) as QueueRecord[] | undefined) ?? [];
     for (const row of rows) {
       if (
-        row.id !== excludeQueueId &&
-        row.globalId === ref.globalId &&
-        row.dataLayerId === ref.dataLayerId &&
-        row.layerKey === ref.layerKey &&
+        row.id !== landed.id &&
+        row.globalId === landed.globalId &&
+        row.dataLayerId === landed.dataLayerId &&
+        row.layerKey === landed.layerKey &&
+        landed.ownerUserId !== undefined &&
+        row.ownerUserId === landed.ownerUserId &&
+        row.queuedAt > landed.queuedAt &&
         row.baseObservationId !== undefined &&
         (row.syncStatus === 'pending' || row.syncStatus === 'failed')
       ) {
@@ -1332,9 +1348,11 @@ export async function rebaseFeatureHead(
     }
   });
   await withStore(STORES.features, 'readwrite', async (store) => {
-    const key = [ref.dataCollectionId, ref.dataLayerId, ref.layerKey, ref.globalId];
+    const key = [landed.dataCollectionId, landed.dataLayerId, landed.layerKey, landed.globalId];
     const row = (await reqAsPromise(store.get(key))) as CachedFeature | undefined;
     if (!row) return;
+    const cached = (row.feature.properties ?? {})._observation_id;
+    if (cached !== undefined && cached !== landed.baseObservationId) return;
     store.put({
       ...row,
       feature: {

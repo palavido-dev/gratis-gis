@@ -1780,12 +1780,13 @@ export class DataLayerEngine {
    *   caller's. Every later observation of that entity is returned,
    *   whoever wrote it, so a supervisor's edit or delete reaches the
    *   field worker who created the row.
-   * - geo limit: an observation inside the clip is returned as is.
-   *   An observation outside the clip, of an entity that has ever
-   *   been inside it, is returned as a delete with no payload, so a
-   *   feature moved out of the share's area leaves the device
-   *   instead of staying at its old position. Entities never inside
-   *   the clip stay invisible.
+   * - geo limit: a non-delete observation inside the clip (or with
+   *   no geometry, as on reads) is returned as is. A delete, or an
+   *   observation outside the clip, is returned as a delete with no
+   *   payload only when an earlier observation of the entity was
+   *   visible, so a feature moved out of the share's area leaves the
+   *   device. Entities never visible are never returned, tombstones
+   *   included.
    *
    * Each row carries the entity's creation author and time, so a
    * client can rebuild the same `_created_*` / `_edited_*` /
@@ -1850,15 +1851,21 @@ export class DataLayerEngine {
         filters.push(Prisma.sql`false`);
       } else {
         const clip = Prisma.sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(args.geoLimit)}::text), 4326)`;
-        // Null geom (deletes, tables) counts as inside so tombstones
-        // still reach the client.
-        insideSql = Prisma.sql`(o.geom IS NULL OR ST_Intersects(o.geom, ${clip}))`;
+        // A row is visible when it is not a delete and its geometry is
+        // null (unlocated, same rule as reads) or inside the clip. A
+        // delete, or a row outside the clip, is sent only when an
+        // earlier non-delete observation of the entity was visible:
+        // the caller then holds the feature and must drop it. Anything
+        // else (a feature created and deleted outside the clip) is
+        // never sent, so neither its id nor its creator leaks.
+        insideSql = Prisma.sql`(o.kind <> 'delete' AND (o.geom IS NULL OR ST_Intersects(o.geom, ${clip})))`;
         filters.push(Prisma.sql`(${insideSql} OR EXISTS (
           SELECT 1 FROM observation p
           WHERE p.scope = o.scope
             AND p.entity = o.entity
-            AND p.geom IS NOT NULL
-            AND ST_Intersects(p.geom, ${clip})
+            AND p.kind <> 'delete'
+            AND (p.tx_time, p.id) < (o.tx_time, o.id)
+            AND (p.geom IS NULL OR ST_Intersects(p.geom, ${clip}))
         ))`);
       }
     }
