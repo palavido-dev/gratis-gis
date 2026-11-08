@@ -377,10 +377,65 @@ services:
         )
 
 
+        def sign_in_origins(values: dict[str, str]) -> list[str]:
+            """The one browser origin that may complete sign-in.
+
+            Keycloak 26 only treats a trailing * as a path wildcard, so a
+            redirect pattern cannot mean "any Tailscale hostname". The
+            operator sets GRATIS_BASE_URL to the address they open, including
+            a MagicDNS name, and a restart updates Keycloak in place.
+            """
+            public = values.get("PUBLIC_URL", "").strip().rstrip("/")
+            return [public] if public else []
+
+
+        def apply_sign_in_client(client: dict, origins: list[str]) -> dict:
+            """Point the portal-web client at the current sign-in origins."""
+            updated = dict(client)
+            updated["redirectUris"] = [f"{origin}/*" for origin in origins]
+            updated["webOrigins"] = list(origins)
+            attrs = dict(updated.get("attributes") or {})
+            attrs["post.logout.redirect.uris"] = "##".join(f"{origin}/*" for origin in origins)
+            attrs["pkce.code.challenge.method"] = attrs.get("pkce.code.challenge.method") or "S256"
+            updated["attributes"] = attrs
+            return updated
+
+
+        def apply_sign_in_realm(realm: dict, auth_url: str, origins: list[str]) -> dict:
+            """Keep the realm frontend URL and SSL mode aligned with sign-in.
+
+            One origin pins frontendUrl, which is what makes Keycloak send the
+            browser to that address. Several origins leave frontendUrl unset so
+            Keycloak follows the host the reverse proxy forwarded, and only
+            those exact origins are registered as redirects.
+            """
+            updated = dict(realm)
+            updated["sslRequired"] = (
+                "external" if origins and all(origin.startswith("https://") for origin in origins) else "none"
+            )
+            attrs = dict(updated.get("attributes") or {})
+            if len(origins) == 1:
+                attrs["frontendUrl"] = auth_url
+            else:
+                attrs.pop("frontendUrl", None)
+            updated["attributes"] = attrs
+            return updated
+
+
+        def caddy_auth_hosts(origins: list[str]) -> list[str]:
+            hosts: list[str] = []
+            for origin in origins:
+                host = urllib.parse.urlparse(origin).hostname
+                if host and host not in hosts:
+                    hosts.append(host)
+            return hosts
+
+
         def build_realm(values: dict[str, str]) -> dict:
             public = values["PUBLIC_URL"]
             auth = values["KEYCLOAK_URL"]
-            https = public.startswith("https://")
+            origins = sign_in_origins(values) or [public]
+            https = all(origin.startswith("https://") for origin in origins)
             return {
                 "realm": "gratis-gis",
                 "enabled": True,
@@ -395,7 +450,7 @@ services:
                 "offlineSessionIdleTimeout": 2592000,
                 "bruteForceProtected": True,
                 "failureFactor": 8,
-                "attributes": {"frontendUrl": auth},
+                "attributes": {"frontendUrl": auth} if len(origins) == 1 else {},
                 "clients": [
                     {
                         "clientId": "portal-web",
@@ -404,11 +459,13 @@ services:
                         "publicClient": True,
                         "standardFlowEnabled": True,
                         "directAccessGrantsEnabled": False,
-                        "redirectUris": [f"{public}/*"],
-                        "webOrigins": [public],
+                        "redirectUris": [f"{origin}/*" for origin in origins],
+                        "webOrigins": list(origins),
                         "attributes": {
                             "pkce.code.challenge.method": "S256",
-                            "post.logout.redirect.uris": f"{public}/*",
+                            "post.logout.redirect.uris": "##".join(
+                                f"{origin}/*" for origin in origins
+                            ),
                         },
                         "protocolMappers": org_mappers(),
                     },
@@ -508,9 +565,10 @@ services:
         """
 
 
-        def caddy_lan(port: str, tls: str) -> str:
+        def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
             tls_line = "\ttls internal\n" if tls == "internal" else ""
             site = f":{port}"
+            host_line = " ".join(hosts or [])
             return f"""{{
         	auto_https off
         	admin off
@@ -532,6 +590,16 @@ services:
         	handle @blocked {{
         		respond 404
         	}}
+        	# Keycloak answers only for the configured sign-in host. Another
+        	# host (a Tailscale name that is not GRATIS_BASE_URL yet) must
+        	# not be redirected to the LAN address stored at first boot.
+        	@auth_other_host {{
+        		path /auth /auth/*
+        		not host {host_line if host_line else "localhost"}
+        	}}
+        	handle @auth_other_host {{
+        		respond "Sign-in is not configured for this address. Set GRATIS_BASE_URL to the address you open, then restart. Keep the volumes." 403
+        	}}
         	handle /auth/* {{
         		reverse_proxy keycloak:8080
         	}}
@@ -542,7 +610,11 @@ services:
         	handle /api/portal/* {{
         		reverse_proxy portal-web:3000
         	}}
-        	handle /api/geocode/* {{
+        	# /api/geocode?q= is the address search. A trailing-slash wildcard
+        	# does not match that path, and /api/* would send it to portal-api
+        	# ("Cannot GET /api/geocode").
+        	@geocode path /api/geocode /api/geocode/*
+        	handle @geocode {{
         		reverse_proxy portal-web:3000
         	}}
         	handle /api/locale {{
@@ -579,7 +651,11 @@ services:
         	handle /api/portal/* {{
         		reverse_proxy portal-web:3000
         	}}
-        	handle /api/geocode/* {{
+        	# /api/geocode?q= is the address search. A trailing-slash wildcard
+        	# does not match that path, and /api/* would send it to portal-api
+        	# ("Cannot GET /api/geocode").
+        	@geocode path /api/geocode /api/geocode/*
+        	handle @geocode {{
         		reverse_proxy portal-web:3000
         	}}
         	handle /api/locale {{
@@ -906,6 +982,54 @@ services:
             print("Keycloak admin service account can list and manage users.", flush=True)
 
 
+        def sync_sign_in_address(internal: str, auth: dict[str, str], values: dict[str, str]) -> None:
+            """Rewrite the imported realm when the public URL changes.
+
+            `--import-realm` does not update a realm that already exists, so a
+            later GRATIS_BASE_URL used to leave Keycloak sending browsers to
+            the first LAN address unless the volumes were deleted.
+            """
+            origins = sign_in_origins(values)
+            if not origins:
+                return
+            headers = {**auth, "Content-Type": "application/json"}
+            status, raw = _request(f"{internal}/admin/realms/gratis-gis", "GET", None, auth)
+            if status != 200:
+                print(f"WARN: could not read the gratis-gis realm (HTTP {status}).")
+                return
+            realm = apply_sign_in_realm(json.loads(raw), values["KEYCLOAK_URL"], origins)
+            status, _ = _request(
+                f"{internal}/admin/realms/gratis-gis",
+                "PUT",
+                json.dumps(realm).encode(),
+                headers,
+            )
+            if status not in (200, 204):
+                print(f"WARN: could not update the realm sign-in address (HTTP {status}).")
+                return
+            status, raw = _request(
+                f"{internal}/admin/realms/gratis-gis/clients?clientId=portal-web",
+                "GET",
+                None,
+                auth,
+            )
+            clients = json.loads(raw) if status == 200 else []
+            if not clients:
+                print(f"WARN: portal-web client is missing (HTTP {status}).")
+                return
+            client = apply_sign_in_client(clients[0], origins)
+            status, _ = _request(
+                f"{internal}/admin/realms/gratis-gis/clients/{client['id']}",
+                "PUT",
+                json.dumps(client).encode(),
+                headers,
+            )
+            if status not in (200, 204):
+                print(f"WARN: could not update portal-web redirect URIs (HTTP {status}).")
+                return
+            print(f"Keycloak sign-in address is {origins[0]}.", flush=True)
+
+
         def patch_keycloak(values: dict[str, str]) -> None:
             internal = values["KEYCLOAK_INTERNAL_URL"].rstrip("/")
             # KC_HTTP_RELATIVE_PATH is /auth. Keycloak 26 serves health on the
@@ -948,6 +1072,7 @@ services:
             token = json.loads(raw).get("access_token") or ""
             auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             grant_service_account_roles(internal, auth)
+            sync_sign_in_address(internal, auth, values)
             status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
             if status != 200:
                 print(f"WARN: could not read the user-profile schema (HTTP {status}).")
@@ -1019,6 +1144,9 @@ services:
             return (
                 "\n========== GratisGIS ==========\n"
                 f"Open this address:  {values['PUBLIC_URL']}\n"
+                "Sign-in uses this address. Another name, such as a Tailscale\n"
+                "hostname, needs GRATIS_BASE_URL set to that name. Restart\n"
+                "and keep the volumes. Keycloak is updated in place.\n"
                 "User:               admin\n"
                 f"{password}"
                 "Uploads use:        "
@@ -1102,7 +1230,11 @@ services:
             else:
                 # Caddy always listens on 8080 inside the container. The
                 # published host port is GRATIS_HTTP_PORT (mapped to 8080).
-                caddy = caddy_lan("8080", values.get("GRATIS_TLS") or "")
+                caddy = caddy_lan(
+                    "8080",
+                    values.get("GRATIS_TLS") or "",
+                    caddy_auth_hosts(sign_in_origins(values)),
+                )
             caddy_path = boot / "Caddyfile"
             caddy_path.write_text(caddy, encoding="utf-8")
             caddy_path.chmod(0o644)
@@ -1110,10 +1242,9 @@ services:
             text = banner(values, reveal_password=first_boot)
             if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
                 text += (
-                    "WARN: the address changed after the first start.\n"
-                    "WARN: If you already signed in, delete this app's volumes\n"
-                    "WARN: and start again so Keycloak learns the new address.\n"
-                    "WARN: If Keycloak never became healthy, keep the volumes.\n"
+                    "WARN: the sign-in address changed after the first start.\n"
+                    "WARN: Keycloak is updated in place. Keep the volumes.\n"
+                    "WARN: Open the new address and sign in again.\n"
                 )
             # Older installs wrote the admin password to LOGIN.txt on this
             # volume, which every container can read. Remove it. The password

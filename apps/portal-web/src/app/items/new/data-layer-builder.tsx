@@ -280,11 +280,8 @@ export function DataLayerBuilder({
             // already-seeded builder without losing manually-defined
             // layers.
             updateLayers([...layers, ...imported]);
-            // Forward the pending-file-import record (if any) up to
-            // the wizard so it can fire per-layer ingest after the
-            // item is created. Server-staged uploads always carry a
-            // stagingId; client-side GeoJSON parses don't, hence the
-            // optionality.
+            // Forward the staged file so Create item, or Save schema
+            // on an existing data layer, can load the features.
             if (pending && onPendingFileImport) {
               onPendingFileImport(pending);
             }
@@ -1757,13 +1754,10 @@ interface ImportPanelProps {
 /**
  * Import panel: multi-format.
  *
- * GeoJSON / JSON is still parsed client-side (fast, no server round-
- * trip). Everything else (KML, KMZ, shapefile zip, File GDB zip) is
- * POSTed to /api/ingest/probe, which uses GDAL on the server to list
- * layers + fields. Authors can then pick which of those layers to add
- * as builder layers. Feature data itself is loaded later via
- * /items/:id/layers/:layerId/import after the item is created: this
- * panel only seeds the schema.
+ * GeoJSON, KML, KMZ, shapefile zip, GeoPackage, and File GDB are
+ * posted to /ingest/stage. The server lists layers with GDAL. Create
+ * item and Save schema then enqueue a feature import for each layer
+ * from that staging, so the data layer is not an empty schema.
  */
 
 interface ProbedLayer {
@@ -1810,58 +1804,15 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
 
   async function handleFile(file: File) {
     setError(null);
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    // GeoJSON stays client-side: it's small and parses quickly.
-    if (ext === 'geojson' || ext === 'json') {
-      setBusy({
-        phase: 'parsing',
-        fileName: file.name,
-        fileSize: file.size,
-        bytesUploaded: 0,
-      });
-      try {
-        const text = await file.text();
-        const fc = JSON.parse(text);
-        if (fc?.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
-          setError(t('layerBuilder.invalidGeoJson'));
-          return;
-        }
-        const first = fc.features.find(
-          (f: { geometry?: { type?: string } | null }) => f.geometry,
-        );
-        const geomKind = first?.geometry?.type?.toLowerCase() ?? '';
-        const geometryType: LayerGeometryType = geomKind.includes('point')
-          ? 'point'
-          : geomKind.includes('line')
-            ? 'line'
-            : geomKind.includes('polygon')
-              ? 'polygon'
-              : 'point';
-        const fields = deriveFieldsFromFeatures(fc.features, 500);
-        const layer = newLayer(
-          geometryType,
-          t('layerBuilder.newLayer', { geometry: geometryType }),
-        );
-        layer.label = file.name.replace(/\.(geojson|json)$/i, '');
-        layer.name = slugify(layer.label);
-        layer.fields = fields;
-        layer.featureCount = fc.features.length;
-        onImport([layer]);
-      } catch (err) {
-        setError((err as Error).message || t('layerBuilder.parseFileFailed'));
-      } finally {
-        setBusy(null);
-      }
-      return;
-    }
-
-    // KML / KMZ / shapefile zip / GDB / GeoPackage / anything
-    // OGR-readable: send to /ingest/stage. The server parks the file
-    // under /tmp/gg-staging/<id>/ and returns a stagingId plus the
-    // schema preview. After Create item the wizard fans out per-layer
-    // ingest using ?stagingId=... so a 503 MB GDB only travels the
-    // wire once. Stagings expire after an hour; if the user idles
-    // longer the per-layer ingest fails and they re-upload.
+    // Every spatial file, including GeoJSON, is staged on the server.
+    // A browser-only GeoJSON parse used to write the schema and drop
+    // the features, so the data layer existed but dashboards saw no
+    // rows. /ingest/stage parks the file under /tmp/gg-staging/<id>/
+    // and returns a stagingId plus the schema preview. Create item
+    // and Save schema then enqueue the feature import so a large
+    // archive only travels the wire once. Stagings expire after an
+    // hour; if the user idles longer the import fails and they
+    // re-upload.
     //
     // We use XMLHttpRequest instead of fetch() because fetch has no
     // upload-progress hook. For a 200 MB+ shapefile zip the user would
@@ -2048,13 +1999,9 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
             />
           </label>
           {/*
-            Hint about the two-step nature of multi-layer import. The
-            wizard auto-attaches every layer it detects in the file
-            (point/line/polygon and any related tables); the schema
-            lands but the rows do not. After Create item, each layer
-            shows its own Import features button on the detail page
-            for the actual feature load. A future change will fold
-            that into Create item itself (#98).
+            The wizard attaches every detected layer. Creating the
+            item, or saving the schema, enqueues the feature import
+            from the same staged file.
           */}
           <p className="mt-2 text-2xs text-muted">
             {t('layerBuilder.importSchemaHint')}
@@ -2069,52 +2016,6 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       ) : null}
     </div>
   );
-}
-
-/**
- * Mirror of the deriveFields helper used by the single-layer editor.
- * Kept local so the wizard doesn't need to reach into the [id] route
- * folder (which, as we learned the hard way, confuses webpack).
- */
-function deriveFieldsFromFeatures(
-  features: Array<{ properties?: Record<string, unknown> | null }>,
-  sampleSize: number,
-): FeatureField[] {
-  const seen = new Map<string, FeatureFieldType>();
-  const limit = Math.min(features.length, sampleSize);
-  for (let i = 0; i < limit; i++) {
-    const props = features[i]?.properties;
-    if (!props) continue;
-    for (const [k, v] of Object.entries(props)) {
-      if (seen.has(k)) continue;
-      seen.set(k, inferType(v));
-    }
-  }
-  return Array.from(seen.entries()).map(([name, type]) => ({
-    name,
-    type,
-    label: humanize(name),
-    nullable: true,
-  }));
-}
-
-function inferType(v: unknown): FeatureFieldType {
-  if (typeof v === 'number') return 'number';
-  if (typeof v === 'boolean') return 'boolean';
-  if (typeof v === 'string') {
-    // Cheap ISO date sniff.
-    if (/^\d{4}-\d{2}-\d{2}/.test(v)) return 'date';
-    return 'string';
-  }
-  return 'string';
-}
-
-function humanize(name: string): string {
-  return name
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**

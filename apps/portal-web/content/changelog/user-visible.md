@@ -21,6 +21,29 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-08 - Address search works on a home NAS; GPS still needs HTTPS
+Finding an address works on the plain HTTP address. The browser was asking a path the proxy did not send to the portal. My location is GPS: browsers block it on http://192.168.x.x. The button explains that and points at Tailscale HTTPS. It does not turn GPS on for plain HTTP.
+
+## 2026-11-08 - Tailscale sign-in stays on the name you configure
+Signing in from a Tailscale name no longer sends the browser to the LAN address. Set GRATIS_BASE_URL to that name and restart. Keep the volumes. Until you do, the sign-in page shows the line to add instead of leaving the name you opened.
+
+## 2026-11-08 - Shapefile, KMZ, GeoPackage, and GeoJSON load into a data layer
+A zipped shapefile, KMZ, GeoPackage, or GeoJSON added to a data layer now keeps its features, not just an empty schema. Dashboards can use that layer after the import finishes. Updating the portal images is enough. You do not reset volumes.
+
+## 2026-11-06 - Pick a location on a map, and sign forms
+Location questions in forms now show a small map: tap it or drag the pin to report a spot you are not standing on. Signature questions show a pad to sign with a finger, stylus, or mouse; the signature is saved as an image with the response.
+
+## [1.2.0] - 2026-11-05
+
+## 2026-11-05 - Admin Updates page
+Signed-in admins get an Updates page that compares this install with GitHub and lists backup and restart steps. It does not update Docker for you.
+
+## 2026-11-05 - Showcase dashboards on Load sample
+Load showcase dashboards adds the public demo's storm-events and West Virginia water-quality dashboards plus Elkins in 3D, each with fresh ids for your install.
+
+## 2026-11-05 - Add layer works on plain HTTP NAS
+Opening GratisGIS at `http://` on a LAN address (typical TrueNAS) no longer breaks Add layer, Add group, or drawing. Failed layer creates also show the server reason.
+
 ## [1.1.0] - 2026-11-03
 
 ## 2026-11-03 - Install on a home NAS

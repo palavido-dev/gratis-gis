@@ -30,6 +30,8 @@ export const en = {
     backToItems: 'Back to items',
     settings: 'Settings',
     language: 'Language',
+    geolocationInsecure:
+      'The browser will not share your GPS location on this plain HTTP address. Address search does not use GPS. To use My location, open the portal with HTTPS. On a home NAS that is Tailscale Serve with your MagicDNS name. localhost is also allowed.',
   },
   /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
   builderShell: {
@@ -456,7 +458,7 @@ export const en = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Every layer in the file is added. Creating the item, or saving the schema, loads the features. A dashboard can use the layer after that import finishes.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2209,7 +2211,9 @@ export const en = {
   v3Editor: {
     structureTitle: 'Layer structure',
     structureIntro:
-      'Edit layers, fields, domains and constraints here. Saving takes effect immediately; importing and browsing rows lives on the Data tab.',
+      'Edit layers, fields, domains and constraints here. Saving stores the schema and starts a file import you just added. Browsing rows stays on the Data tab.',
+    pendingImportNote:
+      'Save schema to load the features from the file you added. Until that finishes, the layer has no rows.',
     dataTitle: 'Layer data',
     dataIntro: 'Browse the rows in each layer, add more data, or download it.',
   },
@@ -3524,6 +3528,11 @@ export const en = {
     redirecting: 'Redirecting to sign in...',
     redirectFallback: 'If nothing happens,',
     continueToKeycloak: 'continue to Keycloak',
+    wrongHostTitle: 'Sign-in uses a different address',
+    wrongHostBody:
+      'You opened {opened}. Sign-in is configured for {canonical}, so continuing would send the browser there. Set this in the compose file, then restart:',
+    wrongHostRestart:
+      'Keep the existing volumes. The next start updates Keycloak. For Tailscale HTTPS, use the MagicDNS name with https:// and Tailscale Serve. A tailnet IP keeps http:// and the port.',
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {
@@ -4872,6 +4881,12 @@ export const en = {
     latitude: "Latitude",
     longitude: "Longitude",
     geolocationUnsupported: "Geolocation not supported on this device.",
+    mapPickerAria: "Map for choosing the location",
+    mapPickerHint: "Tap the map or drag the pin to set the location.",
+    mapPickerFailed: 'The map could not load. Use GPS or type the coordinates.',
+    signatureAria: "Signature pad",
+    signatureHint: "Sign inside the box with your finger, stylus, or mouse.",
+    signatureSigned: "Signed",
     ranked: "Ranked",
     available: "Available",
     rankingEmpty: "No items ranked yet. Tap an item below to add it.",

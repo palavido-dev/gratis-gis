@@ -69,6 +69,17 @@ Two modes:
 - Enter activates the focused result.
 - Esc closes the result list.
 
+## Address search and My location
+
+Address search asks the portal's geocoder (`/api/geocode`). It works
+on plain HTTP. It does not ask the browser for GPS.
+
+**My location** uses the browser's GPS API. Browsers only allow that
+on a secure page: `https://` or `localhost`. A home NAS opened as
+`http://192.168.x.x` can search for an address and cannot share GPS.
+Tailscale Serve with the MagicDNS name is the documented way to open
+that NAS over HTTPS. The portal does not turn GPS on for plain HTTP.
+
 ## Notes
 
 - **Indexed fields search fast.** If a feature-search field is

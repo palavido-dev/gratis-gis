@@ -24,7 +24,7 @@ Ranked for the next morning list. Scoper owns this section.
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
-| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked until Analyze param shell and thinner recipe work land |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked: param shell in v1.1.0; needs thinner recipe research before ranking |
 
 ## approved
 
@@ -58,6 +58,7 @@ Matthew said yay. Developer takes from the top.
 | R2-comments-mentions / R5-comments-mentions | 2026-11-03 | @username in create/reply → comment_mentioned email (cap 10, ACL, self-skip); create/reply 30/min |
 | Q-162b / R5-weblate-hosting | 2026-11-03 | Chose Weblate over Crowdin/Tolgee; git PR catalogs remain the community path until Weblate hosting is stood up |
 | analyze-param-manifests | 2026-11-03 | Shared AnalyzeManifestGuide + param manifests for centroid / convex-hull / bbox / dissolve / vertices; Buffer and param-heavy guides stay bespoke |
+| release-1.2.0 | 2026-11-05 | Stamp v1.2.0: NAS UUID-on-HTTP + Keycloak users roles + Updates page + showcase + security hardenings |
 | release-1.1.0 | 2026-11-03 | Stamp v1.1.0: NAS install + @mentions + Yjs markup co-edit + Analyze param manifests + Weblate choice |
 | release-1.0.0 | 2026-10-31 | Stamp v1.0.0: Past runs + area scale + print/STAC landing throttles + honesty/status for semver 1.0 |
 | R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |

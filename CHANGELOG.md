@@ -8,6 +8,87 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Form location questions can be answered on a map. In the default
+  `auto` mode the GPS button now sits above a small map: tap it or
+  drag the pin to report a spot you are not standing on, or when
+  there is no fix. `map` mode shows only the map, and falls back to
+  GPS and typed coordinates if the map cannot load. The schema always
+  offered both modes, but the runtime drew GPS and lat/lon boxes
+  only. **Note:** existing geopoint questions in `auto` mode (the
+  default) now show the map as well.
+- Signature questions can be answered. A signature pad saves one PNG
+  as an attachment: uploaded right away when online, like a photo, or
+  with the submission's other attachments when it syncs (the respond
+  page's outbox and the field app's queue both upload it first, so it
+  is never stored as base64). The server accepts only a PNG data URL
+  of up to 512 KB, or a storage or http(s) URL. **Note:** a required
+  signature is now enforced (it was skipped as uncapturable), so
+  existing forms with a required signature start rejecting
+  submissions without one. The Android app skips signature questions
+  until it has a pad, so on Android a required one cannot be answered
+  yet.
+
+### Fixed
+
+- Portal web production build. The My location helper used the `in`
+  operator in a function-parameter default, which the Next.js
+  compiler rejects, so `next build` and the portal-web image scan
+  failed.
+- Data layer import of a zipped shapefile, KMZ, GeoPackage, or
+  GeoJSON. The server allowlist split driver names on spaces, so
+  `ESRI Shapefile` was rejected after GDAL opened the file. A KMZ
+  was opened as a raw path, which needs a GDAL build with LIBKML;
+  it is now opened at the `.kml` inside the zip. A GeoPackage whose
+  catalog could not be read was treated as having no feature tables.
+  GeoJSON added from the data layer schema used to save fields and
+  drop the rows. Creating the item, or saving the schema, now loads
+  the features. Dashboards can use the layer after that import
+  finishes. Existing installs pick this up by updating the portal
+  images. No setting change and no volume reset.
+- Tailscale sign-in on a home NAS no longer sends the browser to the
+  LAN address saved at first boot. Sign-in stays on `GRATIS_BASE_URL`.
+  Opening another host shows that setting instead of starting
+  Keycloak, and Caddy does not proxy `/auth` for any other host.
+  Changing `GRATIS_BASE_URL` and restarting updates Keycloak's
+  redirect URIs and frontend URL in place. Keep the volumes. Existing
+  installs set `GRATIS_BASE_URL` to the Tailscale HTTPS name (or the
+  `http://100.x` address) and restart.
+- Address search on the home NAS compose file. The browser calls
+  `/api/geocode?q=...`. Caddy only sent `/api/geocode/*` to the web
+  app, so the exact path reached portal-api and came back as
+  `Cannot GET /api/geocode`. The same matcher is fixed in the
+  production Caddyfile. With no local Nominatim configured, the web
+  app still falls back to the public Nominatim service. That needs
+  outbound HTTPS from the NAS. Set `NOMINATIM_PUBLIC_FALLBACK=0` to
+  keep queries on a configured geocoder only.
+- My location on plain HTTP. The browser blocks GPS outside a secure
+  context (`https://` or localhost). The button now says that, and
+  that address search is separate. It does not allow GPS on insecure
+  origins. On a home NAS, Tailscale Serve with the MagicDNS name is
+  the way to get a secure page. No volume reset.
+- Map builder: the basemap menu opens again. The toolbar scrolled
+  sideways (`overflow-x-auto`), which also clips vertically, so the
+  menu dropping below the header was cut off. The toolbar wraps
+  instead.
+- Form designer: in choice and matrix rows the label box is no longer
+  squeezed to a sliver beside the value box. Both inputs carried
+  `w-full` plus a fixed width, and `w-full` won.
+
+## [1.2.0] - 2026-11-05
+
+### Added
+
+- Dependabot patch and minor updates squash-merge after the CI and
+  Security workflows pass. A grouped update merges only when every
+  dependency in the group is patch or minor. Major updates stay open
+  for review.
+- CI checks SPDX license headers on tracked source files
+  (`pnpm check:spdx`, `scripts/check-spdx.sh`). A file needs
+  `SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10
+  lines. Prisma migrations stay exempt because editing an applied
+  migration changes its checksum, and Next.js rewrites
+  `next-env.d.ts`. Source files the header sweep had missed now
+  carry the header.
 - Admin **Updates** page. It compares this install with GitHub and
   tells an admin the backup and restart steps. It does not talk to
   Docker and it does not update the install itself. `UPDATE_CHECK=off`
@@ -24,6 +105,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Browser ids no longer call `crypto.randomUUID` directly. On a NAS
+  opened as `http://<lan-ip>`, that API is missing and Add layer,
+  Add group, and drawing features failed before the request left the
+  browser. They now use `clientUuid()` (`getRandomValues` fallback).
+  The Add layer dialog also surfaces the server reason or HTTP status
+  plus a request id when create fails.
 - Home NAS installs grant the portal API's Keycloak service account
   the realm-management roles the Users page needs (`manage-users`
   and the sign-in settings roles). Keycloak starts with health
@@ -44,12 +131,27 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `infra/docker-compose.nas.yml` is the web port on the NAS (use
   8085 when 8080 is taken). The printed address, Keycloak hostname,
   and sign-in redirects follow it. The bootstrap log says not to
-  post it publicly. Caddy 2.10 accepts one path on `handle`, so
-  the generated Caddyfile uses named matchers and both the web UI
-  and `/auth` answer. The web and Chromium services listen on port
-  3000 even though the shared env file sets `PORT` for the API.
-  CI boots this stack and checks the web UI, Keycloak through
-  Caddy, and an upload.
+  post it publicly. The admin password is printed only on first
+  boot. Caddy 2.10 accepts one path on `handle`, so the generated
+  Caddyfile uses named matchers and both the web UI and `/auth`
+  answer. The web and Chromium services listen on port 3000 even
+  though the shared env file sets `PORT` for the API. CI boots this
+  stack and checks the web UI, Keycloak through Caddy, and an
+  upload.
+- QGIS OIDC loopback redirects require an explicit port separator so
+  a malformed redirect cannot widen the allowlist.
+- Live PostGIS connections are bounded and filter clauses are
+  parameterized.
+
+### Security
+
+- Popup and attribution HTML is sanitized on save and render; the
+  NextAuth session body no longer exposes the access token to page
+  JavaScript.
+- Remaining outbound server fetches (basemap probe, pyramid worker
+  storage URLs) go through the SSRF-safe path.
+- Map-icon delete is authorization-gated; Android backup rules and
+  local-dev compose published ports are tightened.
 
 ## [1.1.0] - 2026-11-03
 
@@ -3484,6 +3586,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
 [1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
 [1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0
 [0.9.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.2

@@ -2,6 +2,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  geolocationBlock,
+  INSECURE_GEOLOCATION_MESSAGE,
+  isInsecureGeolocationMessage,
+} from '@/lib/geolocation-context';
 
 /**
  * Field-runtime geolocation hook. Wraps navigator.geolocation.watchPosition
@@ -92,6 +97,14 @@ export function useGeolocation(): UseGeolocation {
 
   const start = useCallback(() => {
     if (watchIdRef.current !== null) return;
+    if (geolocationBlock() === 'insecure-context') {
+      setState((prev) => ({
+        ...prev,
+        status: 'unavailable',
+        errorMessage: INSECURE_GEOLOCATION_MESSAGE,
+      }));
+      return;
+    }
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setState((prev) => ({
         ...prev,
@@ -130,8 +143,10 @@ export function useGeolocation(): UseGeolocation {
               : 'error';
         setState((prev) => ({
           ...prev,
-          status,
-          errorMessage: err.message,
+          status: isInsecureGeolocationMessage(err.message) ? 'unavailable' : status,
+          errorMessage: isInsecureGeolocationMessage(err.message)
+            ? INSECURE_GEOLOCATION_MESSAGE
+            : err.message,
         }));
         // Don't keep a watch we know is failing; the caller can re-start
         // after the user fixes permissions.

@@ -95,6 +95,7 @@ import {
   type PendingBlob,
   type QueueRecord,
 } from './offline-store';
+import { uploadPendingAttachmentsInResponse } from './form-attachment-upload';
 import { parseApiErrorDetail } from './api-error';
 import {
   isQueueRowClaimable,
@@ -426,6 +427,34 @@ export async function discardRejected(record: QueueRecord): Promise<void> {
  * or schema refusal parks the row before the real write transfers.
  * LOCKSTEP with public/sw.js `replayFeatureRecord`.
  */
+/**
+ * The record's properties with any form attachment still pending
+ * (a photo or signature answer saved as `{ dataUrl }` while offline)
+ * uploaded to storage and swapped for its `{ url, key }` descriptor,
+ * so the row stores descriptors, not base64. Works on a copy: the
+ * queue row keeps its pending shape until the write succeeds, so a
+ * failed replay retries the upload. A network failure here is the
+ * radio, not the row (ReplayUnreachable), like replayFetch.
+ */
+async function uploadPendingInProperties(
+  properties: Record<string, unknown> | null,
+): Promise<Record<string, unknown>> {
+  const copy = structuredClone(properties ?? {});
+  try {
+    await uploadPendingAttachmentsInResponse(copy);
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new ReplayUnreachable(
+        err.message
+          ? { code: 'sync.networkUnavailableDetail', params: { error: err.message } }
+          : { code: 'sync.networkUnavailable' },
+      );
+    }
+    throw err;
+  }
+  return copy;
+}
+
 async function replayRecord(
   r: QueueRecord,
   currentUserId: string,
@@ -434,6 +463,7 @@ async function replayRecord(
     r.layerKey,
   )}/features`;
   if (r.op === 'insert') {
+    const properties = await uploadPendingInProperties(r.properties);
     // POST has no checkOnly on the API; creates go straight through.
     const res = await replayFetch(layerPath, {
       method: 'POST',
@@ -443,7 +473,7 @@ async function replayRecord(
           {
             globalId: r.globalId,
             geometry: r.geometry,
-            properties: r.properties ?? {},
+            properties,
           },
         ],
       }),
@@ -455,7 +485,7 @@ async function replayRecord(
   }
   if (r.op === 'update') {
     const patchBody: Record<string, unknown> = {
-      properties: r.properties ?? {},
+      properties: await uploadPendingInProperties(r.properties),
       ...(r.geometry !== null ? { geometry: r.geometry } : {}),
     };
     await checkOnlyFeatureWrite(

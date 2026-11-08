@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import NextAuth from 'next-auth';
 import { authOptions, sessionWithoutAccessToken } from '@/lib/auth';
+import { decideSignInOrigin } from '@/lib/auth-origin';
 
 const handler = NextAuth(authOptions);
 
@@ -13,7 +14,22 @@ type RouteContext = { params: Promise<{ nextauth: string[] }> };
  * token stays in the encrypted JWT cookie for getServerSession. It
  * is removed from this JSON response so page script cannot read it.
  */
+function blockOtherSignInHost(req: NextRequest): NextResponse | null {
+  const path = req.nextUrl.pathname;
+  if (!path.includes('/signin') && !path.includes('/callback')) return null;
+  const decision = decideSignInOrigin(
+    req.headers.get('x-forwarded-host') ?? req.headers.get('host'),
+  );
+  if (decision.allowed) return null;
+  const url = req.nextUrl.clone();
+  url.pathname = '/signin';
+  url.search = '';
+  return NextResponse.redirect(url);
+}
+
 async function handle(req: NextRequest, context: RouteContext): Promise<Response> {
+  const blocked = blockOtherSignInHost(req);
+  if (blocked) return blocked;
   const res = await handler(req, context);
   if (!req.nextUrl.pathname.endsWith('/session')) return res;
   const type = res.headers.get('content-type') ?? '';

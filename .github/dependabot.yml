@@ -6,6 +6,11 @@
 #   exists.
 # - Grouped updates keep PR volume reasonable: one PR per ecosystem
 #   per week instead of one PR per package.
+# - Patch and minor pull requests are squash-merged by
+#   .github/workflows/dependabot-automerge.yml after CI and Security
+#   are green. A grouped pull request merges only when every
+#   dependency in it is patch or minor. A major, or a group that
+#   contains one, stays open.
 # - All PRs are assigned to palavido-dev so they don't sit unowned.
 # - Docker scanning lists each Dockerfile path explicitly because
 #   Dependabot doesn't recurse on its own.

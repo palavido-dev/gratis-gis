@@ -9,6 +9,7 @@ import {
   assertAllowedAzp,
   parseJwtAllowedAzp,
 } from './jwt-allowed-azp.js';
+import { allowedKeycloakIssuers } from './trusted-issuer.js';
 
 /**
  * Validates Keycloak-issued JWTs against the realm's JWKS endpoint.
@@ -31,11 +32,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       process.env.KEYCLOAK_INTERNAL_URL ?? keycloakUrl
     ).replace(/\/$/, '');
     const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
+    const issuers = allowedKeycloakIssuers();
+    const issuer =
+      issuers.length === 0
+        ? `${keycloakUrl}/realms/${realm}`
+        : issuers.length === 1
+          ? issuers[0]
+          : issuers;
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       algorithms: ['RS256'],
-      issuer: `${keycloakUrl}/realms/${realm}`,
+      issuer,
       // Keycloak omits `aud` on access tokens by default; passport-jwt
       // audience checking would 401 every caller. We allowlist `azp`
       // in validate() instead (SEC-jwt-aud).

@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  applyGdalNetworkHardening,
   assertAllowedGdalDriver,
   assertSafeGdalOpenPath,
+  DEFAULT_GDAL_ALLOWED_DRIVERS,
   hasBlockedVsi,
+  parseGdalAllowedDriverList,
   resolveGdalAllowedDrivers,
 } from './gdal-open-guard.js';
 
@@ -14,9 +17,7 @@ describe('gdal-open-guard (#234)', () => {
   });
 
   it('blocks /vsicurl/ open paths', () => {
-    expect(
-      hasBlockedVsi('/vsicurl/http://169.254.169.254/latest/meta-data/'),
-    ).toBe(true);
+    expect(hasBlockedVsi('/vsicurl/http://169.254.169.254/latest/meta-data/')).toBe(true);
     expect(() =>
       assertSafeGdalOpenPath({
         openPath: '/vsicurl/http://evil.example/x',
@@ -86,6 +87,38 @@ describe('gdal-open-guard (#234)', () => {
       expect(allowed.has('gpkg')).toBe(false);
       expect(() => assertAllowedGdalDriver('VRT')).not.toThrow();
       expect(() => assertAllowedGdalDriver('GPKG')).toThrow(/not allowed/);
+    } finally {
+      if (prev === undefined) delete process.env['GDAL_ALLOWED_DRIVERS'];
+      else process.env['GDAL_ALLOWED_DRIVERS'] = prev;
+    }
+  });
+
+  it('keeps spaced driver names when the list is comma-separated', () => {
+    const published = DEFAULT_GDAL_ALLOWED_DRIVERS.join(',');
+    const parsed = parseGdalAllowedDriverList(published);
+    expect(parsed).toContain('ESRI Shapefile');
+    expect(parsed).toContain('MapInfo File');
+    const prev = process.env['GDAL_ALLOWED_DRIVERS'];
+    try {
+      process.env['GDAL_ALLOWED_DRIVERS'] = published;
+      expect(() => assertAllowedGdalDriver('ESRI Shapefile')).not.toThrow();
+      expect(() => assertAllowedGdalDriver('MapInfo File')).not.toThrow();
+      expect(() => assertAllowedGdalDriver('GPKG')).not.toThrow();
+      expect(() => assertAllowedGdalDriver('LIBKML')).not.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env['GDAL_ALLOWED_DRIVERS'];
+      else process.env['GDAL_ALLOWED_DRIVERS'] = prev;
+    }
+  });
+
+  it('still allows a shapefile after network hardening publishes the env list', () => {
+    const prev = process.env['GDAL_ALLOWED_DRIVERS'];
+    try {
+      delete process.env['GDAL_ALLOWED_DRIVERS'];
+      applyGdalNetworkHardening({});
+      expect(process.env['GDAL_ALLOWED_DRIVERS']).toContain('ESRI Shapefile');
+      expect(() => assertAllowedGdalDriver('ESRI Shapefile')).not.toThrow();
+      expect(() => assertAllowedGdalDriver('MapInfo File')).not.toThrow();
     } finally {
       if (prev === undefined) delete process.env['GDAL_ALLOWED_DRIVERS'];
       else process.env['GDAL_ALLOWED_DRIVERS'] = prev;

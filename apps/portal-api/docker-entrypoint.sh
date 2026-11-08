@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # portal-api container entrypoint. Applies pending Prisma migrations
 # against $DATABASE_URL, then exec's the CMD. Idempotent: a fully-
 # migrated DB no-ops in seconds.

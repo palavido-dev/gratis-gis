@@ -27,6 +27,8 @@ export const es: Partial<CatalogShape> = {
     backToItems: 'Volver a los elementos',
     settings: 'Configuración',
     language: 'Idioma',
+    geolocationInsecure:
+      'El navegador no comparte el GPS en esta dirección HTTP sin cifrar. La búsqueda de direcciones no usa GPS. Para usar Mi ubicación, abre el portal con HTTPS. En un NAS, eso es Tailscale Serve con el nombre MagicDNS. localhost también está permitido.',
   },
   /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
   builderShell: {
@@ -414,7 +416,7 @@ export const es: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Se añaden todas las capas del archivo. Crear el elemento, o guardar el esquema, carga las entidades. Un panel puede usar la capa cuando termine esa importación.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2072,7 +2074,9 @@ export const es: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Estructura de la capa',
     structureIntro:
-      'Edita aquí capas, campos, dominios y restricciones. Guardar tiene efecto inmediato; importar y explorar filas está en la pestaña Datos.',
+      'Edita aquí capas, campos, dominios y restricciones. Guardar almacena el esquema e inicia la importación del archivo que acabas de añadir. Explorar filas sigue en la pestaña Datos.',
+    pendingImportNote:
+      'Guarda el esquema para cargar las entidades del archivo. Hasta que termine, la capa no tiene filas.',
     dataTitle: 'Datos de la capa',
     dataIntro: 'Explora las filas de cada capa, añade más datos o descárgalos.',
   },
@@ -3387,6 +3391,11 @@ export const es: Partial<CatalogShape> = {
     redirecting: 'Redirigiendo al inicio de sesión...',
     redirectFallback: 'Si no ocurre nada,',
     continueToKeycloak: 'continúa a Keycloak',
+    wrongHostTitle: 'El inicio de sesión usa otra dirección',
+    wrongHostBody:
+      'Abriste {opened}. El inicio de sesión está configurado para {canonical}, así que continuar enviaría el navegador allí. Define esto en el compose y reinicia:',
+    wrongHostRestart:
+      'Conserva los volúmenes. El siguiente arranque actualiza Keycloak. Para HTTPS con Tailscale, usa el nombre MagicDNS con https:// y Tailscale Serve. Una IP de la tailnet sigue en http:// con el puerto.',
   },
   adminSecurity: {
     pageIntro:
@@ -4728,6 +4737,12 @@ export const es: Partial<CatalogShape> = {
     latitude: "Latitud",
     longitude: "Longitud",
     geolocationUnsupported: "La geolocalización no está disponible en este dispositivo.",
+    mapPickerAria: "Mapa para elegir la ubicación",
+    mapPickerHint: "Toca el mapa o arrastra el marcador para fijar la ubicación.",
+    mapPickerFailed: 'No se pudo cargar el mapa. Usa el GPS o escribe las coordenadas.',
+    signatureAria: "Panel de firma",
+    signatureHint: "Firma dentro del recuadro con el dedo, un lápiz o el ratón.",
+    signatureSigned: "Firmado",
     ranked: "Clasificados",
     available: "Disponibles",
     rankingEmpty: "Aún no hay elementos clasificados. Toca un elemento abajo para añadirlo.",

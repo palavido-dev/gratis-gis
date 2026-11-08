@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // :core:network: the portal-api client. Discovery, the bearer-token
 // HTTP client with refresh-on-401, the error taxonomy (copied from
 // clients/python), and typed calls for the routes the field client

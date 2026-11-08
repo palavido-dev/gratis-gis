@@ -550,12 +550,16 @@ interface ZipEntry {
  * this function never takes a user-tainted path string — that is
  * what keeps CodeQL js/path-injection quiet. Same entry /
  * uncompressed ceilings as `extractZipToDir`.
+ *
+ * Returns the member names so a KMZ can be opened at its `.kml`
+ * entry without a second walk of the central directory.
  */
 export async function assertZipExpansionBudget(
   fh: FileHandle,
-): Promise<void> {
+): Promise<string[]> {
   const { size: fileSize } = await fh.stat();
-  await assertCentralDirectoryBudget(fh, fileSize);
+  const entries = await assertCentralDirectoryBudget(fh, fileSize);
+  return entries.map((entry) => entry.name);
 }
 
 export async function extractZipToDir(

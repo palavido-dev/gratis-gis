@@ -40,31 +40,22 @@ export function assertSafeGdalOpenPath(args: {
   fileBytes?: Buffer | string | null;
 }): void {
   if (hasBlockedVsi(args.openPath)) {
-    throw new Error(
-      'This file references a network path GDAL is not allowed to fetch.',
-    );
+    throw new Error('This file references a network path GDAL is not allowed to fetch.');
   }
   const name = args.sourceName.toLowerCase();
-  const looksVrt =
-    name.endsWith('.vrt') ||
-    name.endsWith('.xml') ||
-    name.endsWith('.ovf');
+  const looksVrt = name.endsWith('.vrt') || name.endsWith('.xml') || name.endsWith('.ovf');
   if (!looksVrt || args.fileBytes == null) return;
   const head =
     typeof args.fileBytes === 'string'
       ? args.fileBytes.slice(0, 256_000)
       : args.fileBytes.subarray(0, 256_000).toString('utf8');
   if (hasBlockedVsi(head)) {
-    throw new Error(
-      'This VRT/XML references a network path GDAL is not allowed to fetch.',
-    );
+    throw new Error('This VRT/XML references a network path GDAL is not allowed to fetch.');
   }
   // Absolute http(s) inside a VRT SourceFilename is the same class of
   // hole even without the /vsicurl/ prefix (GDAL may promote it).
   if (/SourceFilename[^>]*>\s*https?:\/\//i.test(head)) {
-    throw new Error(
-      'This VRT references an absolute HTTP(S) source, which is not allowed.',
-    );
+    throw new Error('This VRT references an absolute HTTP(S) source, which is not allowed.');
   }
 }
 
@@ -76,8 +67,12 @@ export function assertSafeGdalOpenPath(args: {
 /**
  * Default vector drivers ingest may open. VRT is excluded on purpose
  * (#234 MED-10): a crafted VRT is the usual /vsicurl/ smuggling path.
- * Override with `GDAL_ALLOWED_DRIVERS` (comma/space separated) on
- * portal-api / portal-worker. Point-cloud workers keep a broader set
+ * Override with `GDAL_ALLOWED_DRIVERS` on portal-api / portal-worker.
+ * The list is comma-separated. Driver names may contain spaces
+ * (`ESRI Shapefile`, `MapInfo File`); splitting on whitespace turns
+ * those into two tokens and the real driver is then rejected.
+ * A value with no comma is whitespace-separated short names
+ * (`GeoJSON GPKG`). Point-cloud workers keep a broader set
  * (including VRT/GTiff) and do not call this allowlist.
  */
 export const DEFAULT_GDAL_ALLOWED_DRIVERS = [
@@ -101,14 +96,21 @@ export const DEFAULT_GDAL_ALLOWED_DRIVERS = [
   'ODS',
 ] as const;
 
+/**
+ * Parse `GDAL_ALLOWED_DRIVERS`. Commas separate drivers so names
+ * that contain spaces survive. An empty value means the built-in
+ * default list.
+ */
+export function parseGdalAllowedDriverList(raw: string | undefined): string[] {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return [...DEFAULT_GDAL_ALLOWED_DRIVERS];
+  const parts = trimmed.includes(',') ? trimmed.split(',') : trimmed.split(/\s+/);
+  return parts.map((d) => d.trim()).filter(Boolean);
+}
+
 /** Resolve the active allowlist from env, falling back to defaults. */
-export function resolveGdalAllowedDrivers(
-  env: NodeJS.ProcessEnv = process.env,
-): Set<string> {
-  const raw = (env['GDAL_ALLOWED_DRIVERS'] ?? '').trim();
-  const list = raw
-    ? raw.split(/[\s,]+/).filter(Boolean)
-    : [...DEFAULT_GDAL_ALLOWED_DRIVERS];
+export function resolveGdalAllowedDrivers(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const list = parseGdalAllowedDriverList(env['GDAL_ALLOWED_DRIVERS']);
   return new Set(list.map((d) => d.toLowerCase()));
 }
 
@@ -123,15 +125,13 @@ export function assertAllowedGdalDriver(driverDescription: string): void {
     throw new Error('GDAL opened the file with an unknown driver.');
   }
   if (!resolveGdalAllowedDrivers().has(name.toLowerCase())) {
-    throw new Error(
-      `GDAL driver "${name}" is not allowed for ingest.`,
-    );
+    throw new Error(`GDAL driver "${name}" is not allowed for ingest.`);
   }
 }
 
-export function applyGdalNetworkHardening(
-  gdal: { config?: { set?: (k: string, v: string) => void } },
-): void {
+export function applyGdalNetworkHardening(gdal: {
+  config?: { set?: (k: string, v: string) => void };
+}): void {
   // Prefer EMPTY_DIR so a malicious sidecar cannot force GDAL to
   // readdir a remote listing as part of open.
   process.env['GDAL_DISABLE_READDIR_ON_OPEN'] ??= 'EMPTY_DIR';
