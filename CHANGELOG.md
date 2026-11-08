@@ -76,6 +76,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   until it has a pad, so on Android a required one cannot be answered
   yet.
 
+### Added
+
+- Org admins can read a persisted audit of privileged changes
+  (users, roles, sharing, ownership, backup, and admin settings),
+  download the current permissions snapshot as CSV, and create a
+  redacted diagnostics bundle. The Getting Started checklist counts
+  enabled org admins and does not let anyone tick that item by hand.
+  The audit is not the feature observation log. Existing installs
+  apply the `admin_audit_event` migration by updating the portal-api
+  image. No volume reset.
+
 ### Fixed
 
 - The portal-api image build can compile `gdal-async` from source.

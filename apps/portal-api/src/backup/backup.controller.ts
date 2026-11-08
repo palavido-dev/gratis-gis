@@ -7,6 +7,7 @@ import {
   Controller,
   Delete,
   Get,
+  Optional,
   Param,
   Patch,
   Post,
@@ -26,6 +27,7 @@ import {
 } from 'class-validator';
 import type { Response } from 'express';
 
+import { AdminAuditService } from '../admin/admin-audit.service.js';
 import { AdminGuard } from '../admin/admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -113,9 +115,27 @@ export class BackupController {
     private readonly mode: MaintenanceModeService,
     private readonly prisma: PrismaService,
     private readonly mail: EmailTransport,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   private readonly recoveryAnnounced = new Set<string>();
+
+  private note(
+    user: AuthUser,
+    action: 'backup.config' | 'backup.run' | 'backup.restore' | 'backup.cancel' | 'backup.delete',
+    targetId: string,
+    outcome: 'succeeded' | 'failed',
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action,
+      targetType: 'backup',
+      targetId,
+      outcome,
+    });
+  }
 
   @Get('config')
   getConfig() {
@@ -131,7 +151,9 @@ export class BackupController {
     // patch shape on the service side; the service itself does the
     // range / enum / cron-shape validation that class-validator
     // can't express cleanly.
-    return this.backup.updateConfig(dto, user.id);
+    const updated = await this.backup.updateConfig(dto, user.id);
+    this.note(user, 'backup.config', user.orgId, 'succeeded');
+    return updated;
   }
 
   @Get('runs')
@@ -152,6 +174,7 @@ export class BackupController {
   @Post('runs')
   async runNow(@CurrentUser() user: AuthUser) {
     const run = await this.backup.runBackup('manual', user.id);
+    this.note(user, 'backup.run', run.id, 'succeeded');
     return {
       ...run,
       sizeBytes:
@@ -187,8 +210,10 @@ export class BackupController {
    * nothing anywhere that could signal the work itself.
    */
   @Post('runs/:id/cancel')
-  async cancel(@Param('id') id: string) {
-    return this.backup.requestCancel(id);
+  async cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const result = await this.backup.requestCancel(id);
+    this.note(user, 'backup.cancel', id, 'succeeded');
+    return result;
   }
 
   /**
@@ -219,8 +244,10 @@ export class BackupController {
   }
 
   @Delete('runs/:id')
-  async remove(@Param('id') id: string) {
-    return this.backup.deleteRun(id);
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const result = await this.backup.deleteRun(id);
+    this.note(user, 'backup.delete', id, 'succeeded');
+    return result;
   }
 
   // ---------------------------------------------------------------
@@ -287,8 +314,10 @@ export class BackupController {
       // consistent DB+bucket. #233: on failure we deliberately keep
       // maintenance on so a half-applied restore cannot serve users.
       await this.mode.deactivate();
+      this.note(user, 'backup.restore', id, 'succeeded');
       return audit;
     } catch (err) {
+      this.note(user, 'backup.restore', id, 'failed');
       const msg = err instanceof Error ? err.message : String(err);
       await this.mode.activate(
         `Restore of backup ${id.slice(0, 8)} failed and left the portal in an inconsistent state. Maintenance stays on until an admin finishes or re-runs the restore. Last error: ${msg.slice(0, 300)}`,

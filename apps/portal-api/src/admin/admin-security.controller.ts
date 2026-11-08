@@ -7,6 +7,7 @@ import {
   Get,
   Param,
   Post,
+  Optional,
   Put,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-val
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { assertAlias, assertPublicHttps } from './oidc-url.js';
@@ -44,7 +46,10 @@ class MfaDto {
 @UseGuards(AdminGuard)
 @Controller('admin/security')
 export class AdminSecurityController {
-  constructor(private readonly keycloak: KeycloakAdminService) {}
+  constructor(
+    private readonly keycloak: KeycloakAdminService,
+    @Optional() private readonly audit?: AdminAuditService,
+  ) {}
 
   @Get()
   async get() {
@@ -71,6 +76,15 @@ export class AdminSecurityController {
       orgSlug: user.orgSlug,
       domain,
     });
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.security',
+      targetType: 'oidc',
+      targetId: assertAlias(dto.alias),
+      outcome: 'succeeded',
+      detail: { op: 'create' },
+    });
     return { ok: true };
   }
 
@@ -81,8 +95,17 @@ export class AdminSecurityController {
   }
 
   @Put('mfa')
-  async mfa(@Body() dto: MfaDto) {
+  async mfa(@CurrentUser() user: AuthUser, @Body() dto: MfaDto) {
     await this.keycloak.setMfaRequired(dto.required);
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.security',
+      targetType: 'mfa',
+      targetId: user.orgId,
+      outcome: 'succeeded',
+      detail: { required: dto.required },
+    });
     return { mfaRequired: dto.required };
   }
 }

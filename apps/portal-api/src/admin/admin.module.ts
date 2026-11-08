@@ -15,6 +15,12 @@ import { HousekeepingScheduleService } from './housekeeping-schedule.service.js'
 import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { KeycloakSyncService } from './keycloak-sync.service.js';
+import { AdminAuditController } from './admin-audit.controller.js';
+import { AdminAuditModule } from './admin-audit.module.js';
+import { DiagnosticsController } from './diagnostics.controller.js';
+import { DiagnosticsService } from './diagnostics.service.js';
+import { PermissionsReportController } from './permissions-report.controller.js';
+import { PermissionsReportService } from './permissions-report.service.js';
 import { AdminOnboardingController } from './onboarding.controller.js';
 import { AdminSecurityController } from './admin-security.controller.js';
 import { OnboardingService } from './onboarding.service.js';
@@ -42,6 +48,7 @@ import { UpdatesService } from '../updates/updates.service.js';
  */
 @Module({
   imports: [
+    AdminAuditModule,
     DataLayerTablesModule,
     ItemsModule,
     NotificationsModule,
@@ -56,7 +63,10 @@ import { UpdatesService } from '../updates/updates.service.js';
     AdminBrandingController,
     AdminCapabilitiesController,
     AdminIntegrationsController,
+    AdminAuditController,
     AdminOnboardingController,
+    DiagnosticsController,
+    PermissionsReportController,
     AdminSecurityController,
     HousekeepingController,
     NotificationsAdminController,
@@ -70,7 +80,9 @@ import { UpdatesService } from '../updates/updates.service.js';
     HousekeepingService,
     HousekeepingScheduleService,
     HousekeepingCronService,
+    DiagnosticsService,
     OnboardingService,
+    PermissionsReportService,
     UpdatesService,
   ],
   exports: [KeycloakAdminService, KeycloakSyncService],
