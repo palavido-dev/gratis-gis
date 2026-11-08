@@ -28,6 +28,7 @@ import {
 } from './proxy-subpath.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
+  DEFAULT_MAX_PROXY_BYTES,
   PROXY_FETCH_TIMEOUT_MS,
   streamUpstreamToResponse,
 } from '../common/proxy-stream.js';
@@ -174,11 +175,18 @@ export class ItemProxyController {
     // internal host or the cloud-metadata endpoint is refused too.
     let upstream: globalThis.Response;
     try {
-      upstream = await safeFetch(target, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
-      });
+      upstream = await safeFetch(
+        target,
+        {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+        },
+        // The relay caps the body at the same ceiling, so the dial
+        // refuses a larger one instead of reading toward the 1 GiB
+        // default.
+        { maxBytes: DEFAULT_MAX_PROXY_BYTES },
+      );
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         res.status(400).json({ message: err.message });

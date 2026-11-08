@@ -36,6 +36,7 @@
  */
 import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import https from 'node:https';
 import type { Readable } from 'node:stream';
 
@@ -303,16 +304,26 @@ const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie'];
  * directly; those URLs target single-label hostnames or internal
  * IPs by design and would trip the guard.
  */
+export interface SafeFetchOptions {
+  /**
+   * Per-call body ceiling. Defaults to `safeFetchMaxBytes()`. A
+   * caller that relays a body with its own, smaller cap passes it so
+   * the dial refuses the oversize body itself.
+   */
+  maxBytes?: number;
+}
+
 export async function safeFetch(
   rawUrl: string,
   init?: RequestInit,
+  options: SafeFetchOptions = {},
 ): Promise<Response> {
   // Caller opted out of following ('manual' returns the 3xx as-is,
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
   if (init?.redirect === 'manual' || init?.redirect === 'error') {
     const pinned = await resolveSafe(rawUrl);
-    return connectPinned(pinned, init);
+    return connectPinned(pinned, init, options);
   }
 
   let pinned = await resolveSafe(rawUrl);
@@ -340,7 +351,7 @@ export async function safeFetch(
     } else {
       hopInit.body = body;
     }
-    const res = await connectPinned(pinned, hopInit);
+    const res = await connectPinned(pinned, hopInit, options);
     if (!REDIRECT_STATUSES.has(res.status)) return res;
     const location = res.headers.get('location');
     // Redirect status without a Location is not followable; hand
@@ -391,6 +402,7 @@ type PinnedTransport = (
   url: URL,
   init: RequestInit | undefined,
   addresses: PinnedAddress[],
+  options?: SafeFetchOptions,
 ) => Promise<Response>;
 
 /** Default cap so a hostile body cannot be buffered without limit. */
@@ -407,6 +419,85 @@ export interface PinnedRequestOptions {
   /** Test-only trust anchor. Production leaves this unset. */
   ca?: string | Buffer;
   maxBytes?: number;
+}
+
+/**
+ * Wrap a node response as a pull-based web stream. The socket is
+ * read only when the consumer asks for the next chunk, so a slow
+ * reader leaves the bytes in the kernel and TCP backpressure holds
+ * the upstream, instead of the whole body (up to the byte cap)
+ * piling up in this process. The byte cap errors the reader and
+ * drops the socket; cancel drops the socket too.
+ */
+function pullBody(incoming: IncomingMessage, maxBytes: number): ReadableStream<Uint8Array> {
+  let received = 0;
+  let settled = false;
+  return new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        incoming.pause();
+        incoming.on('end', () => {
+          if (settled) return;
+          settled = true;
+          controller.close();
+        });
+        incoming.on('error', (err) => {
+          if (settled) return;
+          settled = true;
+          controller.error(err);
+        });
+        incoming.on('close', () => {
+          if (settled) return;
+          settled = true;
+          controller.error(new Error('upstream closed before the response ended'));
+        });
+      },
+      pull(controller) {
+        return new Promise<void>((resolve) => {
+          const cleanup = () => {
+            incoming.off('readable', attempt);
+            incoming.off('end', done);
+            incoming.off('error', done);
+            incoming.off('close', done);
+          };
+          const done = () => {
+            cleanup();
+            resolve();
+          };
+          function attempt(): void {
+            if (settled) {
+              done();
+              return;
+            }
+            const chunk = incoming.read() as Buffer | null;
+            if (chunk === null) return;
+            received += chunk.length;
+            if (received > maxBytes) {
+              settled = true;
+              controller.error(
+                new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
+              );
+              incoming.destroy();
+              done();
+              return;
+            }
+            controller.enqueue(new Uint8Array(chunk));
+            done();
+          }
+          incoming.on('readable', attempt);
+          incoming.on('end', done);
+          incoming.on('error', done);
+          incoming.on('close', done);
+          attempt();
+        });
+      },
+      cancel() {
+        settled = true;
+        incoming.destroy();
+      },
+    },
+    { highWaterMark: 1 },
+  );
 }
 
 /**
@@ -462,27 +553,7 @@ export function pinnedRequest(
             for (const item of value) responseHeaders.append(key, item);
           }
         }
-        let received = 0;
-        const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            incoming.on('data', (chunk: Buffer) => {
-              received += chunk.length;
-              if (received > maxBytes) {
-                controller.error(
-                  new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
-                );
-                incoming.destroy();
-                return;
-              }
-              controller.enqueue(new Uint8Array(chunk));
-            });
-            incoming.on('end', () => controller.close());
-            incoming.on('error', (err) => controller.error(err));
-          },
-          cancel() {
-            incoming.destroy();
-          },
-        });
+        const body = pullBody(incoming, maxBytes);
         resolve(
           new Response(body, {
             status: incoming.statusCode ?? 0,
@@ -530,10 +601,16 @@ function nodePinnedRequest(
   url: URL,
   init: RequestInit | undefined,
   addresses: PinnedAddress[],
+  options: SafeFetchOptions = {},
 ): Promise<Response> {
   const chosen = addresses[0];
   if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
-  return pinnedRequest(url, init, connectHost(chosen.address));
+  return pinnedRequest(
+    url,
+    init,
+    connectHost(chosen.address),
+    options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes },
+  );
 }
 
 let transport: PinnedTransport = nodePinnedRequest;
@@ -546,6 +623,7 @@ export function _setSafeFetchTransportForTests(next: PinnedTransport | null): vo
 function connectPinned(
   pinned: { url: URL; addresses: PinnedAddress[] },
   init: RequestInit | undefined,
+  options: SafeFetchOptions,
 ): Promise<Response> {
-  return transport(pinned.url, init, pinned.addresses);
+  return transport(pinned.url, init, pinned.addresses, options);
 }

@@ -353,16 +353,16 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       SELECT s.id
       FROM form_submission s
       JOIN item f ON f.id = s.form_id AND f.deleted_at IS NULL
-      JOIN item l ON l.id::text = f.data->>'linkedLayerId'
+      JOIN item l ON l.id::text = f.data_json->>'linkedLayerId'
         AND l.deleted_at IS NULL
-      WHERE jsonb_typeof(f.data->'linkedLayerId') = 'string'
+      WHERE jsonb_typeof(f.data_json->'linkedLayerId') = 'string'
         AND s.created_at > now() - make_interval(days => ${MIRROR_REPAIR_WINDOW_DAYS})
         AND NOT EXISTS (
           SELECT 1
           FROM observation o
           WHERE o.entity = s.id
-            AND o.scope = 'data_layer:' || (f.data->>'linkedLayerId')
-              || ':' || COALESCE(f.data->>'linkedLayerKey', 'submissions')
+            AND o.scope = 'data_layer:' || (f.data_json->>'linkedLayerId')
+              || ':' || COALESCE(f.data_json->>'linkedLayerKey', 'submissions')
             AND o.kind <> 'delete'
         )
       ORDER BY s.created_at
