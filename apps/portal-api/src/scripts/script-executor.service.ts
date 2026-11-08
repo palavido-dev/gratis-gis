@@ -334,7 +334,7 @@ export class ScriptExecutorService {
     for (const pid of pids) {
       try {
         const status = await readFile(`/proc/${pid}/status`, 'utf8');
-        // "Uid:\treal\teffective\tsaved\tfs" — match the real uid.
+        // "Uid:\treal\teffective\tsaved\tfs": match the real uid.
         const m = /^Uid:\s+(\d+)/m.exec(status);
         if (!m || Number(m[1]) !== uid) continue;
         // A zombie keeps its /proc entry until reaped but can no longer
