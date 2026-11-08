@@ -1,0 +1,16 @@
+name: Semgrep
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.183.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Project rules only
+        run: semgrep scan --config .semgrep.yml --error --metrics=off

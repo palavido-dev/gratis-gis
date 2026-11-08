@@ -6,8 +6,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Outbound fetches of user-supplied URLs connect only to the addresses
+  the safety check already accepted. The hostname stays on the URL for
+  TLS. A deleted public geographic boundary no longer reveals the
+  whole layer. Install backup is limited to the operator organization.
+  Thumbnail images accept raster data only. Portal session length can
+  be set without changing the 365-day default or revoking Keycloak
+  sessions.
+
 ### Added
 
+- Opt-in WAL point-in-time recovery for a throwaway compose project
+  the operator names twice (`infra/wal`). `archive_mode` is not
+  turned on for the dev, NAS, or VPS stacks. A synthetic drill takes
+  a base backup, writes two rows, and recovers to a timestamp between
+  them. The recovered database has the earlier row only. This does
+  not change the PostgreSQL 17 runtime of an ordinary install.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when
@@ -30,14 +46,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
-- An upload named `..`, or a name with a directory in it, is stored as
-  `payload` plus a known extension inside the temp directory this
-  process created. The server opens that file only after the real path
-  stays inside the directory. The source label kept on the item
-  is that name with only letters, digits, spaces, and `.` `_` `-`.
-  The progress stream does not repeat the upload name or the
-  server's exception text. Existing installs pick this up by
-  updating the portal-api image. No setting change and no volume reset.
+- An upload is stored inside the temp directory this process created
+  as its file stem, with anything outside letters, digits, and `.` `_`
+  `-` replaced, plus a known extension. An upload named `..`, or one
+  with no usable stem or an unknown extension, is stored as `payload`
+  plus that extension. GeoJSON and CSV layers keep the name of the
+  picked file. The server opens that file only after the real path
+  stays inside the directory. The source label kept on the item is
+  that name with only letters, digits, spaces, and `.` `_` `-`. A
+  staged upload records the name it was stored under, and a staging
+  from before this change still loads. The progress stream does not
+  repeat the upload name; a rejected import reports why it was
+  rejected. Existing installs pick this up by updating the portal-api
+  image. No setting change and no volume reset.
 - Uploading a file to turn it into GeoJSON, or ingesting it straight
   onto a data layer, no longer holds the whole file in the API
   process. The file stays on disk, one parse runs per user, two at
@@ -51,6 +72,31 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stay on the device until they sync, and that clearing the browser
   deletes them. The same sentence is in Spanish, Brazilian Portuguese,
   French, and German. No server change.
+- Admin backup help described a different backup system (`mc mirror`,
+  S3 and SFTP destinations, no in-portal restore). The help page now
+  matches the archive the portal writes: a portal database dump plus
+  object storage, Keycloak and the encryption key not included, and
+  maintenance left on if restore fails. The backup screen no longer
+  says a fresh install can be restored just by recreating users.
+  `infra/restore-maintenance.sh` refuses to clear maintenance unless
+  `user`, `item`, `organization`, `system_setting`, `observation`,
+  and `_prisma_migrations` exist and no migration is unfinished.
+  That is not a proof the data is a consistent restore. The script
+  says so. It does not delete volumes.
+  `infra/reset-portal-password.sh` resets one Keycloak user from the
+  host without deleting data and without opening the master realm on
+  the proxy. The NAS second-boot log no longer says to delete volumes
+  to get a new password. Existing installs pick up the docs and
+  scripts by updating the checkout. No volume reset. A paste-only NAS
+  install copies the script onto the host. No setting change inside
+  the portal.
+- The portal-api image build can compile `gdal-async` from source.
+  That package's node-gyp step runs `npm`, and the image had deleted
+  npm in the base stage before `pnpm fetch`. npm is copied back into
+  the build stage only. The runtime image is still based on the stage
+  that deletes npm, and the build fails if `/usr/local/bin/npm` is
+  present there. No Trivy ignore was added. The point-cloud model
+  download is unchanged.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

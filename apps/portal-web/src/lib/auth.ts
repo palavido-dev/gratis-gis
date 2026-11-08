@@ -3,6 +3,7 @@ import type { JWT } from 'next-auth/jwt';
 import type { NextAuthOptions } from 'next-auth';
 import KeycloakProvider from 'next-auth/providers/keycloak';
 import { authCookieNaming } from './auth-cookies';
+import { sessionIdleSeconds, sessionMaxAgeSeconds } from './session-duration';
 
 const keycloakUrl = (process.env.KEYCLOAK_URL ?? 'http://localhost:8080').replace(
   /\/$/,
@@ -193,8 +194,17 @@ export const authOptions: NextAuthOptions = {
               : Date.now() + 300 * 1000,
           refreshToken: account.refresh_token,
           idToken: account.id_token,
+          lastActive: Date.now(),
         } as JWT;
       }
+
+      const idle = sessionIdleSeconds();
+      if (idle !== null && typeof token.lastActive === 'number') {
+        if (Date.now() - token.lastActive > idle * 1000) {
+          return { ...token, error: 'IdleTimeout' };
+        }
+      }
+      if (idle !== null) token.lastActive = Date.now();
 
       // 2. Subsequent calls: if the access token is still fresh,
       //    return as-is. Subtract a leeway so we refresh slightly
@@ -229,19 +239,12 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  // 365-day session + JWT cookie. The default 30-day session is too
-  // short for a field PWA where users may not open the app for
-  // weeks at a stretch. Combined with the offline_access scope and
-  // the refresh-token rotation in jwt() above, this lets the PWA
-  // mint fresh access tokens silently on every launch as long as
-  // the user has signed in within the last year. Equivalent to the
-  // Field Maps "stay signed in" pattern. If the org wants tighter
-  // session bounds, the realm-level ssoSessionMaxLifespan still
-  // wins -- once the offline refresh token is invalidated server-
-  // side, the JWT becomes useless and the user is forced through
-  // sign-in again.
-  session: { strategy: 'jwt', maxAge: 365 * 24 * 60 * 60 },
-  jwt: { maxAge: 365 * 24 * 60 * 60 },
+  // Default stays 365 days. GRATIS_SESSION_MAX_AGE_SECONDS and
+  // GRATIS_SESSION_IDLE_SECONDS can tighten the portal cookie.
+  // Neither value revokes a Keycloak session. See
+  // docs/operations/session.md.
+  session: { strategy: 'jwt', maxAge: sessionMaxAgeSeconds() },
+  jwt: { maxAge: sessionMaxAgeSeconds() },
   // We have only one provider (Keycloak). Override the default
   // /api/auth/signin picker page with a custom /signin that
   // immediately redirects to Keycloak; saves the user a useless

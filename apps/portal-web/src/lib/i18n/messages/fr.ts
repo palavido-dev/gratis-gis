@@ -1944,6 +1944,8 @@ export const fr: Partial<CatalogShape> = {
     previewLoading: "Chargement de l'aperçu",
     backToItems: 'Retour aux éléments',
     sharingHeading: 'Partage',
+    publicBoundaryWarning:
+      'La limite géographique publique est absente ou sans géométrie. Les lecteurs publics ne voient aucune entité tant qu’une limite existante n’est pas choisie.',
     openForm: 'Ouvrir',
     openFormTitle: 'Ouvrir le formulaire pour envoyer une réponse',
     responses: 'Réponses',

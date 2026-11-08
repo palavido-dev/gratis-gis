@@ -1945,6 +1945,8 @@ export const de: Partial<CatalogShape> = {
     previewLoading: 'Vorschau wird geladen',
     backToItems: 'Zurück zu Elementen',
     sharingHeading: 'Freigabe',
+    publicBoundaryWarning:
+      'Die öffentliche geografische Grenze fehlt oder hat keine Geometrie. Öffentliche Leser sehen keine Objekte, bis eine vorhandene Grenze gewählt ist.',
     openForm: 'Öffnen',
     openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
     responses: 'Antworten',

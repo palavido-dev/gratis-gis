@@ -178,9 +178,30 @@ name above, or `localhost`. The portal does not bypass that rule.
 Passwords are random for each install. They are stored on the
 Docker volume named `boot`. The portal admin password is printed
 once, on the first start, and then only lives in Keycloak after you
-change it. Deleting the `boot` volume creates new passwords. Deleting
-the database volume creates an empty database. Keep both if you are
-only updating the stack.
+change it. Keep `boot` and the database volume when you are only
+updating the stack.
+
+If you forgot the portal password, do not delete volumes. Deleting
+`pgdata` or `miniodata` erases the maps and files. Deleting `boot`
+creates new secrets and the old database can no longer sign in or
+decrypt stored credentials. Reset the existing user instead.
+
+From a checkout of this repository, on the NAS host:
+
+```bash
+GG_KEYCLOAK_CONTAINER=<keycloak container name> \
+  ./infra/reset-portal-password.sh admin
+```
+
+The container name is the one `docker ps` shows for Keycloak, often
+`gratis-gis-keycloak-1`. The script prints a new password once. It
+uses `kcadm` inside that container. It does not publish the Keycloak
+master realm, and it does not delete data. Then sign in and change
+the password.
+
+A paste-only install can copy `infra/reset-portal-password.sh` from
+the same GratisGIS version the stack is running and run that command
+next to the Docker engine.
 
 ## Updates
 
@@ -232,7 +253,9 @@ changed that image to `latest`, set it back to `26.0` before the
 restart only when that volume has not already been migrated by a
 newer Keycloak.
 
-Delete the volumes when you want new passwords. A changed sign-in
-address does not need that. In Dockge that is
-the stack's volumes (`boot`, `pgdata`, `miniodata`, `caddy-data`).
-In TrueNAS, delete the app with its volumes, then install again.
+A changed sign-in address does not need new volumes. Keep `boot`,
+`pgdata`, and `miniodata`. Delete those volumes only when you mean
+to throw the portal away and start empty. That is not a password
+reset. In Dockge the volumes are `boot`, `pgdata`, `miniodata`, and
+`caddy-data`. In TrueNAS, deleting the app with its volumes does the
+same thing.
