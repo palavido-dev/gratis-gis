@@ -1,6 +1,7 @@
 # Squash-merge Dependabot pull requests for semver patch and minor
 # updates after CI and Security are green. A major update stays
 # open, including a grouped pull request whose highest bump is major.
+# A GitHub Actions update always stays open for a person to review.
 #
 # dependabot/fetch-metadata only reads pull_request and
 # pull_request_target payloads, so this workflow is
@@ -85,6 +86,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
           DEPS_JSON: ${{ steps.meta.outputs.updated-dependencies-json }}
+          PACKAGE_ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
           THIS_WORKFLOW: Dependabot auto-merge
         run: |
           set -euo pipefail
@@ -99,6 +101,11 @@ jobs:
               "version-update:semver-minor",
           }
           REQUIRED_WORKFLOWS = ("CI", "Security")
+          # A GitHub Actions bump replaces pinned SHAs. After merge the
+          # new action code runs in publish-images.yml (packages: write)
+          # and publish-python.yml (id-token: write), so a person
+          # reviews those. fetch-metadata spells it github_actions.
+          REVIEW_ECOSYSTEMS = {"github_actions", "github-actions"}
           KNOWN_BUCKETS = {"pass", "fail", "pending", "skipping", "cancel"}
 
           def parse_deps(raw):
@@ -111,11 +118,13 @@ jobs:
                   raise ValueError("updated-dependencies-json is not a list")
               return data
 
-          def eligible(update_type, deps):
+          def eligible(update_type, deps, ecosystem=""):
               # The action's update-type is the highest semver bump in
               # the pull request, including a Dependabot group. Each
               # dependency is checked too, so an unknown or major bump
               # hidden beside a minor cannot slip through.
+              if (ecosystem or "").strip() in REVIEW_ECOSYSTEMS:
+                  return False, "GitHub Actions updates need a review"
               if update_type not in ALLOWED:
                   shown = update_type if update_type else "(empty)"
                   return False, "highest update-type is %s" % shown
@@ -124,6 +133,9 @@ jobs:
               for dep in deps:
                   if not isinstance(dep, dict):
                       return False, "dependency entry is not an object"
+                  if dep.get("packageEcosystem") in REVIEW_ECOSYSTEMS:
+                      name = dep.get("dependencyName") or "(unnamed)"
+                      return False, "%s is a GitHub Actions update and needs a review" % name
                   kind = dep.get("updateType")
                   if kind not in ALLOWED:
                       name = dep.get("dependencyName") or "(unnamed)"
@@ -185,7 +197,11 @@ jobs:
                   except (ValueError, json.JSONDecodeError) as exc:
                       print("metadata: %s" % exc, file=sys.stderr)
                       return 1
-                  ok, reason = eligible(os.environ.get("UPDATE_TYPE", ""), deps)
+                  ok, reason = eligible(
+                      os.environ.get("UPDATE_TYPE", ""),
+                      deps,
+                      os.environ.get("PACKAGE_ECOSYSTEM", ""),
+                  )
                   print(reason)
                   return 0 if ok else 10
               if cmd == "rollup":
