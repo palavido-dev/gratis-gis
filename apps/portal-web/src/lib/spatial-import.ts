@@ -9,6 +9,7 @@
  *   - GeoJSON (.geojson, .json)
  *   - KML (.kml)
  *   - KMZ (.kmz) via server `to-geojson`
+ *   - GeoPackage (.gpkg) via server `to-geojson`
  *   - Shapefile delivered as a .zip (.shp + sidecars) via `to-geojson`
  *
  * File Geodatabase (.gdb / .gdb.zip) is not parsed here. Portal-api
@@ -22,12 +23,7 @@
  */
 
 export type SpatialFormat =
-  | 'geojson'
-  | 'kml'
-  | 'kmz'
-  | 'shapefile-zip'
-  | 'fgdb'
-  | 'unknown';
+  'geojson' | 'kml' | 'kmz' | 'gpkg' | 'shapefile-zip' | 'fgdb' | 'unknown';
 
 export interface SpatialImportResult {
   geojson: GeoJSON.FeatureCollection;
@@ -44,6 +40,7 @@ export function detectFormat(filename: string): SpatialFormat {
   // FGDB check first so `.gdb.zip` doesn't fall into the shapefile branch.
   if (n.endsWith('.gdb.zip') || n.endsWith('.gdb')) return 'fgdb';
   if (n.endsWith('.kmz')) return 'kmz';
+  if (n.endsWith('.gpkg')) return 'gpkg';
   if (n.endsWith('.kml')) return 'kml';
   if (n.endsWith('.geojson')) return 'geojson';
   if (n.endsWith('.json')) return 'geojson';
@@ -84,11 +81,11 @@ export async function importSpatialFile(file: File): Promise<SpatialImportResult
     };
   }
 
-  if (format === 'kmz') {
-    const fc = await parseKmz(file);
+  if (format === 'kmz' || format === 'gpkg') {
+    const fc = await uploadAndParseSpatialFile(file);
     return {
       geojson: fc,
-      format: 'kmz',
+      format,
       features: fc.features.length,
       warnings: [],
     };
@@ -105,7 +102,7 @@ export async function importSpatialFile(file: File): Promise<SpatialImportResult
   }
 
   throw new Error(
-    'Unrecognized file type. Supported formats: GeoJSON, KML, KMZ, zipped Shapefile.',
+    'Unrecognized file type. Supported formats: GeoJSON, KML, KMZ, GeoPackage, zipped Shapefile.',
   );
 }
 
@@ -169,17 +166,6 @@ async function parseKml(xml: string): Promise<GeoJSON.FeatureCollection> {
   };
 }
 
-async function parseKmz(file: File): Promise<GeoJSON.FeatureCollection> {
-  // KMZ parsing moved server-side along with shapefile (#50). The
-  // browser used to bundle JSZip to extract the .kml entry from
-  // the KMZ archive; GDAL is already in portal-api for the
-  // streaming ingest path and handles KMZ natively as an OGR
-  // driver. Same /api/ingest/to-geojson endpoint as the
-  // shapefile branch -- the server picks the right driver based
-  // on the file's contents.
-  return uploadAndParseSpatialFile(file);
-}
-
 async function parseShapefileZip(file: File): Promise<GeoJSON.FeatureCollection> {
   // Shapefile parsing moved server-side (#52). The browser used to
   // run `shpjs` (a 120+ KB shp/dbf parser); GDAL is already in
@@ -201,9 +187,7 @@ async function parseShapefileZip(file: File): Promise<GeoJSON.FeatureCollection>
  * ("missing .prj", "unknown driver", etc.) reach the user
  * instead of a generic "import failed".
  */
-async function uploadAndParseSpatialFile(
-  file: File,
-): Promise<GeoJSON.FeatureCollection> {
+async function uploadAndParseSpatialFile(file: File): Promise<GeoJSON.FeatureCollection> {
   const fd = new FormData();
   fd.append('file', file, file.name);
   const resp = await fetch('/api/portal/ingest/to-geojson', {
@@ -215,9 +199,7 @@ async function uploadAndParseSpatialFile(
     let msg = body;
     try {
       const parsed = JSON.parse(body) as { message?: string | string[] };
-      msg = Array.isArray(parsed.message)
-        ? parsed.message.join('; ')
-        : parsed.message ?? body;
+      msg = Array.isArray(parsed.message) ? parsed.message.join('; ') : (parsed.message ?? body);
     } catch {
       /* not JSON; use raw body */
     }

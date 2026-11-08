@@ -456,7 +456,7 @@ export const en = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Every layer in the file is added. Creating the item, or saving the schema, loads the features. A dashboard can use the layer after that import finishes.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2209,7 +2209,9 @@ export const en = {
   v3Editor: {
     structureTitle: 'Layer structure',
     structureIntro:
-      'Edit layers, fields, domains and constraints here. Saving takes effect immediately; importing and browsing rows lives on the Data tab.',
+      'Edit layers, fields, domains and constraints here. Saving stores the schema and starts a file import you just added. Browsing rows stays on the Data tab.',
+    pendingImportNote:
+      'Save schema to load the features from the file you added. Until that finishes, the layer has no rows.',
     dataTitle: 'Layer data',
     dataIntro: 'Browse the rows in each layer, add more data, or download it.',
   },

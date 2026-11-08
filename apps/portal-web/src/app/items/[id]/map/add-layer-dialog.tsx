@@ -1351,7 +1351,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               <FileDropZone
                 busy={fileBusy}
                 onFile={submitFile}
-                accept=".kml,.kmz,.geojson,.json,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geo+json,application/json,application/zip"
+                accept=".kml,.kmz,.gpkg,.geojson,.json,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geopackage+sqlite3,application/geo+json,application/json,application/zip"
                 t={t}
               />
               <p className="text-2xs text-muted">

@@ -410,7 +410,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Todas as camadas do arquivo são adicionadas. Criar o item, ou salvar o esquema, carrega as feições. O painel pode usar a camada quando essa importação terminar.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -2066,7 +2066,9 @@ export const ptBR: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Estrutura da camada',
     structureIntro:
-      'Edite camadas, campos, domínios e restrições aqui. Salvar tem efeito imediato; importar e explorar linhas fica na aba Dados.',
+      'Edite camadas, campos, domínios e restrições aqui. Salvar grava o esquema e inicia a importação do arquivo que você acabou de adicionar. Explorar as linhas continua na aba Dados.',
+    pendingImportNote:
+      'Salve o esquema para carregar as feições do arquivo. Até isso terminar, a camada não tem linhas.',
     dataTitle: 'Dados da camada',
     dataIntro: 'Explore as linhas de cada camada, adicione mais dados ou baixe-os.',
   },

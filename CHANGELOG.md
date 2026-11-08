@@ -30,6 +30,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Data layer import of a zipped shapefile, KMZ, GeoPackage, or
+  GeoJSON. The server allowlist split driver names on spaces, so
+  `ESRI Shapefile` was rejected after GDAL opened the file. A KMZ
+  was opened as a raw path, which needs a GDAL build with LIBKML;
+  it is now opened at the `.kml` inside the zip. A GeoPackage whose
+  catalog could not be read was treated as having no feature tables.
+  GeoJSON added from the data layer schema used to save fields and
+  drop the rows. Creating the item, or saving the schema, now loads
+  the features. Dashboards can use the layer after that import
+  finishes. Existing installs pick this up by updating the portal
+  images. No setting change and no volume reset.
 - Map builder: the basemap menu opens again. The toolbar scrolled
   sideways (`overflow-x-auto`), which also clips vertically, so the
   menu dropping below the header was cut off. The toolbar wraps

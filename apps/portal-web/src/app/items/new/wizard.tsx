@@ -105,6 +105,7 @@ import {
 import { DataCollectionBuilder } from './data-collection-builder';
 import { PostgisConnectionBuilder } from './postgis-connection-builder';
 import { BasemapConfigSection } from '../_components/basemap-config-section';
+import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
 import {
   DataLayerBuilder,
   type PendingFileImport,
@@ -1609,36 +1610,11 @@ export function NewItemWizard({
       // itself. Surface those inline; the user can retry per-layer
       // from the detail page. Per-layer-import-while-running errors
       // surface in the detail-page banner from the import_job row.
-      const ingestErrors: string[] = [];
+      const ingestErrors =
+        type === 'data_layer' && pendingFileImports.length > 0
+          ? await enqueueStagedLayerImports(saved.id, pendingFileImports)
+          : [];
       if (type === 'data_layer' && pendingFileImports.length > 0) {
-        for (const entry of pendingFileImports) {
-          for (const layer of entry.layers) {
-            try {
-              const enqueueUrl = `/api/portal/items/${saved.id}/layers/${layer.layerId}/import-jobs`;
-              const enqueueRes = await fetch(enqueueUrl, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  stagingId: entry.stagingId,
-                  sourceLayerName: layer.sourceLayerName,
-                  mode: 'replace',
-                }),
-              });
-              if (!enqueueRes.ok) {
-                const text = await enqueueRes.text().catch(() => '');
-                ingestErrors.push(
-                  `${layer.sourceLayerName}: ${enqueueRes.status} ${text.slice(0, 200)}`,
-                );
-              }
-            } catch (err) {
-              ingestErrors.push(
-                `${layer.sourceLayerName}: ${
-                  err instanceof Error ? err.message : 'network error'
-                }`,
-              );
-            }
-          }
-        }
         setPendingFileImports([]);
       }
       // data_layer still wants the ingest panel front and centre.
