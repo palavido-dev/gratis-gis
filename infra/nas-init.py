@@ -771,6 +771,9 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "CHROMIUM_TOKEN": token,
         "CHROMIUM_WS_ENDPOINTS": f"ws://chromium:3000?token={token}",
         "PORTAL_API_URL": "http://portal-api:4000",
+        # Links in notification and feedback email. The code default
+        # is http://localhost:3000.
+        "PORTAL_BASE_URL": public,
         "NEXT_PUBLIC_API_URL": public,
         "NODE_ENV": "production",
         "PORT": "4000",

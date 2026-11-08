@@ -12,6 +12,7 @@ import {
 import { DiagnosticsController } from './diagnostics.controller.js';
 import { DiagnosticsService, redactDiagnostics } from './diagnostics.service.js';
 import { ReadinessController } from './readiness.controller.js';
+import { analysisConfigured } from './readiness.service.js';
 import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { PermissionsReportController } from './permissions-report.controller.js';
 import { csvCell, permissionsToCsv, type PermissionRow } from './permissions-report.service.js';
@@ -138,6 +139,18 @@ describe('AdminAuditService', () => {
   it('clamps retention to at least 30 days', () => {
     expect(auditRetentionDays('1')).toBe(30);
     expect(auditRetentionDays('not-a-number')).toBe(400);
+  });
+
+  it('keeps the 400-day default when Compose passes an empty value', () => {
+    expect(auditRetentionDays('')).toBe(400);
+    expect(auditRetentionDays('  ')).toBe(400);
+    expect(auditRetentionDays(undefined)).toBe(400);
+  });
+
+  it('reports analysis from ANALYSIS_TIERS, the switch the API obeys', () => {
+    expect(analysisConfigured('server-heavy')).toBe('on');
+    expect(analysisConfigured('')).toBe('off');
+    expect(analysisConfigured(undefined)).toBe('off');
   });
 });
 

@@ -218,6 +218,37 @@ __NAS_INIT_BODY__
       # mounts the same volume at the same path. Without it, every
       # queued import fails with "Source file expired".
       STAGING_DIR: /var/lib/gg-staging
+      # Optional settings. Empty means the default. In Dockge, set
+      # them in the env box. See docs/truenas.md.
+      # Email notifications are off unless this is true. Configure
+      # SMTP on the admin Notifications page.
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      JWT_ALLOWED_AZP: ${JWT_ALLOWED_AZP:-}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-}
+      GRATIS_OPERATOR_ORG_ID: ${GRATIS_OPERATOR_ORG_ID:-}
+      GRATIS_ADMIN_AUDIT_RETENTION_DAYS: ${GRATIS_ADMIN_AUDIT_RETENTION_DAYS:-}
+      RECYCLE_BIN_RETENTION_DAYS: ${RECYCLE_BIN_RETENTION_DAYS:-}
+      ITEM_SNAPSHOT_TTL_DAYS: ${ITEM_SNAPSHOT_TTL_DAYS:-}
+      ITEM_SNAPSHOT_CAP_PER_ITEM: ${ITEM_SNAPSHOT_CAP_PER_ITEM:-}
+      HOUSEKEEPING_STALE_ITEM_DAYS: ${HOUSEKEEPING_STALE_ITEM_DAYS:-}
+      HOUSEKEEPING_STALE_USER_DAYS: ${HOUSEKEEPING_STALE_USER_DAYS:-}
+      HOUSEKEEPING_TOP_N: ${HOUSEKEEPING_TOP_N:-}
+      HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS: ${HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS:-}
+      HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS:-}
+      HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.
@@ -258,6 +289,13 @@ __NAS_INIT_BODY__
       # Same path and volume as portal-api, so the worker can read
       # the files portal-api staged for import.
       STAGING_DIR: /var/lib/gg-staging
+      # Crons run on portal-api. Without this the worker could win
+      # the cron lock and portal-api's scheduled jobs would not run.
+      ENABLE_CRONS: "false"
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
     volumes:
       - boot:/boot:ro
       - gg-staging:/var/lib/gg-staging
@@ -356,6 +394,14 @@ __NAS_INIT_BODY__
         # which is where Caddy sends the web UI.
         export PORT=3000
         exec /usr/bin/tini -- node apps/portal-web/server.js
+    environment:
+      # Map address search. Empty NOMINATIM_URL sends searches to the
+      # public nominatim.openstreetmap.org unless
+      # NOMINATIM_PUBLIC_FALLBACK is 0.
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
+      GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
+      GRATIS_SESSION_IDLE_SECONDS: ${GRATIS_SESSION_IDLE_SECONDS:-}
     volumes:
       - boot:/boot:ro
     depends_on:
