@@ -150,7 +150,7 @@ export async function PublicLanding({
     hasRuntime(it as Parameters<typeof hasRuntime>[0]),
   );
   const usableSession = isAuthenticated && !sessionStale;
-  const ctaHref = usableSession ? '/items' : '/signin';
+  const ctaHref = usableSession ? '/items' : '/signin?callbackUrl=%2Fitems';
   const ctaLabel = usableSession
     ? t('landing.openMyItems', undefined, locale)
     : t('nav.signIn', undefined, locale);
@@ -602,7 +602,7 @@ function TopBar({
         </span>
       </div>
       <Link
-        href="/signin"
+        href="/signin?callbackUrl=%2Fitems"
         className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
       >
         <LogIn className="h-4 w-4" />

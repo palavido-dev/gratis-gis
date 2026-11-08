@@ -217,10 +217,19 @@ jobs:
             -e POSTGRES_USER=gratisgis \
             -e POSTGRES_DB=gratisgis \
             postgis/postgis:17-3.5
-          for _ in $(seq 1 30); do
-            docker exec gg-pg-ci pg_isready -U gratisgis && break
+          # The image runs its init scripts on a temporary server that
+          # listens on the socket only, then restarts. pg_isready on the
+          # socket can catch that temporary server, and a test command
+          # then dies with it (exit 137). Wait for the init to finish and
+          # for the real server on TCP.
+          for _ in $(seq 1 60); do
+            if docker logs gg-pg-ci 2>&1 | grep -q 'PostgreSQL init process complete' \
+              && docker exec gg-pg-ci pg_isready -h 127.0.0.1 -U gratisgis; then
+              break
+            fi
             sleep 2
           done
+          docker exec gg-pg-ci pg_isready -h 127.0.0.1 -U gratisgis
           PG_DOCKER=gg-pg-ci bash infra/restore-maintenance.pg.test.sh
           docker rm -f gg-pg-ci
 
