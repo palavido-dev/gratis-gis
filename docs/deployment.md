@@ -109,7 +109,7 @@ Rules of thumb:
 
 ## What runs
 
-Docker Compose starts: the portal API (two replicas) and web UI, a
+Docker Compose starts: the portal API (two replicas in the production compose file, one in the NAS compose file) and web UI, a
 background worker, PostgreSQL with PostGIS, Keycloak 26 (identity),
 MinIO (object storage), pg_tileserv (vector tiles straight from
 PostGIS), Caddy (reverse proxy with automatic HTTPS), a one-shot
