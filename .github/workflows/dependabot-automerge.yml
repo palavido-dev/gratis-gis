@@ -21,6 +21,22 @@
 #
 # Do not pass `gh pr checks --required`. With no required checks
 # that flag reports nothing and would look like a green pull request.
+#
+# Author identity is not the same string in every API. The webhook
+# (`github.actor`, `pull_request.user.login`) and the REST pull and
+# commit objects use login `dependabot[bot]` and type `Bot`. That is
+# the Dependabot app user. `gh pr view --json author` is GraphQL.
+# The query is `author{login,...on User{id,name}}`. A bot does not
+# match the User fragment, so its id is empty, and gh's
+# Author.MarshalJSON rewrites an empty id to `app/` plus the GraphQL
+# login (cli/cli api/queries_issue.go). GraphQL's login for this bot
+# is `dependabot`, so the JSON field is `app/dependabot`. Comparing
+# that to `dependabot[bot]` rejects every Dependabot pull request
+# and the job exits 0. The gate reads the REST pull request instead.
+# The commit check already uses the REST commits API, where
+# author.login is `dependabot[bot]`. The committer on those commits
+# is `web-flow` (GitHub signs them). Do not require the committer
+# to be the bot.
 
 name: Dependabot auto-merge
 
@@ -43,6 +59,11 @@ concurrency:
 jobs:
   patch-and-minor:
     name: Squash-merge patch and minor
+    # Webhook identity, same REST login as the gate below. A
+    # Dependabot pull_request_target run has actor dependabot[bot].
+    # Do not compare this to gh's app/dependabot author login; that
+    # string is not what the event payload contains, and the job
+    # would never start.
     if: >-
       github.actor == 'dependabot[bot]' &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
@@ -216,26 +237,50 @@ jobs:
           fi
           echo "eligible: $reason"
 
-          pr_gate() {
-            local view state author base sha draft head_repo
-            view="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
-              --json state,isDraft,baseRefName,headRefOid,author,headRepository)" || return 2
-            state="$(jq -r '.state' <<<"$view")" || return 2
-            author="$(jq -r '.author.login // empty' <<<"$view")" || return 2
-            base="$(jq -r '.baseRefName' <<<"$view")" || return 2
-            sha="$(jq -r '.headRefOid' <<<"$view")" || return 2
-            draft="$(jq -r '.isDraft' <<<"$view")" || return 2
-            head_repo="$(jq -r '.headRepository.nameWithOwner // empty' <<<"$view")" || return 2
-            if [ "$state" != "OPEN" ]; then
+          # gate-fn-start
+          log_not_merging() {
+            local level="$1"
+            local reason="$2"
+            reason="$(printf '%s' "$reason" | tr '\n\r' '  ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            reason="${reason//%/%25}"
+            if [ -z "$reason" ]; then
+              reason="pull request failed the Dependabot gate"
+            fi
+            echo "::$level title=Dependabot auto-merge::not merging: $reason"
+          }
+
+          pr_gate_json() {
+            local view="$1"
+            local state author author_type base sha draft head_repo
+            state="$(jq -r '.state // empty' <<<"$view")" || return 2
+            author="$(jq -r '.user.login // empty' <<<"$view")" || return 2
+            author_type="$(jq -r '.user.type // empty' <<<"$view")" || return 2
+            base="$(jq -r '.base.ref // empty' <<<"$view")" || return 2
+            sha="$(jq -r '.head.sha // empty' <<<"$view")" || return 2
+            draft="$(jq -r '.draft | tostring' <<<"$view")" || return 2
+            head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$view")" || return 2
+            if [ -z "$state" ]; then
+              echo "missing pull request state" >&2
+              return 2
+            fi
+            if [ "$state" != "open" ]; then
               echo "pull request is $state" >&2
               return 1
             fi
-            if [ "$author" != "dependabot[bot]" ]; then
-              echo "author is $author" >&2
+            # REST pulls user. Login dependabot[bot], type Bot.
+            # Brackets are not a username character; GitHub appends
+            # [bot] to the app user. The GraphQL author login is a
+            # different string and is not read here.
+            if [ -z "$author" ] || [ -z "$author_type" ]; then
+              echo "missing pull request author" >&2
+              return 2
+            fi
+            if [ "$author" != "dependabot[bot]" ] || [ "$author_type" != "Bot" ]; then
+              echo "author is ${author} (type ${author_type}); expected dependabot[bot] (type Bot)" >&2
               return 1
             fi
             if [ "$base" != "main" ]; then
-              echo "base is $base" >&2
+              echo "base is ${base:-unknown}" >&2
               return 1
             fi
             if [ "$draft" != "false" ]; then
@@ -253,24 +298,52 @@ jobs:
             printf '%s\n' "$sha"
           }
 
-          commits_ok() {
-            local rows count bad
-            rows="$(gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" \
-              --jq '.[] | [.sha, (.author.login // ""), ((.commit.verification.verified // false) | tostring)] | @tsv')" || return 2
+          pr_gate() {
+            local view
+            view="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")" || return 2
+            pr_gate_json "$view"
+          }
+
+          capture_pr_gate() {
+            local errfile
+            errfile="$(mktemp)"
+            set +e
+            GATE_SHA="$(pr_gate 2>"$errfile")"
+            GATE_RC=$?
+            set -e
+            GATE_REASON="$(tr '\n\r' '  ' <"$errfile" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            rm -f "$errfile"
+          }
+
+          # REST commits API. author.login is dependabot[bot] and
+          # author.type is Bot. The committer is web-flow, because
+          # GitHub signs the commit. Do not require the committer
+          # login to be the bot.
+          commits_ok_rows() {
+            local rows="$1"
+            local count bad
             count="$(printf '%s\n' "$rows" | sed '/^$/d' | wc -l)"
             count=$((count))
             if [ "$count" -lt 1 ]; then
               echo "pull request has no commits" >&2
               return 1
             fi
-            bad="$(printf '%s\n' "$rows" | awk -F '\t' 'NF && ($2 != "dependabot[bot]" || $3 != "true") { print }')"
+            bad="$(printf '%s\n' "$rows" | awk -F '\t' 'NF && ($2 != "dependabot[bot]" || $3 != "Bot" || $4 != "true") { print }')"
             if [ -n "$bad" ]; then
-              echo "a commit is not a verified Dependabot commit" >&2
+              echo "a commit is not from dependabot[bot] (type Bot) with a verified signature" >&2
               printf '%s\n' "$bad" >&2
               return 1
             fi
           }
+
+          commits_ok() {
+            local rows
+            rows="$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" \
+              --jq '.[] | [.sha, (.author.login // ""), (.author.type // ""), ((.commit.verification.verified // false) | tostring)] | @tsv')" || return 2
+            commits_ok_rows "$rows"
+          }
+          # gate-fn-end
 
           read_decision() {
             local errfile checks_json checks_rc
@@ -298,17 +371,16 @@ jobs:
           deadline=$((SECONDS + wait_seconds))
           fail_since=
           while [ "$SECONDS" -lt "$deadline" ]; do
-            set +e
-            sha="$(pr_gate)"
-            gate_rc=$?
-            set -e
-            if [ "$gate_rc" -eq 1 ]; then
-              echo "::notice title=Dependabot auto-merge::not merging"
+            capture_pr_gate
+            if [ "$GATE_RC" -eq 1 ]; then
+              log_not_merging notice "$GATE_REASON"
               exit 0
             fi
-            if [ "$gate_rc" -ne 0 ]; then
-              exit "$gate_rc"
+            if [ "$GATE_RC" -ne 0 ]; then
+              printf '%s\n' "$GATE_REASON" >&2
+              exit "$GATE_RC"
             fi
+            sha="$GATE_SHA"
 
             set +e
             decision="$(read_decision)"
@@ -319,33 +391,37 @@ jobs:
             fi
 
             if [ "$decision" = "ready" ]; then
-              set +e
-              sha2="$(pr_gate)"
-              gate_rc=$?
-              set -e
-              if [ "$gate_rc" -eq 1 ]; then
-                echo "::notice title=Dependabot auto-merge::not merging"
+              capture_pr_gate
+              if [ "$GATE_RC" -eq 1 ]; then
+                log_not_merging notice "$GATE_REASON"
                 exit 0
               fi
-              if [ "$gate_rc" -ne 0 ]; then
-                exit "$gate_rc"
+              if [ "$GATE_RC" -ne 0 ]; then
+                printf '%s\n' "$GATE_REASON" >&2
+                exit "$GATE_RC"
               fi
+              sha2="$GATE_SHA"
               if [ "$sha2" != "$sha" ]; then
                 echo "head moved from $sha to $sha2; checking the new head"
                 fail_since=
                 continue
               fi
+              commits_err="$(mktemp)"
               set +e
-              commits_ok
+              commits_ok 2>"$commits_err"
               commits_rc=$?
               set -e
               if [ "$commits_rc" -eq 1 ]; then
-                echo "::warning title=Dependabot auto-merge::not merging; a commit is not a verified Dependabot commit"
+                log_not_merging warning "$(cat "$commits_err")"
+                rm -f "$commits_err"
                 exit 0
               fi
               if [ "$commits_rc" -ne 0 ]; then
+                cat "$commits_err" >&2
+                rm -f "$commits_err"
                 exit "$commits_rc"
               fi
+              rm -f "$commits_err"
               gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
                 --squash --match-head-commit "$sha"
               echo "squash-merged $sha"

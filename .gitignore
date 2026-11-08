@@ -121,11 +121,11 @@ docs/marketing/
 # the files, and the build breaks for everyone else.
 #
 # `/scripts/` (ignoring the directory itself) cannot be re-included
-# file by file. Ignore the contents, then un-ignore the SPDX checker,
-# which is the one script from this folder that CI runs. Load-test
-# rigs and one-off utilities stay local.
+# file by file. Ignore the contents, then un-ignore the scripts CI
+# runs. Load-test rigs and one-off utilities stay local.
 /scripts/*
 !/scripts/check-spdx.sh
+!/scripts/dependabot-automerge-gate.test.sh
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable

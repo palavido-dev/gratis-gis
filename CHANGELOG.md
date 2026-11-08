@@ -30,6 +30,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Dependabot patch and minor updates never squash-merged. The
+  auto-merge job marked a grouped update eligible, then stopped
+  because `gh pr view --json author` reports the bot as
+  `app/dependabot`. The account on the REST pull request is
+  `dependabot[bot]` with type `Bot`, which is what the gate checks
+  now. Each commit still has to be from that bot and verified.
 - Portal web production build. The My location helper used the `in`
   operator in a function-parameter default, which the Next.js
   compiler rejects, so `next build` and the portal-web image scan
