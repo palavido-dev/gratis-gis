@@ -126,6 +126,9 @@ docs/marketing/
 /scripts/*
 !/scripts/check-spdx.sh
 !/scripts/dependabot-automerge-gate.test.sh
+!/scripts/backup-help.test.sh
+!/scripts/reset-portal-password.test.sh
+!/scripts/restore-maintenance.test.sh
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable

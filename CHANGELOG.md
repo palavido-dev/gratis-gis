@@ -53,6 +53,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Admin backup help described a different backup system (`mc mirror`,
+  S3 and SFTP destinations, no in-portal restore). The help page now
+  matches the archive the portal writes: a portal database dump plus
+  object storage, Keycloak and the encryption key not included, and
+  maintenance left on if restore fails. The backup screen no longer
+  says a fresh install can be restored just by recreating users.
+  `infra/restore-maintenance.sh` refuses to clear maintenance unless
+  `user`, `item`, `organization`, `system_setting`, `observation`,
+  and `_prisma_migrations` exist and no migration is unfinished.
+  That is not a proof the data is a consistent restore. The script
+  says so. It does not delete volumes.
+  `infra/reset-portal-password.sh` resets one Keycloak user from the
+  host without deleting data and without opening the master realm on
+  the proxy. The NAS second-boot log no longer says to delete volumes
+  to get a new password. Existing installs pick up the docs and
+  scripts by updating the checkout. No volume reset. A paste-only NAS
+  install copies the script onto the host. No setting change inside
+  the portal.
 - The portal-api image build can compile `gdal-async` from source.
   That package's node-gyp step runs `npm`, and the image had deleted
   npm in the base stage before `pnpm fetch`. npm is copied back into
