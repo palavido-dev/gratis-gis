@@ -1161,6 +1161,12 @@ model AnalysisJob {
   /// worker cannot flip its own rows and the UI would otherwise
   /// spin forever.
   heartbeatAt  DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  /// Set when a worker claims the row. finish_job and heartbeats
+  /// from that worker must present the same value. A reclaim that
+  /// leaves the row for a later claim gets a new token, so the old
+  /// worker cannot mark the new attempt done. The worker clears it
+  /// when it hands a vector result to the API bridge ('ingest').
+  claimToken   String?   @map("claim_token") @db.Uuid
 
   @@index([state, createdAt])
   @@index([sourceItemId])

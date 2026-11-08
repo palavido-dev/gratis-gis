@@ -69,6 +69,32 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- A bulk import commit now waits for the WAL flush. An append
+  removes only create rows that the same transaction just inserted
+  when that entity already has a live observation, or when the load
+  inserted the same entity twice. The comparison uses this
+  transaction's xid, so it still matches after the 32-bit counter
+  wraps. Committed history, edits, other
+  scopes, and duplicates that were already stored are not deleted.
+  A create after a delete is kept. The import's loaded count leaves
+  out those rows, and the layer's import note says how many were
+  skipped because their GlobalID already exists. An append of tens of
+  thousands of features no longer fails with "out of shared memory".
+  Existing installs pick this up by updating the portal-api image.
+  No volume reset.
+- A point-cloud worker heartbeats, finishes, cancels, and publishes
+  an item result only while it still holds that job's claim token.
+  The item update and the token check are one statement, so a reclaim
+  that commits first is the write that sticks.
+  While a row is running or cancel-requested, a database trigger
+  ignores updates from an older worker image that does not present
+  the token. Claiming a queued row, a user cancel, the stale-job
+  reclaim sweep, and the hand-off of contours and zonal statistics
+  to the import step still work. The migration adds
+  nullable `analysis_job.claim_token` and the trigger. Apply it
+  before starting the new worker image. An old worker can keep
+  running; it cannot overwrite a row a new worker has leased. No
+  volume reset.
 - Org admins can read a persisted audit of privileged changes
   (users, roles, sharing, ownership, backup, and admin settings),
   download the current permissions snapshot as CSV, and create a
