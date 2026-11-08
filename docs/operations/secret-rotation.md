@@ -1,13 +1,11 @@
 # Secret rotation
 
-Application credential blobs and the optional org AI provider secret
-can be re-encrypted from Admin → Operations after
-`GRATIS_REKEY_NEW_KEY_FILE` points at a base64 32-byte key file. The
-preflight counts those blobs and reports how many the current
-`CREDENTIAL_ENCRYPTION_KEY` cannot open. The rekey writes new
-ciphertext and, if verification fails, puts the previous ciphertext
-back. The previous key file stays with the operator. This process
-does not write it into the database.
+The rekey mutation is not enabled. Rewriting ciphertext in one
+process would leave rows that the other API and worker processes
+cannot read until every replica is restarted onto the new key, and
+a crash during that window is not undone by a SQL rollback. The
+preflight still counts application credential blobs and says which
+host secrets are outside it. No ciphertext is changed.
 
 That workflow does not rotate:
 

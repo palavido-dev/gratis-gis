@@ -131,6 +131,7 @@ export class ImportJobsController {
       totalFeatures,
       userId: user.id,
       orgId: user.orgId,
+      bytes: BigInt(staged.sizeBytes),
     });
     return this.jobs.toWire(row);
   }

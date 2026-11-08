@@ -30,8 +30,8 @@ export class CredentialRekeyController {
   }
 
   @Post()
-  @HttpCode(200)
-  run(@CurrentUser() user: AuthUser, @Body() body: RekeyDto) {
-    return this.rekey.rekey(user, body.confirm);
+  @HttpCode(409)
+  async run(@CurrentUser() user: AuthUser, @Body() _body: RekeyDto) {
+    await this.rekey.refuse(user);
   }
 }

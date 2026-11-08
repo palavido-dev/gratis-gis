@@ -21,7 +21,7 @@ class MaintenanceDto {
   @IsBoolean()
   active!: boolean;
 
-  /** Required to clear maintenance that a failed restore left on. */
+  /** Accepted and ignored. A failed restore stays on until a restore finishes. */
   @IsOptional()
   @IsBoolean()
   acknowledgeFailure?: boolean;
@@ -56,7 +56,7 @@ export class MaintenanceAdminController {
   @HttpCode(200)
   async set(@CurrentUser() user: AuthUser, @Body() body: MaintenanceDto) {
     const before = this.mode.snapshot();
-    if (!body.active && failedRestore(before.reason) && body.acknowledgeFailure !== true) {
+    if (!body.active && failedRestore(before.reason)) {
       await this.audit.record({
         orgId: user.orgId,
         actorUserId: user.id,
@@ -64,10 +64,10 @@ export class MaintenanceAdminController {
         targetType: 'maintenance',
         targetId: user.orgId,
         outcome: 'failed',
-        detail: { active: false },
+        detail: { active: false, held: true },
       });
       throw new ConflictException(
-        'A failed restore is holding maintenance. Acknowledge that before turning it off.',
+        'A failed restore is holding maintenance. It stays on until a restore finishes. The portal will not serve a partial database.',
       );
     }
     try {

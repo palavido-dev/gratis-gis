@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Optional,
   Query,
   Res,
   UploadedFile,
@@ -30,8 +31,10 @@ import {
 } from '../data-layer/tables.service.js';
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
+import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
+import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 
 /**
@@ -56,6 +59,7 @@ export class IngestController {
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerTables: DataLayerTablesService,
     private readonly staging: IngestStagingService,
+    @Optional() private readonly quota?: ResourceQuotaService,
   ) {}
 
   /**
@@ -184,6 +188,12 @@ export class IngestController {
       originalName: file.originalname,
       ownerId: user.id,
     });
+    try {
+      await this.quota?.reserve(user.orgId, BigInt(staged.sizeBytes), staged.stagingId);
+    } catch (err) {
+      await this.staging.dropStaging(staged.stagingId).catch(() => {});
+      throw err;
+    }
     await rm(file.destination, { recursive: true, force: true }).catch(
       () => {},
     );
@@ -197,6 +207,7 @@ export class IngestController {
     } catch (err) {
       // Probe rejected: don't keep a staged file we can't ingest.
       await this.staging.dropStaging(staged.stagingId).catch(() => {});
+      await this.quota?.releasePurpose(staged.stagingId);
       throw err;
     }
   }
@@ -479,6 +490,14 @@ export class IngestController {
           );
         };
       }
+      const quotaPurpose = stagingId ?? `direct-${randomUUID()}`;
+      if (!stagingId) {
+        await this.quota?.reserve(
+          user.orgId,
+          BigInt(provenanceSizeBytes),
+          quotaPurpose,
+        );
+      }
 
       let totalInserted = 0;
       let startedFlushed = false;
@@ -603,6 +622,7 @@ export class IngestController {
           });
         }
       } finally {
+        await this.quota?.releasePurpose(quotaPurpose);
         if (cleanupSourceDir) {
           await cleanupSourceDir().catch(() => {});
         }

@@ -53,6 +53,8 @@ export class ImportJobsService {
     totalFeatures: number | null;
     userId: string;
     orgId: string;
+    /** Staged file size. Zero is a concurrency hold only. */
+    bytes?: bigint;
   }): Promise<ImportJob> {
     const created = await this.prisma.importJob.create({
       data: {
@@ -69,7 +71,7 @@ export class ImportJobsService {
       },
     });
     try {
-      await this.quota?.reserve(input.orgId, 0n, created.id);
+      await this.quota?.reserve(input.orgId, input.bytes ?? 0n, created.stagingId);
     } catch (err) {
       await this.prisma.importJob.delete({ where: { id: created.id } }).catch(() => undefined);
       throw err;
@@ -129,6 +131,7 @@ export class ImportJobsService {
         },
       });
       await this.quota?.releasePurpose(jobId);
+      await this.quota?.releasePurpose(updated.stagingId);
       return updated;
     }
     return row;
@@ -205,7 +208,12 @@ export class ImportJobsService {
         insertedFeatures,
       },
     });
-    await this.quota?.releasePurpose(jobId);
+      await this.quota?.releasePurpose(jobId);
+      const finished = await this.prisma.importJob.findUnique({
+        where: { id: jobId },
+        select: { stagingId: true },
+      });
+      if (finished) await this.quota?.releasePurpose(finished.stagingId);
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
@@ -224,6 +232,11 @@ export class ImportJobsService {
       },
     });
     await this.quota?.releasePurpose(jobId);
+    const finished = await this.prisma.importJob.findUnique({
+      where: { id: jobId },
+      select: { stagingId: true },
+    });
+    if (finished) await this.quota?.releasePurpose(finished.stagingId);
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 

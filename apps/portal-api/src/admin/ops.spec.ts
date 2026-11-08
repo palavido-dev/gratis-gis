@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { failedRestore } from './maintenance-admin.controller.js';
+import {
+  failedRestore,
+  MaintenanceAdminController,
+} from './maintenance-admin.controller.js';
+import { ResourceQuotaService } from './resource-quota.service.js';
 
 import { quotaDecision } from './resource-quota.js';
 import { redactJobError } from './jobs-monitor.service.js';
@@ -12,8 +16,8 @@ import { encryptWithKey } from '../items/credential-cipher.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import type { AdminAuditService } from './admin-audit.service.js';
-import type { BackupService } from '../backup/backup.service.js';
 import type { NotificationsService } from '../notifications/notifications.service.js';
+import type { MaintenanceModeService } from '../backup/maintenance-mode.service.js';
 
 const user: AuthUser = {
   id: 'user-1',
@@ -90,7 +94,6 @@ describe('job monitor', () => {
         analysisJob: { findMany: async () => [] },
         backupRun: { findMany: async () => [] },
       } as unknown as PrismaService,
-      {} as BackupService,
       { record: async () => undefined } as unknown as AdminAuditService,
     );
     return jobs.list('org-1').then((page) => {
@@ -114,6 +117,8 @@ describe('job monitor', () => {
       status: 'failed',
     };
     const prisma = {
+      item: { findFirst: async () => ({ id: 'item-1' }) },
+      user: { findFirst: async () => ({ id: 'user-1' }) },
       importJob: {
         findUnique: async () => failed,
         findFirst: async () => queued[0] ?? null,
@@ -137,7 +142,6 @@ describe('job monitor', () => {
     };
     const svc = new JobsMonitorService(
       prisma as unknown as PrismaService,
-      {} as BackupService,
       { record: async () => undefined } as unknown as AdminAuditService,
     );
     const first = await svc.retry(user, 'import', 'old');
@@ -153,10 +157,9 @@ describe('job monitor', () => {
       {
         backupRun: { findUnique: async () => ({ id: 'run', status: 'succeeded', trigger: 'manual', error: null }) },
       } as unknown as PrismaService,
-      {} as BackupService,
       { record: async () => undefined } as unknown as AdminAuditService,
     );
-    await expect(svc.cancel(user, 'backup', 'run')).rejects.toThrow(/running backup/);
+    await expect(svc.cancel(user, 'backup', 'run')).rejects.toThrow(/backup page/);
   });
 });
 
@@ -186,24 +189,49 @@ describe('backup failure notice', () => {
   });
 });
 
+describe('storage reservation', () => {
+  it('locks the org before it inserts a reservation', async () => {
+    const sql: string[] = [];
+    const tx = {
+      $executeRaw: async (strings: TemplateStringsArray) => {
+        sql.push(String(strings[0]));
+      },
+      storageReservation: {
+        findFirst: async () => null,
+        aggregate: async () => ({ _sum: { bytes: 0n } }),
+        create: async () => ({}),
+      },
+      orgResourceQuota: { findUnique: async () => null },
+      importJob: { count: async () => 0 },
+    };
+    const prisma = {
+      $transaction: async (fn: (inner: typeof tx) => Promise<void>) => fn(tx),
+    };
+    const svc = new ResourceQuotaService(prisma as unknown as PrismaService);
+    await svc.reserve('org-1', 10n, 'upload-1');
+    expect(sql.some((row) => row.includes('pg_advisory_xact_lock'))).toBe(true);
+    expect(sql.some((row) => row.includes('DELETE FROM storage_reservation'))).toBe(true);
+  });
+});
+
 describe('credential rekey', () => {
-  it('rolls back when verification fails and does not claim database passwords', async () => {
+  it('refuses the mutation and does not write ciphertext', async () => {
     const key = randomBytes(32);
     const enc = encryptWithKey('s3cret-value', 'item-1', key);
     const rows = [
       { id: 'cred-1', itemId: 'item-1', encryptedPayload: enc.ciphertext, iv: enc.iv },
     ];
-    let transactions = 0;
+    let updates = 0;
     const prisma = {
       itemCredential: {
         findMany: async () => rows,
-        update: async () => ({}),
+        update: async () => {
+          updates += 1;
+        },
       },
       orgAiProvider: { findMany: async () => [], update: async () => ({}) },
-      $transaction: async (fn: (tx: unknown) => Promise<void>) => {
-        transactions += 1;
-        if (transactions === 1) throw new Error('write failed');
-        await fn(prisma);
+      $transaction: async () => {
+        throw new Error('write failed');
       },
     };
     process.env.CREDENTIAL_ENCRYPTION_KEY = key.toString('base64');
@@ -227,14 +255,38 @@ describe('credential rekey', () => {
     await expect(svc.rekey(user, 'rekey-application-credentials')).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(audits).toContain('failed');
+    expect(audits).toEqual(['failed']);
+    expect(updates).toBe(0);
     expect(JSON.stringify(audits)).not.toContain('s3cret');
   });
 });
 
 describe('maintenance hold', () => {
-  it('keeps a failed restore on until it is acknowledged', () => {
+  it('does not clear a failed restore when acknowledgeFailure is set', async () => {
     expect(failedRestore('Restore of backup abcd failed and left the portal in an inconsistent state.')).toBe(true);
     expect(failedRestore('Turned on by an org admin.')).toBe(false);
+    const deactivate = jest.fn();
+    const mode = {
+      snapshot: () => ({
+        active: true,
+        reason: 'Restore failed and left an inconsistent database',
+        startedAt: null,
+      }),
+      deactivate,
+    };
+    const audits: string[] = [];
+    const controller = new MaintenanceAdminController(
+      mode as unknown as MaintenanceModeService,
+      {
+        record: async (row: { outcome: string }) => {
+          audits.push(row.outcome);
+        },
+      } as unknown as AdminAuditService,
+    );
+    await expect(
+      controller.set(user, { active: false, acknowledgeFailure: true }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(deactivate).not.toHaveBeenCalled();
+    expect(audits).toEqual(['failed']);
   });
 });

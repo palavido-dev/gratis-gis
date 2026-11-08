@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import { BackupService } from '../backup/backup.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
 
@@ -34,12 +32,11 @@ export interface JobRow {
 export class JobsMonitorService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly backup: BackupService,
     private readonly audit: AdminAuditService,
   ) {}
 
   async list(orgId: string): Promise<{ jobs: JobRow[] }> {
-    const [imports, analysis, backups] = await Promise.all([
+    const [imports, analysis] = await Promise.all([
       this.prisma.importJob.findMany({
         where: { orgId },
         orderBy: { createdAt: 'desc' },
@@ -49,10 +46,6 @@ export class JobsMonitorService {
         where: { orgId },
         orderBy: { createdAt: 'desc' },
         take: 50,
-      }),
-      this.prisma.backupRun.findMany({
-        orderBy: { startedAt: 'desc' },
-        take: 20,
       }),
     ]);
     const jobs: JobRow[] = [
@@ -80,18 +73,6 @@ export class JobsMonitorService {
           retry: row.state === 'failed' || row.state === 'cancelled',
         },
       })),
-      ...backups.map((row) => ({
-        id: row.id,
-        kind: 'backup' as const,
-        source: row.trigger,
-        type: 'backup',
-        status: row.status,
-        error: redactJobError(row.error),
-        actions: {
-          cancel: row.status === 'running',
-          retry: row.status === 'failed',
-        },
-      })),
     ];
     return { jobs };
   }
@@ -99,15 +80,13 @@ export class JobsMonitorService {
   async cancel(user: AuthUser, kind: string, id: string): Promise<JobRow> {
     if (kind === 'import') return this.cancelImport(user, id);
     if (kind === 'analysis') return this.cancelAnalysis(user, id);
-    if (kind === 'backup') return this.cancelBackup(user, id);
-    throw new BadRequestException('That job type cannot be cancelled here.');
+    throw new BadRequestException('Backups stay on the backup page for this install.');
   }
 
   async retry(user: AuthUser, kind: string, id: string): Promise<JobRow> {
     if (kind === 'import') return this.retryImport(user, id);
     if (kind === 'analysis') return this.retryAnalysis(user, id);
-    if (kind === 'backup') return this.retryBackup(user, id);
-    throw new BadRequestException('That job type cannot be retried.');
+    throw new BadRequestException('Backups stay on the backup page for this install.');
   }
 
   private async cancelImport(user: AuthUser, id: string): Promise<JobRow> {
@@ -175,39 +154,14 @@ export class JobsMonitorService {
     };
   }
 
-  private async cancelBackup(user: AuthUser, id: string): Promise<JobRow> {
-    const row = await this.prisma.backupRun.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('Backup run not found.');
-    if (row.status !== 'running') {
-      throw new BadRequestException('Only a running backup can be cancelled.');
-    }
-    await this.backup.requestCancel(id);
-    await this.audit.record({
-      orgId: user.orgId,
-      actorUserId: user.id,
-      action: 'job.cancel',
-      targetType: 'backup',
-      targetId: id,
-      outcome: 'succeeded',
-    });
-    const next = await this.prisma.backupRun.findUniqueOrThrow({ where: { id } });
-    return {
-      id,
-      kind: 'backup',
-      source: next.trigger,
-      type: 'backup',
-      status: next.status,
-      error: redactJobError(next.error),
-      actions: { cancel: next.status === 'running', retry: next.status === 'failed' },
-    };
-  }
-
   private async retryImport(user: AuthUser, id: string): Promise<JobRow> {
     const row = await this.prisma.importJob.findUnique({ where: { id } });
     if (!row || row.orgId !== user.orgId) throw new NotFoundException('Import job not found.');
     if (row.status !== 'failed' && row.status !== 'cancelled') {
       throw new BadRequestException('Only a failed or cancelled import can be retried.');
     }
+    await this.assertOwnedItem(user.orgId, row.itemId);
+    await this.assertRequester(user.orgId, row.createdBy);
     const created = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.importJob.findFirst({
         where: {
@@ -260,13 +214,9 @@ export class JobsMonitorService {
     if (row.state !== 'failed' && row.state !== 'cancelled') {
       throw new BadRequestException('Only a failed or cancelled analysis can be retried.');
     }
-    const source = await this.prisma.item.findFirst({
-      where: { id: row.sourceItemId, orgId: user.orgId, deletedAt: null },
-      select: { id: true, access: true },
-    });
-    if (!source) {
-      throw new BadRequestException('The source item is gone, so this analysis cannot be retried.');
-    }
+    await this.assertOwnedItem(user.orgId, row.sourceItemId);
+    if (row.targetItemId) await this.assertOwnedItem(user.orgId, row.targetItemId);
+    await this.assertRequester(user.orgId, row.userId);
     const created = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.analysisJob.findFirst({
         where: {
@@ -296,7 +246,7 @@ export class JobsMonitorService {
       targetType: 'analysis',
       targetId: created.id,
       outcome: 'succeeded',
-      detail: { access: source.access },
+      detail: { source: row.sourceItemId },
     });
     return {
       id: created.id,
@@ -309,32 +259,24 @@ export class JobsMonitorService {
     };
   }
 
-  private async retryBackup(user: AuthUser, id: string): Promise<JobRow> {
-    const row = await this.prisma.backupRun.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('Backup run not found.');
-    if (row.status !== 'failed') {
-      throw new BadRequestException('Only a failed backup can be run again.');
-    }
-    const live = await this.prisma.backupRun.findFirst({ where: { status: 'running' } });
-    if (live) throw new ConflictException('A backup is already running.');
-    const next = await this.backup.runBackup('manual', user.id);
-    await this.audit.record({
-      orgId: user.orgId,
-      actorUserId: user.id,
-      action: 'job.retry',
-      targetType: 'backup',
-      targetId: next.id,
-      outcome: 'succeeded',
-      detail: { from: id },
+  private async assertOwnedItem(orgId: string, itemId: string): Promise<void> {
+    const item = await this.prisma.item.findFirst({
+      where: { id: itemId, orgId, deletedAt: null },
+      select: { id: true },
     });
-    return {
-      id: next.id,
-      kind: 'backup',
-      source: next.trigger,
-      type: 'backup',
-      status: next.status,
-      error: redactJobError(next.error),
-      actions: { cancel: next.status === 'running', retry: next.status === 'failed' },
-    };
+    if (!item) {
+      throw new BadRequestException('That item is not in this organization.');
+    }
   }
+
+  private async assertRequester(orgId: string, userId: string): Promise<void> {
+    const requester = await this.prisma.user.findFirst({
+      where: { id: userId, orgId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!requester) {
+      throw new BadRequestException('The original requester is not in this organization.');
+    }
+  }
+
 }
