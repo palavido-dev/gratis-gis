@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -14,7 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Prisma } from '@prisma/client';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -28,10 +29,14 @@ import {
   DataLayerTablesService,
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
-import { IngestService } from './ingest.service.js';
+import { IngestService, uploadLayerStem } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
+import {
+  discardDiskUpload,
+  takeContainedDiskUpload,
+} from './ingest-disk-path.js';
 import {
   acquireIngestSlot,
   assertIngestDiskRoomAt,
@@ -78,16 +83,9 @@ export class IngestController {
    * authorization is `canEdit` on the item, applied when the parsed
    * result is written.
    */
-  private async assertCanImport(
-    user: AuthUser,
-    file: Express.Multer.File | undefined,
-  ): Promise<void> {
+  private async assertCanImport(user: AuthUser, req: Request): Promise<void> {
     if (hasCapability(user, 'can_publish_items')) return;
-    if (file) {
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
-    }
+    await discardDiskUpload(req);
     throw new ForbiddenException(
       'Importing files requires the contributor or admin role.',
     );
@@ -105,25 +103,31 @@ export class IngestController {
   async probe(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: Request,
   ) {
     // Refuse before the missing-file check so a viewer learns the
     // real reason rather than a hint about multipart field names.
-    await this.assertCanImport(user, file);
+    await this.assertCanImport(user, req);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    let release: (() => void) | undefined;
     try {
-      release = acquireIngestSlot(user.id);
-      await assertIngestDiskRoomAt(file.destination, file.size);
-      return await this.ingest.probeFileFromPath(file.path);
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
+      try {
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        return await this.ingest.probeFileFromPath(contained.filePath);
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
     } finally {
-      release?.();
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      await discardDiskUpload(req);
     }
   }
 
@@ -150,25 +154,36 @@ export class IngestController {
   async toGeoJson(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: Request,
   ) {
     if (!file) {
+      await discardDiskUpload(req);
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
     // Open to every signed-in user. Edit rights are checked when the
     // parsed features are written. The file stays on disk, one parse
-    // per user, and the temp dir is removed on every exit.
-    let release: (() => void) | undefined;
+    // per user, and the temp dir is removed on every exit. The path
+    // is the one this process stored, not the caller's filename.
     try {
-      release = acquireIngestSlot(user.id);
-      await assertIngestDiskRoomAt(file.destination, file.size);
-      return await this.ingest.fileToGeoJsonFromPath(file.path, file.originalname);
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
+      try {
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        return await this.ingest.fileToGeoJsonFromPath(
+          contained.filePath,
+          file.originalname,
+        );
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
     } finally {
-      release?.();
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      await discardDiskUpload(req);
     }
   }
 
@@ -189,45 +204,52 @@ export class IngestController {
   async stage(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: Request,
   ) {
-    await this.assertCanImport(user, file);
+    await this.assertCanImport(user, req);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    // The upload is already on disk (disk storage). Move it into the
-    // staging area rather than re-buffering, then drop the now-empty
-    // temp dir. probe reads the staged file from its stable path.
-    let release: (() => void) | undefined;
+    // The upload is already on disk (disk storage). Move the contained
+    // file into the staging area rather than re-buffering, then drop
+    // the now-empty temp dir. probe reads the staged file from its
+    // stable path. The caller's filename is a label, not a path.
     try {
-      release = acquireIngestSlot(user.id);
-      await assertIngestDiskRoomAt(file.destination, file.size);
-      const staged = await this.staging.stageFromPath({
-        filePath: file.path,
-        originalName: file.originalname,
-        ownerId: user.id,
-      });
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
       try {
-        const probe = await this.ingest.probeFileFromPath(staged.filePath);
-        return {
-          stagingId: staged.stagingId,
-          driver: probe.driver,
-          layers: probe.layers,
-        };
-      } catch (err) {
-        // Probe rejected: don't keep a staged file we can't ingest.
-        await this.staging.dropStaging(staged.stagingId).catch(() => {});
-        throw err;
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        const staged = await this.staging.stageFromPath({
+          filePath: contained.filePath,
+          originalName: file.originalname,
+          ownerId: user.id,
+        });
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+        try {
+          const probe = await this.ingest.probeFileFromPath(staged.filePath);
+          return {
+            stagingId: staged.stagingId,
+            driver: probe.driver,
+            layers: probe.layers,
+          };
+        } catch (err) {
+          // Probe rejected: don't keep a staged file we can't ingest.
+          await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          throw err;
+        }
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
       }
     } finally {
-      release?.();
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      await discardDiskUpload(req);
     }
   }
 
@@ -237,13 +259,17 @@ export class IngestController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: Request,
   ) {
     if (!file) {
+      await discardDiskUpload(req);
       throw new BadRequestException('No file uploaded; field name must be "file".');
     }
 
     let release: (() => void) | undefined;
     try {
+      const contained = takeContainedDiskUpload(req);
+      try {
       const item = await this.items.get(user, id);
       if (item.type !== 'data_layer') {
         throw new BadRequestException(
@@ -256,9 +282,12 @@ export class IngestController {
       }
 
       release = acquireIngestSlot(user.id);
-      await assertIngestDiskRoomAt(file.destination, file.size);
+      await assertIngestDiskRoomAt(contained.directory, file.size);
       const { geojson, fields, driver, sourceSrs } =
-        await this.ingest.fileToGeoJsonFromPath(file.path, file.originalname);
+        await this.ingest.fileToGeoJsonFromPath(
+          contained.filePath,
+          file.originalname,
+        );
 
     // Ensure the PostGIS table exists for this item (idempotent).
     await this.features.provisionTable(id);
@@ -309,20 +338,23 @@ export class IngestController {
       data: { data: nextData as unknown as Prisma.InputJsonValue },
     });
 
-    return {
-      driver,
-      inserted,
-      expired,
-      featureCount: stats.featureCount,
-      bbox: stats.bbox,
-      fields: nextData.fields,
-      sourceSrs,
-    };
+      return {
+        driver,
+        inserted,
+        expired,
+        featureCount: stats.featureCount,
+        bbox: stats.bbox,
+        fields: nextData.fields,
+        sourceSrs,
+      };
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
     } finally {
-      release?.();
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      await discardDiskUpload(req);
     }
   }
 
@@ -368,6 +400,7 @@ export class IngestController {
     // GDB uploaded once at probe time gets re-used for N per-layer
     // ingests without N more uploads.
     @Query('stagingId') stagingId?: string,
+    @Req() req: Request,
   ) {
     // #103: response body is newline-delimited JSON. Each line is one
     // event. Shape:
@@ -492,14 +525,14 @@ export class IngestController {
         provenanceSizeBytes = staged.sizeBytes;
       } else {
         const f = file!;
-        // Disk storage already wrote the upload to f.path inside its
-        // own temp dir; use it directly (no 1 GB memory buffer, no
-        // separate materialize step). The finally cleans up the dir.
-        sourcePath = f.path;
+        // The bytes are already in the directory this process created.
+        // Open that recorded path. Do not open the caller's filename.
+        const contained = takeContainedDiskUpload(req);
+        sourcePath = contained.filePath;
         provenanceFileName = f.originalname;
         provenanceSizeBytes = f.size;
         cleanupSourceDir = async () => {
-          await rm(f.destination, { recursive: true, force: true }).catch(
+          await rm(contained.directory, { recursive: true, force: true }).catch(
             () => {},
           );
         };
@@ -551,10 +584,17 @@ export class IngestController {
           // into an attribute-only layer inserted nothing and said
           // nothing: the source file looks geometry-bearing to GDAL,
           // so every geometry-less feature was skipped as corrupt.
-          { isTable: layer.geometryType == null },
+          {
+            isTable: layer.geometryType == null,
+            layerLabel: provenanceFileName,
+          },
         );
         lastDriver = meta.driver;
-        lastLayerName = meta.layerName;
+        // The NDJSON body names the file the user picked, or the
+        // sourceLayer they asked for. It does not echo the temp path.
+        lastLayerName = sourceLayer && sourceLayer.length > 0
+          ? sourceLayer
+          : uploadLayerStem(provenanceFileName);
         lastSourceSrs = meta.sourceSrs;
         // Empty-source edge case: streamLayer opens fine but yields
         // zero batches. Emit the start event so the client still gets a
@@ -717,6 +757,8 @@ export class IngestController {
       );
       writeEvent({ event: 'error', message });
       res.end();
+    } finally {
+      await discardDiskUpload(req);
     }
   }
 

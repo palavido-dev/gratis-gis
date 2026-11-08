@@ -30,6 +30,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- An upload named `..`, or a name with a directory in it, is stored as
+  `payload` plus a known extension inside the temp directory this
+  process created. The server opens that file only after the real path
+  stays inside the directory. The name you picked is still saved on
+  the item as the source label. Existing installs pick this up by
+  updating the portal-api image. No setting change and no volume reset.
 - Uploading a file to turn it into GeoJSON, or ingesting it straight
   onto a data layer, no longer holds the whole file in the API
   process. The file stays on disk, one parse runs per user, two at

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { resetIngestSlotsForTests } from './ingest-slots.js';
+import { pinDiskUpload } from './ingest-disk-path.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ForbiddenException } from '@nestjs/common';
+import type { Request } from 'express';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ROLE_BASELINES, type CapabilityKey } from '../auth/capabilities.js';
@@ -80,21 +82,27 @@ function makeController() {
  * removing. Built for real so the refusal path can be checked to
  * clean up rather than leak the directory.
  */
-function diskUpload(): Express.Multer.File {
-  const destination = mkdtempSync(join(tmpdir(), 'gg-ingest-spec-'));
-  const path = join(destination, 'upload.geojson');
+function diskUpload(): { file: Express.Multer.File; req: Request; filePath: string } {
+  const req = { id: 'ingest-spec' } as Request;
+  const destination = mkdtempSync(join(tmpdir(), 'gg-ingest-'));
+  const path = join(destination, 'payload.geojson');
   writeFileSync(path, '{"type":"FeatureCollection","features":[]}');
+  pinDiskUpload(req, destination, path);
   return {
-    fieldname: 'file',
-    originalname: 'upload.geojson',
-    encoding: '7bit',
-    mimetype: 'application/geo+json',
-    size: 40,
-    destination,
-    filename: 'upload.geojson',
-    path,
-    buffer: Buffer.alloc(0),
-    stream: undefined as never,
+    req,
+    filePath: realpathSync(path),
+    file: {
+      fieldname: 'file',
+      originalname: 'upload.geojson',
+      encoding: '7bit',
+      mimetype: 'application/geo+json',
+      size: 40,
+      destination,
+      filename: 'payload.geojson',
+      path,
+      buffer: Buffer.alloc(0),
+      stream: undefined as never,
+    },
   };
 }
 
@@ -106,9 +114,9 @@ describe('IngestController publish gate', () => {
   describe('probe', () => {
     it('refuses a viewer and removes the upload it already received', async () => {
       const { controller, ingest } = makeController();
-      const file = diskUpload();
+      const { file, req } = diskUpload();
       await expect(
-        controller.probe(userWithRole('viewer'), file),
+        controller.probe(userWithRole('viewer'), file, req),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(ingest.probeFileFromPath).not.toHaveBeenCalled();
       expect(existsSync(file.destination)).toBe(false);
@@ -119,7 +127,7 @@ describe('IngestController publish gate', () => {
       // the role rather than about multipart field names.
       const { controller } = makeController();
       await expect(
-        controller.probe(userWithRole('viewer'), undefined),
+        controller.probe(userWithRole('viewer'), undefined, {} as Request),
       ).rejects.toMatchObject({
         message: 'Importing files requires the contributor or admin role.',
       });
@@ -127,11 +135,11 @@ describe('IngestController publish gate', () => {
 
     it('lets a contributor through to the probe', async () => {
       const { controller, ingest } = makeController();
-      const file = diskUpload();
+      const { file, req, filePath } = diskUpload();
       await expect(
-        controller.probe(userWithRole('contributor'), file),
+        controller.probe(userWithRole('contributor'), file, req),
       ).resolves.toEqual(PROBE);
-      expect(ingest.probeFileFromPath).toHaveBeenCalledWith(file.path);
+      expect(ingest.probeFileFromPath).toHaveBeenCalledWith(filePath);
       expect(existsSync(file.destination)).toBe(false);
     });
 
@@ -142,8 +150,9 @@ describe('IngestController publish gate', () => {
       const { controller } = makeController();
       const granted = userWithRole('viewer');
       (granted.capabilities as Set<CapabilityKey>).add('can_publish_items');
+      const { file, req } = diskUpload();
       await expect(
-        controller.probe(granted, diskUpload()),
+        controller.probe(granted, file, req),
       ).resolves.toEqual(PROBE);
     });
   });
@@ -151,9 +160,9 @@ describe('IngestController publish gate', () => {
   describe('stage', () => {
     it('refuses a viewer before anything reaches the staging area', async () => {
       const { controller, staging, ingest } = makeController();
-      const file = diskUpload();
+      const { file, req } = diskUpload();
       await expect(
-        controller.stage(userWithRole('viewer'), file),
+        controller.stage(userWithRole('viewer'), file, req),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(staging.stageFromPath).not.toHaveBeenCalled();
       expect(ingest.probeFileFromPath).not.toHaveBeenCalled();
@@ -162,12 +171,12 @@ describe('IngestController publish gate', () => {
 
     it('lets a contributor stage and probe', async () => {
       const { controller, staging } = makeController();
-      const file = diskUpload();
+      const { file, req, filePath } = diskUpload();
       await expect(
-        controller.stage(userWithRole('contributor'), file),
+        controller.stage(userWithRole('contributor'), file, req),
       ).resolves.toEqual({ stagingId: 'stg-1', ...PROBE });
       expect(staging.stageFromPath).toHaveBeenCalledWith(
-        expect.objectContaining({ filePath: file.path }),
+        expect.objectContaining({ filePath }),
       );
     });
   });
@@ -175,12 +184,12 @@ describe('IngestController publish gate', () => {
   describe('to-geojson', () => {
     it('stays open to a viewer and parses from disk, then deletes the temp dir', async () => {
       const { controller, ingest } = makeController();
-      const file = diskUpload();
+      const { file, req, filePath } = diskUpload();
       await expect(
-        controller.toGeoJson(userWithRole('viewer'), file),
+        controller.toGeoJson(userWithRole('viewer'), file, req),
       ).resolves.toMatchObject({ driver: 'GeoJSON' });
       expect(ingest.fileToGeoJsonFromPath).toHaveBeenCalledWith(
-        file.path,
+        filePath,
         file.originalname,
       );
       expect(ingest.fileToGeoJson).not.toHaveBeenCalled();
@@ -191,9 +200,9 @@ describe('IngestController publish gate', () => {
       const { controller } = makeController();
       const { acquireIngestSlot } = await import('./ingest-slots.js');
       const release = acquireIngestSlot(userWithRole('viewer').id);
-      const file = diskUpload();
+      const { file, req } = diskUpload();
       await expect(
-        controller.toGeoJson(userWithRole('viewer'), file),
+        controller.toGeoJson(userWithRole('viewer'), file, req),
       ).rejects.toMatchObject({ status: 429 });
       release();
       expect(existsSync(file.destination)).toBe(false);

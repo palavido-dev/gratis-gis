@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -23,6 +24,7 @@ import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
 
 /**
  * Staged-upload service. The data_layer create wizard uploads a
@@ -39,8 +41,9 @@ import { randomUUID } from 'node:crypto';
  * On-disk layout (one directory per stagingId):
  *
  *   /tmp/gg-staging/<uuid>/
- *     <safe-original-name>     -- the actual bytes
- *     meta.json                -- { ownerId, originalName, sizeBytes, createdAt }
+ *     payload.<ext>            -- disk uploads (server-chosen name)
+ *     <safe-original-name>     -- buffer and stream stagings
+ *     meta.json                -- { ownerId, originalName, storedName?, sizeBytes, createdAt }
  *
  * Authorization is per-user: we record the userId at stage time and
  * refuse a getStaging() lookup from anyone else. This is also why the
@@ -153,17 +156,24 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
-    const filePath = join(dir, fileName);
+    // The source path was chosen by the disk-upload pin, not by the
+    // request filename. Resolve it and refuse anything that is not
+    // that file, then keep the same server-chosen name in staging.
+    const source = containedPayloadFile(input.filePath);
+    const storedName = payloadFileName(basename(source));
+    if (!storedName) {
+      throw new BadRequestException('Upload file was not accepted.');
+    }
+    const filePath = join(dir, storedName);
     // rename is instant within a filesystem; fall back to copy+unlink
     // across devices (multer's tmpdir may be on a different mount than
     // the staging root).
     try {
-      await rename(input.filePath, filePath);
+      await rename(source, filePath);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-        await copyFile(input.filePath, filePath);
-        await rm(input.filePath, { force: true }).catch(() => {});
+        await copyFile(source, filePath);
+        await rm(source, { force: true }).catch(() => {});
       } else {
         throw err;
       }
@@ -172,6 +182,7 @@ export class IngestStagingService implements OnModuleInit {
     const meta: StagingMeta = {
       ownerId: input.ownerId,
       originalName: input.originalName,
+      storedName,
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
@@ -284,7 +295,8 @@ export class IngestStagingService implements OnModuleInit {
         'That staging belongs to a different user.',
       );
     }
-    const filePath = join(dir, safeFilename(meta.originalName));
+    const stored = payloadFileName(meta.storedName ?? '');
+    const filePath = join(dir, stored ?? safeFilename(meta.originalName));
     if (!existsSync(filePath)) {
       throw new NotFoundException(
         `Staging "${stagingId}" file is missing (re-upload to retry).`,
@@ -389,6 +401,8 @@ export class IngestStagingService implements OnModuleInit {
 interface StagingMeta {
   ownerId: string;
   originalName: string;
+  /** Set for disk uploads. Absent on buffer and stream stagings. */
+  storedName?: string;
   sizeBytes: number;
   createdAt: string;
 }
