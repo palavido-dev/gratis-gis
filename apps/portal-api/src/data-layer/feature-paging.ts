@@ -35,6 +35,17 @@ export interface FeaturePaging {
  * believes it is holding a bounded read and finds out otherwise in
  * production.
  */
+/**
+ * When GRATIS_FEATURE_QUERY_PAGE=required, an unpaged feature read is
+ * refused instead of streamed. Unset keeps the historical full stream.
+ * The csv and geoparquet routes remain the full export.
+ */
+export function unpagedFeatureReadAllowed(
+  raw = process.env.GRATIS_FEATURE_QUERY_PAGE,
+): boolean {
+  return raw !== 'required';
+}
+
 export function parsePagingParams(
   limit: string | undefined,
   cursor: string | undefined,
