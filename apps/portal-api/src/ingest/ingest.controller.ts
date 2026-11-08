@@ -719,12 +719,13 @@ export class IngestController {
           : err instanceof NotFoundException
             ? 'That item or layer was not found.'
             : err instanceof BadRequestException
-              ? 'The upload was not accepted.'
+              ? err.message
               : 'Ingest failed.';
-      // Static text only. The ids and the exception text are request
-      // data; writing them into the log is js/log-injection, and
-      // writing a filesystem error into the NDJSON body is
-      // js/xss-through-exception.
+      // A BadRequestException carries text this service wrote for the
+      // user (wrong layer name, file too large, unreadable file), so
+      // it is passed through. Anything else stays static: a
+      // filesystem error in the NDJSON body is js/xss-through-exception.
+      // The log line stays static too; ids there are js/log-injection.
       // eslint-disable-next-line no-console
       console.error('[ingestV3Layer] stream failed');
       writeEvent({ event: 'error', message });

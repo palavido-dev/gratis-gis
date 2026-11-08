@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
-import { containedPayloadFile } from './ingest-disk-path.js';
+import { containedPayloadFile, serverUploadName } from './ingest-disk-path.js';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -1620,15 +1620,15 @@ function mapParquetError(err: unknown): Error {
 }
 
 /**
- * Layer name for a CSV geomatch or address import. Taken from the
- * name the user picked, not from the directory the bytes were stored
- * in. Path characters are dropped so the label cannot be a path.
+ * Layer name for a CSV geomatch, address, or Parquet import. Taken
+ * from the name the user picked, using the same stem rule as the
+ * stored upload name, so the name matches what the probe reported
+ * for the stored file. The result cannot be a path.
  */
 export function uploadLayerStem(label: string): string {
-  const base = basename(typeof label === 'string' ? label : '');
-  const dot = base.lastIndexOf('.');
-  const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/[^\w.\- ]+/g, '_').slice(0, 120);
-  return stem.length > 0 && stem !== '_' ? stem : 'upload';
+  const stored = serverUploadName(typeof label === 'string' ? label : '');
+  const dot = stored.lastIndexOf('.');
+  return dot > 0 ? stored.slice(0, dot) : stored;
 }
 
 function safeFilename(name: string): string {

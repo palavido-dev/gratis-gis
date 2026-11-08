@@ -42,9 +42,13 @@ import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
  * On-disk layout (one directory per stagingId):
  *
  *   /tmp/gg-staging/<uuid>/
- *     payload.<ext>            -- disk uploads (server-chosen name)
- *     <safe-original-name>     -- buffer and stream stagings
- *     meta.json                -- { ownerId, originalName, storedName?, sizeBytes, createdAt }
+ *     <stored-name>            the actual bytes
+ *     meta.json                { ownerId, originalName, storedName, sizeBytes, createdAt }
+ *
+ * `storedName` is the plain file name the bytes were written under.
+ * Stagings written before it existed have no `storedName`; for those
+ * getStaging() falls back to safeFilename(originalName), the rule
+ * those versions used.
  *
  * Authorization is per-user: we record the userId at stage time and
  * refuse a getStaging() lookup from anyone else. This is also why the
@@ -115,12 +119,13 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
+    const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     await writeFile(filePath, input.buffer);
     const meta: StagingMeta = {
       ownerId: input.ownerId,
       originalName: plainLabel(input.originalName),
+      storedName: fileName,
       sizeBytes: input.buffer.length,
       createdAt: new Date().toISOString(),
     };
@@ -159,7 +164,8 @@ export class IngestStagingService implements OnModuleInit {
     // request filename. Resolve it and refuse anything that is not
     // that file, then keep the same server-chosen name in staging.
     const source = containedPayloadFile(input.filePath);
-    const storedName = payloadFileName(basename(source));
+    const payloadName = payloadFileName(basename(source));
+    const storedName = payloadName ? notMetaFile(payloadName) : null;
     if (!storedName) {
       throw new BadRequestException('Upload file was not accepted.');
     }
@@ -218,7 +224,7 @@ export class IngestStagingService implements OnModuleInit {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true });
-    const fileName = safeFilename(input.originalName);
+    const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     try {
       await pipeline(input.stream, createWriteStream(filePath));
@@ -236,6 +242,7 @@ export class IngestStagingService implements OnModuleInit {
     const meta: StagingMeta = {
       ownerId: input.ownerId,
       originalName: plainLabel(input.originalName),
+      storedName: fileName,
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
@@ -298,11 +305,15 @@ export class IngestStagingService implements OnModuleInit {
         'That staging belongs to a different user.',
       );
     }
-    const stored = payloadFileName(meta.storedName ?? '');
+    const stored = storedFileName(meta);
     if (!stored) {
       throw new NotFoundException('Staging file was not accepted.');
     }
     const filePath = join(dirReal, stored);
+    const fileRel = relative(dirReal, filePath);
+    if (fileRel !== stored || isAbsolute(fileRel)) {
+      throw new NotFoundException('Staging file was not accepted.');
+    }
     if (!existsSync(filePath)) {
       throw new NotFoundException(
         'Staging file is missing. Re-upload to retry.',
@@ -407,28 +418,14 @@ export class IngestStagingService implements OnModuleInit {
 interface StagingMeta {
   ownerId: string;
   originalName: string;
-  /** Set for disk uploads. Absent on buffer and stream stagings. */
+  /** File name inside the staging directory. Absent on stagings
+   *  written before this field existed. */
   storedName?: string;
   sizeBytes: number;
   createdAt: string;
 }
 
-/**
- * Mirrors the safeFilename helper in ingest.service.ts. Kept local so
- * the staging service does not import from the GDAL-loading service
- * (which has heavier transitive deps).
- *
- * Defends against path-traversal: the user-supplied name flows into
- * join(this.root, stagingId, safeFilename(name)) so a malicious
- * `../../etc/x` could otherwise escape the staging root. Steps:
- *   1. basename() strips any path segments,
- *   2. char filter scrubs everything outside [A-Za-z0-9._-],
- *   3. leading and trailing dots are replaced so `..` / `.hidden`
- *      cannot survive,
- *   4. empty / single-underscore results fall back to upload.bin.
- *
- * Keep these two helpers in sync.
- */
+/** Display label for an upload name: printable ASCII, no path. */
 function plainLabel(name: string): string {
   const base = basename(typeof name === 'string' ? name : '');
   const chars: string[] = [];
@@ -447,6 +444,56 @@ function plainLabel(name: string): string {
   return chars.join('') || 'upload';
 }
 
+/**
+ * File name of the staged bytes, or null when meta.json names
+ * anything other than a plain file inside the staging directory.
+ * Disk uploads store a `serverUploadName` result; buffer and stream
+ * stagings store safeFilename(originalName). Both are fixed points of
+ * their own rule, so a value that a rule would change (a separator,
+ * `..`, a leading dot) is refused. Stagings written before
+ * `storedName` existed fall back to safeFilename(originalName).
+ */
+function storedFileName(meta: StagingMeta): string | null {
+  const candidate =
+    typeof meta.storedName === 'string'
+      ? meta.storedName
+      : typeof meta.originalName === 'string'
+        ? safeFilename(meta.originalName)
+        : '';
+  if (
+    candidate.length === 0 ||
+    candidate === '.' ||
+    candidate === '..' ||
+    candidate === 'meta.json'
+  ) {
+    return null;
+  }
+  if (candidate.includes('/') || candidate.includes('\\')) return null;
+  if (payloadFileName(candidate)) return candidate;
+  return safeFilename(candidate) === candidate ? candidate : null;
+}
+
+/** An upload literally named meta.json must not overwrite the record. */
+function notMetaFile(name: string): string {
+  return name === 'meta.json' ? 'upload_meta.json' : name;
+}
+
+/**
+ * Mirrors the safeFilename helper in ingest.service.ts. Kept local so
+ * the staging service does not import from the GDAL-loading service
+ * (which has heavier transitive deps).
+ *
+ * Defends against path-traversal: the user-supplied name flows into
+ * join(this.root, stagingId, safeFilename(name)) so a malicious
+ * `../../etc/x` could otherwise escape the staging root. Steps:
+ *   1. basename() strips any path segments,
+ *   2. char filter scrubs everything outside [A-Za-z0-9._-],
+ *   3. leading and trailing dots are replaced so `..` / `.hidden`
+ *      cannot survive,
+ *   4. empty / single-underscore results fall back to upload.bin.
+ *
+ * Keep these two helpers in sync.
+ */
 function safeFilename(name: string): string {
   const fileOnly = basename(name);
   let base = fileOnly.replace(/[^\w.-]/g, '_');

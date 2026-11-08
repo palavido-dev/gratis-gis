@@ -26,21 +26,40 @@ describe('server upload names', () => {
     expect(serverUploadName('../..')).toBe('payload.bin');
     expect(serverUploadName('../../etc/passwd')).toBe('payload.bin');
     expect(serverUploadName('/etc/passwd')).toBe('payload.bin');
-    // A dotfile whose suffix matches a known extension still stores the
-    // constant `payload.geojson`, not the request string.
+    // A dotfile whose suffix matches a known extension has no usable
+    // stem, so it stores `payload.geojson`.
     expect(serverUploadName('..geojson')).toBe('payload.geojson');
-    for (const name of ['..', '../..', '../../etc/passwd', '/etc/passwd', 'roads.geojson']) {
+    for (const name of [
+      '..',
+      '../..',
+      '../../etc/passwd',
+      '/etc/passwd',
+      'roads.geojson',
+      'a..b.csv',
+      'trailing..csv',
+      '.hidden.csv',
+      'my parcels (2).geojson',
+    ]) {
       const stored = serverUploadName(name);
       expect(stored.includes('..')).toBe(false);
       expect(stored.includes('/')).toBe(false);
       expect(payloadFileName(stored)).toBe(stored);
     }
-    expect(serverUploadName('roads.geojson')).toBe('payload.geojson');
-    expect(serverUploadName('ROADS.ZIP')).toBe('payload.zip');
-    expect(serverUploadName('layer.gdb.zip')).toBe('payload.zip');
+    expect(serverUploadName('roads.geojson')).toBe('roads.geojson');
+    expect(serverUploadName('ROADS.ZIP')).toBe('ROADS.zip');
+    expect(serverUploadName('layer.gdb.zip')).toBe('layer.gdb.zip');
+    expect(serverUploadName('my parcels (2).geojson')).toBe('my_parcels__2_.geojson');
+    expect(serverUploadName('.hidden.csv')).toBe('_hidden.csv');
+    expect(serverUploadName('C:\\data\\sites.csv')).not.toContain('\\');
     expect(serverUploadName('notes.evil')).toBe('payload.bin');
     expect(payloadFileName(serverUploadName('..'))).toBe('payload.bin');
     expect(payloadFileName('../payload.geojson')).toBeNull();
+    expect(payloadFileName('..')).toBeNull();
+    expect(payloadFileName('.hidden.csv')).toBeNull();
+    expect(payloadFileName('a/b.csv')).toBeNull();
+    expect(payloadFileName('a\\b.csv')).toBeNull();
+    expect(payloadFileName('roads.evil')).toBeNull();
+    expect(payloadFileName('roads.geojson')).toBe('roads.geojson');
   });
 });
 

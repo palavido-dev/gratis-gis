@@ -17,8 +17,9 @@ const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
  * imports could exceed the box; disk storage bounds memory to nothing.
  *
  * Each upload gets its own `mkdtemp` directory. The file inside it is
- * always `payload` plus an extension from a fixed list, so GDAL still
- * sees a format hint and the request's filename is not a path.
+ * a sanitized stem of the request's filename plus an extension from a
+ * fixed list, so GDAL still sees a format hint and names a GeoJSON or
+ * CSV layer after the picked file, and the stored name is not a path.
  * `..` used to survive as a filename and `join(tempDir, '..')` left
  * the directory. Handlers open the path recorded here, then delete
  * that directory. They do not open `file.path`.

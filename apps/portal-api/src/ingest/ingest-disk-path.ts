@@ -6,10 +6,12 @@ import { basename, dirname, isAbsolute, relative, sep } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 
 /**
- * Extensions the product already accepts. The stored name is one of
- * these constants (or `payload.bin`). The characters from the
- * request are compared and then discarded. They are never joined onto
- * a directory.
+ * Extensions the product already accepts. The stored extension is one
+ * of these constants (or `.bin`). The stored stem is the request's
+ * file stem with every character outside `[A-Za-z0-9_.-]` replaced,
+ * so GDAL still names a GeoJSON or CSV layer after the file the user
+ * picked. A stored name never holds a path separator and never starts
+ * with a dot, so it cannot leave the directory it is joined onto.
  */
 const PAYLOAD_EXTENSIONS = [
   '.csv',
@@ -49,28 +51,59 @@ const PAYLOAD_EXTENSIONS = [
 
 const pins = new WeakMap<object, { directory: string; filePath: string }>();
 
+/** Longest stem kept from the request's file name. */
+const STEM_MAX = 100;
+
 /**
- * Name multer may write. `..`, absolute paths, and unknown extensions
- * become `payload.bin`. A known extension is copied from this list,
- * not from the request string.
+ * Stem of a stored upload name. Close to the old `safeFilename` rule
+ * (anything outside `[A-Za-z0-9_.-]` becomes `_`, and so do leading,
+ * trailing, and repeated dots) so a layer keeps the name it had
+ * before uploads went to disk.
+ * Returns `payload` when nothing usable is left.
+ */
+function storedStem(stem: string): string {
+  const chars: string[] = [];
+  for (let i = 0; i < stem.length && chars.length < STEM_MAX; i += 1) {
+    const ch = stem.charAt(i);
+    const ok =
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '_' ||
+      ch === '-' ||
+      (ch === '.' && chars.length > 0 && chars[chars.length - 1] !== '.');
+    chars.push(ok ? ch : '_');
+  }
+  // A trailing dot would put `..` in front of the extension.
+  const out = chars.join('').replace(/\.$/, '_');
+  return /^[_]*$/.test(out) ? 'payload' : out;
+}
+
+/**
+ * Name multer may write: `<stem><ext>`. `..`, absolute paths, and
+ * names without a known extension become `payload.bin`. The extension
+ * is copied from the list above, not from the request string.
  */
 export function serverUploadName(originalName: string): string {
   const base = basename(typeof originalName === 'string' ? originalName : '');
   const dot = base.lastIndexOf('.');
   const ext = dot <= 0 ? '' : base.slice(dot).toLowerCase();
   for (const allowed of PAYLOAD_EXTENSIONS) {
-    if (ext === allowed) return `payload${allowed}`;
+    if (ext === allowed) return `${storedStem(base.slice(0, dot))}${allowed}`;
   }
   return 'payload.bin';
 }
 
-/** The stored name, or null when `name` is not one this process chose. */
+/**
+ * The stored name, or null when `name` is not one this process would
+ * have chosen. A name is accepted only when `serverUploadName` maps it
+ * to itself, which rules out separators, `..`, and leading dots.
+ */
 export function payloadFileName(name: string): string | null {
-  if (name === 'payload.bin') return 'payload.bin';
-  for (const allowed of PAYLOAD_EXTENSIONS) {
-    if (name === `payload${allowed}`) return `payload${allowed}`;
-  }
-  return null;
+  if (typeof name !== 'string' || name.length === 0) return null;
+  if (name.includes('/') || name.includes('\\') || name.startsWith('.')) return null;
+  const stored = serverUploadName(name);
+  return stored === name ? stored : null;
 }
 
 /**
