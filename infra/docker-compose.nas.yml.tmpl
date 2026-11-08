@@ -210,6 +210,9 @@ __NAS_INIT_BODY__
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
     environment:
       NODE_OPTIONS: --max-old-space-size=1024
+      # Empty keeps unpaged feature reads streaming; `required` refuses
+      # them and points at the csv export.
+      GRATIS_FEATURE_QUERY_PAGE: ${GRATIS_FEATURE_QUERY_PAGE:-}
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.

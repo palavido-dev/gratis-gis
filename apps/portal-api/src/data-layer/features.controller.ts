@@ -79,7 +79,7 @@ import {
   type CsvExportOptions,
 } from './csv-export.js';
 import { parseDeltaLimit, parseSinceParam } from './layer-delta.js';
-import { parsePagingParams } from './feature-paging.js';
+import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 
@@ -307,10 +307,19 @@ export class DataLayerFeaturesController {
       res.json(await this.v3.listFeatures(itemId, layerId, fullOpts));
       return;
     }
+    if (!unpagedFeatureReadAllowed()) {
+      throw new BadRequestException(
+        'Unpaged feature reads are disabled on this install. Pass limit and cursor, or download the csv or geoparquet export. Nothing was truncated.',
+      );
+    }
     // Whole-collection read. Stream it rather than buffering up to
     // 100k features and serialising them in one synchronous pass,
     // which could OOM a replica (anonymously, on the public mirror).
     // Same opts the CSV export already streams over.
+    res.setHeader(
+      'X-Gratis-Export',
+      `/api/items/${itemId}/layers/${layerId}/csv`,
+    );
     const iterOpts: Parameters<typeof this.v3.iterateFeatures>[2] = {
       ...opts,
     };
