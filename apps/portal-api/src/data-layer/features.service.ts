@@ -41,8 +41,6 @@ import {
   type DeltaChange,
   type TileResult,
 } from '../engine/data-layer.js';
-import { syncVersionSource } from './layer-delta.js';
-
 /**
  * A relate as the engine takes it: the parent layer's identity plus
  * the parent's own scope, already authorized by whichever controller
@@ -227,55 +225,6 @@ export class DataLayerFeaturesService {
    */
   private scheduleBboxRefresh(itemId: string, notice: FeatureWriteNotice): void {
     this.bboxRefresh.noteFeatureWrite(itemId, notice);
-  }
-
-  /**
-   * Atomically bump `data.layers[i].syncVersion` and return the new
-   * value. Optimistic on `item.updatedAt` so concurrent writers retry
-   * instead of clobbering each other. Used by write paths that stamp
-   * the version onto observation.source.details before insert.
-   */
-  async bumpLayerSyncVersion(
-    itemId: string,
-    layerId: string,
-  ): Promise<number> {
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const row = await this.prisma.item.findUnique({
-        where: { id: itemId },
-        select: { data: true, updatedAt: true },
-      });
-      if (!row) throw new NotFoundException('Item not found');
-      const data = row.data as {
-        version?: number;
-        layers?: Array<Record<string, unknown>>;
-      } | null;
-      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
-        throw new BadRequestException(
-          'syncVersion is only defined on v3 data_layer items.',
-        );
-      }
-      const idx = data.layers.findIndex((l) => l.id === layerId);
-      if (idx < 0) throw new NotFoundException('Layer not found');
-      const current = data.layers[idx]!;
-      const prev =
-        typeof current.syncVersion === 'number' &&
-        Number.isFinite(current.syncVersion)
-          ? Math.max(0, Math.floor(current.syncVersion))
-          : 0;
-      const next = prev + 1;
-      const nextLayers = data.layers.slice();
-      nextLayers[idx] = { ...current, syncVersion: next };
-      const updated = await this.prisma.item.updateMany({
-        where: { id: itemId, updatedAt: row.updatedAt },
-        data: {
-          data: { ...(data as object), layers: nextLayers } as never,
-        },
-      });
-      if (updated.count === 1) return next;
-    }
-    throw new ConflictException(
-      'Could not bump layer syncVersion; try the write again.',
-    );
   }
 
   /** Current syncVersion for a v3 layer, or 0 when absent. */
@@ -831,21 +780,27 @@ export class DataLayerFeaturesService {
     // required field the caller omitted entirely is caught here rather
     // than surfacing later as an empty column nobody can explain.
     const validated = await this.validateAll(itemId, layerId, inputs, 'create', user);
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const source = syncVersionSource(syncVersion);
-    const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
+    const committed = await this.dataLayer.commitLayerSync(
       itemId,
       layerId,
-      principal,
-      source,
-      ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
-      ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
-      ...(f.geometry !== undefined
-        ? { geometry: f.geometry as GeoJsonGeometry | null }
-        : {}),
-    }));
-
-    const written = await this.dataLayer.writeFeaturesCreateIdempotent(args);
+      async ({ tx, source }) => {
+        const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
+          itemId,
+          layerId,
+          principal,
+          source,
+          ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
+          ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
+          ...(f.geometry !== undefined
+            ? { geometry: f.geometry as GeoJsonGeometry | null }
+            : {}),
+        }));
+        const written = await this.dataLayer.writeFeaturesCreateIdempotent(args, tx);
+        const inserted = written.filter((w) => !w.deduplicated).length;
+        return { wrote: inserted > 0, value: written };
+      },
+    );
+    const written = committed.value;
     const inserted = written.filter((w) => !w.deduplicated).length;
     const deduplicated = written.length - inserted;
     this.log.log(
@@ -866,9 +821,9 @@ export class DataLayerFeaturesService {
       // actually inserted can have grown the extent.
       this.scheduleBboxRefresh(itemId, {
         kind: 'insert',
-        geometries: args
+        geometries: inputs
           .filter((_, i) => written[i]?.deduplicated !== true)
-          .map((a) => a.geometry ?? null),
+          .map((f) => f.geometry ?? null),
       });
     }
 
@@ -897,6 +852,11 @@ export class DataLayerFeaturesService {
    * import transaction. Load it once with `loadLayerSchema` before the
    * loop. Left optional so a caller that forgets is still validated,
    * just more slowly.
+   *
+   * The rows are stamped by `commitCopiedLayer` on this same
+   * connection after `sealCopy` and before `commit`. This method
+   * does not bump the cursor itself: an abort, or a load that
+   * leaves no rows, must not move it.
    */
   async bulkInsertFeatures(
     itemId: string,
@@ -929,6 +889,22 @@ export class DataLayerFeaturesService {
 
     const written = await this.dataLayer.copyFeaturesCreate(args, writer);
     return { inserted: written.length };
+  }
+
+  /**
+   * Finish a sealed COPY on the writer's connection. See
+   * `DataLayerEngine.commitCopiedLayer`. The caller commits.
+   */
+  commitCopiedLayer(
+    writer: import('../engine/copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+    },
+  ) {
+    return this.dataLayer.commitCopiedLayer(writer, args);
   }
 
   /**
@@ -1374,19 +1350,29 @@ export class DataLayerFeaturesService {
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const written = await this.dataLayer.writeFeatureUpdate({
+    const committed = await this.dataLayer.commitLayerSync(
       itemId,
       layerId,
-      globalId: featureId,
-      principal,
-      source: syncVersionSource(syncVersion),
-      properties: nextProps,
-      geometry: nextGeometry,
-      ...(opts.baseObservationId !== undefined
-        ? { expectedHeadObservationId: opts.baseObservationId }
-        : {}),
-    });
+      async ({ tx, source }) => {
+        const written = await this.dataLayer.writeFeatureUpdate(
+          {
+            itemId,
+            layerId,
+            globalId: featureId,
+            principal,
+            source,
+            properties: nextProps,
+            geometry: nextGeometry,
+            ...(opts.baseObservationId !== undefined
+              ? { expectedHeadObservationId: opts.baseObservationId }
+              : {}),
+          },
+          tx,
+        );
+        return { wrote: !('conflict' in written), value: written };
+      },
+    );
+    const written = committed.value;
 
     const refreshed = await this.dataLayer.listFeatures({
       itemId,
@@ -1479,17 +1465,27 @@ export class DataLayerFeaturesService {
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const written = await this.dataLayer.writeFeatureDelete({
+    const committed = await this.dataLayer.commitLayerSync(
       itemId,
       layerId,
-      globalId: featureId,
-      principal,
-      source: syncVersionSource(syncVersion),
-      ...(opts.baseObservationId !== undefined
-        ? { expectedHeadObservationId: opts.baseObservationId }
-        : {}),
-    });
+      async ({ tx, source }) => {
+        const written = await this.dataLayer.writeFeatureDelete(
+          {
+            itemId,
+            layerId,
+            globalId: featureId,
+            principal,
+            source,
+            ...(opts.baseObservationId !== undefined
+              ? { expectedHeadObservationId: opts.baseObservationId }
+              : {}),
+          },
+          tx,
+        );
+        return { wrote: !('conflict' in written), value: written };
+      },
+    );
+    const written = committed.value;
     if ('conflict' in written) {
       const now = await this.dataLayer.listFeatures({ itemId, layerId, entity: featureId });
       throw await this.raiseFeatureConflict({
@@ -1693,6 +1689,7 @@ export class DataLayerFeaturesService {
       newValue: unknown;
     }>;
     errors: number;
+    conflicts: number;
   }> {
     if (!FIELD_NAME_RE.test(args.outputName)) {
       throw new BadRequestException(
@@ -1856,46 +1853,90 @@ export class DataLayerFeaturesService {
       });
     }
 
-    if (args.dryRun) {
-      return { totalRows: total, appliedRows: 0, sample, errors };
+    if (args.dryRun || updates.length === 0) {
+      return { totalRows: total, appliedRows: 0, sample, errors, conflicts: 0 };
     }
 
     const principal = {
       sub: args.user.id,
       displayName: args.user.username ?? '',
     };
-    const syncVersion = await this.bumpLayerSyncVersion(
-      args.itemId,
-      args.layerId,
-    );
-    const source = syncVersionSource(syncVersion);
-    await this.dataLayer.writeFeaturesUpdate(
-      updates.map((u) => ({
+    const missingHead = updates.filter((u) => {
+      const head = features.features.find((f) => String(f.id) === u.id)
+        ?.properties._observation_id;
+      return typeof head !== 'string';
+    });
+    const fenced = updates.flatMap((u) => {
+      const head = features.features.find((f) => String(f.id) === u.id)
+        ?.properties._observation_id;
+      if (typeof head !== 'string') return [];
+      return [{
         itemId: args.itemId,
         layerId: args.layerId,
         globalId: u.id,
         principal,
-        source,
+        source: { kind: 'data_layer:write', details: { syncVersion: 0 } },
         properties: u.newProperties,
         geometry: u.geometry,
-      })),
-    );
-
-    void this.cacheRefresh.notifySourceWrite(
+        expectedHeadObservationId: head,
+      }];
+    });
+    const committed = await this.dataLayer.commitLayerSync(
       args.itemId,
       args.layerId,
-      updates.map((u) => u.newProperties),
+      async ({ tx, source }) => {
+        const written = await this.dataLayer.writeFeaturesUpdate(
+          fenced.map((row) => ({ ...row, source })),
+          tx,
+        );
+        return { wrote: written.applied.length > 0, value: written };
+      },
     );
-    // Attribute only: every row keeps its geometry, and the service
-    // recognises an unchanged envelope as extent neutral.
-    const geometries = updates.map((u) => u.geometry);
-    this.scheduleBboxRefresh(args.itemId, {
-      kind: 'update',
-      before: geometries,
-      after: geometries,
-    });
+    for (const conflict of committed.value.conflicts) {
+      const current = features.features.find((f) => String(f.id) === conflict.globalId);
+      await this.recordSyncConflict({
+        itemId: args.itemId,
+        layerId: args.layerId,
+        featureId: conflict.globalId,
+        op: 'update',
+        current: current ?? null,
+        losingSide: null,
+        ...(conflict.headObservationId
+          ? { baseObservationId: conflict.headObservationId }
+          : {}),
+      });
+    }
+    const appliedRows = committed.value.applied.length;
+    const conflictIds = new Set([
+      ...missingHead.map((u) => u.id),
+      ...committed.value.conflicts.map((c) => c.globalId),
+    ]);
 
-    return { totalRows: total, appliedRows: updates.length, sample, errors };
+    if (appliedRows > 0) {
+      void this.cacheRefresh.notifySourceWrite(
+        args.itemId,
+        args.layerId,
+        updates
+          .filter((u) => !conflictIds.has(u.id))
+          .map((u) => u.newProperties),
+      );
+      const geometries = updates
+        .filter((u) => !conflictIds.has(u.id))
+        .map((u) => u.geometry);
+      this.scheduleBboxRefresh(args.itemId, {
+        kind: 'update',
+        before: geometries,
+        after: geometries,
+      });
+    }
+
+    return {
+      totalRows: total,
+      appliedRows,
+      sample,
+      errors,
+      conflicts: conflictIds.size,
+    };
   }
 
   /**
@@ -1922,6 +1963,12 @@ export class DataLayerFeaturesService {
     truncated: boolean;
   }> {
     const limit = opts.limit ?? 1000;
+    // Read the cursor before the changes. Read after, a write that
+    // commits between the two statements would advance syncVersion
+    // without appearing in `changes`, and the client would skip it for
+    // good. Read before, that write is sent again next time, which is
+    // harmless because applying a change is idempotent.
+    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
     const changes = await this.dataLayer.listDeltaSince({
       itemId,
       layerId,
@@ -1935,7 +1982,6 @@ export class DataLayerFeaturesService {
     });
     const truncated = changes.length > limit;
     const page = truncated ? changes.slice(0, limit) : changes;
-    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
     return { syncVersion, since, changes: page, truncated };
   }
 }
