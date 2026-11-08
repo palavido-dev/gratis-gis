@@ -86,6 +86,14 @@ d('CopyWriter on PostGIS', () => {
       CREATE TABLE observation_p_itest PARTITION OF observation
         FOR VALUES FROM ('2020-01-01') TO ('2100-01-01')
     `);
+    // The index production has (engine_observation_log migration).
+    // Without it the duplicate-append delete scans per row, and the
+    // 20k-entity case below only passed when another spec had left an
+    // indexed observation table behind.
+    await pool.query(`
+      CREATE INDEX observation_scope_entity_validfrom_idx
+        ON observation (scope, entity, valid_from DESC)
+    `);
     await pool.query(`
       DO $$
       DECLARE
@@ -276,14 +284,17 @@ d('CopyWriter on PostGIS', () => {
     // lock, or the two can wait on each other.
     const item = '77777777-7777-7777-7777-777777777777';
     const entity = '88888888-8888-8888-8888-888888888888';
+    // Own the table: another pg suite on the same database can leave an
+    // `item` with stricter columns behind, and IF NOT EXISTS reused it.
+    await pool.query('DROP TABLE IF EXISTS item CASCADE');
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS item (
+      CREATE TABLE item (
         id uuid PRIMARY KEY,
         data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
         updated_at timestamptz
       )
     `);
-    await pool.query('INSERT INTO item (id) VALUES ($1) ON CONFLICT DO NOTHING', [item]);
+    await pool.query('INSERT INTO item (id) VALUES ($1)', [item]);
     const editor = await pool.connect();
     const writer = new CopyWriter(TEST_URL!);
     try {
