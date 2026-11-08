@@ -121,4 +121,56 @@ BEGIN
 END $$;
 SQL
 
+psql_exec <<'SQL'
+DROP TABLE IF EXISTS item;
+CREATE TABLE item (
+  id uuid PRIMARY KEY,
+  data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz
+);
+INSERT INTO item (id, data_json)
+VALUES ('99999999-9999-9999-9999-999999999999', '{"keep":1}');
+INSERT INTO analysis_job (id, state, claim_token)
+VALUES (
+  '44444444-4444-4444-4444-444444444444',
+  'running',
+  'ffffffff-ffff-ffff-ffff-ffffffffffff'
+);
+
+WITH held AS (
+  SELECT id FROM analysis_job
+  WHERE id = '44444444-4444-4444-4444-444444444444'
+    AND claim_token = '00000000-0000-0000-0000-000000000000'::uuid
+    AND state IN ('running', 'cancel_requested')
+  FOR UPDATE
+)
+UPDATE item
+SET data_json = data_json || '{"processingState":"stale"}'::jsonb
+WHERE id = '99999999-9999-9999-9999-999999999999'
+  AND EXISTS (SELECT 1 FROM held);
+
+WITH held AS (
+  SELECT id FROM analysis_job
+  WHERE id = '44444444-4444-4444-4444-444444444444'
+    AND claim_token = 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
+    AND state IN ('running', 'cancel_requested')
+  FOR UPDATE
+)
+UPDATE item
+SET data_json = data_json || '{"processingState":"ready"}'::jsonb,
+    updated_at = now()
+WHERE id = '99999999-9999-9999-9999-999999999999'
+  AND EXISTS (SELECT 1 FROM held);
+
+DO $$
+DECLARE
+  doc jsonb;
+BEGIN
+  SELECT data_json INTO doc FROM item WHERE id = '99999999-9999-9999-9999-999999999999';
+  IF doc->>'keep' <> '1' OR doc->>'processingState' <> 'ready' THEN
+    RAISE EXCEPTION 'item publish fence failed: %', doc;
+  END IF;
+END $$;
+SQL
+
 echo "analysis lease guard: passed"

@@ -802,20 +802,45 @@ def merge_item_data(conn, item_id: str, patch: dict) -> None:
     # erases those concurrent changes. The jsonb || merge only
     # touches the keys the worker owns, so everything else survives.
     #
-    # When this call is inside a claimed job, refuse it if that claim
-    # no longer owns the row. A stale worker must not publish a result
-    # onto the item a newer attempt is using.
-    if _current_job_id is not None and not owns_job(conn, _current_job_id):
+    # The claim check and the item write are one statement. A prior
+    # SELECT then a later UPDATE lets a reclaim land in between and
+    # the stale worker still publish. FOR UPDATE on the job row makes
+    # the reclaim wait, then the EXISTS sees the token that committed.
+    job_id = _current_job_id
+    token = lease_for(job_id) if job_id is not None else None
+    if job_id is not None and not token:
         raise JobLost()
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE item
-            SET data_json = data_json || %s::jsonb, updated_at = now()
-            WHERE id = %s
-            """,
-            (json.dumps(patch), item_id),
-        )
+        if job_id is not None:
+            present_lease(cur, token)
+            cur.execute(
+                """
+                WITH held AS (
+                  SELECT id FROM analysis_job
+                  WHERE id = %s
+                    AND claim_token = %s::uuid
+                    AND state IN ('running', 'cancel_requested')
+                  FOR UPDATE
+                )
+                UPDATE item
+                SET data_json = data_json || %s::jsonb, updated_at = now()
+                WHERE id = %s
+                  AND EXISTS (SELECT 1 FROM held)
+                """,
+                (job_id, token, json.dumps(patch), item_id),
+            )
+            if cur.rowcount != 1:
+                conn.rollback()
+                raise JobLost()
+        else:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = data_json || %s::jsonb, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(patch), item_id),
+            )
     conn.commit()
 
 

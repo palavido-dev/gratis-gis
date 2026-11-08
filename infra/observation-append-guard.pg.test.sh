@@ -53,14 +53,14 @@ SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
 FROM (
   SELECT DISTINCT scope || '|' || entity::text AS k
   FROM observation
-  WHERE scope = 'layer-a' AND kind = 'create' AND xmin::text::bigint = txid_current()
+  WHERE scope = 'layer-a' AND kind = 'create' AND xmin = pg_current_xact_id()::xid
   ORDER BY 1
 ) locks;
 
 DELETE FROM observation AS fresh
 WHERE fresh.scope = 'layer-a'
   AND fresh.kind = 'create'
-  AND fresh.xmin::text::bigint = txid_current()
+  AND fresh.xmin = pg_current_xact_id()::xid
   AND (
     EXISTS (
       SELECT 1 FROM (
@@ -68,7 +68,7 @@ WHERE fresh.scope = 'layer-a'
         FROM observation AS prev
         WHERE prev.scope = fresh.scope
           AND prev.entity = fresh.entity
-          AND prev.xmin::text::bigint <> txid_current()
+          AND prev.xmin IS DISTINCT FROM pg_current_xact_id()::xid
         ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
         LIMIT 1
       ) prior
@@ -79,7 +79,7 @@ WHERE fresh.scope = 'layer-a'
       WHERE sibling.scope = fresh.scope
         AND sibling.entity = fresh.entity
         AND sibling.kind = 'create'
-        AND sibling.xmin::text::bigint = txid_current()
+        AND sibling.xmin = pg_current_xact_id()::xid
         AND sibling.id <> fresh.id
         AND (sibling.tx_time, sibling.id) < (fresh.tx_time, fresh.id)
     )
@@ -128,6 +128,30 @@ BEGIN
   SELECT count(*) INTO fresh FROM observation WHERE id::text LIKE 'dddd%';
   IF hist <> 7 OR fresh <> 0 THEN
     RAISE EXCEPTION 'rollback did not restore the log: rows=% fresh=%', hist, fresh;
+  END IF;
+END $$;
+SQL
+
+# xmin is 32-bit. txid_current() keeps the epoch, so casting xmin
+# through text and comparing it to txid_current() misses every row
+# once the counter passes 2^32. The predicate above compares xid to
+# xid. This statement does not need a wrapped cluster to prove the
+# two predicates disagree on a wrapped value.
+psql_exec <<'SQL'
+DO $$
+DECLARE
+  wrapped bigint := 4294967296 + 42;
+  low xid := '42';
+  old_match boolean;
+  xid_match boolean;
+BEGIN
+  old_match := (low::text::bigint = wrapped);
+  xid_match := (low = (wrapped % 4294967296)::text::xid8::xid);
+  IF old_match THEN
+    RAISE EXCEPTION 'epoch compare unexpectedly matched a wrapped xid';
+  END IF;
+  IF NOT xid_match THEN
+    RAISE EXCEPTION 'xid compare missed the low 32 bits of a wrapped xid';
   END IF;
 END $$;
 SQL

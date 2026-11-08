@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { existsSync } from 'node:fs';
 import { Pool, type PoolClient } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Worker } from 'node:worker_threads';
@@ -153,11 +154,16 @@ export class CopyWriter {
       ].join(', ') +
       ') FROM STDIN WITH (FORMAT text)';
     this.stream = this.client.query(copyFrom(sql)) as unknown as Writable;
-    // Spawn the encoder worker_thread. The compiled JS sits at
-    // dist/engine/copy-writer.js, with copy-encoder.worker.js next
-    // to it. portal-api is built as CommonJS so we resolve via
-    // __dirname rather than import.meta.url.
-    this.encoder = new Worker(join(__dirname, 'copy-encoder.worker.js'));
+    // The compiled image has copy-encoder.worker.js beside this file.
+    // A test run from the TypeScript source does not, so it loads the
+    // .ts file with the type stripper. The worker has no other imports.
+    const compiled = join(__dirname, 'copy-encoder.worker.js');
+    const script = existsSync(compiled)
+      ? compiled
+      : join(__dirname, 'copy-encoder.worker.ts');
+    this.encoder = new Worker(script, {
+      execArgv: script.endsWith('.ts') ? ['--experimental-strip-types'] : [],
+    });
     this.encoder.on('message', (msg: EncoderMessage) => {
       const slot = this.pending.get(msg.id);
       if (!slot) return;
@@ -284,7 +290,10 @@ export class CopyWriter {
    * Remove create rows this transaction just inserted when they are
    * not the first live observation for that entity.
    *
-   * Only rows with xmin = this transaction are eligible. Committed
+   * Only rows whose xmin is this transaction's xid are eligible.
+   * `pg_current_xact_id()::xid` stays equal to xmin after the
+   * 32-bit xid counter wraps. `xmin::text::bigint = txid_current()`
+   * does not: txid_current() keeps the epoch. Committed
    * history, updates, deletes, other scopes, and duplicates that
    * were already stored are left alone. A create after a committed
    * delete is kept. Two creates for a new entity in this load keep
@@ -309,7 +318,7 @@ export class CopyWriter {
          FROM observation
          WHERE scope = $1
            AND kind = 'create'
-           AND xmin::text::bigint = txid_current()
+           AND xmin = pg_current_xact_id()::xid
          ORDER BY 1
        ) locks`,
       [scope],
@@ -318,7 +327,7 @@ export class CopyWriter {
       `DELETE FROM observation AS fresh
        WHERE fresh.scope = $1
          AND fresh.kind = 'create'
-         AND fresh.xmin::text::bigint = txid_current()
+         AND fresh.xmin = pg_current_xact_id()::xid
          AND (
            EXISTS (
              SELECT 1
@@ -327,7 +336,7 @@ export class CopyWriter {
                FROM observation AS prev
                WHERE prev.scope = fresh.scope
                  AND prev.entity = fresh.entity
-                 AND prev.xmin::text::bigint <> txid_current()
+                 AND prev.xmin IS DISTINCT FROM pg_current_xact_id()::xid
                ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
                LIMIT 1
              ) prior
@@ -339,7 +348,7 @@ export class CopyWriter {
              WHERE sibling.scope = fresh.scope
                AND sibling.entity = fresh.entity
                AND sibling.kind = 'create'
-               AND sibling.xmin::text::bigint = txid_current()
+               AND sibling.xmin = pg_current_xact_id()::xid
                AND sibling.id <> fresh.id
                AND (sibling.tx_time, sibling.id) < (fresh.tx_time, fresh.id)
            )
@@ -381,6 +390,10 @@ export class CopyWriter {
     // Tear the COPY stream down first (best-effort) so nothing keeps
     // writing into a socket we are about to drop.
     if (this.stream) {
+      // Destroying the socket emits 'error' on the next tick. Without
+      // a listener that becomes an unhandled error and can take the
+      // worker down after a cancel that already rolled back.
+      this.stream.on('error', () => {});
       try {
         this.stream.destroy();
       } catch {
@@ -389,6 +402,7 @@ export class CopyWriter {
       this.stream = null;
     }
     if (this.client) {
+      this.client.on('error', () => {});
       try {
         // Passing a truthy value destroys the client instead of
         // returning it to the pool; the disconnect rolls back the
