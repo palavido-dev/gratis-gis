@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BuildComposer } from './build-composer';
 import { LayerAsk } from './layer-ask';
+import { getServerLocale } from '@/lib/i18n/server';
+import { t } from '@/lib/i18n';
 
 export const metadata = {
   title: 'Build',
@@ -10,15 +12,15 @@ export const metadata = {
  * Natural-language builder. The signed-in shell already wraps
  * this route; the composer talks to the portal API.
  */
-export default function BuildPage() {
+export default async function BuildPage() {
+  const locale = await getServerLocale();
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-semibold text-ink-0">Build from a description</h1>
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <h1 className="text-xl font-semibold text-ink-0">
+        {t('buildPage.title', undefined, locale)}
+      </h1>
       <p className="mt-2 text-sm text-ink-1">
-        Describe a layer, a map, a form, or an app. GratisGIS reuses a
-        layer you already have when it fits, and creates what is
-        missing. Speak the description or type it. Nothing is created
-        until you choose Build it.
+        {t('buildPage.intro', undefined, locale)}
       </p>
       <div className="mt-8">
         <BuildComposer />
