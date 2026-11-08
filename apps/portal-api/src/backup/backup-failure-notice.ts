@@ -24,10 +24,16 @@ export class BackupFailureNotice {
     } catch {
       return false;
     }
-    const admins = await this.prisma.user.findMany({
-      where: { orgRole: 'admin', deletedAt: null },
+    const operator = await this.prisma.organization.findFirst({
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
+    const admins = operator
+      ? await this.prisma.user.findMany({
+          where: { orgRole: 'admin', deletedAt: null, orgId: operator.id },
+          select: { id: true },
+        })
+      : [];
     await this.notifications.notifyMany(
       admins.map((admin) => admin.id),
       'backup_failed',

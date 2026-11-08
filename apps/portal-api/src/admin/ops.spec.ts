@@ -174,7 +174,13 @@ describe('backup failure notice', () => {
           seen.add(data.runId);
         },
       },
-      user: { findMany: async () => [{ id: 'admin-1' }] },
+      organization: { findFirst: async () => ({ id: 'org-1' }) },
+      user: {
+        findMany: async (args: { where?: { orgId?: string } }) => {
+          if (args.where?.orgId !== 'org-1') return [];
+          return [{ id: 'admin-1' }];
+        },
+      },
     };
     const notice = new BackupFailureNotice(
       prisma as unknown as PrismaService,
