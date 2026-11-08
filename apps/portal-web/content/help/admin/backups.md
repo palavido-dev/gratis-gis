@@ -24,8 +24,9 @@ Create and restore archives from **Admin → Backup**. The schedule
 defaults to daily at 02:00 in the server's clock, and retention
 keeps the **7** newest archives unless you change the count on that
 page. A run that fails is marked failed on that page. When email
-notifications are on, the admins of the operator organization also
-get an email about it.
+notifications are on, the admins of the first organization created on
+this portal also get an email about it. With notifications off, the
+page is the only place a failure shows.
 
 ## What's in the archive
 
