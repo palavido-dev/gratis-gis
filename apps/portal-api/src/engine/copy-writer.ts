@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Pool, type PoolClient } from 'pg';
+import { existsSync } from 'node:fs';
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
@@ -129,6 +130,40 @@ export class CopyWriter {
     ]);
   }
 
+  /** Latest live entity ids in `scope`. Call before `deleteScope` on
+   *  a replace so the commit can write tombstones for entities the
+   *  new file does not contain. Invalid once COPY has started. */
+  async liveEntityIds(scope: string): Promise<string[]> {
+    const result = await this.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM (
+         SELECT DISTINCT ON (entity) entity, kind
+         FROM observation
+         WHERE scope = $1
+         ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+       ) latest
+       WHERE kind <> 'delete'`,
+      [scope],
+    );
+    return result.rows.map((row) => row.entity);
+  }
+
+  /** Ordinary SQL on this writer's connection. Only between `begin`
+   *  and `beginCopy`, and again after `sealCopy` until `commit`.
+   *  The COPY stream owns the connection in between. */
+  async query<T extends QueryResultRow = QueryResultRow>(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    if (!this.client) {
+      throw new Error('CopyWriter.query called without a connection.');
+    }
+    if (this.stream) {
+      throw new Error('CopyWriter.query called while COPY is open.');
+    }
+    return this.client.query<T>(sql, params);
+  }
+
   /** Issue the COPY statement and spawn the encoder worker. After
    *  this the connection is dedicated to the COPY until `end()` or
    *  `abort()`. */
@@ -159,7 +194,16 @@ export class CopyWriter {
     // dist/engine/copy-writer.js, with copy-encoder.worker.js next
     // to it. portal-api is built as CommonJS so we resolve via
     // __dirname rather than import.meta.url.
-    this.encoder = new Worker(join(__dirname, 'copy-encoder.worker.js'));
+    // The compiled image has copy-encoder.worker.js beside this file.
+    // A test run from the TypeScript source loads the .ts file with
+    // the type stripper. Same resolution as the import-guard branch.
+    const compiled = join(__dirname, 'copy-encoder.worker.js');
+    const script = existsSync(compiled)
+      ? compiled
+      : join(__dirname, 'copy-encoder.worker.ts');
+    this.encoder = new Worker(script, {
+      execArgv: script.endsWith('.ts') ? ['--experimental-strip-types'] : [],
+    });
     this.encoder.on('message', (msg: EncoderMessage) => {
       const slot = this.pending.get(msg.id);
       if (!slot) return;
@@ -260,14 +304,14 @@ export class CopyWriter {
   }
 
   /**
-   * Close the COPY stream and commit the transaction. Returns the
-   * number of rows written. Errors during stream-end or commit
-   * roll back the transaction, so a partially-streamed batch
-   * never lands.
+   * Finish the COPY stream and leave the transaction open. The
+   * caller stamps syncVersion (and, on the import-guard branch,
+   * drops duplicate appends) before `commit`. A partial stream
+   * that throws never reaches here; `abort` rolls it back.
    */
-  async end(): Promise<number> {
+  async sealCopy(): Promise<void> {
     if (!this.stream || !this.client) {
-      throw new Error('CopyWriter.end called before start().');
+      throw new Error('CopyWriter.sealCopy called before start().');
     }
     const stream = this.stream;
     await new Promise<void>((resolve, reject) => {
@@ -275,15 +319,31 @@ export class CopyWriter {
       stream.on('error', reject);
       stream.end();
     });
-    await this.client.query('COMMIT');
-    this.client.release();
-    this.client = null;
     this.stream = null;
     if (this.encoder) {
       await this.encoder.terminate();
       this.encoder = null;
     }
+  }
+
+  async commit(): Promise<number> {
+    if (!this.client) {
+      throw new Error('CopyWriter.commit called without a connection.');
+    }
+    if (this.stream) {
+      throw new Error('CopyWriter.commit called while COPY is open.');
+    }
+    await this.client.query('COMMIT');
+    this.client.release();
+    this.client = null;
     return this.rowCount;
+  }
+
+  /** Seal the stream and commit. Callers that must run SQL after
+   *  the stream use `sealCopy` and `commit` themselves. */
+  async end(): Promise<number> {
+    await this.sealCopy();
+    return this.commit();
   }
 
   /** Abort the in-flight COPY and roll back. Call from a finally
@@ -303,6 +363,7 @@ export class CopyWriter {
     // Tear the COPY stream down first (best-effort) so nothing keeps
     // writing into a socket we are about to drop.
     if (this.stream) {
+      this.stream.on('error', () => {});
       try {
         this.stream.destroy();
       } catch {
@@ -311,6 +372,7 @@ export class CopyWriter {
       this.stream = null;
     }
     if (this.client) {
+      this.client.on('error', () => {});
       try {
         // Passing a truthy value destroys the client instead of
         // returning it to the pool; the disconnect rolls back the

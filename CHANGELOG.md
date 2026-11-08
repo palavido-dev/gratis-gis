@@ -30,6 +30,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A COPY import, including a replace, now stamps the layer sync
+  cursor in the same transaction as the rows. The stamp is written
+  after the copy stream closes and before commit, on that
+  connection. Cancelling or a failed read leaves the cursor where
+  it was. A replace writes a delete observation for each live
+  feature the new file does not contain, so a device that already
+  has a cursor sees those removals. An import that lands no rows
+  does not move the cursor.
 - Saving a feature, deleting one, importing rows, or running
   Calculate Field advances that layer's sync cursor only when the
   observation itself commits. A conflicting edit, a retried import

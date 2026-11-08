@@ -853,16 +853,10 @@ export class DataLayerFeaturesService {
    * loop. Left optional so a caller that forgets is still validated,
    * just more slowly.
    *
-   * Does not stamp `syncVersion`. `copyFeaturesCreate` stores the
-   * default source, and this method does not call `commitLayerSync`.
-   * Delta reads keep only rows whose stamp is greater than the
-   * client's cursor and treat a missing stamp as 0. A device that
-   * already has a cursor therefore does not see a COPY import until
-   * a full pull (no cursor). That is not safe. The stamp has to be
-   * chosen before `beginCopy` and the item cursor updated on this
-   * same connection after the stream ends and before COMMIT. Leaving
-   * it unstamped because older imports were also unstamped does not
-   * make the delta contract hold.
+   * The rows are stamped by `commitCopiedLayer` on this same
+   * connection after `sealCopy` and before `commit`. This method
+   * does not bump the cursor itself: an abort, or a load that
+   * leaves no rows, must not move it.
    */
   async bulkInsertFeatures(
     itemId: string,
@@ -895,6 +889,22 @@ export class DataLayerFeaturesService {
 
     const written = await this.dataLayer.copyFeaturesCreate(args, writer);
     return { inserted: written.length };
+  }
+
+  /**
+   * Finish a sealed COPY on the writer's connection. See
+   * `DataLayerEngine.commitCopiedLayer`. The caller commits.
+   */
+  commitCopiedLayer(
+    writer: import('../engine/copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+    },
+  ) {
+    return this.dataLayer.commitCopiedLayer(writer, args);
   }
 
   /**

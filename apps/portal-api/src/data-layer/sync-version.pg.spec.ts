@@ -8,18 +8,12 @@
 // monthly partitions that call would create, from 2025-01 through
 // six months past now. Every other migration file runs unchanged.
 // The observation table is still PARTITION BY RANGE (tx_time) with
-// the composite primary key the migration installs.
-//
-// This substitution is a limitation, not proof that
-// partman.create_parent ran. Stock postgis/postgis:17-3.5 has no
-// pg_partman control file. The CI job that starts the project
-// Postgres image and runs migrate deploy is the real pg_partman
-// path and has to stay. A job that asserts the partition invariant
-// on that image after migrate is still queued.
+// the composite primary key the migration installs. The partman
+// substitution lives in apply-test-migrations.ts and is not the
+// image proof. CI asserts that proof on the project Postgres image.
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { applyTestMigrations } from '../testing/apply-test-migrations.js';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
@@ -59,55 +53,8 @@ function databaseUrl(base: string, name: string): string {
   return url.toString();
 }
 
-function rewritePartitionMigration(sql: string): string {
-  const cut = sql.indexOf('SELECT partman.create_parent');
-  const resume = sql.indexOf('-- 6. Move existing data');
-  if (cut < 0 || resume < 0) {
-    throw new Error('partition migration no longer has the partman markers');
-  }
-  const head = sql
-    .slice(0, cut)
-    .replace(/CREATE SCHEMA IF NOT EXISTS partman;\s*/g, '')
-    .replace(/CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;\s*/g, '');
-  const partitions = `
-DO $$
-DECLARE
-  m date := DATE '2025-01-01';
-  horizon date := (date_trunc('month', now()) + interval '6 months')::date;
-BEGIN
-  WHILE m < horizon LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS %I PARTITION OF observation FOR VALUES FROM (%L) TO (%L)',
-      'observation_p' || to_char(m, 'YYYYMM'),
-      m::timestamptz,
-      (m + interval '1 month')::date::timestamptz
-    );
-    m := (m + interval '1 month')::date;
-  END LOOP;
-END $$;
-`;
-  return head + partitions + sql.slice(resume);
-}
-
 function applyMigrations(url: string): void {
-  const root = join(__dirname, '../../prisma/migrations');
-  const dirs = readdirSync(root)
-    .filter((name) => name !== 'migration_lock.toml')
-    .sort();
-  for (const dir of dirs) {
-    const file = join(root, dir, 'migration.sql');
-    let sql = readFileSync(file, 'utf8');
-    if (dir.startsWith('20260508081000')) sql = rewritePartitionMigration(sql);
-    const result = spawnSync('psql', [url, '-v', 'ON_ERROR_STOP=1'], {
-      input: sql,
-      encoding: 'utf8',
-    });
-    if (result.status !== 0) {
-      throw new Error(
-        `migration ${dir} failed\n${result.stderr}\n${result.stdout}`,
-      );
-    }
-  }
+  applyTestMigrations(url, join(__dirname, '../../prisma/migrations'));
 }
 
 d('syncVersion commits with the observation on migrated PostGIS', () => {

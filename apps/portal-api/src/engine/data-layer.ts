@@ -1077,6 +1077,113 @@ export class DataLayerEngine {
   }
 
   /**
+   * Stamp a COPY import that is already sealed on `writer` and not
+   * yet committed. Rows this transaction inserted get the next
+   * syncVersion. Entities that a replace removed, and that the new
+   * file did not write back, become delete observations with that
+   * same version so a delta client drops them. The item cursor moves
+   * only when at least one of those rows exists. The caller commits.
+   * An abort before that commit leaves the cursor where it was.
+   */
+  async commitCopiedLayer(
+    writer: import('./copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+    },
+  ): Promise<{ wrote: boolean; syncVersion: number }> {
+    const scope = this.scope(args.itemId, args.layerId);
+    const fresh = await writer.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM observation
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid
+         AND kind <> 'delete'`,
+      [scope],
+    );
+    const written = new Set(fresh.rows.map((row) => row.entity));
+    const removed = args.removedEntityIds.filter((id) => !written.has(id));
+    if (written.size === 0 && removed.length === 0) {
+      const current = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid',
+        [args.itemId],
+      );
+      const data = asItemData(current.rows[0]?.data_json);
+      const layer = data?.layers?.find((l) => l.id === args.layerId);
+      const prev =
+        layer && typeof layer.syncVersion === 'number' ? layer.syncVersion : 0;
+      return { wrote: false, syncVersion: prev };
+    }
+    const locked = await writer.query<{ data_json: unknown }>(
+      'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+      [args.itemId],
+    );
+    if (locked.rows.length === 0) throw new NotFoundException('Item not found');
+    const data = asItemData(locked.rows[0]!.data_json);
+    if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+      throw new BadRequestException(
+        'syncVersion is only defined on v3 data_layer items.',
+      );
+    }
+    const idx = data.layers.findIndex((l) => l.id === args.layerId);
+    if (idx < 0) throw new NotFoundException('Layer not found');
+    const current = data.layers[idx]!;
+    const prev =
+      typeof current.syncVersion === 'number' &&
+      Number.isFinite(current.syncVersion)
+        ? Math.max(0, Math.floor(current.syncVersion))
+        : 0;
+    const next = prev + 1;
+    await writer.query(
+      `UPDATE observation
+       SET source = jsonb_set(
+         jsonb_set(
+           COALESCE(source, '{"kind":"data_layer:write"}'::jsonb),
+           '{details}',
+           COALESCE(source->'details', '{}'::jsonb),
+           true
+         ),
+         '{details,syncVersion}',
+         to_jsonb($2::int),
+         true
+       )
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid`,
+      [scope, next],
+    );
+    if (removed.length > 0) {
+      const ids = removed.map(() => uuidv7());
+      await writer.query(
+        `INSERT INTO observation (
+           id, tx_time, valid_from, scope, entity, kind,
+           author_sub, source, parents
+         )
+         SELECT u.id, now(), now(), $1, u.entity, 'delete',
+                $2, $3::jsonb, '{}'::uuid[]
+         FROM unnest($4::uuid[], $5::uuid[]) AS u(id, entity)`,
+        [
+          scope,
+          args.authorSub,
+          JSON.stringify(syncVersionSource(next)),
+          ids,
+          removed,
+        ],
+      );
+    }
+    const nextLayers = data.layers.slice();
+    nextLayers[idx] = { ...current, syncVersion: next };
+    await writer.query(
+      `UPDATE item
+       SET data_json = $2::jsonb, updated_at = now()
+       WHERE id = $1::uuid`,
+      [args.itemId, JSON.stringify({ ...data, layers: nextLayers })],
+    );
+    return { wrote: true, syncVersion: next };
+  }
+
+  /**
    * Drop this process's cached tiles and aggregates for the scopes a
    * write just touched. Called by EngineService for every write it
    * makes, and directly by the one raw INSERT path below that bypasses
