@@ -1088,6 +1088,16 @@ export class DataLayerEngine {
    * same version so a delta client drops them. The item cursor moves
    * only when at least one of those rows exists. The caller commits.
    * An abort before that commit leaves the cursor where it was.
+   *
+   * For a replace, the item row is locked FIRST and the set of live
+   * entities is recomputed under that lock. The replace deleted the
+   * scope at the start of a transaction that can run for minutes, and
+   * online edits are not blocked meanwhile: an edit committed during
+   * the COPY survives the delete. Online writes take the same item lock
+   * (commitLayerSync), so under it the scope is stable. Every entity
+   * still live that this import did not write is tombstoned, and
+   * tombstones are dated with clock_timestamp(), not the transaction's
+   * start time, so they sort after any edit they supersede.
    */
   async commitCopiedLayer(
     writer: import('./copy-writer.js').CopyWriter,
@@ -1096,9 +1106,18 @@ export class DataLayerEngine {
       layerId: string;
       removedEntityIds: readonly string[];
       authorSub: string;
+      /** True for a replace import. */
+      replace?: boolean;
     },
   ): Promise<{ wrote: boolean; syncVersion: number }> {
     const scope = this.scope(args.itemId, args.layerId);
+    let locked: { rows: Array<{ data_json: unknown }> } | null = null;
+    if (args.replace) {
+      locked = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+        [args.itemId],
+      );
+    }
     const fresh = await writer.query<{ entity: string }>(
       `SELECT entity::text AS entity
        FROM observation
@@ -1108,7 +1127,29 @@ export class DataLayerEngine {
       [scope],
     );
     const written = new Set(fresh.rows.map((row) => row.entity));
-    const removed = args.removedEntityIds.filter((id) => !written.has(id));
+    const removedSet = new Set(
+      args.removedEntityIds.filter((id) => !written.has(id)),
+    );
+    if (args.replace) {
+      // Entities edited online while the COPY ran: their rows were
+      // committed after the replace's delete, so they are still live.
+      const stragglers = await writer.query<{ entity: string }>(
+        `SELECT entity::text AS entity
+         FROM (
+           SELECT DISTINCT ON (entity) entity, kind, xmin
+           FROM observation
+           WHERE scope = $1
+           ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+         ) latest
+         WHERE kind <> 'delete'
+           AND xmin <> pg_current_xact_id()::xid`,
+        [scope],
+      );
+      for (const row of stragglers.rows) {
+        if (!written.has(row.entity)) removedSet.add(row.entity);
+      }
+    }
+    const removed = [...removedSet];
     if (written.size === 0 && removed.length === 0) {
       const current = await writer.query<{ data_json: unknown }>(
         'SELECT data_json FROM item WHERE id = $1::uuid',
@@ -1120,7 +1161,7 @@ export class DataLayerEngine {
         layer && typeof layer.syncVersion === 'number' ? layer.syncVersion : 0;
       return { wrote: false, syncVersion: prev };
     }
-    const locked = await writer.query<{ data_json: unknown }>(
+    locked ??= await writer.query<{ data_json: unknown }>(
       'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
       [args.itemId],
     );
@@ -1164,7 +1205,7 @@ export class DataLayerEngine {
            id, tx_time, valid_from, scope, entity, kind,
            author_sub, source, parents
          )
-         SELECT u.id, now(), now(), $1, u.entity, 'delete',
+         SELECT u.id, now(), clock_timestamp(), $1, u.entity, 'delete',
                 $2, $3::jsonb, '{}'::uuid[]
          FROM unnest($4::uuid[], $5::uuid[]) AS u(id, entity)`,
         [
