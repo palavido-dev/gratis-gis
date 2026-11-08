@@ -412,13 +412,13 @@ export GRATIS_RECOVERY_WHILE_QUIESCED="$WORK/during-quiesce.sh"
   --secret-file "unique-secret=$WORK/unique-secret" \
   --out "$WORK/out" \
   --status-file "$WORK/capture-status.json"
-python3 - "$WORK/out/manifest-check" "$WORK/out/bundle.tar.enc" "$WORK/recovery.key" "$HERE" <<'PY'
+python3 - "$WORK/out/manifest-check" "$WORK/out/latest.tar.enc" "$WORK/recovery.key" "$HERE" <<'PY'
 import json, subprocess, sys, tarfile, io, os, pathlib
 note, bundle, key, here = sys.argv[1:]
 node = os.environ.get("NODE_BIN")
 # caller exports NODE
 PY
-NODE_BIN="$NODE" "$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/bundle.tar.enc" "$WORK/opened.tar"
+NODE_BIN="$NODE" "$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/latest.tar.enc" "$WORK/opened.tar"
 mkdir -p "$WORK/opened"
 tar -C "$WORK/opened" -xf "$WORK/opened.tar" manifest.json
 python3 - "$WORK/opened/manifest.json" <<'PY'
@@ -445,17 +445,17 @@ test -f "$WORK/out/required-separately.json"
 grep -q 'sealedSecrets' "$WORK/out/required-separately.json"
 "$HERE/unseal-secrets.sh" \
   --secrets-key-file "$WORK/secrets.key" \
-  --sealed "$WORK/out/secrets.tar.enc" \
+  --sealed "$WORK/out/latest-secrets.tar.enc" \
   --out "$WORK/unsealed"
 cmp -s "$WORK/unique-secret" "$WORK/unsealed/unique-secret" || recovery_die 'unsealed secret does not match'
-if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/bundle.tar.enc"; then
+if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/latest.tar.enc"; then
   recovery_die 'the data bundle contains the sealed secret'
 fi
 
 mkdir -p "$WORK/off"
 "$HERE/offhost.sh" \
   --confirm-project gg-recovery-portal \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --dest "file:$WORK/off" \
   --status-file "$WORK/off-status.json"
 python3 - "$WORK/off-status.json" <<'PY'
@@ -470,13 +470,18 @@ PY
 docker compose -p gg-recovery-portal -f "$COMPOSE" down -v
 STARTED=0
 up
+# A rebuilt host runs the same migrations before a restore, so the
+# bundle's latest migration matches the running stack.
+if ! ( cd "$ROOT/apps/portal-api" && pnpm exec prisma migrate deploy >/dev/null ); then
+  recovery_die 'prisma migrate deploy failed on the fresh stack'
+fi
 RESTORE_AT="$(date +%s)"
 "$HERE/restore.sh" \
   --confirm-project gg-recovery-portal \
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --maintenance-file "$WORK/maintenance" \
   --status-file "$WORK/restore-status.json"
 [[ ! -e "$WORK/maintenance" ]] || recovery_die 'successful restore left the maintenance file'

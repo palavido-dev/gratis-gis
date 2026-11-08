@@ -29,6 +29,8 @@ done
 
 recovery_confirm_project "$CONFIRM"
 [[ -n "$BUNDLE" && -f "$BUNDLE" ]] || recovery_die 'bundle is required'
+# latest.tar.enc is a symlink; copy the timestamped file it names.
+BUNDLE="$(readlink -f "$BUNDLE")"
 [[ "$DEST" == file:/* ]] || recovery_die 'dest must be file:/absolute/path'
 DEST_DIR="${DEST#file:}"
 [[ -d "$DEST_DIR" ]] || recovery_die 'destination directory does not exist'

@@ -425,7 +425,7 @@ PY
 
 # The manifest must record that the running writer was paused.
 NODE="$(recovery_node)"
-"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/bundle.tar.enc" "$WORK/opened.tar"
+"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/latest.tar.enc" "$WORK/opened.tar"
 mkdir -p "$WORK/opened"
 tar -C "$WORK/opened" -xf "$WORK/opened.tar" manifest.json
 rm -f "$WORK/opened.tar"
@@ -449,14 +449,14 @@ rm -rf "$WORK/opened"
 [[ ! -e "$WORK/capture-maint" ]] || recovery_die 'a successful capture left the maintenance file'
 "$HERE/unseal-secrets.sh" \
   --secrets-key-file "$WORK/secrets.key" \
-  --sealed "$WORK/out/secrets.tar.enc" \
+  --sealed "$WORK/out/latest-secrets.tar.enc" \
   --out "$WORK/unsealed"
 cmp -s "$WORK/unique-secret" "$WORK/unsealed/unique-secret" || recovery_die 'unsealed secret does not match'
-if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/bundle.tar.enc"; then
+if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/latest.tar.enc"; then
   recovery_die 'the data bundle contains the sealed secret'
 fi
 set +e
-"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/secrets.tar.enc" "$WORK/secrets-with-recovery.tar" >/dev/null 2>&1
+"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/latest-secrets.tar.enc" "$WORK/secrets-with-recovery.tar" >/dev/null 2>&1
 secrets_code=$?
 set -e
 [[ "$secrets_code" -ne 0 ]] || recovery_die 'the recovery passphrase opened the secrets archive'
@@ -485,7 +485,7 @@ PY
 mkdir -p "$WORK/off"
 "$HERE/offhost.sh" \
   --confirm-project gg-recovery-drill \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --dest "file:$WORK/off" \
   --status-file "$WORK/off-status.json"
 
@@ -497,7 +497,7 @@ set +e
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/wrong.key" \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --status-file "$WORK/wrong-status.json" >/dev/null 2>&1
 code=$?
 set -e
@@ -515,7 +515,7 @@ set +e
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --status-file "$WORK/partial-status.json" >"$WORK/partial.out" 2>&1
 code=$?
 set -e
@@ -542,7 +542,7 @@ RESTORE_AT="$(date +%s)"
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --status-file "$WORK/restore-status.json"
 # Keycloak was stopped for the restore and started again. Wait for it.
 for _ in $(seq 1 60); do
@@ -563,14 +563,14 @@ assert doc["phase"] == "restored"
 PY
 
 # A truncated bundle must fail.
-dd if=/dev/zero of="$WORK/out/bundle.tar.enc" bs=32 count=1 conv=notrunc status=none
+dd if=/dev/zero of="$WORK/out/latest.tar.enc" bs=32 count=1 conv=notrunc status=none
 set +e
 "$HERE/restore.sh" \
   --confirm-project gg-recovery-drill \
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
-  --bundle "$WORK/out/bundle.tar.enc" \
+  --bundle "$WORK/out/latest.tar.enc" \
   --status-file "$WORK/trunc-status.json" >/dev/null 2>&1
 code=$?
 set -e

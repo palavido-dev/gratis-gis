@@ -9,40 +9,49 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 ### Added
 
 - Opt-in host recovery for a compose project the operator names twice.
-  `infra/recovery/capture.sh` stops the writers that project is
-  actually running, including MinIO, then dumps the portal database
-  and the Keycloak database and copies the MinIO data directory.
-  The copy uses a separate image with no published ports and no
-  network, because the MinIO image has no `tar` and a bucket Deny
-  does not stop root or an IAM Allow. A stack with no MinIO service
-  fails closed. If the API is not in the compose file, capture
-  continues only when `GRATIS_RECOVERY_EXTERNAL_API=stopped`. A
-  service that was already stopped is not started. Only containers
-  this run stopped are started again, including when capture fails.
-  A maintenance file is created before the snapshot when it is
-  missing, and capture removes the one it created if it fails.
-  The data bundle is sealed with AES-256-GCM. The recovery
-  passphrase is read from a file and is not stored in the bundle or
-  passed as an argument value. Secret files named with
-  `--secret-file` are sealed separately as `secrets.tar.enc` with a
-  different key; `unseal-secrets.sh` opens that archive. The
-  credential encryption key is not in the data bundle; the manifest
-  records only its fingerprint, and restore refuses a different key
-  before it changes either database. A changed byte does not
-  decrypt. Restore checks the archive for traversal, links, and
-  size before it writes, puts Keycloak back, then the portal
-  database, then the object data directory. A failure after those
-  writes leaves a maintenance file in place so the API keeps
-  returning 503. `offhost.sh` makes a verified secondary file copy
-  and refuses to overwrite; a same-disk copy is labeled as such and
-  is not off-site or immutable. The in-portal `tar.gz` version is
-  unchanged. The admin backup health response includes a failure
-  sentence when `GRATIS_RECOVERY_STATUS_FILE` points at a failed
-  status, and the backup page shows that sentence. A failed status
-  can be mailed through the existing mail transport when
-  `GRATIS_RECOVERY_NOTICE_TO` is set; the test uses a sink and does
-  not send mail. WAL point-in-time recovery is not part of this
-  bundle.
+  The real names (`gratis-gis-prod`, `gratis-gis`) are accepted, and
+  each script first checks that the named project really has the
+  Postgres, Keycloak, and MinIO containers. `infra/recovery/capture.sh`
+  stops the writers that project is actually running, including
+  MinIO, then dumps the portal database and the Keycloak database and
+  copies the MinIO data directory. The copy uses a separate image with
+  no published ports and no network, because the MinIO image has no
+  `tar` and a bucket Deny does not stop root or an IAM Allow. If the
+  API is not in the compose file, capture continues only when
+  `GRATIS_RECOVERY_EXTERNAL_API=stopped`. Only containers a run
+  stopped are started again, including when it fails. Each capture
+  writes a new `bundle-<UTC time>.tar.enc` and moves the
+  `latest.tar.enc` link; it never replaces or deletes an earlier
+  bundle, and plaintext only exists in a 0700 staging directory that
+  is removed on every exit. The bundle is sealed with streaming,
+  chunked AES-256-GCM (scrypt N=2^17 with a random salt, a random IV,
+  and the header authenticated), so its size is limited by disk, and
+  decryption verifies every chunk before any plaintext is moved into
+  place. The recovery passphrase is read from a file and is not stored
+  in the bundle or passed as an argument value. Secret files named
+  with `--secret-file` are sealed separately with a different key;
+  `unseal-secrets.sh` opens that archive. The credential encryption
+  key is not in the data bundle; the manifest records only its
+  fingerprint. `restore.sh` refuses a different credential key, a
+  changed byte, or a bundle whose recorded images or latest Prisma
+  migration differ from the running stack unless
+  `--allow-version-mismatch` is passed. Only after those checks does
+  it raise maintenance, stop the same writers capture stops, and seal
+  the current state as a pre-restore safety bundle; if that fails,
+  nothing is restored. Each database is restored in one transaction
+  that stops on the first error. A failure before any data changes
+  starts the writers again and removes the maintenance file; a
+  failure after it leaves writers stopped, keeps the maintenance file
+  so the API returns 503, and prints the safety bundle to roll back
+  to. `offhost.sh` makes a verified secondary file copy and refuses to
+  overwrite; a same-disk copy is labeled as such and is not off-site
+  or immutable. The in-portal `tar.gz` version is unchanged. The admin
+  backup health response includes a failure sentence when
+  `GRATIS_RECOVERY_STATUS_FILE` points at a failed status, and the
+  backup page shows that sentence. A failed status can be mailed
+  through the existing mail transport when `GRATIS_RECOVERY_NOTICE_TO`
+  is set; the test uses a sink and does not send mail. WAL
+  point-in-time recovery is not part of this bundle.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when
