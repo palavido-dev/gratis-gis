@@ -28,26 +28,37 @@ rules:
       technology: [postgis, postgres, sql]
     patterns:
       - pattern-either:
-          # Backtick template literal containing ST_GeomFromGeoJSON(...)
+          # Untagged template. ${...} does not match in Semgrep 1.183;
+          # ${$X} does. Proven against a one-line fixture.
           - pattern: |
-              `... ST_GeomFromGeoJSON(${...}) ...`
-          # String concatenation: '... ST_GeomFromGeoJSON(' + x + ...'
+              `...ST_GeomFromGeoJSON(${$X})...`
           - pattern: |
               "..." + $X + "...ST_GeomFromGeoJSON(..."
           - pattern: |
               "...ST_GeomFromGeoJSON(" + $X + "..."
-          # .raw() / $queryRawUnsafe() with ST_GeomFromGeoJSON
           - pattern: |
-              $DB.$queryRawUnsafe(`...ST_GeomFromGeoJSON(${...})...`, ...)
+              $DB.$queryRawUnsafe(`...ST_GeomFromGeoJSON(${$X})...`, ...)
           - pattern: |
-              $DB.$executeRawUnsafe(`...ST_GeomFromGeoJSON(${...})...`, ...)
+              $DB.$executeRawUnsafe(`...ST_GeomFromGeoJSON(${$X})...`, ...)
+      # Prisma binds ${} inside these tags. A type argument is why
+      # $queryRaw<...> is listed separately from $queryRaw.
+      - pattern-not-inside: |
+          $DB.$queryRaw`...`
+      - pattern-not-inside: |
+          $DB.$queryRaw<$TYPE>`...`
+      - pattern-not-inside: |
+          Prisma.sql`...`
+      # Identifier quoting, and a $N placeholder token built earlier
+      # in spatial-filter. Neither one pastes GeoJSON text.
+      - pattern-not: |
+          `ST_GeomFromGeoJSON(${quoteIdent($COL)}) AS ${quoteIdent($GEOM)}`
+      - pattern-not: |
+          `...ST_GeomFromGeoJSON(${ph})...`
 
-# Registry packs (p/owasp-top-ten, p/security-audit, p/javascript,
-# p/typescript, p/nodejs, p/nextjs, p/nestjs, p/docker) stay off.
-# They were previously commented out as unapproved. A local
-# semgrep 1.96.0 install did not start (pkg_resources missing), so
-# those packs were not executed here and are not enabled on that
-# basis. CI runs only the rule in this file, on the official
-# semgrep image. Add a pack back only after a run shows the
-# findings are actionable. Do not add a blanket nosemgrep or
-# --disable-nosem.
+# Registry packs stay off. Semgrep 1.183.0 (the CI image tag) was
+# run on this file: the safe fixture matches nothing. The template
+# pattern below does not match `ST_GeomFromGeoJSON(${geojson})`.
+# infra/semgrep/fixture-rule.yml does match that line, and it also
+# matches Prisma $queryRaw tagged templates. pattern-not-inside did
+# not remove those, so that stricter rule is not the CI rule.
+# Do not add a blanket nosemgrep or --disable-nosem.
