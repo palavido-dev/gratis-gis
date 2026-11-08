@@ -242,6 +242,14 @@ d('observation-log read paths against real PostGIS', () => {
         AFTER INSERT ON observation
         FOR EACH ROW EXECUTE FUNCTION observation_notify_written()
     `);
+    await pool.query(`DROP TABLE IF EXISTS item`);
+    await pool.query(`
+      CREATE TABLE item (
+        id uuid PRIMARY KEY,
+        data_json jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
   });
 
   afterAll(async () => {
@@ -2532,6 +2540,19 @@ d('observation-log read paths against real PostGIS', () => {
     };
 
     const user = { id: 'itest-user', username: 'itest' } as AuthUser;
+
+    beforeAll(async () => {
+      await pool.query(
+        `INSERT INTO item (id, data_json) VALUES ($1, $2::jsonb)`,
+        [
+          itemId,
+          JSON.stringify({
+            version: 3,
+            layers: [{ id: layerId, syncVersion: 0 }],
+          }),
+        ],
+      );
+    });
 
     async function createRowCount(scope: string, entity: string) {
       const res = await pool.query(

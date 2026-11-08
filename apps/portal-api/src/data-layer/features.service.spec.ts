@@ -138,8 +138,26 @@ function makeService(fields: unknown[] | null = null) {
     }),
   );
   const writeFeaturesUpdate = jest.fn(
-    async (updates: Array<{ globalId: string }>) =>
-      updates.map(() => ({ observationId: 'obs' })),
+    async (updates: Array<{ globalId: string; expectedHeadObservationId?: string }>) => ({
+      applied: updates.map((u) => ({ globalId: u.globalId, observationId: 'obs' })),
+      conflicts: [] as Array<{ globalId: string; headObservationId: string | null }>,
+    }),
+  );
+  const commitLayerSync = jest.fn(
+    async (
+      _itemId: string,
+      _layerId: string,
+      run: (ctx: {
+        tx: object;
+        source: { kind: string; details: { syncVersion: number } };
+        syncVersion: number;
+      }) => Promise<{ wrote: boolean; value: unknown }>,
+    ) =>
+      run({
+        tx: {},
+        source: { kind: 'data_layer:write', details: { syncVersion: 1 } },
+        syncVersion: 1,
+      }),
   );
   const writeFeatureUpdate = jest.fn(
     async (_args: Record<string, unknown>) => ({ observationId: 'obs' }),
@@ -157,6 +175,7 @@ function makeService(fields: unknown[] | null = null) {
     writeFeatureUpdate,
     writeFeatureDelete,
     writeFeaturesCreateIdempotent,
+    commitLayerSync,
   };
   const cacheRefresh = {
     notifySourceWrite: jest.fn(() => Promise.resolve()),
@@ -335,9 +354,14 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     expect(writeFeaturesUpdate).toHaveBeenCalledTimes(1);
     const written = writeFeaturesUpdate.mock.calls[0]![0] as Array<{
       globalId: string;
+      expectedHeadObservationId?: string;
       properties?: Record<string, unknown>;
     }>;
     expect(written.map((w) => w.globalId).sort()).toEqual([E2, E4]);
+    expect(written.map((w) => w.expectedHeadObservationId).sort()).toEqual([
+      `obs-head-${E2}`,
+      `obs-head-${E4}`,
+    ]);
     expect(written.map((w) => w.properties?.doubled).sort()).toEqual([4, 8]);
     expect(out.totalRows).toBe(2);
     expect(out.appliedRows).toBe(2);

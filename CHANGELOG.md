@@ -56,6 +56,28 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The fresh-checkout partition check accepts the Prisma database URL
+  from the quickstart. That URL includes `schema` as a query
+  parameter, which `psql` rejects. The check removes only that key
+  and leaves the rest of the URL, including percent-encoding,
+  unchanged. It does not print the URL.
+- A COPY import, including a replace, now stamps the layer sync
+  cursor in the same transaction as the rows. The stamp is written
+  after the copy stream closes and before commit, on that
+  connection. Cancelling or a failed read leaves the cursor where
+  it was. A replace writes a delete observation for each live
+  feature the new file does not contain, so a device that already
+  has a cursor sees those removals. An import that lands no rows
+  does not move the cursor.
+- Saving a feature, deleting one, importing rows, or running
+  Calculate Field advances that layer's sync cursor only when the
+  observation itself commits. A conflicting edit, a retried import
+  that was already stored, or a write that rolls back leaves the
+  cursor where it was. Calculate Field refuses a row whose head
+  changed and records that conflict. Two people editing the same
+  feature from the same head produce one saved edit and one conflict.
+  Existing installs pick this up by updating the portal-api image.
+  No migration and no volume reset.
 - A form submission whose paired data layer did not get the mirror
   row is retried three times, and once a minute the process that
   holds the cron lock looks for submissions from the last 7 days,
