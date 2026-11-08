@@ -344,9 +344,9 @@ export class ImportJobsWorker implements OnModuleInit {
         } else {
           await writer.sealCopy();
           if (job.mode === 'append') {
-            // A retry after the previous COPY committed must not
-            // insert a second live feature for the same globalId.
-            await writer.dropShadowingCreates(
+            // Only rows this transaction inserted. Committed history
+            // is not deleted. See CopyWriter.dropDuplicateAppendCreates.
+            await writer.dropDuplicateAppendCreates(
               dataLayerScope(job.itemId, job.layerId),
             );
           }

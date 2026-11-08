@@ -30,17 +30,22 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
-- A bulk import commit now waits for the WAL flush. Append mode
-  drops create-rows that would duplicate a feature that is already
-  live, including a retry after a crash between commit and the job
-  being marked succeeded. Replace mode is unchanged. Existing
-  installs pick this up by updating the portal-api image. No volume
-  reset.
-- A point-cloud worker can no longer mark a job done after the
-  reclaim sweep has already failed it, or after another claim has
-  taken the row. `analysis_job.claim_token` is new. The migration
-  adds a nullable column. Apply it before the new worker image
-  starts (`portal-migrate` already runs first). No volume reset.
+- A bulk import commit now waits for the WAL flush. An append
+  removes only create rows that the same transaction just inserted
+  when that entity already has a live observation, or when the load
+  inserted the same entity twice. Committed history, edits, other
+  scopes, and duplicates that were already stored are not deleted.
+  A create after a delete is kept. Existing installs pick this up
+  by updating the portal-api image. No volume reset.
+- A point-cloud worker heartbeats, finishes, cancels, and publishes
+  an item result only while it still holds that job's claim token.
+  A database trigger ignores updates from an older worker image that
+  does not present the token, once a row has one. Claiming a queued
+  row and the stale-job reclaim sweep still work. The migration adds
+  nullable `analysis_job.claim_token` and the trigger. Apply it
+  before starting the new worker image. An old worker can keep
+  running; it cannot overwrite a row a new worker has leased. No
+  volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

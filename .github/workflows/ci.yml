@@ -146,6 +146,39 @@ jobs:
       - name: runner unit tests
         run: python3 tools/pointcloud-worker/test_runner_units.py
 
+  observation-guards:
+    name: Append idempotency and analysis lease
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: gratisgis
+          POSTGRES_PASSWORD: reviewonly
+          POSTGRES_DB: gratisgis
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U gratisgis -d gratisgis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install a Postgres client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Guard SQL
+        env:
+          PGHOST: localhost
+          PGUSER: gratisgis
+          PGDATABASE: gratisgis
+          PGPASSWORD: reviewonly
+        run: |
+          bash infra/observation-append-guard.pg.test.sh
+          bash infra/analysis-lease-guard.pg.test.sh
+
   dev-smoke:
     name: Fresh-clone pnpm dev
     runs-on: ubuntu-latest

@@ -236,6 +236,7 @@ def test_finish_job_keeps_the_lease():
         def execute(self, sql, args):
             self.sql = sql
             self.args = args
+            self.rowcount = 1
 
         def __enter__(self):
             return self
@@ -255,15 +256,23 @@ def test_finish_job_keeps_the_lease():
             self.commits += 1
 
     conn = Conn()
-    runner.finish_job(conn, "job-1", None, "11111111-1111-1111-1111-111111111111")
+    token = "11111111-1111-1111-1111-111111111111"
+    assert runner.finish_job(conn, "job-1", None, token) is True
     assert "state IN ('running', 'cancel_requested')" in conn.cur.sql
-    assert "claim_token" in conn.cur.sql
-    assert conn.cur.args[0] == "job-1"
+    assert "claim_token = %s::uuid" in conn.cur.sql
+    assert "IS NULL" not in conn.cur.sql
+    assert conn.cur.args == ("job-1", token)
     assert conn.commits == 1
-    failed = Conn()
-    runner.finish_job(failed, "job-2", "boom", None)
-    assert failed.cur.args[0] == "boom"
-    assert "state IN ('running', 'cancel_requested')" in failed.cur.sql
+    refused = Conn()
+    assert runner.finish_job(refused, "job-2", "boom", None) is False
+    assert refused.cur.args is None
+    runner.remember_lease("job-3", token)
+    beat = Conn()
+    try:
+        runner.set_progress(beat, "job-3", 10)
+    except Exception:
+        pass
+    assert "claim_token = %s::uuid" in beat.cur.sql
 
 
 if __name__ == "__main__":

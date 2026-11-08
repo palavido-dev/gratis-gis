@@ -281,33 +281,68 @@ export class CopyWriter {
   }
 
   /**
-   * Drop create-rows from this transaction that land on an entity
-   * which already has a live observation. Append retries after a
-   * crash use this so a second copy of the same globalId does not
-   * stick. A create after a delete is kept (resurrection).
+   * Remove create rows this transaction just inserted when they are
+   * not the first live observation for that entity.
+   *
+   * Only rows with xmin = this transaction are eligible. Committed
+   * history, updates, deletes, other scopes, and duplicates that
+   * were already stored are left alone. A create after a committed
+   * delete is kept. Two creates for a new entity in this load keep
+   * the earliest. Advisory locks on the entities we just wrote make
+   * a concurrent append wait, then see the winner's commit.
    */
-  async dropShadowingCreates(scope: string): Promise<number> {
+  async dropDuplicateAppendCreates(scope: string): Promise<number> {
     if (!this.client) {
-      throw new Error('CopyWriter.dropShadowingCreates called without a connection.');
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called without a connection.',
+      );
     }
+    if (this.stream) {
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called while COPY is open.',
+      );
+    }
+    await this.client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
+       FROM (
+         SELECT DISTINCT scope || '|' || entity::text AS k
+         FROM observation
+         WHERE scope = $1
+           AND kind = 'create'
+           AND xmin::text::bigint = txid_current()
+         ORDER BY 1
+       ) locks`,
+      [scope],
+    );
     const result = await this.client.query(
       `DELETE FROM observation AS fresh
        WHERE fresh.scope = $1
          AND fresh.kind = 'create'
-         AND EXISTS (
-           SELECT 1
-           FROM (
-             SELECT prev.kind
-             FROM observation AS prev
-             WHERE prev.scope = fresh.scope
-               AND prev.entity = fresh.entity
-               AND prev.id <> fresh.id
-               AND (prev.tx_time < fresh.tx_time
-                    OR (prev.tx_time = fresh.tx_time AND prev.id < fresh.id))
-             ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
-             LIMIT 1
-           ) latest
-           WHERE latest.kind <> 'delete'
+         AND fresh.xmin::text::bigint = txid_current()
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM (
+               SELECT prev.kind
+               FROM observation AS prev
+               WHERE prev.scope = fresh.scope
+                 AND prev.entity = fresh.entity
+                 AND prev.xmin::text::bigint <> txid_current()
+               ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
+               LIMIT 1
+             ) prior
+             WHERE prior.kind <> 'delete'
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM observation AS sibling
+             WHERE sibling.scope = fresh.scope
+               AND sibling.entity = fresh.entity
+               AND sibling.kind = 'create'
+               AND sibling.xmin::text::bigint = txid_current()
+               AND sibling.id <> fresh.id
+               AND (sibling.tx_time, sibling.id) < (fresh.tx_time, fresh.id)
+           )
          )`,
       [scope],
     );
