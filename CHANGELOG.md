@@ -32,8 +32,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - A form submission whose paired data layer did not get the mirror
   row is retried three times, and once a minute the process that
-  holds the cron lock looks for submissions that still have no live
-  observation and mirrors them again. That pass keeps its own timer.
+  holds the cron lock looks for submissions from the last 7 days,
+  on forms and layers that are not in the trash, that still have no
+  live observation, and mirrors them again. A submission that keeps
+  failing backs off (5 minutes, doubling to 6 hours) so it cannot
+  starve newer ones. Linking a layer to an older form does not
+  backfill its history. That pass keeps its own timer.
   It does not register another application-wide scheduler. The feature
   id is the submission id, so a
   retry does not create a second feature. Followers do not run the
