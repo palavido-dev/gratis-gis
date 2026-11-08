@@ -99,6 +99,24 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
   const [stopping, setStopping] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [restoringRun, setRestoringRun] = useState<BackupRun | null>(null);
+  const [recoveryBanner, setRecoveryBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    let gone = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/admin/backup/health');
+        if (!res.ok) return;
+        const body = (await res.json()) as { recoveryBanner?: string | null };
+        if (!gone) setRecoveryBanner(body.recoveryBanner ?? null);
+      } catch {
+        // The page still shows backup history when health is unreachable.
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, []);
 
   const reloadRuns = useCallback(async () => {
     try {
@@ -207,6 +225,11 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
 
   return (
     <div className="space-y-6">
+      {recoveryBanner ? (
+        <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-ink-0">
+          {recoveryBanner}
+        </p>
+      ) : null}
       <SettingsCard
         config={config}
         onSaved={(next) => setConfig(next)}

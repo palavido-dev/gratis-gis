@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { existsSync } from 'node:fs';
+
 import {
   Injectable,
   Logger,
@@ -27,6 +29,21 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * propagates to the other replica within one poll interval.
  */
 const MAINTENANCE_KEY = 'maintenance';
+
+/** A host restore creates this file before it writes and deletes it
+ *  only after every component is restored. While the file exists the
+ *  API stays in maintenance even if the database flag was replaced
+ *  by a dump. An unreadable path fails closed. */
+export function recoveryMaintenanceFileActive(
+  file: string | undefined = process.env.GRATIS_RECOVERY_MAINTENANCE_FILE,
+): boolean {
+  if (!file) return false;
+  try {
+    return existsSync(file);
+  } catch {
+    return true;
+  }
+}
 const POLL_MS = 2_000;
 
 type MaintenanceValue = {
@@ -62,13 +79,14 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
   }
 
   isActive(): boolean {
-    return this.active;
+    return this.active || recoveryMaintenanceFileActive();
   }
 
   snapshot() {
+    const file = recoveryMaintenanceFileActive();
     return {
-      active: this.active,
-      reason: this.reason,
+      active: this.active || file,
+      reason: file && !this.reason ? 'host recovery did not finish' : this.reason,
       startedAt: this.startedAt?.toISOString() ?? null,
     };
   }
