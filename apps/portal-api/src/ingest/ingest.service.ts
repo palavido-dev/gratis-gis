@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
+import { containedPayloadFile, serverUploadName } from './ingest-disk-path.js';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -150,8 +151,6 @@ export class IngestService {
       if (addressed) return addressed;
     }
 
-    const gdal = await this.loadGdal();
-
     // Write to a temp dir so GDAL can open it by path. Directory-based
     // formats (`.gdb`) are delivered as zips, which GDAL handles via
     // its `/vsizip/` virtual filesystem when we point at the zip.
@@ -163,6 +162,91 @@ export class IngestService {
     const dirPath = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
     const filePath = join(dirPath, safeFilename(originalName));
     await writeFile(filePath, buffer);
+    try {
+      return await this.readVectorFileAtPath(filePath, originalName, buffer);
+    } finally {
+      // Clean up the scratch dir even if GDAL threw, so we don't
+      // accumulate temp files under sustained failure.
+      await rm(dirPath, { recursive: true, force: true }).catch(() => {
+        this.log.warn(`Failed to remove temp dir ${dirPath}`);
+      });
+    }
+  }
+
+  /**
+   * Parse a file that is already on disk. The caller owns the path
+   * and deletes it. Used by the upload handlers so a 1 GB county file
+   * is not also held in the API heap.
+   *
+   * Tabular files up to 32 MB still run the coordinate and address
+   * detectors, which need the text. Larger files go straight to GDAL
+   * at the contained path. `originalName` is only a label. The bytes
+   * are read from the server-chosen file, after its real path is
+   * checked to be a direct child of the upload directory.
+   */
+  async fileToGeoJsonFromPath(
+    filePath: string,
+    originalName: string,
+  ): Promise<{
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
+    driver: string;
+    sourceSrs: string | null;
+  }> {
+    const safePath = containedPayloadFile(filePath);
+    // One open, then size and bytes from that handle. A separate
+    // stat() followed by readFile() is a window where the file can
+    // be swapped, and it is what CodeQL reports as js/file-system-race.
+    const handle = await open(safePath, 'r');
+    try {
+      const info = await handle.stat();
+      if (info.size === 0) {
+        throw new BadRequestException('Uploaded file is empty.');
+      }
+      if (info.size > this.maxBytes) {
+        throw new BadRequestException(
+          `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
+        );
+      }
+      const TEXT_DETECT_MAX = 32 * 1024 * 1024;
+      if (looksLikeTabularText(safePath) && info.size <= TEXT_DETECT_MAX) {
+        const buffer = Buffer.alloc(info.size);
+        const { bytesRead } = await handle.read(buffer, 0, info.size, 0);
+        // The stored name is payload.<ext>. Passing the caller's name
+        // here would build another temp path from that name.
+        return this.fileToGeoJson(buffer.subarray(0, bytesRead), basename(safePath));
+      }
+    } finally {
+      await handle.close();
+    }
+    if (isParquetPath(safePath)) {
+      try {
+        const out = await collectParquetFromPath(safePath, undefined);
+        return {
+          geojson: out.geojson,
+          fields: out.fields,
+          driver: out.driver,
+          sourceSrs: out.sourceSrs,
+        };
+      } catch (err) {
+        throw mapParquetError(err);
+      }
+    }
+    return this.readVectorFileAtPath(safePath, originalName);
+  }
+
+  /** GDAL read of a path the caller already materialised. Does not delete it. */
+  private async readVectorFileAtPath(
+    filePath: string,
+    originalName: string,
+    buffer?: Buffer,
+  ): Promise<{
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
+    driver: string;
+    sourceSrs: string | null;
+  }> {
+    const gdal = await this.loadGdal();
     const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, originalName, buffer);
 
@@ -252,12 +336,6 @@ export class IngestService {
       if (err instanceof BadRequestException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(`GDAL could not read that file: ${msg}`);
-    } finally {
-      // Clean up the scratch dir even if GDAL threw, so we don't
-      // accumulate temp files under sustained failure.
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
     }
   }
 
@@ -706,6 +784,12 @@ export class IngestService {
        * here and the source's opinion stops mattering.
        */
       isTable?: boolean;
+      /**
+       * Stem used as the layer name for a CSV geomatch or address
+       * file. This is the name the user picked. It is not the path
+       * the bytes were stored under.
+       */
+      layerLabel?: string;
     } = {},
   ): Promise<{
     fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
@@ -720,16 +804,36 @@ export class IngestService {
     // walk below. The batch and return contracts are identical.
     if (isParquetPath(filePath)) {
       try {
-        return await streamParquetFromPath(filePath, sourceLayer, onBatch, {
+        const streamed = await streamParquetFromPath(filePath, sourceLayer, onBatch, {
           batchSize,
         });
+        // The name in the response is the file the user picked. The
+        // path on disk is not a label, and a stored path must not be
+        // written back into the NDJSON body.
+        if (opts.layerLabel) {
+          streamed.layerName = uploadLayerStem(opts.layerLabel);
+        }
+        return streamed;
       } catch (err) {
         throw mapParquetError(err);
       }
     }
     if (opts.isTable !== true) {
-      const geomatch = await this.tryUsGeomatchPlan(filePath);
+      const geomatch = await this.tryUsGeomatchPlan(filePath, opts.layerLabel);
       if (geomatch) {
+        if (opts.layerLabel) {
+          const layerName = uploadLayerStem(opts.layerLabel);
+          if (sourceLayer && sourceLayer !== layerName) {
+            throw new BadRequestException(
+              `File has no layer named "${sourceLayer}".`,
+            );
+          }
+          return this.streamUsGeomatchLayer(
+            { ...geomatch, layerName },
+            onBatch,
+            batchSize,
+          );
+        }
         if (sourceLayer && sourceLayer !== geomatch.layerName) {
           throw new BadRequestException(
             `File has no layer named "${sourceLayer}".`,
@@ -737,8 +841,21 @@ export class IngestService {
         }
         return this.streamUsGeomatchLayer(geomatch, onBatch, batchSize);
       }
-      const addressed = await this.tryAddressPlan(filePath);
+      const addressed = await this.tryAddressPlan(filePath, opts.layerLabel);
       if (addressed) {
+        if (opts.layerLabel) {
+          const layerName = uploadLayerStem(opts.layerLabel);
+          if (sourceLayer && sourceLayer !== layerName) {
+            throw new BadRequestException(
+              `File has no layer named "${sourceLayer}".`,
+            );
+          }
+          return this.streamAddressLayer(
+            { ...addressed, layerName },
+            onBatch,
+            batchSize,
+          );
+        }
         if (sourceLayer && sourceLayer !== addressed.layerName) {
           throw new BadRequestException(
             `File has no layer named "${sourceLayer}".`,
@@ -1101,6 +1218,7 @@ export class IngestService {
 
   private async tryUsGeomatchPlan(
     filePath: string,
+    layerLabel?: string,
   ): Promise<(GeomatchPlan & { layerName: string }) | null> {
     if (!looksLikeTabularText(filePath)) return null;
     const text = await this.readDelimitedPrefix(filePath);
@@ -1111,6 +1229,9 @@ export class IngestService {
         `No US geomatch in ${basename(filePath)}: ${plan.reason}`,
       );
       return null;
+    }
+    if (layerLabel) {
+      return { ...plan, layerName: uploadLayerStem(layerLabel) };
     }
     const dot = basename(filePath).lastIndexOf('.');
     const layerName =
@@ -1173,6 +1294,7 @@ export class IngestService {
    */
   private async tryAddressPlan(
     filePath: string,
+    layerLabel?: string,
   ): Promise<(AddressColumnPlan & { layerName: string }) | null> {
     if (!looksLikeTabularText(filePath)) return null;
     const text = await this.readDelimitedPrefix(filePath);
@@ -1196,6 +1318,9 @@ export class IngestService {
         `Local geocoder did not answer at ${base}; leaving ${basename(filePath)} on the table path.`,
       );
       return null;
+    }
+    if (layerLabel) {
+      return { ...plan, layerName: uploadLayerStem(layerLabel) };
     }
     const dot = basename(filePath).lastIndexOf('.');
     const layerName =
@@ -1492,6 +1617,18 @@ function mapParquetError(err: unknown): Error {
   return new BadRequestException(
     `DuckDB could not read that Parquet file: ${msg}`,
   );
+}
+
+/**
+ * Layer name for a CSV geomatch, address, or Parquet import. Taken
+ * from the name the user picked, using the same stem rule as the
+ * stored upload name, so the name matches what the probe reported
+ * for the stored file. The result cannot be a path.
+ */
+export function uploadLayerStem(label: string): string {
+  const stored = serverUploadName(typeof label === 'string' ? label : '');
+  const dot = stored.lastIndexOf('.');
+  return dot > 0 ? stored.slice(0, dot) : stored;
 }
 
 function safeFilename(name: string): string {

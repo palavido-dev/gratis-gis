@@ -7,6 +7,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  Optional,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import {
   type CapabilityKey,
 } from '../auth/capabilities.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 
@@ -62,6 +64,7 @@ export class AdminCapabilitiesController {
     private readonly prisma: PrismaService,
     private readonly kc: KeycloakAdminService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   /**
@@ -165,6 +168,15 @@ export class AdminCapabilitiesController {
       },
     });
     this.authSync.invalidate(user.id);
+    void this.audit?.record({
+      orgId: actor.orgId,
+      actorUserId: actor.id,
+      action: 'user.capability',
+      targetType: 'user',
+      targetId: user.id,
+      outcome: 'succeeded',
+      detail: { capability: body.capability, enabled: body.enabled },
+    });
 
     return this.list(userId, actor);
   }
@@ -191,6 +203,15 @@ export class AdminCapabilitiesController {
         // tolerant of a stale list.
       });
     this.authSync.invalidate(user.id);
+    void this.audit?.record({
+      orgId: actor.orgId,
+      actorUserId: actor.id,
+      action: 'user.capability',
+      targetType: 'user',
+      targetId: user.id,
+      outcome: 'succeeded',
+      detail: { capability, enabled: false, removed: true },
+    });
 
     return this.list(userId, actor);
   }

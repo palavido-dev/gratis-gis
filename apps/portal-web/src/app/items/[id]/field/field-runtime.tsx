@@ -3736,6 +3736,9 @@ function LayerVisibilityPanel({
             ? panelT('fieldOffline.refreshOfflineCache')
             : panelT('fieldOffline.downloadForOffline')}
         </button>
+        <p className="mt-1.5 text-2xs text-ink-1">
+          {panelT('fieldOffline.deviceOnlyWarning')}
+        </p>
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
             {panelT('fieldOffline.cachedSummary', {

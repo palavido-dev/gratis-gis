@@ -92,6 +92,9 @@ export const fr: Partial<CatalogShape> = {
     migrations: 'Migrations',
     feedback: 'Commentaires',
     gettingStarted: 'Premiers pas',
+    audit: 'Journal',
+    permissions: 'Autorisations',
+    diagnostics: 'Diagnostic',
     updates: 'Mises à jour',
   },
   updates: {
@@ -1808,7 +1811,7 @@ export const fr: Partial<CatalogShape> = {
       "{count, plural, one {# d'entre elles appartient à un autre compte.} other {# d'entre elles appartiennent à un autre compte.}}",
     downloadForOffline: 'Télécharger pour le hors ligne',
     deviceOnlyWarning:
-      'Les modifications et les photos restent sur cet appareil jusqu’à la synchronisation. Elles ne sont ni sur le serveur ni dans une sauvegarde du portail. Enregistrez une copie si vous avez besoin des photos et des formes avant la synchronisation.',
+      'Les modifications et les photos restent sur cet appareil jusqu’à la synchronisation. Elles ne sont ni sur le serveur ni dans une sauvegarde du portail. En supprimer une, ou effacer les données de ce navigateur, les détruit. Enregistrez une copie si vous avez besoin des photos et des formes avant la synchronisation.',
     saveUnsyncedCopy: 'Enregistrer une copie du travail non synchronisé',
     refreshOfflineCache: 'Actualiser le cache hors ligne',
     confirmRefresh: 'Confirmer l’actualisation',
@@ -3517,6 +3520,52 @@ export const fr: Partial<CatalogShape> = {
     docsDesc:
       'Le guide intégré couvre les rôles, les sauvegardes, la marque et la maintenance. Dix minutes maintenant évitent des surprises plus tard.',
     docsAction: 'Ouvrir le guide',
+    secondAdminTitle: 'Ajouter un second administrateur',
+    secondAdminDesc:
+      '{count, plural, one {# administrateur activé} other {# administrateurs activés}}. Un second administrateur peut reprendre l’organisation si le premier ne peut plus se connecter. Le portail continue de fonctionner avec un seul, et cet élément ne se coche pas à la main.',
+    secondAdminAction: 'Ouvrir les utilisateurs',
+  },
+  adminAudit: {
+    title: 'Journal',
+    intro:
+      'Changements privilégiés de cette organisation : utilisateurs, rôles, partages, propriété, sauvegardes et réglages d’administration. Ce n’est pas l’historique des entités de la carte. Les mots de passe et les corps de message ne sont pas enregistrés.',
+    refresh: 'Charger les événements',
+    loading: 'Chargement…',
+    loadFailed: 'Impossible de charger le journal.',
+    empty: 'Aucun événement pour l’instant. Chargez la liste, ou faites un changement privilégié puis rechargez.',
+    more: 'Événements plus anciens',
+    when: 'Quand',
+    action: 'Action',
+    actor: 'Acteur',
+    target: 'Cible',
+    outcome: 'Résultat',
+  },
+  adminPermissions: {
+    title: 'Autorisations',
+    intro:
+      'Instantané actuel du partage : accès public, organisation, groupe et utilisateur, propriétaire, et principaux qui n’existent plus. Ce n’est pas un historique.',
+    refresh: 'Charger l’instantané',
+    loading: 'Chargement…',
+    loadFailed: 'Impossible de charger les autorisations.',
+    download: 'Télécharger le CSV',
+    generated: 'Instantané du {at}.',
+    empty: 'Aucun élément dans cette organisation.',
+    item: 'Élément',
+    access: 'Accès',
+    owner: 'Propriétaire',
+    share: 'Partage',
+    missingOwner: 'Propriétaire absent',
+    missingPrincipal: 'principal absent',
+    tierOnly: 'Niveau d’accès seulement',
+  },
+  adminDiagnostics: {
+    title: 'Diagnostic',
+    intro:
+      'Créez un dossier d’assistance volontairement. Il contient les versions, la réponse de la base, la maintenance, et les comptes des tâches d’import, d’analyse et de sauvegarde. Les secrets et les noms sont retirés. Aucune commande shell n’est lancée.',
+    create: 'Créer le dossier',
+    working: 'Création…',
+    failed: 'Impossible de créer le dossier.',
+    download: 'Télécharger le JSON',
   },
   apiKeys: {
     copyTitle: 'Copiez votre clé maintenant',

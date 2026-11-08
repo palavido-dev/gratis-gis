@@ -10,6 +10,9 @@ import {
   Bell,
   Bot,
   ClipboardList,
+  ListChecks,
+  ScrollText,
+  Stethoscope,
   Folder as FolderIcon,
   LayoutGrid,
   Map as MapIcon,
@@ -330,6 +333,27 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.landingPage')}
+          </NavLink>
+          <NavLink
+            href="/admin/audit"
+            icon={<ScrollText className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.audit')}
+          </NavLink>
+          <NavLink
+            href="/admin/permissions"
+            icon={<ListChecks className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.permissions')}
+          </NavLink>
+          <NavLink
+            href="/admin/diagnostics"
+            icon={<Stethoscope className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.diagnostics')}
           </NavLink>
           <NavLink
             href="/admin/backup"

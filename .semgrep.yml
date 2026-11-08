@@ -1,23 +1,25 @@
 # Semgrep configuration for GratisGIS.
 #
-# CI runs this file only (.github/workflows/semgrep.yml).
+# CI runs this file only (.github/workflows/semgrep.yml):
 #   semgrep scan --config .semgrep.yml --error --metrics=off
+#
+# The rule matches an untagged template or a string concatenation that
+# pastes a value into ST_GeomFromGeoJSON. Prisma.sql and $queryRaw
+# tagged templates bind that value, so they are not this pattern.
+# Semgrep 1.183 (the CI image) does not exclude tagged templates with
+# pattern-not-inside, so the rule names the contexts an untagged
+# template appears in (return, assignment, push, the Unsafe raw query
+# calls) and checks the interpolation with a regex.
+# infra/semgrep/run-fixtures.sh proves both directions and CI runs it.
+# Registry packs stay off. Do not add a blanket nosemgrep or
+# --disable-nosem.
 
 rules:
-  # Custom rule: catch ST_GeomFromGeoJSON with user-influenced input.
-  # PostGIS will parse the JSON, but if the GeoJSON text was concatenated
-  # from a request body we lose parameterization and open ourselves to
-  # SQL injection or large-input DoS. Parameterized calls
-  # (e.g. Prisma `$queryRaw` with `Prisma.sql` template) are fine; the
-  # rule below flags string-concatenated SQL paths.
   - id: gratisgis-st-geomfromgeojson-tainted-input
     message: |
-      ST_GeomFromGeoJSON() is being called with a value that looks
-      like a string-concatenated or template-interpolated request
-      input. Use parameter binding (Prisma.sql / $1 placeholders /
-      raw input -> JSONB cast inside the query) so the GeoJSON text
-      can't break out of its argument. Also size-limit the input
-      before it reaches PostGIS.
+      ST_GeomFromGeoJSON() is interpolating a value into SQL text.
+      Bind it with Prisma.sql or a $n placeholder so the GeoJSON
+      text cannot break out of its argument.
     severity: ERROR
     languages: [typescript, javascript]
     metadata:
@@ -26,39 +28,25 @@ rules:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
       owasp: "A03:2021 - Injection"
       technology: [postgis, postgres, sql]
-    patterns:
-      - pattern-either:
-          # Untagged template. ${...} does not match in Semgrep 1.183;
-          # ${$X} does. Proven against a one-line fixture.
-          - pattern: |
-              `...ST_GeomFromGeoJSON(${$X})...`
-          - pattern: |
-              "..." + $X + "...ST_GeomFromGeoJSON(..."
-          - pattern: |
-              "...ST_GeomFromGeoJSON(" + $X + "..."
-          - pattern: |
-              $DB.$queryRawUnsafe(`...ST_GeomFromGeoJSON(${$X})...`, ...)
-          - pattern: |
-              $DB.$executeRawUnsafe(`...ST_GeomFromGeoJSON(${$X})...`, ...)
-      # Prisma binds ${} inside these tags. A type argument is why
-      # $queryRaw<...> is listed separately from $queryRaw.
-      - pattern-not-inside: |
-          $DB.$queryRaw`...`
-      - pattern-not-inside: |
-          $DB.$queryRaw<$TYPE>`...`
-      - pattern-not-inside: |
-          Prisma.sql`...`
-      # Identifier quoting, and a $N placeholder token built earlier
-      # in spatial-filter. Neither one pastes GeoJSON text.
-      - pattern-not: |
-          `ST_GeomFromGeoJSON(${quoteIdent($COL)}) AS ${quoteIdent($GEOM)}`
-      - pattern-not: |
-          `...ST_GeomFromGeoJSON(${ph})...`
-
-# Registry packs stay off. Semgrep 1.183.0 (the CI image tag) was
-# run on this file: the safe fixture matches nothing. The template
-# pattern below does not match `ST_GeomFromGeoJSON(${geojson})`.
-# infra/semgrep/fixture-rule.yml does match that line, and it also
-# matches Prisma $queryRaw tagged templates. pattern-not-inside did
-# not remove those, so that stricter rule is not the CI rule.
-# Do not add a blanket nosemgrep or --disable-nosem.
+    pattern-either:
+      - patterns:
+          - pattern: return `...${$X}...`
+          - pattern-regex: 'ST_GeomFromGeoJSON\(\$\{(?!quoteIdent\b)(?!ph\b)'
+      - patterns:
+          - pattern: $NAME = `...${$X}...`
+          - pattern-regex: 'ST_GeomFromGeoJSON\(\$\{(?!quoteIdent\b)(?!ph\b)'
+      - patterns:
+          - pattern: $ARR.push(`...${$X}...`)
+          - pattern-regex: 'ST_GeomFromGeoJSON\(\$\{(?!quoteIdent\b)(?!ph\b)'
+      - patterns:
+          - pattern: return "..." + $X + "..."
+          - pattern-regex: 'ST_GeomFromGeoJSON\('
+      - patterns:
+          - pattern: $NAME = "..." + $X + "..."
+          - pattern-regex: 'ST_GeomFromGeoJSON\('
+      - patterns:
+          - pattern: $DB.$queryRawUnsafe(`...${$X}...`, ...)
+          - pattern-regex: 'ST_GeomFromGeoJSON\(\$\{(?!quoteIdent\b)(?!ph\b)'
+      - patterns:
+          - pattern: $DB.$executeRawUnsafe(`...${$X}...`, ...)
+          - pattern-regex: 'ST_GeomFromGeoJSON\(\$\{(?!quoteIdent\b)(?!ph\b)'

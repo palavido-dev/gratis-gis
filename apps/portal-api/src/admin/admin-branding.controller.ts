@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Optional, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -11,6 +11,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
+import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -74,7 +75,10 @@ class UpdateBrandingDto {
 @Controller('admin/branding')
 @UseGuards(AdminGuard)
 export class AdminBrandingController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly audit?: AdminAuditService,
+  ) {}
 
   @Get()
   async get(@CurrentUser() user: AuthUser) {
@@ -141,7 +145,7 @@ export class AdminBrandingController {
         validSet.has(id),
       );
     }
-    return this.prisma.organization.update({
+    const updated = await this.prisma.organization.update({
       where: { id: user.orgId },
       data,
       select: {
@@ -155,5 +159,15 @@ export class AdminBrandingController {
         landingFeaturedItemIds: true,
       },
     });
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.branding',
+      targetType: 'organization',
+      targetId: user.orgId,
+      outcome: 'succeeded',
+      detail: { fields: Object.keys(data).join(',') },
+    });
+    return updated;
   }
 }
