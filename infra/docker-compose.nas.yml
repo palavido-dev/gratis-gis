@@ -988,6 +988,47 @@ services:
             print("Keycloak admin service account can list and manage users.", flush=True)
 
 
+        def ensure_default_offline_access(internal: str, auth: dict[str, str]) -> None:
+            """Make offline_access part of the realm's default role.
+
+            The realm names `viewer` as its default role, and viewer does not
+            carry offline_access. Every user created after the import then
+            failed field-app and QGIS sign-in with "Offline tokens not allowed
+            for the user or client". A composite on the default role covers
+            every user who holds it. Runs on every start and is safe to repeat.
+            """
+            base = f"{internal}/admin/realms/gratis-gis"
+            status, raw = _request(base, "GET", None, auth)
+            if status != 200:
+                print(f"WARN: could not read the gratis-gis realm (HTTP {status}).")
+                return
+            default_role = (json.loads(raw).get("defaultRole") or {}).get("id")
+            if not default_role:
+                print("WARN: the gratis-gis realm has no default role.")
+                return
+            status, raw = _request(f"{base}/roles-by-id/{default_role}/composites/realm", "GET", None, auth)
+            if status != 200:
+                print(f"WARN: could not read the default role (HTTP {status}).")
+                return
+            if any(role.get("name") == "offline_access" for role in json.loads(raw)):
+                return
+            status, raw = _request(f"{base}/roles/offline_access", "GET", None, auth)
+            if status != 200:
+                print(f"WARN: the offline_access role is missing (HTTP {status}).")
+                return
+            role = json.loads(raw)
+            status, _ = _request(
+                f"{base}/roles-by-id/{default_role}/composites",
+                "POST",
+                json.dumps([{"id": role["id"], "name": role["name"]}]).encode(),
+                {**auth, "Content-Type": "application/json"},
+            )
+            if status not in (200, 204):
+                print(f"WARN: could not add offline_access to the default role (HTTP {status}).")
+                return
+            print("New users can sign in to the field app and QGIS (offline_access).", flush=True)
+
+
         def sync_sign_in_address(internal: str, auth: dict[str, str], values: dict[str, str]) -> None:
             """Rewrite the imported realm when the public URL changes.
 
@@ -1078,6 +1119,7 @@ services:
             token = json.loads(raw).get("access_token") or ""
             auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             grant_service_account_roles(internal, auth)
+            ensure_default_offline_access(internal, auth)
             sync_sign_in_address(internal, auth, values)
             status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
             if status != 200:
