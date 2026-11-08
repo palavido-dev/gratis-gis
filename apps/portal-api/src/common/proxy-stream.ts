@@ -37,6 +37,49 @@ export class UpstreamBodyTooLargeError extends Error {
 }
 
 /**
+ * Same-origin script surface of a proxied response.
+ *
+ * The item and public proxies relay whatever an item's `data.url`
+ * answers, and any contributor sets that URL. They are served from the
+ * portal origin, so an upstream that answers `text/html` (or XHTML,
+ * SVG, or XML with an XHTML-namespace script) would run its script with
+ * the viewer's portal session. Legitimate consumers are map libraries
+ * that read the body with fetch or as an image, so none of them needs
+ * the browser to render the response as a document.
+ *
+ * Every proxied response therefore gets:
+ * - `Content-Security-Policy: sandbox; default-src 'none'`, so a
+ *   document that does render has an opaque origin and no scripts.
+ * - `X-Content-Type-Options: nosniff`.
+ * - `Content-Disposition: attachment` when the type can carry script
+ *   or is missing, so a top-level navigation downloads it.
+ * Script types are also relabelled `text/plain`, which nosniff then
+ * refuses to execute from a `<script src>` on the portal origin.
+ */
+const ACTIVE_MEDIA =
+  /^(text\/html|text\/xml|text\/xsl|application\/xml|[^/\s]+\/[^/\s]*\+xml)$/;
+const SCRIPT_MEDIA =
+  /^[a-z]+\/(x-)?(javascript|ecmascript|jscript|livescript)[\d.]*$|^application\/wasm$/;
+
+export function applyProxyResponseHeaders(
+  res: Pick<ExpressResponse, 'setHeader'>,
+  upstreamContentType: string | null,
+): void {
+  res.setHeader('content-security-policy', "sandbox; default-src 'none'");
+  res.setHeader('x-content-type-options', 'nosniff');
+  const media = (upstreamContentType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (SCRIPT_MEDIA.test(media)) {
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('content-disposition', 'attachment');
+    return;
+  }
+  if (upstreamContentType) res.setHeader('content-type', upstreamContentType);
+  if (media === '' || ACTIVE_MEDIA.test(media)) {
+    res.setHeader('content-disposition', 'attachment');
+  }
+}
+
+/**
  * Stream an upstream fetch Response to an Express response with a
  * hard byte ceiling and real backpressure, instead of buffering the
  * entire body in memory with `arrayBuffer()`.
@@ -60,8 +103,7 @@ export async function streamUpstreamToResponse(
 ): Promise<void> {
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_PROXY_BYTES;
   res.status(upstream.status);
-  const contentType = upstream.headers.get('content-type');
-  if (contentType) res.setHeader('content-type', contentType);
+  applyProxyResponseHeaders(res, upstream.headers.get('content-type'));
 
   const body = upstream.body;
   if (!body) {
