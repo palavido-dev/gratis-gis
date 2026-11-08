@@ -27,6 +27,11 @@ import {
 import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
 import { clientUuid } from './uuid';
+import {
+  countForeignSubmissions,
+  countUnsentSubmissions,
+  removeForeignSubmissions,
+} from './form-offline';
 
 /** Database name for the portal-web origin. One DB across all
  *  deployments cached on this device; the store keys carry the
@@ -447,11 +452,32 @@ export function openOfflineDb(): Promise<IDBDatabase> {
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
+    // Set once the caller has been answered, so a success that arrives
+    // after a blocked rejection closes its connection instead of
+    // leaking it.
+    let settled = false;
+    req.onsuccess = () => {
+      const db = req.result;
+      if (settled) {
+        db.close();
+        return;
+      }
+      settled = true;
+      // A newer build opening a higher version sends versionchange to
+      // every open connection and waits until they close. Without this
+      // a backgrounded tab on the old build blocks the upgrade, and
+      // every offline read and write in the new build fails.
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+    req.onerror = () => {
+      settled = true;
+      reject(req.error ?? new Error('IndexedDB open failed'));
+    };
     req.onblocked = () => {
       // Another tab is holding an old version. Surface a recoverable
       // error rather than hanging.
+      settled = true;
       reject(
         new Error(
           'Offline cache is in use by another tab; close other tabs and retry.',
@@ -531,15 +557,33 @@ async function withStore<T>(
   fn: (store: IDBObjectStore) => T | Promise<T>,
 ): Promise<T> {
   const db = await openOfflineDb();
+  // Each call opens its own connection, so each call closes it once
+  // its transaction is over. An open connection that nobody closes
+  // holds the database at this version until it is garbage
+  // collected, which blocks the next schema upgrade.
   return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction(storeName, mode);
+    } catch (err) {
+      db.close();
+      reject(err);
+      return;
+    }
     const store = tx.objectStore(storeName);
     const result = Promise.resolve(fn(store));
     tx.oncomplete = () => {
+      db.close();
       void result.then(resolve).catch(reject);
     };
-    tx.onerror = () => reject(tx.error ?? new Error('IDB transaction failed'));
-    tx.onabort = () => reject(tx.error ?? new Error('IDB transaction aborted'));
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error('IDB transaction failed'));
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error ?? new Error('IDB transaction aborted'));
+    };
   });
 }
 
@@ -655,7 +699,11 @@ export async function countUnsyncedEdits(
     const rows = (r as PendingBlob[] | undefined) ?? [];
     return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId)).length;
   });
-  return edits + files;
+  // Form responses captured offline live in their own database
+  // (form-offline.ts) and are just as unsynced. Unreadable means none
+  // to warn about, never a blocked sign-out.
+  const submissions = await countUnsentSubmissions(currentUserId).catch(() => 0);
+  return edits + files + submissions;
 }
 
 // ---------------------------------------------------------------------------
@@ -732,12 +780,13 @@ export async function describeForeignOfflineData(
     const rows = (r as PendingBlob[] | undefined) ?? [];
     return rows.filter((row) => isForeignRow(row, currentUserId)).length;
   });
-  return { records, files };
+  const submissions = await countForeignSubmissions(currentUserId).catch(() => 0);
+  return { records: records + submissions, files };
 }
 
 /**
- * Delete every queue row and pending file that belongs to an account
- * other than `currentUserId`. Rows owned by the current account and
+ * Delete every queue row, pending file and queued form response that
+ * belongs to an account other than `currentUserId`. Rows owned by the current account and
  * legacy rows with no owner are untouched. Only ever called after the
  * person has chosen "Remove them from this device" in the identity
  * dialog: this destroys captures that exist nowhere else.
@@ -751,7 +800,8 @@ export async function removeForeignOfflineData(
   const files = await deleteWhere(STORES.blobs, (row) =>
     isForeignRow(row as PendingBlob, currentUserId),
   );
-  return { records, files };
+  const submissions = await removeForeignSubmissions(currentUserId).catch(() => 0);
+  return { records: records + submissions, files };
 }
 
 /** Cursor a whole store and delete the rows a predicate picks. Returns

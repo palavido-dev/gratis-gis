@@ -156,6 +156,19 @@ describe('service worker offline-queue contract', () => {
     );
   });
 
+  it('drains form submissions only for the device identity', () => {
+    // The form outbox is a third drain. Without this it posted every
+    // queued response under whatever session cookie was present, so
+    // the previous user's answers on a shared device were stamped
+    // with the next user's id.
+    const body = functionSource(sw, 'drainFormsQueue');
+    expect(body).toMatch(/identity = await readOfflineIdentity\(offlineDb\)/);
+    expect(body).toMatch(
+      /const rows = allRows\.filter\(\(r\) => isQueueRowOwnedBy\(r, identity\)\)/,
+    );
+    expect(body).toMatch(/const canClaim = \(r\) =>\s+isQueueRowOwnedBy\(r, identity\) &&/);
+  });
+
   it('leaves features alone while they still owe a file upload', () => {
     // The worker cannot run the presign + PUT + register walk, so it
     // must not drain a feature whose photo is still on the device:

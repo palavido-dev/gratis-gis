@@ -1075,23 +1075,41 @@ function responseHasPendingAttachment(node) {
  * here would double the lockstep surface. Those rows wait for the
  * in-app drain on next open; text-only submissions (the common case)
  * replay in the background.
+ *
+ * Rows owned by another account are left alone (isQueueRowOwnedBy
+ * against the device identity), as in drainFeatureQueue.
  */
 async function drainFormsQueue() {
+  // Same ownership rule as the feature drain: a submission is sent only
+  // under the account that captured it. The identity lives in the
+  // offline database, not the forms one.
+  const offlineDb = await openAppDbIfExists(OFFLINE_DB_NAME);
+  let identity = null;
+  if (offlineDb) {
+    try {
+      identity = await readOfflineIdentity(offlineDb);
+    } finally {
+      offlineDb.close();
+    }
+  }
   const db = await openAppDbIfExists(FORMS_DB_NAME);
   if (!db) return { retry: false };
   try {
-    const rows = await idbGetAll(db, FORMS_STORE).catch(() => []);
+    const allRows = await idbGetAll(db, FORMS_STORE).catch(() => []);
+    const rows = allRows.filter((r) => isQueueRowOwnedBy(r, identity));
     const now = Date.now();
     const canClaim = (r) =>
-      r.status === 'queued' ||
-      r.status === 'failed' ||
-      // 'sending' is only ever written by this worker (the page's
-      // drain sends without a claim flag), so a stale one means we
-      // died mid-send and should try again. swAttemptAt is our
-      // private bookkeeping field; the page's QueuedSubmission type
-      // neither knows nor needs it.
-      (r.status === 'sending' &&
-        (!r.swAttemptAt || !(now - Date.parse(r.swAttemptAt) < CLAIM_STALE_MS)));
+      isQueueRowOwnedBy(r, identity) &&
+      (r.status === 'queued' ||
+        r.status === 'failed' ||
+        // 'sending' is only ever written by this worker (the page's
+        // drain sends without a claim flag), so a stale one means we
+        // died mid-send and should try again. swAttemptAt is our
+        // private bookkeeping field; the page's QueuedSubmission type
+        // neither knows nor needs it.
+        (r.status === 'sending' &&
+          (!r.swAttemptAt ||
+            !(now - Date.parse(r.swAttemptAt) < CLAIM_STALE_MS))));
     const todo = rows
       .filter(canClaim)
       .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)));

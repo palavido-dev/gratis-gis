@@ -11,6 +11,7 @@ import {
   queueSubmission,
   type QueuedSubmission,
 } from '@/lib/form-offline';
+import { getOfflineIdentity } from '@/lib/offline-store';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
 import { useFormat } from '@/lib/i18n/format';
@@ -46,6 +47,21 @@ interface Props {
  *   { clientId, schemaVersion, response, capturedAt }
  * Idempotent on clientId at the server (a re-drained row is a no-op).
  */
+/**
+ * The account this device belongs to (set by OfflineIdentityGuard).
+ * Queued responses are stamped with it and only this account's rows
+ * are listed or sent, so a shared device never posts one person's
+ * answers under the next person's session. Null when nobody is signed
+ * in or the offline store is unavailable.
+ */
+async function currentIdentity(): Promise<string | null> {
+  try {
+    return await getOfflineIdentity();
+  } catch {
+    return null;
+  }
+}
+
 export function RespondClient({ form, formItemTitle }: Props) {
   const fmt = useFormat();
   const [online, setOnline] = useState<boolean>(() =>
@@ -62,7 +78,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
 
   const refreshOutbox = useCallback(async () => {
     try {
-      const all = await listQueued();
+      const all = await listQueued(await currentIdentity());
       setOutbox(all.filter((r) => r.formId === form.id && r.status !== 'sent'));
     } catch {
       // IndexedDB unavailable (private browsing, etc); runtime still
@@ -75,7 +91,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
     drainingRef.current = true;
     setDraining(true);
     try {
-      await drain(form.id, async (row) => {
+      await drain(form.id, await currentIdentity(), async (row) => {
         // Upload any offline-captured attachments before posting (#280).
         // The walk mutates row.response in place so a partial drain
         // (some attachments uploaded, some still pending) doesn't have
@@ -127,6 +143,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
     await queueSubmission({
       formId: form.id,
       schemaVersion: form.schemaVersion,
+      ownerUserId: await currentIdentity(),
       response,
     });
     // Arm background replay in case the tab closes before we get a
