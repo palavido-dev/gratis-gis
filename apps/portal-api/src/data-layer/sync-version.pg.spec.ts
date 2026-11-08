@@ -9,6 +9,13 @@
 // six months past now. Every other migration file runs unchanged.
 // The observation table is still PARTITION BY RANGE (tx_time) with
 // the composite primary key the migration installs.
+//
+// This substitution is a limitation, not proof that
+// partman.create_parent ran. Stock postgis/postgis:17-3.5 has no
+// pg_partman control file. The CI job that starts the project
+// Postgres image and runs migrate deploy is the real pg_partman
+// path and has to stay. A job that asserts the partition invariant
+// on that image after migrate is still queued.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
