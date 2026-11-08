@@ -5,8 +5,6 @@ import { pinDiskUpload } from './ingest-disk-path.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ForbiddenException } from '@nestjs/common';
-import type { Request } from 'express';
-
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ROLE_BASELINES, type CapabilityKey } from '../auth/capabilities.js';
 import { IngestController } from './ingest.controller.js';
@@ -82,8 +80,8 @@ function makeController() {
  * removing. Built for real so the refusal path can be checked to
  * clean up rather than leak the directory.
  */
-function diskUpload(): { file: Express.Multer.File; req: Request; filePath: string } {
-  const req = { id: 'ingest-spec' } as Request;
+function diskUpload(): { file: Express.Multer.File; req: object; filePath: string } {
+  const req = { id: 'ingest-spec' };
   const destination = mkdtempSync(join(tmpdir(), 'gg-ingest-'));
   const path = join(destination, 'payload.geojson');
   writeFileSync(path, '{"type":"FeatureCollection","features":[]}');
@@ -127,7 +125,7 @@ describe('IngestController publish gate', () => {
       // the role rather than about multipart field names.
       const { controller } = makeController();
       await expect(
-        controller.probe(userWithRole('viewer'), undefined, {} as Request),
+        controller.probe(userWithRole('viewer'), undefined, {}),
       ).rejects.toMatchObject({
         message: 'Importing files requires the contributor or admin role.',
       });

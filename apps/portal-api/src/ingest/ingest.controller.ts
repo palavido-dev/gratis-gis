@@ -15,7 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Prisma } from '@prisma/client';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -29,7 +29,7 @@ import {
   DataLayerTablesService,
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
-import { IngestService, uploadLayerStem } from './ingest.service.js';
+import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
@@ -83,7 +83,7 @@ export class IngestController {
    * authorization is `canEdit` on the item, applied when the parsed
    * result is written.
    */
-  private async assertCanImport(user: AuthUser, req: Request): Promise<void> {
+  private async assertCanImport(user: AuthUser, req: object): Promise<void> {
     if (hasCapability(user, 'can_publish_items')) return;
     await discardDiskUpload(req);
     throw new ForbiddenException(
@@ -103,7 +103,7 @@ export class IngestController {
   async probe(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Req() req: Request,
+    @Req() req: object,
   ) {
     // Refuse before the missing-file check so a viewer learns the
     // real reason rather than a hint about multipart field names.
@@ -154,7 +154,7 @@ export class IngestController {
   async toGeoJson(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Req() req: Request,
+    @Req() req: object,
   ) {
     if (!file) {
       await discardDiskUpload(req);
@@ -204,7 +204,7 @@ export class IngestController {
   async stage(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Req() req: Request,
+    @Req() req: object,
   ) {
     await this.assertCanImport(user, req);
     if (!file) {
@@ -259,7 +259,7 @@ export class IngestController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Req() req: Request,
+    @Req() req: object,
   ) {
     if (!file) {
       await discardDiskUpload(req);
@@ -388,6 +388,7 @@ export class IngestController {
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
     @Query('sourceLayer') sourceLayer?: string,
     // #244 replace-mode. Defaults to 'append' to preserve the existing
     // detail-page behaviour (which is what currently-bookmarked import
@@ -400,18 +401,17 @@ export class IngestController {
     // GDB uploaded once at probe time gets re-used for N per-layer
     // ingests without N more uploads.
     @Query('stagingId') stagingId?: string,
-    @Req() req: Request,
   ) {
     // #103: response body is newline-delimited JSON. Each line is one
     // event. Shape:
-    //   {"event":"start","total":1389855,"sourceLayer":"MasterSurfWV_2025"}
+    //   {"event":"start","total":1389855,"sourceLayer":null}
     //   {"event":"progress","processed":5000,"inserted":5000}
     //   {"event":"progress","processed":10000,"inserted":10000}
     //   ...
-    //   {"event":"done","inserted":1389855,"sourceLayer":"MasterSurfWV_2025",
+    //   {"event":"done","inserted":1389855,"sourceLayer":null,
     //    "driver":"OpenFileGDB","sourceSrs":"EPSG:26917","mode":"replace",
     //    "replaced":0}
-    //   {"event":"error","message":"..."}    (terminal)
+    //   {"event":"error","message":"Ingest failed."}    (terminal)
     //
     // Why NDJSON instead of returning a single JSON: a county-scale
     // import takes minutes, and the user-facing wizard wants to
@@ -422,11 +422,10 @@ export class IngestController {
     res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('cache-control', 'no-cache, no-transform');
     res.setHeader('x-accel-buffering', 'no');
-    // The NDJSON body echoes back user-supplied fields (sourceLayer,
-    // filename, error.message). Browsers shouldn't sniff this as
-    // HTML, but if a content-type-relaxed reverse proxy ever strips
-    // the type header an attacker-controlled error message could
-    // become reflected XSS. nosniff keeps that loop closed.
+    // The stream does not echo the query string, the upload name, or
+    // exception text. sourceLayer stays null and error messages are
+    // fixed strings. nosniff still blocks a proxy from treating the
+    // body as HTML.
     res.setHeader('x-content-type-options', 'nosniff');
     res.flushHeaders?.();
     const writeEvent = (msg: Record<string, unknown>): void => {
@@ -455,10 +454,7 @@ export class IngestController {
         );
       }
       if (mode !== undefined && mode !== 'replace' && mode !== 'append') {
-        return failStream(
-          400,
-          `Unknown mode "${mode}"; expected replace or append.`,
-        );
+        return failStream(400, 'Unknown mode; expected replace or append.');
       }
       const ingestMode: 'replace' | 'append' = mode ?? 'append';
       const item = await this.items.get(user, itemId);
@@ -477,10 +473,7 @@ export class IngestController {
       }
       const layer = (data.layers ?? []).find((l) => l.id === layerId);
       if (!layer) {
-        return failStream(
-          404,
-          `Layer ${layerId} is not part of this item's schema.`,
-        );
+        return failStream(404, 'That layer is not part of this item.');
       }
       await this.items.assertCanEdit(user, itemId);
 
@@ -541,7 +534,6 @@ export class IngestController {
       let totalInserted = 0;
       let startedFlushed = false;
       let lastDriver = '';
-      let lastLayerName = '';
       let lastSourceSrs: string | null = null;
 
       // Shared streaming/progress loop, parameterized by how a batch
@@ -563,7 +555,7 @@ export class IngestController {
               writeEvent({
                 event: 'start',
                 total: progress.total,
-                sourceLayer: sourceLayer ?? null,
+                sourceLayer: null,
               });
               startedFlushed = true;
             }
@@ -590,11 +582,6 @@ export class IngestController {
           },
         );
         lastDriver = meta.driver;
-        // The NDJSON body names the file the user picked, or the
-        // sourceLayer they asked for. It does not echo the temp path.
-        lastLayerName = sourceLayer && sourceLayer.length > 0
-          ? sourceLayer
-          : uploadLayerStem(provenanceFileName);
         lastSourceSrs = meta.sourceSrs;
         // Empty-source edge case: streamLayer opens fine but yields
         // zero batches. Emit the start event so the client still gets a
@@ -603,7 +590,7 @@ export class IngestController {
           writeEvent({
             event: 'start',
             total: meta.total,
-            sourceLayer: sourceLayer ?? null,
+            sourceLayer: null,
           });
         }
       };
@@ -712,18 +699,13 @@ export class IngestController {
         // so the surrounding `%`-detection inside console.* can't be
         // tricked by a crafted id (CodeQL js/tainted-format-string).
         // eslint-disable-next-line no-console
-        console.warn(
-          '[ingestV3Layer] bbox recompute failed for %s/%s:',
-          itemId,
-          layerId,
-          err instanceof Error ? err.message : err,
-        );
+        console.warn('[ingestV3Layer] bbox recompute failed');
       }
 
       writeEvent({
         event: 'done',
         driver: lastDriver,
-        sourceLayer: lastLayerName,
+        sourceLayer: null,
         inserted: totalInserted,
         sourceSrs: lastSourceSrs,
         mode: ingestMode,
@@ -732,29 +714,19 @@ export class IngestController {
       res.end();
     } catch (err) {
       const message =
-        err instanceof BadRequestException ||
-        err instanceof NotFoundException ||
         err instanceof ForbiddenException
-          ? err.message
-          : err instanceof Error
-            ? err.message || err.name || 'Ingest failed.'
-            : 'Ingest failed.';
-      // Log the underlying error AND the message we're about to
-      // surface to the client. Earlier we logged just `err`, which
-      // for some gdal-async / native errors prints as the bare
-      // string "Error" with no message and no stack -- making the
-      // failure mode invisible without attaching a debugger.
-      // Pass user-controlled fields as separate console args so the
-      // first-arg format-string detection can't be tricked by a
-      // crafted id or error message (CodeQL js/tainted-format-string).
+          ? 'You cannot import into that item.'
+          : err instanceof NotFoundException
+            ? 'That item or layer was not found.'
+            : err instanceof BadRequestException
+              ? 'The upload was not accepted.'
+              : 'Ingest failed.';
+      // Static text only. The ids and the exception text are request
+      // data; writing them into the log is js/log-injection, and
+      // writing a filesystem error into the NDJSON body is
+      // js/xss-through-exception.
       // eslint-disable-next-line no-console
-      console.error(
-        '[ingestV3Layer] stream failed for %s/%s: %s',
-        itemId,
-        layerId,
-        message,
-        err instanceof Error ? err.stack : err,
-      );
+      console.error('[ingestV3Layer] stream failed');
       writeEvent({ event: 'error', message });
       res.end();
     } finally {

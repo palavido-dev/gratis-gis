@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { containedPayloadFile } from './ingest-disk-path.js';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
