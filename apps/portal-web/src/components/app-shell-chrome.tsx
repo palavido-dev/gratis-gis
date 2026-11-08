@@ -31,6 +31,7 @@ import {
 import { useSession } from 'next-auth/react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import { NotificationsLink } from './notifications-link';
 import { isSessionStale } from '@/lib/session-state';
 
 import { TopBarSearch } from './top-bar-search';
@@ -218,12 +219,7 @@ export function AppShellChrome({
           </div>
           <div className="flex items-center gap-2">
             <HelpButton />
-            <button
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-              aria-label={t('shell.notificationsLabel')}
-            >
-              <Bell className="h-4 w-4" />
-            </button>
+            <NotificationsLink />
             {/* Stale sessions never reach this branch anymore: the
                 bare-render gate above treats them as signed out, so
                 the chrome (and this identity slot) only exists for a
@@ -280,7 +276,10 @@ function NavList({
         {t('nav.items')}
       </NavLink>
       <NavLink href="/assistant" icon={<Bot className="h-4 w-4" />} onNavigate={cb}>
-        {t('nav.build')}
+        <span className="flex min-w-0 flex-col">
+          <span>{t('nav.build')}</span>
+          <span className="text-xs font-normal text-muted">{t('nav.buildHint')}</span>
+        </span>
       </NavLink>
       <NavLink
         href="/items?folders=open"
