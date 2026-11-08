@@ -1790,8 +1790,7 @@ export const de: Partial<CatalogShape> = {
       '{count, plural, one {# davon gehört einem anderen Konto.} other {# davon gehören einem anderen Konto.}}',
     downloadForOffline: 'Für Offline herunterladen',
     deviceOnlyWarning:
-      'Bearbeitungen und Fotos bleiben auf diesem Gerät, bis sie synchronisiert werden. Sie liegen nicht auf dem Server und nicht in einer Portal-Sicherung. Eine verwerfen oder die Daten dieses Browsers löschen entfernt sie.',
-      'Bearbeitungen und Fotos bleiben auf diesem Gerät, bis sie synchronisiert werden. Sie liegen nicht auf dem Server und nicht in einer Portal-Sicherung. Speichern Sie eine Kopie, wenn Sie die Fotos und die Formen vor der Synchronisierung brauchen.',
+      'Bearbeitungen und Fotos bleiben auf diesem Gerät, bis sie synchronisiert werden. Sie liegen nicht auf dem Server und nicht in einer Portal-Sicherung. Eine verwerfen oder die Daten dieses Browsers löschen entfernt sie. Speichern Sie eine Kopie, wenn Sie die Fotos und die Formen vor der Synchronisierung brauchen.',
     saveUnsyncedCopy: 'Kopie der nicht synchronisierten Arbeit speichern',
     refreshOfflineCache: 'Offline-Cache aktualisieren',
     confirmRefresh: 'Aktualisierung bestätigen',
