@@ -65,6 +65,29 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stay on the device until they sync, and that clearing the browser
   deletes them. The same sentence is in Spanish, Brazilian Portuguese,
   French, and German. No server change.
+- The fresh-checkout partition check accepts the Prisma database URL
+  from the quickstart. That URL includes `schema` as a query
+  parameter, which `psql` rejects. The check removes only that key
+  and leaves the rest of the URL, including percent-encoding,
+  unchanged. It does not print the URL.
+- A COPY import, including a replace, now stamps the layer sync
+  cursor in the same transaction as the rows. On an append the
+  duplicate-create delete runs after the stream closes and before
+  the stamp, so a load whose rows were all duplicates does not move
+  the cursor. The stamp is on that connection. Cancelling or a
+  failed read leaves the cursor where it was. A replace writes a
+  delete observation for each live feature the new file does not
+  contain, so a device that already has a cursor sees those
+  removals. An import that lands no rows does not move the cursor.
+- Saving a feature, deleting one, importing rows, or running
+  Calculate Field advances that layer's sync cursor only when the
+  observation itself commits. A conflicting edit, a retried import
+  that was already stored, or a write that rolls back leaves the
+  cursor where it was. Calculate Field refuses a row whose head
+  changed and records that conflict. Two people editing the same
+  feature from the same head produce one saved edit and one conflict.
+  Existing installs pick this up by updating the portal-api image.
+  No migration and no volume reset.
 - A bulk import commit now waits for the WAL flush. An append
   removes only create rows that the same transaction just inserted
   when that entity already has a live observation, or when the load

@@ -15,7 +15,7 @@
 // `DataLayerFeaturesService` is unchanged. Phase 2.2 swaps the v3 service's
 // internals to call into this adapter.
 
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import {
@@ -28,6 +28,7 @@ import {
   validateObservation,
 } from '@gratis-gis/engine';
 
+import { syncVersionSource } from '../data-layer/layer-delta.js';
 import { EngineService } from './engine.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LensPolicyService } from '../policy/lens-policy.service.js';
@@ -982,6 +983,24 @@ const AGGREGATE_MAX_QUEUED = parseIntEnv('AGGREGATE_MAX_QUEUED', 32, {
   min: 1,
 });
 
+function asItemData(value: unknown): {
+  version?: number;
+  layers?: Array<Record<string, unknown>>;
+} | null {
+  const parsed =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : value;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as { version?: number; layers?: Array<Record<string, unknown>> };
+}
+
 @Injectable()
 export class DataLayerEngine {
   constructor(
@@ -995,6 +1014,173 @@ export class DataLayerEngine {
 
   scope(itemId: string, layerId: string): string {
     return dataLayerScope(itemId, layerId);
+  }
+
+  /**
+   * Run `write` and the layer syncVersion bump in one transaction.
+   * The item row is locked first. `write` stamps observations with
+   * the next version. The item JSON is updated only when `wrote` is
+   * true. A throw rolls both back, so a failed insert cannot leave
+   * the cursor ahead of the log. A conflict that writes nothing
+   * leaves the cursor where it was.
+   */
+  async commitLayerSync<T>(
+    itemId: string,
+    layerId: string,
+    write: (ctx: {
+      tx: Prisma.TransactionClient;
+      source: SourceRef;
+      syncVersion: number;
+    }) => Promise<{ wrote: boolean; value: T }>,
+  ): Promise<{ syncVersion: number; wrote: boolean; value: T }> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ data_json: unknown }>>`
+        SELECT data_json FROM item WHERE id = ${itemId}::uuid FOR UPDATE
+      `;
+      if (rows.length === 0) throw new NotFoundException('Item not found');
+      const data = asItemData(rows[0]!.data_json);
+      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+        throw new BadRequestException(
+          'syncVersion is only defined on v3 data_layer items.',
+        );
+      }
+      const idx = data.layers.findIndex((l) => l.id === layerId);
+      if (idx < 0) throw new NotFoundException('Layer not found');
+      const current = data.layers[idx]!;
+      const prev =
+        typeof current.syncVersion === 'number' &&
+        Number.isFinite(current.syncVersion)
+          ? Math.max(0, Math.floor(current.syncVersion))
+          : 0;
+      const next = prev + 1;
+      const executed = await write({
+        tx,
+        source: syncVersionSource(next),
+        syncVersion: next,
+      });
+      if (!executed.wrote) {
+        return { syncVersion: prev, wrote: false, value: executed.value };
+      }
+      const nextLayers = data.layers.slice();
+      nextLayers[idx] = { ...current, syncVersion: next };
+      const nextData = { ...data, layers: nextLayers };
+      await tx.$executeRaw`
+        UPDATE item
+        SET data_json = ${JSON.stringify(nextData)}::jsonb,
+            updated_at = now()
+        WHERE id = ${itemId}::uuid
+      `;
+      return { syncVersion: next, wrote: true, value: executed.value };
+    });
+    if (outcome.wrote) this.wrote([this.scope(itemId, layerId)]);
+    return outcome;
+  }
+
+  /**
+   * Stamp a COPY import that is already sealed on `writer` and not
+   * yet committed. Rows this transaction inserted get the next
+   * syncVersion. Entities that a replace removed, and that the new
+   * file did not write back, become delete observations with that
+   * same version so a delta client drops them. The item cursor moves
+   * only when at least one of those rows exists. The caller commits.
+   * An abort before that commit leaves the cursor where it was.
+   */
+  async commitCopiedLayer(
+    writer: import('./copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+    },
+  ): Promise<{ wrote: boolean; syncVersion: number }> {
+    const scope = this.scope(args.itemId, args.layerId);
+    const fresh = await writer.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM observation
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid
+         AND kind <> 'delete'`,
+      [scope],
+    );
+    const written = new Set(fresh.rows.map((row) => row.entity));
+    const removed = args.removedEntityIds.filter((id) => !written.has(id));
+    if (written.size === 0 && removed.length === 0) {
+      const current = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid',
+        [args.itemId],
+      );
+      const data = asItemData(current.rows[0]?.data_json);
+      const layer = data?.layers?.find((l) => l.id === args.layerId);
+      const prev =
+        layer && typeof layer.syncVersion === 'number' ? layer.syncVersion : 0;
+      return { wrote: false, syncVersion: prev };
+    }
+    const locked = await writer.query<{ data_json: unknown }>(
+      'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+      [args.itemId],
+    );
+    if (locked.rows.length === 0) throw new NotFoundException('Item not found');
+    const data = asItemData(locked.rows[0]!.data_json);
+    if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+      throw new BadRequestException(
+        'syncVersion is only defined on v3 data_layer items.',
+      );
+    }
+    const idx = data.layers.findIndex((l) => l.id === args.layerId);
+    if (idx < 0) throw new NotFoundException('Layer not found');
+    const current = data.layers[idx]!;
+    const prev =
+      typeof current.syncVersion === 'number' &&
+      Number.isFinite(current.syncVersion)
+        ? Math.max(0, Math.floor(current.syncVersion))
+        : 0;
+    const next = prev + 1;
+    await writer.query(
+      `UPDATE observation
+       SET source = jsonb_set(
+         jsonb_set(
+           COALESCE(source, '{"kind":"data_layer:write"}'::jsonb),
+           '{details}',
+           COALESCE(source->'details', '{}'::jsonb),
+           true
+         ),
+         '{details,syncVersion}',
+         to_jsonb($2::int),
+         true
+       )
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid`,
+      [scope, next],
+    );
+    if (removed.length > 0) {
+      const ids = removed.map(() => uuidv7());
+      await writer.query(
+        `INSERT INTO observation (
+           id, tx_time, valid_from, scope, entity, kind,
+           author_sub, source, parents
+         )
+         SELECT u.id, now(), now(), $1, u.entity, 'delete',
+                $2, $3::jsonb, '{}'::uuid[]
+         FROM unnest($4::uuid[], $5::uuid[]) AS u(id, entity)`,
+        [
+          scope,
+          args.authorSub,
+          JSON.stringify(syncVersionSource(next)),
+          ids,
+          removed,
+        ],
+      );
+    }
+    const nextLayers = data.layers.slice();
+    nextLayers[idx] = { ...current, syncVersion: next };
+    await writer.query(
+      `UPDATE item
+       SET data_json = $2::jsonb, updated_at = now()
+       WHERE id = $1::uuid`,
+      [args.itemId, JSON.stringify({ ...data, layers: nextLayers })],
+    );
+    return { wrote: true, syncVersion: next };
   }
 
   /**
@@ -1048,6 +1234,7 @@ export class DataLayerEngine {
    */
   async writeFeaturesCreate(
     inputs: CreateFeatureArgs[],
+    db?: Prisma.TransactionClient,
   ): Promise<Array<{ globalId: string; observationId: string }>> {
     if (inputs.length === 0) return [];
 
@@ -1064,7 +1251,7 @@ export class DataLayerEngine {
       parents: [],
     }));
 
-    const written = await this.engine.writeMany(observations);
+    const written = await this.engine.writeMany(observations, db);
     return written.map((obs) => ({
       globalId: obs.entity,
       observationId: requireId(obs.id),
@@ -1112,6 +1299,7 @@ export class DataLayerEngine {
    */
   async writeFeaturesCreateIdempotent(
     inputs: CreateFeatureArgs[],
+    db?: Prisma.TransactionClient,
   ): Promise<
     Array<{ globalId: string; observationId: string | null; deduplicated: boolean }>
   > {
@@ -1138,6 +1326,7 @@ export class DataLayerEngine {
     if (withoutId.length > 0) {
       const written = await this.writeFeaturesCreate(
         withoutId.map((w) => w.args),
+        db,
       );
       withoutId.forEach((w, i) => {
         results[w.index] = { ...written[i]!, deduplicated: false };
@@ -1199,7 +1388,7 @@ export class DataLayerEngine {
       const authors = uniqueRows.map(({ obs }) => obs.author.sub);
       const sourceJson = uniqueRows.map(({ obs }) => JSON.stringify(obs.source));
 
-      const insertedKeys = await this.prisma.$transaction(async (tx) => {
+      const insertGuarded = async (tx: Prisma.TransactionClient) => {
         // One statement takes every lock in sorted order. The ORDER
         // BY subquery pins evaluation order; xact locks release at
         // commit/rollback automatically.
@@ -1266,7 +1455,10 @@ export class DataLayerEngine {
         // same entity id deduping in one scope must not mask a real
         // insert of that id in another.
         return new Set(rows.map((r) => `${r.scope}|${r.entity}`));
-      });
+      };
+      const insertedKeys = db
+        ? await insertGuarded(db)
+        : await this.prisma.$transaction(insertGuarded);
 
       for (const w of withId) {
         const scope = this.scope(w.args.itemId, w.args.layerId);
@@ -1289,7 +1481,7 @@ export class DataLayerEngine {
       }
     }
 
-    this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+    if (!db) this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
     return results;
   }
 
@@ -1339,6 +1531,7 @@ export class DataLayerEngine {
    */
   async writeFeatureUpdate(
     args: UpdateFeatureArgs,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     return this.writeGuarded(
       {
@@ -1354,6 +1547,7 @@ export class DataLayerEngine {
         parents: [],
       },
       args.expectedHeadObservationId,
+      db,
     );
   }
 
@@ -1361,12 +1555,17 @@ export class DataLayerEngine {
   private async writeGuarded(
     observation: Observation,
     expectedHeadObservationId: string | undefined,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     if (expectedHeadObservationId === undefined) {
-      const obs = await this.engine.write(observation);
+      const obs = await this.engine.write(observation, db);
       return { observationId: requireId(obs.id) };
     }
-    const result = await this.engine.writeIfHead(observation, expectedHeadObservationId);
+    const result = await this.engine.writeIfHead(
+      observation,
+      expectedHeadObservationId,
+      db,
+    );
     if ('written' in result) {
       return { observationId: requireId(result.written.id) };
     }
@@ -1381,22 +1580,146 @@ export class DataLayerEngine {
    */
   async writeFeaturesUpdate(
     inputs: UpdateFeatureArgs[],
-  ): Promise<Array<{ observationId: string }>> {
-    if (inputs.length === 0) return [];
-    const observations: Observation[] = inputs.map((args) => ({
-      scope: this.scope(args.itemId, args.layerId),
-      entity: args.globalId,
-      kind: 'update',
-      validFrom: new Date(),
-      validTo: null,
-      attrs: args.properties ?? null,
-      geom: args.geometry ?? null,
-      author: args.principal,
-      source: args.source ?? DEFAULT_SOURCE,
-      parents: [],
-    }));
-    const written = await this.engine.writeMany(observations);
-    return written.map((obs) => ({ observationId: requireId(obs.id) }));
+    db?: Prisma.TransactionClient,
+  ): Promise<{
+    applied: Array<{ globalId: string; observationId: string }>;
+    conflicts: Array<{ globalId: string; headObservationId: string | null }>;
+  }> {
+    if (inputs.length === 0) return { applied: [], conflicts: [] };
+    const guarded = inputs.some((i) => i.expectedHeadObservationId !== undefined);
+    if (!guarded) {
+      const observations: Observation[] = inputs.map((args) => ({
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'update',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: args.properties ?? null,
+        geom: args.geometry ?? null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+      }));
+      const written = await this.engine.writeMany(observations, db);
+      if (!db) this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+      return {
+        applied: written.map((obs) => ({
+          globalId: obs.entity,
+          observationId: requireId(obs.id),
+        })),
+        conflicts: [],
+      };
+    }
+    const run = (tx: Prisma.TransactionClient) => this.insertUpdatesIfHead(tx, inputs);
+    const result = db ? await run(db) : await this.prisma.$transaction(run);
+    if (!db && result.applied.length > 0) {
+      this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+    }
+    return result;
+  }
+
+  /**
+   * Insert update rows whose expected head is still the head, under
+   * one advisory lock per entity. Rows that lost the race are not
+   * inserted. The check and the insert are one statement, so a
+   * commit that lands between them cannot be missed.
+   */
+  private async insertUpdatesIfHead(
+    tx: Prisma.TransactionClient,
+    inputs: UpdateFeatureArgs[],
+  ): Promise<{
+    applied: Array<{ globalId: string; observationId: string }>;
+    conflicts: Array<{ globalId: string; headObservationId: string | null }>;
+  }> {
+    const firstByEntity = new Map<string, UpdateFeatureArgs>();
+    for (const args of inputs) {
+      const key = `${this.scope(args.itemId, args.layerId)}|${args.globalId}`;
+      if (!firstByEntity.has(key)) firstByEntity.set(key, args);
+    }
+    const rows = [...firstByEntity.values()];
+    const prepared = rows.map((args) => {
+      const obs: Observation = {
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'update',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: args.properties ?? null,
+        geom: args.geometry ?? null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+        id: uuidv7(),
+        txTime: new Date(),
+        cell: cellForGeometry(args.geometry ?? null),
+      };
+      validateObservation(obs);
+      return { args, obs, expected: args.expectedHeadObservationId ?? '' };
+    });
+    const lockKeys = prepared.map(({ obs }) => `${obs.scope}|${obs.entity}`).sort();
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
+      FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
+    `;
+    const inserted = await tx.$queryRaw<Array<{ id: string; entity: string }>>`
+      INSERT INTO observation (
+        id, tx_time, valid_from, valid_to, scope, entity, kind,
+        attrs, geom, cell, author_sub, source, parents
+      )
+      SELECT
+        t.id, t.tx_time, t.valid_from, NULL, t.scope, t.entity, 'update',
+        t.attrs::jsonb,
+        CASE WHEN t.geom_json IS NULL THEN NULL
+             ELSE ST_GeomFromGeoJSON(t.geom_json) END,
+        t.cell, t.author_sub, t.source::jsonb, '{}'::uuid[]
+      FROM unnest(
+        ${prepared.map((p) => requireId(p.obs.id))}::uuid[],
+        ${prepared.map((p) => p.obs.txTime as Date)}::timestamptz[],
+        ${prepared.map((p) => p.obs.validFrom)}::timestamptz[],
+        ${prepared.map((p) => p.obs.scope)}::text[],
+        ${prepared.map((p) => p.obs.entity)}::uuid[],
+        ${prepared.map((p) => (p.obs.attrs !== null ? JSON.stringify(p.obs.attrs) : null))}::text[],
+        ${prepared.map((p) => (p.obs.geom !== null ? JSON.stringify(p.obs.geom) : null))}::text[],
+        ${prepared.map((p) => p.obs.cell ?? null)}::text[],
+        ${prepared.map((p) => p.obs.author.sub)}::text[],
+        ${prepared.map((p) => JSON.stringify(p.obs.source))}::text[],
+        ${prepared.map((p) => p.expected)}::uuid[]
+      ) AS t(id, tx_time, valid_from, scope, entity, attrs,
+             geom_json, cell, author_sub, source, expected_head)
+      WHERE (
+        SELECT o.id
+        FROM observation o
+        WHERE o.scope = t.scope AND o.entity = t.entity
+        ORDER BY o.valid_from DESC, o.tx_time DESC
+        LIMIT 1
+      ) = t.expected_head
+      RETURNING id, entity
+    `;
+    const insertedIds = new Map(inserted.map((r) => [r.entity, r.id]));
+    const missed = prepared.filter((p) => !insertedIds.has(p.obs.entity));
+    let heads = new Map<string, string>();
+    if (missed.length > 0) {
+      const headRows = await tx.$queryRaw<Array<{ entity: string; id: string }>>`
+        SELECT DISTINCT ON (entity) entity::text AS entity, id::text AS id
+        FROM observation
+        WHERE entity = ANY(${missed.map((p) => p.obs.entity)}::uuid[])
+          AND scope = ANY(${missed.map((p) => p.obs.scope)}::text[])
+        ORDER BY entity, valid_from DESC, tx_time DESC
+      `;
+      heads = new Map(headRows.map((r) => [r.entity, r.id]));
+    }
+    return {
+      applied: prepared
+        .filter((p) => insertedIds.has(p.obs.entity))
+        .map((p) => ({
+          globalId: p.obs.entity,
+          observationId: insertedIds.get(p.obs.entity)!,
+        })),
+      conflicts: missed.map((p) => ({
+        globalId: p.obs.entity,
+        headObservationId: heads.get(p.obs.entity) ?? null,
+      })),
+    };
   }
 
   /**
@@ -1407,6 +1730,7 @@ export class DataLayerEngine {
    */
   async writeFeatureDelete(
     args: DeleteFeatureArgs,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     return this.writeGuarded(
       {
@@ -1422,6 +1746,7 @@ export class DataLayerEngine {
         parents: [],
       },
       args.expectedHeadObservationId,
+      db,
     );
   }
 
