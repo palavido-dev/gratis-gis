@@ -202,6 +202,7 @@ jobs:
           bash scripts/backup-help.test.sh
           bash scripts/reset-portal-password.test.sh
           bash scripts/restore-maintenance.test.sh
+          bash scripts/script-net-firewall.test.sh
 
   recovery-integration:
     name: Keycloak reset and maintenance gate
