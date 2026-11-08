@@ -30,6 +30,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A form submission whose paired data layer did not get the mirror
+  row is retried three times, and once a minute the cron leader
+  looks for submissions that still have no live observation and
+  mirrors them again. The feature id is the submission id, so a
+  retry does not create a second feature. Followers do not run the
+  repair. Existing installs pick this up by updating the portal-api
+  image. No migration and no volume reset.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

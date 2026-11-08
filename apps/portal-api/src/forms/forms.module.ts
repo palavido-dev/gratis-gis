@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
+import { LeaderElectionModule } from '../cron/leader-election.module.js';
 import { FormsController } from './forms.controller.js';
 import { FormsService } from './forms.service.js';
 
@@ -17,7 +19,13 @@ import { FormsService } from './forms.service.js';
  * auto-provisions for every form item (#283 / #281c).
  */
 @Module({
-  imports: [PrismaModule, NotificationsModule, DataLayerFeaturesModule],
+  imports: [
+    PrismaModule,
+    NotificationsModule,
+    DataLayerFeaturesModule,
+    LeaderElectionModule,
+    ScheduleModule.forRoot(),
+  ],
   controllers: [FormsController],
   providers: [FormsService],
   exports: [FormsService],

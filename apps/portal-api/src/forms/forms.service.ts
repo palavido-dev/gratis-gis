@@ -5,7 +5,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { validate } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
@@ -15,6 +17,8 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { dataLayerScope } from '../engine/data-layer.js';
 import {
   formatSubmissionReceipt,
   receiptFilename,
@@ -44,6 +48,7 @@ export class FormsService {
     private readonly notifications: NotificationsService,
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerAttachments: DataLayerAttachmentsService,
+    @Optional() private readonly leader?: LeaderElectionService,
   ) {}
 
   /** Fetch the form item, gating by visibility for the caller. Used
@@ -208,7 +213,7 @@ export class FormsService {
       // the layer row. Failures are non-fatal: form_submission is
       // the durable source of truth; a missed mirror just means the
       // layer is out of date until a backfill pass.
-      void this.mirrorToPairedLayer({
+      void this.mirrorWithRetry({
         form,
         clientId: dto.clientId,
         submissionId: result.id,
@@ -217,12 +222,6 @@ export class FormsService {
         submittedBy: user.id,
         capturedAt: captured,
         user,
-      }).catch((err) => {
-        this.log.warn(
-          `mirrorToPairedLayer failed for submission ${result.id}: ${
-            err instanceof Error ? err.message : err
-          }`,
-        );
       });
     }
     return { id: result.id, created: justCreated };
@@ -243,6 +242,105 @@ export class FormsService {
    * v3 feature-tracking convention (#39 / #118) and stay distinct
    * from any user-defined question name.
    */
+  /**
+   * The submission row is already durable. Retry the paired-layer
+   * mirror a few times here. insertFeatures is idempotent on
+   * globalId = submission id, so a retry cannot duplicate the feature.
+   * A later leader pass picks up anything that still failed.
+   */
+  private async mirrorWithRetry(
+    args: Parameters<FormsService['mirrorToPairedLayer']>[0],
+  ): Promise<void> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await this.mirrorToPairedLayer(args);
+        return;
+      } catch (err) {
+        last = err;
+      }
+    }
+    this.log.warn(
+      `mirrorToPairedLayer failed for submission ${args.submissionId}: ${
+        last instanceof Error ? last.message : last
+      }`,
+    );
+  }
+
+  /**
+   * Leader-only repair. Finds submissions whose paired layer has no
+   * live observation for that submission id and mirrors them again.
+   * Followers return without writing. Missing leader (unit tests)
+   * also returns, so a test process does not scan the database.
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async reconcileFormMirrors(): Promise<number> {
+    if (!this.leader?.shouldRun()) return 0;
+    const rows = await this.prisma.$queryRaw<
+      Array<{ id: string }>
+    >`
+      SELECT s.id
+      FROM form_submission s
+      JOIN item f ON f.id = s.form_id
+      WHERE jsonb_typeof(f.data->'linkedLayerId') = 'string'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM observation o
+          WHERE o.entity = s.id
+            AND o.scope = 'data_layer:' || (f.data->>'linkedLayerId')
+              || ':' || COALESCE(f.data->>'linkedLayerKey', 'submissions')
+            AND o.kind <> 'delete'
+        )
+      ORDER BY s.created_at
+      LIMIT 20
+    `;
+    // Scope text must stay equal to dataLayerScope(layerId, layerKey).
+    if (dataLayerScope('a', 'b') !== 'data_layer:a:b') {
+      throw new Error('form mirror scope drifted from dataLayerScope');
+    }
+    let repaired = 0;
+    for (const row of rows) {
+      const submission = await this.prisma.formSubmission.findUnique({
+        where: { id: row.id },
+      });
+      if (!submission) continue;
+      const form = await this.prisma.item.findUnique({
+        where: { id: submission.formId },
+      });
+      if (!form) continue;
+      const user = {
+        id: submission.submittedBy ?? 'system',
+        orgId: submission.orgId,
+        orgSlug: '',
+        username: 'mirror-repair',
+        email: '',
+        orgRole: 'admin' as const,
+        groupIds: [],
+        capabilities: new Set<string>(),
+      } as AuthUser;
+      try {
+        await this.mirrorWithRetry({
+          form: { id: form.id, data: form.data },
+          clientId: submission.clientId,
+          submissionId: submission.id,
+          schemaVersion: submission.schemaVersion,
+          response: submission.response as Record<string, unknown>,
+          submittedBy: user.id,
+          capturedAt: submission.capturedAt,
+          user,
+        });
+        repaired += 1;
+      } catch (err) {
+        this.log.warn(
+          `form mirror repair failed for ${submission.id}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+    return repaired;
+  }
+
   private async mirrorToPairedLayer(args: {
     form: { id: string; data: Prisma.JsonValue };
     clientId: string;
