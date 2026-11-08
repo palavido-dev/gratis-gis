@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Opt-in WAL drill. Nothing in the normal dev, NAS, or VPS compose
+# files enables archive_mode. Pass -p gg-wal-drill.
+name: gg-wal-drill
+
+services:
+  postgres:
+    image: gratis-gis-postgres:local
+    environment:
+      POSTGRES_USER: waldrill
+      POSTGRES_PASSWORD: waldrill-password
+      POSTGRES_DB: waldrill
+      KEYCLOAK_DB_PASSWORD: waldrill-password
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /wal/%f && cp %p /wal/%f
+      - -c
+      - archive_timeout=5
+      - -c
+      - shared_buffers=128MB
+    ports:
+      - "127.0.0.1:55436:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ${WAL_ARCHIVE_DIR}:/wal
+      - ${WAL_BASE_DIR}:/backup
+
+  restore:
+    image: gratis-gis-postgres:local
+    profiles: ["restore"]
+    environment:
+      POSTGRES_USER: waldrill
+      POSTGRES_PASSWORD: waldrill-password
+      POSTGRES_DB: waldrill
+    command:
+      - postgres
+      - -c
+      - restore_command=cp /wal/%f %p
+      - -c
+      - recovery_target_action=promote
+      - -c
+      - shared_buffers=128MB
+    ports:
+      - "127.0.0.1:55436:5432"
+    volumes:
+      - ${WAL_BASE_DIR}:/var/lib/postgresql/data
+      - ${WAL_ARCHIVE_DIR}:/wal
+
+volumes:
+  pgdata:

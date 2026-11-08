@@ -4,6 +4,7 @@ import type { Item, ItemShare } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { CLOSED_GEO_LIMIT } from '../common/closed-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { buildEntityStore } from '../policy/entity-store.js';
@@ -145,6 +146,7 @@ export class SharingService {
     // unrestricted, the union is unrestricted (more permissive path
     // wins). Otherwise the union of polygons is the effective limit.
     let hasUnrestrictedPath = false;
+    let publicBoundaryClosed = false;
     const polygons: unknown[] = [];
 
     // #80: tier-level path. Anonymous viewers reach via 'public';
@@ -210,7 +212,8 @@ export class SharingService {
     if (tierBoundaryId !== null) {
       const geom = boundaryGeoms.get(tierBoundaryId);
       if (geom) polygons.push(geom);
-      else hasUnrestrictedPath = true; // missing / wrong type / empty
+      else if (item.access === 'public') publicBoundaryClosed = true;
+      else hasUnrestrictedPath = true;
     }
 
     for (const s of matching) {
@@ -227,7 +230,9 @@ export class SharingService {
       else hasUnrestrictedPath = true;
     }
     if (hasUnrestrictedPath) return null;
-    if (polygons.length === 0) return null;
+    if (polygons.length === 0) {
+      return publicBoundaryClosed ? CLOSED_GEO_LIMIT : null;
+    }
     if (polygons.length === 1) return polygons[0];
     return { type: 'GeometryCollection', geometries: polygons };
   }

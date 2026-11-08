@@ -15,6 +15,9 @@ module.exports = {
   testEnvironment: 'node',
   rootDir: '.',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
+  // safeFetch dials through a pinned transport. Unit tests mock
+  // globalThis.fetch, so route that transport through it.
+  setupFilesAfterEnv: ['<rootDir>/src/test-setup/safe-fetch-transport.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@gratis-gis/shared-types$': '<rootDir>/../../packages/shared-types/src/index.ts',
