@@ -46,7 +46,8 @@ x-gratis:
   GRATIS_ANALYSIS: &GRATIS_ANALYSIS "${GRATIS_ANALYSIS:-on}"
   # Bump this together with REQUIRED_COMPOSE_REV in the Dockerfiles
   # whenever this file's contract changes. CI checks they match.
-  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "1"
+  # 2: portal-api and portal-worker share the gg-staging volume.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "2"
 
 name: gratis-gis
 
@@ -213,10 +214,15 @@ __NAS_INIT_BODY__
       # Empty keeps unpaged feature reads streaming; `required` refuses
       # them and points at the csv export.
       GRATIS_FEATURE_QUERY_PAGE: ${GRATIS_FEATURE_QUERY_PAGE:-}
+      # Uploaded files wait here for the import worker. The worker
+      # mounts the same volume at the same path. Without it, every
+      # queued import fails with "Source file expired".
+      STAGING_DIR: /var/lib/gg-staging
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.
       - portal-api-backups:/app/backups
+      - gg-staging:/var/lib/gg-staging
     depends_on:
       postgres:
         condition: service_healthy
@@ -249,8 +255,12 @@ __NAS_INIT_BODY__
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
     environment:
       NODE_OPTIONS: --max-old-space-size=1024
+      # Same path and volume as portal-api, so the worker can read
+      # the files portal-api staged for import.
+      STAGING_DIR: /var/lib/gg-staging
     volumes:
       - boot:/boot:ro
+      - gg-staging:/var/lib/gg-staging
     depends_on:
       portal-api:
         condition: service_healthy
@@ -436,6 +446,9 @@ volumes:
   caddy-data:
   portal-api-backups:
   pointcloud-scratch:
+  # Upload staging shared by portal-api and portal-worker. Files here
+  # expire after an hour, so it holds nothing you need to back up.
+  gg-staging:
 
 networks:
   gratis-net:
