@@ -270,8 +270,11 @@ Compose file revision 2 adds the `gg-staging` volume that
 portal-api and portal-worker share. On revision 1, creating a data
 layer from a file left the layer empty with "Source file expired
 before the import started". The Updates page says the compose file
-is out of date until you paste revision 2. Nothing else changes, and
-no data moves.
+is out of date until you paste the current revision. No data moves.
+
+Revision 3 passes the optional settings (see Optional settings
+above) to the containers, uses the portal address in email links,
+and leaves scheduled jobs to portal-api.
 
 Keep the volumes when the first start never became healthy (Keycloak waiting,
 Silo exiting). The saved passwords stay, and Keycloak imports the

@@ -338,6 +338,21 @@ class TestErrorMapping:
             gg.whoami()
         assert err.value.retry_after == 30
 
+    def test_busy_503_with_retry_after_is_a_rate_limit(self):
+        gg = make_client(
+            lambda _r: httpx.Response(503, json={}, headers={"retry-after": "5"})
+        )
+        with pytest.raises(RateLimitError) as err:
+            gg.whoami()
+        assert err.value.retry_after == 5
+        assert err.value.status == 503
+
+    def test_bare_503_stays_a_portal_error(self):
+        gg = make_client(lambda _r: httpx.Response(503, json={}))
+        with pytest.raises(PortalError) as err:
+            gg.whoami()
+        assert not isinstance(err.value, RateLimitError)
+
     def test_falls_back_to_body_text_when_not_json(self):
         gg = make_client(lambda _r: httpx.Response(502, text="upstream is down"))
         with pytest.raises(PortalError, match="upstream is down"):
@@ -739,6 +754,44 @@ class TestAttachments:
         )
         assert got == tmp_path / "site.jpg"
         assert got.read_bytes() == b"JPEGBYTES"
+
+    @pytest.mark.parametrize(
+        "stored, expected",
+        [
+            ("../../.bashrc", ".bashrc"),
+            ("/etc/cron.d/evil", "evil"),
+            ("..\\..\\evil.bat", "evil.bat"),
+            ("C:\\Windows\\evil.dll", "evil.dll"),
+            ("C:evil.exe", "evil.exe"),
+            ("sub/dir/site.jpg", "site.jpg"),
+            ("..", "att-1"),
+            ("../", "att-1"),
+            ("", "att-1"),
+        ],
+    )
+    def test_download_keeps_a_hostile_stored_name_inside_the_directory(
+        self, tmp_path, stored, expected
+    ):
+        """fileName is whatever the registering user sent, so it must
+        never pick a path outside the directory the caller chose."""
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        got = make_client(lambda r: httpx.Response(200, content=b"X")).download_attachment(
+            "itm", "parcels", "f1", {**ATTACHMENT, "fileName": stored}, path=outdir
+        )
+        assert got == (outdir / expected).resolve()
+        assert got.read_bytes() == b"X"
+        assert [p.name for p in tmp_path.iterdir()] == ["out"]
+
+    def test_download_refuses_a_name_that_leaves_through_a_symlink(self, tmp_path):
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        (outdir / "site.jpg").symlink_to(tmp_path / "elsewhere.jpg")
+        with pytest.raises(ValueError, match="outside"):
+            make_client(lambda r: httpx.Response(200, content=b"X")).download_attachment(
+                "itm", "parcels", "f1", ATTACHMENT, path=outdir
+            )
+        assert not (tmp_path / "elsewhere.jpg").exists()
 
     def test_download_rejects_something_that_is_not_a_record(self):
         with pytest.raises(ValueError, match="attachment record"):
