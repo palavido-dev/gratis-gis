@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -150,8 +150,6 @@ export class IngestService {
       if (addressed) return addressed;
     }
 
-    const gdal = await this.loadGdal();
-
     // Write to a temp dir so GDAL can open it by path. Directory-based
     // formats (`.gdb`) are delivered as zips, which GDAL handles via
     // its `/vsizip/` virtual filesystem when we point at the zip.
@@ -163,6 +161,77 @@ export class IngestService {
     const dirPath = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
     const filePath = join(dirPath, safeFilename(originalName));
     await writeFile(filePath, buffer);
+    try {
+      return await this.readVectorFileAtPath(filePath, originalName, buffer);
+    } finally {
+      // Clean up the scratch dir even if GDAL threw, so we don't
+      // accumulate temp files under sustained failure.
+      await rm(dirPath, { recursive: true, force: true }).catch(() => {
+        this.log.warn(`Failed to remove temp dir ${dirPath}`);
+      });
+    }
+  }
+
+  /**
+   * Parse a file that is already on disk. The caller owns the path
+   * and deletes it. Used by the upload handlers so a 1 GB county file
+   * is not also held in the API heap.
+   *
+   * Tabular files up to 32 MB still run the coordinate and address
+   * detectors, which need the text. Larger files go straight to GDAL
+   * at `filePath`.
+   */
+  async fileToGeoJsonFromPath(
+    filePath: string,
+    originalName: string,
+  ): Promise<{
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
+    driver: string;
+    sourceSrs: string | null;
+  }> {
+    const info = await stat(filePath);
+    if (info.size === 0) {
+      throw new BadRequestException('Uploaded file is empty.');
+    }
+    if (info.size > this.maxBytes) {
+      throw new BadRequestException(
+        `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
+      );
+    }
+    if (isParquetPath(originalName)) {
+      try {
+        const out = await collectParquetFromPath(filePath, undefined);
+        return {
+          geojson: out.geojson,
+          fields: out.fields,
+          driver: out.driver,
+          sourceSrs: out.sourceSrs,
+        };
+      } catch (err) {
+        throw mapParquetError(err);
+      }
+    }
+    const TEXT_DETECT_MAX = 32 * 1024 * 1024;
+    if (looksLikeTabularText(originalName) && info.size <= TEXT_DETECT_MAX) {
+      const buffer = await readFile(filePath);
+      return this.fileToGeoJson(buffer, originalName);
+    }
+    return this.readVectorFileAtPath(filePath, originalName);
+  }
+
+  /** GDAL read of a path the caller already materialised. Does not delete it. */
+  private async readVectorFileAtPath(
+    filePath: string,
+    originalName: string,
+    buffer?: Buffer,
+  ): Promise<{
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
+    driver: string;
+    sourceSrs: string | null;
+  }> {
+    const gdal = await this.loadGdal();
     const openPath = await this.resolveGdalOpenPath(filePath);
     this.assertGdalOpen(openPath, originalName, buffer);
 
@@ -252,12 +321,6 @@ export class IngestService {
       if (err instanceof BadRequestException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(`GDAL could not read that file: ${msg}`);
-    } finally {
-      // Clean up the scratch dir even if GDAL threw, so we don't
-      // accumulate temp files under sustained failure.
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
     }
   }
 

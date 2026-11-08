@@ -32,6 +32,10 @@ import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
+import {
+  acquireIngestSlot,
+  assertIngestDiskRoomAt,
+} from './ingest-slots.js';
 import { rm } from 'node:fs/promises';
 
 /**
@@ -110,9 +114,13 @@ export class IngestController {
         'No file uploaded; field name must be "file".',
       );
     }
+    let release: (() => void) | undefined;
     try {
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(file.destination, file.size);
       return await this.ingest.probeFileFromPath(file.path);
     } finally {
+      release?.();
       await rm(file.destination, { recursive: true, force: true }).catch(
         () => {},
       );
@@ -138,18 +146,30 @@ export class IngestController {
    * than WGS84.
    */
   @Post('ingest/to-geojson')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 1024 * 1024 * 1024 },
-    }),
-  )
-  async toGeoJson(@UploadedFile() file: Express.Multer.File | undefined) {
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
+  async toGeoJson(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    return this.ingest.fileToGeoJson(file.buffer, file.originalname);
+    // Open to every signed-in user. Edit rights are checked when the
+    // parsed features are written. The file stays on disk, one parse
+    // per user, and the temp dir is removed on every exit.
+    let release: (() => void) | undefined;
+    try {
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(file.destination, file.size);
+      return await this.ingest.fileToGeoJsonFromPath(file.path, file.originalname);
+    } finally {
+      release?.();
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
+    }
   }
 
   /**
@@ -179,43 +199,40 @@ export class IngestController {
     // The upload is already on disk (disk storage). Move it into the
     // staging area rather than re-buffering, then drop the now-empty
     // temp dir. probe reads the staged file from its stable path.
-    const staged = await this.staging.stageFromPath({
-      filePath: file.path,
-      originalName: file.originalname,
-      ownerId: user.id,
-    });
-    await rm(file.destination, { recursive: true, force: true }).catch(
-      () => {},
-    );
+    let release: (() => void) | undefined;
     try {
-      const probe = await this.ingest.probeFileFromPath(staged.filePath);
-      return {
-        stagingId: staged.stagingId,
-        driver: probe.driver,
-        layers: probe.layers,
-      };
-    } catch (err) {
-      // Probe rejected: don't keep a staged file we can't ingest.
-      await this.staging.dropStaging(staged.stagingId).catch(() => {});
-      throw err;
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(file.destination, file.size);
+      const staged = await this.staging.stageFromPath({
+        filePath: file.path,
+        originalName: file.originalname,
+        ownerId: user.id,
+      });
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
+      try {
+        const probe = await this.ingest.probeFileFromPath(staged.filePath);
+        return {
+          stagingId: staged.stagingId,
+          driver: probe.driver,
+          layers: probe.layers,
+        };
+      } catch (err) {
+        // Probe rejected: don't keep a staged file we can't ingest.
+        await this.staging.dropStaging(staged.stagingId).catch(() => {});
+        throw err;
+      }
+    } finally {
+      release?.();
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
     }
   }
 
   @Post('items/:id/ingest')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        // Multer enforces the same ceiling as IngestService. Defense
-        // in depth is cheap and it gives users a clear 413 instead
-        // of burning CPU on a 2 GB shapefile. Set to 1 GB so a
-        // county-scale parcel layer (often 200-500 MB zipped) fits
-        // without the user having to subset first. Anything bigger
-        // should go through a future direct-to-MinIO presigned-PUT
-        // path rather than buffering through portal-api.
-        fileSize: 1024 * 1024 * 1024,
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
   async ingestFile(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -225,21 +242,23 @@ export class IngestController {
       throw new BadRequestException('No file uploaded; field name must be "file".');
     }
 
-    const item = await this.items.get(user, id);
-    if (item.type !== 'data_layer') {
-      throw new BadRequestException(
-        'Server-side ingest only targets data_layer items.',
-      );
-    }
-    const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
-    if (!this.sharing.canEdit(user, item, shares)) {
-      throw new ForbiddenException('You do not have edit permission on this item.');
-    }
+    let release: (() => void) | undefined;
+    try {
+      const item = await this.items.get(user, id);
+      if (item.type !== 'data_layer') {
+        throw new BadRequestException(
+          'Server-side ingest only targets data_layer items.',
+        );
+      }
+      const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
+      if (!this.sharing.canEdit(user, item, shares)) {
+        throw new ForbiddenException('You do not have edit permission on this item.');
+      }
 
-    const { geojson, fields, driver, sourceSrs } = await this.ingest.fileToGeoJson(
-      file.buffer,
-      file.originalname,
-    );
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(file.destination, file.size);
+      const { geojson, fields, driver, sourceSrs } =
+        await this.ingest.fileToGeoJsonFromPath(file.path, file.originalname);
 
     // Ensure the PostGIS table exists for this item (idempotent).
     await this.features.provisionTable(id);
@@ -299,6 +318,12 @@ export class IngestController {
       fields: nextData.fields,
       sourceSrs,
     };
+    } finally {
+      release?.();
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
+    }
   }
 
   /**

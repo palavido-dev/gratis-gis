@@ -30,6 +30,18 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Uploading a file to turn it into GeoJSON, or ingesting it straight
+  onto a data layer, no longer holds the whole file in the API
+  process. The file stays on disk, one parse runs per user, two at
+  a time on each process, and the temp directory is removed when the
+  request ends. The request is refused when the disk cannot hold the
+  file plus 256 MB. Viewers can still use the GeoJSON parse, because
+  an edit share is checked when the features are saved. Existing
+  installs pick this up by updating the portal-api image. No setting
+  change and no volume reset.
+- The field download control now says that unsynced edits and photos
+  stay on the device until they sync, and that clearing the browser
+  deletes them. No server change.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as

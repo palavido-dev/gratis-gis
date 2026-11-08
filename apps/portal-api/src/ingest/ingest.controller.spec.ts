@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { resetIngestSlotsForTests } from './ingest-slots.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ForbiddenException } from '@nestjs/common';
@@ -38,6 +39,12 @@ function makeController() {
   const ingest = {
     probeFileFromPath: jest.fn().mockResolvedValue(PROBE),
     fileToGeoJson: jest.fn().mockResolvedValue({
+      geojson: { type: 'FeatureCollection', features: [] },
+      fields: [],
+      driver: 'GeoJSON',
+      sourceSrs: 'EPSG:4326',
+    }),
+    fileToGeoJsonFromPath: jest.fn().mockResolvedValue({
       geojson: { type: 'FeatureCollection', features: [] },
       fields: [],
       driver: 'GeoJSON',
@@ -92,6 +99,10 @@ function diskUpload(): Express.Multer.File {
 }
 
 describe('IngestController publish gate', () => {
+  afterEach(() => {
+    resetIngestSlotsForTests();
+  });
+
   describe('probe', () => {
     it('refuses a viewer and removes the upload it already received', async () => {
       const { controller, ingest } = makeController();
@@ -162,15 +173,30 @@ describe('IngestController publish gate', () => {
   });
 
   describe('to-geojson', () => {
-    it('stays open to a viewer, whose edit rights live on the target item', async () => {
+    it('stays open to a viewer and parses from disk, then deletes the temp dir', async () => {
       const { controller, ingest } = makeController();
+      const file = diskUpload();
       await expect(
-        controller.toGeoJson({
-          ...diskUpload(),
-          buffer: Buffer.from('{}'),
-        }),
+        controller.toGeoJson(userWithRole('viewer'), file),
       ).resolves.toMatchObject({ driver: 'GeoJSON' });
-      expect(ingest.fileToGeoJson).toHaveBeenCalled();
+      expect(ingest.fileToGeoJsonFromPath).toHaveBeenCalledWith(
+        file.path,
+        file.originalname,
+      );
+      expect(ingest.fileToGeoJson).not.toHaveBeenCalled();
+      expect(existsSync(file.destination)).toBe(false);
+    });
+
+    it('does not let the same user start a second parse', async () => {
+      const { controller } = makeController();
+      const { acquireIngestSlot } = await import('./ingest-slots.js');
+      const release = acquireIngestSlot(userWithRole('viewer').id);
+      const file = diskUpload();
+      await expect(
+        controller.toGeoJson(userWithRole('viewer'), file),
+      ).rejects.toMatchObject({ status: 429 });
+      release();
+      expect(existsSync(file.destination)).toBe(false);
     });
   });
 });
