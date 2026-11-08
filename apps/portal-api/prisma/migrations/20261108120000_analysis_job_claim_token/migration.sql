@@ -1,10 +1,18 @@
 -- AlterTable
 -- Worker lease for analysis_job. Nullable so a worker image from
 -- before this column still runs: its UPDATEs do not mention the
--- column. Once a row has a token, the trigger below ignores an
--- UPDATE that does not present that token (or the reclaim flag).
--- A claim from queued to running is allowed so a new worker can
--- take a row an older attempt left queued.
+-- column.
+--
+-- The fence covers only the states a claimed worker owns: 'running'
+-- and 'cancel_requested'. While a row with a token is in one of
+-- those states, the trigger below ignores an UPDATE that does not
+-- present that token, with three exceptions:
+--   * 'running' to 'cancel_requested' (the user cancel from the API),
+--   * the stale-job reclaim sweep (gratis.reclaim = '1'),
+--   * a claim from 'queued' to 'running'.
+-- The worker clears the token when it hands a vector result to the
+-- API bridge ('ingest'), and the bridge never presents one, so
+-- 'ingest', 'importing', and the terminal states are not fenced.
 ALTER TABLE "analysis_job" ADD COLUMN "claim_token" UUID;
 
 CREATE OR REPLACE FUNCTION analysis_job_lease_guard()
@@ -15,10 +23,22 @@ DECLARE
   presented text;
   reclaim text;
 BEGIN
+  IF OLD.state = 'queued' AND NEW.state = 'running' THEN
+    -- A claimer that does not set a token (an older worker image)
+    -- must not inherit one left by an earlier attempt, or every
+    -- later write of its own would be fenced off.
+    IF NEW.claim_token IS NOT DISTINCT FROM OLD.claim_token THEN
+      NEW.claim_token := NULL;
+    END IF;
+    RETURN NEW;
+  END IF;
   IF OLD.claim_token IS NULL THEN
     RETURN NEW;
   END IF;
-  IF OLD.state = 'queued' AND NEW.state = 'running' THEN
+  IF OLD.state NOT IN ('running', 'cancel_requested') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.state = 'running' AND NEW.state = 'cancel_requested' THEN
     RETURN NEW;
   END IF;
   reclaim := current_setting('gratis.reclaim', true);

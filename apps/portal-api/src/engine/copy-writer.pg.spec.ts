@@ -8,10 +8,17 @@
 // Skipped unless TEST_DATABASE_URL is set. CI sets REQUIRE_PG_SPECS
 // so a missing database fails the job instead of looking green.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import type { Observation } from '@gratis-gis/engine';
 
-import { CopyWriter } from './copy-writer.js';
+import { APPEND_LOCK_BUCKETS, CopyWriter } from './copy-writer.js';
+
+const LEASE_MIGRATION = join(
+  __dirname,
+  '../../prisma/migrations/20261108120000_analysis_job_claim_token/migration.sql',
+);
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
@@ -215,6 +222,103 @@ d('CopyWriter on PostGIS', () => {
       ),
     ).toBe(1);
   });
+
+  it('appends more entities than the shared lock table holds', async () => {
+    // The server lock table holds about max_locks_per_transaction x
+    // max_connections entries (6,400 on a default install). One
+    // advisory lock per entity failed here with "out of shared memory".
+    const n = 20_000;
+    const when = new Date('2026-06-04T00:00:00Z');
+    const rows: Observation[] = [];
+    for (let i = 0; i < n; i++) {
+      const hex = i.toString(16).padStart(12, '0');
+      rows.push(row(`55555555-5555-4555-8555-${hex}`, `66666666-6666-4666-8666-${hex}`, when));
+    }
+    const writer = new CopyWriter(TEST_URL!);
+    let removed: number;
+    let held: { rows: Array<{ n: string }> };
+    try {
+      await writer.begin();
+      writer.beginCopy();
+      for (let i = 0; i < rows.length; i += 2_000) {
+        await writer.writeBatch(rows.slice(i, i + 2_000));
+      }
+      await writer.sealCopy();
+      removed = await writer.dropDuplicateAppendCreates(SCOPE);
+      const client = (writer as unknown as { client: { query: Pool['query'] } })
+        .client;
+      held = await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_locks
+         WHERE locktype = 'advisory' AND pid = pg_backend_pid()`,
+      );
+      await writer.commit();
+    } catch (err) {
+      // Drop the connection so a failure here does not hang the run.
+      await writer.abort();
+      throw err;
+    } finally {
+      await writer.close();
+    }
+    expect(removed).toBe(0);
+    expect(Number(held.rows[0]?.n)).toBeLessThanOrEqual(APPEND_LOCK_BUCKETS);
+    expect(
+      await countWhere(
+        pool,
+        `SELECT count(*)::text AS n FROM observation WHERE scope = $1`,
+        [SCOPE],
+      ),
+    ).toBe(n);
+  });
+
+  it('takes the layer item row lock before the bucket locks', async () => {
+    // API edits lock the item row first, then per-entity keys. The
+    // append must queue on the item row before it holds any advisory
+    // lock, or the two can wait on each other.
+    const item = '77777777-7777-7777-7777-777777777777';
+    const entity = '88888888-8888-8888-8888-888888888888';
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS item (
+        id uuid PRIMARY KEY,
+        data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+        updated_at timestamptz
+      )
+    `);
+    await pool.query('INSERT INTO item (id) VALUES ($1) ON CONFLICT DO NOTHING', [item]);
+    const editor = await pool.connect();
+    const writer = new CopyWriter(TEST_URL!);
+    try {
+      await editor.query('BEGIN');
+      await editor.query('SELECT 1 FROM item WHERE id = $1 FOR UPDATE', [item]);
+      await writer.begin();
+      writer.beginCopy();
+      await writer.writeBatch([
+        row(entity, '99999999-9999-9999-9999-999999999991', new Date('2026-06-05T00:00:00Z')),
+      ]);
+      await writer.sealCopy();
+      let settled = false;
+      const pending = writer.dropDuplicateAppendCreates(SCOPE, item).then((n) => {
+        settled = true;
+        return n;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const advisory = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_locks
+         WHERE locktype = 'advisory' AND granted`,
+      );
+      expect(settled).toBe(false);
+      expect(Number(advisory.rows[0]?.n)).toBe(0);
+      await editor.query('COMMIT');
+      expect(await pending).toBe(0);
+      await writer.commit();
+    } catch (err) {
+      await editor.query('ROLLBACK').catch(() => undefined);
+      await writer.abort();
+      throw err;
+    } finally {
+      editor.release();
+      await writer.close();
+    }
+  });
 });
 
 d('analysis item publish on PostGIS', () => {
@@ -227,40 +331,11 @@ d('analysis item publish on PostGIS', () => {
     await pool.query(`
       CREATE TABLE analysis_job (
         id uuid PRIMARY KEY,
-        state text NOT NULL,
-        claim_token uuid
+        state text NOT NULL
       )
     `);
-    await pool.query(`
-      CREATE OR REPLACE FUNCTION analysis_job_lease_guard()
-      RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE
-        presented text;
-        reclaim text;
-      BEGIN
-        IF OLD.claim_token IS NULL THEN
-          RETURN NEW;
-        END IF;
-        IF OLD.state = 'queued' AND NEW.state = 'running' THEN
-          RETURN NEW;
-        END IF;
-        reclaim := current_setting('gratis.reclaim', true);
-        IF reclaim = '1' THEN
-          RETURN NEW;
-        END IF;
-        presented := current_setting('gratis.claim_token', true);
-        IF presented IS NOT DISTINCT FROM OLD.claim_token::text THEN
-          RETURN NEW;
-        END IF;
-        RETURN NULL;
-      END $$
-    `);
-    await pool.query('DROP TRIGGER IF EXISTS analysis_job_lease_guard ON analysis_job');
-    await pool.query(`
-      CREATE TRIGGER analysis_job_lease_guard
-      BEFORE UPDATE ON analysis_job
-      FOR EACH ROW EXECUTE FUNCTION analysis_job_lease_guard()
-    `);
+    // The shipped migration adds claim_token and the lease trigger.
+    await pool.query(readFileSync(LEASE_MIGRATION, 'utf8'));
     await pool.query(`
       CREATE TABLE item (
         id uuid PRIMARY KEY,

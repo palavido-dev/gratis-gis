@@ -1773,7 +1773,9 @@ def do_contours(conn, s3, job):
         # Conditional on 'running' so a cancel that lands between
         # our last beat and this handoff wins: without the guard the
         # flip would overwrite cancel_requested and the import would
-        # run a job the user already stopped.
+        # run a job the user already stopped. The token is cleared
+        # here because the API bridge owns the row from 'ingest' on
+        # and does not present one.
         with conn.cursor() as cur:
             token = job.get("claim_token")
             if token:
@@ -1781,7 +1783,8 @@ def do_contours(conn, s3, job):
             cur.execute(
                 """
                 UPDATE analysis_job
-                SET state = 'ingest', params = %s, progress = 80
+                SET state = 'ingest', params = %s, progress = 80,
+                    claim_token = NULL
                 WHERE id = %s AND state = 'running'
                   AND claim_token = %s::uuid
                 """,
@@ -2014,7 +2017,8 @@ def do_zonal_stats(conn, s3, job):
             cur.execute(
                 """
                 UPDATE analysis_job
-                SET state = 'ingest', params = %s, progress = 80
+                SET state = 'ingest', params = %s, progress = 80,
+                    claim_token = NULL
                 WHERE id = %s AND state = 'running'
                   AND claim_token = %s::uuid
                 """,

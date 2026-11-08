@@ -49,9 +49,13 @@ INSERT INTO observation (id, tx_time, valid_from, scope, entity, kind, attrs) VA
   ('dddddddd-dddd-dddd-dddd-ddddddddddd3', now() + interval '1 second', now(), 'layer-a', '33333333-3333-3333-3333-333333333333', 'create', '{"fresh-dup":1}'),
   ('dddddddd-dddd-dddd-dddd-ddddddddddd4', now(), now(), 'layer-a', '44444444-4444-4444-4444-444444444444', 'create', '{"resurrect":1}');
 
-SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
+SELECT pg_advisory_xact_lock(k)
 FROM (
-  SELECT DISTINCT scope || '|' || entity::text AS k
+  SELECT DISTINCT hashtextextended(
+    'append-dedupe|' || 'layer-a' || '|' ||
+      (hashtextextended(entity::text, 0) & 63::bigint)::text,
+    0
+  ) AS k
   FROM observation
   WHERE scope = 'layer-a' AND kind = 'create' AND xmin = pg_current_xact_id()::xid
   ORDER BY 1

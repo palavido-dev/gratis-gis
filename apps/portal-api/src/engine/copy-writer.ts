@@ -8,6 +8,10 @@ import type { Writable } from 'node:stream';
 
 import { type Observation } from '@gratis-gis/engine';
 
+/** Advisory lock buckets per scope for the append de-dupe. A power of
+ *  two so the bucket is a bit mask of the entity hash. */
+export const APPEND_LOCK_BUCKETS = 64;
+
 /**
  * COPY-based bulk writer for the observation table (#115 P3 + P9).
  *
@@ -297,10 +301,23 @@ export class CopyWriter {
    * history, updates, deletes, other scopes, and duplicates that
    * were already stored are left alone. A create after a committed
    * delete is kept. Two creates for a new entity in this load keep
-   * the earliest. Advisory locks on the entities we just wrote make
-   * a concurrent append wait, then see the winner's commit.
+   * the earliest. Advisory locks on the entity buckets we just wrote
+   * make a concurrent append of the same entity wait, then see the
+   * winner's commit. At most APPEND_LOCK_BUCKETS locks are taken.
+   *
+   * Lock order: the layer's item row (FOR UPDATE) first, then the
+   * bucket locks in ascending key order. API edits that go through
+   * the item row lock take it first too, then their own per-entity
+   * advisory keys, so both sides queue on the item row before any
+   * advisory lock and cannot wait on each other in a cycle. The
+   * bucket keys use their own namespace, so they never collide with
+   * the API's per-entity keys. Pass `itemId` whenever the scope
+   * belongs to an item; leaving it out skips the row lock.
    */
-  async dropDuplicateAppendCreates(scope: string): Promise<number> {
+  async dropDuplicateAppendCreates(
+    scope: string,
+    itemId?: string,
+  ): Promise<number> {
     if (!this.client) {
       throw new Error(
         'CopyWriter.dropDuplicateAppendCreates called without a connection.',
@@ -311,17 +328,36 @@ export class CopyWriter {
         'CopyWriter.dropDuplicateAppendCreates called while COPY is open.',
       );
     }
+    if (itemId) {
+      await this.client.query(
+        'SELECT 1 FROM item WHERE id = $1::uuid FOR UPDATE',
+        [itemId],
+      );
+    }
+    // One advisory lock per entity bucket, not per entity. Postgres
+    // keeps advisory locks in the shared lock table, which holds about
+    // max_locks_per_transaction x max_connections entries (6,400 by
+    // default) for the whole server. A per-entity lock made a 20k
+    // feature append fail with "out of shared memory". Two appends
+    // that write the same entity share its bucket in this scope, so
+    // the later one still waits and then sees the first one's commit;
+    // unrelated entities in one bucket just wait too. Keys are taken
+    // in ascending order so two appends cannot deadlock on each other.
     await this.client.query(
-      `SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
+      `SELECT pg_advisory_xact_lock(k)
        FROM (
-         SELECT DISTINCT scope || '|' || entity::text AS k
+         SELECT DISTINCT hashtextextended(
+           'append-dedupe|' || $1::text || '|' ||
+             (hashtextextended(entity::text, 0) & $2::bigint)::text,
+           0
+         ) AS k
          FROM observation
          WHERE scope = $1
            AND kind = 'create'
            AND xmin = pg_current_xact_id()::xid
          ORDER BY 1
        ) locks`,
-      [scope],
+      [scope, APPEND_LOCK_BUCKETS - 1],
     );
     const result = await this.client.query(
       `DELETE FROM observation AS fresh
