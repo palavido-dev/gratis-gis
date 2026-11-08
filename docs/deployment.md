@@ -156,6 +156,47 @@ is the recovery point.
 balancer can take the portal out of rotation. It does not probe
 Keycloak or MinIO; `./infra/doctor.sh` does.
 
+Downloading an archive in the browser stores it wherever that
+browser saves files. That is not an off-site copy until the file,
+and `infra/.env.prod` or the NAS `boot` volume, are on another disk.
+
+## When a restore fails
+
+The in-portal restore turns maintenance mode on and leaves it on if
+`pg_restore` or the object-store copy fails. That is intentional: a
+half-applied database must not serve users. Do not clear the flag
+until the portal tables are present and you have signed in.
+
+1. Snapshot the PostgreSQL volume before you try again, even if it
+   looks broken. It is the only copy of a half-applied restore.
+2. If you took a volume snapshot before the restore, stop the API
+   and restore that snapshot. Leave the Keycloak volume alone unless
+   you also have a Keycloak dump from the same time.
+3. If you do not have a snapshot, restore a known-good portal dump
+   with `pg_restore` while the API is stopped, then copy objects
+   back. The archive layout is `manifest.json`,
+   `postgres/<db>.dump`, and `minio/`.
+4. `./infra/restore-maintenance.sh status` checks that `user`,
+   `item`, `organization`, `system_setting`, `observation`, and
+   `_prisma_migrations` exist, and that no migration is unfinished.
+   Those checks do not prove the restore is consistent or safe to
+   serve. Compare the data with a backup before you continue.
+   `./infra/restore-maintenance.sh clear --i-verified-the-database`
+   refuses otherwise. It does not delete volumes. API replicas
+   re-read the flag within a few seconds.
+5. A forgotten portal password is not fixed by deleting volumes.
+   Reset the user with `./infra/reset-portal-password.sh <username>`.
+   That talks to Keycloak inside the container. It does not open the
+   master realm on the proxy, and it does not touch the database.
+
+## Forgotten admin password
+
+`./infra/reset-portal-password.sh <username>` sets a new password for
+an existing Keycloak user and prints it once. It does not delete
+volumes. On a host with more than one Keycloak container, set
+`GG_KEYCLOAK_CONTAINER` to the GratisGIS one. The home NAS steps are
+in [truenas.md](./truenas.md).
+
 ## A second organization
 
 Each customer runs their own stack. Do not point a second

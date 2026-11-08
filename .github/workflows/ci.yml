@@ -186,6 +186,45 @@ jobs:
         run: |
           bash infra/observation-append-guard.pg.test.sh
           bash infra/analysis-lease-guard.pg.test.sh
+  recovery-scripts:
+    name: Backup and password recovery scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Bash and Python only. The scripts are exercised with a fake
+    # docker on PATH. Nothing here contacts a registry or a volume.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Recovery helpers
+        run: |
+          python3 -m unittest infra/test_nas_init.py
+          bash scripts/backup-help.test.sh
+          bash scripts/reset-portal-password.test.sh
+          bash scripts/restore-maintenance.test.sh
+
+  recovery-integration:
+    name: Keycloak reset and maintenance gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Schema gate on Postgres
+        run: |
+          docker run -d --name gg-pg-ci \
+            -e POSTGRES_PASSWORD=reviewonly \
+            -e POSTGRES_USER=gratisgis \
+            -e POSTGRES_DB=gratisgis \
+            postgis/postgis:17-3.5
+          for _ in $(seq 1 30); do
+            docker exec gg-pg-ci pg_isready -U gratisgis && break
+            sleep 2
+          done
+          PG_DOCKER=gg-pg-ci bash infra/restore-maintenance.pg.test.sh
+          docker rm -f gg-pg-ci
+
+      - name: Isolated Keycloak password reset
+        run: bash infra/reset-portal-password.kc.test.sh
 
   dev-smoke:
     name: Fresh-clone pnpm dev
