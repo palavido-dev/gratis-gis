@@ -63,9 +63,19 @@ def extract(tar_path: Path, dest: Path, max_bytes: int, max_members: int) -> Non
 
 
 def main() -> None:
-    tar_path, dest = sys.argv[1:]
+    args = sys.argv[1:]
     max_bytes = int(os.environ.get('GRATIS_RECOVERY_MAX_UNCOMPRESSED', str(8 << 30)))
     max_members = int(os.environ.get('GRATIS_RECOVERY_MAX_MEMBERS', '32'))
+    if args and args[0] == 'check':
+        if len(args) != 2:
+            reject('usage: safe_untar.py check ARCHIVE')
+        with tarfile.open(args[1], 'r:') as tar:
+            for _member in safe_members(tar, max_bytes, max_members):
+                pass
+        return
+    if len(args) != 2:
+        reject('usage: safe_untar.py ARCHIVE DEST')
+    tar_path, dest = args
     extract(Path(tar_path), Path(dest), max_bytes, max_members)
 
 

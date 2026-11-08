@@ -49,26 +49,29 @@ What a successful restore brings back: Keycloak users and clients, the
 portal database as dumped, and the bucket's objects. The bundle is
 sealed with AES-256-GCM. A changed byte does not decrypt.
 
-What is not in the bundle, and must be kept as its own files:
-the recovery passphrase, `CREDENTIAL_ENCRYPTION_KEY`,
-`POSTGRES_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, the MinIO root
-credentials, `KEYCLOAK_CLIENT_SECRET_WEB`,
-`KEYCLOAK_ADMIN_CLIENT_SECRET`, and `NEXTAUTH_SECRET`. Role passwords
-are cluster-wide and a database dump does not contain them. Capture
-writes those names, not the values, to `required-separately.json`
-beside the bundle. Without the passphrase the bundle does not open.
-Without the credential key, restored credentials do not decrypt.
-Without the env file that matches the cluster, the stack does not boot.
+What is not in the data bundle: the recovery passphrase, and the
+secret files you pass with `--secret-file`. Capture seals those files
+as `secrets.tar.enc` with `--secrets-key-file`. That key is a
+different file from the recovery passphrase, and it is not inside
+either archive. `unseal-secrets.sh` opens `secrets.tar.enc`. Losing
+the secrets key loses those files. Losing the recovery passphrase
+loses the databases and objects. Role passwords are cluster-wide and
+a database dump does not contain them.
 
-Writers that are defined and running are paused. A stopped service is
-left stopped. A bucket policy that denies puts is written for the capture and
-removed afterwards, including when a later step fails. On MinIO
-RELEASE.2024-10-02T17-50-41Z that policy does not stop a user who
-already has an IAM Allow, and it does not stop the root user. The
-quiesce this image actually enforces is pausing writer containers
-that are running. A stopped service is not started. A running writer
-that will not pause fails the capture. Continuous WAL archiving is a
-follow-on, not this bundle.
+Capture stops running writers, including MinIO, before it snapshots.
+A bucket Deny does not stop the root user or an IAM Allow on MinIO
+RELEASE.2024-10-02T17-50-41Z, so the process is stopped and the data
+directory is copied with no published ports and no network. A
+compose file with no MinIO service fails with
+`unsupported-concurrent-write`. If `portal-api` is not in the file,
+`GRATIS_RECOVERY_EXTERNAL_API` must be `stopped`. A service that was
+already stopped stays stopped. Only the containers this run stopped
+are started again, including when a later step fails. A maintenance
+file passed with `--maintenance-file` is created before the snapshot
+when it does not already exist, and capture removes it on failure
+because capture does not change the databases. A partial restore
+keeps its maintenance file. Continuous WAL archiving is a follow-on,
+not this bundle.
 
 `drill.sh` is a fixture. It does not boot the portal. `drill-portal.sh`
 migrates the real schema and checks the portal API.

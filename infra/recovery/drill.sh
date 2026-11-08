@@ -58,6 +58,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/gg-recovery-drill.XXXXXX")"
 chmod 700 "$WORK"
 openssl rand -base64 32 >"$WORK/credential.key"
 openssl rand -base64 48 >"$WORK/recovery.key"
+openssl rand -base64 48 >"$WORK/secrets.key"
+openssl rand -base64 32 >"$WORK/unique-secret"
 openssl rand -base64 24 >"$WORK/ada.pass"
 openssl rand -base64 24 >"$WORK/ben.pass"
 printf 'drill-credential-ok' >"$WORK/plain.txt"
@@ -349,12 +351,65 @@ seed
 export MINIO_ENDPOINT=http://127.0.0.1:19000
 export MINIO_ACCESS_KEY=drillminio
 export MINIO_SECRET_KEY=drill-minio-secret
-printf 'before-capture\n' >>/tmp/gg-recovery-marks
+cat >"$WORK/during-quiesce.py" <<'PY'
+import os
+import boto3
+from botocore.client import Config
+from botocore.exceptions import BotoCoreError, ClientError
+client = boto3.client(
+    "s3",
+    endpoint_url=os.environ["MINIO_ENDPOINT"],
+    aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
+    aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+    config=Config(signature_version="s3v4", connect_timeout=2, read_timeout=2, retries={"max_attempts": 1}),
+    region_name="us-east-1",
+)
+try:
+    client.put_object(Bucket="gratisgis", Key="attachments/during-capture.bin", Body=b"concurrent")
+except (BotoCoreError, ClientError, OSError):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+chmod 700 "$WORK/during-quiesce.py"
+cat >"$WORK/during-quiesce.sh" <<EOF
+#!/bin/sh
+exec "$WORK/venv/bin/python" "$WORK/during-quiesce.py"
+EOF
+chmod 700 "$WORK/during-quiesce.sh"
+export GRATIS_RECOVERY_WHILE_QUIESCED="$WORK/during-quiesce.sh"
+mkdir -p "$WORK/fail-out"
+export GRATIS_RECOVERY_FAIL_AFTER=portal-dump
+set +e
 "$HERE/capture.sh" \
   --confirm-project gg-recovery-drill \
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
+  --secrets-key-file "$WORK/secrets.key" \
+  --secret-file "unique-secret=$WORK/unique-secret" \
+  --maintenance-file "$WORK/fail-maint" \
+  --out "$WORK/fail-out" \
+  --status-file "$WORK/fail-status.json" >/dev/null 2>&1
+fail_code=$?
+set -e
+unset GRATIS_RECOVERY_FAIL_AFTER
+[[ "$fail_code" -ne 0 ]] || recovery_die 'a forced capture failure was reported as success'
+[[ ! -e "$WORK/fail-maint" ]] || recovery_die 'capture failure left the maintenance file it created'
+for svc in minio keycloak portal-api; do
+  state="$(docker inspect -f '{{.State.Status}}' "$(docker compose -p gg-recovery-drill -f "$COMPOSE" ps -aq "$svc")")"
+  [[ "$state" == "running" ]] || recovery_die "capture failure left ${svc} ${state}"
+done
+printf 'capture-failure-resumed\n'
+printf 'before-capture\n' >>/tmp/gg-recovery-marks
+mkdir -p "$WORK/out"
+"$HERE/capture.sh" \
+  --confirm-project gg-recovery-drill \
+  --compose-file "$COMPOSE" \
+  --recovery-key-file "$WORK/recovery.key" \
+  --credential-key-file "$WORK/credential.key" \
+  --secrets-key-file "$WORK/secrets.key" \
+  --secret-file "unique-secret=$WORK/unique-secret" \
+  --maintenance-file "$WORK/capture-maint" \
   --out "$WORK/out" \
   --status-file "$WORK/capture-status.json"
 printf 'capture-sealed\n' >>/tmp/gg-recovery-marks
@@ -377,13 +432,55 @@ rm -f "$WORK/opened.tar"
 python3 - "$WORK/opened/manifest.json" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
-paused = doc["quiesce"]["pausedWriters"]
-if "keycloak" not in paused or "portal-api" not in paused:
-    raise SystemExit("capture did not pause the running writers: " + ",".join(paused))
+stopped = doc["quiesce"]["stoppedWriters"]
+if doc["quiesce"].get("mechanism") != "process-stop" or doc["quiesce"].get("minioStopped") is not True:
+    raise SystemExit("capture did not record a process stop")
+for name in ("keycloak", "portal-api", "minio"):
+    if name not in stopped:
+        raise SystemExit("capture did not stop " + name)
+if "postgres" in stopped:
+    raise SystemExit("capture stopped postgres")
 if "CREDENTIAL_ENCRYPTION_KEY" not in doc["notIncluded"]:
     raise SystemExit("manifest does not say the credential key is absent")
+if doc["components"]["minio"].get("layout") != "minio-data-dir":
+    raise SystemExit("object archive is not the data directory")
 PY
 rm -rf "$WORK/opened"
+[[ ! -e "$WORK/capture-maint" ]] || recovery_die 'a successful capture left the maintenance file'
+"$HERE/unseal-secrets.sh" \
+  --secrets-key-file "$WORK/secrets.key" \
+  --sealed "$WORK/out/secrets.tar.enc" \
+  --out "$WORK/unsealed"
+cmp -s "$WORK/unique-secret" "$WORK/unsealed/unique-secret" || recovery_die 'unsealed secret does not match'
+if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/bundle.tar.enc"; then
+  recovery_die 'the data bundle contains the sealed secret'
+fi
+set +e
+"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/secrets.tar.enc" "$WORK/secrets-with-recovery.tar" >/dev/null 2>&1
+secrets_code=$?
+set -e
+[[ "$secrets_code" -ne 0 ]] || recovery_die 'the recovery passphrase opened the secrets archive'
+"$WORK/venv/bin/python" - <<'PY'
+import os
+import boto3
+from botocore.client import Config
+client = boto3.client(
+    "s3",
+    endpoint_url=os.environ["MINIO_ENDPOINT"],
+    aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
+    aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+    config=Config(signature_version="s3v4"),
+    region_name="us-east-1",
+)
+client.put_object(Bucket="gratisgis", Key="attachments/after-resume.bin", Body=b"after")
+try:
+    client.get_object(Bucket="gratisgis", Key="attachments/during-capture.bin")
+except client.exceptions.NoSuchKey:
+    pass
+else:
+    raise SystemExit("a put during capture was stored")
+print("quiesce-put-ok")
+PY
 
 mkdir -p "$WORK/off"
 "$HERE/offhost.sh" \
@@ -485,7 +582,7 @@ psql_db -At -c "SELECT count(*) FROM app_user" | grep -qx 2
 END="$(date +%s)"
 printf 'drill wall seconds: %s\n' "$((END - STARTED_AT))"
 printf 'restore-and-verify seconds: %s\n' "$((RESTORE_DONE - RESTORE_AT))"
-printf 'drill scope: keycloak password grant for two users, portal org/role/owner/share/feature/signature rows, minio object bytes, credential decrypt with the original key, writer pause, wrong-key refusal, partial restore refusal, truncated bundle refusal, verified read-only off-host copy. The portal HTTP API was not booted.\n'
+printf 'drill scope: keycloak password grant for two users, portal org/role/owner/share/feature/signature rows, minio object bytes, credential decrypt with the original key, process-stop quiesce with a refused put while MinIO was stopped and a put after resume, sealed secrets round trip, capture failure resumes writers and clears maintenance, wrong-key refusal, partial restore refusal, truncated bundle refusal, verified read-only off-host copy. The portal HTTP API was not booted.\n'
 
 # Secret tripwire on this script's own status files and stdout markers.
 if grep -R -q 'drill-credential-ok' "$WORK/capture-status.json" "$WORK/restore-status.json" "$WORK/partial-status.json" "$WORK/off-status.json"; then

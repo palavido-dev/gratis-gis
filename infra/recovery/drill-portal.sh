@@ -57,6 +57,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/gg-recovery-portal.XXXXXX")"
 chmod 700 "$WORK"
 openssl rand -base64 32 >"$WORK/credential.key"
 openssl rand -base64 48 >"$WORK/recovery.key"
+openssl rand -base64 48 >"$WORK/secrets.key"
+openssl rand -base64 32 >"$WORK/unique-secret"
 openssl rand -base64 24 >"$WORK/ada.pass"
 openssl rand -base64 24 >"$WORK/ben.pass"
 printf 'portal-credential-ok' >"$WORK/plain.txt"
@@ -325,53 +327,9 @@ c.create_bucket(Bucket="gratisgis")
 c.put_object(Bucket="gratisgis", Key="attachments/note.bin", Body=body)
 PY
 
-# MinIO root bypasses a bucket policy. A non-root upload user must
-# be the one direct clients use. Freeze denies that user's put, and
-# thaw allows it again.
-docker compose -p gg-recovery-portal -f "$COMPOSE" exec -T \
-  -e MC_HOST_ggcapture='http://drillminio:portal-drill-minio@127.0.0.1:9000' \
-  minio mc admin user add ggcapture uploader 'uploader-secret-value' >/dev/null
-docker compose -p gg-recovery-portal -f "$COMPOSE" exec -T \
-  -e MC_HOST_ggcapture='http://drillminio:portal-drill-minio@127.0.0.1:9000' \
-  minio mc admin policy attach ggcapture readwrite --user uploader >/dev/null
-MINIO_ENDPOINT=http://127.0.0.1:19010 MINIO_ACCESS_KEY=drillminio MINIO_SECRET_KEY=portal-drill-minio \
-  python3 "$HERE/minio_copy.py" freeze gratisgis >/dev/null
-set +e
-MINIO_ENDPOINT=http://127.0.0.1:19010 MINIO_ACCESS_KEY=uploader MINIO_SECRET_KEY=uploader-secret-value \
-  "$WORK/venv/bin/python" - <<'PY'
-import os
-import boto3
-from botocore.client import Config
-c = boto3.client("s3", endpoint_url=os.environ["MINIO_ENDPOINT"],
-    aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
-    config=Config(signature_version="s3v4"), region_name="us-east-1")
-c.put_object(Bucket="gratisgis", Key="attachments/during-freeze.bin", Body=b"no")
-PY
-freeze_code=$?
-set -e
-MINIO_ENDPOINT=http://127.0.0.1:19010 MINIO_ACCESS_KEY=drillminio MINIO_SECRET_KEY=portal-drill-minio \
-  python3 "$HERE/minio_copy.py" thaw gratisgis >/dev/null
-if [[ "$freeze_code" -eq 0 ]]; then
-  # This MinIO release keeps an IAM Allow in force after a bucket Deny.
-  # The policy is stored and readable, and the put still succeeds.
-  # Writer containers are paused separately; that is the quiesce that
-  # this image actually enforces.
-  MINIO_ENDPOINT=http://127.0.0.1:19010 MINIO_ACCESS_KEY=uploader MINIO_SECRET_KEY=uploader-secret-value \
-    "$WORK/venv/bin/python" - <<'PY'
-import os
-import boto3
-from botocore.client import Config
-c = boto3.client("s3", endpoint_url=os.environ["MINIO_ENDPOINT"],
-    aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
-    config=Config(signature_version="s3v4"), region_name="us-east-1")
-c.delete_object(Bucket="gratisgis", Key="attachments/during-freeze.bin")
-PY
-  printf 'freeze-policy-not-enforced-for-iam-allow\n'
-else
-  printf 'freeze-blocks-put\n'
-fi
+# A bucket Deny does not stop root or an IAM Allow on the MinIO image
+# this stack ships. The capture hook below puts an object while MinIO
+# is stopped and must fail. That is the quiesce this drill checks.
 
 printf 'seed-start\n'
 python3 - "$WORK" "$ORG" "$ITEM_PRIVATE" "$ITEM_SHARED" <<'PY'
@@ -418,11 +376,40 @@ stop_api
 export MINIO_ENDPOINT=http://127.0.0.1:19010
 export MINIO_ACCESS_KEY=drillminio
 export MINIO_SECRET_KEY=portal-drill-minio
+export GRATIS_RECOVERY_EXTERNAL_API=stopped
+cat >"$WORK/during-quiesce.py" <<'PY'
+import os
+import boto3
+from botocore.client import Config
+from botocore.exceptions import BotoCoreError, ClientError
+client = boto3.client(
+    "s3",
+    endpoint_url=os.environ["MINIO_ENDPOINT"],
+    aws_access_key_id=os.environ["MINIO_ACCESS_KEY"],
+    aws_secret_access_key=os.environ["MINIO_SECRET_KEY"],
+    config=Config(signature_version="s3v4", connect_timeout=2, read_timeout=2, retries={"max_attempts": 1}),
+    region_name="us-east-1",
+)
+try:
+    client.put_object(Bucket="gratisgis", Key="attachments/during-capture.bin", Body=b"concurrent")
+except (BotoCoreError, ClientError, OSError):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+chmod 700 "$WORK/during-quiesce.py"
+cat >"$WORK/during-quiesce.sh" <<EOF
+#!/bin/sh
+exec "$WORK/venv/bin/python" "$WORK/during-quiesce.py"
+EOF
+chmod 700 "$WORK/during-quiesce.sh"
+export GRATIS_RECOVERY_WHILE_QUIESCED="$WORK/during-quiesce.sh"
 "$HERE/capture.sh" \
   --confirm-project gg-recovery-portal \
   --compose-file "$COMPOSE" \
   --recovery-key-file "$WORK/recovery.key" \
   --credential-key-file "$WORK/credential.key" \
+  --secrets-key-file "$WORK/secrets.key" \
+  --secret-file "unique-secret=$WORK/unique-secret" \
   --out "$WORK/out" \
   --status-file "$WORK/capture-status.json"
 python3 - "$WORK/out/manifest-check" "$WORK/out/bundle.tar.enc" "$WORK/recovery.key" "$HERE" <<'PY'
@@ -437,10 +424,10 @@ tar -C "$WORK/opened" -xf "$WORK/opened.tar" manifest.json
 python3 - "$WORK/opened/manifest.json" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
-paused = doc["quiesce"]["pausedWriters"]
-if "portal-worker" not in paused:
-    raise SystemExit("portal-worker was not paused")
-if "script-runner" in paused:
+stopped = doc["quiesce"]["stoppedWriters"]
+if "portal-worker" not in stopped or "minio" not in stopped:
+    raise SystemExit("capture did not stop the running writers")
+if "script-runner" in stopped:
     raise SystemExit("a stopped service was treated as a writer")
 if "CREDENTIAL_ENCRYPTION_KEY" not in doc["notIncluded"]:
     raise SystemExit("credential key was not listed as absent")
@@ -455,8 +442,15 @@ if docker compose -p gg-recovery-portal -f "$COMPOSE" ps -aq script-runner | gre
 fi
 printf 'quiesce-ok\n'
 test -f "$WORK/out/required-separately.json"
-grep -q 'KEYCLOAK_DB_PASSWORD' "$WORK/out/required-separately.json"
-grep -q 'NEXTAUTH_SECRET' "$WORK/out/required-separately.json"
+grep -q 'sealedSecrets' "$WORK/out/required-separately.json"
+"$HERE/unseal-secrets.sh" \
+  --secrets-key-file "$WORK/secrets.key" \
+  --sealed "$WORK/out/secrets.tar.enc" \
+  --out "$WORK/unsealed"
+cmp -s "$WORK/unique-secret" "$WORK/unsealed/unique-secret" || recovery_die 'unsealed secret does not match'
+if grep -a -F -q -f "$WORK/unique-secret" "$WORK/out/bundle.tar.enc"; then
+  recovery_die 'the data bundle contains the sealed secret'
+fi
 
 mkdir -p "$WORK/off"
 "$HERE/offhost.sh" \

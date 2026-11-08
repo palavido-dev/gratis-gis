@@ -26,6 +26,9 @@ RECOVERY_KEY=""
 CREDENTIAL_KEY=""
 OUT=""
 STATUS_FILE=""
+MAINT_FILE="${GRATIS_RECOVERY_MAINTENANCE_FILE:-}"
+SECRETS_KEY=""
+SECRET_FILES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --confirm-project) CONFIRM="$2"; shift 2 ;;
@@ -34,6 +37,9 @@ while [[ $# -gt 0 ]]; do
     --credential-key-file) CREDENTIAL_KEY="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --status-file) STATUS_FILE="$2"; shift 2 ;;
+    --maintenance-file) MAINT_FILE="$2"; shift 2 ;;
+    --secrets-key-file) SECRETS_KEY="$2"; shift 2 ;;
+    --secret-file) SECRET_FILES+=("$2"); shift 2 ;;
     *) recovery_die "unknown argument" ;;
   esac
 done
@@ -43,6 +49,11 @@ recovery_confirm_project "$CONFIRM"
 [[ -n "$RECOVERY_KEY" && -f "$RECOVERY_KEY" ]] || recovery_die 'recovery key file is required'
 [[ -n "$CREDENTIAL_KEY" && -f "$CREDENTIAL_KEY" ]] || recovery_die 'credential key file is required'
 [[ -n "$OUT" ]] || recovery_die 'output directory is required'
+[[ -n "$SECRETS_KEY" && -f "$SECRETS_KEY" ]] || recovery_die 'secrets key file is required; names alone are not a recoverable copy'
+[[ ${#SECRET_FILES[@]} -gt 0 ]] || recovery_die 'at least one --secret-file label=path is required'
+if cmp -s "$SECRETS_KEY" "$RECOVERY_KEY"; then
+  recovery_die 'the secrets key must be a different file from the recovery passphrase'
+fi
 
 PROJECT="$GRATIS_RECOVERY_PROJECT"
 PORTAL_DB="${GRATIS_RECOVERY_PORTAL_DB:-gratisgis}"
@@ -58,27 +69,26 @@ EOF
   chmod 644 "$STATUS_FILE"
 }
 
-FROZEN=0
-paused_ids=()
-pause_names=()
-thaw() {
-  if [[ "$FROZEN" == 1 ]]; then
-    MINIO_ENDPOINT="${MINIO_ENDPOINT:-}" MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-}" MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-}" \
-      python3 "$HERE/minio_copy.py" thaw "$BUCKET" >/dev/null 2>&1 || true
-    FROZEN=0
-  fi
-}
-unpause() {
-  local cid
-  for cid in "${paused_ids[@]+"${paused_ids[@]}"}"; do
-    docker unpause "$cid" >/dev/null 2>&1 || true
+stopped_ids=()
+stopped_names=()
+MAINT_CREATED=0
+resume() {
+  local i
+  for ((i=${#stopped_ids[@]}-1; i>=0; i--)); do
+    docker start "${stopped_ids[$i]}" >/dev/null 2>&1 || true
   done
+}
+clear_maintenance() {
+  if [[ "$MAINT_CREATED" == 1 && -n "$MAINT_FILE" ]]; then
+    rm -f "$MAINT_FILE"
+    MAINT_CREATED=0
+  fi
 }
 fail() {
   write_status failed capture "$1"
-  thaw
-  unpause
-  rm -rf "$STAGE" "$OUT/bundle.tar" "$OUT/bundle.tar.enc" 2>/dev/null || true
+  resume
+  clear_maintenance
+  rm -rf "$STAGE" "$OUT/bundle.tar" "$OUT/bundle.tar.enc" "$OUT/secrets.tar.enc" 2>/dev/null || true
   recovery_die "$1"
 }
 
@@ -91,46 +101,54 @@ compose() {
   docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
-# Quiesce writers this compose file defines. A service that is not in
-# the file is not a writer on this stack. A service that is stopped
-# stays stopped: capture never starts it. A running writer that will
-# not pause fails the capture. Only containers this run paused are
-# unpaused, including when a later step fails.
-mapfile -t SERVICES < <(compose config --services)
-for svc in keycloak portal-api portal-web portal-worker pointcloud-worker script-runner script-executor; do
-  if printf '%s\n' "${SERVICES[@]}" | grep -qx "$svc"; then
-    cid="$(compose ps -aq "$svc" 2>/dev/null | head -n 1 || true)"
-    if [[ -z "$cid" ]]; then
-      continue
-    fi
-    state="$(docker inspect -f '{{.State.Status}}' "$cid")"
-    case "$state" in
-      running)
-        docker pause "$cid" >/dev/null || fail "could not pause ${svc}"
-        paused_ids+=("$cid")
-        pause_names+=("$svc")
-        ;;
-      exited|created|dead|removing)
-        ;;
-      *)
-        fail "writer ${svc} is ${state} and was not paused"
-        ;;
-    esac
-  fi
-done
-# Deny new puts and deletes. MinIO's root user bypasses a bucket
-# policy, so this stops a non-root upload credential. Writer
-# containers are paused separately, including one that uses root.
-# Thaw removes the policy, including when a later step fails.
-if MINIO_ENDPOINT="${MINIO_ENDPOINT:?MINIO_ENDPOINT is required}" \
-   MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:?}" \
-   MINIO_SECRET_KEY="${MINIO_SECRET_KEY:?}" \
-   python3 "$HERE/minio_copy.py" freeze "$BUCKET" >/dev/null; then
-  FROZEN=1
-else
-  fail 'could not freeze object writes'
+# Maintenance is raised before any snapshot. A capture failure clears
+# it again, because capture does not change the databases. A partial
+# restore keeps its own maintenance file.
+if [[ -n "$MAINT_FILE" && ! -e "$MAINT_FILE" ]]; then
+  mkdir -p "$(dirname "$MAINT_FILE")"
+  printf '%s\n' '{"maintenance":true,"phase":"capture"}' >"$MAINT_FILE"
+  chmod 644 "$MAINT_FILE"
+  MAINT_CREATED=1
 fi
-trap 'thaw; unpause; rm -rf "$STAGE"' EXIT
+
+# Stop writers that are running. A stopped service stays stopped.
+# MinIO is stopped too: a bucket policy does not stop root or an IAM
+# Allow on the image we ship, so the process has to be down before
+# the data directory is copied. Browser, presigned, and script
+# clients then cannot write. Only services this run stopped are
+# started again, including when a later step fails.
+mapfile -t SERVICES < <(compose config --services)
+printf '%s\n' "${SERVICES[@]}" | grep -qx minio || fail 'unsupported-concurrent-write: this compose file has no minio service to isolate'
+if ! printf '%s\n' "${SERVICES[@]}" | grep -qx portal-api; then
+  [[ "${GRATIS_RECOVERY_EXTERNAL_API:-}" == "stopped" ]] || fail 'unsupported-concurrent-write: portal-api is not in this compose file and GRATIS_RECOVERY_EXTERNAL_API is not stopped'
+fi
+stop_if_running() {
+  local svc="$1"
+  local cid state
+  printf '%s\n' "${SERVICES[@]}" | grep -qx "$svc" || return 0
+  cid="$(compose ps -aq "$svc" 2>/dev/null | head -n 1 || true)"
+  [[ -n "$cid" ]] || return 0
+  state="$(docker inspect -f '{{.State.Status}}' "$cid")"
+  case "$state" in
+    running)
+      docker stop "$cid" >/dev/null || fail "could not stop ${svc}"
+      stopped_ids+=("$cid")
+      stopped_names+=("$svc")
+      ;;
+    exited|created|dead|removing)
+      ;;
+    *)
+      fail "writer ${svc} is ${state}; refusing to snapshot while it can write"
+      ;;
+  esac
+}
+for svc in portal-api portal-web portal-worker pointcloud-worker script-runner script-executor keycloak minio; do
+  stop_if_running "$svc"
+done
+trap 'resume; clear_maintenance; rm -rf "$STAGE"' EXIT
+if [[ -n "${GRATIS_RECOVERY_WHILE_QUIESCED:-}" ]]; then
+  "$GRATIS_RECOVERY_WHILE_QUIESCED" || fail 'quiesce check failed; a writer could still store an object'
+fi
 maybe_fail() {
   if [[ "${GRATIS_RECOVERY_FAIL_AFTER:-}" == "$1" ]]; then
     fail "stopped after ${1} on purpose"
@@ -146,19 +164,25 @@ compose exec -T -e PGOPTIONS='-c lock_timeout=15000' postgres \
 [[ -s "$STAGE/portal.dump" && -s "$STAGE/keycloak.dump" ]] || fail 'a database dump is empty'
 maybe_fail portal-dump
 
-MINIO_DIR="$STAGE/minio"
-MINIO_JSON="$(
-  MINIO_ENDPOINT="${MINIO_ENDPOINT:?MINIO_ENDPOINT is required}" \
-  MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:?}" \
-  MINIO_SECRET_KEY="${MINIO_SECRET_KEY:?}" \
-  python3 "$HERE/minio_copy.py" pull "$BUCKET" "$MINIO_DIR"
-)" || fail 'object store copy failed'
-tar -C "$STAGE" -cf "$STAGE/minio.tar" minio
-rm -rf "$MINIO_DIR"
+MINIO_CID="$(compose ps -aq minio | head -n 1)"
+[[ -n "$MINIO_CID" ]] || fail 'minio container does not exist; cannot copy its data volume'
+MINIO_VOL="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$MINIO_CID")"
+[[ -n "$MINIO_VOL" ]] || fail 'minio data volume was not found'
+# The MinIO image has no tar. Use a separate image, publish no ports,
+# and attach no network. MinIO itself is already stopped.
+COPY_IMAGE="${GRATIS_RECOVERY_COPY_IMAGE:-node:24.22.2-bookworm-slim}"
+docker run --rm --network none --entrypoint tar \
+  -v "${MINIO_VOL}:/data:ro" \
+  -v "$STAGE:/out" \
+  "$COPY_IMAGE" \
+  -C /data -cf /out/minio-data.tar . \
+  || fail 'object store copy failed'
+mv "$STAGE/minio-data.tar" "$STAGE/minio.tar"
+MINIO_JSON='{"objectCount":null,"totalBytes":0,"layout":"minio-data-dir"}'
 maybe_fail minio
 
 mapfile -t IMAGES < <(compose config --images | sort -u)
-export PAUSED="${pause_names[*]:-}"
+export PAUSED="${stopped_names[*]:-}"
 export IMAGES_JOINED
 IMAGES_JOINED="$(printf '%s\n' "${IMAGES[@]+"${IMAGES[@]}"}")"
 python3 - "$STAGE/manifest.json" "$CREDENTIAL_KEY" "$MINIO_JSON" <<'PY'
@@ -182,13 +206,18 @@ doc = {
         "keycloakDatabase": files["keycloak.dump"],
         "minio": {
             **files["minio.tar"],
-            "objectCount": minio["objectCount"],
-            "totalBytes": minio["totalBytes"],
+            "layout": "minio-data-dir",
+            "objectCount": minio.get("objectCount"),
+            "totalBytes": files["minio.tar"]["bytes"],
         },
     },
     "images": images,
     "credentialKeySha256": hashlib.sha256(key).hexdigest(),
-    "quiesce": {"pausedWriters": paused, "objectWritesFrozen": True},
+    "quiesce": {
+        "stoppedWriters": paused,
+        "minioStopped": True,
+        "mechanism": "process-stop",
+    },
     "notIncluded": [
         "CREDENTIAL_ENCRYPTION_KEY",
         "recovery passphrase",
@@ -219,26 +248,34 @@ chmod 600 "$OUT/bundle.tar.enc"
 sha="$(recovery_sha256 "$OUT/bundle.tar.enc")"
 printf '%s  bundle.tar.enc\n' "$sha" >"$OUT/bundle.tar.enc.sha256"
 chmod 644 "$OUT/bundle.tar.enc.sha256"
-# Names only. Values stay in the operator's own files.
+# Sealed copy of the operator's secret files. The secrets key is not
+# the recovery passphrase and is not inside either archive.
+SECRET_STAGE="$STAGE/secrets"
+mkdir -p "$SECRET_STAGE"
+chmod 700 "$SECRET_STAGE"
+for spec in "${SECRET_FILES[@]}"; do
+  label="${spec%%=*}"
+  path="${spec#*=}"
+  [[ "$label" != "$spec" && -n "$label" && -f "$path" ]] || fail 'a secret file is missing'
+  [[ "$label" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || fail 'a secret label is not a plain name'
+  cp "$path" "$SECRET_STAGE/$label"
+  chmod 600 "$SECRET_STAGE/$label"
+done
+tar -C "$SECRET_STAGE" -cf "$STAGE/secrets.tar" .
+"$NODE" "$HERE/seal.mjs" enc "$SECRETS_KEY" "$STAGE/secrets.tar" "$OUT/secrets.tar.enc"
+rm -f "$STAGE/secrets.tar"
+chmod 600 "$OUT/secrets.tar.enc"
 cat >"$OUT/required-separately.json" <<'EOF'
 {
-  "indispensable": [
-    "recovery passphrase file",
-    "CREDENTIAL_ENCRYPTION_KEY file",
-    "POSTGRES_PASSWORD",
-    "KEYCLOAK_DB_PASSWORD",
-    "MINIO_ROOT_USER",
-    "MINIO_ROOT_PASSWORD",
-    "KEYCLOAK_CLIENT_SECRET_WEB",
-    "KEYCLOAK_ADMIN_CLIENT_SECRET",
-    "NEXTAUTH_SECRET"
-  ],
-  "why": "Role passwords and object credentials are not inside a database dump. The recovery passphrase and the credential key are not in the bundle. The portal will not boot or decrypt credentials without these files, kept outside the archive."
+  "sealedSecrets": "secrets.tar.enc",
+  "openWith": "secrets key file, kept separate from the recovery passphrase and from both archives",
+  "alsoSeparate": ["recovery passphrase file"],
+  "why": "The data bundle does not contain passwords or keys. secrets.tar.enc is the recoverable copy of the files named at capture. Losing the secrets key loses those files. Losing the recovery passphrase loses the databases and objects."
 }
 EOF
 chmod 644 "$OUT/required-separately.json"
-thaw
-unpause
+resume
+clear_maintenance
 trap 'rm -rf "$STAGE"' EXIT
 write_status succeeded local-capture 'sealed bundle written'
 printf 'recovery: local capture sealed (%s bytes)\n' "$(wc -c <"$OUT/bundle.tar.enc" | tr -d ' ')"

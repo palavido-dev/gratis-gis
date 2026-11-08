@@ -154,14 +154,34 @@ if ! restore_db "$PORTAL_DB" "$STAGE/portal.dump"; then
   recovery_die 'portal database restore failed'
 fi
 
-MINIO_DIR="$STAGE/minio-out"
-mkdir -p "$MINIO_DIR"
-python3 "$HERE/safe_untar.py" "$STAGE/minio.tar" "$MINIO_DIR"
-MINIO_ENDPOINT="${MINIO_ENDPOINT:?}" \
-MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:?}" \
-MINIO_SECRET_KEY="${MINIO_SECRET_KEY:?}" \
-  python3 "$HERE/minio_copy.py" push "$BUCKET" "$MINIO_DIR/minio" >/dev/null \
-  || { write_status failed partial 'object restore failed after databases were replaced' true; recovery_die 'object restore failed'; }
+MINIO_CID="$(compose ps -aq minio 2>/dev/null | head -n 1 || true)"
+[[ -n "$MINIO_CID" ]] || { write_status failed partial 'minio container is missing after the databases were replaced' true; recovery_die 'minio container is missing'; }
+MINIO_WAS_RUNNING=0
+if [[ -n "$(compose ps -q minio 2>/dev/null || true)" ]]; then
+  MINIO_WAS_RUNNING=1
+  docker stop "$MINIO_CID" >/dev/null || { write_status failed partial 'could not stop minio before restoring objects' true; recovery_die 'could not stop minio'; }
+fi
+MINIO_VOL="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$MINIO_CID")"
+[[ -n "$MINIO_VOL" ]] || { write_status failed partial 'minio data volume was not found after the databases were replaced' true; recovery_die 'minio data volume was not found'; }
+# The data directory has more members than the outer bundle. Reject
+# traversal, links, and an oversized archive before anything is written
+# into the volume. The MinIO image has no shell, so a separate image
+# extracts the tar. No ports are published and the network is none.
+COPY_IMAGE="${GRATIS_RECOVERY_COPY_IMAGE:-node:24.22.2-bookworm-slim}"
+if ! GRATIS_RECOVERY_MAX_MEMBERS="${GRATIS_RECOVERY_DATA_MAX_MEMBERS:-1000000}" \
+  python3 "$HERE/safe_untar.py" check "$STAGE/minio.tar"; then
+  write_status failed partial 'object archive was rejected after the databases were replaced' true
+  recovery_die 'object archive was rejected'
+fi
+docker run --rm --network none --entrypoint sh \
+  -v "${MINIO_VOL}:/data" \
+  -v "$STAGE/minio.tar:/in/minio.tar:ro" \
+  "$COPY_IMAGE" \
+  -c 'find /data -mindepth 1 -delete && tar -C /data -xf /in/minio.tar' \
+  || { write_status failed partial 'object restore failed after the databases were replaced' true; recovery_die 'object restore failed'; }
+if [[ "$MINIO_WAS_RUNNING" == 1 ]]; then
+  docker start "$MINIO_CID" >/dev/null
+fi
 
 if [[ "$KC_WAS_RUNNING" == 1 ]]; then
   compose start keycloak >/dev/null
