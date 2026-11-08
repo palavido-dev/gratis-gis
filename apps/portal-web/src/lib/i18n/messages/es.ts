@@ -93,6 +93,9 @@ export const es: Partial<CatalogShape> = {
     migrations: 'Migraciones',
     feedback: 'Comentarios',
     gettingStarted: 'Primeros pasos',
+    audit: 'Auditoría',
+    permissions: 'Permisos',
+    diagnostics: 'Diagnóstico',
     updates: 'Actualizaciones',
   },
   updates: {
@@ -3482,6 +3485,52 @@ export const es: Partial<CatalogShape> = {
     docsDesc:
       'La guía integrada cubre roles, copias de seguridad, marca y mantenimiento. Diez minutos ahora evitan sorpresas después.',
     docsAction: 'Abrir la guía',
+    secondAdminTitle: 'Añadir un segundo administrador',
+    secondAdminDesc:
+      '{count, plural, one {# administrador habilitado} other {# administradores habilitados}}. Un segundo administrador puede recuperar la organización si el primero no puede entrar. El portal sigue funcionando con uno solo, y este elemento no se puede marcar a mano.',
+    secondAdminAction: 'Abrir usuarios',
+  },
+  adminAudit: {
+    title: 'Auditoría',
+    intro:
+      'Cambios privilegiados de esta organización: usuarios, roles, uso compartido, propiedad, copias y ajustes de administración. No es el historial de las entidades del mapa. No se guardan contraseñas ni cuerpos de mensajes.',
+    refresh: 'Cargar eventos',
+    loading: 'Cargando…',
+    loadFailed: 'No se pudo cargar la auditoría.',
+    empty: 'Aún no hay eventos. Cargue la lista o haga un cambio privilegiado y vuelva a cargar.',
+    more: 'Eventos anteriores',
+    when: 'Cuándo',
+    action: 'Acción',
+    actor: 'Actor',
+    target: 'Destino',
+    outcome: 'Resultado',
+  },
+  adminPermissions: {
+    title: 'Permisos',
+    intro:
+      'Instantánea actual del uso compartido: acceso público, de la organización, de grupo y de usuario, el propietario y los principales que ya no existen. No es un historial de cambios.',
+    refresh: 'Cargar instantánea',
+    loading: 'Cargando…',
+    loadFailed: 'No se pudieron cargar los permisos.',
+    download: 'Descargar CSV',
+    generated: 'Instantánea de {at}.',
+    empty: 'No hay elementos en esta organización.',
+    item: 'Elemento',
+    access: 'Acceso',
+    owner: 'Propietario',
+    share: 'Uso compartido',
+    missingOwner: 'Propietario ausente',
+    missingPrincipal: 'principal ausente',
+    tierOnly: 'Solo el nivel de acceso',
+  },
+  adminDiagnostics: {
+    title: 'Diagnóstico',
+    intro:
+      'Cree un paquete de soporte a propósito. Incluye versiones, si la base respondió, el mantenimiento y recuentos de trabajos de importación, análisis y copia. Se quitan secretos y nombres. No se ejecuta ningún comando de shell.',
+    create: 'Crear paquete',
+    working: 'Creando…',
+    failed: 'No se pudo crear el paquete.',
+    download: 'Descargar JSON',
   },
   apiKeys: {
     copyTitle: 'Copia tu clave ahora',

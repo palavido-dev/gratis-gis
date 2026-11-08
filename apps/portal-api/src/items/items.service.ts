@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
@@ -16,6 +16,7 @@ import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
+import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
@@ -553,7 +554,27 @@ export class ItemsService {
     // from a data_collection. Lives in OfflinePackageCoreModule
     // (Prisma-only) precisely so this import is not a cycle.
     private readonly offlinePackages: OfflinePackageService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
+
+  private noteAudit(
+    user: AuthUser,
+    action: 'item.access' | 'item.share' | 'item.unshare' | 'item.owner',
+    itemId: string,
+    outcome: AuditOutcome,
+    detail: Record<string, unknown>,
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action,
+      targetType: 'item',
+      targetId: itemId,
+      outcome,
+      detail,
+    });
+  }
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
     const where = await this.buildListWhere(user, opts);
@@ -1978,6 +1999,12 @@ export class ItemsService {
         ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
       },
     });
+    if (input.access !== undefined && input.access !== item.access) {
+      this.noteAudit(user, 'item.access', id, 'succeeded', {
+        from: item.access,
+        to: input.access,
+      });
+    }
     // Phase 2.5: schema edits are pure metadata now. Pre-engine,
     // this called dataLayerTables.reconcile to DROP tables for removed
     // layers and CREATE/ALTER tables for new ones. The engine
@@ -2986,8 +3013,8 @@ export class ItemsService {
     // keepPreviousOwnerAccess is null / undefined or when the
     // previous owner is the caller's own account (they already
     // carry admin through org role if relevant).
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.item.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.item.update({
         where: { id },
         data: { ownerId: input.newOwnerId },
       });
@@ -3009,8 +3036,13 @@ export class ItemsService {
           },
         });
       }
-      return updated;
+      return row;
     });
+    this.noteAudit(user, 'item.owner', id, 'succeeded', {
+      previousOwnerId: prevOwnerId,
+      ownerId: input.newOwnerId,
+    });
+    return updated;
   }
 
   /**
@@ -3186,6 +3218,11 @@ export class ItemsService {
         payload,
       );
     }
+    this.noteAudit(user, 'item.share', id, 'succeeded', {
+      principalType: input.principalType,
+      principalId: input.principalId,
+      permission: input.permission ?? 'view',
+    });
     return result;
   }
 
@@ -3223,6 +3260,10 @@ export class ItemsService {
           principalId: input.principalId,
         },
       },
+    });
+    this.noteAudit(user, 'item.unshare', id, 'succeeded', {
+      principalType: input.principalType,
+      principalId: input.principalId,
     });
   }
 

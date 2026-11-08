@@ -248,6 +248,8 @@ model Organization {
   notificationTemplates NotificationTemplate[]
   /// Opt-in AI provider. No row means AI is off.
   aiProvider            OrgAiProvider?
+  /// Privileged admin actions. Not the feature observation log.
+  adminAuditEvents      AdminAuditEvent[]
 
   @@map("organization")
 }
@@ -272,6 +274,26 @@ model OrgAiProvider {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_ai_provider")
+}
+
+/// Persisted org admin audit. Actor and target are ids. Detail is a
+/// small allowlisted object written by AdminAuditService, which drops
+/// secrets, message bodies, and email addresses before insert.
+model AdminAuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  at          DateTime @default(now()) @db.Timestamptz(6)
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id")
+  outcome     String
+  detail      Json     @default("{}")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at(sort: Desc), id(sort: Desc)], map: "admin_audit_event_org_at_idx")
+  @@map("admin_audit_event")
 }
 
 model User {
