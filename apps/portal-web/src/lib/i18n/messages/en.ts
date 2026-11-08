@@ -30,6 +30,8 @@ export const en = {
     backToItems: 'Back to items',
     settings: 'Settings',
     language: 'Language',
+    geolocationInsecure:
+      'The browser will not share your GPS location on this plain HTTP address. Address search does not use GPS. To use My location, open the portal with HTTPS. On a home NAS that is Tailscale Serve with your MagicDNS name. localhost is also allowed.',
   },
   /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
   builderShell: {

@@ -530,7 +530,11 @@ def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
 	handle /api/portal/* {{
 		reverse_proxy portal-web:3000
 	}}
-	handle /api/geocode/* {{
+	# /api/geocode?q= is the address search. A trailing-slash wildcard
+	# does not match that path, and /api/* would send it to portal-api
+	# ("Cannot GET /api/geocode").
+	@geocode path /api/geocode /api/geocode/*
+	handle @geocode {{
 		reverse_proxy portal-web:3000
 	}}
 	handle /api/locale {{
@@ -567,7 +571,11 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	handle /api/portal/* {{
 		reverse_proxy portal-web:3000
 	}}
-	handle /api/geocode/* {{
+	# /api/geocode?q= is the address search. A trailing-slash wildcard
+	# does not match that path, and /api/* would send it to portal-api
+	# ("Cannot GET /api/geocode").
+	@geocode path /api/geocode /api/geocode/*
+	handle @geocode {{
 		reverse_proxy portal-web:3000
 	}}
 	handle /api/locale {{

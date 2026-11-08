@@ -49,6 +49,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   redirect URIs and frontend URL in place. Keep the volumes. Existing
   installs set `GRATIS_BASE_URL` to the Tailscale HTTPS name (or the
   `http://100.x` address) and restart.
+- Address search on the home NAS compose file. The browser calls
+  `/api/geocode?q=...`. Caddy only sent `/api/geocode/*` to the web
+  app, so the exact path reached portal-api and came back as
+  `Cannot GET /api/geocode`. The same matcher is fixed in the
+  production Caddyfile. With no local Nominatim configured, the web
+  app still falls back to the public Nominatim service. That needs
+  outbound HTTPS from the NAS. Set `NOMINATIM_PUBLIC_FALLBACK=0` to
+  keep queries on a configured geocoder only.
+- My location on plain HTTP. The browser blocks GPS outside a secure
+  context (`https://` or localhost). The button now says that, and
+  that address search is separate. It does not allow GPS on insecure
+  origins. On a home NAS, Tailscale Serve with the MagicDNS name is
+  the way to get a secure page. No volume reset.
 - Map builder: the basemap menu opens again. The toolbar scrolled
   sideways (`overflow-x-auto`), which also clips vertically, so the
   menu dropping below the header was cut off. The toolbar wraps

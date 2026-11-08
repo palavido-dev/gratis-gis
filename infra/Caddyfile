@@ -105,7 +105,11 @@ www.{$PORTAL_DOMAIN} {
     handle /api/portal/* {
         reverse_proxy portal-web:3000
     }
-    handle /api/geocode/* {
+    # /api/geocode?q= is address search. The wildcard does not match
+    # the exact path, so the request fell through to portal-api and
+    # Express answered "Cannot GET /api/geocode".
+    @geocode path /api/geocode /api/geocode/*
+    handle @geocode {
         reverse_proxy portal-web:3000
     }
     # #162 Phase 1.1: portal-web owns the locale-switch route too.

@@ -27,6 +27,8 @@ export const es: Partial<CatalogShape> = {
     backToItems: 'Volver a los elementos',
     settings: 'Configuración',
     language: 'Idioma',
+    geolocationInsecure:
+      'El navegador no comparte el GPS en esta dirección HTTP sin cifrar. La búsqueda de direcciones no usa GPS. Para usar Mi ubicación, abre el portal con HTTPS. En un NAS, eso es Tailscale Serve con el nombre MagicDNS. localhost también está permitido.',
   },
   /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
   builderShell: {

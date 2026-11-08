@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-08 - Address search works on a home NAS; GPS still needs HTTPS
+Finding an address works on the plain HTTP address. The browser was asking a path the proxy did not send to the portal. My location is GPS: browsers block it on http://192.168.x.x. The button explains that and points at Tailscale HTTPS. It does not turn GPS on for plain HTTP.
+
 ## 2026-11-08 - Tailscale sign-in stays on the name you configure
 Signing in from a Tailscale name no longer sends the browser to the LAN address. Set GRATIS_BASE_URL to that name and restart. Keep the volumes. Until you do, the sign-in page shows the line to add instead of leaving the name you opened.
 

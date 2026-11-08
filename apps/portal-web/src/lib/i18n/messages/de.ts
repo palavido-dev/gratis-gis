@@ -25,6 +25,8 @@ export const de: Partial<CatalogShape> = {
     backToItems: 'Zurück zu Elementen',
     settings: 'Einstellungen',
     language: 'Sprache',
+    geolocationInsecure:
+      'Der Browser gibt den GPS-Standort über diese reine HTTP-Adresse nicht frei. Die Adresssuche nutzt kein GPS. Für „Mein Standort“ das Portal über HTTPS öffnen. Auf einem NAS ist das Tailscale Serve mit dem MagicDNS-Namen. localhost ist ebenfalls erlaubt.',
   },
   /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
   builderShell: {

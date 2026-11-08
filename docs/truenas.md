@@ -134,6 +134,17 @@ In the Caddy service, replace the `ports` list with `"80:80"` and
 `gis`, `auth.gis`, and `storage.gis` at the NAS. That is the same
 shape as the VPS install in [deployment.md](./deployment.md).
 
+## Address search and My location
+
+Address search calls this portal, then the public OpenStreetMap
+Nominatim service when this stack has no local geocoder. The NAS
+must be able to reach the internet for that. It is not GPS, and it
+works on the plain HTTP address.
+
+**My location** is the browser's GPS. Browsers refuse it on
+`http://192.168.x.x` and on `http://100.x`. Use the Tailscale HTTPS
+name above, or `localhost`. The portal does not bypass that rule.
+
 ## What this stack does not do
 
 - It speaks plain HTTP on your LAN. There is no certificate warning.
