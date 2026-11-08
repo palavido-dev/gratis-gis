@@ -86,6 +86,7 @@ export const fr: Partial<CatalogShape> = {
     notifications: 'Notifications',
     ai: 'IA',
     build: 'Créer',
+    buildHint: 'Décrire une couche, une carte, un formulaire ou une app',
     security: 'Connexion',
     fieldQueues: 'Files de terrain',
     migrations: 'Migrations',
@@ -122,8 +123,9 @@ export const fr: Partial<CatalogShape> = {
     closeNavigation: 'Fermer la navigation',
   },
   search: {
-    placeholder: 'Rechercher des éléments...',
+    placeholder: 'Rechercher des éléments seulement',
     label: 'Rechercher des éléments',
+    scopeHint: 'Recherche les titres, descriptions et étiquettes des éléments. Les personnes et les groupes ne sont pas inclus.',
   },
   help: {
     buttonTitle: 'Aide (appuyez sur ? à tout moment)',
@@ -184,6 +186,9 @@ export const fr: Partial<CatalogShape> = {
     viewerBlocked:
       "Votre compte a le rôle Lecteur, qui permet d'ouvrir et de télécharger des éléments mais pas d'en créer. Un administrateur de l'organisation peut changer votre rôle ou vous accorder uniquement la capacité de publication.",
     changeType: 'Changer de type',
+    taskIntro: 'Commencez par un envoi, une carte ou un formulaire. Les autres types sont sous Plus, et un lien qui nomme un type l’ouvre toujours.',
+    moreTypes: 'Plus de types',
+    fewerTypes: 'Moins de types',
     detailsEyebrow: 'Nouveau {type}',
     detailsEyebrowFallback: 'élément',
     titleLabel: 'Titre',
@@ -265,7 +270,7 @@ export const fr: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Web app',
-    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    desc: 'Application web faite d’une carte et de widgets. Un tableau de bord est un modèle de ce type, pas un élément distinct. Choisissez un modèle ensuite, ou partez de zéro.',
   },
   theme: {
     label: 'Theme',
@@ -1581,6 +1586,20 @@ export const fr: Partial<CatalogShape> = {
     copyLink: 'Copier le lien',
     copied: 'Copié',
     openOnPhone: 'Ouvrir sur un téléphone',
+    eyebrow: 'Contenu',
+    intro: 'Déploiements à ouvrir sur le terrain, avec le cache hors ligne et l’état de synchro de cet appareil.',
+    newDeployment: 'Nouveau déploiement',
+    sessionExpiredTitle: 'Session expirée',
+    sessionExpiredBody: 'Reconnectez-vous pour charger les déploiements. Ce n’est pas un catalogue vide. Ce qui est déjà enregistré sur cet appareil reste ici et se synchronise après la connexion.',
+    emptyTitle: 'Aucun déploiement de terrain',
+    emptyBody: 'Un déploiement pointe vers une carte et le formulaire rempli lors de l’ajout d’entités.',
+    createDeployment: 'Créer un déploiement',
+    loadFailedTitle: 'Les déploiements n’ont pas pu être chargés',
+    loadFailedBody: 'Le catalogue n’a pas répondu. Ce n’est pas une liste vide. Réessayez dans un instant.',
+  },
+  buildPage: {
+    title: 'Créer à partir d’une description',
+    intro: 'Décrivez une couche, une carte, un formulaire ou une app. Un tableau de bord est un modèle d’application web, pas cette page. Rien n’est créé tant que vous ne choisissez pas de le créer.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1947,6 +1966,8 @@ export const fr: Partial<CatalogShape> = {
     sharingHeading: 'Partage',
     publicBoundaryWarning:
       'La limite géographique publique est absente ou sans géométrie. Les lecteurs publics ne voient aucune entité tant qu’une limite existante n’est pas choisie.',
+    shareAction: 'Partager',
+    shareActionHint: 'Ouvre le partage et l’accès. Les dépendances sont listées dans cet onglet avant la publication.',
     openForm: 'Ouvrir',
     openFormTitle: 'Ouvrir le formulaire pour envoyer une réponse',
     responses: 'Réponses',
@@ -3959,10 +3980,12 @@ export const fr: Partial<CatalogShape> = {
       sendInvite: 'Envoyer l’invitation',
       errUsernameMin: 'L’identifiant doit comporter au moins 2 caractères.',
       errEmailInvalid: 'Veuillez saisir une adresse e-mail valide.',
-      errInviteFailed: 'Échec de l’invitation : {status} {detail}',
-      alertEmailFailedTitle: 'Utilisateur créé, e-mail en échec',
+      errDuplicate: 'Un compte avec ce nom ou cette adresse existe déjà. L’adresse n’est pas affichée ici.',
+      errUpstream: 'Le serveur d’identité n’a pas pu créer le compte. Réessayez dans un instant. Si l’échec persiste, vérifiez que le serveur d’identité fonctionne. L’adresse n’est pas affichée ici.',
+      errInviteFailed: 'L’invitation ne s’est pas terminée (état {status}). Aucun détail de compte n’est affiché.',
+      alertEmailFailedTitle: 'Compte créé, e-mail non envoyé',
       alertEmailFailedMessage:
-        'L’utilisateur « {username} » a été créé, mais l’e-mail de configuration du mot de passe n’a pas pu être envoyé :\n\n{error}\n\nUne fois SMTP opérationnel, cliquez sur « Réinitialiser le mot de passe » pour cet utilisateur pour renvoyer l’e-mail.',
+        'Le compte a été créé, mais l’e-mail de connexion n’a pas été envoyé. Ouvrez Notifications, corrigez SMTP, puis utilisez Réinitialiser le mot de passe sur le nouveau compte. Ce message ne contient pas l’adresse.',
     },
     edit: {
       title: 'Modifier l’utilisateur',

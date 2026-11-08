@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -404,10 +405,13 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const text = await res.text();
+      await res.text();
+      // Keycloak answers 409 when the username or email is taken. That
+      // is a client conflict, not an upstream failure, so the web UI can
+      // tell it apart from a Keycloak outage (502).
       if (res.status === 409) {
-        throw new BadGatewayException(
-          `A user with that username or email already exists (${text}).`,
+        throw new ConflictException(
+          'A user with that username or email already exists.',
         );
       }
       throw new BadGatewayException(
@@ -440,12 +444,9 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
           'UPDATE_PASSWORD',
           'VERIFY_EMAIL',
         ]);
-      } catch (err) {
-        setupEmailError =
-          err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `User ${input.username} created in Keycloak but setup email failed: ${setupEmailError}`,
-        );
+      } catch {
+        setupEmailError = 'smtp_unavailable';
+        this.logger.warn(`Setup email failed for user id ${id}`);
       }
     }
     const rep = await this.getUser(id);
