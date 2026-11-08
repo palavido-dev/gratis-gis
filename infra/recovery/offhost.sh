@@ -50,22 +50,35 @@ EOF
   chmod 644 "$STATUS_FILE"
 }
 
-if ! cp --update=none "$BUNDLE" "$target"; then
+# Copy to a temporary name of our own in the destination directory,
+# verify it, drop the write bits, then publish with a hard link, which
+# fails instead of replacing a file someone else put there. Only our
+# temporary file is ever removed.
+tmp="$(mktemp "$DEST_DIR/.${base}.XXXXXX")" || { write_status failed copy false false 'copy failed'; recovery_die 'copy failed'; }
+trap 'rm -f "$tmp"' EXIT
+if ! cp "$BUNDLE" "$tmp"; then
   write_status failed copy false false 'copy failed'
   recovery_die 'copy failed'
 fi
 src_sum="$(recovery_sha256 "$BUNDLE")"
-dst_sum="$(recovery_sha256 "$target")"
+dst_sum="$(recovery_sha256 "$tmp")"
 if [[ "$src_sum" != "$dst_sum" ]]; then
-  rm -f "$target"
   write_status failed verify false false 'copied bytes do not match'
   recovery_die 'copied bytes do not match'
 fi
-chmod a-w "$target"
-if [[ -w "$target" ]]; then
+chmod a-w "$tmp"
+# Check the mode bits; root can write through any mode, so -w is no test.
+perm="$(stat -c '%a' "$tmp")"
+if (( 8#$perm & 8#222 )); then
   write_status failed permissions false false 'destination is still writable'
   recovery_die 'destination is still writable'
 fi
+if ! ln "$tmp" "$target" 2>/dev/null; then
+  write_status failed copy false false 'destination already has this bundle; refusing to overwrite'
+  recovery_die 'destination already has this bundle; refusing to overwrite'
+fi
+rm -f "$tmp"
+trap - EXIT
 src_dev="$(stat -c '%d' "$BUNDLE")"
 dst_dev="$(stat -c '%d' "$target")"
 same=false

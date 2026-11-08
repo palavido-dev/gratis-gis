@@ -54,16 +54,17 @@ mkdir -p "$WORK/bin"
 cat >"$WORK/bin/docker" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
+SERVICES=(postgres keycloak minio portal-api portal-worker)
 if [[ "$1" == compose ]]; then
-  project="$3"
-  shift 5
+  shift
+  project=""
+  while [[ "$1" == -* ]]; do
+    [[ "$1" == -p ]] && project="$2"
+    shift 2
+  done
   case "$1" in
     config)
-      if [[ "${2:-}" == --services ]]; then
-        printf '%s\n' postgres keycloak minio portal-api portal-worker
-      elif [[ "${2:-}" == --images ]]; then
-        printf '%s\n' gratis/portal-api:1 postgres:17
-      fi
+      [[ "${2:-}" == --services ]] && printf '%s\n' "${SERVICES[@]}"
       exit 0
       ;;
     ps)
@@ -84,15 +85,22 @@ if [[ "$1" == compose ]]; then
   exit 1
 fi
 case "$1" in
+  ps)
+    if [[ "$*" == *"com.docker.compose.project=${FAKE_PROJECT} "* ]]; then
+      for svc in "${SERVICES[@]}" ${FAKE_EXTRA:-}; do
+        printf 'cid-%s|%s|running\n' "$svc" "$svc"
+      done
+    fi
+    ;;
   inspect)
-    if [[ "$*" == *Mounts* ]]; then
+    cid="${*: -1}"
+    if [[ "$*" == *Labels* ]]; then
+      printf '%s|sha256:%s\n' "${cid#cid-}" "${cid#cid-}"
+    elif [[ "$*" == *Mounts* ]]; then
       printf 'vol-minio\n'
     else
       printf 'running\n'
     fi
-    ;;
-  image)
-    printf 'sha256:%s\n' "${5//[^a-z0-9]/}"
     ;;
   *)
     # stop, start, run: anything that changes state.
@@ -128,15 +136,15 @@ for name in ("portal.dump", "keycloak.dump", "minio.tar"):
     files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
 doc = {
     "kind": "gratis-recovery-bundle",
-    "format": 3,
+    "format": 4,
     "components": {
         "portalDatabase": files["portal.dump"],
         "keycloakDatabase": files["keycloak.dump"],
         "minio": {**files["minio.tar"], "objectCount": None, "totalBytes": 6},
     },
     "images": [
-        {"ref": "gratis/portal-api:1", "id": "sha256:gratisportalapi1"},
-        {"ref": "postgres:17", "id": "sha256:postgres17"},
+        {"service": svc, "id": "sha256:" + svc}
+        for svc in ("keycloak", "minio", "portal-api", "portal-worker", "postgres")
     ],
     "latestMigration": migration,
     "credentialKeySha256": hashlib.sha256(key).hexdigest(),
@@ -263,6 +271,34 @@ assert doc["maintenance"] is False, doc
 PY
 : >"$FAKE_DOCKER_LOG"
 
+# A running container outside the known services stops the restore,
+# even when the compose file does not name it.
+set +e
+msg="$(FAKE_EXTRA=mystery-writer run_restore "$WORK/credential.key" "$WORK/bundle.tar.enc")"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail 'an unknown running service was accepted'
+printf '%s\n' "$msg" | grep -q 'not a known service' || fail 'unknown service refusal did not say why'
+no_changes 'unknown service'
+
+# After a partial restore, a retry that fails early must leave the
+# maintenance file and the partial status exactly as they were. The
+# --env-file is passed to every compose call.
+printf 'held' >"$WORK/maint"
+printf '%s\n' '{"outcome":"failed","phase":"partial","maintenance":true}' >"$WORK/status.json"
+printf 'X=1\n' >"$WORK/env.prod"
+set +e
+msg="$(FAKE_MIGRATION=20260202000000_next run_restore "$WORK/credential.key" "$WORK/bundle.tar.enc" \
+  gg-recovery-unit --allow-version-mismatch --env-file "$WORK/env.prod")"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail 'the fake stop was reported as success'
+[[ "$(cat "$WORK/maint" 2>/dev/null)" == held ]] || fail 'a retry removed or rewrote an existing maintenance file'
+grep -q '"phase":"partial"' "$WORK/status.json" || fail 'a retry overwrote the partial status'
+grep -q -- "--env-file $WORK/env.prod config --services" "$FAKE_DOCKER_LOG" || fail '--env-file was not passed to compose'
+rm -f "$WORK/maint" "$WORK/status.json"
+: >"$FAKE_DOCKER_LOG"
+
 # Capture refuses a project with no containers before it writes.
 mkdir -p "$WORK/cap-out"
 set +e
@@ -288,7 +324,9 @@ ln -s bundle.tar.enc "$WORK/latest.tar.enc"
   --dest "file:$WORK/off" \
   --status-file "$WORK/off-status.json"
 [[ -f "$WORK/off/bundle.tar.enc" && ! -L "$WORK/off/bundle.tar.enc" ]] || fail 'off-host copy did not follow latest'
-[[ ! -w "$WORK/off/bundle.tar.enc" ]] || fail 'off-host copy is still writable'
+perm="$(stat -c '%a' "$WORK/off/bundle.tar.enc")"
+(( (8#$perm & 8#222) == 0 )) || fail "off-host copy mode is $perm"
+[[ -z "$(find "$WORK/off" -name '.*')" ]] || fail 'off-host copy left a temporary file'
 python3 - "$WORK/off-status.json" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
@@ -308,6 +346,21 @@ code=$?
 set -e
 [[ "$code" -ne 0 ]] || fail 'a second off-host copy overwrote the first'
 
+# A file someone else put at the target name is neither replaced nor
+# deleted.
+mkdir -p "$WORK/off2"
+printf 'theirs' >"$WORK/off2/bundle.tar.enc"
+set +e
+"$HERE/offhost.sh" \
+  --confirm-project gg-recovery-unit \
+  --bundle "$WORK/bundle.tar.enc" \
+  --dest "file:$WORK/off2" >/dev/null 2>&1
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail 'off-host copy replaced a foreign file'
+[[ "$(cat "$WORK/off2/bundle.tar.enc")" == theirs ]] || fail 'off-host copy changed a foreign file'
+[[ "$(find "$WORK/off2" -type f | wc -l)" == 1 ]] || fail 'off-host copy left a temporary file'
+
 # The passphrase bytes must not appear in the sealed file.
 if grep -a -F -q -f "$WORK/recovery.key" "$WORK/bundle.tar.enc"; then
   fail 'the sealed bundle contains the passphrase'
@@ -323,6 +376,21 @@ set +e
 code=$?
 set -e
 [[ "$code" -ne 0 ]] || fail 'seal replaced an existing file'
+
+# A header that asks for a higher scrypt cost than enc writes is
+# refused before any key derivation.
+python3 - "$WORK/bundle.tar.enc" "$WORK/costly.enc" <<'PY'
+import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+data[6] = 22
+open(sys.argv[2], "wb").write(data)
+PY
+set +e
+msg="$("$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/costly.enc" "$WORK/costly.tar" 2>&1)"
+code=$?
+set -e
+[[ "$code" -ne 0 ]] || fail 'a high-cost header was accepted'
+printf '%s\n' "$msg" | grep -q 'unsupported parameters' || fail 'a high-cost header was not refused up front'
 
 # Streaming: 50 MB spans many 1 MiB records.
 head -c 52428800 /dev/urandom >"$WORK/large.bin"

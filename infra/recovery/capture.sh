@@ -13,7 +13,8 @@
 #       --recovery-key-file /path/to/recovery.key \
 #       --credential-key-file /path/to/credential.key \
 #       --secrets-key-file /path/to/secrets.key \
-#       --secret-file env=/path/to/.env \
+#       --env-file infra/.env.prod \
+#       --secret-file env=infra/.env.prod \
 #       --out /path/to/out-dir
 #
 # Each run writes new files named by UTC time, bundle-<ts>.tar.enc and
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --maintenance-file) MAINT_FILE="$2"; shift 2 ;;
     --secrets-key-file) SECRETS_KEY="$2"; shift 2 ;;
     --secret-file) SECRET_FILES+=("$2"); shift 2 ;;
+    --env-file) ENV_FILES+=("$2"); shift 2 ;;
     # Databases and objects only. restore.sh uses this for its
     # pre-restore safety bundle; restore does not change secret files.
     --data-only) DATA_ONLY=1; shift ;;
@@ -57,6 +59,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 recovery_confirm_project "$CONFIRM"
+for f in "${ENV_FILES[@]}"; do
+  [[ -f "$f" ]] || recovery_die 'an --env-file does not exist'
+done
 [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]] || recovery_die 'compose file is required'
 [[ -n "$RECOVERY_KEY" && -f "$RECOVERY_KEY" ]] || recovery_die 'recovery key file is required'
 [[ -n "$CREDENTIAL_KEY" && -f "$CREDENTIAL_KEY" ]] || recovery_die 'credential key file is required'
@@ -71,7 +76,7 @@ if [[ "$DATA_ONLY" != 1 ]]; then
     label="${spec%%=*}"
     path="${spec#*=}"
     [[ "$label" != "$spec" && -n "$label" && -f "$path" ]] || recovery_die 'a secret file is missing'
-    [[ "$label" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || recovery_die 'a secret label is not a plain name'
+    [[ "$label" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]{0,79}$ ]] || recovery_die 'a secret label is not a plain name'
   done
 fi
 
@@ -206,12 +211,12 @@ paused = [p for p in os.environ.get("PAUSED", "").split(" ") if p]
 images = []
 for line in pathlib.Path(images_path).read_text().splitlines():
     if line:
-        ref, _, image_id = line.partition("|")
-        images.append({"ref": ref, "id": image_id})
+        service, _, image_id = line.partition("|")
+        images.append({"service": service, "id": image_id})
 key = pathlib.Path(key_path).read_bytes()
 doc = {
     "kind": "gratis-recovery-bundle",
-    "format": 3,
+    "format": 4,
     "encryption": "aes-256-gcm",
     "components": {
         "portalDatabase": files["portal.dump"],

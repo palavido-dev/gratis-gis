@@ -9,6 +9,7 @@
 #       --recovery-key-file /path/to/recovery.key \
 #       --credential-key-file /path/to/credential.key \
 #       --bundle /path/to/out-dir/latest.tar.enc \
+#       --env-file infra/.env.prod \
 #       [--safety-out /path/to/pre-restore] [--allow-version-mismatch]
 #
 # Order: check the project, decrypt and verify the bundle inside a
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --maintenance-file) MAINT_FILE="$2"; shift 2 ;;
     --safety-out) SAFETY_OUT="$2"; shift 2 ;;
     --allow-version-mismatch) ALLOW_VERSION_MISMATCH=1; shift ;;
+    --env-file) ENV_FILES+=("$2"); shift 2 ;;
     *) recovery_die "unknown argument" ;;
   esac
 done
@@ -58,6 +60,9 @@ recovery_confirm_project "$CONFIRM"
 [[ -n "$RECOVERY_KEY" && -f "$RECOVERY_KEY" ]] || recovery_die 'recovery key file is required'
 [[ -n "$CREDENTIAL_KEY" && -f "$CREDENTIAL_KEY" ]] || recovery_die 'credential key file is required'
 [[ -n "$BUNDLE" && -f "$BUNDLE" ]] || recovery_die 'bundle is required'
+for f in "${ENV_FILES[@]}"; do
+  [[ -f "$f" ]] || recovery_die 'an --env-file does not exist'
+done
 BUNDLE="$(readlink -f "$BUNDLE")"
 if [[ -z "$SAFETY_OUT" ]]; then
   SAFETY_OUT="$(dirname "$BUNDLE")/pre-restore"
@@ -68,10 +73,29 @@ PORTAL_DB="${GRATIS_RECOVERY_PORTAL_DB:-gratisgis}"
 KEYCLOAK_DB="${GRATIS_RECOVERY_KEYCLOAK_DB:-keycloak}"
 FAIL_AFTER="${GRATIS_RECOVERY_FAIL_AFTER:-}"
 
+# A maintenance file that exists before this run (an earlier partial
+# restore, or the operator's) is never removed by this run, on any
+# path. A partial status from an earlier run is only replaced by a new
+# partial status or by a successful full restore, so a retry that fails
+# early cannot make a mixed state look clean.
+MAINT_PREEXISTED=0
+if [[ -n "$MAINT_FILE" && -e "$MAINT_FILE" ]]; then
+  MAINT_PREEXISTED=1
+fi
+PRIOR_PARTIAL=0
+if [[ -n "$STATUS_FILE" && -f "$STATUS_FILE" ]] && grep -q '"phase":"partial"' "$STATUS_FILE"; then
+  PRIOR_PARTIAL=1
+fi
+
 STATUS_WRITTEN=0
 write_status() {
   [[ -n "$STATUS_FILE" ]] || return 0
   local maint="${4:-false}"
+  if [[ "$PRIOR_PARTIAL" == 1 && "$1" != succeeded && "$2" != partial ]]; then
+    printf 'recovery: the status file still records an earlier partial restore; it was not replaced\n' >&2
+    STATUS_WRITTEN=1
+    return 0
+  fi
   mkdir -p "$(dirname "$STATUS_FILE")"
   cat >"$STATUS_FILE" <<EOF
 {"outcome":"$1","phase":"$2","kind":"restore","portalDownload":false,"secondaryFileVerified":false,"sameDisk":false,"offsiteVerified":false,"immutable":false,"maintenance":${maint},"detail":"$3"}
@@ -203,16 +227,16 @@ problems = []
 if "images" not in doc or "latestMigration" not in doc:
     problems.append("bundle does not record its images and migration")
 else:
-    recorded = {(i.get("ref", ""), i.get("id", "")) for i in doc["images"]}
+    recorded = {(i.get("service", ""), i.get("id", "")) for i in doc["images"]}
     running = set()
     for line in pathlib.Path(images_path).read_text().splitlines():
         if line:
             ref, _, image_id = line.partition("|")
             running.add((ref, image_id))
     for ref, image_id in sorted(recorded - running):
-        problems.append(f"bundle image not running: {ref} {image_id or '(no id)'}")
+        problems.append(f"bundle ran {ref} on image {image_id or '(none)'}, not running now")
     for ref, image_id in sorted(running - recorded):
-        problems.append(f"running image not in bundle: {ref} {image_id or '(no id)'}")
+        problems.append(f"running {ref} on image {image_id or '(none)'}, not in bundle")
     want = doc["latestMigration"] or "(none)"
     have = os.environ.get("RUNNING_MIGRATION", "") or "(none)"
     if want != have:
@@ -244,9 +268,10 @@ fi
 
 # All checks passed. Raise maintenance, then stop the same writers
 # capture.sh stops so nothing writes during the restore.
-# Restore owns the file from here: it is removed on success and on any
-# failure before data changes, and kept after a partial restore.
-if [[ -n "$MAINT_FILE" ]]; then
+# A file this run creates is removed on success and on any failure
+# before data changes, and kept after a partial restore. A file that
+# already existed is left exactly as it was.
+if [[ -n "$MAINT_FILE" && "$MAINT_PREEXISTED" != 1 ]]; then
   mkdir -p "$(dirname "$MAINT_FILE")"
   printf '%s\n' '{"maintenance":true,"phase":"restore"}' >"$MAINT_FILE"
   chmod 644 "$MAINT_FILE"
@@ -258,6 +283,10 @@ recovery_stop_writers
 # capture.sh copies a quiet stack and leaves them stopped. No data is
 # changed unless this succeeds.
 mkdir -p "$SAFETY_OUT"
+ENV_ARGS=()
+for f in "${ENV_FILES[@]}"; do
+  ENV_ARGS+=(--env-file "$f")
+done
 if ! env -u GRATIS_RECOVERY_WHILE_QUIESCED -u GRATIS_RECOVERY_FAIL_AFTER -u GRATIS_RECOVERY_MAINTENANCE_FILE \
   "$HERE/capture.sh" \
   --confirm-project "$PROJECT" \
@@ -265,6 +294,7 @@ if ! env -u GRATIS_RECOVERY_WHILE_QUIESCED -u GRATIS_RECOVERY_FAIL_AFTER -u GRAT
   --recovery-key-file "$RECOVERY_KEY" \
   --credential-key-file "$CREDENTIAL_KEY" \
   --out "$SAFETY_OUT" \
+  "${ENV_ARGS[@]}" \
   --data-only >"$STAGE/safety.log" 2>&1; then
   sed 's/^/  /' "$STAGE/safety.log" >&2 || true
   fail 'pre-restore safety bundle failed; nothing was restored'
@@ -312,6 +342,8 @@ DONE=1
 recovery_start_stopped
 if [[ "$MAINT_CREATED" == 1 && -n "$MAINT_FILE" ]]; then
   rm -f "$MAINT_FILE"
+elif [[ "$MAINT_PREEXISTED" == 1 ]]; then
+  printf 'recovery: %s existed before this restore and was left in place; remove it once the stack checks out\n' "$MAINT_FILE"
 fi
 write_status succeeded restored 'keycloak, portal, and objects restored' false
 printf 'recovery: restore finished\n'

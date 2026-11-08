@@ -21,9 +21,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Opt-in host recovery for a compose project the operator names twice.
   The real names (`gratis-gis-prod`, `gratis-gis`) are accepted, and
   each script first checks that the named project really has the
-  Postgres, Keycloak, and MinIO containers. `infra/recovery/capture.sh`
-  stops the writers that project is actually running, including
-  MinIO, then dumps the portal database and the Keycloak database and
+  Postgres, Keycloak, and MinIO containers and that every running
+  container with its compose label is a known service. `--env-file`
+  is passed to every compose call. `infra/recovery/capture.sh`
+  stops the writers that project is actually running, found by label,
+  including MinIO, then dumps the portal database and the Keycloak database and
   copies the MinIO data directory. The copy uses a separate image with
   no published ports and no network, because the MinIO image has no
   `tar` and a bucket Deny does not stop root or an IAM Allow. If the
@@ -43,14 +45,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `unseal-secrets.sh` opens that archive. The credential encryption
   key is not in the data bundle; the manifest records only its
   fingerprint. `restore.sh` refuses a different credential key, a
-  changed byte, or a bundle whose recorded images or latest Prisma
-  migration differ from the running stack unless
+  changed byte, or a bundle whose recorded container image ids or
+  latest Prisma migration differ from the running stack unless
   `--allow-version-mismatch` is passed. Only after those checks does
   it raise maintenance, stop the same writers capture stops, and seal
   the current state as a pre-restore safety bundle; if that fails,
   nothing is restored. Each database is restored in one transaction
   that stops on the first error. A failure before any data changes
-  starts the writers again and removes the maintenance file; a
+  starts the writers again and removes a maintenance file it created
+  (one that already existed is never removed, and an earlier partial
+  status is kept); a
   failure after it leaves writers stopped, keeps the maintenance file
   so the API returns 503, and prints the safety bundle to roll back
   to. `offhost.sh` makes a verified secondary file copy and refuses to

@@ -21,8 +21,23 @@ are refused. Before anything changes, each script checks that the
 compose file defines `postgres`, `keycloak`, and `minio` (and
 `portal-api`, unless `GRATIS_RECOVERY_EXTERNAL_API=stopped`), and that
 the named project already has those containers with Postgres running.
-A wrong name finds no containers and stops there. The scripts never
-list other compose projects.
+A wrong name finds no containers and stops there. Every running
+container with the label `com.docker.compose.project=<name>` must be a
+known writer (`portal-api`, `portal-web`, `portal-worker`,
+`pointcloud-worker`, `script-runner`, `script-executor`, `keycloak`,
+`minio`, `silo`) or a known non-writer (`postgres`, `caddy`,
+`chromium*`, `browserless*`, `bootstrap`, `portal-migrate`,
+`pg_tileserv`, `nominatim`); anything else stops the scripts, so a
+stale compose file cannot hide a writer. The scripts never list other
+compose projects.
+
+Pass `--env-file` (repeatable) when the compose file needs one; it is
+added to every compose call, including the safety capture. Without
+it, compose reads `COMPOSE_ENV_FILES` when that is set. The prod file
+needs `--env-file infra/.env.prod`.
+
+`seal.mjs` needs Node 20 or newer: `GRATIS_RECOVERY_NODE` if set,
+otherwise `node` on `PATH`.
 
 ## Capture
 
@@ -31,10 +46,11 @@ export GRATIS_RECOVERY_PROJECT=gratis-gis-prod
 infra/recovery/capture.sh \
   --confirm-project gratis-gis-prod \
   --compose-file infra/docker-compose.prod.yml \
+  --env-file infra/.env.prod \
   --recovery-key-file /secure/recovery.key \
   --credential-key-file /secure/credential.key \
   --secrets-key-file /secure/secrets.key \
-  --secret-file env=/opt/gratis-gis/infra/.env \
+  --secret-file env.prod=infra/.env.prod \
   --out /secure/recovery \
   --status-file /secure/recovery/status.json
 ```
@@ -62,9 +78,8 @@ bundle directory. All three are read from files. They are not printed,
 not passed as argument values, and not put in the environment of a
 child process.
 
-Capture stops running writers before it snapshots: `portal-api`,
-`portal-web`, `portal-worker`, `pointcloud-worker`, `script-runner`,
-`script-executor`, `keycloak`, and `minio`. A bucket Deny does not
+Capture stops every running container of the project whose service
+is a known writer (found by label, not from the compose file). A bucket Deny does not
 stop the root user or an IAM Allow on MinIO
 RELEASE.2024-10-02T17-50-41Z, so the process is stopped and the data
 directory is copied with no published ports and no network. A service
@@ -95,6 +110,7 @@ export GRATIS_RECOVERY_PROJECT=gratis-gis-prod
 infra/recovery/restore.sh \
   --confirm-project gratis-gis-prod \
   --compose-file infra/docker-compose.prod.yml \
+  --env-file infra/.env.prod \
   --recovery-key-file /secure/recovery.key \
   --credential-key-file /secure/credential.key \
   --bundle /secure/recovery/latest.tar.enc \
@@ -109,9 +125,12 @@ In order:
    `safe_untar.py` (no traversal, links, or devices), and check every
    component's sha256 and the credential key fingerprint. Staging
    needs about three times the bundle size.
-3. Version check. The manifest records each image the compose file
-   resolved to (name and image id) and the latest applied Prisma
-   migration. Restore compares both with the running stack and
+3. Version check. The manifest records, for each container of the
+   project, its service and the image id it actually runs (from
+   `docker inspect`, not the tag, so `edge` or `latest` tags and an
+   image pulled but not yet started do not hide a change), and the
+   latest applied Prisma migration. Restore compares both with the
+   running stack and
    refuses a difference. Bring the stack to the bundle's version
    first, or pass `--allow-version-mismatch` if you have checked that
    the code can read the older data. On a rebuilt host, start the
@@ -127,17 +146,58 @@ In order:
 7. Restore Keycloak, then the portal database. Each runs as
    `pg_restore --clean --if-exists --exit-on-error --single-transaction`
    and must exit 0, so a failed database is rolled back, not half
-   written.
-8. Replace the MinIO data directory.
+   written. The `pg_partman` background worker inside Postgres is not
+   stopped; while the transaction holds its locks a maintenance run
+   waits, and it runs at most hourly.
+8. Replace the MinIO data directory. This deletes the current
+   contents and then extracts the bundle's copy, so a failure here
+   leaves the object store empty or partial; the safety bundle is the
+   way back.
 9. Start the containers this run stopped and remove the maintenance
    file.
 
 A failure in steps 1 to 6 starts the stopped writers again and removes
-the maintenance file. A failure in steps 7 or 8 is a partial restore:
-the status file says `partial`, writers stay stopped, the maintenance
-file stays so the API keeps returning 503, and the safety bundle path
-is printed. To roll back, restore that safety bundle with the same
-command (it carries the version of the stack it was taken from).
+a maintenance file this run created. A failure in steps 7 or 8 is a
+partial restore: the status file says `partial`, writers stay stopped,
+the maintenance file stays so the API keeps returning 503, and the
+safety bundle path is printed.
+
+A maintenance file that already exists when restore starts (from an
+earlier partial restore, or raised by you) is never removed by
+restore, on any path; remove it yourself once the stack checks out.
+A `partial` status is only replaced by another partial status or by a
+successful full restore, so a retry that fails early does not make a
+mixed state look clean.
+
+To roll back after a partial restore, restore the printed safety
+bundle with the same options. It carries the images and migration of
+the stack it was taken from. If the failure came after the portal
+database had already been replaced by a bundle of another version,
+the migration check will name it; add `--allow-version-mismatch`
+then, because rolling back to that safety bundle is the intent:
+
+```bash
+infra/recovery/restore.sh \
+  --confirm-project gratis-gis-prod \
+  --compose-file infra/docker-compose.prod.yml \
+  --env-file infra/.env.prod \
+  --recovery-key-file /secure/recovery.key \
+  --credential-key-file /secure/credential.key \
+  --bundle /secure/recovery/pre-restore/latest.tar.enc \
+  --safety-out /secure/recovery/pre-restore-2 \
+  --maintenance-file /path/the/api/reads/maintenance.json \
+  --status-file /secure/recovery/status.json
+```
+
+Restore starts again only the containers that run stopped. Writers
+left stopped by the earlier partial run stay stopped, so bring the
+stack up afterwards and then remove the maintenance file:
+
+```bash
+docker compose -p gratis-gis-prod -f infra/docker-compose.prod.yml \
+  --env-file infra/.env.prod up -d
+rm /path/the/api/reads/maintenance.json
+```
 
 ## Other tools
 

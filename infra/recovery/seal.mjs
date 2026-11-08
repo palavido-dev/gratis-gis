@@ -142,7 +142,15 @@ async function decrypt(pass, inPath, outPath) {
       throw new Error('bundle is not a sealed recovery archive');
     }
     const [logN, r, p, chunkLog2] = header.subarray(MAGIC.length, MAGIC.length + 4);
-    if (logN < 14 || logN > 22 || r < 1 || r > 16 || p < 1 || p > 4 || chunkLog2 < 12 || chunkLog2 > 26) {
+    // Never spend more than enc itself asks for: a crafted header
+    // cannot make this process allocate more scrypt memory or a
+    // larger record buffer than a bundle we wrote.
+    if (
+      logN < 14 || logN > LOG_N ||
+      r < 1 || r > SCRYPT_R ||
+      p < 1 || p > SCRYPT_P ||
+      chunkLog2 < 12 || chunkLog2 > CHUNK_LOG2
+    ) {
       throw new Error('bundle header has unsupported parameters');
     }
     const salt = header.subarray(MAGIC.length + 4, MAGIC.length + 20);
