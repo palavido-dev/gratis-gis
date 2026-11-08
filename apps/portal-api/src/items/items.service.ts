@@ -1948,57 +1948,70 @@ export class ItemsService {
     // index for no reason.
     const nextBbox =
       nextData !== undefined ? itemBbox(item.type, nextData) : null;
-    const updated = await this.prisma.item.update({
-      where: { id },
-      data: {
-        ...(input.title !== undefined && { title: input.title }),
-        ...(input.description !== undefined && { description: input.description }),
-        ...(input.tags !== undefined && { tags: input.tags }),
-        ...(nextData !== undefined && { data: nextData }),
-        ...(input.access !== undefined && { access: input.access }),
-        // Belt-and-suspenders for the round-trip footgun: when a
-        // client PATCHes thumbnailUrl as the synthesized SVG endpoint
-        // path (the form may have read it from a GET response and
-        // sent it back unchanged), treat it as null so the
-        // synthesizer keeps generating a fresh URL with the latest
-        // updatedAt cache-buster.  Without this, a save freezes the
-        // URL and any subsequent design edit produces a card that
-        // still serves the stale SVG.
-        ...(input.thumbnailUrl !== undefined && {
-          thumbnailUrl:
-            typeof input.thumbnailUrl === 'string' &&
-            /\/api\/portal\/items\/[^/]+\/thumbnail\.svg/.test(
-              input.thumbnailUrl,
-            )
-              ? null
-              : input.thumbnailUrl,
-        }),
-        // #66: thumbnailDesign updates re-render the SVG on the
-        // next read; no extra side-effect needed here because the
-        // synthesized thumbnailUrl is keyed on updatedAt which
-        // Prisma is about to bump.  Prisma needs the JsonNull
-        // sentinel to clear a nullable Json column; plain `null`
-        // isn't accepted under exactOptionalPropertyTypes.
-        ...(input.thumbnailDesign !== undefined && {
-          thumbnailDesign:
-            input.thumbnailDesign === null
-              ? Prisma.JsonNull
-              : input.thumbnailDesign,
-        }),
-        ...(input.license !== undefined && { license: input.license }),
-        // #80: tier-level geo limits. Null clears, undefined leaves
-        // unchanged. The columns are nullable in Prisma so passing
-        // null directly is the right way to clear; we don't need a
-        // separate disconnect path.
-        ...(input.publicGeoBoundaryId !== undefined && {
-          publicGeoBoundaryId: input.publicGeoBoundaryId,
-        }),
-        ...(input.orgGeoBoundaryId !== undefined && {
-          orgGeoBoundaryId: input.orgGeoBoundaryId,
-        }),
-        ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
-      },
-    });
+    // A data_layer's per-layer syncVersion belongs to the server. The
+    // client sends back whatever it last read, so writing its `data` as
+    // is could move the cursor backwards and make sync clients skip
+    // edits. Re-read the row under the lock commitLayerSync takes and
+    // keep the stored value.
+    const writeItem = (client: Pick<Prisma.TransactionClient, 'item'>) =>
+      client.item.update({
+        where: { id },
+        data: {
+          ...(input.title !== undefined && { title: input.title }),
+          ...(input.description !== undefined && { description: input.description }),
+          ...(input.tags !== undefined && { tags: input.tags }),
+          ...(nextData !== undefined && { data: nextData }),
+          ...(input.access !== undefined && { access: input.access }),
+          // Belt-and-suspenders for the round-trip footgun: when a
+          // client PATCHes thumbnailUrl as the synthesized SVG endpoint
+          // path (the form may have read it from a GET response and
+          // sent it back unchanged), treat it as null so the
+          // synthesizer keeps generating a fresh URL with the latest
+          // updatedAt cache-buster.  Without this, a save freezes the
+          // URL and any subsequent design edit produces a card that
+          // still serves the stale SVG.
+          ...(input.thumbnailUrl !== undefined && {
+            thumbnailUrl:
+              typeof input.thumbnailUrl === 'string' &&
+              /\/api\/portal\/items\/[^/]+\/thumbnail\.svg/.test(
+                input.thumbnailUrl,
+              )
+                ? null
+                : input.thumbnailUrl,
+          }),
+          // #66: thumbnailDesign updates re-render the SVG on the
+          // next read; no extra side-effect needed here because the
+          // synthesized thumbnailUrl is keyed on updatedAt which
+          // Prisma is about to bump.  Prisma needs the JsonNull
+          // sentinel to clear a nullable Json column; plain `null`
+          // isn't accepted under exactOptionalPropertyTypes.
+          ...(input.thumbnailDesign !== undefined && {
+            thumbnailDesign:
+              input.thumbnailDesign === null
+                ? Prisma.JsonNull
+                : input.thumbnailDesign,
+          }),
+          ...(input.license !== undefined && { license: input.license }),
+          // #80: tier-level geo limits. Null clears, undefined leaves
+          // unchanged. The columns are nullable in Prisma so passing
+          // null directly is the right way to clear; we don't need a
+          // separate disconnect path.
+          ...(input.publicGeoBoundaryId !== undefined && {
+            publicGeoBoundaryId: input.publicGeoBoundaryId,
+          }),
+          ...(input.orgGeoBoundaryId !== undefined && {
+            orgGeoBoundaryId: input.orgGeoBoundaryId,
+          }),
+          ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
+        },
+      });
+    const updated =
+      item.type === 'data_layer' && nextData !== undefined
+        ? await this.prisma.$transaction(async (tx) => {
+            nextData = await carryLayerSyncVersions(tx, id, nextData!);
+            return writeItem(tx);
+          })
+        : await writeItem(this.prisma);
     if (input.access !== undefined && input.access !== item.access) {
       this.noteAudit(user, 'item.access', id, 'succeeded', {
         from: item.access,
@@ -3874,4 +3887,41 @@ function computeSchemaBreaks(
     }
   }
   return { dropped, geometryChanged };
+}
+
+/**
+ * Copy each layer's stored syncVersion onto the incoming data, under a
+ * row lock. The sync cursor only moves through commitLayerSync, never
+ * through an item PATCH.
+ */
+export async function carryLayerSyncVersions(
+  tx: Prisma.TransactionClient,
+  id: string,
+  next: Prisma.InputJsonValue,
+): Promise<Prisma.InputJsonValue> {
+  const rows = await tx.$queryRaw<Array<{ data: unknown }>>`
+    SELECT data_json AS data FROM item WHERE id = ${id}::uuid FOR UPDATE
+  `;
+  const current = rows[0]?.data as
+    | { layers?: Array<{ id?: unknown; syncVersion?: unknown }> }
+    | null
+    | undefined;
+  const incoming = next as { layers?: unknown };
+  if (!current || !Array.isArray(incoming.layers)) return next;
+  const stored = new Map<string, unknown>();
+  for (const layer of current.layers ?? []) {
+    if (typeof layer.id === 'string') stored.set(layer.id, layer.syncVersion);
+  }
+  const layers = (incoming.layers as Array<Record<string, unknown>>).map(
+    (layer) => {
+      if (!layer || typeof layer !== 'object') return layer;
+      const layerId = layer.id;
+      const { syncVersion: _clientValue, ...rest } = layer;
+      void _clientValue;
+      if (typeof layerId !== 'string' || !stored.has(layerId)) return rest;
+      const keep = stored.get(layerId);
+      return keep === undefined ? rest : { ...rest, syncVersion: keep };
+    },
+  );
+  return { ...(next as object), layers } as Prisma.InputJsonValue;
 }

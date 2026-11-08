@@ -101,6 +101,7 @@ export const en = {
     notifications: 'Notifications',
     ai: 'AI',
     build: 'Build',
+    buildHint: 'Describe a layer, map, form, or app',
     security: 'Sign-in',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
@@ -145,8 +146,9 @@ export const en = {
     closeNavigation: 'Close navigation',
   },
   search: {
-    placeholder: 'Search items...',
+    placeholder: 'Search items only',
     label: 'Search items',
+    scopeHint: 'Searches item titles, descriptions, and tags. People and groups are not included.',
   },
   help: {
     buttonTitle: 'Help (press ? anywhere)',
@@ -205,6 +207,9 @@ export const en = {
     createButton: 'Create item',
     backButton: 'Back',
     changeType: 'Change type',
+    taskIntro: 'Start with an upload, a map, or a form. Every other item type is under More, and a link that names a type still opens it.',
+    moreTypes: 'More item types',
+    fewerTypes: 'Fewer item types',
     detailsEyebrow: 'New {type}',
     detailsEyebrowFallback: 'item',
     viewerBlocked:
@@ -314,7 +319,7 @@ export const en = {
     custom: {
       label: 'Web app',
       desc:
-        'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+        'A web app made of a map and widgets. A dashboard is a starter template for this type, not a separate item. Pick a template on the next screen, or start blank.',
     },
     theme: {
       label: 'Theme',
@@ -329,7 +334,7 @@ export const en = {
     tool: {
       label: 'Tool',
       desc:
-        'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
+        'A reusable named action, such as opening a web app or a URL, that you bind to a button. One tool can be reused across many apps.',
     },
     derived_layer: {
       label: 'Derived layer',
@@ -1642,6 +1647,20 @@ export const en = {
     copyLink: 'Copy link',
     copied: 'Copied',
     openOnPhone: 'Open on a phone',
+    eyebrow: 'Content',
+    intro: 'Deployments you can open in the field, with offline cache and sync state for this device.',
+    newDeployment: 'New deployment',
+    sessionExpiredTitle: 'Your session expired',
+    sessionExpiredBody: 'Sign in again to load your field deployments. This is not an empty catalog. Features already saved on this device stay here and sync after you sign in.',
+    emptyTitle: 'No field deployments yet',
+    emptyBody: 'A field deployment points at a map and the form workers fill out when they add features.',
+    createDeployment: 'Create a deployment',
+    loadFailedTitle: 'Field deployments could not be loaded',
+    loadFailedBody: 'The catalog did not answer. This is not an empty list. Try again in a moment.',
+  },
+  buildPage: {
+    title: 'Build from a description',
+    intro: 'Describe a layer, a map, a form, or an app. A dashboard is a web-app template, not this page. Nothing is created until you choose Build it.',
   },
   // Offline queue rows the server refused for a reason a retry cannot
   // change. Shown from the field runtime header chip.
@@ -1874,6 +1893,9 @@ export const en = {
     removeWillLoseOthers:
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
     downloadForOffline: 'Download for offline',
+    deviceOnlyWarning:
+      "Edits and photos stay on this device until they sync. They are not on the server and they are not in a portal backup. Save a copy if you need the photos and the shapes before they sync.",
+    saveUnsyncedCopy: 'Save a copy of unsynced work',
     refreshOfflineCache: 'Refresh offline cache',
     confirmRefresh: 'Confirm refresh',
     refreshUnsyncedWarn:
@@ -2050,6 +2072,8 @@ export const en = {
     sharingHeading: 'Sharing',
     publicBoundaryWarning:
       'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.',
+    shareAction: 'Share',
+    shareActionHint: 'Open sharing and access. Dependencies are listed on that tab before you publish.',
     openForm: 'Open',
     openFormTitle: 'Open the form to submit a response',
     responses: 'Responses',
@@ -4171,10 +4195,12 @@ export const en = {
       sendInvite: 'Send invite',
       errUsernameMin: 'Username must be at least 2 characters.',
       errEmailInvalid: 'Please enter a valid email address.',
-      errInviteFailed: 'Invite failed: {status} {detail}',
-      alertEmailFailedTitle: 'User created, email failed',
+      errDuplicate: 'An account with that username or email already exists. No address is shown here.',
+      errUpstream: 'The identity server could not create the account. Try again in a moment. If it keeps failing, check that the identity server is running. No address is shown here.',
+      errInviteFailed: 'The invite did not finish (status {status}). No account detail is shown.',
+      alertEmailFailedTitle: 'Account created, email not sent',
       alertEmailFailedMessage:
-        'User "{username}" was created, but the password-setup email could not be sent:\n\n{error}\n\nOnce SMTP is healthy, click "Reset password" on this user to re-send the email.',
+        'The account was created, but the sign-in email did not send. Open Notifications, fix SMTP, then use Reset password on the new account. This message does not include the address.',
     },
     edit: {
       title: 'Edit user',

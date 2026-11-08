@@ -4,6 +4,8 @@ import { ClipboardList, LogIn } from 'lucide-react';
 import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
+import { getServerLocale } from '@/lib/i18n/server';
+import { t } from '@/lib/i18n';
 import { FieldCatalog, type FieldDeploymentRow } from './field-catalog';
 
 /**
@@ -32,6 +34,7 @@ export default async function FieldCatalogPage() {
   // client component merge the IDB-side state.
   let deployments: ItemWithShares[] = [];
   let sessionExpired = false;
+  let loadFailed = false;
   // The catalog reads the offline queue as the signed-in account (its
   // counts and its per-row Sync drain only this account's rows), so it
   // needs the same portal user id the field runtime receives. Fetched
@@ -57,6 +60,8 @@ export default async function FieldCatalogPage() {
     const status = (err as { status?: number })?.status;
     if (status === 401 || status === 403) {
       sessionExpired = true;
+    } else {
+      loadFailed = true;
     }
     // Non-401 failures fall through to the same empty state as
     // before; the homepage CTA gives them a path out.
@@ -81,8 +86,9 @@ export default async function FieldCatalogPage() {
         : null,
   }));
 
+  const locale = await getServerLocale();
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       {/* Mobile: just the title -- this is a field worker's
           launchpad, nothing else. The descriptive copy and the
           "New deployment" button are author affordances and only
@@ -91,13 +97,12 @@ export default async function FieldCatalogPage() {
           more than the marketing line. */}
       <header className="mb-4 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-muted">Content</p>
+          <p className="text-sm text-muted">{t('field.eyebrow', undefined, locale)}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Field
+            {t('field.nav', undefined, locale)}
           </h1>
           <p className="mt-1 hidden text-sm text-muted sm:block">
-            Deployments you can open in the field, with offline-cache and
-            sync state for this device.
+            {t('field.intro', undefined, locale)}
           </p>
         </div>
         <Link
@@ -105,7 +110,7 @@ export default async function FieldCatalogPage() {
           className="hidden h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90 sm:inline-flex"
         >
           <ClipboardList className="h-4 w-4" />
-          New deployment
+          {t('field.newDeployment', undefined, locale)}
         </Link>
       </header>
 
@@ -118,32 +123,42 @@ export default async function FieldCatalogPage() {
         // a full navigation -- NextAuth's signin route relies on
         // server-side redirect handling that can be foiled by
         // client-side router prefetching.
-        <EmptyState
-          icon={<LogIn className="h-5 w-5" />}
-          title="Your session expired"
-          description="Sign in again to load your field deployments. Any features you've already saved offline are safe; they'll sync once you're back online and signed in."
-          action={
-            <a
-              href="/api/auth/signin?callbackUrl=%2Ffield"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
-            >
-              <LogIn className="h-4 w-4" />
-              Sign in
-            </a>
-          }
-        />
+        <div role="alert">
+          <EmptyState
+            icon={<LogIn className="h-5 w-5" />}
+            title={t('field.sessionExpiredTitle', undefined, locale)}
+            description={t('field.sessionExpiredBody', undefined, locale)}
+            action={
+              <a
+                href="/signin?callbackUrl=%2Ffield"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+              >
+                <LogIn className="h-4 w-4" />
+                {t('nav.signIn', undefined, locale)}
+              </a>
+            }
+          />
+        </div>
+      ) : loadFailed ? (
+        <div role="alert">
+          <EmptyState
+            icon={<ClipboardList className="h-5 w-5" />}
+            title={t('field.loadFailedTitle', undefined, locale)}
+            description={t('field.loadFailedBody', undefined, locale)}
+          />
+        </div>
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<ClipboardList className="h-5 w-5" />}
-          title="No field deployments yet"
-          description="A field deployment points at a map and the form workers fill out when they add features. Create one to start collecting data in the field."
+          title={t('field.emptyTitle', undefined, locale)}
+          description={t('field.emptyBody', undefined, locale)}
           action={
             <Link
               href="/items/new?type=data_collection"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             >
               <ClipboardList className="h-4 w-4" />
-              Create a deployment
+              {t('field.createDeployment', undefined, locale)}
             </Link>
           }
         />

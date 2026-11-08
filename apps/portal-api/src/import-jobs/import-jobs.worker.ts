@@ -274,6 +274,8 @@ export class ImportJobsWorker implements OnModuleInit {
       }
       const writer = new CopyWriter(databaseUrl);
       let copyClosed = false;
+      const scope = dataLayerScope(job.itemId, job.layerId);
+      let removedEntityIds: string[] = [];
       let meta: Awaited<
         ReturnType<IngestService['streamLayerFromPath']>
       >;
@@ -288,7 +290,8 @@ export class ImportJobsWorker implements OnModuleInit {
       try {
         await writer.begin();
         if (job.mode === 'replace') {
-          await writer.deleteScope(dataLayerScope(job.itemId, job.layerId));
+          removedEntityIds = await writer.liveEntityIds(scope);
+          await writer.deleteScope(scope);
         }
         writer.beginCopy();
         meta = await this.ingest.streamLayerFromPath(
@@ -342,7 +345,19 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
-          await writer.end();
+          // Seal, then stamp, then commit. The import-guard branch
+          // drops duplicate appends between seal and the stamp. The
+          // stamp has to stay after that delete: a load whose rows
+          // were all duplicates must not move the cursor. Abort
+          // before commit leaves the cursor unchanged.
+          await writer.sealCopy();
+          await this.dataLayerFeatures.commitCopiedLayer(writer, {
+            itemId: job.itemId,
+            layerId: job.layerId,
+            removedEntityIds,
+            authorSub: job.createdBy,
+          });
+          await writer.commit();
           copyClosed = true;
           copyCommitted = true;
         }
