@@ -6,6 +6,8 @@ import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@pris
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
+  findUnsafeMapColors,
+  safeNavigationUrl,
   sanitizeAttributionHtml,
 } from '@gratis-gis/shared-types';
 
@@ -420,6 +422,47 @@ function assertItemAssetKey(itemType: string, data: unknown): void {
       ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
     }/ for a ${itemType} item.`,
   );
+}
+
+/**
+ * Reject author data that a client renders without escaping.
+ *
+ * - A tool's `open-url` action is passed to `location.assign`, so a
+ *   `javascript:` URL would run on the portal origin for every viewer
+ *   who presses the button. Only an app-relative path or an http(s)
+ *   URL is stored. An empty URL stays allowed (a half-configured tool).
+ * - A map layer's style colors are interpolated into legend SVG
+ *   markup. A value with a quote or angle bracket is never a color.
+ *
+ * The web client checks both again at render time, because rows
+ * written before this landed are still in the database.
+ */
+function assertRenderSafeData(itemType: string, data: unknown): void {
+  if (data === undefined || data === null || typeof data !== 'object') return;
+  if (itemType === 'tool') {
+    const action = (data as { action?: unknown }).action;
+    if (action && typeof action === 'object') {
+      const { kind, url } = action as { kind?: unknown; url?: unknown };
+      if (
+        kind === 'open-url' &&
+        url !== undefined &&
+        url !== '' &&
+        safeNavigationUrl(url) === null
+      ) {
+        throw new BadRequestException(
+          'A tool URL must be an http(s) URL or a path that starts with a single /.',
+        );
+      }
+    }
+  }
+  if (itemType === 'map') {
+    const bad = findUnsafeMapColors(data);
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `Invalid color value at ${bad.join(', ')}.`,
+      );
+    }
+  }
 }
 
 /**
@@ -1293,6 +1336,7 @@ export class ItemsService {
     // wizard legitimately posts a presigned key here, so this
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
+    assertRenderSafeData(input.type, resolvedData);
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
     }
@@ -1857,6 +1901,7 @@ export class ItemsService {
     // writer passes through: point-cloud and tile-layer validate their
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData);
+    assertRenderSafeData(item.type, nextData);
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
