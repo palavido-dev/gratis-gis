@@ -12,22 +12,26 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `infra/recovery/capture.sh` pauses the writers that project is
   actually running (including Keycloak), dumps the portal database
   and the Keycloak database, copies the MinIO bucket, and seals the
-  bundle with a recovery key file that is not stored in it. The
-  credential encryption key is not in the bundle either; the manifest
-  records only its fingerprint, and restore refuses a different key
-  before it changes either database. Restore puts Keycloak back, then
-  the portal database, then objects. A missing piece, a checksum
-  mismatch, or a copy that does not match fails and leaves a failed
-  status. `offhost.sh` copies that sealed file to an operator
-  directory, checks the bytes, and removes write permission; a second
-  copy to the same name is refused. This is a separate bundle from
-  the in-portal `tar.gz` (that archive version is unchanged). The
-  admin backup health response includes a failure sentence when
-  `GRATIS_RECOVERY_STATUS_FILE` points at a failed status, and the
-  backup page shows that sentence. A failed status can be mailed
-  through the existing mail transport; the test uses a sink and does
-  not send mail. WAL point-in-time recovery is not part of this
-  bundle.
+  bundle with AES-256-GCM. The recovery passphrase is read from a
+  file and is not stored in the bundle or passed as an argument
+  value. The credential encryption key is not in the bundle either;
+  the manifest records only its fingerprint, and restore refuses a
+  different key before it changes either database. A changed byte
+  does not decrypt. Restore checks the archive for traversal, links,
+  and size before it writes, puts Keycloak back, then the portal
+  database, then objects. A failure after those writes leaves a
+  maintenance file in place so the API keeps returning 503. A
+  stopped service is not started. `offhost.sh` makes a verified
+  secondary file copy and refuses to overwrite; a same-disk copy is
+  labeled as such and is not off-site or immutable. The in-portal
+  `tar.gz` version is unchanged. The admin backup health response
+  includes a failure sentence when `GRATIS_RECOVERY_STATUS_FILE`
+  points at a failed status, and the backup page shows that
+  sentence. A failed status can be mailed through the existing mail
+  transport when `GRATIS_RECOVERY_NOTICE_TO` is set; the test uses a
+  sink and does not send mail. Role passwords, MinIO credentials,
+  Keycloak client secrets, and `NEXTAUTH_SECRET` are not in the
+  bundle. WAL point-in-time recovery is not part of this bundle.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when

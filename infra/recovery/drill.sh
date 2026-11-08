@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Isolated restore drill. The only compose project this script will
+# Fixture restore drill. The only compose project this script will
 # touch is gg-recovery-drill, and only when that name is passed twice.
 # It does not list or select any other stack.
+#
+# This is not a full-system recovery. The portal tables are a small
+# fixture, and no portal HTTP process is booted. The migrated portal
+# drill is drill-portal.sh.
 set -euo pipefail
 
 # The drill log is a file. A child that seeks that file back to the
@@ -365,9 +369,8 @@ assert doc["immutable"] is False
 PY
 
 # The manifest must record that the running writer was paused.
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-  -in "$WORK/out/bundle.tar.enc" -out "$WORK/opened.tar" \
-  -pass "file:$WORK/recovery.key"
+NODE="$(recovery_node)"
+"$NODE" "$HERE/seal.mjs" dec "$WORK/recovery.key" "$WORK/out/bundle.tar.enc" "$WORK/opened.tar"
 mkdir -p "$WORK/opened"
 tar -C "$WORK/opened" -xf "$WORK/opened.tar" manifest.json
 rm -f "$WORK/opened.tar"

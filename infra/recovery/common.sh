@@ -35,3 +35,16 @@ recovery_umask() {
 recovery_sha256() {
   sha256sum "$1" | awk '{print $1}'
 }
+
+# Node that can run seal.mjs. Prefer the repo's tested 24.9.
+recovery_node() {
+  if [[ -n "${GRATIS_RECOVERY_NODE:-}" && -x "$GRATIS_RECOVERY_NODE" ]]; then
+    printf '%s\n' "$GRATIS_RECOVERY_NODE"
+    return
+  fi
+  if [[ -x /home/ubuntu/.nvm/versions/node/v24.9.0/bin/node ]]; then
+    printf '%s\n' /home/ubuntu/.nvm/versions/node/v24.9.0/bin/node
+    return
+  fi
+  command -v node
+}

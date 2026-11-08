@@ -90,14 +90,59 @@ def push(bucket: str, src: Path) -> None:
     print(json.dumps({'objectCount': count}))
 
 
+WRITE_DENY = {
+    'Version': '2012-10-17',
+    'Statement': [
+        {
+            'Effect': 'Deny',
+            'Principal': '*',
+            'Action': ['s3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload'],
+            'Resource': [],
+        }
+    ],
+}
+
+
+def freeze(bucket: str) -> None:
+    """Deny new object writes for the duration of a capture.
+
+    A paused compose service does not cover a client that uploads
+    straight to the bucket. The policy is removed by thaw. Root
+    credentials on some MinIO builds bypass this; the capture still
+    pauses writer services, and a drill checks both.
+    """
+    policy = json.loads(json.dumps(WRITE_DENY))
+    policy['Statement'][0]['Resource'] = [
+        f'arn:aws:s3:::{bucket}',
+        f'arn:aws:s3:::{bucket}/*',
+    ]
+    client().put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
+    print(json.dumps({'writesFrozen': True}))
+
+
+def thaw(bucket: str) -> None:
+    s3 = client()
+    try:
+        s3.delete_bucket_policy(Bucket=bucket)
+    except Exception as exc:
+        text = str(exc)
+        if 'NoSuchBucketPolicy' not in text and '404' not in text:
+            raise
+    print(json.dumps({'writesFrozen': False}))
+
+
 def main() -> None:
-    mode, bucket, path = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    mode, bucket = sys.argv[1], sys.argv[2]
     if mode == 'pull':
-        pull(bucket, path)
+        pull(bucket, Path(sys.argv[3]))
     elif mode == 'push':
-        push(bucket, path)
+        push(bucket, Path(sys.argv[3]))
+    elif mode == 'freeze':
+        freeze(bucket)
+    elif mode == 'thaw':
+        thaw(bucket)
     else:
-        raise SystemExit('mode must be pull or push')
+        raise SystemExit('mode must be pull, push, freeze, or thaw')
 
 
 if __name__ == '__main__':

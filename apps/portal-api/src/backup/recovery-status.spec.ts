@@ -55,9 +55,11 @@ describe('recovery status', () => {
       { ...failed, detail: `phase only, not ${secret}` },
     );
     expect(sent).toHaveLength(1);
-    expect(sent[0].subject).toBe('GratisGIS host recovery failed');
-    expect(sent[0].text).toContain('partial');
-    expect(sent[0].text).not.toContain(secret);
+    const message = sent[0];
+    if (!message) throw new Error('mail was not sent');
+    expect(message.subject).toBe('GratisGIS host recovery failed');
+    expect(message.text).toContain('partial');
+    expect(message.text).not.toContain(secret);
     await announceRecoveryFailure(
       {
         async send() {

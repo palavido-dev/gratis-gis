@@ -18,6 +18,7 @@ RECOVERY_KEY=""
 CREDENTIAL_KEY=""
 BUNDLE=""
 STATUS_FILE=""
+MAINT_FILE="${GRATIS_RECOVERY_MAINTENANCE_FILE:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --confirm-project) CONFIRM="$2"; shift 2 ;;
@@ -26,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --credential-key-file) CREDENTIAL_KEY="$2"; shift 2 ;;
     --bundle) BUNDLE="$2"; shift 2 ;;
     --status-file) STATUS_FILE="$2"; shift 2 ;;
+    --maintenance-file) MAINT_FILE="$2"; shift 2 ;;
     *) recovery_die "unknown argument" ;;
   esac
 done
@@ -44,24 +46,41 @@ FAIL_AFTER="${GRATIS_RECOVERY_FAIL_AFTER:-}"
 
 write_status() {
   [[ -n "$STATUS_FILE" ]] || return 0
+  local maint="${4:-false}"
   mkdir -p "$(dirname "$STATUS_FILE")"
   cat >"$STATUS_FILE" <<EOF
-{"outcome":"$1","phase":"$2","kind":"restore","portalDownload":false,"offsiteVerified":false,"immutable":false,"detail":"$3"}
+{"outcome":"$1","phase":"$2","kind":"restore","portalDownload":false,"secondaryFileVerified":false,"sameDisk":false,"offsiteVerified":false,"immutable":false,"maintenance":${maint},"detail":"$3"}
 EOF
   chmod 644 "$STATUS_FILE"
+}
+
+hold_maintenance() {
+  [[ -n "$MAINT_FILE" ]] || return 0
+  mkdir -p "$(dirname "$MAINT_FILE")"
+  printf '%s\n' '{"maintenance":true,"phase":"restore"}' >"$MAINT_FILE"
+  chmod 644 "$MAINT_FILE"
 }
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/gg-restore.XXXXXX")"
 chmod 700 "$STAGE"
 trap 'rm -rf "$STAGE"' EXIT
 
-if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
-  -in "$BUNDLE" -out "$STAGE/bundle.tar" -pass "file:$RECOVERY_KEY"; then
-  write_status failed decrypt 'recovery key could not open the bundle'
+NODE="$(recovery_node)"
+if ! "$NODE" "$HERE/seal.mjs" dec "$RECOVERY_KEY" "$BUNDLE" "$STAGE/bundle.tar"; then
+  write_status failed decrypt 'recovery key could not open the bundle' false
   recovery_die 'recovery key could not open the bundle'
 fi
-tar -C "$STAGE" -xf "$STAGE/bundle.tar"
+if ! python3 "$HERE/safe_untar.py" "$STAGE/bundle.tar" "$STAGE/unpacked"; then
+  write_status failed verify 'bundle archive was rejected' false
+  recovery_die 'bundle archive was rejected'
+fi
 rm -f "$STAGE/bundle.tar"
+# The checks below read the unpacked names from STAGE root.
+for name in manifest.json portal.dump keycloak.dump minio.tar; do
+  if [[ -f "$STAGE/unpacked/$name" ]]; then
+    mv "$STAGE/unpacked/$name" "$STAGE/$name"
+  fi
+done
 
 if ! python3 - "$STAGE/manifest.json" "$STAGE" "$CREDENTIAL_KEY" <<'PY'
 import hashlib, json, pathlib, sys
@@ -89,18 +108,25 @@ if got != doc["credentialKeySha256"]:
     raise SystemExit("credential key fingerprint does not match this bundle")
 PY
 then
-  write_status failed verify 'bundle is incomplete or the credential key does not match'
+  write_status failed verify 'bundle is incomplete or the credential key does not match' false
   recovery_die 'bundle is incomplete or the credential key does not match'
 fi
+
+# Checks passed. From here a failure has changed data, so the
+# maintenance file stays in place for the API to keep serving 503.
+hold_maintenance
 
 compose() {
   docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
-# Keycloak holds its database open. Stop it before the restore and
-# start it again only after both databases and the object store match
-# the bundle.
-compose stop keycloak >/dev/null || true
+# Stop Keycloak only when it is running. A stopped Keycloak stays
+# stopped. It is started again only after a successful restore.
+KC_WAS_RUNNING=0
+if [[ -n "$(compose ps -q keycloak 2>/dev/null || true)" ]]; then
+  KC_WAS_RUNNING=1
+  compose stop keycloak >/dev/null
+fi
 
 restore_db() {
   local db="$1" dump="$2" rc=0
@@ -116,27 +142,32 @@ restore_db() {
 }
 
 if ! restore_db "$KEYCLOAK_DB" "$STAGE/keycloak.dump"; then
-  write_status failed keycloak 'keycloak database restore failed'
+  write_status failed keycloak 'keycloak database restore failed' true
   recovery_die 'keycloak database restore failed'
 fi
 if [[ "$FAIL_AFTER" == "keycloak" ]]; then
-  write_status failed partial 'stopped after keycloak on purpose; portal and objects were not restored'
+  write_status failed partial 'stopped after keycloak on purpose; portal and objects were not restored' true
   recovery_die 'stopped after keycloak; portal database was not restored'
 fi
 if ! restore_db "$PORTAL_DB" "$STAGE/portal.dump"; then
-  write_status failed partial 'portal database restore failed after keycloak was replaced'
+  write_status failed partial 'portal database restore failed after keycloak was replaced' true
   recovery_die 'portal database restore failed'
 fi
 
 MINIO_DIR="$STAGE/minio-out"
 mkdir -p "$MINIO_DIR"
-tar -C "$MINIO_DIR" -xf "$STAGE/minio.tar"
+python3 "$HERE/safe_untar.py" "$STAGE/minio.tar" "$MINIO_DIR"
 MINIO_ENDPOINT="${MINIO_ENDPOINT:?}" \
 MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:?}" \
 MINIO_SECRET_KEY="${MINIO_SECRET_KEY:?}" \
   python3 "$HERE/minio_copy.py" push "$BUCKET" "$MINIO_DIR/minio" >/dev/null \
-  || { write_status failed partial 'object restore failed after databases were replaced'; recovery_die 'object restore failed'; }
+  || { write_status failed partial 'object restore failed after databases were replaced' true; recovery_die 'object restore failed'; }
 
-compose start keycloak >/dev/null || true
-write_status succeeded restored 'keycloak, portal, and objects restored'
+if [[ "$KC_WAS_RUNNING" == 1 ]]; then
+  compose start keycloak >/dev/null
+fi
+if [[ -n "$MAINT_FILE" ]]; then
+  rm -f "$MAINT_FILE"
+fi
+write_status succeeded restored 'keycloak, portal, and objects restored' false
 printf 'recovery: restore finished\n'

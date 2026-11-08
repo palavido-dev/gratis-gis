@@ -43,7 +43,7 @@ write_status() {
   [[ -n "$STATUS_FILE" ]] || return 0
   mkdir -p "$(dirname "$STATUS_FILE")"
   cat >"$STATUS_FILE" <<EOF
-{"outcome":"$1","phase":"$2","kind":"offsite","portalDownload":false,"offsiteVerified":$3,"immutable":$4,"detail":"$5"}
+{"outcome":"$1","phase":"$2","kind":"secondary-file","portalDownload":false,"secondaryFileVerified":$3,"sameDisk":$4,"offsiteVerified":false,"immutable":false,"detail":"$5"}
 EOF
   chmod 644 "$STATUS_FILE"
 }
@@ -61,8 +61,14 @@ if [[ "$src_sum" != "$dst_sum" ]]; then
 fi
 chmod a-w "$target"
 if [[ -w "$target" ]]; then
-  write_status failed immutable true false 'destination is still writable'
+  write_status failed permissions false false 'destination is still writable'
   recovery_die 'destination is still writable'
 fi
-write_status succeeded immutable-copy true true 'off-host copy verified and marked read-only'
-printf 'recovery: off-host copy verified\n'
+src_dev="$(stat -c '%d' "$BUNDLE")"
+dst_dev="$(stat -c '%d' "$target")"
+same=false
+if [[ "$src_dev" == "$dst_dev" ]]; then
+  same=true
+fi
+write_status succeeded secondary-file true "$same" 'verified secondary file copy; not an off-site or immutable copy'
+printf 'recovery: secondary file copy verified\n'
