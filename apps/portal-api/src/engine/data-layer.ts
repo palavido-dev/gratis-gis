@@ -32,6 +32,7 @@ import { syncVersionSource } from '../data-layer/layer-delta.js';
 import {
   geoLimitIntersectsSql,
   geoLimitSql,
+  isClosedGeoLimit,
 } from '../common/closed-geo-limit.js';
 import { EngineService } from './engine.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -119,6 +120,11 @@ export interface DeltaChange {
   syncVersion: number;
   txTime: string;
   authorSub: string;
+  /** Author of the entity's `create` observation, null when the log
+   *  holds no create for it. Lets clients rebuild `_created_by`. */
+  createdBy: string | null;
+  /** Time of the entity's `create` observation (`_created_at`). */
+  createdAt: string | null;
   geometry: GeoJsonGeometry | null;
   properties: Record<string, unknown> | null;
 }
@@ -1759,9 +1765,31 @@ export class DataLayerEngine {
    *
    * Returns every observation in this scope whose
    * `source.details.syncVersion` is strictly greater than `since`,
-   * including tombstones (`kind='delete'`). Share geo limits and
-   * own-rows filters match the listFeatures candidate rules so a
-   * field client cannot learn about edits outside its clip.
+   * including tombstones (`kind='delete'`), ordered by the total
+   * order `(syncVersion, tx_time, id)`. One write batch stamps one
+   * syncVersion on every row it writes, so a page can end in the
+   * middle of a version. `after` resumes inside that version: pass
+   * the last row's `observationId` with `since` set to that row's
+   * syncVersion, and the scan continues strictly after that row.
+   * The cursor predicate and ORDER BY use the same tuple, so pages
+   * neither overlap nor skip. See docs/sync-protocol.md.
+   *
+   * Row scope and geo limit are decided per entity, the same way
+   * listFeatures decides them:
+   * - own rows: the entity's `create` observation must be the
+   *   caller's. Every later observation of that entity is returned,
+   *   whoever wrote it, so a supervisor's edit or delete reaches the
+   *   field worker who created the row.
+   * - geo limit: an observation inside the clip is returned as is.
+   *   An observation outside the clip, of an entity that has ever
+   *   been inside it, is returned as a delete with no payload, so a
+   *   feature moved out of the share's area leaves the device
+   *   instead of staying at its old position. Entities never inside
+   *   the clip stay invisible.
+   *
+   * Each row carries the entity's creation author and time, so a
+   * client can rebuild the same `_created_*` / `_edited_*` /
+   * `_observation_id` properties a full read inlines.
    *
    * Observations written before syncVersion stamping (pre-delta
    * rollout) have no stamp and never appear here; clients that
@@ -1772,6 +1800,9 @@ export class DataLayerEngine {
     itemId: string;
     layerId: string;
     since: number;
+    /** Observation id of the last row already applied. Must belong
+     *  to this layer and carry syncVersion `since`. */
+    after?: string;
     limit?: number;
     geoLimit?: GeoJsonGeometry;
     ownRowsOnly?: { userId: string };
@@ -1784,20 +1815,57 @@ export class DataLayerEngine {
     const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10001);
     validateGeoJson(args.geoLimit);
 
-    const filters: Prisma.Sql[] = [
-      Prisma.sql`scope = ${scope}`,
-      Prisma.sql`COALESCE((source->'details'->>'syncVersion')::bigint, 0) > ${args.since}`,
-    ];
-    if (args.ownRowsOnly !== undefined) {
-      filters.push(Prisma.sql`author_sub = ${args.ownRowsOnly.userId}`);
+    const sv = Prisma.sql`COALESCE((o.source->'details'->>'syncVersion')::bigint, 0)`;
+    const filters: Prisma.Sql[] = [Prisma.sql`o.scope = ${scope}`];
+    if (args.after !== undefined) {
+      const anchor = await this.prisma.$queryRaw<Array<{ sync_version: number | bigint }>>`
+        SELECT COALESCE((source->'details'->>'syncVersion')::bigint, 0) AS sync_version
+        FROM observation
+        WHERE scope = ${scope} AND id = ${args.after}::uuid
+        LIMIT 1
+      `;
+      if (anchor.length === 0 || Number(anchor[0]!.sync_version) !== args.since) {
+        throw new BadRequestException(
+          'after must be the observationId of a change at syncVersion since on this layer. Restart the delta from your stored syncVersion.',
+        );
+      }
+      // tx_time is read in SQL, not round-tripped through a JS Date,
+      // so microsecond timestamps from COPY imports compare exactly.
+      filters.push(Prisma.sql`(${sv}, o.tx_time, o.id) > (
+        ${args.since}::bigint,
+        (SELECT a.tx_time FROM observation a
+          WHERE a.scope = ${scope} AND a.id = ${args.after}::uuid LIMIT 1),
+        ${args.after}::uuid
+      )`);
+    } else {
+      filters.push(Prisma.sql`${sv} > ${args.since}`);
     }
+    if (args.ownRowsOnly !== undefined) {
+      filters.push(Prisma.sql`cr.author_sub = ${args.ownRowsOnly.userId}`);
+    }
+    let insideSql: Prisma.Sql = Prisma.sql`true`;
     if (args.isTable !== true && args.geoLimit !== undefined) {
-      // Null geom (deletes, tables) passes a real clip so tombstones
-      // still reach the client. A closed clip matches nothing.
-      filters.push(geoLimitSql(args.geoLimit, 'geom', ''));
+      if (isClosedGeoLimit(args.geoLimit)) {
+        // A closed clip matches nothing, tombstones included.
+        filters.push(Prisma.sql`false`);
+      } else {
+        const clip = Prisma.sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(args.geoLimit)}::text), 4326)`;
+        // Null geom (deletes, tables) counts as inside so tombstones
+        // still reach the client.
+        insideSql = Prisma.sql`(o.geom IS NULL OR ST_Intersects(o.geom, ${clip}))`;
+        filters.push(Prisma.sql`(${insideSql} OR EXISTS (
+          SELECT 1 FROM observation p
+          WHERE p.scope = o.scope
+            AND p.entity = o.entity
+            AND p.geom IS NOT NULL
+            AND ST_Intersects(p.geom, ${clip})
+        ))`);
+      }
     }
 
     const where = Prisma.join(filters, ' AND ');
+    const createJoin =
+      args.ownRowsOnly !== undefined ? Prisma.sql`JOIN LATERAL` : Prisma.sql`LEFT JOIN LATERAL`;
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -1808,29 +1876,41 @@ export class DataLayerEngine {
         geom_json: string | null;
         author_sub: string;
         sync_version: number | bigint | null;
+        inside: boolean;
+        created_by: string | null;
+        created_at: Date | null;
       }>
     >(Prisma.sql`
       SELECT
-        id::text AS id,
-        entity::text AS entity,
-        kind,
-        tx_time,
-        attrs,
-        CASE WHEN geom IS NULL THEN NULL
-             ELSE ST_AsGeoJSON(geom)::text END AS geom_json,
-        author_sub,
-        COALESCE((source->'details'->>'syncVersion')::bigint, 0) AS sync_version
-      FROM observation
+        o.id::text AS id,
+        o.entity::text AS entity,
+        o.kind,
+        o.tx_time,
+        o.attrs,
+        CASE WHEN o.geom IS NULL THEN NULL
+             ELSE ST_AsGeoJSON(o.geom)::text END AS geom_json,
+        o.author_sub,
+        ${sv} AS sync_version,
+        ${insideSql} AS inside,
+        cr.author_sub AS created_by,
+        cr.tx_time AS created_at
+      FROM observation o
+      ${createJoin} (
+        SELECT c.author_sub, c.tx_time
+        FROM observation c
+        WHERE c.scope = o.scope AND c.entity = o.entity AND c.kind = 'create'
+        ORDER BY c.tx_time ASC, c.id ASC
+        LIMIT 1
+      ) cr ON true
       WHERE ${where}
-      ORDER BY COALESCE((source->'details'->>'syncVersion')::bigint, 0) ASC,
-               tx_time ASC,
-               id ASC
+      ORDER BY ${sv} ASC, o.tx_time ASC, o.id ASC
       LIMIT ${limit}
     `);
 
     return rows.map((r) => {
+      const outside = r.inside === false;
       let geometry: GeoJsonGeometry | null = null;
-      if (r.geom_json) {
+      if (r.geom_json && !outside) {
         try {
           geometry = JSON.parse(r.geom_json) as GeoJsonGeometry;
         } catch {
@@ -1840,12 +1920,14 @@ export class DataLayerEngine {
       return {
         observationId: r.id,
         entity: r.entity,
-        kind: r.kind as DeltaChange['kind'],
+        kind: outside ? 'delete' : (r.kind as DeltaChange['kind']),
         syncVersion: Number(r.sync_version ?? 0),
         txTime: r.tx_time.toISOString(),
         authorSub: r.author_sub,
+        createdBy: r.created_by,
+        createdAt: r.created_at ? r.created_at.toISOString() : null,
         geometry,
-        properties: r.attrs ?? null,
+        properties: outside ? null : (r.attrs ?? null),
       };
     });
   }
