@@ -37,7 +37,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
-import { Readable } from 'node:stream';
+import type { Readable } from 'node:stream';
 
 export interface PinnedAddress {
   address: string;
@@ -168,6 +168,9 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
       const quad = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
       if (isPrivateOrLoopbackHost(quad)) return true;
     }
+    // A colon address that was not a private range is a public IPv6
+    // address. It is not a docker service name.
+    return false;
   }
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
   const lower = host.toLowerCase();
@@ -390,35 +393,68 @@ type PinnedTransport = (
   addresses: PinnedAddress[],
 ) => Promise<Response>;
 
+/** Default cap so a hostile body cannot be buffered without limit. */
+export function safeFetchMaxBytes(): number {
+  const raw = process.env.GRATIS_SAFE_FETCH_MAX_BYTES;
+  if (raw && /^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n) && n >= 1024) return n;
+  }
+  return 1024 * 1024 * 1024;
+}
+
+export interface PinnedRequestOptions {
+  /** Test-only trust anchor. Production leaves this unset. */
+  ca?: string | Buffer;
+  maxBytes?: number;
+}
+
 /**
- * Dial the checked address, not the name in the URL. `servername`
- * keeps TLS SNI and certificate hostname verification on the name
- * the caller asked for. The socket host is `connectHost(address)`.
+ * Dial `dialHost`, which the caller has already passed through
+ * `connectHost` in production. The certificate is checked against
+ * `url.hostname`, not the dial address.
  */
-function nodePinnedRequest(
+export function pinnedRequest(
   url: URL,
   init: RequestInit | undefined,
-  addresses: PinnedAddress[],
+  dialHost: string,
+  options: PinnedRequestOptions = {},
 ): Promise<Response> {
-  const chosen = addresses[0];
-  if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
-  const host = connectHost(chosen.address);
+  const maxBytes = options.maxBytes ?? safeFetchMaxBytes();
   const lib = url.protocol === 'https:' ? https : http;
   const headers = new Headers(init?.headers);
   headers.set('host', url.host);
   const path = `${url.pathname}${url.search}`;
+  const timeoutMs = Number(process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS ?? '');
+  const signals: AbortSignal[] = [];
+  if (init?.signal) signals.push(init.signal);
+  if (Number.isFinite(timeoutMs) && timeoutMs >= 1) {
+    signals.push(AbortSignal.timeout(timeoutMs));
+  }
+  const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('aborted'));
+      return;
+    }
     const req = lib.request(
       {
-        host,
+        host: dialHost,
         port: url.port || (url.protocol === 'https:' ? 443 : 80),
         method: init?.method ?? 'GET',
         path,
         headers: Object.fromEntries(headers.entries()),
         servername: url.hostname,
         rejectUnauthorized: true,
+        ...(options.ca ? { ca: options.ca } : {}),
       },
       (incoming) => {
+        const declared = Number(incoming.headers['content-length'] ?? '');
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          incoming.destroy();
+          reject(new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`));
+          return;
+        }
         const responseHeaders = new Headers();
         for (const [key, value] of Object.entries(incoming.headers)) {
           if (typeof value === 'string') responseHeaders.append(key, value);
@@ -426,7 +462,27 @@ function nodePinnedRequest(
             for (const item of value) responseHeaders.append(key, item);
           }
         }
-        const body = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
+        let received = 0;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            incoming.on('data', (chunk: Buffer) => {
+              received += chunk.length;
+              if (received > maxBytes) {
+                controller.error(
+                  new UnsafeOutboundUrlError(`response is larger than ${maxBytes} bytes`),
+                );
+                incoming.destroy();
+                return;
+              }
+              controller.enqueue(new Uint8Array(chunk));
+            });
+            incoming.on('end', () => controller.close());
+            incoming.on('error', (err) => controller.error(err));
+          },
+          cancel() {
+            incoming.destroy();
+          },
+        });
         resolve(
           new Response(body, {
             status: incoming.statusCode ?? 0,
@@ -435,12 +491,26 @@ function nodePinnedRequest(
         );
       },
     );
-    const onAbort = () => req.destroy();
-    init?.signal?.addEventListener('abort', onAbort, { once: true });
-    req.on('error', reject);
-    req.on('close', () => init?.signal?.removeEventListener('abort', onAbort));
+    const fail = (err: unknown) => {
+      req.destroy();
+      if (err instanceof Error) {
+        reject(err);
+        return;
+      }
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : 'request failed';
+      reject(new Error(message));
+    };
+    if (signal) {
+      const onAbort = () => fail(signal.reason ?? new Error('aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      req.on('close', () => signal.removeEventListener('abort', onAbort));
+    }
+    req.on('error', fail);
     const body = init?.body;
-    if (body == null) {
+    if (body == null || body === '') {
       req.end();
       return;
     }
@@ -448,8 +518,22 @@ function nodePinnedRequest(
       req.end(body);
       return;
     }
+    if (typeof (body as { pipe?: unknown }).pipe === 'function') {
+      (body as Readable).pipe(req);
+      return;
+    }
     req.end();
   });
+}
+
+function nodePinnedRequest(
+  url: URL,
+  init: RequestInit | undefined,
+  addresses: PinnedAddress[],
+): Promise<Response> {
+  const chosen = addresses[0];
+  if (!chosen) throw new UnsafeOutboundUrlError('no pinned address');
+  return pinnedRequest(url, init, connectHost(chosen.address));
 }
 
 let transport: PinnedTransport = nodePinnedRequest;
