@@ -723,7 +723,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
         res.status === 409
           ? t('adminUsers.invite.errDuplicate')
           : res.status === 502
-            ? t('adminUsers.invite.errDelivery')
+            ? t('adminUsers.invite.errUpstream')
             : t('adminUsers.invite.errInviteFailed', {
                 status: String(res.status),
               }),

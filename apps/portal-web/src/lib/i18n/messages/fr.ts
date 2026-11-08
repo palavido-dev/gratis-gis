@@ -3978,7 +3978,7 @@ export const fr: Partial<CatalogShape> = {
       errUsernameMin: 'L’identifiant doit comporter au moins 2 caractères.',
       errEmailInvalid: 'Veuillez saisir une adresse e-mail valide.',
       errDuplicate: 'Un compte avec ce nom ou cette adresse existe déjà. L’adresse n’est pas affichée ici.',
-      errDelivery: 'Le serveur d’identité n’a pas pu envoyer le courrier. Vérifiez SMTP dans Notifications, puis réessayez. L’adresse n’est pas affichée ici.',
+      errUpstream: 'Le serveur d’identité n’a pas pu créer le compte. Réessayez dans un instant. Si l’échec persiste, vérifiez que le serveur d’identité fonctionne. L’adresse n’est pas affichée ici.',
       errInviteFailed: 'L’invitation ne s’est pas terminée (état {status}). Aucun détail de compte n’est affiché.',
       alertEmailFailedTitle: 'Compte créé, e-mail non envoyé',
       alertEmailFailedMessage:

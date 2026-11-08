@@ -4112,7 +4112,7 @@ export const en = {
       errUsernameMin: 'Username must be at least 2 characters.',
       errEmailInvalid: 'Please enter a valid email address.',
       errDuplicate: 'An account with that username or email already exists. No address is shown here.',
-      errDelivery: 'The identity server could not send mail. Check SMTP under Notifications, then try again. No address is shown here.',
+      errUpstream: 'The identity server could not create the account. Try again in a moment. If it keeps failing, check that the identity server is running. No address is shown here.',
       errInviteFailed: 'The invite did not finish (status {status}). No account detail is shown.',
       alertEmailFailedTitle: 'Account created, email not sent',
       alertEmailFailedMessage:

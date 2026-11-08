@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -405,8 +406,11 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     });
     if (!res.ok) {
       await res.text();
+      // Keycloak answers 409 when the username or email is taken. That
+      // is a client conflict, not an upstream failure, so the web UI can
+      // tell it apart from a Keycloak outage (502).
       if (res.status === 409) {
-        throw new BadGatewayException(
+        throw new ConflictException(
           'A user with that username or email already exists.',
         );
       }
