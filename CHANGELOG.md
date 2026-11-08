@@ -50,6 +50,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `GRATIS_RECOVERY_NOTICE_TO` is set; the test uses a sink and does
   not send mail. WAL point-in-time recovery is not part of this
   bundle.
+- Opt-in WAL point-in-time recovery for a throwaway compose project
+  the operator names twice (`infra/wal`). `archive_mode` is not
+  turned on for the dev, NAS, or VPS stacks. A synthetic drill takes
+  a base backup, writes two rows, and recovers to a timestamp between
+  them. The recovered database has the earlier row only. This does
+  not change the PostgreSQL 17 runtime of an ordinary install.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when
