@@ -118,6 +118,9 @@ enum NotificationType {
   /// (create or reply). Email only; gated by NOTIFICATIONS_ENABLED
   /// and user/org prefs like other types.
   comment_mentioned               @map("comment-mentioned")
+  /// An in-portal backup run finished without an archive. The
+  /// payload is the run id only.
+  backup_failed                   @map("backup-failed")
 }
 
 /// Channel a notification is delivered through. Phase 1 ships email
@@ -250,6 +253,8 @@ model Organization {
   aiProvider            OrgAiProvider?
   /// Privileged admin actions. Not the feature observation log.
   adminAuditEvents      AdminAuditEvent[]
+  resourceQuota         OrgResourceQuota?
+  storageReservations   StorageReservation[]
 
   @@map("organization")
 }
@@ -294,6 +299,38 @@ model AdminAuditEvent {
 
   @@index([orgId, at(sort: Desc), id(sort: Desc)], map: "admin_audit_event_org_at_idx")
   @@map("admin_audit_event")
+}
+
+/// Absent row: no org storage cap and no import-slot cap.
+model OrgResourceQuota {
+  orgId                String   @id @map("org_id") @db.Uuid
+  maxStorageBytes      BigInt?  @map("max_storage_bytes")
+  maxConcurrentImports Int?     @map("max_concurrent_imports")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_resource_quota")
+}
+
+model StorageReservation {
+  id        String   @id @default(uuid()) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  bytes     BigInt
+  purpose   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId], map: "storage_reservation_org_idx")
+  @@map("storage_reservation")
+}
+
+model BackupFailureNotice {
+  runId     String   @id @map("run_id") @db.Uuid
+  noticedAt DateTime @default(now()) @map("noticed_at") @db.Timestamptz(6)
+
+  @@map("backup_failure_notice")
 }
 
 model User {

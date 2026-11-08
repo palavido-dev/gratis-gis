@@ -207,6 +207,11 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
 
   return (
     <div className="space-y-6">
+      {runs.some((run) => run.status === 'failed') ? (
+        <p className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800" role="status">
+          {t('opsBackup.failureBanner')}
+        </p>
+      ) : null}
       <SettingsCard
         config={config}
         onSaved={(next) => setConfig(next)}

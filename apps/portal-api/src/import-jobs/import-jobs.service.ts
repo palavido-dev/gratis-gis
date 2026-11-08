@@ -4,12 +4,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { ImportJob, ImportJobStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 
 /**
  * Persistence + lifecycle helpers for ImportJob rows (#115).
@@ -35,7 +37,10 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 export class ImportJobsService {
   private readonly log = new Logger(ImportJobsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly quota?: ResourceQuotaService,
+  ) {}
 
   /** Enqueue a new ingest job. Worker will pick it up on the next poll. */
   async enqueue(input: {
@@ -49,7 +54,7 @@ export class ImportJobsService {
     userId: string;
     orgId: string;
   }): Promise<ImportJob> {
-    return this.prisma.importJob.create({
+    const created = await this.prisma.importJob.create({
       data: {
         itemId: input.itemId,
         layerId: input.layerId,
@@ -63,6 +68,13 @@ export class ImportJobsService {
         status: 'queued',
       },
     });
+    try {
+      await this.quota?.reserve(input.orgId, 0n, created.id);
+    } catch (err) {
+      await this.prisma.importJob.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw err;
+    }
+    return created;
   }
 
   /**
@@ -109,13 +121,15 @@ export class ImportJobsService {
   async cancel(user: AuthUser, jobId: string): Promise<ImportJob> {
     const row = await this.get(user, jobId);
     if (row.status === 'queued' || row.status === 'running') {
-      return this.prisma.importJob.update({
+      const updated = await this.prisma.importJob.update({
         where: { id: jobId },
         data: {
           status: 'cancelled',
           finishedAt: new Date(),
         },
       });
+      await this.quota?.releasePurpose(jobId);
+      return updated;
     }
     return row;
   }
@@ -191,6 +205,7 @@ export class ImportJobsService {
         insertedFeatures,
       },
     });
+    await this.quota?.releasePurpose(jobId);
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
@@ -208,6 +223,7 @@ export class ImportJobsService {
         errorMessage,
       },
     });
+    await this.quota?.releasePurpose(jobId);
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 

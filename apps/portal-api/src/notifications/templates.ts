@@ -671,6 +671,19 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       `<p><a href="${escapeAttr(itemUrl)}">Open the conversation</a></p>`;
     return { subject, text, html };
   }) as Renderer<unknown>,
+
+  backup_failed: ((payload: { runId?: string }, ctx) => {
+    const runId = typeof payload.runId === 'string' ? payload.runId : '';
+    const subject = `A backup did not finish on ${ctx.orgLabel}`;
+    const text =
+      `A backup did not finish. Open Admin, Backup, and read that run.\n` +
+      `Run id: ${runId}\n`;
+    const html =
+      `<p>A backup did not finish on ${escapeHtml(ctx.orgLabel)}. ` +
+      `Open Admin, Backup, and read that run.</p>` +
+      `<p>Run id: ${escapeHtml(runId)}</p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
 };
 
 /**
