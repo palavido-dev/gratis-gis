@@ -809,8 +809,16 @@ export default async function ItemDetailPage(props: Props) {
         {canManage ? (
           <div className="flex shrink-0 items-center gap-2">
             <Link
+              href={`/items/${item.id}#sharing`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-accent-foreground shadow-card hover:opacity-90 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+              title={t('itemDetail.shareActionHint', undefined, locale)}
+            >
+              <Users className="h-3.5 w-3.5" />
+              {t('itemDetail.shareAction', undefined, locale)}
+            </Link>
+            <Link
               href={`/items/${item.id}/edit`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             >
               <Pencil className="h-3.5 w-3.5" />
               Edit

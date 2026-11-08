@@ -404,10 +404,10 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const text = await res.text();
+      await res.text();
       if (res.status === 409) {
         throw new BadGatewayException(
-          `A user with that username or email already exists (${text}).`,
+          'A user with that username or email already exists.',
         );
       }
       throw new BadGatewayException(
@@ -440,12 +440,9 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
           'UPDATE_PASSWORD',
           'VERIFY_EMAIL',
         ]);
-      } catch (err) {
-        setupEmailError =
-          err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `User ${input.username} created in Keycloak but setup email failed: ${setupEmailError}`,
-        );
+      } catch {
+        setupEmailError = 'smtp_unavailable';
+        this.logger.warn(`Setup email failed for user id ${id}`);
       }
     }
     const rep = await this.getUser(id);

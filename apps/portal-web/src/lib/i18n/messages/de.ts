@@ -86,6 +86,7 @@ export const de: Partial<CatalogShape> = {
     notifications: 'Benachrichtigungen',
     ai: 'KI',
     build: 'Erstellen',
+    buildHint: 'Layer, Karte, Formular oder App beschreiben',
     security: 'Anmeldung',
     fieldQueues: 'Feld-Warteschlangen',
     migrations: 'Migrationen',
@@ -127,8 +128,9 @@ export const de: Partial<CatalogShape> = {
     closeNavigation: 'Navigation schließen',
   },
   search: {
-    placeholder: 'Elemente suchen...',
+    placeholder: 'Nur Elemente suchen',
     label: 'Elemente suchen',
+    scopeHint: 'Sucht Titel, Beschreibungen und Schlagwörter von Elementen. Personen und Gruppen sind nicht enthalten.',
   },
   help: {
     buttonTitle: 'Hilfe (jederzeit ? drücken)',
@@ -189,6 +191,9 @@ export const de: Partial<CatalogShape> = {
     viewerBlocked:
       'Ihr Konto hat die Rolle Betrachter. Damit können Sie Elemente öffnen und herunterladen, aber nicht erstellen. Eine Organisationsadministratorin kann Ihre Rolle ändern oder Ihnen allein die Veröffentlichungsberechtigung erteilen.',
     changeType: 'Typ ändern',
+    taskIntro: 'Beginnen Sie mit einem Upload, einer Karte oder einem Formular. Weitere Typen stehen unter Mehr, und ein Link mit Typ öffnet ihn weiter.',
+    moreTypes: 'Weitere Elementtypen',
+    fewerTypes: 'Weniger Elementtypen',
     detailsEyebrow: 'Neues {type}',
     detailsEyebrowFallback: 'Element',
     titleLabel: 'Titel',
@@ -270,7 +275,7 @@ export const de: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Web app',
-    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    desc: 'Web-App aus Karte und Widgets. Ein Dashboard ist eine Vorlage dieses Typs, kein eigenes Element. Wählen Sie danach eine Vorlage oder beginnen Sie leer.',
   },
   theme: {
     label: 'Theme',
@@ -1586,6 +1591,20 @@ export const de: Partial<CatalogShape> = {
     copyLink: 'Link kopieren',
     copied: 'Kopiert',
     openOnPhone: 'Auf dem Handy öffnen',
+    eyebrow: 'Inhalt',
+    intro: 'Einsätze für das Feld, mit Offline-Cache und Synchronisationsstatus dieses Geräts.',
+    newDeployment: 'Neuer Einsatz',
+    sessionExpiredTitle: 'Sitzung abgelaufen',
+    sessionExpiredBody: 'Melden Sie sich erneut an, um die Einsätze zu laden. Das ist kein leerer Katalog. Auf diesem Gerät gespeicherte Daten bleiben und werden nach der Anmeldung synchronisiert.',
+    emptyTitle: 'Noch keine Feldeinsätze',
+    emptyBody: 'Ein Einsatz zeigt auf eine Karte und das Formular, das beim Hinzufügen von Objekten ausgefüllt wird.',
+    createDeployment: 'Einsatz erstellen',
+    loadFailedTitle: 'Feldeinsätze konnten nicht geladen werden',
+    loadFailedBody: 'Der Katalog hat nicht geantwortet. Das ist keine leere Liste. Versuchen Sie es gleich noch einmal.',
+  },
+  buildPage: {
+    title: 'Aus einer Beschreibung erstellen',
+    intro: 'Beschreiben Sie einen Layer, eine Karte, ein Formular oder eine App. Ein Dashboard ist eine Web-App-Vorlage, nicht diese Seite. Es wird nichts erstellt, bis Sie das auswählen.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1951,6 +1970,8 @@ export const de: Partial<CatalogShape> = {
     previewLoading: 'Vorschau wird geladen',
     backToItems: 'Zurück zu Elementen',
     sharingHeading: 'Freigabe',
+    shareAction: 'Freigeben',
+    shareActionHint: 'Öffnet Freigabe und Zugriff. Abhängigkeiten stehen in diesem Tab, bevor Sie veröffentlichen.',
     openForm: 'Öffnen',
     openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
     responses: 'Antworten',
@@ -4049,10 +4070,12 @@ export const de: Partial<CatalogShape> = {
       sendInvite: 'Einladung senden',
       errUsernameMin: 'Der Benutzername muss mindestens 2 Zeichen haben.',
       errEmailInvalid: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
-      errInviteFailed: 'Einladung fehlgeschlagen: {status} {detail}',
-      alertEmailFailedTitle: 'Benutzer erstellt, E-Mail fehlgeschlagen',
+      errDuplicate: 'Ein Konto mit diesem Namen oder dieser Adresse existiert bereits. Die Adresse wird hier nicht angezeigt.',
+      errDelivery: 'Der Identitätsserver konnte keine E-Mail senden. Prüfen Sie SMTP unter Benachrichtigungen und versuchen Sie es erneut. Die Adresse wird hier nicht angezeigt.',
+      errInviteFailed: 'Die Einladung wurde nicht abgeschlossen (Status {status}). Es werden keine Kontodetails angezeigt.',
+      alertEmailFailedTitle: 'Konto erstellt, E-Mail nicht gesendet',
       alertEmailFailedMessage:
-        'Benutzer „{username}“ wurde erstellt, aber die E-Mail zur Passworteinrichtung konnte nicht gesendet werden:\n\n{error}\n\nSobald SMTP funktioniert, klicken Sie bei diesem Benutzer auf „Passwort zurücksetzen“, um die E-Mail erneut zu senden.',
+        'Das Konto wurde erstellt, aber die Anmelde-E-Mail wurde nicht gesendet. Öffnen Sie Benachrichtigungen, korrigieren Sie SMTP und nutzen Sie Passwort zurücksetzen beim neuen Konto. Diese Meldung enthält keine Adresse.',
     },
     edit: {
       title: 'Benutzer bearbeiten',

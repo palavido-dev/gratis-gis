@@ -111,8 +111,12 @@ export function TopBarSearch() {
         onChange={(e) => setDraft(e.target.value)}
         placeholder={t('search.placeholder')}
         aria-label={t('search.label')}
+        aria-describedby="top-search-scope"
         className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm text-ink-1 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
       />
+      <span id="top-search-scope" className="sr-only">
+        {t('search.scopeHint')}
+      </span>
     </form>
   );
 }
