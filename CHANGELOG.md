@@ -65,6 +65,32 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- An upload is stored inside the temp directory this process created
+  as its file stem, with anything outside letters, digits, and `.` `_`
+  `-` replaced, plus a known extension. An upload named `..`, or one
+  with no usable stem or an unknown extension, is stored as `payload`
+  plus that extension. GeoJSON and CSV layers keep the name of the
+  picked file. The server opens that file only after the real path
+  stays inside the directory. The source label kept on the item is
+  that name with only letters, digits, spaces, and `.` `_` `-`. A
+  staged upload records the name it was stored under, and a staging
+  from before this change still loads. The progress stream does not
+  repeat the upload name; a rejected import reports why it was
+  rejected. Existing installs pick this up by updating the portal-api
+  image. No setting change and no volume reset.
+- Uploading a file to turn it into GeoJSON, or ingesting it straight
+  onto a data layer, no longer holds the whole file in the API
+  process. The file stays on disk, one parse runs per user, two at
+  a time on each process, and the temp directory is removed when the
+  request ends. The request is refused when the disk cannot hold the
+  file plus 256 MB. Viewers can still use the GeoJSON parse, because
+  an edit share is checked when the features are saved. Existing
+  installs pick this up by updating the portal-api image. No setting
+  change and no volume reset.
+- The field download control now says that unsynced edits and photos
+  stay on the device until they sync, and that clearing the browser
+  deletes them. The same sentence is in Spanish, Brazilian Portuguese,
+  French, and German. No server change.
 - The fresh-checkout partition check accepts the Prisma database URL
   from the quickstart. That URL includes `schema` as a query
   parameter, which `psql` rejects. The check removes only that key

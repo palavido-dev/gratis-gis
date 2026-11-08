@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -32,6 +33,14 @@ import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
+import {
+  discardDiskUpload,
+  takeContainedDiskUpload,
+} from './ingest-disk-path.js';
+import {
+  acquireIngestSlot,
+  assertIngestDiskRoomAt,
+} from './ingest-slots.js';
 import { rm } from 'node:fs/promises';
 
 /**
@@ -74,16 +83,9 @@ export class IngestController {
    * authorization is `canEdit` on the item, applied when the parsed
    * result is written.
    */
-  private async assertCanImport(
-    user: AuthUser,
-    file: Express.Multer.File | undefined,
-  ): Promise<void> {
+  private async assertCanImport(user: AuthUser, req: object): Promise<void> {
     if (hasCapability(user, 'can_publish_items')) return;
-    if (file) {
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
-    }
+    await discardDiskUpload(req);
     throw new ForbiddenException(
       'Importing files requires the contributor or admin role.',
     );
@@ -101,21 +103,31 @@ export class IngestController {
   async probe(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
   ) {
     // Refuse before the missing-file check so a viewer learns the
     // real reason rather than a hint about multipart field names.
-    await this.assertCanImport(user, file);
+    await this.assertCanImport(user, req);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
     try {
-      return await this.ingest.probeFileFromPath(file.path);
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
+      try {
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        return await this.ingest.probeFileFromPath(contained.filePath);
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
     } finally {
-      await rm(file.destination, { recursive: true, force: true }).catch(
-        () => {},
-      );
+      await discardDiskUpload(req);
     }
   }
 
@@ -138,18 +150,41 @@ export class IngestController {
    * than WGS84.
    */
   @Post('ingest/to-geojson')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 1024 * 1024 * 1024 },
-    }),
-  )
-  async toGeoJson(@UploadedFile() file: Express.Multer.File | undefined) {
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
+  async toGeoJson(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
+  ) {
     if (!file) {
+      await discardDiskUpload(req);
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    return this.ingest.fileToGeoJson(file.buffer, file.originalname);
+    // Open to every signed-in user. Edit rights are checked when the
+    // parsed features are written. The file stays on disk, one parse
+    // per user, and the temp dir is removed on every exit. The path
+    // is the one this process stored, not the caller's filename.
+    try {
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
+      try {
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        return await this.ingest.fileToGeoJsonFromPath(
+          contained.filePath,
+          file.originalname,
+        );
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
+    } finally {
+      await discardDiskUpload(req);
+    }
   }
 
   /**
@@ -169,77 +204,90 @@ export class IngestController {
   async stage(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
   ) {
-    await this.assertCanImport(user, file);
+    await this.assertCanImport(user, req);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    // The upload is already on disk (disk storage). Move it into the
-    // staging area rather than re-buffering, then drop the now-empty
-    // temp dir. probe reads the staged file from its stable path.
-    const staged = await this.staging.stageFromPath({
-      filePath: file.path,
-      originalName: file.originalname,
-      ownerId: user.id,
-    });
-    await rm(file.destination, { recursive: true, force: true }).catch(
-      () => {},
-    );
+    // The upload is already on disk (disk storage). Move the contained
+    // file into the staging area rather than re-buffering, then drop
+    // the now-empty temp dir. probe reads the staged file from its
+    // stable path. The caller's filename is a label, not a path.
     try {
-      const probe = await this.ingest.probeFileFromPath(staged.filePath);
-      return {
-        stagingId: staged.stagingId,
-        driver: probe.driver,
-        layers: probe.layers,
-      };
-    } catch (err) {
-      // Probe rejected: don't keep a staged file we can't ingest.
-      await this.staging.dropStaging(staged.stagingId).catch(() => {});
-      throw err;
+      const contained = takeContainedDiskUpload(req);
+      let release: (() => void) | undefined;
+      try {
+        release = acquireIngestSlot(user.id);
+        await assertIngestDiskRoomAt(contained.directory, file.size);
+        const staged = await this.staging.stageFromPath({
+          filePath: contained.filePath,
+          originalName: file.originalname,
+          ownerId: user.id,
+        });
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+        try {
+          const probe = await this.ingest.probeFileFromPath(staged.filePath);
+          return {
+            stagingId: staged.stagingId,
+            driver: probe.driver,
+            layers: probe.layers,
+          };
+        } catch (err) {
+          // Probe rejected: don't keep a staged file we can't ingest.
+          await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          throw err;
+        }
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
+    } finally {
+      await discardDiskUpload(req);
     }
   }
 
   @Post('items/:id/ingest')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        // Multer enforces the same ceiling as IngestService. Defense
-        // in depth is cheap and it gives users a clear 413 instead
-        // of burning CPU on a 2 GB shapefile. Set to 1 GB so a
-        // county-scale parcel layer (often 200-500 MB zipped) fits
-        // without the user having to subset first. Anything bigger
-        // should go through a future direct-to-MinIO presigned-PUT
-        // path rather than buffering through portal-api.
-        fileSize: 1024 * 1024 * 1024,
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
   async ingestFile(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
   ) {
     if (!file) {
+      await discardDiskUpload(req);
       throw new BadRequestException('No file uploaded; field name must be "file".');
     }
 
-    const item = await this.items.get(user, id);
-    if (item.type !== 'data_layer') {
-      throw new BadRequestException(
-        'Server-side ingest only targets data_layer items.',
-      );
-    }
-    const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
-    if (!this.sharing.canEdit(user, item, shares)) {
-      throw new ForbiddenException('You do not have edit permission on this item.');
-    }
+    let release: (() => void) | undefined;
+    try {
+      const contained = takeContainedDiskUpload(req);
+      try {
+      const item = await this.items.get(user, id);
+      if (item.type !== 'data_layer') {
+        throw new BadRequestException(
+          'Server-side ingest only targets data_layer items.',
+        );
+      }
+      const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
+      if (!this.sharing.canEdit(user, item, shares)) {
+        throw new ForbiddenException('You do not have edit permission on this item.');
+      }
 
-    const { geojson, fields, driver, sourceSrs } = await this.ingest.fileToGeoJson(
-      file.buffer,
-      file.originalname,
-    );
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(contained.directory, file.size);
+      const { geojson, fields, driver, sourceSrs } =
+        await this.ingest.fileToGeoJsonFromPath(
+          contained.filePath,
+          file.originalname,
+        );
 
     // Ensure the PostGIS table exists for this item (idempotent).
     await this.features.provisionTable(id);
@@ -290,15 +338,24 @@ export class IngestController {
       data: { data: nextData as unknown as Prisma.InputJsonValue },
     });
 
-    return {
-      driver,
-      inserted,
-      expired,
-      featureCount: stats.featureCount,
-      bbox: stats.bbox,
-      fields: nextData.fields,
-      sourceSrs,
-    };
+      return {
+        driver,
+        inserted,
+        expired,
+        featureCount: stats.featureCount,
+        bbox: stats.bbox,
+        fields: nextData.fields,
+        sourceSrs,
+      };
+      } finally {
+        release?.();
+        await rm(contained.directory, { recursive: true, force: true }).catch(
+          () => {},
+        );
+      }
+    } finally {
+      await discardDiskUpload(req);
+    }
   }
 
   /**
@@ -331,6 +388,7 @@ export class IngestController {
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Req() req: object,
     @Query('sourceLayer') sourceLayer?: string,
     // #244 replace-mode. Defaults to 'append' to preserve the existing
     // detail-page behaviour (which is what currently-bookmarked import
@@ -346,14 +404,14 @@ export class IngestController {
   ) {
     // #103: response body is newline-delimited JSON. Each line is one
     // event. Shape:
-    //   {"event":"start","total":1389855,"sourceLayer":"MasterSurfWV_2025"}
+    //   {"event":"start","total":1389855,"sourceLayer":null}
     //   {"event":"progress","processed":5000,"inserted":5000}
     //   {"event":"progress","processed":10000,"inserted":10000}
     //   ...
-    //   {"event":"done","inserted":1389855,"sourceLayer":"MasterSurfWV_2025",
+    //   {"event":"done","inserted":1389855,"sourceLayer":null,
     //    "driver":"OpenFileGDB","sourceSrs":"EPSG:26917","mode":"replace",
     //    "replaced":0}
-    //   {"event":"error","message":"..."}    (terminal)
+    //   {"event":"error","message":"Ingest failed."}    (terminal)
     //
     // Why NDJSON instead of returning a single JSON: a county-scale
     // import takes minutes, and the user-facing wizard wants to
@@ -364,11 +422,10 @@ export class IngestController {
     res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('cache-control', 'no-cache, no-transform');
     res.setHeader('x-accel-buffering', 'no');
-    // The NDJSON body echoes back user-supplied fields (sourceLayer,
-    // filename, error.message). Browsers shouldn't sniff this as
-    // HTML, but if a content-type-relaxed reverse proxy ever strips
-    // the type header an attacker-controlled error message could
-    // become reflected XSS. nosniff keeps that loop closed.
+    // The stream does not echo the query string, the upload name, or
+    // exception text. sourceLayer stays null and error messages are
+    // fixed strings. nosniff still blocks a proxy from treating the
+    // body as HTML.
     res.setHeader('x-content-type-options', 'nosniff');
     res.flushHeaders?.();
     const writeEvent = (msg: Record<string, unknown>): void => {
@@ -397,10 +454,7 @@ export class IngestController {
         );
       }
       if (mode !== undefined && mode !== 'replace' && mode !== 'append') {
-        return failStream(
-          400,
-          `Unknown mode "${mode}"; expected replace or append.`,
-        );
+        return failStream(400, 'Unknown mode; expected replace or append.');
       }
       const ingestMode: 'replace' | 'append' = mode ?? 'append';
       const item = await this.items.get(user, itemId);
@@ -419,10 +473,7 @@ export class IngestController {
       }
       const layer = (data.layers ?? []).find((l) => l.id === layerId);
       if (!layer) {
-        return failStream(
-          404,
-          `Layer ${layerId} is not part of this item's schema.`,
-        );
+        return failStream(404, 'That layer is not part of this item.');
       }
       await this.items.assertCanEdit(user, itemId);
 
@@ -467,14 +518,14 @@ export class IngestController {
         provenanceSizeBytes = staged.sizeBytes;
       } else {
         const f = file!;
-        // Disk storage already wrote the upload to f.path inside its
-        // own temp dir; use it directly (no 1 GB memory buffer, no
-        // separate materialize step). The finally cleans up the dir.
-        sourcePath = f.path;
+        // The bytes are already in the directory this process created.
+        // Open that recorded path. Do not open the caller's filename.
+        const contained = takeContainedDiskUpload(req);
+        sourcePath = contained.filePath;
         provenanceFileName = f.originalname;
         provenanceSizeBytes = f.size;
         cleanupSourceDir = async () => {
-          await rm(f.destination, { recursive: true, force: true }).catch(
+          await rm(contained.directory, { recursive: true, force: true }).catch(
             () => {},
           );
         };
@@ -483,7 +534,6 @@ export class IngestController {
       let totalInserted = 0;
       let startedFlushed = false;
       let lastDriver = '';
-      let lastLayerName = '';
       let lastSourceSrs: string | null = null;
 
       // Shared streaming/progress loop, parameterized by how a batch
@@ -505,7 +555,7 @@ export class IngestController {
               writeEvent({
                 event: 'start',
                 total: progress.total,
-                sourceLayer: sourceLayer ?? null,
+                sourceLayer: null,
               });
               startedFlushed = true;
             }
@@ -526,10 +576,12 @@ export class IngestController {
           // into an attribute-only layer inserted nothing and said
           // nothing: the source file looks geometry-bearing to GDAL,
           // so every geometry-less feature was skipped as corrupt.
-          { isTable: layer.geometryType == null },
+          {
+            isTable: layer.geometryType == null,
+            layerLabel: provenanceFileName,
+          },
         );
         lastDriver = meta.driver;
-        lastLayerName = meta.layerName;
         lastSourceSrs = meta.sourceSrs;
         // Empty-source edge case: streamLayer opens fine but yields
         // zero batches. Emit the start event so the client still gets a
@@ -538,7 +590,7 @@ export class IngestController {
           writeEvent({
             event: 'start',
             total: meta.total,
-            sourceLayer: sourceLayer ?? null,
+            sourceLayer: null,
           });
         }
       };
@@ -656,18 +708,13 @@ export class IngestController {
         // so the surrounding `%`-detection inside console.* can't be
         // tricked by a crafted id (CodeQL js/tainted-format-string).
         // eslint-disable-next-line no-console
-        console.warn(
-          '[ingestV3Layer] bbox recompute failed for %s/%s:',
-          itemId,
-          layerId,
-          err instanceof Error ? err.message : err,
-        );
+        console.warn('[ingestV3Layer] bbox recompute failed');
       }
 
       writeEvent({
         event: 'done',
         driver: lastDriver,
-        sourceLayer: lastLayerName,
+        sourceLayer: null,
         inserted: totalInserted,
         sourceSrs: lastSourceSrs,
         mode: ingestMode,
@@ -676,31 +723,24 @@ export class IngestController {
       res.end();
     } catch (err) {
       const message =
-        err instanceof BadRequestException ||
-        err instanceof NotFoundException ||
         err instanceof ForbiddenException
-          ? err.message
-          : err instanceof Error
-            ? err.message || err.name || 'Ingest failed.'
-            : 'Ingest failed.';
-      // Log the underlying error AND the message we're about to
-      // surface to the client. Earlier we logged just `err`, which
-      // for some gdal-async / native errors prints as the bare
-      // string "Error" with no message and no stack -- making the
-      // failure mode invisible without attaching a debugger.
-      // Pass user-controlled fields as separate console args so the
-      // first-arg format-string detection can't be tricked by a
-      // crafted id or error message (CodeQL js/tainted-format-string).
+          ? 'You cannot import into that item.'
+          : err instanceof NotFoundException
+            ? 'That item or layer was not found.'
+            : err instanceof BadRequestException
+              ? err.message
+              : 'Ingest failed.';
+      // A BadRequestException carries text this service wrote for the
+      // user (wrong layer name, file too large, unreadable file), so
+      // it is passed through. Anything else stays static: a
+      // filesystem error in the NDJSON body is js/xss-through-exception.
+      // The log line stays static too; ids there are js/log-injection.
       // eslint-disable-next-line no-console
-      console.error(
-        '[ingestV3Layer] stream failed for %s/%s: %s',
-        itemId,
-        layerId,
-        message,
-        err instanceof Error ? err.stack : err,
-      );
+      console.error('[ingestV3Layer] stream failed');
       writeEvent({ event: 'error', message });
       res.end();
+    } finally {
+      await discardDiskUpload(req);
     }
   }
 
