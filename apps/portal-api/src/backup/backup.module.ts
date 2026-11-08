@@ -10,6 +10,7 @@ import { AdminAuditModule } from '../admin/admin-audit.module.js';
 import { AdminGuard } from '../admin/admin.guard.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { BackupFailureNotice } from './backup-failure-notice.js';
+import { OperatorOrgGuard } from './operator-org.js';
 import { BackupController } from './backup.controller.js';
 import { BackupCronService } from './backup-cron.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
@@ -33,6 +34,7 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
     MaintenanceModeService,
     BackupFailureNotice,
     AdminGuard,
+    OperatorOrgGuard,
   ],
   exports: [BackupService, MaintenanceModeService],
 })

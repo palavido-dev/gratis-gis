@@ -42,7 +42,9 @@ export const AUDIT_ACTIONS = [
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 export type AuditOutcome = 'succeeded' | 'failed' | 'denied';
 
-const DETAIL_KEY = /^[a-z][a-z0-9_]{0,40}$/;
+// Callers use camelCase (ownerId, principalType). Lower-case only
+// silently dropped those, so owner and share events lost who got access.
+const DETAIL_KEY = /^[a-z][A-Za-z0-9_]{0,40}$/;
 const SECRET_KEY = /pass|secret|token|authorization|cookie|body|email|credential/i;
 const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

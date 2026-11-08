@@ -35,6 +35,9 @@ class NasInitTests(unittest.TestCase):
         again = self.mod.banner(values, reveal_password=False)
         self.assertIn("first-secret-value", first)
         self.assertNotIn("first-secret-value", again)
+        self.assertNotIn("volumes to generate a new one", again)
+        self.assertIn("reset-portal-password.sh", again)
+        self.assertIn("erases the database", again)
 
     def test_lan_caddy_has_security_headers_and_no_hsts(self):
         caddy = self.mod.caddy_lan("8080", "")

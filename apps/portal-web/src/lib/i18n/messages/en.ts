@@ -2048,6 +2048,8 @@ export const en = {
     // Item page chrome (#162 / R14-i18n-item-page-chrome).
     backToItems: 'Back to items',
     sharingHeading: 'Sharing',
+    publicBoundaryWarning:
+      'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.',
     openForm: 'Open',
     openFormTitle: 'Open the form to submit a response',
     responses: 'Responses',

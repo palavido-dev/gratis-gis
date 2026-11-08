@@ -13,10 +13,12 @@ test('renders the hero, the brand, and a version badge', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveTitle(/GratisGIS/i);
 
-  // The hero headline is server-rendered copy on the public landing.
-  await expect(
-    page.getByRole('heading', { name: /open.source, self.hosted GIS portal/i }),
-  ).toBeVisible();
+  // The hero headline is server-rendered from the org's landing
+  // settings (org.title), so its wording belongs to whoever runs the
+  // instance. Assert that a non-empty h1 rendered, not its copy.
+  const hero = page.getByRole('heading', { level: 1 }).first();
+  await expect(hero).toBeVisible();
+  await expect(hero).not.toHaveText(/^\s*$/);
 
   // The deployed version shows in the footer (shipped v0.9.2). Bare
   // pattern rather than a pinned number so the test survives releases.
