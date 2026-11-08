@@ -85,7 +85,8 @@ phone or a laptop that is not on the same LAN.** In the Tailscale
 admin page, turn on MagicDNS and HTTPS certificates. The NAS gets a
 name like `mynas.tail1234.ts.net`. Use Tailscale Serve so that name
 is HTTPS in the browser and proxies to the portal's HTTP port on
-the NAS. Before the first start, set:
+the NAS. Set this before the first start, or on an install that
+already signed in at the LAN address:
 
 ```yaml
 GRATIS_BASE_URL: https://mynas.tail1234.ts.net
@@ -96,12 +97,26 @@ turn on Funnel, and do not forward ports 8080 or 8900 on your router.
 The sign-in cookie is then marked Secure, because the address you
 open starts with `https://`.
 
+Restart after you set `GRATIS_BASE_URL`. Keep the volumes. The next
+start rewrites Keycloak's redirect address. You do not delete
+`pgdata`, `miniodata`, or `boot`, and you do not create a new admin
+password. Sign in again at the Tailscale name.
+
+If you open a Tailscale name or `100.x` address while sign-in is
+still the LAN address, the sign-in page does not send the browser
+to that LAN IP. It shows the `GRATIS_BASE_URL` line for the name
+you opened. Keycloak itself answers `/auth` only for the configured
+host, so a login link cannot bounce you to the other address.
+
 The default install is still `http://192.168.x.x:8080` on your LAN.
 That does not need Tailscale, and it does not need a certificate.
-Plain `http://100.x.x.x:8080` on the tailnet also still works.
-Tailscale encrypts that path. The browser shows `http`, and the
-sign-in cookie is not marked Secure. Use the HTTPS name above when
-the tailnet is shared with other people.
+Plain `http://100.x.x.x:8080` on the tailnet reaches the portal.
+Tailscale encrypts that path. Sign-in still uses the address in
+`GRATIS_BASE_URL` (the LAN address until you change it). Set
+`GRATIS_BASE_URL` to `http://100.x.x.x:8080` when that is the address
+you sign in from. The browser shows `http`, and the sign-in cookie
+is not marked Secure. Use the HTTPS name above when the tailnet is
+shared with other people.
 
 **Cloudflare Tunnel.** Point one hostname at `http://<nas-ip>:8080`
 and a second hostname at `http://<nas-ip>:8900`. Before the first
@@ -140,10 +155,12 @@ shape as the VPS install in [deployment.md](./deployment.md).
 - Admin backups are written to a Docker volume (`portal-api-backups`)
   so they survive recreating the API container. An archive restores
   only on this same install. See [deployment.md](./deployment.md).
-- The address chosen on the first successful start is kept. A later
-  address, after you have signed in, means deleting the app volumes
-  and starting again. `GRATIS_HTTP_PORT` at the top of the file is
-  how you move the web port before that first successful start.
+- The sign-in address is the one printed on first start, until you
+  set `GRATIS_BASE_URL` and restart. That restart updates Keycloak
+  in place. Keep the volumes. `GRATIS_HTTP_PORT` at the top of the
+  file is how you move the web port. Change it before the first
+  successful start, or set `GRATIS_BASE_URL` to the same host with
+  the new port and restart.
 - The Keycloak master realm and its admin API are not reachable
   from the browser.
 
@@ -204,7 +221,7 @@ changed that image to `latest`, set it back to `26.0` before the
 restart only when that volume has not already been migrated by a
 newer Keycloak.
 
-Delete the volumes when you already signed in and the log says the
-address changed, or when you want new passwords. In Dockge that is
+Delete the volumes when you want new passwords. A changed sign-in
+address does not need that. In Dockge that is
 the stack's volumes (`boot`, `pgdata`, `miniodata`, `caddy-data`).
 In TrueNAS, delete the app with its volumes, then install again.
