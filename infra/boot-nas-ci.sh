@@ -145,9 +145,20 @@ docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
 # The published edge image answers 404 for this route until
 # publish-images runs. After that the route is admin-only and must
 # describe this install without fetching a release.
-docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap \
-  /bin/sh -c 'grep -q "^INSTALL_TYPE=.nas.$" /boot/env && grep -q "^GG_CHANNEL=.edge.$" /boot/env && grep -q "^UPDATE_CHECK=.off.$" /boot/env && grep -q "^GRATIS_COMPOSE_REV=.1.$" /boot/env'
+compose_rev="$(docker compose -p "$PROJECT" -f "$COMPOSE" config --format json \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["bootstrap"]["environment"]["GRATIS_COMPOSE_REV"])')"
+docker compose -p "$PROJECT" -f "$COMPOSE" exec -T -e WANT_REV="$compose_rev" bootstrap \
+  /bin/sh -c 'grep -q "^INSTALL_TYPE=.nas.$" /boot/env && grep -q "^GG_CHANNEL=.edge.$" /boot/env && grep -q "^UPDATE_CHECK=.off.$" /boot/env && grep -q "^GRATIS_COMPOSE_REV=.${WANT_REV}.$" /boot/env'
 echo "boot env has nas update identity"
+# The published edge image may predate a compose rev bump in this
+# commit. The Updates page must flag exactly that mismatch.
+image_rev="$(docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api printenv REQUIRED_COMPOSE_REV || true)"
+image_rev="$(printf '%s' "$image_rev" | tr -d '[:space:]')"
+if [ -n "$image_rev" ] && [ "$image_rev" != "$compose_rev" ]; then
+  want_outdated=true
+else
+  want_outdated=false
+fi
 route="$(docker compose -p "$PROJECT" -f "$COMPOSE" exec -T portal-api \
   curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/api/admin/updates || true)"
 if [ "$route" = "404" ]; then
@@ -157,8 +168,8 @@ else
     echo "updates route returned HTTP ${route}" >&2
     exit 1
   fi
-  docker compose -p "$PROJECT" -f "$COMPOSE" exec -T bootstrap python - <<'PY'
-import json, urllib.parse, urllib.request
+  docker compose -p "$PROJECT" -f "$COMPOSE" exec -T -e WANT_OUTDATED="$want_outdated" bootstrap python - <<'PY'
+import json, os, urllib.parse, urllib.request
 import urllib.error
 from pathlib import Path
 
@@ -241,8 +252,9 @@ if body.get("latest") is not None:
     raise SystemExit("UPDATE_CHECK=off still fetched a latest release")
 if not body.get("current", {}).get("version"):
     raise SystemExit(f"missing current version {body}")
-if body.get("composeOutdated") is not False:
-    raise SystemExit(f"compose flagged outdated {body}")
+want_outdated = os.environ.get("WANT_OUTDATED") == "true"
+if body.get("composeOutdated") is not want_outdated:
+    raise SystemExit(f"composeOutdated should be {want_outdated}: {body}")
 print("updates endpoint ok", body["current"]["version"])
 PY
 fi
@@ -376,7 +388,61 @@ status, raw = call(
 )
 if status != 201:
     raise SystemExit(f"create layer HTTP {status}: {raw[:400]!r}")
+item_id = json.loads(raw)["id"]
+layer_id = body["data"]["layers"][0]["id"]
 print("users list and data layer ok")
+
+# The create wizard stages a file on portal-api, then portal-worker
+# imports it from the shared staging volume. A NAS stack without that
+# shared volume fails here with "Source file expired".
+import time, uuid
+geojson = json.dumps({
+    "type": "FeatureCollection",
+    "features": [{
+        "type": "Feature",
+        "properties": {"name": "ci probe"},
+        "geometry": {"type": "Point", "coordinates": [-117.0, 33.9]},
+    }],
+}).encode()
+boundary = uuid.uuid4().hex
+multipart = (
+    f"--{boundary}\r\n"
+    'Content-Disposition: form-data; name="file"; filename="ci-probe.geojson"\r\n'
+    "Content-Type: application/geo+json\r\n\r\n"
+).encode() + geojson + f"\r\n--{boundary}--\r\n".encode()
+user_auth = {"Authorization": f"Bearer {token}"}
+status, raw = call(
+    "http://portal-api:4000/api/ingest/stage",
+    multipart,
+    {**user_auth, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+    "POST",
+)
+if status not in (200, 201):
+    raise SystemExit(f"stage HTTP {status}: {raw[:400]!r}")
+staged = json.loads(raw)
+status, raw = call(
+    f"http://portal-api:4000/api/items/{item_id}/layers/{layer_id}/import-jobs",
+    json.dumps({
+        "stagingId": staged["stagingId"],
+        "sourceLayerName": staged["layers"][0]["name"],
+        "mode": "replace",
+    }).encode(),
+    {**user_auth, "Content-Type": "application/json"},
+    "POST",
+)
+if status not in (200, 201):
+    raise SystemExit(f"import job HTTP {status}: {raw[:400]!r}")
+job = json.loads(raw)
+deadline = time.time() + 180
+while job.get("status") in ("queued", "running") and time.time() < deadline:
+    time.sleep(2)
+    status, raw = call(f"http://portal-api:4000/api/import-jobs/{job['id']}", headers=user_auth)
+    if status != 200:
+        raise SystemExit(f"job poll HTTP {status}: {raw[:400]!r}")
+    job = json.loads(raw)
+if job.get("status") != "succeeded" or job.get("insertedFeatures") != 1:
+    raise SystemExit(f"staged import did not finish: {job}")
+print("staged import through portal-worker ok")
 PY
 
 # Analysis off: the worker stays up without running jobs, and the API
