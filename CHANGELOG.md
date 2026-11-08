@@ -8,7 +8,6 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
-- Host-side credential rekey (`infra/rekey/rekey-credentials.mjs`) writes the old and new keys to a sealed keyring before it changes any ciphertext. A fault before commit leaves the old rows readable. The HTTP rekey mutation is not added here.
 - An install can set `GRATIS_FEATURE_QUERY_PAGE=required` so an unpaged feature read is refused, with the csv and geoparquet routes left as the full export. Unset keeps the existing stream. The response names the csv route in `X-Gratis-Export`.
 - `infra/origin-preflight.mjs` prints the origin mismatch a sign-in page already refuses, including a Tailscale name. `infra/low-ram-warn.sh` warns under 2 GiB available and does not change `GRATIS_ANALYSIS`.
 - `infra/field-bundle/read-recovery.mjs` reads a device offline-recovery zip back into records and file bytes. It restores only what that file contains.
