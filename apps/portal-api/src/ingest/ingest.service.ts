@@ -33,6 +33,8 @@ import {
 } from './nominatim-search.js';
 import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import { assertZipExpansionBudget } from '../tile-layer/tile-conversion.js';
+import { readGpkgFeatureTables } from './gpkg-catalog.js';
+import { preferredKmlZipEntry } from './kmz-entry.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -1353,7 +1355,13 @@ export class IngestService {
    * directory ceiling before VSI walks members.
    */
   private async resolveGdalOpenPath(filePath: string): Promise<string> {
-    if (!filePath.toLowerCase().endsWith('.zip')) return filePath;
+    const lower = filePath.toLowerCase();
+    // KMZ is a zip of KML. Opening the archive path needs the LIBKML
+    // driver, which the distro GDAL build often omits, and GDAL then
+    // reports "not recognized as a supported file format". A shapefile
+    // bundle is a .zip. Both go through /vsizip/ after the same
+    // expansion budget.
+    if (!lower.endsWith('.zip') && !lower.endsWith('.kmz')) return filePath;
     // Same containment pattern as sniffCsvColumns: validate via
     // realpath + relative, then open the returned path (not the
     // caller string). That is what CodeQL treats as sanitised.
@@ -1364,14 +1372,24 @@ export class IngestService {
       );
     }
     const fh = await open(safePath, 'r');
+    let names: string[];
     try {
-      await assertZipExpansionBudget(fh);
+      names = await assertZipExpansionBudget(fh);
     } catch (err) {
       throw new BadRequestException(
         err instanceof Error ? err.message : 'Zip archive rejected',
       );
     } finally {
       await fh.close();
+    }
+    if (lower.endsWith('.kmz')) {
+      const member = preferredKmlZipEntry(names);
+      if (!member) {
+        throw new BadRequestException(
+          'This KMZ archive does not contain a KML document.',
+        );
+      }
+      return `/vsizip/${safePath}/${member}`;
     }
     return `/vsizip/${safePath}`;
   }
@@ -1556,67 +1574,6 @@ function gdalGeomToSimple(
   if (s.includes('line') || s.includes('curve')) return 'line';
   if (s.includes('polygon') || s.includes('surface')) return 'polygon';
   return null;
-}
-
-/**
- * GPKG-specific filter: query `gpkg_contents` through gdal-async's
- * `executeSQL` hook to identify which tables are registered as
- * feature layers (data_type='features'). The data_layer wizard
- * uses this to skip auxiliary tables (NGA style extension's
- * `nga_*` tables, gpkg internals, rtree spatial-index tables,
- * tile pyramids, etc.) that GDAL otherwise exposes as
- * zero-geometry layers.
- *
- * Returns a Set of allowed table names. If anything goes wrong
- * (no gpkg_contents, executeSQL fails, etc.) we return an empty
- * set rather than failing; the caller treats null vs empty
- * differently: null skips filtering entirely (non-GPKG drivers);
- * empty set means "we tried to filter and nothing qualified."
- *
- * The any-cast is because gdal-async's TypeScript declarations
- * don't currently surface executeSQL; the method is available at
- * runtime on the Dataset object.
- */
-function readGpkgFeatureTables(ds: unknown): Set<string> {
-  const set = new Set<string>();
-  try {
-    const sql = `
-      SELECT table_name FROM gpkg_contents WHERE data_type = 'features'
-    `;
-    // gdal-async exposes executeSQL on the Dataset; the result is a
-    // virtual Layer with one row per result. Iterate it to collect
-    // table names. We release the result layer immediately so the
-    // virtual layer doesn't leak.
-    const dataset = ds as {
-      executeSQL: (sql: string) => {
-        features: { forEach: (cb: (f: unknown) => void) => void };
-      };
-      releaseResultSet?: (layer: unknown) => void;
-    };
-    const result = dataset.executeSQL(sql);
-    result.features.forEach((f) => {
-      const feature = f as { fields: { get: (name: string) => unknown } };
-      const tableName = feature.fields.get('table_name');
-      if (typeof tableName === 'string' && tableName.length > 0) {
-        set.add(tableName);
-      }
-    });
-    // Best-effort cleanup; many gdal-async builds don't expose
-    // releaseResultSet directly. The result layer is gc'd anyway
-    // when the dataset closes.
-    if (typeof dataset.releaseResultSet === 'function') {
-      try {
-        dataset.releaseResultSet(result);
-      } catch {
-        /* non-fatal */
-      }
-    }
-  } catch {
-    // No gpkg_contents (malformed GPKG?) or executeSQL not
-    // available. Fall through to "everything passes" by treating
-    // missing filter as null at the call site.
-  }
-  return set;
 }
 
 /**
