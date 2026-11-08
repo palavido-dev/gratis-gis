@@ -13,16 +13,26 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
   function service(overrides: {
     data: unknown;
     counts?: Record<string, number>;
+    /** What the row holds by the time the locked re-read runs. */
+    lockedData?: unknown;
   }) {
     const updates: unknown[] = [];
+    const item = {
+      findUnique: jest.fn().mockResolvedValue({ data: overrides.data }),
+      update: jest.fn().mockImplementation((args: unknown) => {
+        updates.push(args);
+        return Promise.resolve({});
+      }),
+    };
+    const tx = {
+      item,
+      $queryRaw: jest.fn().mockResolvedValue([
+        { data: 'lockedData' in overrides ? overrides.lockedData : overrides.data },
+      ]),
+    };
     const prisma = {
-      item: {
-        findUnique: jest.fn().mockResolvedValue({ data: overrides.data }),
-        update: jest.fn().mockImplementation((args: unknown) => {
-          updates.push(args);
-          return Promise.resolve({});
-        }),
-      },
+      item,
+      $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       $queryRawUnsafe: jest.fn().mockImplementation((_sql: string, scope: string) => {
         const layerId = String(scope).split(':')[2] ?? '';
         const count = overrides.counts?.[layerId] ?? 0;
@@ -85,5 +95,23 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
       .data.data.layers;
     expect(written[0]).toEqual({ geometryType: 'polygon' });
     expect(written[1]?.featureCount).toBe(3);
+  });
+
+  it('keeps a syncVersion bumped while it was counting', async () => {
+    const { svc, updates } = service({
+      data: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', syncVersion: 4 }],
+      },
+      lockedData: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', syncVersion: 5 }],
+      },
+      counts: { parcels: 9 },
+    });
+    expect(await svc.stampFeatureCounts('item-1')).toBe(true);
+    const written = (updates[0] as { data: { data: { layers: Array<Record<string, unknown>> } } })
+      .data.data.layers;
+    expect(written[0]).toMatchObject({ syncVersion: 5, featureCount: 9 });
   });
 });

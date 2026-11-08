@@ -102,10 +102,16 @@ export class EngineService {
    * and throws on malformed input. Returns the persisted observation
    * with all bookkeeping fields populated.
    */
-  async write(input: Observation): Promise<Observation> {
+  async write(
+    input: Observation,
+    db?: Prisma.TransactionClient,
+  ): Promise<Observation> {
     const obs = this.complete(input);
-    await this.insertOne(this.prisma, obs);
-    this.notifyWritten([obs]);
+    await this.insertOne(db ?? this.prisma, obs);
+    // A caller that passed its transaction notifies after that
+    // transaction commits. Notifying here would drop the cache
+    // before a later rollback put the old rows back.
+    if (!db) this.notifyWritten([obs]);
     return obs;
   }
 
@@ -133,10 +139,11 @@ export class EngineService {
   async writeIfHead(
     input: Observation,
     expectedHeadId: string,
+    db?: Prisma.TransactionClient,
   ): Promise<{ written: Observation } | { conflict: true; headId: string | null }> {
     const obs = this.complete(input);
-    const lockKey = `${obs.scope}|${obs.entity}`;
-    const result = await this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
+      const lockKey = `${obs.scope}|${obs.entity}`;
       // See writeFeaturesCreateIdempotent for why this is $executeRaw:
       // the void result of pg_advisory_xact_lock cannot be
       // deserialised by the driver adapter.
@@ -156,7 +163,9 @@ export class EngineService {
       }
       await this.insertOne(tx, obs);
       return { written: obs };
-    });
+    };
+    if (db) return run(db);
+    const result = await this.prisma.$transaction(run);
     if ('written' in result) this.notifyWritten([obs]);
     return result;
   }
@@ -216,13 +225,15 @@ export class EngineService {
    * Order is preserved: the returned array matches the input order
    * one-for-one, with bookkeeping fields populated.
    *
-   * Failure mode: if any chunk fails, prior chunks have already been
-   * persisted. Callers that need transactional all-or-nothing
-   * semantics across a large batch should wrap the call in their own
-   * `prisma.$transaction`. Today's v3 ingest does not need that
-   * (partial ingest is recoverable; the caller logs and retries).
+   * Failure mode: if any chunk fails and no transaction was passed,
+   * prior chunks have already been persisted. Pass `db` to run every
+   * chunk on the caller's transaction so a later failure rolls the
+   * whole batch back.
    */
-  async writeMany(inputs: Observation[]): Promise<Observation[]> {
+  async writeMany(
+    inputs: Observation[],
+    db?: Prisma.TransactionClient,
+  ): Promise<Observation[]> {
     if (inputs.length === 0) return [];
 
     const filled: Observation[] = inputs.map((obs) => ({
@@ -266,7 +277,7 @@ export class EngineService {
             `$${base + 11}::jsonb, $${base + 12}::uuid[])`,
         );
       }
-      await this.prisma.$executeRawUnsafe(
+      await (db ?? this.prisma).$executeRawUnsafe(
         `INSERT INTO observation ` +
           `(id, tx_time, valid_from, valid_to, scope, entity, kind, ` +
           `attrs, geom, cell, author_sub, source, parents) ` +
@@ -275,7 +286,7 @@ export class EngineService {
       );
     }
 
-    this.notifyWritten(filled);
+    if (!db) this.notifyWritten(filled);
     return filled;
   }
 
