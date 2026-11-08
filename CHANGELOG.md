@@ -15,6 +15,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Thumbnail images accept raster data only. Portal session length can
   be set without changing the 365-day default or revoking Keycloak
   sessions.
+- A malformed GRATIS_OPERATOR_ORG_ID no longer falls back to the
+  oldest organization. No organization is the operator until it is
+  fixed, and a warning is logged.
+- Pinned outbound fetches read the socket only as the caller pulls,
+  so a slow reader no longer buffers the body in memory. The item and
+  public proxies cap the dial at their 64 MiB relay limit.
+- The CI Semgrep rule now flags GeoJSON pasted into
+  ST_GeomFromGeoJSON through an untagged template, and CI runs the
+  rule fixtures so this cannot regress.
 
 ### Added
 

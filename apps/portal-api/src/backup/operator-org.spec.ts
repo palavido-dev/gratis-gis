@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Logger } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { OperatorOrgGuard, operatorOrgId } from './operator-org.js';
+import {
+  OperatorOrgGuard,
+  operatorOrgId,
+  resetOperatorOrgWarningForTests,
+} from './operator-org.js';
 
 const user = {
   id: 'admin-2',
@@ -28,6 +32,32 @@ describe('operator organization', () => {
       },
     };
     await expect(operatorOrgId(prisma)).resolves.toBe('org-first');
+  });
+
+  it('fails closed and warns once when the operator id is not a UUID', async () => {
+    process.env.GRATIS_OPERATOR_ORG_ID = 'not-a-uuid';
+    resetOperatorOrgWarningForTests();
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const calls: unknown[] = [];
+    const prisma = {
+      organization: {
+        findFirst: async (args: unknown) => {
+          calls.push(args);
+          return { id: 'org-first' };
+        },
+      },
+    };
+    try {
+      await expect(operatorOrgId(prisma)).resolves.toBeNull();
+      await expect(operatorOrgId(prisma)).resolves.toBeNull();
+      expect(calls).toHaveLength(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      delete process.env.GRATIS_OPERATOR_ORG_ID;
+    }
   });
 
   it('refuses an admin from a later organization', async () => {
