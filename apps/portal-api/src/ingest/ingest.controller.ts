@@ -567,7 +567,9 @@ export class IngestController {
           let copyClosed = false;
           try {
             await writer.begin();
-            await writer.deleteScope(`data_layer:${itemId}:${layerId}`);
+            const scope = `data_layer:${itemId}:${layerId}`;
+            const removedEntityIds = await writer.liveEntityIds(scope);
+            await writer.deleteScope(scope);
             writer.beginCopy();
             await runStream(async (filtered) => {
               const { inserted } =
@@ -580,7 +582,14 @@ export class IngestController {
                 );
               return inserted;
             });
-            await writer.end();
+            await writer.sealCopy();
+            await this.dataLayerFeatures.commitCopiedLayer(writer, {
+              itemId,
+              layerId,
+              removedEntityIds,
+              authorSub: user.id,
+            });
+            await writer.commit();
             copyClosed = true;
           } finally {
             // Any throw (parse error, DB error, disconnect) rolls the

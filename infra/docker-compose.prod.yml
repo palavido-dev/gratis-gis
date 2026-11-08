@@ -618,6 +618,10 @@ services:
       # .env.prod left /portal-info reporting `scripts: false` with no
       # indication why. Found by setting it and watching nothing happen.
       PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # Unpaged feature reads. Empty keeps the full stream; `required`
+      # refuses a read without limit and cursor and points at the csv
+      # export instead.
+      GRATIS_FEATURE_QUERY_PAGE: ${GRATIS_FEATURE_QUERY_PAGE:-}
       # Notification address. Submissions persist regardless; this only
       # decides whether an email goes out. Note this was never passed
       # through before, which is why the old code path silently fell

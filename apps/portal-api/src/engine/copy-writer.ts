@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync } from 'node:fs';
-import { Pool, type PoolClient } from 'pg';
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
@@ -130,6 +130,40 @@ export class CopyWriter {
     await this.client.query('DELETE FROM observation WHERE scope = $1', [
       scope,
     ]);
+  }
+
+  /** Latest live entity ids in `scope`. Call before `deleteScope` on
+   *  a replace so the commit can write tombstones for entities the
+   *  new file does not contain. Invalid once COPY has started. */
+  async liveEntityIds(scope: string): Promise<string[]> {
+    const result = await this.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM (
+         SELECT DISTINCT ON (entity) entity, kind
+         FROM observation
+         WHERE scope = $1
+         ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+       ) latest
+       WHERE kind <> 'delete'`,
+      [scope],
+    );
+    return result.rows.map((row) => row.entity);
+  }
+
+  /** Ordinary SQL on this writer's connection. Only between `begin`
+   *  and `beginCopy`, and again after `sealCopy` until `commit`.
+   *  The COPY stream owns the connection in between. */
+  async query<T extends QueryResultRow = QueryResultRow>(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    if (!this.client) {
+      throw new Error('CopyWriter.query called without a connection.');
+    }
+    if (this.stream) {
+      throw new Error('CopyWriter.query called while COPY is open.');
+    }
+    return this.client.query<T>(sql, params);
   }
 
   /** Issue the COPY statement and spawn the encoder worker. After
@@ -398,12 +432,17 @@ export class CopyWriter {
     if (!this.client) {
       throw new Error('CopyWriter.commit called without a connection.');
     }
+    if (this.stream) {
+      throw new Error('CopyWriter.commit called while COPY is open.');
+    }
     await this.client.query('COMMIT');
     this.client.release();
     this.client = null;
     return this.rowCount;
   }
 
+  /** Seal the stream and commit. Callers that must run SQL after
+   *  the stream use `sealCopy` and `commit` themselves. */
   async end(): Promise<number> {
     await this.sealCopy();
     return this.commit();

@@ -274,6 +274,8 @@ export class ImportJobsWorker implements OnModuleInit {
       }
       const writer = new CopyWriter(databaseUrl);
       let copyClosed = false;
+      const scope = dataLayerScope(job.itemId, job.layerId);
+      let removedEntityIds: string[] = [];
       let meta: Awaited<
         ReturnType<IngestService['streamLayerFromPath']>
       >;
@@ -288,7 +290,8 @@ export class ImportJobsWorker implements OnModuleInit {
       try {
         await writer.begin();
         if (job.mode === 'replace') {
-          await writer.deleteScope(dataLayerScope(job.itemId, job.layerId));
+          removedEntityIds = await writer.liveEntityIds(scope);
+          await writer.deleteScope(scope);
         }
         writer.beginCopy();
         meta = await this.ingest.streamLayerFromPath(
@@ -342,6 +345,10 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
+          // Seal, then drop duplicate appends, then stamp, then commit.
+          // The stamp only counts rows this transaction still holds, so
+          // a load whose rows were all duplicates leaves the cursor
+          // alone. Abort before commit leaves it unchanged too.
           await writer.sealCopy();
           if (job.mode === 'append') {
             // Only rows this transaction inserted. Committed history
@@ -354,6 +361,12 @@ export class ImportJobsWorker implements OnModuleInit {
             );
             totalInserted = Math.max(0, totalInserted - skippedDuplicates);
           }
+          await this.dataLayerFeatures.commitCopiedLayer(writer, {
+            itemId: job.itemId,
+            layerId: job.layerId,
+            removedEntityIds,
+            authorSub: job.createdBy,
+          });
           await writer.commit();
           copyClosed = true;
           copyCommitted = true;
