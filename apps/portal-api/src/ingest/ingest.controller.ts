@@ -30,7 +30,10 @@ import {
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
 import { IngestService } from './ingest.service.js';
-import { IngestStagingService } from './ingest-staging.service.js';
+import {
+  IngestStagingService,
+  isStagingId,
+} from './ingest-staging.service.js';
 import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
@@ -353,8 +356,14 @@ export class IngestController {
     // instead. The wizard's Create-item flow uses this so a 503 MB
     // GDB uploaded once at probe time gets re-used for N per-layer
     // ingests without N more uploads.
-    @Query('stagingId') stagingId?: string,
+    @Query('stagingId') stagingIdParam?: unknown,
   ) {
+    // A repeated query key arrives as an array. Accept only one UUID
+    // string before the value reaches staging or the reservation.
+    if (stagingIdParam !== undefined && !isStagingId(stagingIdParam)) {
+      throw new BadRequestException('stagingId must be a single UUID.');
+    }
+    const stagingId: string | undefined = stagingIdParam;
     // #103: response body is newline-delimited JSON. Each line is one
     // event. Shape:
     //   {"event":"start","total":1389855,"sourceLayer":"MasterSurfWV_2025"}

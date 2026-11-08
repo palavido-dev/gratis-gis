@@ -54,6 +54,13 @@ import { randomUUID } from 'node:crypto';
  * bounded disk usage. Stagings are also implicitly bounded by the
  * 1 GB per-file ceiling shared with the rest of the ingest stack.
  */
+const STAGING_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True only for one string shaped like the UUIDs stage() mints. */
+export function isStagingId(value: unknown): value is string {
+  return typeof value === 'string' && STAGING_ID.test(value);
+}
+
 @Injectable()
 export class IngestStagingService implements OnModuleInit {
   private readonly log = new Logger(IngestStagingService.name);
