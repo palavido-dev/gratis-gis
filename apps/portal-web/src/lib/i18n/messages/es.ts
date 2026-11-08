@@ -1941,6 +1941,8 @@ export const es: Partial<CatalogShape> = {
     previewLoading: 'Cargando la vista previa',
     backToItems: 'Volver a elementos',
     sharingHeading: 'Compartir',
+    publicBoundaryWarning:
+      'Falta el límite geográfico público o no tiene geometría. Quien consulte en público no ve entidades hasta que elija un límite que siga existiendo.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir el formulario para enviar una respuesta',
     responses: 'Respuestas',
