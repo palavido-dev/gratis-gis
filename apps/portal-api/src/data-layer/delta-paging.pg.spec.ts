@@ -322,4 +322,38 @@ d('delta sync protocol on migrated PostGIS', () => {
     expect(rows[0]!.geometry).toBeNull();
     expect(rows[0]!.properties).toBeNull();
   });
+
+  it('geo limit: a tombstone of a feature the caller never saw is not sent', async () => {
+    const clip = {
+      type: 'Polygon',
+      coordinates: [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]],
+    };
+    const made = await service.insertFeatures(
+      ITEM,
+      SCOPED,
+      [
+        { geometry: point(80, 80), properties: { value: 80 } },
+        { geometry: point(3, 3), properties: { value: 3 } },
+      ],
+      supervisor,
+    );
+    const [hidden, seen] = made.globalIds;
+    const principal = { sub: SUPERVISOR, displayName: 'boss' };
+    await engine.commitLayerSync(ITEM, SCOPED, async ({ tx, source }) => {
+      for (const globalId of [hidden!, seen!]) {
+        await engine.writeFeatureDelete(
+          { itemId: ITEM, layerId: SCOPED, globalId, principal, source },
+          tx,
+        );
+      }
+      return { wrote: true, value: null };
+    });
+
+    const clipped = await walk(SCOPED, 0, 1_000, { geoLimit: clip });
+    // Nothing about the (80, 80) feature: no create, no tombstone,
+    // so neither its id nor its creator reaches this caller.
+    expect(clipped.changes.filter((c) => c.entity === hidden)).toEqual([]);
+    const visible = clipped.changes.filter((c) => c.entity === seen);
+    expect(visible.map((c) => c.kind)).toEqual(['create', 'delete']);
+  });
 });
