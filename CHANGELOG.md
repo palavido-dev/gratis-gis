@@ -41,6 +41,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the features. Dashboards can use the layer after that import
   finishes. Existing installs pick this up by updating the portal
   images. No setting change and no volume reset.
+- Tailscale sign-in on a home NAS no longer sends the browser to the
+  LAN address saved at first boot. Sign-in stays on `GRATIS_BASE_URL`.
+  Opening another host shows that setting instead of starting
+  Keycloak, and Caddy does not proxy `/auth` for any other host.
+  Changing `GRATIS_BASE_URL` and restarting updates Keycloak's
+  redirect URIs and frontend URL in place. Keep the volumes. Existing
+  installs set `GRATIS_BASE_URL` to the Tailscale HTTPS name (or the
+  `http://100.x` address) and restart.
 - Map builder: the basemap menu opens again. The toolbar scrolled
   sideways (`overflow-x-auto`), which also clips vertically, so the
   menu dropping below the header was cut off. The toolbar wraps

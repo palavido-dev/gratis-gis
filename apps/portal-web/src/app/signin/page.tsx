@@ -1,54 +1,56 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-'use client';
-
-import { useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { signIn } from 'next-auth/react';
-import { useT } from '@/lib/i18n/locale-context';
+import { Suspense } from 'react';
+import { headers } from 'next/headers';
+import { decideSignInOrigin } from '@/lib/auth-origin';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
+import { SignInClient } from './sign-in-client';
 
 /**
  * Custom sign-in page wired to NextAuth via authOptions.pages.signIn.
  *
- * When NextAuth has only one provider, the default /api/auth/signin
- * shows a one-button "Sign in with Keycloak" picker -- a useless extra
- * click since there's nothing to pick. We override pages.signIn so
- * NextAuth routes its sign-in flow through this page instead, and we
- * call signIn('keycloak', { callbackUrl }) on mount to drop the user
- * straight into Keycloak's hosted login.
- *
- * The visible "Continue to Keycloak" link is the noscript / late-JS
- * fallback. In the normal case the useEffect fires before the user
- * sees it, so they only ever land on Keycloak's own login.
+ * When this host is the configured public URL, the client immediately
+ * redirects to Keycloak. When it is not (a Tailscale name while
+ * sign-in is still pinned to the LAN address), do not start OAuth:
+ * that redirect is what sends the browser to the LAN IP.
  */
-export default function SignInPage() {
-  const t = useT();
-  const params = useSearchParams();
-  // NextAuth normally appends ?callbackUrl=... so the user lands back
-  // where they were trying to go after auth. Honor it; default to / so
-  // a direct visit to /signin still works.
-  const callbackUrl = params.get('callbackUrl') ?? '/';
-
-  useEffect(() => {
-    void signIn('keycloak', { callbackUrl });
-  }, [callbackUrl]);
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-0 p-4">
-      <div className="rounded-md border border-border bg-surface-1 px-6 py-5 text-center shadow-card">
-        <p className="text-sm text-ink-1">{t('auth.redirecting')}</p>
-        <p className="mt-2 text-xs text-muted">
-          {t('auth.redirectFallback')}{' '}
-          <a
-            href={`/api/auth/signin/keycloak?callbackUrl=${encodeURIComponent(
-              callbackUrl,
-            )}`}
-            className="underline hover:text-ink-0"
-          >
-            {t('auth.continueToKeycloak')}
-          </a>
-          .
-        </p>
+export default async function SignInPage() {
+  const locale = await getServerLocale();
+  const headerList = await headers();
+  const decision = decideSignInOrigin(
+    headerList.get('x-forwarded-host') ?? headerList.get('host'),
+  );
+  if (!decision.allowed) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface-0 p-4">
+        <div className="max-w-lg rounded-md border border-border bg-surface-1 px-6 py-5 shadow-card">
+          <h1 className="text-base font-semibold text-ink-0">
+            {t('auth.wrongHostTitle', undefined, locale)}
+          </h1>
+          <p className="mt-2 text-sm text-ink-1">
+            {t(
+              'auth.wrongHostBody',
+              { opened: decision.openedHost, canonical: decision.canonical },
+              locale,
+            )}
+          </p>
+          <pre className="mt-3 overflow-x-auto rounded bg-surface-0 p-3 text-xs text-ink-0">
+            {`GRATIS_BASE_URL: ${decision.suggestedBaseUrl || decision.canonical}`}
+          </pre>
+          <p className="mt-3 text-xs text-muted">
+            {t('auth.wrongHostRestart', undefined, locale)}
+          </p>
+        </div>
       </div>
-    </div>
+    );
+  }
+  return (
+    <Suspense
+      fallback={
+        <p className="p-6 text-sm text-muted">{t('auth.redirecting', undefined, locale)}</p>
+      }
+    >
+      <SignInClient />
+    </Suspense>
   );
 }

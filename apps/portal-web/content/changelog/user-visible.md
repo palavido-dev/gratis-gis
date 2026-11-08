@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-08 - Tailscale sign-in stays on the name you configure
+Signing in from a Tailscale name no longer sends the browser to the LAN address. Set GRATIS_BASE_URL to that name and restart. Keep the volumes. Until you do, the sign-in page shows the line to add instead of leaving the name you opened.
+
 ## 2026-11-08 - Shapefile, KMZ, GeoPackage, and GeoJSON load into a data layer
 A zipped shapefile, KMZ, GeoPackage, or GeoJSON added to a data layer now keeps its features, not just an empty schema. Dashboards can use that layer after the import finishes. Updating the portal images is enough. You do not reset volumes.
 

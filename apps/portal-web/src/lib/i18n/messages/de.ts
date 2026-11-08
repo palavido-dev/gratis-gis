@@ -3407,6 +3407,11 @@ export const de: Partial<CatalogShape> = {
     redirecting: 'Weiterleitung zur Anmeldung...',
     redirectFallback: 'Wenn nichts passiert,',
     continueToKeycloak: 'weiter zu Keycloak',
+    wrongHostTitle: 'Die Anmeldung nutzt eine andere Adresse',
+    wrongHostBody:
+      'Sie haben {opened} geöffnet. Die Anmeldung ist für {canonical} konfiguriert, daher würde der Browser dorthin geschickt. Setzen Sie dies in der Compose-Datei und starten Sie neu:',
+    wrongHostRestart:
+      'Behalten Sie die Volumes. Der nächste Start aktualisiert Keycloak. Für Tailscale-HTTPS nutzen Sie den MagicDNS-Namen mit https:// und Tailscale Serve. Eine Tailnet-IP bleibt bei http:// mit Port.',
   },
   adminSecurity: {
     pageIntro:
