@@ -32,6 +32,13 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { BackupService } from './backup.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
+import { EmailTransport } from '../notifications/email-transport.js';
+import {
+  announceRecoveryFailure,
+  readRecoveryStatus,
+  recoveryBanner,
+  shouldAnnounceRecovery,
+} from './recovery-status.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -105,7 +112,10 @@ export class BackupController {
     private readonly restore: BackupRestoreService,
     private readonly mode: MaintenanceModeService,
     private readonly prisma: PrismaService,
+    private readonly mail: EmailTransport,
   ) {}
+
+  private readonly recoveryAnnounced = new Set<string>();
 
   @Get('config')
   getConfig() {
@@ -187,7 +197,25 @@ export class BackupController {
    */
   @Get('health')
   async health() {
-    return this.backup.getHealth();
+    const base = await this.backup.getHealth();
+    const recovery = await readRecoveryStatus(
+      process.env.GRATIS_RECOVERY_STATUS_FILE,
+    );
+    const to = process.env.GRATIS_RECOVERY_NOTICE_TO;
+    if (shouldAnnounceRecovery(this.recoveryAnnounced, recovery, to)) {
+      try {
+        await announceRecoveryFailure(this.mail, to!, recovery!);
+      } catch {
+        this.recoveryAnnounced.delete(
+          `${recovery!.outcome}:${recovery!.phase}`,
+        );
+      }
+    }
+    return {
+      ...base,
+      recovery,
+      recoveryBanner: recoveryBanner(recovery),
+    };
   }
 
   @Delete('runs/:id')

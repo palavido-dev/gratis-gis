@@ -7,6 +7,8 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { EmailTransport } from '../notifications/email-transport.js';
+import { SystemSettingsService } from '../notifications/system-settings.service.js';
 import { BackupController } from './backup.controller.js';
 import { BackupCronService } from './backup-cron.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
@@ -29,6 +31,8 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
     BackupRestoreService,
     MaintenanceModeService,
     AdminGuard,
+    SystemSettingsService,
+    EmailTransport,
   ],
   exports: [BackupService, MaintenanceModeService],
 })
