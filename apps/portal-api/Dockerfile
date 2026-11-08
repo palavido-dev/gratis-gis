@@ -129,21 +129,25 @@ ARG PMTILES_VERSION=1.30.3
 # up on its own, and the assertion at the end of this stage is an
 # EXACT match on purpose (it is there to catch a downgrade), so the
 # recorded version has to be what actually lands in the binary.
-# Floored at 0.41.0 for earlier CVEs; 0.42.0 is what golang.org/x/net
-# v0.60.0 pulls in, so assert the version that actually lands.
-ARG PMTILES_XTEXT_VERSION=0.42.0
+# Floored at 0.41.0 for earlier CVEs; 0.43.0 is what golang.org/x/net
+# v0.62.0 pulls in, so assert the version that actually lands.
+ARG PMTILES_XTEXT_VERSION=0.43.0
 # CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
 # bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
 # CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in 0.60.0.
-# Pin exact so the post-build `go version -m` assertion catches a
-# downgrade. Watch for go-pmtiles adopting >=0.60.0 itself, at which
-# point this pin can drop. Applied LAST in the go-get chain because
-# google.golang.org/grpc@1.83.2 otherwise downgrades it to 0.58.0.
-ARG PMTILES_XNET_VERSION=0.60.0
+# CVE-2026-78661, HIGH: html text-node coalescing DoS. Fixed in 0.62.0.
+# The 2026-11-08 Trivy DB started rating v0.60.0 HIGH, which failed the
+# portal-api and script-runner image scans (script-runner is FROM
+# portal-api, so it ships the same binary). Pin exact so the post-build
+# `go version -m` assertion catches a downgrade. Watch for go-pmtiles
+# adopting >=0.62.0 itself, at which point this pin can drop. Applied
+# LAST in the go-get chain because google.golang.org/grpc@1.83.2
+# otherwise downgrades it to 0.58.0.
+ARG PMTILES_XNET_VERSION=0.62.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
-# v0.53.0. Fixed upstream in 0.55.0. 0.57.0 is what x/net v0.60.0
+# v0.53.0. Fixed upstream in 0.55.0. 0.58.0 is what x/net v0.62.0
 # pulls; assert that so the pin and the binary agree.
-ARG PMTILES_XCRYPTO_VERSION=0.57.0
+ARG PMTILES_XCRYPTO_VERSION=0.58.0
 # CVE-2026-84304, HIGH: google.golang.org/grpc v1.79.3 arrives through
 # gocloud.dev, which go-pmtiles uses for its remote-bucket support.
 # Fixed upstream in 1.83.1.
@@ -184,7 +188,7 @@ ENV CGO_ENABLED=0
 # downgrade instead of failing on it.
 # Order matters: google.golang.org/grpc@1.83.2 pulls golang.org/x/net
 # v0.58.0 and will silently downgrade a earlier x/net pin (that is what
-# broke the v0.60.0 assertion for CVE-2026-78669). Pin text/crypto/grpc
+# broke the v0.62.0 assertion for CVE-2026-78661). Pin text/crypto/grpc
 # /go-jose first, then x/net last so the floor sticks through to
 # `go build`.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
@@ -270,7 +274,7 @@ RUN rm -rf /pnpm /usr/local/lib/node_modules/pnpm \
 # embeds a patched stdlib version into the binary so the alerts
 # resolve at the source rather than via .trivyignore. The same stage
 # upgrades golang.org/x/text past CVE-2026-56852 and golang.org/x/net
-# past CVE-2026-46600 for the same reason.
+# past CVE-2026-46600 and CVE-2026-78661 for the same reason.
 ARG PMTILES_VERSION=1.30.3
 COPY --from=pmtiles-build /go/bin/go-pmtiles /usr/local/bin/pmtiles
 RUN /usr/local/bin/pmtiles version
