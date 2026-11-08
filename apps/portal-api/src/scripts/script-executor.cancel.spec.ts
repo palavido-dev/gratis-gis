@@ -187,3 +187,134 @@ describe('ScriptExecutorService run isolation', () => {
     spy.mockRestore();
   });
 });
+
+/**
+ * A script can fork, call setsid(), and leave a grandchild holding
+ * stdout. The process-group kill never reaches it, so 'close' never
+ * fires. Before the fix the run promise never settled, its cleanup
+ * never ran, and the run queue blocked every later run.
+ */
+const HAS_PYTHON =
+  require('node:child_process').spawnSync('python3', ['-c', 'print(1)']).status === 0;
+(HAS_PYTHON ? describe : describe.skip)('ScriptExecutorService with an escaped grandchild', () => {
+  jest.setTimeout(30_000);
+  let getuid: jest.SpyInstance | null = null;
+  const strays: number[] = [];
+  beforeAll(() => {
+    process.env.SCRIPT_PYTHON = 'python3';
+    if (typeof process.getuid === 'function') {
+      getuid = jest.spyOn(process, 'getuid').mockReturnValue(1000);
+    }
+  });
+  afterAll(() => {
+    getuid?.mockRestore();
+    for (const pid of strays) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+
+  // The grandchild leaves the session, keeps the inherited stdout
+  // open, prints its pid, and sleeps. The parent then exits (or hangs,
+  // for the cancel case).
+  const escape = (parentSleeps: number) =>
+    [
+      'import os, sys, time',
+      'if os.fork() == 0:',
+      '    os.setsid()',
+      '    print("STRAY", os.getpid(), flush=True)',
+      '    time.sleep(25)',
+      '    sys.exit(0)',
+      'time.sleep(0.3)',
+      `time.sleep(${parentSleeps})`,
+    ].join('\n');
+
+  const remember = (log: string) => {
+    const m = /STRAY (\d+)/.exec(log);
+    if (m) strays.push(Number(m[1]));
+  };
+
+  const req = (source: string, timeoutSeconds = 20) => ({
+    source,
+    apiKeyToken: 'ggk_x',
+    timeoutSeconds,
+    maxLogBytes: 4096,
+  });
+
+  it('settles when the interpreter exits, and the next run still starts', async () => {
+    const svc = new ScriptExecutorService();
+    const t0 = Date.now();
+    const first = await svc.execute(req(escape(0)));
+    remember(first.log);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    expect(first.exitCode).toBe(0);
+    const second = await svc.execute(req('print("next")'));
+    expect(second.log).toContain('next');
+  });
+
+  it('settles on cancel even though the grandchild escaped the group', async () => {
+    const svc = new ScriptExecutorService();
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 1000);
+    const t0 = Date.now();
+    const out = await svc.execute(req(escape(25)), ac.signal);
+    remember(out.log);
+    expect(out.killedBy).toBe('cancel');
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  });
+});
+
+// The same escape under the real uid drop, as the executor container
+// runs it. Only possible as root.
+const AS_ROOT =
+  HAS_PYTHON && typeof process.getuid === 'function' && process.getuid() === 0;
+(AS_ROOT ? describe : describe.skip)('ScriptExecutorService escaped grandchild under a script uid', () => {
+  jest.setTimeout(30_000);
+  const saved = { ...process.env };
+  let dir: string;
+  beforeAll(() => {
+    const { mkdtempSync, chmodSync } = require('node:fs') as typeof import('node:fs');
+    dir = mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'gg-exec-uid-'));
+    chmodSync(dir, 0o755);
+    Object.assign(process.env, {
+      SCRIPT_PYTHON: 'python3',
+      SCRIPT_UID: '65534',
+      SCRIPT_GID: '65534',
+      SCRIPT_TMPDIR: dir,
+    });
+  });
+  afterAll(() => {
+    process.env = { ...saved };
+    require('node:fs').rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('times out, kills the escaped process, and the next run starts', async () => {
+    const svc = new ScriptExecutorService();
+    const source = [
+      'import os, time',
+      'if os.fork() == 0:',
+      '    os.setsid()',
+      '    time.sleep(25)',
+      'time.sleep(25)',
+    ].join('\n');
+    const t0 = Date.now();
+    const out = await svc.execute({
+      source,
+      apiKeyToken: 'ggk_x',
+      timeoutSeconds: 1,
+      maxLogBytes: 4096,
+    });
+    expect(out.killedBy).toBe('timeout');
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    const next = await svc.execute({
+      source: 'print("next")',
+      apiKeyToken: 'ggk_x',
+      timeoutSeconds: 5,
+      maxLogBytes: 4096,
+    });
+    expect(next.log).toContain('next');
+  });
+});

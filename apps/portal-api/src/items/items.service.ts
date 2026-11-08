@@ -70,6 +70,7 @@ import { OfflinePackageService } from '../offline-package/offline-package.servic
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
 import {
   assertScheduleChangeAllowed,
+  provenanceOnReassign,
   stampScriptProvenance,
 } from '../scripts/script-provenance.js';
 
@@ -3056,7 +3057,20 @@ export class ItemsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.item.update({
         where: { id },
-        data: { ownerId: input.newOwnerId },
+        data: {
+          ownerId: input.newOwnerId,
+          // A scheduled script runs with its owner's key. The new owner
+          // did not write this code, so record who did; scheduled runs
+          // stay paused until the new owner saves it.
+          ...(item.type === 'script'
+            ? {
+                data: provenanceOnReassign(
+                  item.data,
+                  prevOwnerId,
+                ) as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
       if (input.keepPreviousOwnerAccess) {
         await tx.itemShare.upsert({

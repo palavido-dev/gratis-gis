@@ -55,6 +55,9 @@ export interface ExecuteResult {
  * design could open a socket to postgres:5432 with no credentials;
  * verified, not theorised. Credentials were never the whole story.
  */
+/** How long to keep reading output after the interpreter exits. */
+const EXIT_DRAIN_MS = 2000;
+
 @Injectable()
 export class ScriptExecutorService {
   private readonly log = new Logger(ScriptExecutorService.name);
@@ -238,6 +241,11 @@ export class ScriptExecutorService {
           } catch {
             // Already gone.
           }
+          // A script can leave its process group with os.setsid() or a
+          // double fork, and a negative-pid kill never reaches it. Kill
+          // the whole script uid too, so a timeout or cancel stops
+          // everything the run started.
+          if (asUser) void this.killByUid(asUser.uid);
         };
 
         const timer = setTimeout(() => {
@@ -281,6 +289,20 @@ export class ScriptExecutorService {
           done(null);
         });
         child.on('close', (code) => done(code));
+        // 'close' waits for stdout and stderr to end, and a descendant
+        // that escaped the process group can hold them open forever.
+        // Then the run never settled, its cleanup never ran, and the
+        // run queue blocked every later run. Once the interpreter itself
+        // has exited, give the pipes a moment to drain, then stop
+        // reading and settle on the exit code.
+        child.on('exit', (code) => {
+          const grace = setTimeout(() => {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            done(code);
+          }, EXIT_DRAIN_MS);
+          grace.unref();
+        });
       });
     } finally {
       // Kill anything the run left behind BEFORE removing its dir.

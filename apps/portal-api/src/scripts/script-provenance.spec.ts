@@ -209,8 +209,51 @@ describe('ScriptsService.enqueueScheduled', () => {
     expect(created[0]!.state).toBeUndefined();
   });
 
-  it('runs code with no recorded author, which predates the check', async () => {
-    const { svc } = serviceFor({ source: 'ok()', schedule: NIGHTLY });
-    await expect(svc.enqueueScheduled('script-1')).resolves.toBe('run-1');
+  it('skips code with no recorded author until the owner saves it', async () => {
+    const { svc, created } = serviceFor({ source: 'old()', schedule: NIGHTLY });
+    await expect(svc.enqueueScheduled('script-1')).resolves.toBeNull();
+    expect(created[0]!.state).toBe('skipped');
+  });
+});
+
+describe('ItemsService.reassignOwner on a script', () => {
+  const ADMIN = '00000000-0000-0000-0000-0000000000ad';
+
+  function serviceFor(data: unknown) {
+    const written: Array<{ ownerId?: string; data?: unknown }> = [];
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const row = { id: 'script-1', orgId: ORG, ownerId: OWNER, type: 'script', data };
+    const tx = {
+      item: {
+        update: async (args: { data: { ownerId?: string; data?: unknown } }) => {
+          written.push(args.data);
+          return { ...row, ...args.data };
+        },
+      },
+      itemShare: { upsert: async () => ({}) },
+    };
+    Object.assign(svc, {
+      get: async () => row,
+      sharing: { canAdmin: () => true },
+      noteAudit: () => undefined,
+      prisma: {
+        user: { findUnique: async () => ({ id: ADMIN, orgId: ORG }) },
+        $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+      },
+    });
+    return { svc, written };
+  }
+
+  it('keeps the previous owner as the author, so an old script does not run as the new owner', async () => {
+    const { svc, written } = serviceFor({ source: 'old()', schedule: NIGHTLY });
+    await svc.reassignOwner(user(ADMIN), 'script-1', { newOwnerId: ADMIN });
+    const stored = written[0]!;
+    expect(stored.ownerId).toBe(ADMIN);
+    expect(stored.data).toMatchObject({ sourceEditedBy: OWNER });
+    // And the scheduler refuses it for the new owner.
+    const { scheduledRunBlockedReason } = require('./script-provenance.js') as typeof import('./script-provenance.js');
+    expect(
+      scheduledRunBlockedReason({ ownerId: ADMIN, data: stored.data }),
+    ).not.toBeNull();
   });
 });

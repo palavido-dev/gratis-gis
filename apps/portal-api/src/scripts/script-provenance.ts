@@ -85,16 +85,39 @@ export function assertScheduleChangeAllowed(input: {
 }
 
 /**
- * Why a scheduled run must not start, or null when it may. Code with no
- * recorded author predates this check and is treated as the owner's.
+ * Why a scheduled run must not start, or null when it may.
+ *
+ * Code with no recorded author is NOT treated as the owner's. Scripts
+ * saved before this check carry no stamp, and one of them may have been
+ * written by somebody else or reassigned to its current owner, so the
+ * owner has to save it once before it runs with their key on a timer.
  */
 export function scheduledRunBlockedReason(item: {
   ownerId: string;
   data: unknown;
 }): string | null {
   const editedBy = asData(item.data)[SOURCE_EDITED_BY];
-  if (typeof editedBy === 'string' && editedBy !== item.ownerId) {
+  if (typeof editedBy !== 'string') {
+    return "Skipped: the owner has not saved this script's code since scheduled runs started checking who wrote it. The owner needs to review and save the script before scheduled runs resume.";
+  }
+  if (editedBy !== item.ownerId) {
     return "Skipped: someone other than the owner changed this script's code since the owner last saved it. The owner needs to review and save the script before scheduled runs resume.";
   }
   return null;
+}
+
+/**
+ * The data to store when a script changes owner. The code was not
+ * written by the new owner, so the previous owner (or whoever the stamp
+ * already names) stays its author until the new owner saves it.
+ */
+export function provenanceOnReassign(
+  data: unknown,
+  previousOwnerId: string,
+): Data {
+  const next: Data = { ...asData(data) };
+  if (typeof next[SOURCE_EDITED_BY] !== 'string') {
+    next[SOURCE_EDITED_BY] = previousOwnerId;
+  }
+  return next;
 }
