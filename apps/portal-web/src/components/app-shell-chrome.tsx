@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
+  Activity,
   Archive,
   ArrowRightLeft,
   Bell,
@@ -355,6 +356,20 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.diagnostics')}
+          </NavLink>
+          <NavLink
+            href="/admin/jobs"
+            icon={<ClipboardList className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.jobs')}
+          </NavLink>
+          <NavLink
+            href="/admin/operations"
+            icon={<Activity className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.operations')}
           </NavLink>
           <NavLink
             href="/admin/backup"

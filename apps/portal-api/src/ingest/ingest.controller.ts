@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Optional,
   Query,
   Req,
   Res,
@@ -31,6 +32,7 @@ import {
 } from '../data-layer/tables.service.js';
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
+import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
 import {
@@ -41,6 +43,7 @@ import {
   acquireIngestSlot,
   assertIngestDiskRoomAt,
 } from './ingest-slots.js';
+import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 
 /**
@@ -65,6 +68,7 @@ export class IngestController {
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerTables: DataLayerTablesService,
     private readonly staging: IngestStagingService,
+    @Optional() private readonly quota?: ResourceQuotaService,
   ) {}
 
   /**
@@ -212,10 +216,9 @@ export class IngestController {
         'No file uploaded; field name must be "file".',
       );
     }
-    // The upload is already on disk (disk storage). Move the contained
-    // file into the staging area rather than re-buffering, then drop
-    // the now-empty temp dir. probe reads the staged file from its
-    // stable path. The caller's filename is a label, not a path.
+    // The upload is already on disk. Move the contained file into
+    // staging, reserve the quota, then probe. The caller's filename
+    // is a label, not a path.
     try {
       const contained = takeContainedDiskUpload(req);
       let release: (() => void) | undefined;
@@ -227,6 +230,16 @@ export class IngestController {
           originalName: file.originalname,
           ownerId: user.id,
         });
+        try {
+          await this.quota?.reserve(
+            user.orgId,
+            BigInt(staged.sizeBytes),
+            staged.stagingId,
+          );
+        } catch (err) {
+          await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          throw err;
+        }
         await rm(contained.directory, { recursive: true, force: true }).catch(
           () => {},
         );
@@ -238,8 +251,8 @@ export class IngestController {
             layers: probe.layers,
           };
         } catch (err) {
-          // Probe rejected: don't keep a staged file we can't ingest.
           await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          await this.quota?.releasePurpose(staged.stagingId);
           throw err;
         }
       } finally {
@@ -530,6 +543,14 @@ export class IngestController {
           );
         };
       }
+      const quotaPurpose = stagingId ?? `direct-${randomUUID()}`;
+      if (!stagingId) {
+        await this.quota?.reserve(
+          user.orgId,
+          BigInt(provenanceSizeBytes),
+          quotaPurpose,
+        );
+      }
 
       let totalInserted = 0;
       let startedFlushed = false;
@@ -664,6 +685,7 @@ export class IngestController {
           });
         }
       } finally {
+        await this.quota?.releasePurpose(quotaPurpose);
         if (cleanupSourceDir) {
           await cleanupSourceDir().catch(() => {});
         }

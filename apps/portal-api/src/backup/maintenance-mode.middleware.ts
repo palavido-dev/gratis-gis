@@ -27,7 +27,9 @@ export class MaintenanceModeMiddleware implements NestMiddleware {
     if (
       p === '/health' ||
       p.startsWith('/api/admin/backup/restore') ||
-      p === '/api/admin/backup/config'
+      p === '/api/admin/backup/config' ||
+      p === '/api/admin/maintenance' ||
+      p.startsWith('/api/admin/maintenance/')
     ) {
       return next();
     }

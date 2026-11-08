@@ -17,11 +17,13 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { BackupFailureNotice } from './backup-failure-notice.js';
 import { writeTarGz, type TarEntry } from './tar-pack.js';
 
 /**
@@ -183,6 +185,7 @@ export class BackupService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
+    @Optional() private readonly failureNotice?: BackupFailureNotice,
   ) {
     // Reuse the same MinIO creds StorageService uses: if one works
     // the other does, which keeps the admin "backup failed" surface
@@ -624,6 +627,7 @@ export class BackupService implements OnModuleInit {
           'closed out automatically. No archive was produced.',
       },
     });
+    await this.failureNotice?.announce(run.id);
     // Failing to sweep must not fail the reclaim: the row flip is what
     // unblocks the admin and the guard; stranded bytes are a warning.
     const sweep = (p: string, recursive: boolean) =>
@@ -962,7 +966,11 @@ export class BackupService implements OnModuleInit {
               dbErr instanceof Error ? dbErr.message : dbErr
             }). Original failure above.`,
           );
+          return null;
         });
+      if (!wasCancelled) {
+        await this.failureNotice?.announce(run.id);
+      }
     } finally {
       // First, always. A leaked interval would keep querying for a run
       // that finished, once every couple of seconds, forever.

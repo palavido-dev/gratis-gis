@@ -10,6 +10,8 @@ import { AdminAuditModule } from '../admin/admin-audit.module.js';
 import { AdminGuard } from '../admin/admin.guard.js';
 import { EmailTransport } from '../notifications/email-transport.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
+import { BackupFailureNotice } from './backup-failure-notice.js';
 import { BackupController } from './backup.controller.js';
 import { BackupCronService } from './backup-cron.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
@@ -24,13 +26,14 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
  * that happen to land on a BackupModule controller.
  */
 @Module({
-  imports: [ScheduleModule.forRoot(), AdminAuditModule],
+  imports: [ScheduleModule.forRoot(), AdminAuditModule, NotificationsModule],
   controllers: [BackupController],
   providers: [
     BackupService,
     BackupCronService,
     BackupRestoreService,
     MaintenanceModeService,
+    BackupFailureNotice,
     AdminGuard,
     SystemSettingsService,
     EmailTransport,
