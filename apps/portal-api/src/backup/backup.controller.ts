@@ -29,6 +29,7 @@ import type { Response } from 'express';
 
 import { AdminAuditService } from '../admin/admin-audit.service.js';
 import { AdminGuard } from '../admin/admin.guard.js';
+import { OperatorOrgGuard } from './operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { BackupService } from './backup.service.js';
@@ -99,7 +100,7 @@ class UpdateConfigDto {
 
 @ApiTags('admin', 'backup')
 @ApiBearerAuth()
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 @Controller('admin/backup')
 export class BackupController {
   constructor(

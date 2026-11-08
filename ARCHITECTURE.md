@@ -41,8 +41,8 @@ building) and `ROADMAP.md` (when we're building it).
             └──────────┬─────────────┘
                        │
  ┌─────────────┐   ┌───┴───────────┐   ┌────────────────┐
- │ portal-web  │──▶│  portal-api   │──▶│ PostgreSQL 16  │
- │ (Next.js)   │   │  (NestJS)     │   │   + PostGIS 3  │
+ │ portal-web  │──▶│  portal-api   │──▶│ PostgreSQL 17  │
+ │ (Next.js)   │   │  (NestJS)     │   │  + PostGIS 3.5 │
  └─────────────┘   └───┬───────────┘   └────────────────┘
                        │
                        ├──▶  MinIO (object storage: attachments, uploads)

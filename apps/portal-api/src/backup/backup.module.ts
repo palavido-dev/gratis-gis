@@ -8,6 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 import { AdminAuditModule } from '../admin/admin-audit.module.js';
 import { AdminGuard } from '../admin/admin.guard.js';
+import { OperatorOrgGuard } from './operator-org.js';
 import { BackupController } from './backup.controller.js';
 import { BackupCronService } from './backup-cron.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
@@ -30,6 +31,7 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
     BackupRestoreService,
     MaintenanceModeService,
     AdminGuard,
+    OperatorOrgGuard,
   ],
   exports: [BackupService, MaintenanceModeService],
 })
