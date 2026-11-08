@@ -8,6 +8,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Stamping an import's source on a layer no longer rewrites the whole
+  item document. It locks the row and changes only that layer's
+  `source`, so a sync cursor bumped during the import can no longer go
+  backwards and make field clients skip edits.
 - Outbound fetches of user-supplied URLs connect only to the addresses
   the safety check already accepted. The hostname stays on the URL for
   TLS. A deleted public geographic boundary no longer reveals the
