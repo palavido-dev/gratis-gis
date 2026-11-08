@@ -68,6 +68,19 @@ const before = await still.query('SELECT encrypted_payload, iv FROM item_credent
 assert.equal(decrypt(before.rows[0].encrypted_payload, before.rows[0].iv, aad, oldKey), plain);
 await still.end();
 
+const crash = new pg.Client({ connectionString: url });
+await crash.connect();
+await crash.query('BEGIN');
+await crash.query('UPDATE item_credential SET encrypted_payload = $1', ['dead']);
+crash.on('error', () => undefined);
+crash.connection.stream.destroy();
+await new Promise((resolve) => setTimeout(resolve, 300));
+const afterCrash = new pg.Client({ connectionString: url });
+await afterCrash.connect();
+const crashed = await afterCrash.query('SELECT encrypted_payload, iv FROM item_credential');
+await afterCrash.end();
+assert.equal(decrypt(crashed.rows[0].encrypted_payload, crashed.rows[0].iv, aad, oldKey), plain);
+
 const afterRing = await rekeyDatabase({
   databaseUrl: url,
   oldKeyFile: oldFile,
