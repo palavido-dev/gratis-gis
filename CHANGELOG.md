@@ -6,6 +6,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Outbound fetches of user-supplied URLs connect only to the addresses
+  the safety check already accepted. The hostname stays on the URL for
+  TLS. A deleted public geographic boundary no longer reveals the
+  whole layer. Install backup is limited to the operator organization.
+  Thumbnail images accept raster data only. Portal session length can
+  be set without changing the 365-day default or revoking Keycloak
+  sessions.
+
 ### Added
 
 - Field mode can save a zip of unsynced edits and the photo or file

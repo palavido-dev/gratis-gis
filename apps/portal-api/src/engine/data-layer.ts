@@ -29,6 +29,10 @@ import {
 } from '@gratis-gis/engine';
 
 import { syncVersionSource } from '../data-layer/layer-delta.js';
+import {
+  geoLimitIntersectsSql,
+  geoLimitSql,
+} from '../common/closed-geo-limit.js';
 import { EngineService } from './engine.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LensPolicyService } from '../policy/lens-policy.service.js';
@@ -1785,12 +1789,9 @@ export class DataLayerEngine {
       filters.push(Prisma.sql`author_sub = ${args.ownRowsOnly.userId}`);
     }
     if (args.isTable !== true && args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
-      // Null geom (deletes, tables) passes the clip so tombstones
-      // still reach the client; spatial creates/updates must intersect.
-      filters.push(
-        Prisma.sql`(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
-      );
+      // Null geom (deletes, tables) passes a real clip so tombstones
+      // still reach the client. A closed clip matches nothing.
+      filters.push(geoLimitSql(args.geoLimit, 'geom', ''));
     }
 
     const where = Prisma.join(filters, ' AND ');
@@ -2215,9 +2216,8 @@ export class DataLayerEngine {
         );
       }
       if (args.geoLimit !== undefined) {
-        const json = JSON.stringify(args.geoLimit);
         contentFilters.push(
-          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.geoLimit, 'geom', 'AND '),
         );
       }
       if (args.boundaryClip !== undefined) {
@@ -2678,9 +2678,8 @@ export class DataLayerEngine {
         );
       }
       if (args.geoLimit !== undefined) {
-        const json = JSON.stringify(args.geoLimit);
         contentFilters.push(
-          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.geoLimit, 'geom', 'AND '),
         );
       }
       if (args.boundaryClip !== undefined) {
@@ -2767,9 +2766,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -3100,9 +3098,8 @@ export class DataLayerEngine {
       );
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       contentFilters.push(
-        Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        geoLimitSql(args.geoLimit, 'geom', 'AND '),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3139,9 +3136,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -3500,9 +3496,8 @@ export class DataLayerEngine {
       filters.push(Prisma.sql`AND (${Prisma.join(perField, ' OR ')})`);
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        geoLimitSql(args.geoLimit, 'geom', 'AND '),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3650,9 +3645,8 @@ export class DataLayerEngine {
 
     const filters: Prisma.Sql[] = [];
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3784,9 +3778,8 @@ export class DataLayerEngine {
       );
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       contentFilters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3809,9 +3802,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -4055,9 +4047,8 @@ export class DataLayerEngine {
     let viaCte: Prisma.Sql | null = null;
 
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -4080,9 +4071,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {

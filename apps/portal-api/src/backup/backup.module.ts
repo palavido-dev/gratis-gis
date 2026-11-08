@@ -12,6 +12,7 @@ import { EmailTransport } from '../notifications/email-transport.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { BackupFailureNotice } from './backup-failure-notice.js';
+import { OperatorOrgGuard } from './operator-org.js';
 import { BackupController } from './backup.controller.js';
 import { BackupCronService } from './backup-cron.service.js';
 import { BackupRestoreService } from './backup-restore.service.js';
@@ -37,6 +38,7 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
     AdminGuard,
     SystemSettingsService,
     EmailTransport,
+    OperatorOrgGuard,
   ],
   exports: [BackupService, MaintenanceModeService],
 })

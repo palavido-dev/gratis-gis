@@ -1967,6 +1967,8 @@ export const es: Partial<CatalogShape> = {
     sharingHeading: 'Compartir',
     shareAction: 'Compartir',
     shareActionHint: 'Abre el uso compartido y el acceso. Las dependencias aparecen en esa pestaña antes de publicar.',
+    publicBoundaryWarning:
+      'Falta el límite geográfico público o no tiene geometría. Quien consulte en público no ve entidades hasta que elija un límite que siga existiendo.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir el formulario para enviar una respuesta',
     responses: 'Respuestas',

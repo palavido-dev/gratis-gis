@@ -1972,6 +1972,8 @@ export const de: Partial<CatalogShape> = {
     sharingHeading: 'Freigabe',
     shareAction: 'Freigeben',
     shareActionHint: 'Öffnet Freigabe und Zugriff. Abhängigkeiten stehen in diesem Tab, bevor Sie veröffentlichen.',
+    publicBoundaryWarning:
+      'Die öffentliche geografische Grenze fehlt oder hat keine Geometrie. Öffentliche Leser sehen keine Objekte, bis eine vorhandene Grenze gewählt ist.',
     openForm: 'Öffnen',
     openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
     responses: 'Antworten',

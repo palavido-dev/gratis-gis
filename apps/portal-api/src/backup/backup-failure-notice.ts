@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { operatorOrgId } from './operator-org.js';
 
 /**
  * One in-portal notice per failed backup run. The primary key is the
@@ -24,13 +25,10 @@ export class BackupFailureNotice {
     } catch {
       return false;
     }
-    const operator = await this.prisma.organization.findFirst({
-      orderBy: { createdAt: 'asc' },
-      select: { id: true },
-    });
-    const admins = operator
+    const orgId = await operatorOrgId(this.prisma);
+    const admins = orgId
       ? await this.prisma.user.findMany({
-          where: { orgRole: 'admin', deletedAt: null, orgId: operator.id },
+          where: { orgRole: 'admin', deletedAt: null, orgId },
           select: { id: true },
         })
       : [];

@@ -2072,6 +2072,8 @@ export const en = {
     sharingHeading: 'Sharing',
     shareAction: 'Share',
     shareActionHint: 'Open sharing and access. Dependencies are listed on that tab before you publish.',
+    publicBoundaryWarning:
+      'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.',
     openForm: 'Open',
     openFormTitle: 'Open the form to submit a response',
     responses: 'Responses',

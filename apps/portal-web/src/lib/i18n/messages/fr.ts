@@ -1971,6 +1971,8 @@ export const fr: Partial<CatalogShape> = {
     sharingHeading: 'Partage',
     shareAction: 'Partager',
     shareActionHint: 'Ouvre le partage et l’accès. Les dépendances sont listées dans cet onglet avant la publication.',
+    publicBoundaryWarning:
+      'La limite géographique publique est absente ou sans géométrie. Les lecteurs publics ne voient aucune entité tant qu’une limite existante n’est pas choisie.',
     openForm: 'Ouvrir',
     openFormTitle: 'Ouvrir le formulaire pour envoyer une réponse',
     responses: 'Réponses',

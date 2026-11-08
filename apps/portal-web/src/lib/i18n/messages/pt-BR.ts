@@ -1961,6 +1961,8 @@ export const ptBR: Partial<CatalogShape> = {
     sharingHeading: 'Compartilhamento',
     shareAction: 'Compartilhar',
     shareActionHint: 'Abre compartilhamento e acesso. As dependências aparecem nessa aba antes de publicar.',
+    publicBoundaryWarning:
+      'O limite geográfico público está ausente ou sem geometria. Leitores públicos não veem feições até que um limite existente seja escolhido.',
     openForm: 'Abrir',
     openFormTitle: 'Abrir o formulário para enviar uma resposta',
     responses: 'Respostas',
