@@ -15,6 +15,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Thumbnail images accept raster data only. Portal session length can
   be set without changing the 365-day default or revoking Keycloak
   sessions.
+- A malformed GRATIS_OPERATOR_ORG_ID no longer falls back to the
+  oldest organization. No organization is the operator until it is
+  fixed, and a warning is logged.
 
 ### Added
 
