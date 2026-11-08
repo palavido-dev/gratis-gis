@@ -11,7 +11,61 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+# Prisma's DATABASE_URL includes ?schema=public. libpq rejects that
+# query key. Drop a parameter only when its literal name is schema.
+# The userinfo, path, fragment, and every other query byte stay as
+# written, including percent-encoding. This function does not print
+# the URL; callers must not either.
+strip_prisma_schema_param() {
+  local url=$1
+  local frag='' base query rest part key
+  case "$url" in
+    *\#*)
+      frag="#${url#*#}"
+      url="${url%%#*}"
+      ;;
+  esac
+  case "$url" in
+    *\?*)
+      base="${url%%\?*}"
+      query="${url#*\?}"
+      ;;
+    *)
+      printf '%s%s' "$url" "$frag"
+      return 0
+      ;;
+  esac
+  rest=''
+  while [[ -n "$query" ]]; do
+    case "$query" in
+      *\&*)
+        part="${query%%&*}"
+        query="${query#*&}"
+        ;;
+      *)
+        part="$query"
+        query=''
+        ;;
+    esac
+    key="${part%%=*}"
+    if [[ "$key" == 'schema' ]]; then
+      continue
+    fi
+    if [[ -n "$rest" ]]; then
+      rest="${rest}&${part}"
+    else
+      rest="$part"
+    fi
+  done
+  if [[ -n "$rest" ]]; then
+    printf '%s?%s%s' "$base" "$rest" "$frag"
+  else
+    printf '%s%s' "$base" "$frag"
+  fi
+}
+
+conn="$(strip_prisma_schema_param "$DATABASE_URL")"
+psql "$conn" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_partman') THEN

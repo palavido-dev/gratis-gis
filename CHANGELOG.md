@@ -30,6 +30,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The fresh-checkout partition check accepts the Prisma database URL
+  from the quickstart. That URL includes `schema` as a query
+  parameter, which `psql` rejects. The check removes only that key
+  and leaves the rest of the URL, including percent-encoding,
+  unchanged. It does not print the URL.
 - A COPY import, including a replace, now stamps the layer sync
   cursor in the same transaction as the rows. The stamp is written
   after the copy stream closes and before commit, on that

@@ -78,12 +78,12 @@ d('COPY syncVersion through the import worker', () => {
       totalFeatures: 2,
       processedFeatures: 0,
       insertedFeatures: 0,
-      error: null,
+      errorMessage: null,
       createdAt: new Date(),
       startedAt: new Date(),
       finishedAt: null,
-      heartbeatAt: new Date(),
-    } as ImportJob;
+      lastHeartbeatAt: new Date(),
+    };
   }
 
   function worker(rows: Array<{ properties: Record<string, unknown> }>) {

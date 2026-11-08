@@ -343,6 +343,9 @@ d('syncVersion commits with the observation on migrated PostGIS', () => {
       user,
       { baseObservationId: head },
     );
+    if (!('properties' in ok)) {
+      throw new Error('feature update returned an acknowledgement');
+    }
     expect(ok.properties.value).toBe(9);
     expect(await syncVersion()).toBe(version + 1);
   });
