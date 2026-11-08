@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Throwaway stack for the recovery drill. Pass -p gg-recovery-drill.
+# No container_name, so this file cannot attach to another project.
+name: gg-recovery-drill
+
+services:
+  postgres:
+    image: gratis-gis-postgres:local
+    environment:
+      POSTGRES_DB: gratisgis
+      POSTGRES_USER: gratisgis
+      POSTGRES_PASSWORD: drill-pg-password
+      KEYCLOAK_DB_PASSWORD: drill-kc-db-password
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw,pg_stat_statements
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=gratisgis
+      - -c
+      - pg_partman_bgw.dbname=gratisgis
+      - -c
+      - shared_buffers=128MB
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./drill-init.sh:/docker-entrypoint-initdb.d/20-init-keycloak-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: drill-kc-admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: drill-kc-db-password
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://127.0.0.1:18080
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Stand-in for the API process. The drill image for portal-api is
+  # not built here; this service only proves capture pauses a running
+  # writer before it dumps. It does not serve the portal.
+  portal-api:
+    image: gratis-gis-postgres:local
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-02T17-50-41Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: drillminio
+      MINIO_ROOT_PASSWORD: drill-minio-secret
+    ports:
+      - "127.0.0.1:19000:9000"
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:
