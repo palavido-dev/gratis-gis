@@ -15,11 +15,18 @@ import { HousekeepingScheduleService } from './housekeeping-schedule.service.js'
 import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { KeycloakSyncService } from './keycloak-sync.service.js';
+import { BackupModule } from '../backup/backup.module.js';
 import { AdminAuditController } from './admin-audit.controller.js';
 import { AdminAuditModule } from './admin-audit.module.js';
 import { DiagnosticsController } from './diagnostics.controller.js';
 import { DiagnosticsService } from './diagnostics.service.js';
 import { PermissionsReportController } from './permissions-report.controller.js';
+import { JobsMonitorController } from './jobs-monitor.controller.js';
+import { JobsMonitorService } from './jobs-monitor.service.js';
+import { MaintenanceAdminController } from './maintenance-admin.controller.js';
+import { ReadinessController } from './readiness.controller.js';
+import { ReadinessService } from './readiness.service.js';
+import { ResourceQuotaModule } from './resource-quota.module.js';
 import { PermissionsReportService } from './permissions-report.service.js';
 import { AdminOnboardingController } from './onboarding.controller.js';
 import { AdminSecurityController } from './admin-security.controller.js';
@@ -49,6 +56,8 @@ import { UpdatesService } from '../updates/updates.service.js';
 @Module({
   imports: [
     AdminAuditModule,
+    BackupModule,
+    ResourceQuotaModule,
     DataLayerTablesModule,
     ItemsModule,
     NotificationsModule,
@@ -66,7 +75,10 @@ import { UpdatesService } from '../updates/updates.service.js';
     AdminAuditController,
     AdminOnboardingController,
     DiagnosticsController,
+    JobsMonitorController,
+    MaintenanceAdminController,
     PermissionsReportController,
+    ReadinessController,
     AdminSecurityController,
     HousekeepingController,
     NotificationsAdminController,
@@ -82,7 +94,9 @@ import { UpdatesService } from '../updates/updates.service.js';
     HousekeepingCronService,
     DiagnosticsService,
     OnboardingService,
+    JobsMonitorService,
     PermissionsReportService,
+    ReadinessService,
     UpdatesService,
   ],
   exports: [KeycloakAdminService, KeycloakSyncService],

@@ -23,7 +23,7 @@ import { createWriteStream, existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { realpathSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
 
@@ -62,6 +62,33 @@ import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
  * bounded disk usage. Stagings are also implicitly bounded by the
  * 1 GB per-file ceiling shared with the rest of the ingest stack.
  */
+const STAGING_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True only for one string shaped like the UUIDs stage() mints. */
+export function isStagingId(value: unknown): value is string {
+  return typeof value === 'string' && STAGING_ID.test(value);
+}
+
+/**
+ * The filesystem that holds staged uploads. Prod mounts STAGING_DIR
+ * as its own volume, so free-space checks must look there and not at
+ * the container's tmpdir. Without STAGING_DIR the staging tree sits
+ * under tmpdir(), so that is the filesystem to measure.
+ */
+export function stagingDiskPath(): string {
+  return process.env.STAGING_DIR?.trim() || tmpdir();
+}
+
+/**
+ * Resolve `child` under `root` and refuse anything that lands outside
+ * it. Returns null for an escape so callers pick their own error.
+ */
+function insideRoot(root: string, ...parts: string[]): string | null {
+  const base = resolve(root);
+  const target = resolve(base, ...parts);
+  return target.startsWith(base + sep) ? target : null;
+}
+
 @Injectable()
 export class IngestStagingService implements OnModuleInit {
   private readonly log = new Logger(IngestStagingService.name);
@@ -118,10 +145,10 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
-    await writeFile(filePath, input.buffer);
+    await writeFile(filePath, input.buffer, { mode: 0o600 });
     const meta: StagingMeta = {
       ownerId: input.ownerId,
       originalName: plainLabel(input.originalName),
@@ -129,7 +156,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes: input.buffer.length,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${input.buffer.length} B) as ${stagingId}`);
     return {
       stagingId,
@@ -159,7 +186,7 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     // The source path was chosen by the disk-upload pin, not by the
     // request filename. Resolve it and refuse anything that is not
     // that file, then keep the same server-chosen name in staging.
@@ -191,7 +218,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${sizeBytes} B) as ${stagingId}`);
     return {
       stagingId,
@@ -223,11 +250,11 @@ export class IngestStagingService implements OnModuleInit {
   }> {
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const fileName = notMetaFile(safeFilename(input.originalName));
     const filePath = join(dir, fileName);
     try {
-      await pipeline(input.stream, createWriteStream(filePath));
+      await pipeline(input.stream, createWriteStream(filePath, { mode: 0o600 }));
     } catch (err) {
       // A half-written staging must not survive: the id was never
       // returned so nothing references it, and meta.json is written
@@ -246,7 +273,7 @@ export class IngestStagingService implements OnModuleInit {
       sizeBytes,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
     this.log.log(`Staged upload (${sizeBytes} B, streamed) as ${stagingId}`);
     return {
       stagingId,
@@ -267,12 +294,16 @@ export class IngestStagingService implements OnModuleInit {
     stagingId: string,
     callerUserId: string,
   ): Promise<{ filePath: string; originalName: string; sizeBytes: number }> {
-    const match = /^[0-9a-f-]{8,40}$/i.exec(stagingId);
-    if (!match) {
-      throw new NotFoundException('Unknown staging id.');
+    // Only a UUID minted by stage() is a staging id, and the resolved
+    // directory must sit directly inside the staging root.
+    if (!isStagingId(stagingId)) {
+      throw new NotFoundException('Unknown stagingId.');
     }
-    const id = match[0];
-    const dir = join(this.root, id);
+    const dir = insideRoot(this.root, stagingId);
+    if (!dir) {
+      throw new NotFoundException('Unknown stagingId.');
+    }
+    const id = stagingId;
     if (!existsSync(dir)) {
       throw new NotFoundException(
         'Staging was not found. It may have expired; re-upload to retry.',

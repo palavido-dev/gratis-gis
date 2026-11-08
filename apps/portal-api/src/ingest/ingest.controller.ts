@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Optional,
   Query,
   Req,
   Res,
@@ -31,7 +32,11 @@ import {
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
 import { IngestService } from './ingest.service.js';
-import { IngestStagingService } from './ingest-staging.service.js';
+import {
+  IngestStagingService,
+  isStagingId,
+} from './ingest-staging.service.js';
+import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { INGEST_DISK_UPLOAD } from './disk-upload.js';
 import {
@@ -42,6 +47,7 @@ import {
   acquireIngestSlot,
   assertIngestDiskRoomAt,
 } from './ingest-slots.js';
+import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 
 /**
@@ -66,6 +72,7 @@ export class IngestController {
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerTables: DataLayerTablesService,
     private readonly staging: IngestStagingService,
+    @Optional() private readonly quota?: ResourceQuotaService,
   ) {}
 
   /**
@@ -228,6 +235,12 @@ export class IngestController {
           originalName: file.originalname,
           ownerId: user.id,
         });
+        try {
+          await this.quota?.reserve(user.orgId, BigInt(staged.sizeBytes), staged.stagingId);
+        } catch (err) {
+          await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          throw err;
+        }
         await rm(contained.directory, { recursive: true, force: true }).catch(
           () => {},
         );
@@ -241,6 +254,7 @@ export class IngestController {
         } catch (err) {
           // Probe rejected: don't keep a staged file we can't ingest.
           await this.staging.dropStaging(staged.stagingId).catch(() => {});
+          await this.quota?.releasePurpose(staged.stagingId);
           throw err;
         }
       } finally {
@@ -401,8 +415,14 @@ export class IngestController {
     // instead. The wizard's Create-item flow uses this so a 503 MB
     // GDB uploaded once at probe time gets re-used for N per-layer
     // ingests without N more uploads.
-    @Query('stagingId') stagingId?: string,
+    @Query('stagingId') stagingIdParam?: unknown,
   ) {
+    // A repeated query key arrives as an array. Accept only one UUID
+    // string before the value reaches staging or the reservation.
+    if (stagingIdParam !== undefined && !isStagingId(stagingIdParam)) {
+      throw new BadRequestException('stagingId must be a single UUID.');
+    }
+    const stagingId: string | undefined = stagingIdParam;
     // #103: response body is newline-delimited JSON. Each line is one
     // event. Shape:
     //   {"event":"start","total":1389855,"sourceLayer":null}
@@ -530,6 +550,14 @@ export class IngestController {
             () => {},
           );
         };
+      }
+      const quotaPurpose = stagingId ?? `direct-${randomUUID()}`;
+      if (!stagingId) {
+        await this.quota?.reserve(
+          user.orgId,
+          BigInt(provenanceSizeBytes),
+          quotaPurpose,
+        );
       }
 
       let totalInserted = 0;
@@ -665,6 +693,7 @@ export class IngestController {
           });
         }
       } finally {
+        await this.quota?.releasePurpose(quotaPurpose);
         if (cleanupSourceDir) {
           await cleanupSourceDir().catch(() => {});
         }

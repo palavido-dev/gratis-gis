@@ -9,6 +9,7 @@ import { DataLayerTablesModule } from '../data-layer/tables.module.js';
 import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
+import { ResourceQuotaModule } from '../admin/resource-quota.module.js';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { IngestStagingService } from './ingest-staging.service.js';
     FeaturesModule,
     DataLayerFeaturesModule,
     DataLayerTablesModule,
+    ResourceQuotaModule,
   ],
   providers: [IngestService, IngestStagingService],
   controllers: [IngestController],

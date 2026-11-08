@@ -19,10 +19,18 @@ export class HealthController {
   @Get()
   async check(@Res({ passthrough: true }) res: Response) {
     let database: 'ok' | 'down' = 'ok';
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      await Promise.race([
+        this.prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timeout')), 2000);
+        }),
+      ]);
     } catch {
       database = 'down';
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     const ok = database === 'ok';
     if (!ok) res.status(HttpStatus.SERVICE_UNAVAILABLE);
