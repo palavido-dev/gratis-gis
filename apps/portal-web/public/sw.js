@@ -824,15 +824,20 @@ async function isEchoConflict(res, r) {
 
 /**
  * MIRROR of rebaseFeatureHead in src/lib/offline-store.ts, queue half:
- * after an update lands, the feature's other pending rows that carry a
- * base move to the new head. The cached feature copy is refreshed by
- * the page's next delta.
+ * after an update lands, the same account's pending rows of that
+ * feature queued AFTER it move to the new head. Another account's row,
+ * or an earlier one, keeps its base so it still gets a 409 instead of
+ * overwriting this write. The cached feature copy is refreshed by the
+ * page's next delta.
  */
 async function rebaseQueuedRows(db, r, head) {
   const rows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
   for (const row of rows) {
     if (
       row.id !== r.id &&
+      r.ownerUserId !== undefined &&
+      row.ownerUserId === r.ownerUserId &&
+      row.queuedAt > r.queuedAt &&
       row.dataCollectionId === r.dataCollectionId &&
       row.globalId === r.globalId &&
       row.dataLayerId === r.dataLayerId &&

@@ -292,6 +292,14 @@ describe('service worker offline-queue contract', () => {
     }
   });
 
+  it('rebases only the same account\'s later rows after an update lands', () => {
+    // A shared device: moving another account's row to this head
+    // would let it overwrite this write without a 409.
+    const rebase = functionSource(sw, 'rebaseQueuedRows');
+    expect(rebase).toContain('row.ownerUserId === r.ownerUserId');
+    expect(rebase).toContain('row.queuedAt > r.queuedAt');
+  });
+
   it('sends the conflict guard on update and delete replays', () => {
     const replay = functionSource(sw, 'replayFeatureRecord');
     expect(replay.match(/baseObservationId: r\.baseObservationId/g)?.length).toBe(2);

@@ -64,8 +64,9 @@
  *     an update whose `current` already holds the queued values is the
  *     device's own earlier write whose response was lost
  *     (shared-types `isOwnEditEcho`), and the row is done. After an
- *     update lands, the feature's other queued rows and its cached
- *     copy move to the new head (`rebaseFeatureHead`).
+ *     update lands, the same account's later queued rows of that
+ *     feature, and its cached copy if no newer token has arrived,
+ *     move to the new head (`rebaseFeatureHead`).
  *     docs/sync-protocol.md.
  *
  *   - **No conflict resolution UI here.** That belongs to the runtime
@@ -626,7 +627,7 @@ async function rebaseAfterUpdate(r: QueueRecord, res: Response): Promise<void> {
     };
     const head = body.properties?._observation_id;
     if (typeof head === 'string' && head) {
-      await rebaseFeatureHead(r, head, r.id);
+      await rebaseFeatureHead(r, head);
     }
   } catch {
     // A response without a body (older server) leaves the old base;
