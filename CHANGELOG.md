@@ -47,7 +47,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   change and no volume reset.
 - The field download control now says that unsynced edits and photos
   stay on the device until they sync, and that clearing the browser
-  deletes them. No server change.
+  deletes them. The same sentence is in Spanish, Brazilian Portuguese,
+  French, and German. No server change.
 - Dependabot patch and minor updates never squash-merged. The
   auto-merge job marked a grouped update eligible, then stopped
   because `gh pr view --json author` reports the bot as
