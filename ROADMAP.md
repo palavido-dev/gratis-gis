@@ -44,7 +44,7 @@ Ownership reassignment, time-bounded shares, and folder cascade are all in.
 - [x] Data layer endpoint backed by PostGIS (multi-sublayer v3 model)
 - [x] Upload GeoJSON / Shapefile / GeoPackage / GDB / KML → creates a
       data\_layer item
-- [x] pg\_tileserv integration with per-layer permission proxy
+- [x] Vector tiles from portal-api with a per-layer sharing check (pg\_tileserv was dropped)
 - [x] Map item type (basemap + layer refs + styling)
 - [x] Map viewer in portal-web using MapLibre GL
 - [x] Map authoring UI (Add Layer dialog, simple + unique-values +
@@ -306,7 +306,7 @@ maintain.
       cron), retention policy, archive manifests, a maintenance-
       mode gate, and admin restore flow. HA story is the future
       work item if we ever multi-host.
-- [ ] Load tests for tile serving. The pg_tileserv path is
+- [ ] Load tests for tile serving. The portal-api tile path is
       unbenchmarked under realistic concurrency. Target: 100+
       concurrent tile fetches against a 100k-feature data\_layer
       with the cell index path engaged. No tooling yet; would

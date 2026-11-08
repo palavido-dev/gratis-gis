@@ -5,8 +5,10 @@
 Runs inside the bootstrap container (python:3.12-alpine). On an empty
 volume it generates secrets, a Keycloak realm, and a Caddyfile, then
 prints the address. The admin password is printed only when the
-secrets are first created, and it is not written to a file. A second
-start keeps the same secrets and does not print the password again.
+secrets are first created. Until the admin changes it at first
+sign-in, it is also stored in the boot volume (the env file and the
+realm import), which the stack's own containers mount. A second start
+keeps the same secrets and does not print the password again.
 
 No default passwords. Secrets are random per install.
 """
@@ -250,6 +252,27 @@ def write_env(path: Path, values: dict[str, str]) -> None:
         lines.append(f"{key}={sh_quote(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     path.chmod(0o644)
+
+
+# Services that handle untrusted input get only the variables they read.
+# chromium renders user-authored map styles; pointcloud-worker parses
+# uploaded point clouds and rasters with PDAL and GDAL.
+SERVICE_ENV_KEYS = {
+    "env.chromium": ("CHROMIUM_TOKEN",),
+    "env.pointcloud": (
+        "ANALYSIS_TIERS",
+        "DATABASE_URL",
+        "MINIO_ENDPOINT",
+        "MINIO_ACCESS_KEY",
+        "MINIO_SECRET_KEY",
+        "MINIO_BUCKET",
+    ),
+}
+
+
+def write_service_envs(boot: Path, values: dict[str, str]) -> None:
+    for name, keys in SERVICE_ENV_KEYS.items():
+        write_env(boot / name, {key: values.get(key, "") for key in keys})
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -1054,9 +1077,9 @@ def banner(values: dict[str, str], *, reveal_password: bool) -> str:
         password = (
             f"Password:           {values['INITIAL_USER_PASSWORD']}\n"
             "Keycloak will ask you to change this password.\n"
-            "This password is printed only on the first start. It is not\n"
-            "written to a file. Copy it now, then change it before you\n"
-            "share this log. Do not post it publicly.\n"
+            "This password is printed only on the first start. Copy it\n"
+            "now and change it at first sign-in, before you share this\n"
+            "log. Do not post it publicly.\n"
         )
     else:
         password = (
@@ -1097,7 +1120,7 @@ def address_help(port: str) -> str:
         "top of the file and use that same port in GRATIS_BASE_URL.\n"
         "\n"
         "The first-start admin password is printed once, only when\n"
-        "startup succeeds on an empty volume. It is not written to a file.\n"
+        "startup succeeds on an empty volume.\n"
         "Do not post it publicly.\n"
         "===============================\n"
     )
@@ -1144,6 +1167,7 @@ def main() -> None:
         return
     values = assemble(urls, secret)
     write_env(env_path, values)
+    write_service_envs(boot, values)
     realm = build_realm(values)
     realm_path = boot / "realm-gratis-gis.json"
     realm_path.write_text(json.dumps(realm, indent=2) + "\n", encoding="utf-8")

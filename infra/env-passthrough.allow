@@ -130,3 +130,7 @@ SCRIPT_UID both code default
 # Print renders go to http://portal-web:3000 by default, which is the
 # NAS service name.
 PRINT_PREVIEW_BASE_URL nas code default matches the NAS service name
+
+# The NAS bootstrap asks no organization name. Admins rename the
+# organization on the Branding page.
+DEFAULT_ORG_NAME nas NAS bootstrap asks no organization name

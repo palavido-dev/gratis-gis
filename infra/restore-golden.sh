@@ -506,7 +506,7 @@ echo "=== Restarting app services ==="
 # Give minio + postgres a couple of seconds to settle before app
 # services start hitting them.
 sleep 3
-start_if_present keycloak pg_tileserv
+start_if_present keycloak
 sleep 5  # Keycloak boot is slower than postgres / minio.
 start_if_present portal-web portal-worker pointcloud-worker portal-api
 
@@ -515,7 +515,7 @@ start_if_present portal-web portal-worker pointcloud-worker portal-api
 # the portal, and nothing above depends on them. Computed as a set
 # difference so a service added to compose later comes back up without
 # anyone editing this line.
-STARTED=(keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api)
+STARTED=(keycloak portal-web portal-worker pointcloud-worker portal-api)
 REMAINING=()
 for svc in "${APP_SERVICES[@]}"; do
   done_already=

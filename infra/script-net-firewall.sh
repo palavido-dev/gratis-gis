@@ -59,6 +59,15 @@ LINK_LOCAL="169.254.0.0/16"
 # Deliberately not the default. A self-hoster who turns scripts on has
 # already decided who can create one, and silently crippling the
 # headline use case would be a worse surprise than the one it prevents.
+#
+# The systemd unit passes it from infra/.env.prod. deploy.sh runs this
+# through `sudo -n`, which clears the environment, so an unset value is
+# read from the same file here. Without that, every deploy rebuilt the
+# chain as `open` until the next timer tick.
+GG_ENV_FILE="${GG_ENV_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env.prod}"
+if [[ -z "${SCRIPT_EGRESS:-}" && -r "$GG_ENV_FILE" ]]; then
+  SCRIPT_EGRESS="$(sed -n "s/^[[:space:]]*SCRIPT_EGRESS[[:space:]]*=[[:space:]]*['\"]\{0,1\}\([^'\"[:space:]]*\).*/\1/p" "$GG_ENV_FILE" | tail -n 1)"
+fi
 SCRIPT_EGRESS="${SCRIPT_EGRESS:-open}"
 case "$SCRIPT_EGRESS" in
   open|portal-only) ;;

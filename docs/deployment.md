@@ -111,8 +111,7 @@ Rules of thumb:
 
 Docker Compose starts: the portal API (two replicas in the production compose file, one in the NAS compose file) and web UI, a
 background worker, PostgreSQL with PostGIS, Keycloak 26 (identity),
-MinIO (object storage), pg_tileserv (vector tiles straight from
-PostGIS), Caddy (reverse proxy with automatic HTTPS), a one-shot
+MinIO (object storage), Caddy (reverse proxy with automatic HTTPS), a one-shot
 migration container, and two Chromium instances used for print
 rendering. Internal services are only reachable on the compose network;
 Caddy is the only thing listening on 80/443.

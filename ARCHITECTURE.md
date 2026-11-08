@@ -19,8 +19,8 @@ building) and `ROADMAP.md` (when we're building it).
    field app.
 4. **Offline-first for collection.** The field app treats online as a bonus;
    the sync engine is first-class.
-5. **Composable OSS infra.** Identity (Keycloak), storage (MinIO), tiles
-   (pg\_tileserv), and geoprocessing are swappable.
+5. **Composable OSS infra.** Identity (Keycloak), storage (MinIO), and
+   geoprocessing are swappable.
 6. **Strict service boundaries.** Each app (portal-api, portal-web,
    portal-mcp) is independently deployable; cross-service contracts live in
    `packages/shared-types`.
@@ -46,7 +46,6 @@ building) and `ROADMAP.md` (when we're building it).
  └─────────────┘   └───┬───────────┘   └────────────────┘
                        │
                        ├──▶  MinIO (object storage: attachments, uploads)
-                       ├──▶  pg_tileserv (vector tiles from PostGIS)
                        │
  ┌─────────────┐       │
  │  field PWA  │───────┘  (served by portal-web at /field; offline
@@ -216,8 +215,10 @@ delete observation; "current truth" is computed at read time as
 time, `tx_time` for system time) is what gives the platform its
 free audit trail and `?asOf=<timestamp>` reads.
 
-Tiles are served by pg\_tileserv with a permission-aware proxy
-layer in `portal-api`. The engine emits the same
+Vector tiles come from `portal-api` itself (`ST_AsMVT` over the
+engine's projection), after the same sharing check as any other read.
+No tile server sits outside the API; the dev stack still runs
+pg\_tileserv on 127.0.0.1 for local exploration only. The engine emits the same
 `global_id / geom / properties` projection the legacy fs\_ tables
 exposed, so derived-layer tools and tile generators read it
 unchanged.

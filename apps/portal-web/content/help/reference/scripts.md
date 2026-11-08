@@ -180,8 +180,14 @@ SCRIPT_EXECUTOR_TOKEN=<a long random string>
 ```
 
 ```sh
-docker compose --profile scripts up -d script-runner script-executor
+cd /opt/gratis-gis
+docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod \
+  --profile scripts up -d script-runner script-executor
 ```
+
+Also add `COMPOSE_PROFILES=scripts` to `infra/.env.prod`. Without it,
+`./infra/deploy.sh` builds and restarts every service except these two,
+so an upgrade leaves the executor on the old image.
 
 Before you turn this on, the question to ask is not whether the sandbox
 holds. It is **who can create a script item**, because a run carries its

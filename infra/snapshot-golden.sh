@@ -181,7 +181,7 @@ cleanup_on_exit() {
     echo "WARN: snapshot failed (rc=$rc); restarting stopped services." >&2
     dc start minio || true
     sleep 3
-    dc start keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api || true
+    dc start keycloak portal-web portal-worker pointcloud-worker portal-api || true
   fi
   exit "$rc"
 }
@@ -189,11 +189,10 @@ trap cleanup_on_exit EXIT
 
 echo "=== Stopping app services for consistent snapshot ==="
 # Stop in dependency order; postgres stays up so we can pg_dump.
-# pointcloud-worker writes both postgres and minio mid-job, and
-# pg_tileserv holds read connections; stop both so the dumps and
-# the volume tar are one consistent point in time.
+# pointcloud-worker writes both postgres and minio mid-job; stop it so
+# the dumps and the volume tar are one consistent point in time.
 GG_SERVICES_STOPPED=1
-dc stop portal-api portal-worker pointcloud-worker portal-web keycloak pg_tileserv
+dc stop portal-api portal-worker pointcloud-worker portal-web keycloak
 
 PG_CONTAINER="$(dc ps -q postgres | head -n 1)"
 if [[ -z "$PG_CONTAINER" ]]; then
@@ -277,7 +276,7 @@ echo "=== Restarting app services ==="
 dc start minio
 # Wait a beat for minio to be ready before app services start hitting it.
 sleep 3
-dc start keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api
+dc start keycloak portal-web portal-worker pointcloud-worker portal-api
 GG_SERVICES_STOPPED=0
 
 # Re-apply the demo tester workspace on the LIVE db now that the
