@@ -36,8 +36,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   object storage, Keycloak and the encryption key not included, and
   maintenance left on if restore fails. The backup screen no longer
   says a fresh install can be restored just by recreating users.
-  `infra/restore-maintenance.sh` checks that the portal tables exist
-  before it will clear that flag, and it does not delete volumes.
+  `infra/restore-maintenance.sh` refuses to clear maintenance unless
+  `user`, `item`, `organization`, `system_setting`, `observation`,
+  and `_prisma_migrations` exist and no migration is unfinished.
+  That is not a proof the data is a consistent restore. The script
+  says so. It does not delete volumes.
   `infra/reset-portal-password.sh` resets one Keycloak user from the
   host without deleting data and without opening the master realm on
   the proxy. The NAS second-boot log no longer says to delete volumes

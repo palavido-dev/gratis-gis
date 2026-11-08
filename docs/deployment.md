@@ -176,11 +176,14 @@ until the portal tables are present and you have signed in.
    with `pg_restore` while the API is stopped, then copy objects
    back. The archive layout is `manifest.json`,
    `postgres/<db>.dump`, and `minio/`.
-4. Only after `user`, `item`, and `system_setting` exist, clear
-   maintenance with `./infra/restore-maintenance.sh clear
-   --i-verified-the-database`. The script refuses while those tables
-   are missing. It does not delete volumes. API replicas re-read the
-   flag within a few seconds.
+4. `./infra/restore-maintenance.sh status` checks that `user`,
+   `item`, `organization`, `system_setting`, `observation`, and
+   `_prisma_migrations` exist, and that no migration is unfinished.
+   Those checks do not prove the restore is consistent or safe to
+   serve. Compare the data with a backup before you continue.
+   `./infra/restore-maintenance.sh clear --i-verified-the-database`
+   refuses otherwise. It does not delete volumes. API replicas
+   re-read the flag within a few seconds.
 5. A forgotten portal password is not fixed by deleting volumes.
    Reset the user with `./infra/reset-portal-password.sh <username>`.
    That talks to Keycloak inside the container. It does not open the

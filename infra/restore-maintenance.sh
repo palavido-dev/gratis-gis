@@ -49,12 +49,46 @@ psql_c() {
     psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$PGDB" -Atc "$2"
 }
 
-# Returns 0 when user, item, and system_setting all exist.
-tables_present() {
+# One word: present, missing-relation, unfinished-migration, or
+# no-finished-migration. "present" is not a claim that the data is a
+# consistent restore or safe to serve.
+schema_gate() {
   local container="$1"
-  local out
-  out="$(psql_c "$container" "SELECT to_regclass('public.\"user\"') IS NOT NULL AND to_regclass('public.item') IS NOT NULL AND to_regclass('public.system_setting') IS NOT NULL;")"
-  [[ "$out" == "t" ]]
+  local rels
+  # Relations first. The migration queries must not run when the
+  # table is absent: PostgreSQL does not skip those branches.
+  rels="$(psql_c "$container" "
+    SELECT (
+      to_regclass('public.\"user\"') IS NOT NULL
+      AND to_regclass('public.item') IS NOT NULL
+      AND to_regclass('public.organization') IS NOT NULL
+      AND to_regclass('public.system_setting') IS NOT NULL
+      AND to_regclass('public.observation') IS NOT NULL
+      AND to_regclass('public._prisma_migrations') IS NOT NULL
+    )::text;
+  ")"
+  if [[ "$rels" != "true" ]]; then
+    printf '%s\n' "missing-relation"
+    return
+  fi
+  local unfinished finished
+  unfinished="$(psql_c "$container" "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL;")"
+  if [[ "$unfinished" != "0" ]]; then
+    printf '%s\n' "unfinished-migration"
+    return
+  fi
+  finished="$(psql_c "$container" "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;")"
+  if [[ "$finished" == "0" ]]; then
+    printf '%s\n' "no-finished-migration"
+    return
+  fi
+  printf '%s\n' "present"
+}
+
+not_a_safety_proof() {
+  echo "This does not prove the database is a consistent restore or safe to serve."
+  echo "It only shows the checked relations exist and no migration is unfinished."
+  echo "Compare the data with a backup or a volume snapshot before serving traffic."
 }
 
 usage() {
@@ -66,11 +100,11 @@ case "$cmd" in
   status)
     container="$(pick_container)"
     echo "container: $container"
-    if tables_present "$container"; then
-      echo "portal tables: present"
-    else
-      echo "portal tables: MISSING"
-      echo "Do not clear maintenance. Restore the Postgres volume snapshot, or pg_restore a known-good portal dump, before serving traffic."
+    gate="$(schema_gate "$container")"
+    echo "schema gate: $gate"
+    not_a_safety_proof
+    if [[ "$gate" != "present" ]]; then
+      echo "Do not clear maintenance. Restore a volume snapshot or a known-good portal dump before serving traffic."
       exit 2
     fi
     echo "maintenance row:"
@@ -82,12 +116,14 @@ case "$cmd" in
       die "refusing to clear maintenance without --i-verified-the-database. Run '$0 status' first. This does not fix a broken database."
     fi
     container="$(pick_container)"
-    if ! tables_present "$container"; then
-      die "portal tables user, item, or system_setting are missing. Maintenance stays on. Restore a volume snapshot or a known-good dump. This script will not clear the flag and will not delete data."
+    gate="$(schema_gate "$container")"
+    if [[ "$gate" != "present" ]]; then
+      die "schema gate is '$gate', not present. Maintenance stays on. Three tables existing is not enough. This script will not clear the flag and will not delete data."
     fi
     psql_c "$container" "INSERT INTO system_setting (key, value, updated_at) VALUES ('maintenance', '{\"active\":false,\"reason\":null,\"startedAt\":null}'::jsonb, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();"
     echo "Maintenance flag cleared. API replicas re-read it within a few seconds."
-    echo "If sign-in still fails, the database is not healthy. Restore the snapshot. Do not delete volumes to recover a password."
+    not_a_safety_proof
+    echo "If sign-in still fails, restore the snapshot. Do not delete volumes to recover a password."
     ;;
   --help|-h|"")
     usage
