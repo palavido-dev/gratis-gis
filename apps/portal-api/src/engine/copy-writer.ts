@@ -8,6 +8,10 @@ import type { Writable } from 'node:stream';
 
 import { type Observation } from '@gratis-gis/engine';
 
+/** Advisory lock buckets per scope for the append de-dupe. A power of
+ *  two so the bucket is a bit mask of the entity hash. */
+export const APPEND_LOCK_BUCKETS = 64;
+
 /**
  * COPY-based bulk writer for the observation table (#115 P3 + P9).
  *
@@ -93,13 +97,11 @@ export class CopyWriter {
    *  the transaction (see `deleteScope`). Pair with `beginCopy()`. */
   async begin(): Promise<void> {
     this.client = await this.pool.connect();
-    // SET LOCAL synchronous_commit=off for this transaction.
-    // Bulk imports are re-runnable; trading per-commit fsync
-    // durability for ~20-30% throughput is the right call here.
-    // The setting reverts at transaction end so other queries on
-    // the same client (none in this design) get default behavior.
+    // synchronous_commit stays ON. Turning it off let COMMIT return
+    // before the WAL flush, so a power loss could drop a load the
+    // job row later called succeeded, or leave rows behind a job
+    // the reaper marked failed. County imports pay the fsync.
     await this.client.query('BEGIN');
-    await this.client.query('SET LOCAL synchronous_commit = OFF');
   }
 
   /**
@@ -190,13 +192,9 @@ export class CopyWriter {
       ].join(', ') +
       ') FROM STDIN WITH (FORMAT text)';
     this.stream = this.client.query(copyFrom(sql)) as unknown as Writable;
-    // Spawn the encoder worker_thread. The compiled JS sits at
-    // dist/engine/copy-writer.js, with copy-encoder.worker.js next
-    // to it. portal-api is built as CommonJS so we resolve via
-    // __dirname rather than import.meta.url.
     // The compiled image has copy-encoder.worker.js beside this file.
-    // A test run from the TypeScript source loads the .ts file with
-    // the type stripper. Same resolution as the import-guard branch.
+    // A test run from the TypeScript source does not, so it loads the
+    // .ts file with the type stripper. The worker has no other imports.
     const compiled = join(__dirname, 'copy-encoder.worker.js');
     const script = existsSync(compiled)
       ? compiled
@@ -304,10 +302,10 @@ export class CopyWriter {
   }
 
   /**
-   * Finish the COPY stream and leave the transaction open. The
-   * caller stamps syncVersion (and, on the import-guard branch,
-   * drops duplicate appends) before `commit`. A partial stream
-   * that throws never reaches here; `abort` rolls it back.
+   * Finish the COPY stream and leave the transaction open so the
+   * caller can delete duplicate appends before commit. A partial
+   * stream that throws never reaches here; abort() destroys the
+   * connection and Postgres rolls the transaction back.
    */
   async sealCopy(): Promise<void> {
     if (!this.stream || !this.client) {
@@ -324,6 +322,110 @@ export class CopyWriter {
       await this.encoder.terminate();
       this.encoder = null;
     }
+  }
+
+  /**
+   * Remove create rows this transaction just inserted when they are
+   * not the first live observation for that entity.
+   *
+   * Only rows whose xmin is this transaction's xid are eligible.
+   * `pg_current_xact_id()::xid` stays equal to xmin after the
+   * 32-bit xid counter wraps. `xmin::text::bigint = txid_current()`
+   * does not: txid_current() keeps the epoch. Committed
+   * history, updates, deletes, other scopes, and duplicates that
+   * were already stored are left alone. A create after a committed
+   * delete is kept. Two creates for a new entity in this load keep
+   * the earliest. Advisory locks on the entity buckets we just wrote
+   * make a concurrent append of the same entity wait, then see the
+   * winner's commit. At most APPEND_LOCK_BUCKETS locks are taken.
+   *
+   * Lock order: the layer's item row (FOR UPDATE) first, then the
+   * bucket locks in ascending key order. API edits that go through
+   * the item row lock take it first too, then their own per-entity
+   * advisory keys, so both sides queue on the item row before any
+   * advisory lock and cannot wait on each other in a cycle. The
+   * bucket keys use their own namespace, so they never collide with
+   * the API's per-entity keys. Pass `itemId` whenever the scope
+   * belongs to an item; leaving it out skips the row lock.
+   */
+  async dropDuplicateAppendCreates(
+    scope: string,
+    itemId?: string,
+  ): Promise<number> {
+    if (!this.client) {
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called without a connection.',
+      );
+    }
+    if (this.stream) {
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called while COPY is open.',
+      );
+    }
+    if (itemId) {
+      await this.client.query(
+        'SELECT 1 FROM item WHERE id = $1::uuid FOR UPDATE',
+        [itemId],
+      );
+    }
+    // One advisory lock per entity bucket, not per entity. Postgres
+    // keeps advisory locks in the shared lock table, which holds about
+    // max_locks_per_transaction x max_connections entries (6,400 by
+    // default) for the whole server. A per-entity lock made a 20k
+    // feature append fail with "out of shared memory". Two appends
+    // that write the same entity share its bucket in this scope, so
+    // the later one still waits and then sees the first one's commit;
+    // unrelated entities in one bucket just wait too. Keys are taken
+    // in ascending order so two appends cannot deadlock on each other.
+    await this.client.query(
+      `SELECT pg_advisory_xact_lock(k)
+       FROM (
+         SELECT DISTINCT hashtextextended(
+           'append-dedupe|' || $1::text || '|' ||
+             (hashtextextended(entity::text, 0) & $2::bigint)::text,
+           0
+         ) AS k
+         FROM observation
+         WHERE scope = $1
+           AND kind = 'create'
+           AND xmin = pg_current_xact_id()::xid
+         ORDER BY 1
+       ) locks`,
+      [scope, APPEND_LOCK_BUCKETS - 1],
+    );
+    const result = await this.client.query(
+      `DELETE FROM observation AS fresh
+       WHERE fresh.scope = $1
+         AND fresh.kind = 'create'
+         AND fresh.xmin = pg_current_xact_id()::xid
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM (
+               SELECT prev.kind
+               FROM observation AS prev
+               WHERE prev.scope = fresh.scope
+                 AND prev.entity = fresh.entity
+                 AND prev.xmin IS DISTINCT FROM pg_current_xact_id()::xid
+               ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
+               LIMIT 1
+             ) prior
+             WHERE prior.kind <> 'delete'
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM observation AS sibling
+             WHERE sibling.scope = fresh.scope
+               AND sibling.entity = fresh.entity
+               AND sibling.kind = 'create'
+               AND sibling.xmin = pg_current_xact_id()::xid
+               AND sibling.id <> fresh.id
+               AND (sibling.tx_time, sibling.id) < (fresh.tx_time, fresh.id)
+           )
+         )`,
+      [scope],
+    );
+    return result.rowCount ?? 0;
   }
 
   async commit(): Promise<number> {
@@ -363,6 +465,9 @@ export class CopyWriter {
     // Tear the COPY stream down first (best-effort) so nothing keeps
     // writing into a socket we are about to drop.
     if (this.stream) {
+      // Destroying the socket emits 'error' on the next tick. Without
+      // a listener that becomes an unhandled error and can take the
+      // worker down after a cancel that already rolled back.
       this.stream.on('error', () => {});
       try {
         this.stream.destroy();

@@ -31,6 +31,54 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Opt-in host recovery for a compose project the operator names twice.
+  The real names (`gratis-gis-prod`, `gratis-gis`) are accepted, and
+  each script first checks that the named project really has the
+  Postgres, Keycloak, and MinIO containers and that every running
+  container with its compose label is a known service. `--env-file`
+  is passed to every compose call. `infra/recovery/capture.sh`
+  stops the writers that project is actually running, found by label,
+  including MinIO, then dumps the portal database and the Keycloak database and
+  copies the MinIO data directory. The copy uses a separate image with
+  no published ports and no network, because the MinIO image has no
+  `tar` and a bucket Deny does not stop root or an IAM Allow. If the
+  API is not in the compose file, capture continues only when
+  `GRATIS_RECOVERY_EXTERNAL_API=stopped`. Only containers a run
+  stopped are started again, including when it fails. Each capture
+  writes a new `bundle-<UTC time>.tar.enc` and moves the
+  `latest.tar.enc` link; it never replaces or deletes an earlier
+  bundle, and plaintext only exists in a 0700 staging directory that
+  is removed on every exit. The bundle is sealed with streaming,
+  chunked AES-256-GCM (scrypt N=2^17 with a random salt, a random IV,
+  and the header authenticated), so its size is limited by disk, and
+  decryption verifies every chunk before any plaintext is moved into
+  place. The recovery passphrase is read from a file and is not stored
+  in the bundle or passed as an argument value. Secret files named
+  with `--secret-file` are sealed separately with a different key;
+  `unseal-secrets.sh` opens that archive. The credential encryption
+  key is not in the data bundle; the manifest records only its
+  fingerprint. `restore.sh` refuses a different credential key, a
+  changed byte, or a bundle whose recorded container image ids or
+  latest Prisma migration differ from the running stack unless
+  `--allow-version-mismatch` is passed. Only after those checks does
+  it raise maintenance, stop the same writers capture stops, and seal
+  the current state as a pre-restore safety bundle; if that fails,
+  nothing is restored. Each database is restored in one transaction
+  that stops on the first error. A failure before any data changes
+  starts the writers again and removes a maintenance file it created
+  (one that already existed is never removed, and an earlier partial
+  status is kept); a
+  failure after it leaves writers stopped, keeps the maintenance file
+  so the API returns 503, and prints the safety bundle to roll back
+  to. `offhost.sh` makes a verified secondary file copy and refuses to
+  overwrite; a same-disk copy is labeled as such and is not off-site
+  or immutable. The in-portal `tar.gz` version is unchanged. The admin
+  backup health response includes a failure sentence when
+  `GRATIS_RECOVERY_STATUS_FILE` points at a failed status, and the
+  backup page shows that sentence. A failed status can be mailed
+  through the existing mail transport when `GRATIS_RECOVERY_NOTICE_TO`
+  is set; the test uses a sink and does not send mail. WAL
+  point-in-time recovery is not part of this bundle.
 - An install can set `GRATIS_FEATURE_QUERY_PAGE=required` so an unpaged feature read is refused, with the csv and geoparquet routes left as the full export. Unset keeps the existing stream. The response names the csv route in `X-Gratis-Export`.
 - `infra/origin-preflight.mjs` prints the origin mismatch a sign-in page already refuses, including a Tailscale name. `infra/low-ram-warn.sh` warns under 2 GiB available and does not change `GRATIS_ANALYSIS`.
 - `infra/field-bundle/read-recovery.mjs` reads a device offline-recovery zip back into records and file bytes. It restores only what that file contains.
@@ -90,6 +138,32 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the existing notification settings. Rotating the credential
   encryption key is not supported yet. `GRATIS_ANALYSIS` stays on
   unless the install sets it off.
+- A bulk import commit now waits for the WAL flush. An append
+  removes only create rows that the same transaction just inserted
+  when that entity already has a live observation, or when the load
+  inserted the same entity twice. The comparison uses this
+  transaction's xid, so it still matches after the 32-bit counter
+  wraps. Committed history, edits, other
+  scopes, and duplicates that were already stored are not deleted.
+  A create after a delete is kept. The import's loaded count leaves
+  out those rows, and the layer's import note says how many were
+  skipped because their GlobalID already exists. An append of tens of
+  thousands of features no longer fails with "out of shared memory".
+  Existing installs pick this up by updating the portal-api image.
+  No volume reset.
+- A point-cloud worker heartbeats, finishes, cancels, and publishes
+  an item result only while it still holds that job's claim token.
+  The item update and the token check are one statement, so a reclaim
+  that commits first is the write that sticks.
+  While a row is running or cancel-requested, a database trigger
+  ignores updates from an older worker image that does not present
+  the token. Claiming a queued row, a user cancel, the stale-job
+  reclaim sweep, and the hand-off of contours and zonal statistics
+  to the import step still work. The migration adds
+  nullable `analysis_job.claim_token` and the trigger. Apply it
+  before starting the new worker image. An old worker can keep
+  running; it cannot overwrite a row a new worker has leased. No
+  volume reset.
 - Org admins can read a persisted audit of privileged changes
   (users, roles, sharing, ownership, backup, and admin settings),
   download the current permissions snapshot as CSV, and create a

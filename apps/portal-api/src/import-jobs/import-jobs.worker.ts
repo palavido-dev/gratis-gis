@@ -243,6 +243,9 @@ export class ImportJobsWorker implements OnModuleInit {
       };
 
       let totalInserted = 0;
+      // Append rows dropped at commit because their GlobalID already
+      // had a live feature (or appeared twice in this file).
+      let skippedDuplicates = 0;
       let lastDriver = '';
       let lastLayerName = '';
       let lastSourceSrs: string | null = null;
@@ -254,12 +257,9 @@ export class ImportJobsWorker implements OnModuleInit {
       // Open one COPY transaction for the whole import. PostgreSQL's
       // COPY FROM STDIN is the bulk-load wire protocol -- 5-10x
       // faster than batched multi-row INSERTs because the server
-      // skips per-row SQL parsing and parameter binding. We run
-      // SET LOCAL synchronous_commit=off inside the transaction so
-      // a re-runnable bulk import doesn't pay an fsync per batch
-      // commit. The writer is closed cleanly on success and
-      // aborted on any throw or cancel so a partial run never
-      // stays half-written.
+      // skips per-row SQL parsing and parameter binding. The writer
+      // is closed cleanly on success and aborted on any throw or
+      // cancel so a partial run never stays half-written.
       //
       // Replace mode: the truncate DELETE runs on the writer's own
       // connection inside this same transaction, before COPY mode
@@ -346,12 +346,22 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.abort();
           copyClosed = true;
         } else {
-          // Seal, then stamp, then commit. The import-guard branch
-          // drops duplicate appends between seal and the stamp. The
-          // stamp has to stay after that delete: a load whose rows
-          // were all duplicates must not move the cursor. Abort
-          // before commit leaves the cursor unchanged.
+          // Seal, then drop duplicate appends, then stamp, then commit.
+          // The stamp only counts rows this transaction still holds, so
+          // a load whose rows were all duplicates leaves the cursor
+          // alone. Abort before commit leaves it unchanged too.
           await writer.sealCopy();
+          if (job.mode === 'append') {
+            // Only rows this transaction inserted. Committed history
+            // is not deleted. See CopyWriter.dropDuplicateAppendCreates.
+            // Takes the item row lock before its bucket locks, the
+            // same order API edits use.
+            skippedDuplicates = await writer.dropDuplicateAppendCreates(
+              dataLayerScope(job.itemId, job.layerId),
+              job.itemId,
+            );
+            totalInserted = Math.max(0, totalInserted - skippedDuplicates);
+          }
           await this.dataLayerFeatures.commitCopiedLayer(writer, {
             itemId: job.itemId,
             layerId: job.layerId,
@@ -400,7 +410,12 @@ export class ImportJobsWorker implements OnModuleInit {
         sizeBytes: staged.sizeBytes,
         importedAt: new Date().toISOString(),
         importedBy: job.createdBy,
-        note: `driver: ${lastDriver}`,
+        note:
+          skippedDuplicates > 0
+            ? `driver: ${lastDriver}; skipped ${skippedDuplicates} ${
+                skippedDuplicates === 1 ? 'row' : 'rows'
+              } whose GlobalID already exists`
+            : `driver: ${lastDriver}`,
         sourceSrs: lastSourceSrs,
       });
 
@@ -437,6 +452,11 @@ export class ImportJobsWorker implements OnModuleInit {
         );
       }
 
+      if (skippedDuplicates > 0) {
+        this.log.log(
+          `Job ${job.id}: skipped ${skippedDuplicates} append rows whose GlobalID already exists.`,
+        );
+      }
       await this.jobs.markSucceeded(job.id, totalInserted);
       // Reference lastLayerName so TypeScript doesn't flag it as
       // unused. We may want to surface it in the wire response in
