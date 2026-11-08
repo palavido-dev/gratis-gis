@@ -73,6 +73,7 @@ import {
   type CachedFeature,
   type QueueRecord,
 } from '@/lib/offline-store';
+import { buildOfflineRecoveryZip } from '@/lib/offline-export';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
@@ -1099,6 +1100,28 @@ export function FieldRuntime({
     [dataCollectionId, currentUserId, mapData.layers],
   );
 
+  async function saveUnsyncedCopy(): Promise<void> {
+    const records = await listQueue(dataCollectionId, currentUserId);
+    const blobs = await listPendingBlobs(dataCollectionId, currentUserId);
+    const { filename, bytes } = await buildOfflineRecoveryZip({
+      dataCollectionId,
+      deploymentTitle: title,
+      username: currentUserId,
+      exportedAt: new Date().toISOString(),
+      records,
+      blobs,
+    });
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    const file = new Blob([copy], { type: 'application/zip' });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   // Auto-sync when isOnline flips from false -> true. Captured via a
   // ref so we don't fire on the initial mount when isOnline starts
   // true and there's nothing queued (the queue read is cheap but
@@ -2076,6 +2099,9 @@ export function FieldRuntime({
             collection chrome out of the way of the canvas. */}
         <FieldMoreMenu
           mapTitle={mapTitle}
+          onSaveCopy={() => {
+            void saveUnsyncedCopy();
+          }}
           isOnline={isOnline}
           cachedAt={cachedDeployment?.cachedAt ?? null}
           persistentState={persistentState}
@@ -5499,6 +5525,7 @@ function FieldMoreMenu({
   gpsAccuracyM,
   onDownload,
   onRemoveCache,
+  onSaveCopy,
 }: {
   mapTitle: string;
   isOnline: boolean;
@@ -5517,6 +5544,7 @@ function FieldMoreMenu({
   gpsAccuracyM: number | null;
   onDownload: () => void;
   onRemoveCache: () => void;
+  onSaveCopy: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -5728,6 +5756,20 @@ function FieldMoreMenu({
                     ? t('fieldOffline.refreshOfflineCache')
                     : t('fieldOffline.downloadForOffline')}
               </span>
+            </button>
+            <p className="px-2 pt-1 text-2xs text-ink-1">
+              {t('fieldOffline.deviceOnlyWarning')}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSaveCopy();
+              }}
+              disabled={queueCount === 0}
+              className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-50"
+            >
+              <span>{t('fieldOffline.saveUnsyncedCopy')}</span>
             </button>
             {/* Remove from device. Only meaningful when something is
                 cached, and we want a hard confirm step because the

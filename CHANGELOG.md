@@ -8,6 +8,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field mode can save a zip of unsynced edits and the photo or file
+  bytes that have not uploaded yet. The file is named
+  `pending-<deployment>-<user>-<date>.zip` and contains
+  `pending-edits.json` plus `files/`. It is a copy on the device, not
+  a portal backup, and the server still does not receive those rows
+  until sync. The field menu says that in English, Spanish,
+  Brazilian Portuguese, French, and German. No server change.
 - Form location questions can be answered on a map. In the default
   `auto` mode the GPS button now sits above a small map: tap it or
   drag the pin to report a spot you are not standing on, or when

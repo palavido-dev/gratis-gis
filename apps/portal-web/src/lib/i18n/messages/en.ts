@@ -1870,7 +1870,8 @@ export const en = {
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
     downloadForOffline: 'Download for offline',
     deviceOnlyWarning:
-      "Edits and photos stay on this device until they sync. They are not on the server and they are not in a portal backup. Discarding one, or clearing this browser's data, deletes it.",
+      "Edits and photos stay on this device until they sync. They are not on the server and they are not in a portal backup. Save a copy if you need the photos and the shapes before they sync. Discarding one, or clearing this browser's data, deletes it.",
+    saveUnsyncedCopy: 'Save a copy of unsynced work',
     refreshOfflineCache: 'Refresh offline cache',
     confirmRefresh: 'Confirm refresh',
     refreshUnsyncedWarn:
