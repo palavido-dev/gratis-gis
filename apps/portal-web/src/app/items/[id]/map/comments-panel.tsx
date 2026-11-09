@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
  * Comments panel (#155 Phase 1 + 2).
@@ -109,6 +108,7 @@ export function CommentsPanel({
   onSelectThread,
 }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const [threads, setThreads] = useState<ThreadDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -342,7 +342,7 @@ export function CommentsPanel({
                       </span>
                     ) : null}
                     {t('mapComments.threadOpened', {
-                      when: formatRelative(thread.createdAt),
+                      when: fmt.relativeTime(thread.createdAt),
                     })}
                     {thread.resolved
                       ? t('mapComments.resolvedSuffix')
@@ -376,7 +376,7 @@ export function CommentsPanel({
                         <p className="text-2xs font-medium text-ink-1">
                           {c.authorDisplay}
                           <span className="ml-1 font-normal text-muted">
-                            {formatRelative(c.createdAt)}
+                            {fmt.relativeTime(c.createdAt)}
                             {c.editedAt
                               ? t('mapComments.editedSuffix')
                               : ''}
@@ -553,17 +553,3 @@ function renderCommentBody(body: string): ReactNode {
   return parts.length > 0 ? parts : body;
 }
 
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diff = Date.now() - then;
-  if (diff < 0) return 'just now';
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
-}

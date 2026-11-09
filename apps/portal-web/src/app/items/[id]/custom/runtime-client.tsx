@@ -14,6 +14,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { safeHttpHref, safeNavigationUrl } from '@gratis-gis/shared-types';
+import { featuresBbox } from '@/lib/geo-bbox';
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -2565,7 +2566,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
 
   // Polygon-style swatch: filled square at fillOpacity, bordered
   // in strokeColor. Handles outline-only polygons (fillOpacity=0)
-  // as a hollow square that reads as "outline-solid only".
+  // as a hollow square that reads as "outline only".
   if (poly) {
     const fill = poly.fillColor ?? 'transparent';
     const fillOpacity = typeof poly.fillOpacity === 'number' ? poly.fillOpacity : 1;
@@ -3794,7 +3795,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
       const opened = window.open(url, '_blank');
       if (!opened) {
         throw new Error(
-          'Could not open the print preview window.  Allow popups for this site and try again.',
+          t('customRuntime.errors.printPopupBlocked'),
         );
       }
       setResults((cur) => [
@@ -4052,7 +4053,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
     setError(null);
     const target = resolved[targetIndex];
     if (!target || !boundMap || !boundState) {
-      setError('No bound map / target.');
+      setError(t('customRuntime.errors.noBoundMapTarget'));
       return;
     }
     setBusy(true);
@@ -4083,7 +4084,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       if (scope === 'selection') {
         const sel = boundState.selection[target.mapLayer.id];
         if (!sel || sel.size === 0) {
-          setError('No features selected on the bound map.');
+          setError(t('customRuntime.errors.noFeaturesSelected'));
           setBusy(false);
           return;
         }
@@ -4094,8 +4095,8 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       if (working.length === 0) {
         setError(
           scope === 'selection'
-            ? 'Selected features are not in the current viewport.'
-            : 'No features in the current viewport.',
+            ? t('customRuntime.errors.selectedNotInViewport')
+            : t('customRuntime.errors.noFeaturesInViewport'),
         );
         setBusy(false);
         return;
@@ -4970,7 +4971,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
         loading: false,
         rows: [],
         truncated: false,
-        error: 'No target',
+        error: t('customRuntime.empty.noTarget'),
       });
       return;
     }
@@ -5077,7 +5078,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           loading: false,
           rows: [],
           truncated: false,
-          error: err instanceof Error ? err.message : 'Could not load data.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadData'),
         });
       }
     })();
@@ -5383,7 +5384,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
         setState({
           loading: false,
           value: null,
-          error: err instanceof Error ? err.message : 'Could not load data.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadData'),
         });
       }
     })();
@@ -6109,7 +6110,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
         setState({
           loading: false,
           options: [],
-          error: err instanceof Error ? err.message : 'Could not load values.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadValues'),
         });
       }
     })();
@@ -6821,7 +6822,7 @@ function OsmAttributionChip({
     // into a tray we can replace this with an inline input.
     const defaultTitle = `OSM overlay (${fmt.dateTime(new Date())})`;
     const title = window.prompt(
-      'Save these features as a new data layer. Choose a name:',
+      t('customRuntime.errors.savePrompt'),
       defaultTitle,
     );
     if (!title || title.trim().length === 0) return;
@@ -7639,55 +7640,15 @@ function removeLayerFromAllMaps(
 }
 
 /**
- * Compute a [west, south, east, north] bbox over a feature
- * collection. Walks every coordinate so it works regardless of
- * geometry type (point, line, polygon, multi*).  Returns null
- * when the input is empty or when no geometry yields a real
- * coordinate (defensive: a malformed feature shouldn't crash
- * the fly-to). The result is shaped for maplibregl.Map.fitBounds.
- *
- * Used by #141 (OSM result handling) to zoom the host map to
- * the extent of a recipe's OSM features.
+ * Bounds of `features` shaped for maplibregl.Map.fitBounds, or null
+ * when nothing has a real coordinate. Used by #141 (OSM result
+ * handling) to zoom the host map to a recipe's OSM features.
  */
 function bboxOfFeatures(
   features: readonly { geometry: unknown }[],
 ): [[number, number], [number, number]] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let count = 0;
-  const visit = (coord: unknown): void => {
-    if (
-      Array.isArray(coord) &&
-      coord.length >= 2 &&
-      typeof coord[0] === 'number' &&
-      typeof coord[1] === 'number'
-    ) {
-      const x = coord[0];
-      const y = coord[1];
-      if (Number.isFinite(x) && Number.isFinite(y)) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        count += 1;
-      }
-      return;
-    }
-    if (Array.isArray(coord)) {
-      for (const c of coord) visit(c);
-    }
-  };
-  for (const f of features) {
-    const g = f.geometry as { coordinates?: unknown } | null | undefined;
-    if (g && 'coordinates' in g) visit(g.coordinates);
-  }
-  if (count === 0) return null;
-  return [
-    [minX, minY],
-    [maxX, maxY],
-  ];
+  const b = featuresBbox(features);
+  return b ? [[b[0], b[1]], [b[2], b[3]]] : null;
 }
 
 /**
@@ -8094,7 +8055,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
           const text = await res.text().catch(() => '');
           throw new Error(text || `HTTP ${res.status}`);
         }
-        setStatus('Outline added.');
+        setStatus(t('customRuntime.errors.outlineAdded'));
         ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
         window.setTimeout(() => setStatus(null), 2000);
       } catch (err) {
@@ -8130,14 +8091,14 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         (l) => l.visible !== false && l.source.kind === 'tile',
       );
       if (!imagery || imagery.source.kind !== 'tile') {
-        setStatus('Add an imagery layer to this map to outline-solid from it.');
+        setStatus(t('customRuntime.errors.needImageryLayer'));
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
       const tgts = mutRef.current?.targets ?? [];
       const target = tgts[targetIdxRef.current] ?? tgts[0];
       if (!target) {
-        setStatus('No editable layer set. Add one in the app settings.');
+        setStatus(t('customRuntime.errors.noEditableLayer'));
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
@@ -8160,7 +8121,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
             // Preview it and wait for Save / Discard.
             drawMagicPreview(map, ring);
             setPending({ ring, targetIdx: targetIdxRef.current });
-            setStatus('Review the outline, then Save or Discard.');
+            setStatus(t('customRuntime.errors.outlineReview'));
           } else {
             await doSaveRef.current(ring, targetIdxRef.current);
           }
@@ -8170,7 +8131,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
           setStatus(
             err instanceof Error
               ? err.message
-              : 'The outline-solid tool hit a problem.',
+              : t('customRuntime.errors.outlineToolProblem'),
           );
           window.setTimeout(() => !cancelled && setStatus(null), 4000);
         })
@@ -8204,7 +8165,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((v) => !v)}
         disabled={!map}
         aria-pressed={active}
-        title={t('customRuntime.widgets.magicOutlineSolid')}
+        title={t('customRuntime.widgets.magicOutline')}
         // Match the app-bar tool chrome (Search / Select / etc.).
         style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
         className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
@@ -8362,9 +8323,9 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   }
 
   const display = !map
-    ? 'Bind a map widget'
+    ? t('customRuntime.empty.bindMapWidgetShort')
     : !pos
-      ? 'Move cursor over the bound map'
+      ? t('customRuntime.errors.moveCursorOverMap')
       : fmt === 'dms'
         ? `${formatDms(pos.lat, true)}  ${formatDms(pos.lng, false)}`
         : `${pos.lat.toFixed(prec)}, ${pos.lng.toFixed(prec)}`;
@@ -8992,7 +8953,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     } catch (e) {
       setBusy({
         state: 'error',
-        message: e instanceof Error ? e.message : 'Submit failed',
+        message: e instanceof Error ? e.message : t('customRuntime.errors.submitFailed'),
       });
     }
   }
@@ -9001,8 +8962,8 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
@@ -9028,7 +8989,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-surface-2))] disabled:cursor-not-allowed disabled:opacity-50"
         title={
           inTimeTravel
-            ? 'Editing is disabled while viewing a past snapshot. Reset the time slider to enable.'
+            ? t('customRuntime.features.timeTravelDisabled')
             : undefined
         }
       >
@@ -9283,7 +9244,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     } catch (e) {
       setBusy({
         state: 'error',
-        message: e instanceof Error ? e.message : 'Update failed',
+        message: e instanceof Error ? e.message : t('customRuntime.errors.updateFailed'),
       });
     }
   }
@@ -9292,17 +9253,17 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
 
   const buttonTitle = inTimeTravel
-    ? 'Editing is disabled while viewing a past snapshot.'
+    ? t('customRuntime.features.timeTravelDisabledShort')
     : active
-      ? 'Click an editable feature on the map to edit it. Click here again to exit edit mode.'
-      : 'Enter edit mode, then click any editable feature on the map.';
+      ? t('customRuntime.features.clickEditable')
+      : t('customRuntime.features.enterEditMode');
 
   const formCard = editing ? (
     <div className="overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
@@ -9543,18 +9504,18 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
 
   const buttonTitle = inTimeTravel
-    ? 'Editing is disabled while viewing a past snapshot.'
+    ? t('customRuntime.features.timeTravelDisabledShort')
     : totalSelected === 0
       ? unmatched > 0
-        ? 'Reselect the features on the map, then try again.'
-        : 'Select feature(s) on the bound map first.'
+        ? t('customRuntime.features.reselectFeatures')
+        : t('customRuntime.features.selectOnMapFirst')
       : undefined;
 
   // Solid surface + normal ink (#194): the confirm card renders over

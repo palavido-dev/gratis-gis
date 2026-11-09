@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 
 import { useState, useTransition } from 'react';
@@ -60,6 +59,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
+  const fmt = useFormat();
   const [, startTransition] = useTransition();
 
   // Selection by name (rather than by index) so re-probe preserves
@@ -198,7 +198,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               {' · '}
             </>
           ) : null}
-          {t('serviceEditors.probedPrefix', { when: staged.probedAt ? formatRelative(staged.probedAt) : t('serviceEditors.probedNotYet') })}
+          {t('serviceEditors.probedPrefix', { when: staged.probedAt ? fmt.relativeTime(staged.probedAt) : t('serviceEditors.probedNotYet') })}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -689,21 +689,3 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function formatRelative(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const ms = Date.now() - d.getTime();
-    const sec = Math.round(ms / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 30) return `${day}d ago`;
-    return formatDate(d, DEFAULT_LOCALE);
-  } catch {
-    return iso;
-  }
-}
