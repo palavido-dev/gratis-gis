@@ -2712,6 +2712,83 @@ d('observation-log read paths against real PostGIS', () => {
       expect(paged).toHaveLength(1);
     });
 
+    it('own rows follow the latest create: a re-created id is not the old creator\'s', async () => {
+      const A = { sub: 'own-latest-a', displayName: 'A' };
+      const B = { sub: 'own-latest-b', displayName: 'B' };
+      const gid = uuidv7();
+      const engine = makeEngine();
+      const create = (principal: typeof A, name: string) =>
+        engine.writeFeaturesCreateIdempotent([
+          {
+            itemId,
+            layerId,
+            principal,
+            globalId: gid,
+            properties: { NAME: name },
+            geometry: { type: 'Point', coordinates: HERE },
+          },
+        ]);
+      await create(A, 'OwnLatest First');
+      await engine.writeFeatureDelete({ itemId, layerId, globalId: gid, principal: A });
+      await create(B, 'OwnLatest Second');
+
+      const near: [number, number, number, number] = [
+        HERE[0] - 1,
+        HERE[1] - 1,
+        HERE[0] + 1,
+        HERE[1] + 1,
+      ];
+      const sees = async (sub: string) => {
+        const ownRowsOnly = { userId: sub };
+        const list = await engine.listFeatures({ itemId, layerId, ownRowsOnly });
+        const page = await engine.pageFeatures({
+          itemId,
+          layerId,
+          limit: 1000,
+          entityIds: [gid],
+          ownRowsOnly,
+        });
+        const search = await engine.searchFeatures({
+          itemId,
+          layerId,
+          q: 'OwnLatest',
+          limit: 8,
+          ownRowsOnly,
+        });
+        const agg = await engine.aggregateFeatures({
+          itemId,
+          layerId,
+          aggs: [{ op: 'count', as: 'count' }],
+          ownRowsOnly,
+        });
+        const extent = await engine.filteredExtent({ itemId, layerId, ownRowsOnly });
+        return {
+          list: list.features.some((f) => f.id === gid),
+          page: page.features.some((f) => f.id === gid),
+          search: search.results.some((r) => r.id === gid),
+          count: Number(agg.groups[0]?.values.count ?? 0),
+          extent: extent !== null && near[0] <= HERE[0],
+        };
+      };
+      // Before: A matched on either create, so A could still read (and
+      // through the same predicate, edit) B's feature.
+      expect(await sees(A.sub)).toEqual({
+        list: false,
+        page: false,
+        search: false,
+        count: 0,
+        extent: false,
+      });
+      expect(await sees(B.sub)).toEqual({
+        list: true,
+        page: true,
+        search: true,
+        count: 1,
+        extent: true,
+      });
+
+    });
+
     it('an entity whose create row is missing still lists', async () => {
       const svc = makeService();
       const gid = uuidv7();
