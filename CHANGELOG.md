@@ -6,6 +6,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-09
+
+Minor release. Security hardening, a large set of audit fixes, and new
+tile features. Ten changes tighten the public surface for security and
+are marked `Breaking:` under the security exception in
+docs/VERSIONING.md. Read those and the `Upgrade note:` lines before
+upgrading.
+
 ### Added
 
 - KML and KMZ imports keep the attributes stored in each placemark's
@@ -359,7 +367,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `pointcloud-scratch`) are kept; Compose creates the empty `gg-staging`
   volume. Until you do, the Updates page reports the compose file as out
   of date. (#614)
-- Upgrade note: MCP setups that use `run_tool` or
+- Breaking: MCP setups that use `run_tool` or
   `create_data_layer_from_geojson` must add `GRATIS_MCP_ALLOW_WRITES=1`
   to the server env, and `GRATIS_MCP_MAX_ACCESS=org` or `public` if
   agents should share layers that widely. Tool results are now text with
@@ -382,7 +390,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   (#626)
 - Upgrade note: Public demo: add `portal-api-admin` to `JWT_ALLOWED_AZP`
   if the pre-snapshot purge 401s (see docs/auth-model.md). (#626)
-- Upgrade note: VPS: `./infra/deploy.sh` removes the pg_tileserv
+- Breaking: VPS: `./infra/deploy.sh` removes the pg_tileserv
   container. If `.env.prod` has `GG_API_REPLICAS=1` (older bootstrap
   output), the API now runs one replica; delete the line or set 2 to
   keep two. (#632)
@@ -395,16 +403,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   a non-paired layer their owner can no longer edit, stop mirroring new
   submissions. The submissions are still stored on the form. Org admins
   can relink the form in the designer. (#642)
-- Upgrade note: Saving a form with an invalid format pattern now fails
+- Breaking: Saving a form with an invalid format pattern now fails
   until the pattern is fixed. (#642)
-- Upgrade note: Editors on org or public layers with an own-rows-only
+- Breaking: Editors on org or public layers with an own-rows-only
   policy, or with an edit share narrowed by row scope or area, can no
   longer edit outside that scope. Users limited on a derived layer's
   input see the derived layer empty. (#646)
-- Upgrade note: Scripts that posted to `/items/:id/ingest` or
+- Breaking: Scripts that posted to `/items/:id/ingest` or
   `/items/:id/features` for a v3 data layer now get a 400. Use the
   `/items/:id/layers/:layerId/...` routes. (#647)
-- Upgrade note: Editors who are not the owner can no longer change the
+- Breaking: Editors who are not the owner can no longer change the
   URL of an ArcGIS or proxied service item that has a stored credential.
   The owner or an org admin can. (#652)
 - Upgrade note: Single-organization installs: no change. The only
@@ -425,7 +433,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   those keys by hand. (#654)
 - Upgrade note: A second Run now while a run is in progress now answers
   409. (#654)
-- Upgrade note: An API key holder who used `PATCH /users/me` for name or
+- Breaking: An API key holder who used `PATCH /users/me` for name or
   email gets 403. (#654)
 - Upgrade note: The migration builds an index on
   `notification(created_at)` without `CONCURRENTLY` (no repo pattern for
@@ -434,15 +442,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   rows (in batches). (#655)
 - Upgrade note: Form extra recipients that are not plain addresses (for
   example `Name <a@b.org>`) are now skipped. (#655)
-- Upgrade note: Existing cross-organization shares are not removed; new
+- Breaking: Existing cross-organization shares are not removed; new
   ones are refused. Find old ones with SQL (an `item_share` whose user
   or group is in another organization). (#656)
 - Upgrade note: Overrides already stored for unenforced capabilities
   stay in the table and can be removed from the page; new ones are
   refused. (#656)
-- Upgrade note: Reassigning items to a viewer is refused. Promote the
+- Breaking: Reassigning items to a viewer is refused. Promote the
   user first. (#656)
-- Upgrade note: A user without "share items" who imports org or public
+- Breaking: A user without "share items" who imports org or public
   AGO items gets those items marked failed in the import report; the
   rest import. (#656)
 - Upgrade note: Third-party map tiles and images on printed pages now
@@ -4430,6 +4438,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.3.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.3.0
 [1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
 [1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
 [1.0.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.0.0

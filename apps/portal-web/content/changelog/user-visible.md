@@ -21,6 +21,20 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.3.0] - 2026-11-09
+
+## 2026-11-09 - KML and KMZ keep all their fields
+Imported KML and KMZ files now keep every attribute stored on each placemark, not only Name and Description. Numbers and yes/no values keep their types.
+
+## 2026-11-09 - Large imports finish
+Big shapefiles and geodatabases no longer stop partway through. Files with date columns import with their dates instead of failing every row.
+
+## 2026-11-09 - Layers with many tables save
+A layer with dozens of related tables now saves. Before, a large schema was refused as too big.
+
+## 2026-11-09 - Vector tiles: TileJSON, labels and per-layer settings
+Each layer publishes a TileJSON document, carries a label layer, and has its own tile settings for fields, zoom range, cache age and feature cap. Tiles are also cached on disk, so a restart no longer starts cold.
+
 ## 2026-11-08 - Address search works on a home NAS; GPS still needs HTTPS
 Finding an address works on the plain HTTP address. The browser was asking a path the proxy did not send to the portal. My location is GPS: browsers block it on http://192.168.x.x. The button explains that and points at Tailscale HTTPS. It does not turn GPS on for plain HTTP.
 
