@@ -49,6 +49,7 @@ export * from './print-template';
 export * from './print-template-starters';
 export * from './tool';
 export * from './asset-ref';
+export * from './upload-limits';
 export * from './web-app';
 export * from './data-collection';
 export * from './offline-package';
