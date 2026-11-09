@@ -209,6 +209,7 @@ jobs:
         run: |
           bash infra/recovery/recovery.test.sh
           sh infra/postgres/check-major.spec.sh
+          bash scripts/check-prisma-drift.test.sh
           python3 -m unittest infra/test_dev_compose_bind.py
           node infra/origin-preflight.test.mjs
           node infra/field-bundle/read-recovery.test.mjs
@@ -401,6 +402,19 @@ jobs:
           # Real pg_partman on the project image. The Jest spec's
           # monthly partitions are a substitute and do not prove this.
           bash infra/assert-partition-invariant.sh
+
+      - name: Prisma schema matches the migrations
+        # Migrations are hand-lifted from `prisma migrate diff`, so a
+        # schema that drifts from them invites a migration that renames
+        # foreign keys, drops defaults or drops foreign keys. The shadow
+        # database lives on the same pg_partman image the migrations
+        # need. Known differences are listed in
+        # apps/portal-api/prisma/drift-baseline.sql.
+        run: |
+          docker compose -f infra/docker-compose.yml exec -T postgres \
+            createdb -U gratisgis gratisgis_shadow
+          SHADOW_DATABASE_URL=postgresql://gratisgis:devpassword@localhost:5432/gratisgis_shadow \
+            bash scripts/check-prisma-drift.sh
 
       # db:seed is the quickstart's next line and is deliberately
       # skipped. It loads demo data; it is not needed for the servers
