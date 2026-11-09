@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /*
  * Tester-credential panel for the public demo login screen.
- * Injected by js/demo-credentials.v3.js; styled as a secondary
+ * Injected by js/demo-credentials.v4.js; styled as a secondary
  * surface under the sign-in card rather than competing with the form.
  */
 /* Sits inside the login card, below the form, so it inherits the
