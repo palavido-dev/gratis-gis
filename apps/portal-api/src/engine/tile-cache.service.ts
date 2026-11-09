@@ -4,7 +4,9 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
-import { parseIntEnv } from '../common/env.js';
+import { parseIntEnv, textEnv } from '../common/env.js';
+
+import { TileDiskCache, type TileDiskStats } from './tile-disk-cache.js';
 
 // Re-exported because the aggregate knobs in data-layer.ts and this
 // file's own spec import it from here; the helper itself moved to
@@ -57,6 +59,21 @@ export { parseIntEnv };
  *     The listener starts lazily on the first tile compute, so the
  *     worker processes, which never serve tiles, never open the
  *     connection.
+ *
+ *   - Optional disk tier (`TILE_CACHE_DIR`). Memory stays first; a
+ *     memory miss on a tile (`persist: true`) reads the disk before
+ *     computing, and a compute writes both. Disk files are filed
+ *     under the memory key PLUS a data version of every scope the
+ *     tile reads, taken from Postgres (see `diskMaterial`). That is
+ *     what makes them safe across a restart: writes that happened
+ *     while this process was down, and that it therefore never heard
+ *     about, change the version, so the old file is never looked up
+ *     again and ages out through LRU eviction. Only tiles go to disk,
+ *     and not relate (via) tiles; see `mvtTile`.
+ *     Aggregates and relate key sets stay in memory: they are small,
+ *     cheap to keep there for their longer TTL, and an aggregate
+ *     answer with `asOf` left at "now" depends on the clock as well as
+ *     the data, which a data version does not capture.
  *
  *   - ETag generation belongs here: the cache key determines
  *     content identity, so the cache is the right place to mint
@@ -178,6 +195,30 @@ export class TileCacheService implements OnModuleDestroy {
    */
   private readonly lanes = new Map<string, Lane>();
 
+  /** Second tier, or null when `TILE_CACHE_DIR` is unset or the cap
+   *  is 0. Constructed eagerly, but touches the disk only on first use. */
+  private readonly disk: TileDiskCache | null;
+  /**
+   * Where a scope's data version comes from, and a salt naming the
+   * code that produces tile bytes. Set by DataLayerEngine; until it
+   * is, the disk tier is never consulted, because a disk entry without
+   * a version could not tell a stale tile from a fresh one.
+   */
+  private scopeVersionSource: ((scope: string) => Promise<string>) | null = null;
+  private diskSalt = '';
+  /**
+   * Memoized scope versions, keyed by key prefix (`<scope>|`). An
+   * entry is dropped with the scope's tiles in `invalidatePrefix` and
+   * expires after the memory TTL, so a version is never trusted longer
+   * than a memory entry would be.
+   */
+  private readonly versionMemo = new Map<string, { version: string | null; expiresAt: number }>();
+  private readonly versionInFlight = new Map<string, Promise<string | null>>();
+  private versionProbesActive = 0;
+  private diskHits = 0;
+  /** Disk lookups skipped because every probe slot was busy. */
+  private diskSkippedBusy = 0;
+
   /** Dedicated LISTEN connection; null until the first compute. */
   private listener: PgClient | null = null;
   private listenerStarting = false;
@@ -196,6 +237,153 @@ export class TileCacheService implements OnModuleDestroy {
       'TILE_CACHE_COMPUTE_TIMEOUT_MS',
       35_000,
     );
+    // Off unless an operator names a directory. A cap of 0 is the
+    // other off switch, for a stack that sets the directory by default.
+    const diskDir = textEnv(process.env.TILE_CACHE_DIR, '');
+    const diskMaxBytes = parseIntEnv(
+      'TILE_CACHE_DISK_MAX_BYTES',
+      1024 * 1024 * 1024,
+    );
+    const diskMaxFiles = parseIntEnv('TILE_CACHE_DISK_MAX_FILES', 100_000, {
+      min: 1,
+    });
+    // Disk tiles are named partly by the build (see
+    // setScopeVersionSource). A build with no identity (a local image
+    // built without GIT_SHA, where GG_VERSION is the Dockerfile's
+    // "dev") could change how tiles are drawn without changing the
+    // name, and serve old tiles after a rebuild. Refuse rather than
+    // guess: published images and deploy.sh both set GIT_SHA.
+    const buildKnown =
+      !!process.env.GIT_SHA?.trim() ||
+      !['', 'dev'].includes(process.env.GG_VERSION?.trim() ?? '');
+    if (diskDir && diskMaxBytes > 0 && !buildKnown) {
+      this.log.warn(
+        'TILE_CACHE_DIR is set but this build has no GIT_SHA or GG_VERSION; ' +
+          'the tile disk cache stays off so a rebuild cannot serve old tiles',
+      );
+    }
+    this.disk =
+      diskDir && diskMaxBytes > 0 && buildKnown
+        ? new TileDiskCache({
+            dir: diskDir,
+            maxBytes: diskMaxBytes,
+            maxFiles: diskMaxFiles,
+            log: {
+              warn: (m) => this.log.warn(m),
+              log: (m) => this.log.log(m),
+            },
+          })
+        : null;
+  }
+
+  /**
+   * Tell the cache how to read a scope's data version, and name the
+   * code that builds tiles. Without this the disk tier stays unused.
+   *
+   * `source(scope)` must return a string that changes whenever
+   * anything the tile reads from that scope changes, including writes
+   * this process never heard about. `salt` must change whenever the
+   * tile bytes for the same data would change (an encoder change, a
+   * new feature cap); the image version is folded in on top.
+   */
+  setScopeVersionSource(
+    source: (scope: string) => Promise<string>,
+    salt: string,
+  ): void {
+    this.scopeVersionSource = source;
+    this.diskSalt = [
+      'tiles',
+      salt,
+      process.env.GG_VERSION?.trim() || '',
+      process.env.GIT_SHA?.trim() || '',
+    ].join('/');
+  }
+
+  /**
+   * The name a tile is filed under on disk: the code salt, the exact
+   * memory key (so scope, z/x/y and every per-viewer option such as
+   * `ownRowsOnly`, `geoLimit`, `where` and `via` partition the disk
+   * exactly as they partition memory), and the current data version
+   * of the key's own scope and of every scope it depends on. Null when
+   * any version is unavailable, in which case the disk is skipped.
+   */
+  private async diskMaterial(
+    key: string,
+    dependsOn: readonly string[] | undefined,
+  ): Promise<string | null> {
+    const own = key.slice(0, key.indexOf('|') + 1);
+    if (!own || !this.scopeVersionSource) return null;
+    const prefixes = [own, ...[...new Set(dependsOn ?? [])].filter((p) => p !== own).sort()];
+    const parts: string[] = [];
+    for (const prefix of prefixes) {
+      const version = await this.scopeVersion(prefix);
+      if (version === null) return null;
+      parts.push(`${prefix}=${version}`);
+    }
+    return [this.diskSalt, key, ...parts].join('\n');
+  }
+
+  /**
+   * Current data version of the scope behind `prefix`, memoized until
+   * the scope is invalidated or the memory TTL passes. A probe that a
+   * write overtakes (an invalidation of this prefix, or a clear, lands
+   * while it runs) is neither memoized nor used: it may describe the
+   * state before the write. Probes run at most four at a time so a cold
+   * start with many layers on screen cannot take over the pool; when
+   * all four are busy the caller skips the disk and computes, rather
+   * than queueing behind a probe that may take longer than the tile.
+   * A failed probe (a statement timeout on a huge layer, a dropped
+   * connection) is remembered as "no version" for the TTL, so a layer
+   * that cannot be probed is not re-probed on every miss.
+   */
+  private scopeVersion(prefix: string): Promise<string | null> {
+    const memo = this.versionMemo.get(prefix);
+    if (memo && memo.expiresAt > Date.now()) return Promise.resolve(memo.version);
+    if (memo) this.versionMemo.delete(prefix);
+    const pending = this.versionInFlight.get(prefix);
+    if (pending) return pending;
+    const source = this.scopeVersionSource;
+    if (!source) return Promise.resolve(null);
+    if (this.versionProbesActive >= 4) {
+      this.diskSkippedBusy += 1;
+      return Promise.resolve(null);
+    }
+    this.versionProbesActive += 1;
+    const seqAtStart = this.invalidationSeq;
+    const remember = (version: string | null) => {
+      // Bounded like everything else here: one entry per scope seen
+      // within a TTL, oldest dropped past the cap.
+      if (this.versionMemo.size >= 10_000) {
+        const oldest = this.versionMemo.keys().next().value;
+        if (oldest !== undefined) this.versionMemo.delete(oldest);
+      }
+      this.versionMemo.set(prefix, { version, expiresAt: Date.now() + this.ttlMs });
+    };
+    const probe = (async (): Promise<string | null> => {
+      try {
+        const version = await source(prefix.slice(0, -1));
+        if (
+          this.clearedAtSeq > seqAtStart ||
+          (this.invalidatedAtSeq.get(prefix) ?? 0) > seqAtStart
+        ) {
+          return null;
+        }
+        remember(version);
+        return version;
+      } catch (err) {
+        this.log.warn(
+          `tile disk cache skipped for ${this.ttlMs} ms: version probe failed (${err instanceof Error ? err.message : String(err)})`,
+        );
+        remember(null);
+        return null;
+      } finally {
+        this.versionProbesActive -= 1;
+      }
+    })().finally(() => {
+      this.versionInFlight.delete(prefix);
+    });
+    this.versionInFlight.set(prefix, probe);
+    return probe;
   }
 
   /**
@@ -346,6 +534,12 @@ export class TileCacheService implements OnModuleDestroy {
       exemptFromCap?: boolean;
       /** Stop waiting when this aborts; see the docblock. */
       signal?: AbortSignal;
+      /**
+       * Also keep the result in the disk tier when one is configured,
+       * and look there on a memory miss before computing. Only for
+       * MVT tiles: see the class docblock.
+       */
+      persist?: boolean;
     } = {},
   ): Promise<CacheHit> {
     // Phase 1: cache hit.
@@ -374,7 +568,12 @@ export class TileCacheService implements OnModuleDestroy {
     // it queues, or declared itself exempt (see the option's doc).
     const lane = opts.lane;
     const counted = !lane && !opts.exemptFromCap;
-    if (counted && this.activeComputes >= this.maxConcurrentComputes) {
+    // A persisted key looks on disk before it takes a compute slot, so
+    // a cold memory after a restart serves the map from disk instead
+    // of answering most of its tiles with 503 while eight compute.
+    const disk = opts.persist && this.disk?.enabled ? this.disk : null;
+    const capNow = counted && !disk;
+    if (capNow && this.activeComputes >= this.maxConcurrentComputes) {
       this.rejectedOverload += 1;
       throw new TileCacheOverloadError(
         this.activeComputes,
@@ -390,7 +589,8 @@ export class TileCacheService implements OnModuleDestroy {
     // onto it instead of queueing their own copy.
     // A laned compute is bounded by its lane, not by the tile cap, so
     // queued aggregates never make the map's tiles 503.
-    if (counted) this.activeComputes += 1;
+    if (capNow) this.activeComputes += 1;
+    let holdsSlot = capNow;
     const seqAtStart = this.invalidationSeq;
     const entry: InFlightEntry = {
       promise: undefined as unknown as Promise<CacheHit>,
@@ -398,6 +598,34 @@ export class TileCacheService implements OnModuleDestroy {
       withdraw: null,
     };
     const promise: Promise<CacheHit> = (async () => {
+      let material: string | null = null;
+      if (disk) {
+        material = await this.diskMaterial(key, opts.dependsOn);
+        const stored = material === null ? null : await disk.read(material);
+        if (stored !== null) {
+          this.diskHits += 1;
+          // Same rule as a compute that a write overtook: serve it to
+          // the callers who asked before the write, keep it out of
+          // memory.
+          if (this.invalidatedSince(seqAtStart, key, opts.dependsOn)) {
+            return { buf: stored, etag: computeEtag(key, stored) };
+          }
+          for (const dep of opts.dependsOn ?? []) this.registerDependency(dep, key);
+          const etag = this.set(key, stored, opts.ttlMs);
+          return { buf: stored, etag };
+        }
+        if (counted) {
+          if (this.activeComputes >= this.maxConcurrentComputes) {
+            this.rejectedOverload += 1;
+            throw new TileCacheOverloadError(
+              this.activeComputes,
+              this.maxConcurrentComputes,
+            );
+          }
+          this.activeComputes += 1;
+          holdsSlot = true;
+        }
+      }
       // Acquiring the lane is the only step that can be withdrawn
       // (see `awaitEntry`), and a withdrawn acquire never held a slot,
       // so it sits outside the try whose finally releases one.
@@ -452,10 +680,14 @@ export class TileCacheService implements OnModuleDestroy {
         // dependent with no entry behind it.
         for (const dep of opts.dependsOn ?? []) this.registerDependency(dep, key);
         const etag = this.set(key, buf, opts.ttlMs);
+        // The version in `material` was read before the compute
+        // started, so these bytes are at least that fresh. Written in
+        // the background; the response never waits on the disk.
+        if (disk && material !== null) disk.write(material, buf);
         return { buf, etag };
       } finally {
         if (lane) this.releaseLane(lane.name);
-        else if (counted) this.activeComputes -= 1;
+        else if (holdsSlot) this.activeComputes -= 1;
       }
     })().finally(() => {
       this.inFlight.delete(key);
@@ -522,6 +754,10 @@ export class TileCacheService implements OnModuleDestroy {
     this.invalidationSeq += 1;
     this.invalidatedAtSeq.set(prefix, this.invalidationSeq);
     this.invalidations += 1;
+    // The disk needs no walk: its files are named by data version, and
+    // forgetting the memoized version makes the next lookup read the
+    // new one from Postgres.
+    this.versionMemo.delete(prefix);
     let dropped = 0;
     // Deleting from a Map while iterating its keys is defined
     // behaviour in JS (the iterator skips deleted entries).
@@ -658,6 +894,7 @@ export class TileCacheService implements OnModuleDestroy {
     this.currentBytes = 0;
     this.dependents.clear();
     this.dependencyPrefixes.clear();
+    this.versionMemo.clear();
     // The per-prefix record exists only to judge computes that were
     // in flight when a prefix dropped; with nothing stored it is dead
     // weight, and it would otherwise grow by one entry per distinct
@@ -739,6 +976,23 @@ export class TileCacheService implements OnModuleDestroy {
       client.removeAllListeners();
       await client.end().catch(() => {});
     }
+    await this.disk?.close();
+  }
+
+  /**
+   * Drop everything after an in-app backup restore, which rewrites the
+   * database without firing NOTIFY: memory, memoized versions, and the
+   * disk tier's files. Other replicas keep memory until their TTL, as
+   * they would for any write they did not hear about.
+   */
+  async resetAfterRestore(): Promise<void> {
+    this.clear();
+    await this.disk?.purge();
+  }
+
+  /** The disk tier, for the spec. Null when it is off. */
+  diskTier(): TileDiskCache | null {
+    return this.disk;
   }
 
   /**
@@ -753,7 +1007,11 @@ export class TileCacheService implements OnModuleDestroy {
       maxEntries: this.maxEntries,
       ttlMs: this.ttlMs,
       hits: this.hits,
+      memoryHits: this.hits,
       misses: this.misses,
+      diskHits: this.diskHits,
+      diskSkippedBusy: this.diskSkippedBusy,
+      disk: this.disk ? this.disk.getStats() : null,
       evictions: this.evictions,
       coalesced: this.coalesced,
       rejectedOverload: this.rejectedOverload,
@@ -946,8 +1204,22 @@ export interface TileCacheStats {
   maxBytes: number;
   maxEntries: number;
   ttlMs: number;
+  /** Memory tier hits. */
   hits: number;
+  /** Same as `hits`, named for readers that also show `diskHits`. */
+  memoryHits: number;
+  /** Memory tier misses. A miss then served from disk counts here
+   *  and in `diskHits`; one that computed counts here and in
+   *  `disk.misses` (when the tier is on). */
   misses: number;
+  /** Memory misses answered from the disk tier. */
+  diskHits: number;
+  /** Memory misses that skipped the disk because every version probe
+   *  slot was busy, and computed instead. */
+  diskSkippedBusy: number;
+  /** Disk tier detail (bytes and files on disk, writes, evictions,
+   *  corrupt files), or null when `TILE_CACHE_DIR` is unset. */
+  disk: TileDiskStats | null;
   evictions: number;
   /** Times a concurrent request awaited another caller's
    *  in-flight compute instead of starting its own. The bigger
@@ -980,12 +1252,14 @@ export interface TileCacheStats {
 }
 
 /**
- * Strong ETag form: `"<sha1-16>"`. Derived from the cache key +
+ * Strong ETag form: `"<sha256-16>"`. Derived from the cache key +
  * a short hash of the buffer so two tiles that happen to share a
  * key (shouldn't, but defensive) still produce different ETags.
+ * SHA-256 rather than SHA-1: nothing here needs collision resistance,
+ * but it costs nothing and keeps the weak-hash scanner quiet.
  */
 function computeEtag(key: string, buf: Buffer): string {
-  const hash = createHash('sha1');
+  const hash = createHash('sha256');
   hash.update(key);
   hash.update(buf);
   return `"${hash.digest('base64url').slice(0, 16)}"`;
