@@ -1,0 +1,95 @@
+name: Site
+
+# The project website in apps/site (https://gratisgis.org).
+#
+# Pull requests that touch the site build it and stop. A push to main
+# builds it and, once Pages is turned on, deploys it to GitHub Pages.
+#
+# First run: the deploy job is skipped until the repository variable
+# SITE_DEPLOY is set to "true" (Settings > Secrets and variables >
+# Actions > Variables). Set it only after Pages is enabled with
+# Source: GitHub Actions and the custom domain is saved. Until then
+# the build still runs and the skipped deploy is green, so main does
+# not go red. Steps are in docs/operations/site-cutover.md.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/site/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/site.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/site/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+# Nothing by default. Each job asks for what it needs.
+permissions: {}
+
+env:
+  ASTRO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: site-build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        # Version comes from packageManager in the root package.json.
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install the site's dependencies
+        run: pnpm install --frozen-lockfile --filter @gratis-gis/site
+
+      - name: Build
+        run: pnpm --filter @gratis-gis/site build
+
+      - name: Upload the Pages artifact
+        # Only main deploys, so only main needs the artifact.
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: apps/site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # Gated on SITE_DEPLOY so a repository without Pages enabled skips
+    # this job instead of failing it. See the note at the top.
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.SITE_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    # One deploy at a time, and never cancel one halfway.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
