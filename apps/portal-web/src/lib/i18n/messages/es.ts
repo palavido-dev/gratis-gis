@@ -18,6 +18,8 @@ import type { CatalogShape } from '../locales';
 
 export const es: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Otra persona guardó este elemento después de que lo abriera, así que su cambio no se guardó. Sus cambios siguen en pantalla. Recargue para ver la versión más reciente y vuelva a hacer sus cambios.',
     save: 'Guardar',
     cancel: 'Cancelar',
     delete: 'Eliminar',
