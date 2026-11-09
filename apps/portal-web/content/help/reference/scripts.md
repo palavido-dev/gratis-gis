@@ -91,8 +91,8 @@ time, and save. Three things are worth knowing:
 **Times are the server's clock**, which may not be yours.
 
 **A scheduled run acts as the script's owner**, not as whoever last
-edited the schedule. If the owner's account is deactivated, the
-schedule stops and the history says so.
+edited the schedule. If the owner's account is disabled or deleted,
+the schedule pauses and no further runs start as that owner.
 
 **Runs do not overlap.** One at a time per script. If a run is still
 going when the next is due, the new one is recorded as *Skipped* rather
