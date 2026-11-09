@@ -1957,10 +1957,13 @@ export class DataLayerFeaturesService {
   }
 
   /**
-   * Delta pull for field / QGIS sync. Returns observation rows with
-   * syncVersion > `since`, under the same geo / own-rows clips the
-   * caller already resolved. `syncVersion` in the response is the
-   * layer's current counter (what the client should store next).
+   * Delta pull for field / QGIS sync. Returns observation rows after
+   * the cursor `(since, after)`, under the same geo / own-rows clips
+   * the caller already resolved. `syncVersion` in the response is the
+   * layer's current counter (what the client should store once a walk
+   * finishes). When `truncated` is true, `nextSince` and `nextAfter`
+   * name the last row returned; send them back as `since` and `after`
+   * to get the next page. See docs/sync-protocol.md.
    */
   async listDelta(
     itemId: string,
@@ -1968,6 +1971,7 @@ export class DataLayerFeaturesService {
     since: number,
     opts: {
       limit?: number;
+      after?: string;
       geoLimit?: GeoJsonGeometry;
       ownRowsOnly?: boolean;
       isTable?: boolean;
@@ -1978,6 +1982,8 @@ export class DataLayerFeaturesService {
     since: number;
     changes: DeltaChange[];
     truncated: boolean;
+    nextSince?: number;
+    nextAfter?: string;
   }> {
     const limit = opts.limit ?? 1000;
     // Read the cursor before the changes. Read after, a write that
@@ -1990,6 +1996,7 @@ export class DataLayerFeaturesService {
       itemId,
       layerId,
       since,
+      ...(opts.after !== undefined ? { after: opts.after } : {}),
       limit: limit + 1, // probe one past so we can set truncated
       ...(opts.geoLimit !== undefined ? { geoLimit: opts.geoLimit } : {}),
       ...(opts.ownRowsOnly === true && opts.userId
@@ -1999,7 +2006,18 @@ export class DataLayerFeaturesService {
     });
     const truncated = changes.length > limit;
     const page = truncated ? changes.slice(0, limit) : changes;
-    return { syncVersion, since, changes: page, truncated };
+    if (!truncated) return { syncVersion, since, changes: page, truncated };
+    // The page can end inside one syncVersion (a 25k-row import is one
+    // version). The next page resumes strictly after this row.
+    const last = page[page.length - 1]!;
+    return {
+      syncVersion,
+      since,
+      changes: page,
+      truncated,
+      nextSince: last.syncVersion,
+      nextAfter: last.observationId,
+    };
   }
 }
 

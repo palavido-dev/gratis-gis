@@ -273,6 +273,18 @@ export interface QueueRecord {
    * see `isQueueRowOwnedBy`. Every row `enqueueEdit` writes carries it.
    */
   ownerUserId?: string;
+  /**
+   * The server observation this update or delete was made against:
+   * the cached feature's `_observation_id` when the edit was queued.
+   * Replay sends it as `baseObservationId` on both the checkOnly dry
+   * run and the real write, so the server answers 409 when someone
+   * else changed the feature meanwhile instead of silently taking the
+   * last writer. A folded chain keeps the first row's base. Absent on
+   * inserts, on rows written before this field existed, and when the
+   * cached row had no token; those replay unguarded, as before.
+   * docs/sync-protocol.md.
+   */
+  baseObservationId?: string;
 }
 
 /**
@@ -994,6 +1006,9 @@ export interface FeatureEditInput {
    *  today with no owner would be indistinguishable from a legacy one
    *  and drain under anybody. */
   ownerUserId: string;
+  /** For update / delete: the edited feature's cached
+   *  `_observation_id`. See QueueRecord.baseObservationId. */
+  baseObservationId?: string;
 }
 
 /**
@@ -1081,6 +1096,9 @@ export async function enqueueEdit(
         schemaHash: edit.schemaHash,
         syncStatus: 'pending',
         ownerUserId: edit.ownerUserId,
+        ...(edit.op !== 'insert' && edit.baseObservationId
+          ? { baseObservationId: edit.baseObservationId }
+          : {}),
       };
       store.put(record);
       return { kind: 'queued', record } as EnqueueResult;
@@ -1144,6 +1162,13 @@ export async function enqueueEdit(
       // bytes it now carries were authored by this account, so this is
       // the account that must send them.
       ownerUserId: edit.ownerUserId,
+      // The chain was authored against what the server held when the
+      // FIRST row was queued, so that row's base is the guard. A
+      // first row with no base (an insert, or a legacy row) falls back
+      // to the incoming edit's base when the fold is not an insert.
+      ...(folded.edit.op !== 'insert' && (keep.baseObservationId ?? edit.baseObservationId)
+        ? { baseObservationId: (keep.baseObservationId ?? edit.baseObservationId)! }
+        : {}),
     };
     store.put(record);
     return {
@@ -1267,6 +1292,74 @@ export async function claimQueueRow(
 export async function updateQueueRecord(record: QueueRecord): Promise<void> {
   await withStore(STORES.queue, 'readwrite', (s) => {
     s.put(record);
+  });
+}
+
+/**
+ * After the queued update `landed` reached the server with head
+ * `observationId`, move the guard forward for what this device wrote
+ * on top of it:
+ *
+ * - Other pending / failed rows of the same feature, owned by the
+ *   SAME account and queued AFTER `landed`. Those were authored on top
+ *   of this edit, so without the move they would 409 against the
+ *   device's own write. A row another account queued on a shared
+ *   device, or one queued earlier, was authored against something
+ *   else; moving its base would let it overwrite this write with no
+ *   conflict, so it keeps its own base.
+ * - The cached feature's `_observation_id`, but only while it still
+ *   holds the base `landed` was made against (or none). A newer token
+ *   that already arrived by delta is never moved backwards.
+ */
+export async function rebaseFeatureHead(
+  landed: Pick<
+    QueueRecord,
+    | 'id'
+    | 'dataCollectionId'
+    | 'dataLayerId'
+    | 'layerKey'
+    | 'globalId'
+    | 'queuedAt'
+    | 'ownerUserId'
+    | 'baseObservationId'
+  >,
+  observationId: string,
+): Promise<void> {
+  await withStore(STORES.queue, 'readwrite', async (store) => {
+    const idx = store.index('by_deployment');
+    const rows =
+      ((await reqAsPromise(
+        idx.getAll(IDBKeyRange.only(landed.dataCollectionId)),
+      )) as QueueRecord[] | undefined) ?? [];
+    for (const row of rows) {
+      if (
+        row.id !== landed.id &&
+        row.globalId === landed.globalId &&
+        row.dataLayerId === landed.dataLayerId &&
+        row.layerKey === landed.layerKey &&
+        landed.ownerUserId !== undefined &&
+        row.ownerUserId === landed.ownerUserId &&
+        row.queuedAt > landed.queuedAt &&
+        row.baseObservationId !== undefined &&
+        (row.syncStatus === 'pending' || row.syncStatus === 'failed')
+      ) {
+        store.put({ ...row, baseObservationId: observationId });
+      }
+    }
+  });
+  await withStore(STORES.features, 'readwrite', async (store) => {
+    const key = [landed.dataCollectionId, landed.dataLayerId, landed.layerKey, landed.globalId];
+    const row = (await reqAsPromise(store.get(key))) as CachedFeature | undefined;
+    if (!row) return;
+    const cached = (row.feature.properties ?? {})._observation_id;
+    if (cached !== undefined && cached !== landed.baseObservationId) return;
+    store.put({
+      ...row,
+      feature: {
+        ...row.feature,
+        properties: { ...(row.feature.properties ?? {}), _observation_id: observationId },
+      },
+    });
   });
 }
 

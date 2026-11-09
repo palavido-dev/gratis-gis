@@ -148,6 +148,23 @@ describe('buildFeatureUrl / buildDeltaUrl', () => {
     expect(buildDeltaUrl('dl-1', 'main', 0, 1)).toBe(
       '/api/portal/items/dl-1/layers/main/delta?since=0&limit=1',
     );
+    expect(buildDeltaUrl('dl-1', 'main', 4, 10, 'obs-9')).toBe(
+      '/api/portal/items/dl-1/layers/main/delta?since=4&after=obs-9&limit=10',
+    );
+  });
+
+  it('adds keyset paging to the GeoJSON pull', () => {
+    const url = new URL(
+      buildFeatureUrl('dl-1', 'sites', undefined, {
+        limit: 5000,
+        cursor: 'c-1',
+        at: '2026-11-08T00:00:00.000Z',
+      }),
+      'https://example.test',
+    );
+    expect(url.searchParams.get('limit')).toBe('5000');
+    expect(url.searchParams.get('cursor')).toBe('c-1');
+    expect(url.searchParams.get('at')).toBe('2026-11-08T00:00:00.000Z');
   });
 });
 
@@ -189,7 +206,11 @@ describe('applyDeltaChanges', () => {
     expect(deletes).toEqual([]);
     expect(upserts.map((r) => r.globalId).sort()).toEqual(['a', 'b', 'c', 'd']);
     const b = upserts.find((r) => r.globalId === 'b')!;
-    expect(b.feature.properties).toEqual({ name: 'bee', _global_id: 'b' });
+    expect(b.feature.properties).toEqual({
+      name: 'bee',
+      _global_id: 'b',
+      _observation_id: 'obs-b-update',
+    });
     expect(b.feature.geometry).toEqual({ type: 'Point', coordinates: [3, 4] });
     expect(b.feature.id).toBe('b');
   });
@@ -220,6 +241,31 @@ describe('applyDeltaChanges', () => {
     expect(upserts[0]!.feature.properties).toEqual({
       back: true,
       _global_id: 'x',
+      _observation_id: 'obs-x-create',
+    });
+  });
+
+  it('keeps the conflict token and editor fields a full read carries', () => {
+    const { upserts } = applyDeltaChanges(
+      [
+        change({
+          entity: 'e',
+          kind: 'update',
+          observationId: 'head-2',
+          authorSub: 'boss',
+          txTime: '2026-11-08T10:00:00.000Z',
+          createdBy: 'worker',
+          createdAt: '2026-11-01T00:00:00.000Z',
+        }),
+      ],
+      ctx,
+    );
+    expect(upserts[0]!.feature.properties).toMatchObject({
+      _observation_id: 'head-2',
+      _edited_by: 'boss',
+      _edited_at: '2026-11-08T10:00:00.000Z',
+      _created_by: 'worker',
+      _created_at: '2026-11-01T00:00:00.000Z',
     });
   });
 });
@@ -266,20 +312,43 @@ describe('downloadDeployment delta refresh', () => {
     };
   }
 
-  it('full GeoJSON pull seeds syncVersion from delta?since=0', async () => {
+  it('full pull reads the head first, then pages the GeoJSON at one snapshot', async () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/geojson')) {
+        const params = new URL(url, 'https://example.test').searchParams;
+        // An install with GRATIS_FEATURE_QUERY_PAGE=required refuses
+        // an unpaged read; the client must never send one.
+        if (!params.get('limit')) return jsonResponse({ message: 'paging' }, 400);
+        if (!params.get('cursor')) {
+          return jsonResponse({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                id: 'f1',
+                geometry: { type: 'Point', coordinates: [0, 0] },
+                properties: { _global_id: 'f1', name: 'one' },
+              },
+            ],
+            nextCursor: 'f1',
+            asOf: '2026-11-08T00:00:00.000Z',
+          });
+        }
+        expect(params.get('cursor')).toBe('f1');
+        expect(params.get('at')).toBe('2026-11-08T00:00:00.000Z');
         return jsonResponse({
           type: 'FeatureCollection',
           features: [
             {
               type: 'Feature',
-              id: 'f1',
-              geometry: { type: 'Point', coordinates: [0, 0] },
-              properties: { _global_id: 'f1', name: 'one' },
+              id: 'f2',
+              geometry: { type: 'Point', coordinates: [1, 0] },
+              properties: { _global_id: 'f2', name: 'two' },
             },
           ],
+          nextCursor: null,
+          asOf: '2026-11-08T00:00:00.000Z',
         });
       }
       if (url.includes('/delta?since=0&limit=1')) {
@@ -307,13 +376,63 @@ describe('downloadDeployment delta refresh', () => {
 
     expect(result.layerSchemas['dl-1:main']?.syncVersion).toBe(42);
     const features = await listFeaturesForLayer(DC, 'dl-1', 'main');
-    expect(features).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/geojson'),
+    expect(features).toHaveLength(2);
+    // The head is read before the snapshot, so a write during the
+    // download is newer than the stored cursor and arrives next time.
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toBe('/api/portal/items/dl-1/layers/main/delta?since=0&limit=1');
+    expect(urls.filter((u) => u.includes('/geojson'))).toHaveLength(2);
+  });
+
+  it('pages through one syncVersion that spans pages without skipping rows', async () => {
+    await putDeployment(manifest(10));
+    const row = (i: number) => ({
+      observationId: `o${i}`,
+      entity: `e${i}`,
+      kind: 'create' as const,
+      syncVersion: 11,
+      geometry: { type: 'Point' as const, coordinates: [i, i] },
+      properties: { i },
+    });
+    const pages: Record<string, LayerDeltaResponse> = {
+      first: {
+        syncVersion: 11,
+        since: 10,
+        truncated: true,
+        changes: [row(1), row(2)],
+        nextSince: 11,
+        nextAfter: 'o2',
+      },
+      second: {
+        syncVersion: 11,
+        since: 11,
+        truncated: false,
+        changes: [row(3)],
+      },
+    };
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const params = new URL(String(input), 'https://example.test').searchParams;
+      if (params.get('since') === '10' && !params.get('after')) return jsonResponse(pages.first);
+      if (params.get('since') === '11' && params.get('after') === 'o2') {
+        return jsonResponse(pages.second);
+      }
+      throw new Error(`unexpected fetch ${String(input)}`);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await downloadDeployment(
+      {
+        dataCollectionId: DC,
+        title: 'Delta Test',
+        mapId: 'map-1',
+        layers: [LAYER],
+        pickListIds: [],
+      },
+      () => {},
     );
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/portal/items/dl-1/layers/main/delta?since=0&limit=1',
-    );
+    expect(result.layerSchemas['dl-1:main']?.syncVersion).toBe(11);
+    const features = await listFeaturesForLayer(DC, 'dl-1', 'main');
+    expect(features).toHaveLength(3);
   });
 
   it('with a cursor, applies delta upserts/deletes and advances syncVersion', async () => {
@@ -345,6 +464,8 @@ describe('downloadDeployment delta refresh', () => {
       },
     ]);
 
+    // An older server: truncated with no nextSince / nextAfter. The
+    // client re-reads the last version from its start (since=11).
     const page1: LayerDeltaResponse = {
       syncVersion: 15,
       since: 10,
@@ -370,7 +491,7 @@ describe('downloadDeployment delta refresh', () => {
     };
     const page2: LayerDeltaResponse = {
       syncVersion: 15,
-      since: 12,
+      since: 11,
       truncated: false,
       changes: [
         {
@@ -387,7 +508,7 @@ describe('downloadDeployment delta refresh', () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('since=10')) return jsonResponse(page1);
-      if (url.includes('since=12')) return jsonResponse(page2);
+      if (url.includes('since=11')) return jsonResponse(page2);
       throw new Error(`unexpected fetch ${url}`);
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
