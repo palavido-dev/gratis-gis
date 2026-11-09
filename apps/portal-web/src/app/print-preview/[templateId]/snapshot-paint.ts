@@ -31,6 +31,7 @@ import {
   type MapLayer,
   type MapLayerRenderer,
 } from '@gratis-gis/shared-types';
+import { zoomForScale } from '@/lib/web-mercator';
 
 /**
  * Add the fill / line / circle paint layers for `layer` against
@@ -284,18 +285,13 @@ function formatterExpression(
 }
 
 /**
- * Web-mercator scale-denominator to MapLibre zoom level conversion.
- * Standard formula: zoom = log2(591657550.5 * cos(lat) / scale)
- * where 591657550.5 = 156543.03392 m/pixel-at-z0 * 96 dpi / 0.0254
- * m/inch. Used by MapSnapshot to honor PrintMapElement.scaleOverride
- * (a scale denominator like 50000 for 1:50,000) over the bound map's
- * persisted zoom.
+ * Scale denominator to MapLibre zoom, so MapSnapshot can honor
+ * PrintMapElement.scaleOverride (50000 for 1:50,000) over the bound
+ * map's persisted zoom. See lib/web-mercator.ts for why this is not
+ * the 256 px tile formula.
  */
 export function scaleToZoom(scale: number, latDeg: number): number {
-  if (!Number.isFinite(scale) || scale <= 0) return 0;
-  const latRad = (latDeg * Math.PI) / 180;
-  const cosLat = Math.max(Math.cos(latRad), 1e-6);
-  return Math.log2((591657550.5 * cosLat) / scale);
+  return zoomForScale(scale, latDeg);
 }
 
 function clamp01(n: number): number {

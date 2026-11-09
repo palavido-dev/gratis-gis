@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { csvCell } from '@gratis-gis/shared-types';
 
 /**
  * Current sharing snapshot for one org. It reads the live item,
@@ -24,15 +25,9 @@ export interface PermissionRow {
   principalMissing: boolean;
 }
 
-const FORMULA = /^[=+\-@\t\r]/;
-
-/** RFC 4180 plus a leading quote so a spreadsheet does not run the cell. */
-export function csvCell(value: string): string {
-  let text = value.replaceAll('"', '""');
-  if (FORMULA.test(text)) text = `'${text}`;
-  if (/[",\n\r]/.test(text)) return `"${text}"`;
-  return text;
-}
+/** RFC 4180 plus a leading quote so a spreadsheet does not run the
+ *  cell. One rule for every CSV the portal writes (shared-types). */
+export { csvCell };
 
 export function permissionsToCsv(rows: PermissionRow[]): string {
   const header = [

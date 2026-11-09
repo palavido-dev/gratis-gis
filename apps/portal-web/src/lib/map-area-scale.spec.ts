@@ -14,9 +14,9 @@ import { SQM_PER_ACRE } from '@/lib/measure';
 
 describe('metersPerPixel', () => {
   it('matches the equatorial z0 tile width', () => {
-    // At z0 equator, one 256px tile spans the full circumference.
+    // MapLibre zoom is on 512 px tiles: at z0 the equator spans 512 px.
     const mpp = metersPerPixel(0, 0);
-    expect(mpp).toBeCloseTo(40_075_016.686 / 256, 5);
+    expect(mpp).toBeCloseTo(40_075_016.686 / 512, 5);
   });
 
   it('halves when zoom increases by one', () => {
