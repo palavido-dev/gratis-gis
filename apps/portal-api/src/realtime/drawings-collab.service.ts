@@ -62,6 +62,14 @@ interface CollabRoom {
   peers: Map<string, Peer>;
   snapshotTimer: ReturnType<typeof setTimeout> | null;
   lastActivityAt: number;
+  /**
+   * The last writer who changed the doc. A snapshot needs a writer's
+   * identity, and the last writer may already have left by the time
+   * the debounce fires or the room empties.
+   */
+  lastWriter: AuthUser | null;
+  /** True when the doc has changes no snapshot has saved yet. */
+  dirty: boolean;
 }
 
 function roomKey(mapId: string, drawingSetId: string): string {
@@ -200,6 +208,8 @@ export class DrawingsCollabService {
     if (update.byteLength === 0) return;
     Y.applyUpdate(room.doc, update);
     room.lastActivityAt = Date.now();
+    room.lastWriter = peer.user;
+    room.dirty = true;
     for (const [id, other] of room.peers) {
       if (id === connectionId) continue;
       other.send({ type: 'update', update: updateB64 });
@@ -211,9 +221,16 @@ export class DrawingsCollabService {
     const key = roomKey(mapId, drawingSetId);
     const room = this.rooms.get(key);
     if (!room) return;
+    // Any unsaved change was made by a writer recorded in lastWriter,
+    // so the final snapshot below can still save it after that writer
+    // is gone.
     room.peers.delete(connectionId);
     room.lastActivityAt = Date.now();
     if (room.peers.size === 0) {
+      if (room.snapshotTimer) {
+        clearTimeout(room.snapshotTimer);
+        room.snapshotTimer = null;
+      }
       void this.snapshotNow(room).finally(() => {
         if (room.peers.size === 0) {
           room.doc.destroy();
@@ -255,6 +272,8 @@ export class DrawingsCollabService {
       peers: new Map(),
       snapshotTimer: null,
       lastActivityAt: Date.now(),
+      lastWriter: null,
+      dirty: false,
     };
   }
 
@@ -270,19 +289,29 @@ export class DrawingsCollabService {
   }
 
   private async snapshotNow(room: CollabRoom): Promise<void> {
+    if (!room.dirty) return;
     try {
       const features = featuresFromDoc(room.doc);
-      // Prefer any writer peer for ACL; fall back to first peer.
-      const writer =
-        [...room.peers.values()].find((p) => p.role === 'writer') ??
-        [...room.peers.values()][0];
-      if (!writer) return;
-      await this.drawings.update(
-        { kind: 'user', user: writer.user },
-        room.mapId,
-        room.drawingSetId,
-        { features },
-      );
+      // Save as a writer still in the room, else as the last writer
+      // to change the doc, who may have left already. Never as an
+      // observer: drawings.update would refuse it and the last edits
+      // would be lost when the room closes.
+      const user =
+        [...room.peers.values()].find((p) => p.role === 'writer')?.user ??
+        room.lastWriter;
+      if (!user) return;
+      room.dirty = false;
+      try {
+        await this.drawings.update(
+          { kind: 'user', user },
+          room.mapId,
+          room.drawingSetId,
+          { features },
+        );
+      } catch (err) {
+        room.dirty = true;
+        throw err;
+      }
     } catch (err) {
       this.log.warn(
         `drawings collab snapshot failed map=${room.mapId} set=${room.drawingSetId}: ${

@@ -22,6 +22,7 @@ import type {
   PickListEntry,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_PICK_LIST } from '@gratis-gis/shared-types';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Detail-page editor for a `pick_list` item.
@@ -256,7 +257,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
         }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       setSaved(true);

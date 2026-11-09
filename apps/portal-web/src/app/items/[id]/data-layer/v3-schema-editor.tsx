@@ -17,6 +17,7 @@ import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
 import { useT } from '@/lib/i18n/locale-context';
 import { useV3Editor } from './v3-editor-context';
 import { V3LayerDataPanel } from './v3-layer-data-panel';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Detail-page editing surfaces for v3 data_layer items, split across
@@ -123,7 +124,7 @@ export function V3StructureSection({
         body: JSON.stringify({ data }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       const liveIds = new Set(data.layers.map((layer) => layer.id));
