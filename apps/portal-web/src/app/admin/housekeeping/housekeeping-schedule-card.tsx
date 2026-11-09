@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 export interface HousekeepingConfig {
   autoTrashEnabled: boolean;
@@ -123,7 +124,7 @@ export function HousekeepingScheduleCard({
         }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       const next = (await res.json()) as HousekeepingConfig;
@@ -143,7 +144,7 @@ export function HousekeepingScheduleCard({
         method: 'POST',
       });
       if (!res.ok) {
-        setError(`Run failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Run failed'));
         return;
       }
       const run = (await res.json()) as HousekeepingRun;

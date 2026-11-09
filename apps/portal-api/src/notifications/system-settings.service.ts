@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { textEnv } from '../common/env.js';
 import {
   encryptCredential,
   decryptCredential,
@@ -165,14 +166,16 @@ export class SystemSettingsService {
   private smtpFromEnv(): SmtpConfig | null {
     const host = this.cfg.get<string>('SMTP_HOST');
     if (!host) return null;
-    const portRaw = this.cfg.get<string>('SMTP_PORT') ?? '587';
+    const portRaw = textEnv(this.cfg.get<string>('SMTP_PORT'), '587');
     const port = Number(portRaw);
     const secureRaw = (this.cfg.get<string>('SMTP_SECURE') ?? '').toLowerCase();
     const secure = secureRaw === 'true' || (secureRaw === '' && port === 465);
     const user = this.cfg.get<string>('SMTP_USER') ?? '';
     const pass = this.cfg.get<string>('SMTP_PASS') ?? '';
-    const fromRaw =
-      this.cfg.get<string>('SMTP_FROM') ?? 'GratisGIS <noreply@gratisgis.local>';
+    const fromRaw = textEnv(
+      this.cfg.get<string>('SMTP_FROM'),
+      'GratisGIS <noreply@gratisgis.local>',
+    );
     const { from, fromDisplayName } = parseFrom(fromRaw);
     const enabled =
       (this.cfg.get<string>('NOTIFICATIONS_ENABLED') ?? '').toLowerCase() ===

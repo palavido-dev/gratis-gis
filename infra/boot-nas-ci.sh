@@ -344,6 +344,27 @@ status, _ = call(
 )
 if status not in (200, 204):
     raise SystemExit(f"enable password grant HTTP {status}")
+
+# A user created after the realm import (an admin invite) must get
+# offline_access through the default role, or field-app and QGIS
+# sign-in fail with "Offline tokens not allowed".
+status, _ = call(
+    f"{base}/admin/realms/gratis-gis/users",
+    json.dumps({"username": "ci-field", "enabled": True}).encode(),
+    {**auth, "Content-Type": "application/json"},
+    "POST",
+)
+if status not in (201, 409):
+    raise SystemExit(f"create ci-field HTTP {status}")
+status, raw = call(f"{base}/admin/realms/gratis-gis/users?username=ci-field&exact=true", headers=auth)
+field_id = json.loads(raw)[0]["id"]
+status, raw = call(
+    f"{base}/admin/realms/gratis-gis/users/{field_id}/role-mappings/realm/composite",
+    headers=auth,
+)
+if "offline_access" not in {role.get("name") for role in json.loads(raw)}:
+    raise SystemExit(f"a new user lacks offline_access: {raw[:300]!r}")
+print("new users get offline_access")
 status, raw = call(
     f"{base}/realms/gratis-gis/protocol/openid-connect/token",
     urllib.parse.urlencode({

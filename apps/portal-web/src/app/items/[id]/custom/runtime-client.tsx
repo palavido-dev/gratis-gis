@@ -13,7 +13,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
-import { safeHttpHref } from '@gratis-gis/shared-types';
+import { safeHttpHref, safeNavigationUrl } from '@gratis-gis/shared-types';
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -6526,11 +6526,15 @@ function ToolButtonRender({
       return;
     }
     if (action.kind === 'open-url') {
-      if (!action.url) return;
+      // The URL is author data. Only an app-relative path or an
+      // http(s) URL may navigate; `javascript:` would run on the
+      // portal origin with the viewer's session.
+      const url = safeNavigationUrl(action.url);
+      if (!url) return;
       if (action.newTab) {
-        window.open(action.url, '_blank', 'noopener,noreferrer');
+        window.open(url, '_blank', 'noopener,noreferrer');
       } else {
-        window.location.assign(action.url);
+        window.location.assign(url);
       }
       return;
     }
