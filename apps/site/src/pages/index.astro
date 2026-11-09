@@ -1,0 +1,359 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Home page. Facts here are checked against README.md, CHANGELOG.md
+// and the code. When a release changes one, update it here too.
+import { Picture } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import elkins from '../assets/shots/elkins-3d-map.webp';
+import bridges from '../assets/shots/bridges-dashboard.webp';
+import water from '../assets/shots/water-quality-dashboard.webp';
+import {
+  CURRENT_VERSION,
+  DEMO_URL,
+  QGIS_PLUGIN_URL,
+  RECENT_RELEASES,
+  REPO_URL,
+  repoFile,
+} from '../lib/site';
+
+const shotFormats = ['avif', 'webp'] as const;
+const bandWidths = [600, 900, 1200];
+const bandSizes = '(min-width: 1200px) 560px, (min-width: 900px) 46vw, 100vw';
+---
+
+<Base path="/">
+  <section class="wrap hero" aria-labelledby="hero-title">
+    <p class="eyebrow plain">Open source GIS portal · AGPL-3.0 · v{CURRENT_VERSION}</p>
+    <h1 id="hero-title">Your maps, your data, your servers.</h1>
+    <p class="lead">
+      GratisGIS is a self-hosted GIS portal: web maps, PostGIS data layers, forms, dashboards and an
+      offline field app. It runs on hardware you control and speaks open standards, so your data
+      stays yours.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href={DEMO_URL}>Explore the live demo</a>
+      <a class="btn btn-secondary btn-lg" href="#trust">How we handle security</a>
+      <a class="btn btn-link btn-lg" href="/install/">Install guide</a>
+    </div>
+
+    <figure class="browser">
+      <div class="browser-bar" aria-hidden="true">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="addr">demo.gratisgis.org · Elkins in 3D</span>
+      </div>
+      <Picture
+        src={elkins}
+        formats={[...shotFormats]}
+        fallbackFormat="webp"
+        widths={[720, 1200, 1800, 2400]}
+        sizes="(min-width: 1200px) 1152px, 100vw"
+        alt="A GratisGIS web map of Elkins, West Virginia, tilted in 3D. Buildings are extruded to their lidar-measured height over a hillshade, with the layer list open on the right."
+        loading="eager"
+        fetchpriority="high"
+      />
+      <figcaption class="shot-caption">
+        The Elkins in 3D web app on the public demo. No sign-in needed to view it.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="facts" aria-label="Project facts">
+    <dl class="wrap facts-grid">
+      <div>
+        <dt>1.0 shipped</dt>
+        <dd>October 31, 2026. Now on v{CURRENT_VERSION} with semantic versioning.</dd>
+      </div>
+      <div>
+        <dt>100+ releases</dt>
+        <dd>Since July 2026. Each one has a public changelog entry.</dd>
+      </div>
+      <div>
+        <dt>4 OGC APIs</dt>
+        <dd>Features, Records, Tiles and Styles, for QGIS and other standards-based clients.</dd>
+      </div>
+      <div>
+        <dt>Public CI</dt>
+        <dd>Tests, dependency audit, Trivy and Semgrep scans, and a full stack boot on every pull request.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="wrap built-on" aria-labelledby="built-on-title">
+    <h2 id="built-on-title" class="eyebrow plain">Built on software your IT team already trusts</h2>
+    <ul class="chips">
+      <li>PostgreSQL + PostGIS</li>
+      <li>MapLibre GL</li>
+      <li>Keycloak (OIDC)</li>
+      <li>Cedar policies</li>
+      <li>GDAL</li>
+      <li>MinIO</li>
+      <li>Caddy</li>
+      <li>Docker Compose</li>
+    </ul>
+  </section>
+
+  <section class="wrap section" aria-labelledby="fit-title">
+    <h2 id="fit-title" class="h2-xl">Straight answers on fit</h2>
+    <p class="lead">
+      Built for teams that want their data on their own hardware and want out of per-seat GIS
+      licensing. We would rather you know the limits up front.
+    </p>
+    <div class="fit-grid">
+      <div class="card">
+        <h3>Ready for production today</h3>
+        <ul>
+          <li>A portal with items, folders, groups and fine-grained sharing</li>
+          <li>Field collection with an offline-capable app that runs in the phone's browser</li>
+          <li>Forms, dashboards and an app builder for internal tools</li>
+          <li>A QGIS plugin and OGC APIs for desktop and other clients</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Not a fit yet</h3>
+        <ul>
+          <li>A full replacement for ArcGIS Online</li>
+          <li>A drop-in for Experience Builder, Survey123 or Field Maps</li>
+          <li>Enterprise identity depth beyond OIDC with Keycloak</li>
+          <li>Store-listed native mobile apps. The supported field app is a web app.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="product" class="product" aria-label="Product">
+    <div class="wrap section-lg bands">
+      <div class="band">
+        <div class="band-copy">
+          <p class="eyebrow">Web maps and data</p>
+          <h2 class="h2">Publish a layer once. Use it everywhere.</h2>
+          <p class="body">
+            Upload shapefiles, GeoPackages, GeoJSON and other GDAL formats into PostGIS-backed
+            layers. Style them, share them with a group, and your maps, forms and dashboards read
+            the same data.
+          </p>
+          <a class="more" href={repoFile('docs/walkthrough.md')}>Read the feature walkthrough</a>
+        </div>
+        <figure class="band-figure">
+          <div class="frame">
+            <Picture
+              src={bridges}
+              formats={[...shotFormats]}
+        fallbackFormat="webp"
+              widths={bandWidths}
+              sizes={bandSizes}
+              alt="The Randolph County Bridges dashboard: bridge points on a map beside counts of bridges, deck area and average length, and charts of condition, material and decade built."
+            />
+          </div>
+          <figcaption>One bridges layer drives the map, the counters and every chart.</figcaption>
+        </figure>
+      </div>
+
+      <div class="band reverse">
+        <div class="band-copy">
+          <p class="eyebrow">Field app</p>
+          <h2 class="h2">Collect in the field, sync when you are back.</h2>
+          <p class="body">
+            Crews download an area before they leave, then collect points, photos and form answers
+            with no signal. Changes sync when the phone reconnects. No app store, no device
+            management.
+          </p>
+          <a class="more" href={repoFile('docs/field-app.md')}>How the field app works</a>
+        </div>
+        <div class="phone-wrap">
+          <div class="phone" role="group" aria-label="How offline collection works">
+            <p class="phone-title">A day in the field</p>
+            <ol>
+              <li>
+                <span class="step" aria-hidden="true">1</span>
+                <span><strong>Download an area</strong><span class="note">Map tiles and layers for the job site.</span></span>
+              </li>
+              <li>
+                <span class="step" aria-hidden="true">2</span>
+                <span><strong>Collect offline</strong><span class="note">Points, photos and form answers, no signal needed.</span></span>
+              </li>
+              <li>
+                <span class="step" aria-hidden="true">3</span>
+                <span><strong>Sync on reconnect</strong><span class="note">Queued edits upload when the phone is back online.</span></span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="band-copy">
+          <p class="eyebrow">Dashboards and apps</p>
+          <h2 class="h2">Build the internal tool, not just the map.</h2>
+          <p class="body">
+            Charts, indicators, filters and maps on one page, wired to your layers. Share a
+            dashboard publicly or keep it to one group.
+          </p>
+          <a class="more" href={DEMO_URL}>Open the demo dashboards</a>
+        </div>
+        <figure class="band-figure">
+          <div class="frame">
+            <Picture
+              src={water}
+              formats={[...shotFormats]}
+        fallbackFormat="webp"
+              widths={bandWidths}
+              sizes={bandSizes}
+              alt="The West Virginia water quality dashboard: monitoring sites on a map, counters for sites and measurements in view, and charts of limits exceeded and sites sampled per year."
+            />
+          </div>
+          <figcaption>
+            Twenty-five years of West Virginia water quality, shared publicly on the demo.
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="band reverse">
+        <div class="band-copy">
+          <p class="eyebrow">QGIS and open standards</p>
+          <h2 class="h2">Keep the desktop tools your analysts know.</h2>
+          <p class="body">
+            Sign in from QGIS with the GratisGIS plugin and work with portal layers. OGC API
+            endpoints let any standards-based client read your data without a custom connector.
+          </p>
+          <a class="more" href={QGIS_PLUGIN_URL}>Get the QGIS plugin</a>
+        </div>
+        <div class="code-panel" tabindex="0" role="region" aria-label="OGC API endpoints">
+          <p class="comment"># OGC API endpoints in every install</p>
+          <ul>
+            <li>
+              <span class="path">/api/public/ogc/collections/&#123;id&#125;/items</span>
+              <span class="what">OGC API Features. GeoJSON, paged and filterable.</span>
+            </li>
+            <li>
+              <span class="path">/api/public/ogc/collections/&#123;id&#125;/tiles</span>
+              <span class="what">OGC API Tiles. Vector tiles from PostGIS.</span>
+            </li>
+            <li>
+              <span class="path">/api/public/ogc/styles</span>
+              <span class="what">OGC API Styles. MapLibre style documents.</span>
+            </li>
+            <li>
+              <span class="path">/api/public/ogc/records</span>
+              <span class="what">OGC API Records. A searchable catalog of items.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="trust" class="trust" aria-labelledby="trust-title">
+    <div class="wrap section-lg">
+      <p class="eyebrow">Security and governance</p>
+      <h2 id="trust-title" class="h2-xl">What your IT and security reviewers will ask, answered.</h2>
+      <div class="trust-grid">
+        <div class="trust-card">
+          <h3>Your data stays on your servers</h3>
+          <p>
+            Everything runs in your environment: a VPS, an on-premises host or a NAS. Data lives in
+            standard PostgreSQL and PostGIS that you can query and back up yourself.
+          </p>
+        </div>
+        <div class="trust-card">
+          <h3>Standard sign-in, explicit permissions</h3>
+          <p>
+            Users sign in through Keycloak over OIDC. Access is decided by Cedar policies, and
+            shares can limit a layer to certain rows, columns or an area.
+          </p>
+        </div>
+        <div class="trust-card">
+          <h3>A written disclosure policy</h3>
+          <p>
+            Vulnerabilities are reported privately and handled through coordinated disclosure.
+            Security fixes are listed under Security in the changelog.
+          </p>
+        </div>
+        <div class="trust-card">
+          <h3>Upgrades you can plan</h3>
+          <p>
+            Semantic versioning, a written upgrade guide, and an admin Updates page that shows how
+            far behind an install is.
+          </p>
+        </div>
+        <div class="trust-card">
+          <h3>Open code, open process</h3>
+          <p>
+            AGPL-3.0 source, public CI with security scanning, and license headers checked on every
+            source file.
+          </p>
+        </div>
+        <div class="trust-card">
+          <h3>No per-seat licensing</h3>
+          <p>
+            Add users and field crews without buying seats. Your main costs are the server and the
+            time to run it.
+          </p>
+        </div>
+      </div>
+      <div class="trust-links">
+        <a href={repoFile('SECURITY.md')}>Security policy</a>
+        <a href={repoFile('docs/auth-model.md')}>Authorization model</a>
+        <a href={repoFile('docs/UPGRADING.md')}>Upgrade guide</a>
+        <a href={repoFile('ARCHITECTURE.md')}>Architecture</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="wrap section-lg install" aria-labelledby="install-title">
+    <div class="band">
+      <div class="band-copy">
+        <p class="eyebrow">Install</p>
+        <h2 id="install-title" class="h2">One Linux host. One command.</h2>
+        <p class="body">
+          GratisGIS runs as a single Docker Compose stack. A 4-core, 8 GB server is enough for a
+          small organization, and the public demo runs on that size. Home and office NAS boxes are
+          supported too.
+        </p>
+        <div class="link-row">
+          <a href="/install/">Install guide</a>
+          <a href={repoFile('docs/truenas.md')}>NAS install</a>
+          <a href={repoFile('docs/UPGRADING.md')}>Upgrading</a>
+        </div>
+      </div>
+      <div class="code-panel" tabindex="0" role="region" aria-label="Install command">
+        <p class="comment"># on a Linux server with Docker</p>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/\
+  palavido-dev/gratis-gis/main/infra/install.sh | bash</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="changelog" class="releases" aria-labelledby="releases-title">
+    <div class="wrap section">
+      <div class="releases-head">
+        <h2 id="releases-title" class="h2">Recent releases</h2>
+        <a href={repoFile('CHANGELOG.md')}>Full changelog</a>
+      </div>
+      <ul class="release-grid">
+        {
+          RECENT_RELEASES.map((r) => (
+            <li>
+              <p class="meta">
+                <a href={`${REPO_URL}/releases/tag/v${r.version}`}>v{r.version}</a> ·{' '}
+                <time datetime={r.isoDate}>{r.date}</time>
+              </p>
+              <p class="summary">{r.summary}</p>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+
+  <section id="demo" class="wrap section-lg closing" aria-labelledby="demo-title">
+    <h2 id="demo-title" class="h2-xl">See it working before you install anything.</h2>
+    <p class="lead">
+      The demo has a sample county workspace with maps, forms and dashboards. It resets every day,
+      so click anything.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href={DEMO_URL}>Open the live demo</a>
+      <a class="btn btn-secondary btn-lg" href={`${REPO_URL}/discussions`}>Ask a question</a>
+    </div>
+  </section>
+</Base>

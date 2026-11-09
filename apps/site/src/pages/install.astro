@@ -1,0 +1,81 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Short install overview. The full, maintained steps live in
+// docs/deployment.md and docs/truenas.md; this page links there
+// instead of copying them, so the two cannot drift.
+import Base from '../layouts/Base.astro';
+import { DEMO_URL, repoFile } from '../lib/site';
+---
+
+<Base
+  title="Install GratisGIS"
+  description="Install GratisGIS on one Linux host with Docker Compose, or on a home or office NAS. Requirements, the one-line installer, and where the full guides live."
+  path="/install/"
+>
+  <article class="wrap prose">
+    <p class="eyebrow">Install</p>
+    <h1>Install GratisGIS</h1>
+    <p>
+      GratisGIS runs as one Docker Compose stack on one Linux host. This page is a short overview.
+      The full guide, with backups, health checks and recovery, is{" "}
+      <a href={repoFile('docs/deployment.md')}>docs/deployment.md</a> on GitHub.
+    </p>
+
+    <h2>What you need</h2>
+    <ul>
+      <li>
+        A Linux server you can SSH into. The public demo runs on 4 CPU cores and 8 GB RAM, which is
+        a comfortable baseline for a small organization. Plan for 20 GB or more of free disk.
+      </li>
+      <li>Docker Engine with the Compose v2 plugin, plus git, curl, openssl and python3.</li>
+      <li>
+        Three DNS records pointing at the server: the portal, an auth host and a storage host. For
+        example <code>gis.example.org</code>, <code>auth.gis.example.org</code> and{" "}
+        <code>storage.gis.example.org</code>. Certificates come from Let's Encrypt.
+      </li>
+    </ul>
+
+    <h2>Install with one command</h2>
+    <div class="code-panel" tabindex="0" role="region" aria-label="Install command">
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/\
+  palavido-dev/gratis-gis/main/infra/install.sh | bash</code></pre>
+    </div>
+    <p>
+      The installer clones the repository to <code>/opt/gratis-gis</code>, checks out the newest
+      release, asks for your domain and email, generates the secrets, deploys, and prints where to
+      sign in. It checks for Docker but does not install it for you.
+    </p>
+    <p>Prefer to see each step? The same flow by hand:</p>
+    <div class="code-panel" tabindex="0" role="region" aria-label="Manual install commands">
+      <pre><code>git clone https://github.com/palavido-dev/gratis-gis /opt/gratis-gis
+cd /opt/gratis-gis
+./infra/setup.sh
+./infra/deploy.sh
+./infra/doctor.sh</code></pre>
+    </div>
+
+    <h2>On a home or office NAS</h2>
+    <p>
+      On TrueNAS SCALE 25.10 or newer, or Dockge, you paste one Compose file. No domain name is
+      needed. Steps are in <a href={repoFile('docs/truenas.md')}>docs/truenas.md</a>.
+    </p>
+
+    <h2>Upgrades</h2>
+    <p>
+      Run <code>./infra/deploy.sh</code> again. It moves to the newest release, applies database
+      migrations and swaps containers. Back up first. The full procedure, including rollback, is in{" "}
+      <a href={repoFile('docs/UPGRADING.md')}>docs/UPGRADING.md</a>.
+    </p>
+
+    <h2>Working on the code</h2>
+    <p>
+      To run GratisGIS on a workstation for development, follow{" "}
+      <a href={repoFile('docs/SETUP.md')}>docs/SETUP.md</a>.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href={DEMO_URL}>Try the live demo first</a>
+      <a class="btn btn-secondary btn-lg" href={repoFile('docs/deployment.md')}>Read the full guide</a>
+    </div>
+  </article>
+</Base>

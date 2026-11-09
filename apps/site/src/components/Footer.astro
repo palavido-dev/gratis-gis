@@ -1,0 +1,38 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import { DEMO_URL, REPO_URL, repoFile } from '../lib/site';
+---
+
+<footer class="site-footer" id="docs">
+  <div class="wrap footer-grid">
+    <div>
+      <p class="footer-brand">GratisGIS</p>
+      <p class="footer-note">Self-hosted, open source GIS. AGPL-3.0-or-later.</p>
+    </div>
+    <nav aria-labelledby="footer-product">
+      <h2 id="footer-product">Product</h2>
+      <ul>
+        <li><a href="/#product">Features</a></li>
+        <li><a href={DEMO_URL}>Live demo</a></li>
+        <li><a href={repoFile('CHANGELOG.md')}>Changelog</a></li>
+      </ul>
+    </nav>
+    <nav aria-labelledby="footer-docs">
+      <h2 id="footer-docs">Docs</h2>
+      <ul>
+        <li><a href="/install/">Install guide</a></li>
+        <li><a href={repoFile('docs/walkthrough.md')}>Feature walkthrough</a></li>
+        <li><a href={repoFile('ARCHITECTURE.md')}>Architecture</a></li>
+        <li><a href={repoFile('SECURITY.md')}>Security policy</a></li>
+      </ul>
+    </nav>
+    <nav aria-labelledby="footer-community">
+      <h2 id="footer-community">Community</h2>
+      <ul>
+        <li><a href={REPO_URL}>GitHub</a></li>
+        <li><a href={`${REPO_URL}/discussions`}>Discussions</a></li>
+        <li><a href={repoFile('CONTRIBUTING.md')}>Contributing</a></li>
+      </ul>
+    </nav>
+  </div>
+</footer>

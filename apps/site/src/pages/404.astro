@@ -1,0 +1,40 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Not-found page. GitHub Pages serves this for any unknown path.
+//
+// The live demo used to be served at gratisgis.org itself, so old
+// links such as gratisgis.org/items/<id> point here now. Pages cannot
+// send server redirects, so a small inline script sends a browser on
+// a known portal path to the same path on the demo. Crawlers and API
+// clients still get a plain 404. See docs/operations/site-cutover.md.
+import Base from '../layouts/Base.astro';
+import { DEMO_URL, PORTAL_PATH_PREFIXES } from '../lib/site';
+
+const redirectConfig = JSON.stringify({ demo: DEMO_URL, prefixes: PORTAL_PATH_PREFIXES });
+---
+
+<Base title="Page not found | GratisGIS" path="/404/" noindex>
+  <script slot="head" is:inline define:vars={{ redirectConfig }}>
+    (function () {
+      var cfg = JSON.parse(redirectConfig);
+      var first = window.location.pathname.split('/')[1] || '';
+      if (cfg.prefixes.indexOf(first) !== -1) {
+        window.location.replace(
+          cfg.demo + window.location.pathname + window.location.search + window.location.hash,
+        );
+      }
+    })();
+  </script>
+  <article class="wrap prose">
+    <p class="eyebrow">404</p>
+    <h1>Page not found</h1>
+    <p>
+      This page does not exist on the project site. If you followed a link to a map, item or app,
+      it now lives on the live demo at <a href={DEMO_URL}>demo.gratisgis.org</a>.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href="/">Go to the home page</a>
+      <a class="btn btn-secondary btn-lg" href={DEMO_URL}>Open the live demo</a>
+    </div>
+  </article>
+</Base>

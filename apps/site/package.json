@@ -1,0 +1,26 @@
+{
+  "name": "@gratis-gis/site",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Matt Palavido <matthew@gratisgis.org>",
+  "description": "The GratisGIS project website, a static Astro site served at gratisgis.org.",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "3.7.4",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "astro": "7.4.7"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "typescript": "6.0.3"
+  }
+}

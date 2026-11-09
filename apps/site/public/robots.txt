@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gratisgis.org/sitemap-index.xml

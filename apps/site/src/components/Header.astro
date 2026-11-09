@@ -1,0 +1,25 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import Logo from './Logo.astro';
+import { DEMO_URL, REPO_URL } from '../lib/site';
+---
+
+<header class="site-header">
+  <nav class="wrap site-nav" aria-label="Main">
+    <a href="/" class="brand">
+      <Logo />
+      GratisGIS
+    </a>
+    <ul class="nav-links">
+      <li><a href="/#product">Product</a></li>
+      <li><a href="/#trust">Security</a></li>
+      <li><a href="/install/">Install</a></li>
+      <li><a href="/#docs">Docs</a></li>
+      <li><a href="/#changelog">Changelog</a></li>
+    </ul>
+    <div class="nav-actions">
+      <a class="btn btn-secondary btn-github" href={REPO_URL}>GitHub</a>
+      <a class="btn btn-primary" href={DEMO_URL}>Try the live demo</a>
+    </div>
+  </nav>
+</header>
