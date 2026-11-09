@@ -107,15 +107,23 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       select: { id: true, state: true, apiKeyId: true },
     });
     for (const row of stale) {
-      await this.finish(row.id, {
-        state: row.state === 'cancel_requested' ? 'cancelled' : 'failed',
-        error:
-          row.state === 'cancel_requested'
-            ? 'Cancelled; the worker running it stopped responding.'
-            : 'The worker running this script stopped responding.',
-        apiKeyId: row.apiKeyId,
-      });
-      this.log.warn(`script run ${row.id}: reclaimed, heartbeat stale`);
+      // Conditional on the state and staleness we read: a row that
+      // finished, or beat, since the read is not ours to reclaim.
+      const reclaimed = await this.finish(
+        row.id,
+        {
+          state: row.state === 'cancel_requested' ? 'cancelled' : 'failed',
+          error:
+            row.state === 'cancel_requested'
+              ? 'Cancelled; the worker running it stopped responding.'
+              : 'The worker running this script stopped responding.',
+          apiKeyId: row.apiKeyId,
+        },
+        { from: [row.state], staleBefore: cutoff },
+      );
+      if (reclaimed) {
+        this.log.warn(`script run ${row.id}: reclaimed, heartbeat stale`);
+      }
     }
   }
 
@@ -187,7 +195,10 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
 
     const heartbeat = setInterval(() => {
       void this.prisma.scriptRun
-        .update({ where: { id: job.id }, data: { heartbeatAt: new Date() } })
+        .updateMany({
+          where: { id: job.id, state: { in: [...LIVE_STATES] } },
+          data: { heartbeatAt: new Date() },
+        })
         .catch(() => {
           // A missed beat is recoverable; the sweep window is minutes.
         });
@@ -318,7 +329,14 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     }
   }
 
-  /** Terminal update plus key revocation, in that order. */
+  /**
+   * Terminal update plus key revocation, in that order.
+   *
+   * The update only applies while the row is still in one of `from`
+   * (by default, any live state), so a run that something else already
+   * finished is never relabelled. The key is revoked either way.
+   * Returns whether this call moved the row.
+   */
   private async finish(
     runId: string,
     input: {
@@ -329,9 +347,14 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       notebook?: string | null;
       apiKeyId: string | null;
     },
-  ): Promise<void> {
-    await this.prisma.scriptRun.update({
-      where: { id: runId },
+    guard: { from?: readonly string[]; staleBefore?: Date } = {},
+  ): Promise<boolean> {
+    const res = await this.prisma.scriptRun.updateMany({
+      where: {
+        id: runId,
+        state: { in: [...(guard.from ?? LIVE_STATES)] },
+        ...(guard.staleBefore ? { heartbeatAt: { lt: guard.staleBefore } } : {}),
+      },
       data: {
         state: input.state,
         finishedAt: new Date(),
@@ -351,11 +374,15 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
         );
       });
     }
+    return res.count === 1;
   }
 }
 
 /** How long past the run timeout the claimer waits for the executor. */
 const EXECUTOR_GRACE_SECONDS = 120;
+
+/** States in which a claimer owns the run. */
+const LIVE_STATES = ['running', 'cancel_requested'] as const;
 
 function executorUrl(): string {
   return (

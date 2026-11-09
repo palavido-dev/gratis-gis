@@ -18,11 +18,23 @@
 # SEO canonicals in the prebuilt web image stay on the code default.
 # Sign-in URLs are runtime env (PUBLIC_URL, KEYCLOAK_URL), not bake-time.
 
+#
+# NAS installs pull `edge` on every restart, so nothing publishes
+# until CI and Security have both passed on the exact commit. `edge`
+# follows main through workflow_run: each of those two workflows
+# finishing on a main push starts this one, and the gate job publishes
+# only when both are green for that commit and it is still the tip of
+# main. A tag or a manual run needs the same green runs, and a manual
+# run is refused on any ref other than main or a release tag.
+
 name: Publish images
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI", "Security"]
+    types: [completed]
     branches: [main]
+  push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
 
@@ -31,12 +43,42 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-images-${{ github.ref }}
-  cancel-in-progress: true
+  group: publish-images-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  gate:
+    name: CI and Security passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+      sha: ${{ steps.check.outputs.sha }}
+      ref_type: ${{ steps.check.outputs.ref_type }}
+      ref_name: ${{ steps.check.outputs.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the commit's CI and Security runs
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: bash infra/publish-gate.sh
+
   build:
     name: Publish ${{ matrix.name }}
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -63,6 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           # git describe --tags needs the tags, not a depth-1 checkout.
           fetch-depth: 0
 
@@ -78,13 +121,17 @@ jobs:
 
       - name: Image tags
         id: tags
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+          REF_TYPE: ${{ needs.gate.outputs.ref_type }}
+          REF_NAME: ${{ needs.gate.outputs.ref_name }}
         run: |
           set -euo pipefail
           owner_path="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/${{ matrix.name }}"
-          short="${GITHUB_SHA::12}"
+          short="${SHA::12}"
           tags="${owner_path}:sha-${short}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tags="${tags},${owner_path}:${GITHUB_REF_NAME},${owner_path}:latest"
+          if [ "${REF_TYPE}" = "tag" ]; then
+            tags="${tags},${owner_path}:${REF_NAME},${owner_path}:latest"
           else
             tags="${tags},${owner_path}:edge"
           fi
@@ -105,7 +152,7 @@ jobs:
           {
             echo "build_args<<EOF"
             echo "GG_VERSION=${{ steps.tags.outputs.described }}"
-            echo "GIT_SHA=${{ github.sha }}"
+            echo "GIT_SHA=${{ needs.gate.outputs.sha }}"
             if [ "${{ matrix.web }}" = "true" ]; then
               echo "NEXT_PUBLIC_PROJECT_LANDING=1"
               echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
@@ -128,19 +175,20 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
           build-args: ${{ steps.buildargs.outputs.build_args }}
 
   script-runner:
     name: Publish script-runner
-    needs: build
+    needs: [gate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -155,14 +203,18 @@ jobs:
 
       - name: Image tags
         id: tags
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+          REF_TYPE: ${{ needs.gate.outputs.ref_type }}
+          REF_NAME: ${{ needs.gate.outputs.ref_name }}
         run: |
           set -euo pipefail
           owner_path="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/script-runner"
-          short="${GITHUB_SHA::12}"
+          short="${SHA::12}"
           base="ghcr.io/${GITHUB_REPOSITORY_OWNER}/gratis-gis/portal-api:sha-${short}"
           tags="${owner_path}:sha-${short}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tags="${tags},${owner_path}:${GITHUB_REF_NAME},${owner_path}:latest"
+          if [ "${REF_TYPE}" = "tag" ]; then
+            tags="${tags},${owner_path}:${REF_NAME},${owner_path}:latest"
           else
             tags="${tags},${owner_path}:edge"
           fi
@@ -183,10 +235,10 @@ jobs:
           build-args: |
             PORTAL_API_IMAGE=${{ steps.tags.outputs.base }}
             GG_VERSION=${{ steps.tags.outputs.described }}
-            GIT_SHA=${{ github.sha }}
+            GIT_SHA=${{ needs.gate.outputs.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.gate.outputs.sha }}
           cache-from: type=gha,scope=script-runner
           cache-to: type=gha,scope=script-runner,mode=max
 
@@ -195,18 +247,20 @@ jobs:
   # here with the owner click-path, instead of only a red build job.
   ensure-public:
     name: Packages are public
-    needs: [build, script-runner]
+    needs: [gate, build, script-runner]
     if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
 
       - name: Require anonymous pull of every image and tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
-          SHA: ${{ github.sha }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ needs.gate.outputs.sha }}
+          REF_TYPE: ${{ needs.gate.outputs.ref_type }}
+          REF_NAME: ${{ needs.gate.outputs.ref_name }}
         run: bash infra/ensure-ghcr-public.sh

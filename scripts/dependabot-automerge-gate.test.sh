@@ -88,6 +88,32 @@ if ! grep -q -F "github.actor == 'dependabot[bot]'" "$workflow"; then
   exit 1
 fi
 
+# The Python classifier decides eligibility before any merge call.
+pyfile="$(mktemp)"
+awk '
+  /<<.END_PYTHON.$/ {capture=1; next}
+  /^[[:space:]]*END_PYTHON$/ {capture=0}
+  capture {
+    sub(/^          /, "")
+    print
+  }
+' "$workflow" >"$pyfile"
+classify() {
+  local rc=0
+  DEPS_JSON="$1" UPDATE_TYPE="$2" PACKAGE_ECOSYSTEM="$3" python3 "$pyfile" classify >/dev/null 2>&1 || rc=$?
+  echo "$rc"
+}
+npm_minor='[{"dependencyName":"zod","updateType":"version-update:semver-minor","packageEcosystem":"npm_and_yarn"}]'
+actions_minor='[{"dependencyName":"actions/checkout","updateType":"version-update:semver-minor","packageEcosystem":"github_actions"}]'
+echo "classifier: npm minor is eligible"
+[ "$(classify "$npm_minor" version-update:semver-minor npm_and_yarn)" = 0 ] || { echo "FAIL npm minor" >&2; exit 1; }
+echo "classifier: GitHub Actions minor needs a review"
+[ "$(classify "$actions_minor" version-update:semver-minor github_actions)" = 10 ] || { echo "FAIL actions by ecosystem" >&2; exit 1; }
+[ "$(classify "$actions_minor" version-update:semver-minor "")" = 10 ] || { echo "FAIL actions by dependency" >&2; exit 1; }
+echo "classifier: major stays open"
+[ "$(classify "$npm_minor" version-update:semver-major npm_and_yarn)" = 10 ] || { echo "FAIL major" >&2; exit 1; }
+rm -f "$pyfile"
+
 # shellcheck disable=SC1090
 source "$fnfile"
 

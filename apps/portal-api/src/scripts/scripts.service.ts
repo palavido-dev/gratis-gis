@@ -291,23 +291,41 @@ export class ScriptsService {
     if (!row) throw new NotFoundException('Run not found.');
     await this.assertRunnable(user, row.scriptId);
 
-    if (row.state === 'queued') {
-      await this.prisma.scriptRun.update({
+    // Every write is conditional on the state it was decided from. The
+    // claimer moves rows on its own schedule, so an unconditional write
+    // here could relabel a run that just finished as cancel_requested
+    // (which the stale sweep later turns into "cancelled", hiding a
+    // successful run), or mark a just-claimed run cancelled while it
+    // executes to completion. When the row moved under us, re-read and
+    // decide again; two passes cover queued -> running -> finished.
+    let state = row.state;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (state === 'queued') {
+        const res = await this.prisma.scriptRun.updateMany({
+          where: { id: row.id, state: 'queued' },
+          data: { state: 'cancelled', finishedAt: new Date() },
+        });
+        if (res.count === 1) return { state: 'cancelled' };
+      } else if (state === 'running') {
+        const res = await this.prisma.scriptRun.updateMany({
+          where: { id: row.id, state: 'running' },
+          data: { state: 'cancel_requested' },
+        });
+        if (res.count === 1) return { state: 'cancel_requested' };
+      } else {
+        // Already finished or already cancelling. Not an error: the
+        // button and the run's own completion race constantly, and a
+        // 400 here would be noise.
+        return { state };
+      }
+      const fresh = await this.prisma.scriptRun.findUnique({
         where: { id: row.id },
-        data: { state: 'cancelled', finishedAt: new Date() },
+        select: { state: true },
       });
-      return { state: 'cancelled' };
+      if (!fresh) throw new NotFoundException('Run not found.');
+      state = fresh.state;
     }
-    if (row.state === 'running') {
-      await this.prisma.scriptRun.update({
-        where: { id: row.id },
-        data: { state: 'cancel_requested' },
-      });
-      return { state: 'cancel_requested' };
-    }
-    // Already finished. Not an error: the button and the run's own
-    // completion race constantly, and a 400 here would be noise.
-    return { state: row.state };
+    return { state };
   }
 }
 
