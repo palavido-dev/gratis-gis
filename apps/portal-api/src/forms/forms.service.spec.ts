@@ -2,6 +2,8 @@
 import { BadRequestException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { SharingService } from '../items/sharing.service.js';
+import { PolicyService } from '../policy/policy.service.js';
 import { FormsService } from './forms.service.js';
 
 /**
@@ -12,6 +14,8 @@ import { FormsService } from './forms.service.js';
  * mirror and the owner notification must only ever fire for
  * accepted first-writes.
  */
+
+const LAYER_ID = '0b8f6a52-6c3e-4a57-9a43-1d2f6f1c0a11';
 
 const SCHEMA = {
   schemaVersion: 1,
@@ -29,7 +33,7 @@ const SCHEMA = {
       ],
     },
   ],
-  linkedLayerId: 'layer-1',
+  linkedLayerId: LAYER_ID,
   linkedLayerKey: 'submissions',
 };
 
@@ -46,30 +50,65 @@ function makeUser(): AuthUser {
   } as unknown as AuthUser;
 }
 
+interface ItemRow {
+  id: string;
+  type: string;
+  orgId: string;
+  ownerId: string;
+  access: string;
+  title: string;
+  tags: string[];
+  deletedAt: Date | null;
+  data: unknown;
+}
+
 function makeMocks(opts: {
   formData?: unknown;
   existingSubmission?: { id: string } | null;
+  form?: Partial<ItemRow>;
+  layer?: Partial<ItemRow> | null;
+  shares?: Array<Record<string, unknown>>;
 } = {}) {
+  const form: ItemRow = {
+    id: 'form-1',
+    type: 'form',
+    orgId: 'org-1',
+    ownerId: 'owner-1',
+    access: 'org',
+    title: 'Inspection',
+    tags: [],
+    deletedAt: null,
+    data: opts.formData ?? SCHEMA,
+    ...opts.form,
+  };
+  const layer: ItemRow | null =
+    opts.layer === null
+      ? null
+      : {
+          id: LAYER_ID,
+          type: 'data_layer',
+          orgId: 'org-1',
+          ownerId: 'owner-1',
+          access: 'private',
+          title: 'Inspection submissions',
+          tags: ['form-paired'],
+          deletedAt: null,
+          data: {},
+          ...opts.layer,
+        };
   const prisma = {
     item: {
       findUnique: jest.fn(async (args: { where: { id: string } }) => {
-        if (args.where.id === 'form-1') {
-          return {
-            id: 'form-1',
-            type: 'form',
-            orgId: 'org-1',
-            ownerId: 'owner-1',
-            access: 'org',
-            title: 'Inspection',
-            data: opts.formData ?? SCHEMA,
-          };
-        }
-        // Paired-layer lookup inside the mirror path; null keeps the
-        // mirror on the table-insert branch with no sublayers.
+        if (args.where.id === 'form-1') return form;
+        if (args.where.id === LAYER_ID) return layer;
         return null;
       }),
     },
-    itemShare: { findFirst: jest.fn(async () => null) },
+    itemShare: {
+      findMany: jest.fn(async (args: { where: { itemId: string } }) =>
+        (opts.shares ?? []).filter((sh) => sh.itemId === args.where.itemId),
+      ),
+    },
     formSubmission: {
       findUnique: jest.fn(async () => opts.existingSubmission ?? null),
       upsert: jest.fn(async () => ({ id: 'sub-1', createdAt: new Date() })),
@@ -88,12 +127,27 @@ function makeMocks(opts: {
   };
   const dataLayerFeatures = { insertFeatures: jest.fn(async () => undefined) };
   const dataLayerAttachments = { register: jest.fn(async () => undefined) };
+  const sharing = new SharingService(prisma as never, new PolicyService());
+  // The form owner as the mirror's re-check sees them: a contributor
+  // with no shares, so only the layer's own rules decide.
+  const authSync = {
+    principalForUserId: jest.fn(async (id: string) => ({
+      ...makeUser(),
+      id,
+      username: id,
+    })),
+  };
   const service = new FormsService(
     prisma as unknown as ConstructorParameters<typeof FormsService>[0],
     notifications as unknown as ConstructorParameters<typeof FormsService>[1],
     dataLayerFeatures as unknown as ConstructorParameters<typeof FormsService>[2],
     dataLayerAttachments as unknown as ConstructorParameters<typeof FormsService>[3],
+    sharing,
+    authSync as unknown as ConstructorParameters<typeof FormsService>[5],
   );
+  jest
+    .spyOn((service as unknown as { log: { warn: () => void } }).log, 'warn')
+    .mockImplementation(() => undefined);
   return { service, prisma, notifications, dataLayerFeatures };
 }
 
@@ -182,5 +236,162 @@ describe('FormsService.submit', () => {
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
     expect(m.notifications.notify).not.toHaveBeenCalled();
+  });
+});
+
+describe('FormsService.submit access', () => {
+  const expired = new Date(Date.now() - 60_000);
+  const future = new Date(Date.now() + 60 * 60_000);
+
+  it('refuses a submission to a form in the trash', async () => {
+    const m = makeMocks({ form: { deletedAt: new Date() } });
+    await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).rejects.toThrow(
+      /Form not found/,
+    );
+    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a private form when the only share has expired', async () => {
+    const m = makeMocks({
+      form: { access: 'private' },
+      shares: [
+        {
+          itemId: 'form-1',
+          principalType: 'user',
+          principalId: 'user-1',
+          permission: 'view',
+          expiresAt: expired,
+        },
+      ],
+    });
+    await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).rejects.toThrow(
+      /do not have access/,
+    );
+    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts a private form with a live share', async () => {
+    const m = makeMocks({
+      form: { access: 'private' },
+      shares: [
+        {
+          itemId: 'form-1',
+          principalType: 'user',
+          principalId: 'user-1',
+          permission: 'view',
+          expiresAt: future,
+        },
+      ],
+    });
+    await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).resolves.toEqual({
+      id: 'sub-1',
+      created: true,
+    });
+  });
+});
+
+describe('FormsService.submit cleaning', () => {
+  const schema = {
+    schemaVersion: 1,
+    id: 'form-1',
+    title: 'Visibility',
+    questions: [
+      { id: 'kind', label: 'Kind', type: 'text' },
+      {
+        id: 'detail',
+        label: 'Detail',
+        type: 'text',
+        pattern: '[0-9]+',
+        visibleIf: {
+          op: 'eq',
+          left: { ref: 'kind' },
+          right: { value: 'other' },
+        },
+      },
+      {
+        id: 'grp',
+        label: 'Checks',
+        type: 'group',
+        repeat: {},
+        children: [{ id: 'result', label: 'Result', type: 'text' }],
+      },
+    ],
+    linkedLayerId: LAYER_ID,
+  };
+
+  it('drops hidden answers and unknown keys before storing and mirroring', async () => {
+    const m = makeMocks({ formData: schema });
+    await m.service.submit('form-1', makeUser(), {
+      ...VALID_DTO,
+      response: {
+        kind: 'tree',
+        // Hidden (kind is not "other") and would fail its pattern.
+        detail: 'not a number',
+        injected: '<script>',
+        grp: [{ result: 'ok', extra: 'x' }],
+      },
+    });
+    const stored = (
+      m.prisma.formSubmission.upsert.mock.calls[0] as unknown as [
+        { create: { response: Record<string, unknown> } },
+      ]
+    )[0].create.response;
+    expect(stored).toEqual({ kind: 'tree', grp: [{ result: 'ok' }] });
+    await flush();
+    const props = (
+      m.dataLayerFeatures.insertFeatures.mock.calls[0] as unknown as [
+        string,
+        string,
+        Array<{ properties: Record<string, unknown> }>,
+      ]
+    )[2][0]!.properties;
+    expect(props).not.toHaveProperty('detail');
+    expect(props).not.toHaveProperty('injected');
+  });
+});
+
+describe('FormsService mirror target re-check', () => {
+  it('does not write into a layer in another org', async () => {
+    const m = makeMocks({ layer: { orgId: 'org-2' } });
+    await m.service.submit('form-1', makeUser(), VALID_DTO);
+    await flush();
+    expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+  });
+
+  it('does not write into a trashed or non-layer target', async () => {
+    const trashed = makeMocks({ layer: { deletedAt: new Date() } });
+    await trashed.service.submit('form-1', makeUser(), VALID_DTO);
+    const notLayer = makeMocks({ layer: { type: 'map' } });
+    await notLayer.service.submit('form-1', makeUser(), VALID_DTO);
+    await flush();
+    expect(trashed.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+    expect(notLayer.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+  });
+
+  it('does not write into a linked layer the form owner cannot edit', async () => {
+    const m = makeMocks({
+      layer: { tags: [], ownerId: 'someone-else', access: 'org' },
+    });
+    await m.service.submit('form-1', makeUser(), VALID_DTO);
+    await flush();
+    expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+  });
+
+  it('writes into a linked layer the form owner can edit', async () => {
+    const m = makeMocks({
+      layer: { tags: [], ownerId: 'someone-else', access: 'org' },
+      shares: [
+        {
+          itemId: LAYER_ID,
+          principalType: 'user',
+          principalId: 'owner-1',
+          permission: 'edit',
+          expiresAt: null,
+        },
+      ],
+    });
+    await m.service.submit('form-1', makeUser(), VALID_DTO);
+    await flush();
+    expect(m.dataLayerFeatures.insertFeatures).toHaveBeenCalled();
   });
 });

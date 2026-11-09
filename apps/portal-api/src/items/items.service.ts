@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
+import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
@@ -33,6 +34,9 @@ const SMART_FOLDER_TYPES: readonly string[] = ITEM_TYPES;
  * must move together if they ever change.
  */
 const MAX_DERIVED_CHAIN_DEPTH = 5;
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Coarse degree-equivalent of a kilometer buffer. Good enough for
@@ -1270,7 +1274,15 @@ export class ItemsService {
       const alreadyLinked =
         typeof formData.linkedLayerId === 'string'
           && formData.linkedLayerId.length > 0;
-      if (!alreadyLinked) {
+      if (alreadyLinked) {
+        // Submissions are written into this layer with no further
+        // check by the submitter, so linking is an edit of the layer.
+        await this.assertFormLinkTarget(
+          user,
+          user.orgId,
+          formData.linkedLayerId as string,
+        );
+      } else {
         const paired = await this.createPairedDataLayerForForm(
           user,
           input.title,
@@ -1286,6 +1298,7 @@ export class ItemsService {
       // a form needs is derived from its content on every write and
       // never taken from the client.
       resolvedData = stampFormEngineVersion(resolvedData) as Prisma.InputJsonValue;
+      assertFormPatternsCompile(resolvedData);
     }
 
     // Same pin as update(): a file / tile_layer / point_cloud item may
@@ -1752,6 +1765,37 @@ export class ItemsService {
     }
   }
 
+  /**
+   * A form's `linkedLayerId` names the layer its submissions are
+   * written into, by the submitter, with no further check. Setting it
+   * therefore needs what editing that layer needs: the layer must be a
+   * live data layer in the form's org and the caller must be able to
+   * edit it. The mirror checks the org again when it writes.
+   */
+  private async assertFormLinkTarget(
+    user: AuthUser,
+    formOrgId: string,
+    layerId: string,
+  ): Promise<void> {
+    const refuse = () =>
+      new BadRequestException(
+        'linkedLayerId must name a data layer in this organization that you can edit.',
+      );
+    if (!UUID_RE.test(layerId)) throw refuse();
+    const layer = await this.prisma.item.findFirst({
+      where: { id: layerId, deletedAt: null },
+      select: { type: true, orgId: true },
+    });
+    if (!layer || layer.type !== 'data_layer' || layer.orgId !== formOrgId) {
+      throw refuse();
+    }
+    try {
+      await this.assertCanEdit(user, layerId);
+    } catch {
+      throw refuse();
+    }
+  }
+
   async update(user: AuthUser, id: string, input: UpdateItemInput) {
     const item = await this.get(user, id);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
@@ -1867,12 +1911,23 @@ export class ItemsService {
     // a `data` patch (#283 / #284). The form designer's save sends
     // the whole FormSchema as data, which would otherwise overwrite
     // the link to the paired data_layer that was set at create time
-    // and break the submission mirror. The link is server-state, not
-    // author-state: clients can't (and shouldn't) round-trip it.
+    // and break the submission mirror. A save that omits the link
+    // keeps the stored one. A save that changes it (the designer's
+    // "link to an existing layer") must name a data layer in the
+    // form's org that the caller can edit, because every submission
+    // is then written into that layer.
     if (input.data !== undefined && item.type === 'form') {
       const prevData = (item.data ?? {}) as Record<string, unknown>;
       const incoming = (nextData ?? {}) as Record<string, unknown>;
       const merged: Record<string, unknown> = { ...incoming };
+      if (
+        typeof merged.linkedLayerId === 'string' &&
+        (merged.linkedLayerId !== prevData.linkedLayerId ||
+          (typeof merged.linkedLayerKey === 'string' &&
+            merged.linkedLayerKey !== prevData.linkedLayerKey))
+      ) {
+        await this.assertFormLinkTarget(user, item.orgId, merged.linkedLayerId);
+      }
       if (
         typeof prevData.linkedLayerId === 'string' &&
         typeof merged.linkedLayerId !== 'string'
@@ -1889,6 +1944,7 @@ export class ItemsService {
       // is being saved so a native client never trusts a stale or
       // client-supplied value.
       nextData = stampFormEngineVersion(merged) as Prisma.InputJsonValue;
+      assertFormPatternsCompile(nextData);
     }
 
     // #154 / R3-anonymous-markup: map Save sends the full MapData
