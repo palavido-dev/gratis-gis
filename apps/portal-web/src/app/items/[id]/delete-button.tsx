@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DependentsWarning } from '@/components/dependents-warning';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -120,7 +121,7 @@ export function DeleteItemButton({
           /* fall through to generic error */
         }
       }
-      setError(`Delete failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Delete failed'));
       return;
     }
     setOpen(false);
