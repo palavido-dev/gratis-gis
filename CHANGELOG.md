@@ -147,6 +147,29 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   The audit is not the feature observation log. Existing installs
   apply the `admin_audit_event` migration by updating the portal-api
   image. No volume reset.
+- Admin audit entries for IdP removal, SMTP changes, notification
+  defaults and templates, and housekeeping config, runs and purges.
+  (#653)
+- Migration `storage_upload_grant`: a new, empty table. Upgrade note: an
+  upload that was presigned before the upgrade and attached after it is
+  refused once; upload the file again. (#659)
+- Vector tiles can be kept on disk as well as in memory, so maps load
+  quickly after an API restart. Set `TILE_CACHE_DIR` to turn it on.
+  `TILE_CACHE_DISK_MAX_BYTES` (1 GiB) and `TILE_CACHE_DISK_MAX_FILES`
+  (100000) cap it. (#667)
+- Tile cache stats now report memory hits, disk hits and bytes on disk.
+  (#667)
+- Optional Prometheus metrics endpoint on portal-api at `/metrics`,
+  turned on by setting `METRICS_TOKEN` (at least 32 characters). It
+  reports process, HTTP, tile, tile cache, database pool and background
+  job metrics. See docs/operations/metrics.md. (#668)
+- Owners can set per-layer vector tile settings: fields in tiles, zoom
+  range, a lower feature cap and the browser cache age. (#669)
+- TileJSON 3.0.0 for every hosted layer tile route (authenticated,
+  public and OGC), linked from the OGC tileset documents. (#669)
+- Hosted line and polygon layers can carry one label point per feature
+  in their vector tiles, so the web map labels each feature once instead
+  of once per tile. (#670)
 
 ### Fixed
 
@@ -306,6 +329,570 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Form designer: in choice and matrix rows the label box is no longer
   squeezed to a sliver beside the value box. Both inputs carried
   `w-full` plus a fixed width, and `w-full` won.
+- Upgrade note: NAS (TrueNAS, Dockge): paste the new
+  `docker-compose.nas.yml` over the app and start it. Existing volumes
+  (`boot`, `pgdata`, `miniodata`, `caddy-data`, `portal-api-backups`,
+  `pointcloud-scratch`) are kept; Compose creates the empty `gg-staging`
+  volume. Until you do, the Updates page reports the compose file as out
+  of date. (#614)
+- Upgrade note: MCP setups that use `run_tool` or
+  `create_data_layer_from_geojson` must add `GRATIS_MCP_ALLOW_WRITES=1`
+  to the server env, and `GRATIS_MCP_MAX_ACCESS=org` or `public` if
+  agents should share layers that widely. Tool results are now text with
+  an envelope around the JSON, so anything parsing the raw text should
+  strip the first two lines and the last line. (#615)
+- Upgrade note: VPS: run `./infra/deploy.sh`. A setting you already put
+  in `.env.prod` and thought was active now takes effect. Check
+  `NOMINATIM_PUBLIC_FALLBACK`, `GRATIS_SESSION_*` and the retention
+  values before deploying. (#619)
+- Upgrade note: Public demo: set `PORTAL_LOCK_ADMIN_TIER=true` in
+  `.env.prod`. (#619)
+- Upgrade note: NAS: paste the new compose file (revision 3). All
+  volumes are kept. (#619)
+- Upgrade note: Third-party delta clients should switch to
+  `since=nextSince&after=nextAfter` when `truncated` is true. Clients
+  that keep paging by `since` alone see no change in the response shape
+  but can still miss rows of a large batch. (#621)
+- Upgrade note: VPS: run `./infra/deploy.sh`. NAS: paste compose
+  revision 3 (#619) and start; the bootstrap applies the fix on start.
+  (#626)
+- Upgrade note: Public demo: add `portal-api-admin` to `JWT_ALLOWED_AZP`
+  if the pre-snapshot purge 401s (see docs/auth-model.md). (#626)
+- Upgrade note: VPS: `./infra/deploy.sh` removes the pg_tileserv
+  container. If `.env.prod` has `GG_API_REPLICAS=1` (older bootstrap
+  output), the API now runs one replica; delete the line or set 2 to
+  keep two. (#632)
+- Upgrade note: VPS with scripts: compose recreates `gg-script-net` for
+  the new `ip_range`, which recreates the containers attached to it. Add
+  `COMPOSE_PROFILES=scripts` to `.env.prod` so deploys rebuild the
+  script services. (#632)
+- Upgrade note: NAS: paste compose revision 3 (#619 and this PR). (#632)
+- Upgrade note: Forms that already link to a layer in another org, or to
+  a non-paired layer their owner can no longer edit, stop mirroring new
+  submissions. The submissions are still stored on the form. Org admins
+  can relink the form in the designer. (#642)
+- Upgrade note: Saving a form with an invalid format pattern now fails
+  until the pattern is fixed. (#642)
+- Upgrade note: Editors on org or public layers with an own-rows-only
+  policy, or with an edit share narrowed by row scope or area, can no
+  longer edit outside that scope. Users limited on a derived layer's
+  input see the derived layer empty. (#646)
+- Upgrade note: Scripts that posted to `/items/:id/ingest` or
+  `/items/:id/features` for a v3 data layer now get a 400. Use the
+  `/items/:id/layers/:layerId/...` routes. (#647)
+- Upgrade note: Editors who are not the owner can no longer change the
+  URL of an ArcGIS or proxied service item that has a stored credential.
+  The owner or an org admin can. (#652)
+- Upgrade note: Single-organization installs: no change. The only
+  organization is the operator. (#653)
+- Upgrade note: Installs with several organizations: admins of
+  organizations other than the operator (`GRATIS_OPERATOR_ORG_ID`, or
+  the oldest organization) lose Admin > Security, Admin > Feedback, the
+  SMTP, queue and defaults parts of Admin > Notifications (the page
+  hides them and explains why; templates still work), the housekeeping
+  schedule, run, storage and orphan tools, and adding, editing or
+  deleting AGO connections. Have an operator admin do these. (#653)
+- Upgrade note: A malformed `GRATIS_OPERATOR_ORG_ID` now blocks all of
+  these for everyone, as it already did for backup. (#653)
+- Upgrade note: Migration adds `user.disabled_at`. Users disabled before
+  this release are not marked until the next housekeeping run (the
+  Keycloak reconcile copies `enabled`), so their keys keep working until
+  then. Run Admin > Housekeeping > Run now after upgrading, or revoke
+  those keys by hand. (#654)
+- Upgrade note: A second Run now while a run is in progress now answers
+  409. (#654)
+- Upgrade note: An API key holder who used `PATCH /users/me` for name or
+  email gets 403. (#654)
+- Upgrade note: The migration builds an index on
+  `notification(created_at)` without `CONCURRENTLY` (no repo pattern for
+  it); on a very large table it holds a write lock for the build. (#655)
+- Upgrade note: The first daily prune after upgrading may delete many
+  rows (in batches). (#655)
+- Upgrade note: Form extra recipients that are not plain addresses (for
+  example `Name <a@b.org>`) are now skipped. (#655)
+- Upgrade note: Existing cross-organization shares are not removed; new
+  ones are refused. Find old ones with SQL (an `item_share` whose user
+  or group is in another organization). (#656)
+- Upgrade note: Overrides already stored for unenforced capabilities
+  stay in the table and can be removed from the page; new ones are
+  refused. (#656)
+- Upgrade note: Reassigning items to a viewer is refused. Promote the
+  user first. (#656)
+- Upgrade note: A user without "share items" who imports org or public
+  AGO items gets those items marked failed in the import report; the
+  rest import. (#656)
+- Upgrade note: Third-party map tiles and images on printed pages now
+  load through portal-api, so portal-api needs outbound access to those
+  hosts (it already did for the address check). Each request is one DNS
+  lookup in portal-api instead of one per origin per render. (#657)
+- Upgrade note: Before this fix, two items or attachments could name the
+  same storage key. Those rows are left as they are. Downloads resolve a
+  shared key to the row created first (item `created_at`, or attachment
+  `created_at`), which is never the copy. Purge and attachment remove
+  leave a shared object in place while any other row still names it.
+  (#659)
+- Upgrade note: To review shared storage keys after upgrading, run the
+  read-only query in the PR description. (#659)
+- Security: Python client: `download_attachment` into a directory can no
+  longer write outside it when an attachment's stored file name contains
+  path parts. (#613)
+- Python client: a 503 with a numeric Retry-After raises
+  `RateLimitError` instead of `PortalError`. Scripts that caught
+  `PortalError` still catch it (it is a subclass). (#613)
+- Python client: `export_layer` docs no longer claim csv is capped at
+  100,000 rows. (#613)
+- NAS: creating a data layer from an uploaded file no longer leaves the
+  layer empty with "Source file expired". portal-api and portal-worker
+  now share the `gg-staging` volume. (#614)
+- Published images report the compose revision set in their Dockerfiles,
+  so the Updates page can warn about an outdated NAS compose file.
+  (#614)
+- Security: MCP server: write tools are off by default; set
+  `GRATIS_MCP_ALLOW_WRITES=1` to enable them. (#615)
+- Security: MCP server: write tools can only create or append into
+  private layers unless `GRATIS_MCP_MAX_ACCESS` is set to `org` or
+  `public`. (#615)
+- Security: MCP server: portal and OSM content in tool results is
+  wrapped in a delimited untrusted-data block. (#615)
+- MCP server: `list_items` search now filters (it sent `query`, which
+  the API ignores). (#615)
+- MCP server: `read_layer_features` without `layerKey` now honours its
+  limit. (#615)
+- MCP server: a failed batch in `create_data_layer_from_geojson` returns
+  the new item id and progress instead of orphaning the item, and counts
+  are no longer over-reported. (#615)
+- Security: Public item titles and descriptions can no longer break out
+  of the landing page's JSON-LD block and run script. (#616)
+- Security: Map legend icons no longer render markup from a layer's
+  stored color. (#616)
+- Security: Tool "open URL" actions only navigate to an app path or an
+  http(s) URL; `javascript:` and other schemes are refused at save and
+  at run time. (#616)
+- Saving a tool with a non-http(s) URL, or a map with a style color that
+  contains quotes or angle brackets, now returns 400. Upgrade note: an
+  existing item with such a value keeps working but must be corrected
+  before its next save. (#616)
+- Security: Cancelling a script run now stops it. Before, the cancelled
+  run kept going beside the next run and could read that run's key.
+  (#617)
+- Security: The script executor runs one script at a time and will not
+  start a run while any process from an earlier run is alive. (#617)
+- Security: Scheduled script runs only execute code the owner saved. If
+  someone else edits the code, scheduled runs are skipped with a reason
+  until the owner saves the script again. (#617)
+- Changed: Only the owner of a script can set or change its schedule.
+  Editors can still turn a schedule off. (#617)
+- Upgrade note: scheduled scripts saved before this release have no
+  recorded author, so their scheduled runs are skipped (with a reason in
+  the run history) until the owner opens and saves the script once.
+  Ownership transfer keeps the previous owner as the author, so the new
+  owner must also save a transferred script before its schedule resumes.
+  (#617)
+- Fixed: A script that left a background process holding its output open
+  could hang the script executor and block every later run. (#617)
+- Security: Responses relayed by the item and public service proxies can
+  no longer run as a page on the portal origin: they carry a sandbox CSP
+  and nosniff, and HTML, XML, SVG and untyped bodies download instead of
+  rendering. (#618)
+- Security: The portal API passthrough keeps portal-api's CSP and
+  nosniff headers instead of replacing them with the page policy. (#618)
+- Security: The portal API passthrough refuses state-changing requests
+  from another origin (403), including same-site pages such as other
+  apps on the same NAS address. (#618)
+- Security: The portal API passthrough refuses path segments with
+  backslashes, `?`, `#` or control characters (400). (#618)
+- Upgrade note: scripts that call `/api/portal/...` with a
+  POST/PATCH/PUT/DELETE and send an `Origin` header must send the
+  portal's own origin. Clients that send no `Origin` (curl, the QGIS
+  plugin) are not affected. (#618)
+- Email notifications can be turned on in the VPS and NAS stacks: set
+  `NOTIFICATIONS_ENABLED=true` and configure SMTP on the admin
+  Notifications page. (#619)
+- `PORTAL_LOCK_ADMIN_TIER`, `NOMINATIM_URL`,
+  `NOMINATIM_PUBLIC_FALLBACK`, `GRATIS_SESSION_*`,
+  `CORS_ALLOWED_ORIGINS`, `ENABLE_SWAGGER`, retention settings and
+  `PORTAL_BASEMAP_PMTILES_URL` set in `.env.prod` now reach the
+  containers. (#619)
+- NAS email links use the portal address instead of
+  `http://localhost:3000`. (#619)
+- The readiness check reports analysis as off when `ANALYSIS_TIERS` has
+  no server-heavy tier. (#619)
+- Canonical and sitemap URLs on a self-hosted VPS use `PUBLIC_URL`
+  instead of gratisgis.org (rebuild needed). (#619)
+- Fixed: About half of script runs failed with "Could not reach the
+  script executor" when scripts were enabled, because portal-worker also
+  claimed runs. Only the script-runner container claims them now. (#620)
+- Fixed: Scheduled scripts kept running after the API replica that led
+  at startup was replaced. Before, a leader failover silently stopped
+  every schedule. (#620)
+- Fixed: Cancelling a script run as it finished no longer relabels a
+  successful run as cancelled. (#620)
+- Field delta sync no longer skips rows when one write batch (an import,
+  a replace, a Calculate Field run) is larger than a delta page. `GET
+  .../delta` takes `after` and returns `nextSince` / `nextAfter` on a
+  truncated page. (#621)
+- A field device's first download reads the sync cursor before the data,
+  so edits made during the download are no longer skipped. (#621)
+- The field PWA's first download pages the GeoJSON read and works with
+  `GRATIS_FEATURE_QUERY_PAGE=required`. (#621)
+- Rows refreshed by delta keep `_observation_id` and the created /
+  edited fields. (#621)
+- Delta sync applies share row scope and geo limits per feature: a
+  supervisor's edit or delete of a field worker's row now reaches that
+  worker, and a feature moved out of a geo-limited share is removed from
+  the device. (#621)
+- Security: Offline field edits send `baseObservationId`, so a stale
+  offline edit gets a conflict instead of silently overwriting a newer
+  edit. (#621)
+- A refreshed Keycloak token is saved to the session cookie by the
+  portal API passthrough, so it is not refreshed again on every request
+  until the tab regains focus. (#622)
+- With `GRATIS_SESSION_IDLE_SECONDS` set, continuous work in one tab now
+  counts as activity, so an active user is no longer signed out. (#622)
+- Signing out ends the Keycloak session without a "Do you want to log
+  out?" page. Before, walking away from that page on a shared device
+  left the next person signed in as the previous user. (#622)
+- Server-rendered pages and address search treat an idle-timed-out
+  session as signed out. (#622)
+- Android field app: delta refresh no longer skips rows of a write batch
+  larger than a page, a first download reads the sync cursor before the
+  data and pages the GeoJSON read, refreshed rows keep their conflict
+  token, and a lost response to an update no longer parks the worker's
+  own edit as a conflict. (#623)
+- Security: Images, including the `edge` tag NAS installs pull, publish
+  only after CI and Security pass on that commit. A manual publish from
+  a branch is refused. (#624)
+- Security: A High or Critical `pnpm audit` finding now fails the
+  Security check. (#624)
+- Security: Dependabot no longer auto-merges GitHub Actions updates.
+  (#624)
+- The daily prod smoke no longer runs the development-only UX fixture
+  journeys against the demo. Those journeys now run on every pull
+  request. (#624)
+- Five infra test scripts now run in CI. (#624)
+- Reads that pick the newest observation of a feature now break ties the
+  same way everywhere, so tiles, lists and edit conflict checks cannot
+  disagree about which edit is current. (#625)
+- A number field holding an empty or non-numeric value no longer makes
+  map tiles fail to load; the value shows as empty. (#625)
+- Users created after a deploy, and every user but `admin` on NAS, can
+  sign in to the Android field app and the QGIS plugin. (#626)
+- A fresh VPS install declares `org` and `org_role` in Keycloak's user
+  profile, so invited users keep their organization and can sign in.
+  (#626)
+- Security: The Keycloak master-realm password is no longer passed on
+  the command line by the deploy, restore, seed and password-reset
+  scripts. (#626)
+- The form engine version is now 2. A form with a required signature
+  needs field app engine 2; other forms are unaffected. (#627)
+- The Android field app refuses to fill in a form that needs a newer
+  form engine, instead of evaluating it with the old one. (#627)
+- The Android field app starts a new, empty record when you open a form
+  again, instead of reopening and overwriting your first draft. (#627)
+- Fixed: Imports that waited over an hour in the queue failed with
+  "Source file expired". Staged uploads are kept while an import still
+  needs them. (#628)
+- Fixed: The disk check for uploads and imports now counts space already
+  held by other imports, across all organizations. (#628)
+- Fixed: portal-worker releases an import's disk hold when the import
+  finishes or fails. (#628)
+- Fixed: Cancelling an import stops reading the file right away and
+  frees the import queue. (#628)
+- Fixed: The direct per-layer import now waits its turn like other
+  uploads (one per user, two in total) and updates layer feature counts.
+  (#628)
+- Fixed: A feature edited while a replace import was running could
+  survive the replace as an undeletable ghost and diverge on field
+  clients. The replace now deletes it. (#628)
+- Upgrade note: concurrent uploads that together exceed free staging
+  disk are now refused with "The disk does not have room for this
+  import." where before they were accepted and could fill the disk.
+  (#628)
+- Security: Offline form responses are sent only under the account that
+  captured them. On a shared device, the next person to sign in no
+  longer submits the previous person's answers as their own. (#629)
+- Signing out warns about form responses that have not been sent yet,
+  and the "another account left data" dialog includes them. (#629)
+- A tab left open on an older build no longer blocks the offline
+  database upgrade in a newer one. (#629)
+- Security: Schema-break notices for a data collection go only to its
+  owner and to field users who can read it. Previously anyone who
+  reported the collection's id from a device received its title and
+  layer names. (#630)
+- Security: Uploaded GML files can no longer make the server fetch a
+  remote schema URL. (#631)
+- Security: ArcGIS Online and Enterprise imports no longer send your AGO
+  token to third-party ArcGIS Servers that an item references. Those
+  services are probed without a token. (#631)
+- Security: The print renderer only loads the portal, its own pages, and
+  public internet addresses. Print templates that point at internal
+  hosts get a blank image. (#631)
+- Fixed: Printing as a user who was deleted, or through a group in the
+  trash, no longer reads the map or basemap. (#631)
+- Upgrade note: a referenced ArcGIS Server that needed the AGO token
+  (rare: it would have to trust the AGO identity) now imports with an
+  empty layer list and a probe warning. Re-probe it from the item with
+  its own credential. An Enterprise federated server that
+  `/portals/self/servers` does not list behaves the same way. (#631)
+- Upgrade note: print images or tiles served from a private address
+  other than the portal's own `PUBLIC_URL` / `PORTAL_BASE_URL` (for
+  example a LAN tile server) no longer load in printed PDFs. (#631)
+- Security: The VPS stack no longer runs pg_tileserv, which served every
+  geometry table, unauthenticated, with the database owner role, on the
+  network the print browsers share. (#632)
+- Security: NAS: the print browser and the point-cloud worker no longer
+  receive the database owner, MinIO root, Keycloak or encryption secrets
+  in their environment. (#632)
+- Security: App containers drop all Linux capabilities and set
+  no-new-privileges. (#632)
+- Security: `SCRIPT_EGRESS=portal-only` now survives `deploy.sh`. (#632)
+- Security: Caddy no longer trusts X-Forwarded-For from private
+  addresses. (#632)
+- `bootstrap.sh` refuses `--pgdata`, `--minio-data` and `--image-tag`,
+  which had no effect. `GG_API_REPLICAS` and the organization name it
+  asks for now take effect. (#632)
+- The script executor's static address can no longer be taken by another
+  container. (#632)
+- The attribute table's export menu, bundle export, Calculate Field
+  dialog, attachments column and edit-history headers show text instead
+  of raw message keys. (#633)
+- Custom app runtime messages appear in the viewer's language where a
+  translation exists. (#633)
+- The Magic outline tool's name and errors no longer read
+  "outline-solid". (#633)
+- The New Item wizard no longer shows "Â·". (#633)
+- Relative times ("3 minutes ago") in the field app, comments, markup,
+  admin field queues, housekeeping and service editors follow the
+  selected language. (#633)
+- French and Portuguese use the singular for zero ("0 élément"). (#633)
+- The advertised completeness for es, fr, de and pt-BR now counts
+  English sentences copied into a catalog as untranslated (90, 85, 85,
+  85). (#633)
+- New API keys start read only. Untick **Read only** for a key that
+  writes. (#634)
+- The development Nominatim no longer freezes its database by default,
+  so replication keeps it current. Set `NOMINATIM_FREEZE=true` only with
+  an empty `NOMINATIM_REPLICATION_URL`. (#634)
+- The Branding, Roles, Housekeeping, Geocoders and Organization settings
+  help pages describe the screens that exist. (#634)
+- The API help's attachment upload example works as written, and the CSV
+  row limit is gone from the help. (#634)
+- SETUP, deployment, Nominatim, architecture and roadmap docs match the
+  code. (#634)
+- Security: Only org admins can rebuild geocoder search indexes. Each
+  organization can hold at most 12, and they are removed when the
+  geocoder is permanently deleted. (#635)
+- Security: The outline tool queues at most 4 image preparations per
+  person at a time and ignores views outside the imagery. (#635)
+- Security: Public tool runs no longer show database error text. (#635)
+- Security: An imagery layer's derived file keys must point at that
+  layer type's own storage area. (#635)
+- Fixed: Cancelling an analysis while its result is being imported now
+  cancels it, and the import with it. (#635)
+- Upgrade note: geocoder owners who are not org admins now get "Only an
+  org admin can rebuild geocoder indexes." Ask an org admin to press
+  Rebuild. (#635)
+- Fixed: A raster analysis that fails or is cancelled now marks its
+  output layer as failed with the reason, instead of leaving a blank
+  layer. (#636)
+- Security: The analysis worker only reads source files from the storage
+  area that belongs to the source layer's type. (#636)
+- Fixed: The script network fence no longer deletes the host's own
+  firewall rules that happen to mention a 172.x address. (#637)
+- Upgrade note: on the first run after upgrade the fence removes its old
+  untagged rules and writes tagged ones. No action needed. (#637)
+- Security: CSV exports of layers and the permissions report no longer
+  let a text answer such as `=HYPERLINK(...)` run as a formula in a
+  spreadsheet. Text cells that start with `=`, `+`, `-` or `@` get a
+  leading `'`. (#638)
+- The tile layer editor shows build progress without a reload. (#638)
+- In a repeat group, text typed while a photo, video or signature
+  uploads is no longer lost, and removed entries no longer come back.
+  (#638)
+- The field app's GPS accuracy circle is drawn at its true size. Print
+  scale bars and the map scale token show the real distance and scale,
+  and a print set to 1:50,000 renders at 1:50,000. (#638)
+- Attribute tables with many editors stop re-requesting user names that
+  cannot be resolved. (#638)
+- Removing or inserting a derived layer step no longer shows another
+  step's preview. (#638)
+- Error banners show the server's message instead of raw JSON or an HTML
+  error page, in sharing, map, editor, viewer, data layer, pick list,
+  notifications, AGO migration, housekeeping and trash screens. (#639)
+- The SMTP test shows why a test failed instead of "test failed
+  (unclear)". (#639)
+- A failed paired-layer update in the form designer shows the
+  validator's reason. (#639)
+- File sizes read the same everywhere (for example 3 GB instead of
+  "3072.0 MB"). (#639)
+- A Viewer or Custom app filter on the items list survives a reload or a
+  shared link. (#639)
+- Leaving the AGO import page stops its progress polling, and a brief
+  proxy error no longer hides the import's progress. (#639)
+- The asset picker rejects images over 5 MB up front, matching the
+  server. (#639)
+- Security: A form can only link to a data layer in its own organization
+  that the person saving it can edit. Submissions are only mirrored into
+  such a layer. (#642)
+- Security: Form submissions follow the same access rule as other item
+  reads, so expired shares and trashed forms no longer accept responses.
+  (#642)
+- Security: The server drops answers to hidden questions and unknown
+  keys from a submission before storing or mirroring it, and recomputes
+  calculated answers that do not depend on the current time. (#642)
+- A text question whose format pattern does not compile no longer makes
+  every submission fail with a server error. Saving such a form now
+  returns a clear error. (#642)
+- Scheduled backups and housekeeping keep running after the leading API
+  replica restarts on its own, and schedule changes take effect on every
+  replica within a minute. (#643)
+- Backup settings can no longer split into two rows on a fresh
+  two-replica install. Upgrade note: the migration keeps the most
+  recently saved backup settings row if an install already has two.
+  (#643)
+- Saving an item no longer silently drops a change someone else saved a
+  moment earlier. The server rebuilds the save from the latest copy, or
+  returns a conflict when the client asked for one. (#645)
+- Concurrent markup edits on the same map, and a markup edit during a
+  map save, no longer overwrite each other. (#645)
+- Reverting a data layer to a snapshot no longer moves its sync cursor
+  backwards, so field clients do not skip edits made after the snapshot.
+  (#645)
+- Security: PATCH, DELETE and Calculate Field on a layer now honour the
+  caller's share geo limit; rows outside it read as not found. (#646)
+- Security: On org and public layers, a layer's own-rows-only policy and
+  an edit share's row scope and geo limit now apply to edits. (#646)
+- Security: Attachments (list, download, register, remove and the
+  private file link) are limited to features the caller can see. (#646)
+- Security: Derived layers and recipe previews return nothing to a
+  reader whose share on an input is limited to some rows or an area.
+  (#646)
+- Security: The legacy /items/:id/features routes honour share geo
+  limits and row scope. (#646)
+- `POST /items/:id/ingest` and the legacy `/items/:id/features` routes
+  now refuse multi-layer (v3) data layers with a 400 instead of
+  rewriting them as v2. (#647)
+- Writes through the legacy features routes no longer roll back a
+  concurrent change to the item's metadata. (#647)
+- A feature re-created after a delete no longer appears twice in feature
+  lists and exports. (#648)
+- A feature with no creation record no longer disappears from feature
+  lists and exports while still showing on the map. (#648)
+- Security: Anonymous markup ownership tokens are no longer returned by
+  item reads, so other viewers cannot use them to edit or delete
+  someone's markup. (#649)
+- Security: Sync conflict details on a data layer are only returned to
+  people who can edit the layer. (#649)
+- Security: The public item endpoint applies the same per-layer map
+  access as a signed-in viewer, so custom-access layers and their member
+  lists are not shown to anonymous readers. (#649)
+- Security: Tile, COG and point cloud downloads by signed-in users are
+  marked private so shared caches do not serve them to others. (#651)
+- Security: Feature-created notifications for a field deployment are
+  sent only when the deployment really uses the layer and the sender can
+  see it. (#651)
+- API-key requests to tile, point cloud, analysis, forms, geocoding,
+  scripts and OGC routes resolve the key once instead of twice. (#651)
+- Security: Changing where an item with a stored credential connects
+  (its URL, or a PostGIS Live host, port, database or role) now requires
+  the item's owner or an org admin. (#652)
+- Security: PostGIS Live layer SRIDs must be whole numbers. Other values
+  are refused on save and on read. (#652)
+- PostGIS Live picks up a changed host, port, database, role or password
+  on the next request instead of after a restart. (#652)
+- Security: Realm security (identity providers, MFA), SMTP, the
+  notification queue and defaults, the housekeeping schedule, storage
+  and orphan purge, feedback triage, and AGO connection changes are
+  limited to admins of the operator organization. (#653)
+- Security: Backup failure emails go to the operator organization set by
+  `GRATIS_OPERATOR_ORG_ID`. (#653)
+- Security: Disabling a user (admin Disable, housekeeping auto-disable,
+  or Keycloak) revokes their API keys and pauses their scheduled
+  scripts. Enabling the account does not bring the keys back. (#654)
+- Security: Demoting a user takes effect on their API keys at once.
+  (#654)
+- Security: Name and email can no longer be changed with an API key, and
+  a changed email must be verified again. (#654)
+- Security: Admins cannot change, reset or delete a not-yet-signed-in
+  user of another organization. (#654)
+- Housekeeping disables and emails each user once instead of on every
+  run, skips removed users, and runs one at a time. (#654)
+- An SMTP change saved on one server reaches the others within 30
+  seconds, without a restart. (#655)
+- Backup failure emails can be muted and their template edited like
+  other notifications. (#655)
+- The feedback form's limit holds against many submissions sent at once.
+  (#655)
+- Security: Notification recipients must be plain email addresses; an
+  address with a line break is refused before sending. (#655)
+- Sent and failed notifications older than 180 days are deleted daily.
+  Set `NOTIFICATIONS_RETENTION_DAYS` to keep them longer. (#655)
+- Security: Revoking "share items" from a user now stops them sharing,
+  making items org-wide or public, and creating or importing items as
+  org-wide or public. (#656)
+- Security: Items can only be shared with users and groups of the same
+  organization, and only handed to a contributor or admin. (#656)
+- Security: Changing the AI provider or endpoint requires the API key
+  again. (#656)
+- Members can open private groups they belong to. (#656)
+- The nightly trash purge no longer tears down an item restored while it
+  ran, and purged groups no longer leave shares behind. (#656)
+- The capability override list shows only capabilities the portal
+  enforces (publish and share). (#656)
+- Security: The print renderer fetches third-party images, tiles and
+  styles through portal-api's address-pinned fetch, so a DNS answer that
+  changes between check and use cannot reach an internal host. (#657)
+- Markup edits made just before the last editor leaves a shared markup
+  session are saved instead of lost. (#658)
+- Security: A presence heartbeat can only update the sender's own
+  connection. A user whose access to a map is revoked is disconnected
+  from its live presence at their next heartbeat. (#658)
+- Security: Uploaded files, imagery, point clouds and feature
+  attachments can only be attached by the user the upload was issued to,
+  and are no longer deleted while another item or attachment still uses
+  them. (#659)
+- `portal-worker` no longer receives `PORTAL_SCRIPTS_ENABLED`; it never
+  used it. (#660)
+- Two people saving different fields of the same feature at the same
+  moment no longer lose one of the edits. (#661)
+- `NOTIFICATIONS_RETENTION_DAYS` now reaches portal-api on VPS and NAS
+  installs. (#662)
+- In-portal restore keeps maintenance on until it finishes, on every
+  replica, including when the API stops mid-restore. (#663)
+- A restore no longer turns its source backup into a failed run or sends
+  a false "backup failed" notice. (#663)
+- Backups and scheduled jobs pause while maintenance is on, and a
+  restore refuses to start while a backup is running. (#663)
+- Backup manifests record the release version and the applied database
+  migrations. (#663)
+- Restore refuses an archive whose database schema differs from the
+  running portal's. Upgrade note: take a fresh backup right after
+  upgrading; restore an older archive on the release that made it.
+  (#663)
+- Upgrade note: stop `portal-worker`, `script-runner` and
+  `pointcloud-worker` before an in-portal restore. If a restore is
+  interrupted, remove `/app/backups/.restore-in-progress` from the
+  portal-api container after you verify the database. (#663)
+- CI checks that `schema.prisma` matches the migration history, so a
+  drifted schema is caught before a migration is generated from it.
+  (#664)
+- Saving a map, form, app, print template, theme or pick list that
+  someone else saved after you opened it no longer overwrites their
+  changes. You get a message to reload instead. (#666)
+- Tile ETags are now SHA-256 based, so clients revalidate each tile once
+  after the upgrade. (#667)
+- An in-app backup restore now clears the tile cache. (#667)
+- The NAS stack keeps tiles on a new `tile-cache` volume by default. Set
+  `TILE_CACHE_DISK_MAX_BYTES=0` to turn it off. Upgrade note: Compose
+  creates the volume on the next `up`; nothing to migrate. (#667)
+- Security: `/metrics` needs a bearer token, does not exist when the
+  token is unset, and is blocked at Caddy in both stacks. Scrape it on
+  the internal docker network only. (#668)
+- The web map names the fields it reads in its tile URLs (`include=`),
+  so trimmed tiles still carry what the map styles, labels and filters
+  need. (#669)
+- Web maps no longer show duplicate labels for polygons and lines that
+  cross tile edges on layers with label points turned on. (#670)
 
 ## [1.2.0] - 2026-11-05
 
