@@ -1046,6 +1046,7 @@ export class PublicController {
       via?: EngineVia;
       maxFeaturesPerTile?: number;
       zoomRange?: { min: number; max: number };
+      labelPoints?: boolean;
     } = {};
     // The layer's tile settings narrow the field list (keeping what
     // this map says it reads), cap the feature count and bound the
@@ -1055,12 +1056,14 @@ export class PublicController {
       declared: layer.fields,
       settings: tileSettings,
       include: parseIncludeParam(includeRaw),
+      geometryType: layer.geometryType,
     });
     if (layer.fields.length > 0) opts.fields = plan.fields;
     if (plan.maxFeaturesPerTile !== undefined) {
       opts.maxFeaturesPerTile = plan.maxFeaturesPerTile;
     }
     if (plan.zoomRange) opts.zoomRange = plan.zoomRange;
+    if (plan.labelPoints) opts.labelPoints = true;
     const cacheControl = tileCacheControl(tileSettings, 'public');
     if (layer.geometryType === null) opts.isTable = true;
     // The predicate an anonymous viewer's map sends. A relate is the
@@ -1161,7 +1164,11 @@ export class PublicController {
       throw new NotFoundException('A table sublayer has no tiles.');
     }
     const settings = readTileSettings(layer.tiles);
-    const plan = planTile({ declared: layer.fields, settings });
+    const plan = planTile({
+      declared: layer.fields,
+      settings,
+      geometryType: layer.geometryType,
+    });
     const doc = buildTileJson({
       name:
         layer.layerCount > 1 ? `${item.title} / ${layer.label}` : item.title,
@@ -1175,6 +1182,7 @@ export class PublicController {
         ? null
         : storedLayerBounds(layer.bbox, item.bbox),
       attribution: layerAttribution(layer.raw, item.data),
+      labelPoints: plan.labelPoints === true,
     });
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.json(doc);

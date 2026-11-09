@@ -477,6 +477,9 @@ export const ptBR: Partial<CatalogShape> = {
     maxFeaturesHint: 'O limite de feições só pode ser reduzido, até {max}.',
     cacheHint:
       'Cache de 0 a {max} segundos. Os blocos de uma camada que não é pública são sempre guardados apenas de forma privada no navegador de quem vê.',
+    labelPoints: 'Rotular cada linha e polígono uma só vez',
+    labelPointsHint:
+      'Adiciona aos blocos um ponto de rótulo por linha ou polígono, para que uma feição que cruza bordas de blocos não seja rotulada uma vez por bloco. Os mapas passam a rotular a partir desse ponto (exceto rótulos colocados ao longo de linhas).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {

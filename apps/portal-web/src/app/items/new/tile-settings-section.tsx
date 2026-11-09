@@ -192,6 +192,24 @@ export function TileSettingsSection({
             />
           </label>
         </div>
+        {layer.geometryType === 'line' || layer.geometryType === 'polygon' ? (
+          <label className="flex items-start gap-1.5">
+            <input
+              type="checkbox"
+              checked={tiles.labelPoints === true}
+              onChange={(e) =>
+                update({ ...tiles, labelPoints: e.target.checked ? true : undefined })
+              }
+              className="mt-0.5 h-3.5 w-3.5 rounded border-border"
+            />
+            <span>
+              {t('tileSettings.labelPoints')}
+              <span className="block text-2xs text-muted">
+                {t('tileSettings.labelPointsHint')}
+              </span>
+            </span>
+          </label>
+        ) : null}
         <p className="text-2xs text-muted">
           {t('tileSettings.zoomHint', { min: TILE_ZOOM_MIN, max: TILE_ZOOM_MAX })}{' '}
           {t('tileSettings.maxFeaturesHint', { max: MAX_FEATURES_PER_TILE })}{' '}

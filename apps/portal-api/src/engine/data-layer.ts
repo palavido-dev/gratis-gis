@@ -4113,6 +4113,14 @@ export class DataLayerEngine {
      * other option here.
      */
     maxFeaturesPerTile?: number;
+    /**
+     * Add a second MVT layer, `labels`, with one point per line or
+     * polygon feature, emitted only in the tile that contains it, so a
+     * map can label each feature exactly once instead of once per tile
+     * piece. Off unless the layer's tile settings turn it on. Part of
+     * the cache key like every other option here.
+     */
+    labelPoints?: boolean;
   }): Promise<TileResult> {
     if (args.isTable === true) {
       // Empty MVT is stable (always Buffer.alloc(0)); compute the
@@ -4175,6 +4183,7 @@ export class DataLayerEngine {
       ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
+      labelPoints?: boolean;
       where?: {
         combinator: 'all' | 'any';
         clauses: Array<{ field: string; op: string; value: string }>;
@@ -4377,6 +4386,78 @@ export class DataLayerEngine {
       args.ownRowsOnly !== undefined
         ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
         : Prisma.empty;
+    // Label points (tile settings `labelPoints`). One point per line
+    // or polygon, computed from the feature's WHOLE stored geometry
+    // (EPSG:4326, the layer's CRS) before any tile clipping, so every
+    // tile that sees the feature computes the same point:
+    //
+    //   polygon: ST_PointOnSurface, which is guaranteed to be inside
+    //            the polygon (a centroid is not, for a C shape);
+    //   line:    the midpoint of the longest part after merging, so a
+    //            multi-part road is labelled on its main run.
+    //
+    // The point is then emitted only in the tile that contains it,
+    // tested half-open in Web Mercator (left and top edges in, right
+    // and bottom edges out), so a point exactly on a tile edge lands
+    // in one tile, not two. Neighbouring tiles that also see the
+    // feature compute the same point and leave it out. The work is
+    // bounded by `currents`, which already carries the per-tile cap,
+    // and it inherits every access filter applied there (geo limit,
+    // row scope, where, via), so a label never names a feature the
+    // viewer cannot see.
+    //
+    // `_label_point` marks the line and polygon features in the
+    // `features` layer, so the map knows to label those from the
+    // `labels` layer instead of from the geometry.
+    const wantLabels = args.labelPoints === true;
+    const tileEnv = Prisma.sql`ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer)`;
+    const labelMarker = wantLabels
+      ? Prisma.sql`, (ST_Dimension(geom) >= 1) AS _label_point`
+      : Prisma.empty;
+    const labelCtes = wantLabels
+      ? Prisma.sql`,
+      label_points AS (
+        SELECT c.*, ST_Transform(lp.pt, 3857) AS lp3857
+        FROM currents c
+        CROSS JOIN LATERAL (
+          SELECT CASE
+            WHEN ST_Dimension(c.geom) = 2 THEN
+              ST_PointOnSurface(ST_CollectionExtract(c.geom, 3))
+            WHEN ST_Dimension(c.geom) = 1 THEN (
+              SELECT ST_LineInterpolatePoint(part.geom, 0.5)
+              FROM ST_Dump(ST_LineMerge(ST_CollectionExtract(c.geom, 2))) part
+              WHERE GeometryType(part.geom) = 'LINESTRING'
+              ORDER BY ST_Length(part.geom) DESC
+              LIMIT 1
+            )
+          END AS pt
+        ) lp
+        WHERE lp.pt IS NOT NULL
+      ),
+      label_features AS (
+        SELECT
+          entity::text AS _global_id,
+          ST_AsMVTGeom(lp3857, ${tileEnv}, 4096, 0, true) AS geom
+          ${fieldProjection}
+        FROM label_points
+        WHERE ST_X(lp3857) >= ST_XMin(${tileEnv})
+          AND ST_X(lp3857) <  ST_XMax(${tileEnv})
+          AND ST_Y(lp3857) >  ST_YMin(${tileEnv})
+          AND ST_Y(lp3857) <= ST_YMax(${tileEnv})
+      ),
+      visible_labels AS (
+        SELECT * FROM label_features WHERE geom IS NOT NULL
+      )`
+      : Prisma.empty;
+    // Without labels the statement is exactly what it always was. With
+    // them, the two layers are encoded separately and concatenated:
+    // an MVT is a protobuf whose layers field repeats, so two encoded
+    // tiles back to back are one tile with both layers.
+    const finalSelect = wantLabels
+      ? Prisma.sql`COALESCE((SELECT ST_AsMVT(visible_features, 'features', 4096, 'geom') FROM visible_features), '\\x'::bytea)
+          || COALESCE((SELECT ST_AsMVT(visible_labels, 'labels', 4096, 'geom') FROM visible_labels), '\\x'::bytea) AS mvt`
+      : Prisma.sql`COALESCE(ST_AsMVT(visible_features, 'features', 4096, 'geom'), '\\x'::bytea) AS mvt
+      FROM visible_features`;
     const rows = await this.prisma.$queryRaw<TileRow[]>`
       WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} ${ownerCte}
       tile_candidates AS (
@@ -4455,15 +4536,16 @@ export class DataLayerEngine {
             64,
             true
           ) AS geom
+          ${labelMarker}
           ${fieldProjection}
         FROM currents
       ),
       visible_features AS (
         SELECT * FROM tile_features WHERE geom IS NOT NULL
       )
+      ${labelCtes}
       SELECT
-        COALESCE(ST_AsMVT(visible_features, 'features', 4096, 'geom'), '\\x'::bytea) AS mvt
-      FROM visible_features
+        ${finalSelect}
     `;
     // Prisma 7's @prisma/adapter-pg returns Postgres `bytea` values
     // as Uint8Array, not Buffer. The previous `raw instanceof Buffer`

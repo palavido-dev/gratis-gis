@@ -28,6 +28,8 @@ import {
   sanitizePopupHtml,
   scaledStyleExpression,
   TILE_INCLUDE_PARAM,
+  TILE_LABEL_POINT_PROP,
+  TILE_LABELS_LAYER,
   tileFieldRefs,
 } from '@gratis-gis/shared-types';
 import {
@@ -2527,6 +2529,7 @@ function overlayLayerIds(layerId: string): string[] {
     `gg:${layerId}-icon-halo`,
     `gg:${layerId}-circle`,
     `gg:${layerId}-label`,
+    `gg:${layerId}-label-pt`,
   ];
 }
 
@@ -3181,9 +3184,11 @@ function syncOverlays(
           minzoom: 0,
           maxzoom: 22,
           // Vector-source promoteId is keyed by source-layer name.
-          // Our MVT emits one layer named "features", so we attach
-          // the promote rule there.
-          promoteId: { features: '_global_id' },
+          // Our MVT emits "features", plus "labels" when the layer's
+          // tile settings turn label points on; both carry the same
+          // _global_id, so a hover on a label point resolves to the
+          // same feature id as a hover on its geometry.
+          promoteId: { features: '_global_id', [TILE_LABELS_LAYER]: '_global_id' },
         });
       }
     } else if (!kept) {
@@ -3816,13 +3821,47 @@ function syncOverlays(
           'text-opacity': op,
         },
       };
-      if (layer.filter) {
+      // Label points (the data layer's tile setting `labelPoints`).
+      // MapLibre labels a line or polygon once per tile piece, so a
+      // parcel that crosses a tile edge gets two labels and a long road
+      // gets one per tile. When the server sends a `labels` layer, each
+      // line and polygon carries `_label_point: true` in `features` and
+      // exactly one point in `labels`, in the one tile that contains
+      // it. So: label the geometry only where it is NOT marked, and
+      // label the marked ones from their point. A layer without the
+      // setting has no marks and no `labels` layer, so this draws
+      // exactly what it always did. Along-the-line placement keeps
+      // labelling the geometry, because a point cannot follow a line.
+      const usePoints = isMvt && labels.placement !== 'line';
+      if (usePoints) {
+        symbolLayer.filter = combineFilter(
+          ['!=', ['get', TILE_LABEL_POINT_PROP], true],
+          layer.filter,
+        ) as maplibregl.FilterSpecification;
+      } else if (layer.filter) {
         symbolLayer.filter = combineFilter(
           ['all'],
           layer.filter,
         ) as maplibregl.FilterSpecification;
       }
       applyLayer(symbolLayer);
+      if (usePoints) {
+        const pointLabels: maplibregl.SymbolLayerSpecification = {
+          ...symbolLayer,
+          id: `gg:${layer.id}-label-pt`,
+          'source-layer': TILE_LABELS_LAYER,
+          layout: { ...symbolLayer.layout, 'symbol-placement': 'point' },
+        };
+        if (layer.filter) {
+          pointLabels.filter = combineFilter(
+            ['all'],
+            layer.filter,
+          ) as maplibregl.FilterSpecification;
+        } else {
+          delete pointLabels.filter;
+        }
+        applyLayer(pointLabels);
+      }
     }
 
     // Kept sources skip the global teardown, so prune any of their

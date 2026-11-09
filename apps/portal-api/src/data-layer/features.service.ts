@@ -1204,6 +1204,8 @@ export class DataLayerFeaturesService {
       via?: AggregateVia;
       /** From the layer's tile settings; see data-layer/tile-settings.ts. */
       maxFeaturesPerTile?: number;
+      /** From the layer's tile settings: emit the `labels` layer. */
+      labelPoints?: boolean;
       /**
        * From the layer's tile settings. A tile outside the range is
        * answered empty without touching the database or the cache, the
@@ -1240,6 +1242,7 @@ export class DataLayerFeaturesService {
       ...(opts.maxFeaturesPerTile !== undefined
         ? { maxFeaturesPerTile: opts.maxFeaturesPerTile }
         : {}),
+      ...(opts.labelPoints === true ? { labelPoints: true } : {}),
     });
   }
 

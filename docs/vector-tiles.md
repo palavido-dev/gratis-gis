@@ -12,7 +12,8 @@ Vector Tiles. The web map draws from them, and outside clients
 | `/api/public/items/{id}/layers/{layer}/tile/{z}/{x}/{y}.mvt` | Anonymous, public items only. The public tier boundary applies. | `public, max-age=300` |
 | `/api/public/ogc/collections/{collectionId}/tiles/WebMercatorQuad/{tileMatrix}/{tileRow}/{tileCol}` | Anonymous OGC API Tiles, public items only. | `public, max-age=300` |
 
-Each tile has one MVT layer named `features`. Every feature carries
+Each tile has an MVT layer named `features` (and `labels` when label
+points are on, see below). Every feature carries
 `_global_id` plus the layer's attribute fields (see "Fields in tiles"
 below). An empty tile is a `200` with an empty body.
 
@@ -44,6 +45,21 @@ as before.
   layer private, a shared cache may keep serving its tiles for up to
   this many seconds.
 
+- **Label each line and polygon once** (line and polygon layers,
+  off by default). MapLibre labels a line or polygon once per tile
+  it crosses, so a parcel on a tile edge gets two labels and a long
+  road gets one per tile. With this on, each tile gets a second MVT
+  layer, `labels`: one point per line or polygon (a point inside the
+  polygon from `ST_PointOnSurface`, or the middle of a line's longest
+  part), computed from the whole stored geometry and sent only in the
+  one tile that contains it. Label points carry `_global_id` and the
+  same fields as the tile. Line and polygon features in `features`
+  carry `_label_point: true`. The web map then labels marked features
+  from their point and everything else from the geometry; labels set
+  to follow lines keep labelling the line. The points come from the
+  same capped, access-filtered feature set as the tile, so the extra
+  cost is one point per feature already in the tile.
+
 The API validates the settings when the layer is saved and refuses a
 value outside these ranges. Field names that are no longer on the
 layer are dropped on save.
@@ -67,7 +83,8 @@ document next to it:
 The document lists the tile URL template, `minzoom` / `maxzoom` from
 the layer's settings (0 and 22 by default), `vector_layers` with the
 fields the tiles actually carry and their types (`Number` for number
-fields, `String` for the rest, plus `_global_id`), `attribution` when
+fields, `String` for the rest, plus `_global_id`; with label points on,
+also the `labels` layer and `_label_point`), `attribution` when
 the layer or item has one, and `bounds` from the stored layer extent.
 `bounds` is left out when a share geo limit, row scope or public tier
 boundary narrows what the caller can see.

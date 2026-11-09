@@ -479,6 +479,9 @@ export const fr: Partial<CatalogShape> = {
     maxFeaturesHint: 'Le plafond d\'entités ne peut qu\'être abaissé, jusqu\'à {max}.',
     cacheHint:
       'Cache de 0 à {max} secondes. Les tuiles d\'une couche non publique sont toujours mises en cache uniquement dans le navigateur de l\'utilisateur.',
+    labelPoints: 'Étiqueter chaque ligne et polygone une seule fois',
+    labelPointsHint:
+      'Ajoute aux tuiles un point d\'étiquette par ligne ou polygone, pour qu\'une entité qui traverse les bords des tuiles ne soit pas étiquetée une fois par tuile. Les cartes étiquettent alors depuis ce point (sauf les étiquettes placées le long des lignes).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
