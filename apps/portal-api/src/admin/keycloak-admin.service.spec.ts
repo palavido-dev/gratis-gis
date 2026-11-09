@@ -54,3 +54,59 @@ describe('KeycloakAdminService.createUser error mapping', () => {
     expect((err as BadGatewayException).getStatus()).toBe(502);
   });
 });
+
+describe('KeycloakAdminService.updateUser email change', () => {
+  const realFetch = globalThis.fetch;
+  let svc: KeycloakAdminService;
+  let puts: Array<Record<string, unknown>>;
+
+  beforeEach(() => {
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = 'portal-api-admin';
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = 'secret';
+    svc = new KeycloakAdminService(
+      {} as SystemSettingsService,
+      {} as LeaderElectionService,
+    );
+    (svc as unknown as { tokenCache: unknown }).tokenCache = {
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    };
+    puts = [];
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return new Response(null, { status: 204 });
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'u1',
+          username: 'ana',
+          email: 'ana@example.org',
+          enabled: true,
+          emailVerified: true,
+          requiredActions: ['CONFIGURE_TOTP'],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('clears emailVerified and asks for verification on a new address', async () => {
+    await svc.updateUser('u1', { email: 'new@example.org' });
+    expect(puts[0]).toMatchObject({
+      email: 'new@example.org',
+      emailVerified: false,
+      requiredActions: ['CONFIGURE_TOTP', 'VERIFY_EMAIL'],
+    });
+  });
+
+  it('leaves verification alone when the address does not change', async () => {
+    await svc.updateUser('u1', { email: 'ANA@example.org', firstName: 'Ana' });
+    expect(puts[0]?.emailVerified).toBeUndefined();
+    expect(puts[0]?.requiredActions).toBeUndefined();
+  });
+});

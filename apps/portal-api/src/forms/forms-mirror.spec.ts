@@ -9,6 +9,8 @@ function service(leader?: { shouldRun: () => boolean }, prisma?: object) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
     leader as LeaderElectionService,
   );
 }
@@ -82,6 +84,11 @@ describe('form mirror reconciliation', () => {
   });
 });
 
+// The mirror target must be a live data layer in the form's org that
+// the form's owner can write to (#642).
+const LAYER_ID = '00000000-0000-4000-8000-0000000000a1';
+const FORM = { id: 'form-1', orgId: 'org-1', ownerId: 'owner-1' };
+
 describe('form mirror repair re-registers photos after the presign grant expires', () => {
   // The repair pass runs up to seven days after a submission, but a
   // presign grant is pruned after two. The keys come from the saved
@@ -111,8 +118,15 @@ describe('form mirror repair re-registers photos after the presign grant expires
       item: {
         findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
           where.id === 'form-1'
-            ? { id: 'form-1', data: { linkedLayerId: 'layer-1' } }
-            : { id: 'layer-1', data: {} },
+            ? { ...FORM, data: { linkedLayerId: LAYER_ID } }
+            : {
+                id: LAYER_ID,
+                type: 'data_layer',
+                orgId: 'org-1',
+                ownerId: 'owner-1',
+                deletedAt: null,
+                data: {},
+              },
         ),
       },
       // Grant expired and pruned: nothing on file for anyone.
@@ -134,6 +148,8 @@ describe('form mirror repair re-registers photos after the presign grant expires
       {} as never,
       { insertFeatures: jest.fn(async () => undefined) } as never,
       attachments,
+      {} as never, // sharing
+      {} as never, // authSync
       { shouldRun: () => true } as unknown as LeaderElectionService,
     );
     jest
@@ -158,7 +174,7 @@ describe('form mirror repair re-registers photos after the presign grant expires
     await (t.svc as unknown as {
       mirrorToPairedLayer(a: unknown): Promise<void>;
     }).mirrorToPairedLayer({
-      form: { id: 'form-1', data: { linkedLayerId: 'layer-1' } },
+      form: { ...FORM, data: { linkedLayerId: LAYER_ID } },
       clientId: 'c1',
       submissionId: 'sub-1',
       schemaVersion: 1,

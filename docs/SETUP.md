@@ -13,7 +13,8 @@ By the end of this guide you'll have:
   Docker
 - The portal-api (NestJS) and portal-web (Next.js) running in
   watch mode
-- Two seeded test users you can sign in as
+- Three seeded test users you can sign in as (admin, contributor,
+  viewer)
 - A handful of seeded items to poke at
 
 If you'd rather follow a guided tour of the product after you're
@@ -36,8 +37,9 @@ Docker Desktop should be configured with at least:
 - 4 CPU cores (the default 2 makes Postgres + Keycloak feel
   sluggish)
 - 8 GB RAM (4 GB works but tight if you also run Nominatim)
-- 60 GB disk (the planet Nominatim import alone wants ~80 GB; if
-  you skip it you only need ~10 GB)
+- About 10 GB of disk without Nominatim. The default planet
+  Nominatim import downloads ~80 GB and builds a 1.1-1.3 TB database,
+  so use a small extract in development (below).
 
 On Apple Silicon, leave the **"Use Rosetta for x86/amd64 emulation
 on Apple Silicon"** option checked under Settings → General. A few
@@ -164,8 +166,8 @@ its realm and Postgres become ready for connections.
 ### 3a. About Nominatim
 
 Nominatim is the self-hosted geocoder. It defaults to importing
-the **entire planet** OSM extract on first boot, which takes 1 to
-3 days on a Mac Mini and ~80 GB of disk. You almost certainly
+the **entire planet** OSM extract on first boot: an ~80 GB download
+that builds a 1.1-1.3 TB database over one to three days. You almost certainly
 don't want this for development.
 
 Two options:
@@ -211,9 +213,11 @@ folders, etc.). The seed script creates:
 These match the users that the Keycloak realm import already set
 up, so the app side and the auth side line up out of the box.
 
-> Note: `pnpm dev` also runs `prisma migrate deploy` on portal-api
-> startup, so you can skip the explicit `db:migrate` step in
-> day-to-day work. The seed script does **not** run automatically;
+> Note: `pnpm dev` does **not** run migrations. Only the container
+> image's entrypoint does. After you pull a change that adds a
+> migration, run `pnpm --filter @gratis-gis/portal-api db:migrate`
+> again, or portal-api fails with schema errors. The seed script does
+> **not** run automatically either;
 > you only need to run it once per fresh database (or after
 > `pnpm infra:reset`, which nukes the volumes).
 
@@ -267,7 +271,8 @@ pnpm dev
 # Pull in someone else's changes
 git pull
 pnpm install         # in case dependencies changed
-pnpm dev             # migrations apply on api boot
+pnpm --filter @gratis-gis/portal-api db:migrate   # new migrations
+pnpm dev
 
 # Reset everything (nukes data!)
 pnpm infra:reset
