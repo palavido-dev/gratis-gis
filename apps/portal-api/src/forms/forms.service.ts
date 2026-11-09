@@ -25,6 +25,7 @@ import {
   receiptFilename,
   renderSubmissionPdf,
 } from './submission-pdf.js';
+import { isPlainEmailAddress } from '../notifications/email-address.js';
 
 /**
  * Persistence and access control for form submissions (#131).
@@ -894,7 +895,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         ? (notifyCfg!.extraRecipients as unknown[])
             .filter((e): e is string => typeof e === 'string')
             .map((e) => e.trim())
-            .filter((e) => e.length > 0 && e.includes('@'))
+            .filter((e) => isPlainEmailAddress(e))
         : [];
 
       // Resolve the owner's email up front so we can de-dup against

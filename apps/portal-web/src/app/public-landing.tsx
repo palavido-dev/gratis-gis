@@ -32,6 +32,7 @@ import {
   hasRuntime,
 } from '@/lib/item-type-icon';
 import { portalUrl } from '@/lib/portal-url';
+import { serializeJsonLd } from '@/lib/json-ld';
 
 function GithubMark({ className }: { className?: string }) {
   return (
@@ -182,7 +183,7 @@ export async function PublicLanding({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(buildLandingJsonLd(data), null, 0),
+          __html: serializeJsonLd(buildLandingJsonLd(data)),
         }}
       />
 

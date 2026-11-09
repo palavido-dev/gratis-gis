@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useFormat } from '@/lib/i18n/format';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Confirmation dialog for the destructive restore flow. Two gates:
@@ -272,9 +273,3 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
   );
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}

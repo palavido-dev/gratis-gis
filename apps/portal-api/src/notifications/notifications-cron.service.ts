@@ -48,11 +48,29 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  *   notify() is a no-op so this cron is effectively a no-op too
  *   (it still runs; the work is paid only when notify() does).
  */
+const PRUNE_BATCH = 5000;
+
+/**
+ * Days a sent or failed notification is kept. Default 180. Never less
+ * than twice the expiry warning window plus a day: the share sweeps
+ * read old rows to avoid sending the same warning twice.
+ */
+export function notificationRetentionDays(
+  raw: string | undefined,
+  expiryWarningDays: number,
+): number {
+  const floor = 2 * (Number.isFinite(expiryWarningDays) ? expiryWarningDays : 7) + 1;
+  const n = Number(raw);
+  const asked = raw !== undefined && raw !== '' && Number.isFinite(n) ? Math.floor(n) : 180;
+  return Math.max(floor, asked);
+}
+
 @Injectable()
 export class NotificationsCron {
   private readonly log = new Logger(NotificationsCron.name);
   private readonly enabled: boolean;
   private readonly expiryWarningDays: number;
+  private readonly retentionDays: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -70,6 +88,37 @@ export class NotificationsCron {
     this.expiryWarningDays = Number(
       cfg.get<string>('NOTIFICATIONS_EXPIRY_WARNING_DAYS') ?? '7',
     );
+    this.retentionDays = notificationRetentionDays(
+      cfg.get<string>('NOTIFICATIONS_RETENTION_DAYS'),
+      this.expiryWarningDays,
+    );
+  }
+
+  /**
+   * Delete sent and failed rows older than the retention window, in
+   * batches so a first run on a large table does not hold one long
+   * delete. Queued and sending rows are never touched. Runs whether or
+   * not delivery is enabled, since the table grows either way.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'notifications-retention' })
+  async prune(): Promise<number> {
+    if (!this.leader.shouldRun()) return 0;
+    const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
+    let total = 0;
+    for (;;) {
+      const n = await this.prisma.$executeRaw`
+        DELETE FROM notification
+        WHERE id IN (
+          SELECT id FROM notification
+          WHERE created_at < ${cutoff}
+            AND status IN ('sent', 'failed')
+          LIMIT ${PRUNE_BATCH}
+        )`;
+      total += n;
+      if (n < PRUNE_BATCH) break;
+    }
+    if (total > 0) this.log.log(`notification retention: deleted ${total} rows`);
+    return total;
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES, {

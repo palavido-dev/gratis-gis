@@ -25,6 +25,7 @@ import {
 import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 /** Interactive copy hard cap (mirrors portal-api ARCGIS_COPY_FEATURE_HARD_CAP). */
 const COPY_FEATURE_HARD_CAP = 50_000;
@@ -279,7 +280,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
       });
       if (!res.ok) {
         setError(
-          `${t('serviceEditors.saveFailed')} ${res.status} ${await res.text()}`,
+          await parseApiError(res, t('serviceEditors.saveFailed')),
         );
         return;
       }

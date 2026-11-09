@@ -102,9 +102,15 @@ fi
 
 # kcadm authenticates to the master realm on localhost inside the
 # container. The public proxy keeps that realm closed.
+# Names only on `-e`: docker copies the values from this shell's
+# environment, so neither password is on the docker command line, and
+# kcadm reads the admin password from KC_CLI_PASSWORD rather than an
+# argument.
+export KC_CLI_PASSWORD="$ADMIN_PW"
+export GG_KC_NEW_PW="$NEW_PW"
 docker exec \
-  -e "GG_KC_ADMIN_PW=$ADMIN_PW" \
-  -e "GG_KC_NEW_PW=$NEW_PW" \
+  -e KC_CLI_PASSWORD \
+  -e GG_KC_NEW_PW \
   -e "GG_KC_USER=$USERNAME" \
   -e "GG_KC_REALM=$REALM" \
   "$CONTAINER" \
@@ -118,8 +124,7 @@ docker exec \
     /opt/keycloak/bin/kcadm.sh config credentials \
       --server "http://127.0.0.1:8080${KC_HTTP_RELATIVE_PATH:-}" \
       --realm master \
-      --user "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" \
-      --password "$GG_KC_ADMIN_PW" >/dev/null
+      --user "${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}" >/dev/null
     /opt/keycloak/bin/kcadm.sh set-password \
       -r "$GG_KC_REALM" \
       --username "$GG_KC_USER" \
