@@ -349,4 +349,38 @@ d('syncVersion commits with the observation on migrated PostGIS', () => {
     expect(ok.properties.value).toBe(9);
     expect(await syncVersion()).toBe(version + 1);
   });
+
+  it('two partial edits without a base both land instead of the second reverting the first', async () => {
+    const entity = '10000000-0000-4000-8000-000000000005';
+    await service.insertFeatures(
+      ITEM,
+      LAYER,
+      [{
+        globalId: entity,
+        geometry: { type: 'Point', coordinates: [-79.8, 38.8] },
+        properties: { value: 1, doubled: 2 },
+      }],
+      user,
+    );
+    // Writer A reads the feature, then writer B saves a different
+    // field before A writes. A's merge was built on the old head.
+    const realList = engine.listFeatures.bind(engine);
+    let interleaved = false;
+    const spy = jest.spyOn(engine, 'listFeatures').mockImplementation(async (args) => {
+      const out = await realList(args);
+      if (!interleaved && args.entity === entity) {
+        interleaved = true;
+        await service.updateFeature(ITEM, LAYER, entity, { properties: { doubled: 40 } }, user);
+      }
+      return out;
+    });
+    try {
+      await service.updateFeature(ITEM, LAYER, entity, { properties: { value: 20 } }, user);
+    } finally {
+      spy.mockRestore();
+    }
+    const after = await engine.listFeatures({ itemId: ITEM, layerId: LAYER, entity });
+    expect(after.features[0]?.properties.value).toBe(20);
+    expect(after.features[0]?.properties.doubled).toBe(40);
+  });
 });
