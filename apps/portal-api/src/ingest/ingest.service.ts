@@ -33,10 +33,15 @@ import {
   nominatimAnswers,
 } from './nominatim-search.js';
 import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
-import { assertZipExpansionBudget } from '../tile-layer/tile-conversion.js';
+import { assertZipExpansionBudget, readZipMember } from '../tile-layer/tile-conversion.js';
 import { readGpkgFeatureTables } from './gpkg-catalog.js';
 import { preferredKmlZipEntry } from './kmz-entry.js';
 import { gdalTypeToSimple, normalizeGdalProps } from './gdal-values.js';
+import {
+  kmlAugmentFor,
+  parseKmlExtendedData,
+  type KmlExtendedLayer,
+} from './kml-extended-data.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -279,6 +284,7 @@ export class IngestService {
         // something stable to record.
         let sourceSrs: string | null = null;
         const target4326 = gdal.SpatialReference.fromEPSG(4326);
+        const kmlExtended = await this.kmlExtendedFor(ds, filePath);
 
         for (let i = 0; i < layerCount; i += 1) {
           const layer = layers.get(i);
@@ -306,14 +312,26 @@ export class IngestService {
               });
             }
           }
+          const kml = kmlAugmentFor(kmlExtended, i, layer);
+          for (const extra of kml?.fields ?? []) {
+            if (!fieldMap.has(extra.name)) {
+              fieldMap.set(extra.name, {
+                name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
+                type: extra.type,
+              });
+            }
+          }
           // Iterate features. `layer.features.forEach` would be nicer
           // but gdal-async's iterator helpers don't always cover every
           // driver; the explicit loop is bulletproof.
+          let featureIndex = 0;
           layer.features.forEach((feature) => {
+            const extra = kml?.valuesAt(featureIndex);
+            featureIndex += 1;
             const geomJson = featureGeomJson(feature, xform);
             if (!geomJson) return;
             const props = remapPropsToSafeNames(
-              feature.fields.toObject() as Record<string, unknown>,
+              { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
               fieldRename,
             );
             combined.push({
@@ -485,6 +503,7 @@ export class IngestService {
         // entirely and use the plain layer enumeration.
         const featureTableAllowlist =
           driver === 'GPKG' ? readGpkgFeatureTables(ds) : null;
+        const kmlExtended = await this.kmlExtendedFor(ds, filePath);
 
         for (let i = 0; i < layerCount; i += 1) {
           const layer = ds.layers.get(i);
@@ -516,6 +535,12 @@ export class IngestService {
                 fieldRename,
               ),
               type: gdalTypeToSimple(def.type),
+            });
+          }
+          for (const extra of kmlAugmentFor(kmlExtended, i, layer)?.fields ?? []) {
+            fields.push({
+              name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
+              type: extra.type,
             });
           }
           // Geometry type detection. The declared geomType is
@@ -674,14 +699,24 @@ export class IngestService {
             type: gdalTypeToSimple(def.type),
           });
         }
+        const kml = kmlAugmentFor(await this.kmlExtendedFor(ds, filePath), targetIdx, layer);
+        for (const extra of kml?.fields ?? []) {
+          fields.push({
+            name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
+            type: extra.type,
+          });
+        }
         const target4326 = gdal.SpatialReference.fromEPSG(4326);
         const xform = buildTransform(gdal, layer.srs, target4326);
         const features: unknown[] = [];
+        let featureIndex = 0;
         layer.features.forEach((feature) => {
+          const extra = kml?.valuesAt(featureIndex);
+          featureIndex += 1;
           const geomJson = featureGeomJson(feature, xform);
           if (!geomJson) return;
           const props = remapPropsToSafeNames(
-            feature.fields.toObject() as Record<string, unknown>,
+            { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
             fieldRename,
           );
           features.push({
@@ -913,6 +948,13 @@ export class IngestService {
           type: gdalTypeToSimple(def.type),
         });
       }
+      const kml = kmlAugmentFor(await this.kmlExtendedFor(ds, filePath), targetIdx, layer);
+      for (const extra of kml?.fields ?? []) {
+        fields.push({
+          name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
+          type: extra.type,
+        });
+      }
       const target4326 = gdal.SpatialReference.fromEPSG(4326);
       const xform = buildTransform(gdal, layer.srs, target4326);
       const total = layer.features.count();
@@ -946,7 +988,10 @@ export class IngestService {
         const skip = !isTable && !geomJson;
         if (!skip) {
           const props = remapPropsToSafeNames(
-            feature.fields.toObject() as Record<string, unknown>,
+            {
+              ...(feature.fields.toObject() as Record<string, unknown>),
+              ...kml?.valuesAt(processed - 1),
+            },
             fieldRename,
           );
           batch.push({
@@ -1521,6 +1566,55 @@ export class IngestService {
   }
 
   /**
+   * ExtendedData for a KML or KMZ upload (#573), or [] for anything
+   * else. GDAL's KML driver drops these attributes; see
+   * kml-extended-data.ts. Never throws: a file we cannot read here
+   * still imports with Name and Description, as before.
+   */
+  private async kmlExtendedFor(
+    ds: { driver: { description: string } },
+    filePath: string,
+  ): Promise<KmlExtendedLayer[]> {
+    if (ds.driver.description !== 'KML') return [];
+    const lower = filePath.toLowerCase();
+    if (!lower.endsWith('.kml') && !lower.endsWith('.kmz')) return [];
+    try {
+      const safePath = await this.resolveInsideIngestRoot(filePath);
+      if (safePath === null) return [];
+      let xml: Buffer | null;
+      // One handle for the size check and the read, so the file cannot
+      // change between them.
+      const fh = await open(safePath, 'r');
+      try {
+        if (lower.endsWith('.kml')) {
+          const { size } = await fh.stat();
+          xml = size <= KML_EXTENDED_MAX_BYTES ? await fh.readFile() : null;
+          if (xml !== null && xml.length > KML_EXTENDED_MAX_BYTES) xml = null;
+        } else {
+          const member = preferredKmlZipEntry(await assertZipExpansionBudget(fh));
+          xml = member ? await readZipMember(fh, member, KML_EXTENDED_MAX_BYTES) : null;
+        }
+      } finally {
+        await fh.close();
+      }
+      if (xml === null) {
+        this.log.warn(
+          `KML in ${basename(filePath)} is over ${KML_EXTENDED_MAX_BYTES} bytes; ` +
+            'importing Name and Description only',
+        );
+        return [];
+      }
+      return parseKmlExtendedData(xml.toString('utf8'));
+    } catch (err) {
+      this.log.warn(
+        `Could not read KML ExtendedData from ${basename(filePath)}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return [];
+    }
+  }
+
+  /**
    * #234: refuse /vsicurl/ (and VRT/XML that names it) before GDAL
    * dials out past our safeFetch fence.
    */
@@ -1837,6 +1931,9 @@ function buildTransform(
  * already safe; this catches the rare apostrophe / space case and
  * keeps schema `name` aligned with property keys.
  */
+/** Largest KML document we parse for ExtendedData (#573). */
+const KML_EXTENDED_MAX_BYTES = 128 * 1024 * 1024;
+
 function remapPropsToSafeNames(
   raw: Record<string, unknown>,
   rename: Map<string, string>,
