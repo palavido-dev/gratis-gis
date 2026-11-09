@@ -121,7 +121,8 @@ What goes in (all verified pure: no `crypto`, `Intl`, `fetch`,
 | `packages/shared-types/src/queue-fold.ts` | 142 | Same-device edit folding, insert-then-delete annihilation |
 | `packages/shared-types/src/queue-replay.ts` | 190 | Retry ladder, 120s claim window, chain-head ordering |
 | `packages/shared-types/src/offline-message.ts` | 314 | The code-plus-params i18n envelope for every sync string |
-| `packages/shared-types/src/sync-outcome.ts` | 42 | HTTP status to retry / park / success |
+| `packages/shared-types/src/sync-outcome.ts` | 90 | HTTP status to retry / park / success, and the lost-response echo check on a 409 |
+| `packages/shared-types/src/delta-sync.ts` | 100 | Delta paging steps and the properties a delta change writes ([sync-protocol.md](./sync-protocol.md)) |
 | `packages/shared-types/src/submission-stamp.ts` | 113 | Server-stamped field protection |
 | `packages/shared-types/src/filter-match.ts` | 99 | Client-side layer filter evaluation |
 
@@ -468,7 +469,7 @@ Reads:
 GET /api/items?type=data_collection&full=1
 GET /api/items/{id}
 GET /api/items/{id}/layers/{layerKey}/geojson
-GET /api/items/{id}/layers/{layerKey}/delta?since=N
+GET /api/items/{id}/layers/{layerKey}/delta?since=N[&after=OBS]
 GET /api/items/{id}/layers/{layerKey}/features?entity={globalId}
 GET /api/items/{id}/layers/{layerKey}/tile/{z}/{x}/{y}.mvt
 GET /api/items/{itemId}/offline-areas
@@ -477,7 +478,10 @@ GET /api/items/{itemId}/offline-packages/{packageId}/file
 
 `delta?since=N` returns `{ syncVersion, since, changes[], truncated }`
 with change kinds `create|update|delete|derive|observe` and feature id
-`entity`. The field PWA offline refresh and the Android
+`entity`; a truncated page adds `nextSince` and `nextAfter`, which the
+next request sends back as `since` and `after`. The full contract
+(paging, seeding the cursor before a first download, scope, conflict
+tokens) is in [sync-protocol.md](./sync-protocol.md). The field PWA offline refresh and the Android
 `OfflineDownloader` both use it when a local `syncVersion` cursor
 exists (full GeoJSON on first download / unknown cursor, then
 incremental upserts and deletes; Android persists the cursor on
