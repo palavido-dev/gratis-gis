@@ -31,7 +31,8 @@ you could change in the portal. Nothing about a key widens your access.
 3. Choose when it expires. A bounded key is the safer default; pick
    **Until revoked** only when re-keying a job on a schedule is worse
    than the risk of a long-lived credential.
-4. Leave **Read only** ticked unless the script needs to write.
+4. **Read only** is ticked to start with. Leave it ticked unless the
+   script needs to write.
 5. Copy the key. **This is the only time it is shown.** The portal
    stores a one-way hash, so nobody, including an administrator, can
    recover it later. Lose it and you make a new one.
@@ -85,8 +86,12 @@ Revoke from the same page. It takes effect immediately: the next
 request using that key fails. Revoked keys stay listed so you keep the
 record of what existed.
 
-Keys also stop working the moment the owning account is disabled or
-deleted, without any extra step.
+Disabling or deleting the owning account revokes its keys, without
+any extra step. This covers an admin's **Disable** and Housekeeping
+pausing a quiet account. Keys stop working when an auto-disable date
+passes, and are revoked the next time housekeeping runs. Enabling the
+account again does not bring the keys back; the owner creates new
+ones.
 
 ## Good practice
 

@@ -1122,6 +1122,8 @@ interface CapabilityRow {
   capability: string;
   baseline: boolean;
   effective: boolean;
+  /** False when the API does not check this capability yet. */
+  enforced?: boolean;
   override: {
     enabled: boolean;
     note: string | null;
@@ -1276,7 +1278,12 @@ function CapabilitiesSection({
         </p>
       ) : (
         <ul className="space-y-1">
-          {rows.map((row) => {
+          {rows
+            // A capability no route checks yet would be a switch that
+            // does nothing. Keep an old override visible so it can be
+            // reset.
+            .filter((row) => row.enforced !== false || row.override !== null)
+            .map((row) => {
             const baseline =
               localBaselines?.get(row.capability) ?? row.baseline;
             const overridden = row.override !== null;

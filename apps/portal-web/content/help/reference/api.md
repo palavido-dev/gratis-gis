@@ -106,7 +106,7 @@ API never handles the bytes.
 | | |
 |---|---|
 | `GET /api/items/:id/layers/:layer/features/:fid/attachments` | List. A bare array, unpaginated. |
-| `POST /api/storage/presign-upload` | `{kind: "feature-attachment", contentType}` → `{uploadUrl, publicUrl, key, contentType, maxBytes}`. |
+| `POST /api/storage/presign-upload` | `{kind: "feature-attachment", contentType, sizeBytes}` → `{uploadUrl, publicUrl, key, contentType, maxBytes}`. `sizeBytes` is required. |
 | `PUT <uploadUrl>` | The bytes, straight to object storage. |
 | `POST /api/items/:id/layers/:layer/features/:fid/attachments` | Register: `{fileName, mime, sizeBytes, storageKey, storageUrl}`. |
 | `GET /api/storage/private/feature-attachment/:key` | Download. Streams, supports `Range`. |
@@ -121,18 +121,22 @@ Three things that catch people out:
 - **`storageUrl` on a record is a path into the web app**, not the API.
   To download, take the UUID from the end of it and call
   `/api/storage/private/feature-attachment/{uuid}`.
-- **`maxBytes` is advisory.** Nothing rejects a larger upload
-  server-side, so check it yourself.
+- **The size is part of the signature.** The presign refuses a
+  `sizeBytes` above the cap for that kind, and the `PUT` must send
+  exactly that many bytes (a matching `Content-Length`) or object
+  storage rejects it. `maxBytes` in the response is the cap.
 
-Listing and downloading need read access; registering and deleting need
-edit access and a key without the read-only option.
+Listing needs read access. Downloading needs **download** permission,
+the same as the exports below, so a collaborator who can only view the
+layer gets 403. Registering and deleting need edit access and a key
+without the read-only option.
 
 ### Export
 
 | | |
 |---|---|
 | `GET /api/items/:id/layers/:layer/geoparquet` | GeoParquet. Streams the whole layer. |
-| `GET /api/items/:id/layers/:layer/csv?geometry=none\|wkt\|lonlat\|auto` | CSV. Caps at 100,000 rows. |
+| `GET /api/items/:id/layers/:layer/csv?geometry=none\|wkt\|lonlat\|auto` | CSV. Streams the whole layer. |
 | `GET /api/items/:id/layers/:layer/geojson` | GeoJSON. |
 
 The first two need **download** permission and return 403 without it.

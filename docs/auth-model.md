@@ -105,9 +105,11 @@ portal-api, which Caddy routes without passing through the web tier.
   backup/restore), and a `read_only` key is refused on any unsafe
   HTTP method. Keys also cannot mint or revoke keys, since minting a
   credential from a credential is an escalation path.
-- Unlike the JWT path, key resolution checks `deleted_at` and
-  `auto_disable_at` itself: a long-lived key never revisits Keycloak,
-  so it would otherwise outlive the account that owns it.
+- Unlike the JWT path, key resolution checks the owner itself
+  (`deleted_at`, `auto_disable_at`, and whether the account is
+  disabled): a long-lived key never revisits Keycloak, so it would
+  otherwise outlive the account that owns it. Disabling an account
+  revokes its keys.
 
 ## Session Security
 

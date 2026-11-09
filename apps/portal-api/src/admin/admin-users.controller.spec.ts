@@ -53,15 +53,26 @@ function makeFakePrisma(opts: {
   localByUsername: Map<string, LocalUser>;
   adminCount: number;
 }) {
-  return {
+  const txRef: { current: unknown } = { current: null };
+  const fake = {
     user: {
       findUnique: jest.fn(async ({ where }: { where: { username: string } }) => {
         return opts.localByUsername.get(where.username) ?? null;
       }),
       findMany: jest.fn(async () => [...opts.localByUsername.values()]),
       count: jest.fn(async () => opts.adminCount),
+      update: jest.fn(async (_args: unknown) => ({})),
+      updateMany: jest.fn(async (_args: unknown) => ({ count: 1 })),
     },
-  };
+    apiKey: {
+      updateMany: jest.fn(async (_args: unknown) => ({ count: 2 })),
+    },
+    $transaction: jest.fn(
+      async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(txRef.current),
+    ),
+  };  txRef.current = fake;
+
+  return fake;
 }
 
 function makeFakeKc(opts: {
@@ -627,5 +638,148 @@ describe('AdminUsersController org-scoped reads', () => {
     await expect(controller.get(caller, 'kc-invitee')).resolves.toMatchObject({
       username: 'invitee',
     });
+  });
+});
+
+describe('AdminUsersController keeps the local row in step', () => {
+  const target = {
+    id: 'kc-t',
+    kc: {
+      id: 'kc-t',
+      username: 'target',
+      enabled: true,
+      attributes: { org: ['org-1'] },
+    } as KeycloakUserRep,
+    local: {
+      id: 'local-t',
+      orgId: 'org-1',
+      orgRole: 'admin' as const,
+      isProtected: false,
+      username: 'target',
+    },
+  };
+  const caller = makeAuthUser({ username: 'other-admin' });
+
+  it('disabling stamps disabledAt and revokes keys before Keycloak is told', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 3,
+    });
+    const order: string[] = [];
+    prisma.apiKey.updateMany.mockImplementation(async () => {
+      order.push('revoke');
+      return { count: 2 };
+    });
+    kc.updateUser.mockImplementation(async () => {
+      order.push('keycloak');
+      return { id: 'kc-t', username: 'target', email: 't@example.test' };
+    });
+    await controller.update(caller, 'kc-t', { enabled: false });
+    expect(order).toEqual(['revoke', 'keycloak']);
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'local-t', disabledAt: null },
+        data: { disabledAt: expect.any(Date) },
+      }),
+    );
+    expect(prisma.apiKey.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'local-t', revokedAt: null } }),
+    );
+  });
+
+  it('enabling clears disabledAt and does not touch keys', async () => {
+    const { controller, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 3,
+    });
+    await controller.update(caller, 'kc-t', { enabled: true });
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'local-t', disabledAt: { not: null } },
+      data: { disabledAt: null },
+    });
+    expect(prisma.apiKey.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('demoting writes the local role before Keycloak, so keys lose admin', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 3,
+    });
+    const order: string[] = [];
+    prisma.user.update.mockImplementation(async () => {
+      order.push('local');
+      return {};
+    });
+    kc.updateUser.mockImplementation(async () => {
+      order.push('keycloak');
+      return { id: 'kc-t', username: 'target', email: 't@example.test' };
+    });
+    await controller.update(caller, 'kc-t', { orgRole: 'viewer' });
+    expect(order[0]).toBe('local');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'local-t' },
+      data: { orgRole: 'viewer' },
+    });
+  });
+
+  it('a failed Keycloak demote still leaves the key at the lower role', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 3,
+    });
+    kc.updateUser.mockRejectedValue(new Error('down'));
+    await expect(
+      controller.update(caller, 'kc-t', { orgRole: 'contributor' }),
+    ).rejects.toThrow('down');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'local-t' },
+      data: { orgRole: 'contributor' },
+    });
+  });
+});
+
+describe('AdminUsersController mutations on users with no local row', () => {
+  it('refuses a user whose Keycloak org is another organization', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme', username: 'me' });
+    const foreign: KeycloakUserRep = {
+      id: 'kc-f',
+      username: 'foreign',
+      enabled: true,
+      attributes: { org: ['beta'] },
+    };
+    const { controller, kc } = makeController({
+      caller,
+      targets: [{ id: 'kc-f', kc: foreign, local: null }],
+      adminCount: 2,
+    });
+    await expect(
+      controller.update(caller, 'kc-f', { email: 'x@example.test' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(controller.remove(caller, 'kc-f')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(kc.updateUser).not.toHaveBeenCalled();
+    expect(kc.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('still allows an invitee of the caller org', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme', username: 'me' });
+    const invitee: KeycloakUserRep = {
+      id: 'kc-i',
+      username: 'invitee',
+      enabled: true,
+      attributes: { org: ['acme'] },
+    };
+    const { controller, kc } = makeController({
+      caller,
+      targets: [{ id: 'kc-i', kc: invitee, local: null }],
+      adminCount: 2,
+    });
+    await controller.update(caller, 'kc-i', { firstName: 'Ida' });
+    expect(kc.updateUser).toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
+import { ItemsModule } from '../items/items.module.js';
 import { LeaderElectionModule } from '../cron/leader-election.module.js';
 import { FormsController } from './forms.controller.js';
 import { FormsService } from './forms.service.js';
@@ -17,6 +18,9 @@ import { FormsService } from './forms.service.js';
  * mirrored into the paired data_layer that ItemsService.create
  * auto-provisions for every form item (#283 / #281c).
  *
+ * ItemsModule supplies SharingService, so the submit path uses the
+ * same read rule as every other item route.
+ *
  * The repair pass uses its own timer. It does not call
  * ScheduleModule.forRoot(). A fifth copy of that root hung boot
  * (app.module.spec keeps the set at the four modules that already
@@ -27,6 +31,7 @@ import { FormsService } from './forms.service.js';
     PrismaModule,
     NotificationsModule,
     DataLayerFeaturesModule,
+    ItemsModule,
     LeaderElectionModule,
   ],
   controllers: [FormsController],

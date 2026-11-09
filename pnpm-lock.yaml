@@ -98,6 +98,9 @@ importers:
       '@duckdb/node-api':
         specifier: 1.5.4-r.1
         version: 1.5.4-r.1
+      '@eslint-community/regexpp':
+        specifier: 4.12.2
+        version: 4.12.2
       '@gratis-gis/engine':
         specifier: workspace:*
         version: link:../../packages/engine
