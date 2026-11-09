@@ -79,6 +79,10 @@ which analysis capability tiers the hardware honestly supports
 machine; heavier server tiers get a recommendation based on cores,
 memory, and GPU presence). Exit code 0 means no failures.
 
+For ongoing monitoring, portal-api can serve Prometheus metrics to a
+scraper on the docker network when `METRICS_TOKEN` is set. See
+[operations/metrics.md](operations/metrics.md).
+
 ## Sizing the point-cloud scratch disk
 
 A lidar merge is the hungriest thing this stack does. LAZ decompresses
@@ -111,8 +115,7 @@ Rules of thumb:
 
 Docker Compose starts: the portal API (two replicas in the production compose file, one in the NAS compose file) and web UI, a
 background worker, PostgreSQL with PostGIS, Keycloak 26 (identity),
-MinIO (object storage), pg_tileserv (vector tiles straight from
-PostGIS), Caddy (reverse proxy with automatic HTTPS), a one-shot
+MinIO (object storage), Caddy (reverse proxy with automatic HTTPS), a one-shot
 migration container, and two Chromium instances used for print
 rendering. Internal services are only reachable on the compose network;
 Caddy is the only thing listening on 80/443.
@@ -160,6 +163,20 @@ Downloading an archive in the browser stores it wherever that
 browser saves files. That is not an off-site copy until the file,
 and `infra/.env.prod` or the NAS `boot` volume, are on another disk.
 
+### Before an in-portal restore
+
+- Stop the background workers first: `portal-worker`, `script-runner`
+  and `pointcloud-worker`. They do not read the maintenance flag, so
+  they keep writing rows and objects while the restore replaces them.
+  Start them again after the restore succeeds.
+- The archive must come from the same database schema the portal runs
+  now. Restore refuses an archive made before or after a release that
+  added migrations, because `pg_restore` cannot convert one schema into
+  another. Restore an older archive on the release that made it, then
+  upgrade. Take a fresh backup right after every upgrade.
+- Restore refuses to start while a backup is running. Backups and
+  scheduled jobs pause while maintenance is on.
+
 ## When a restore fails
 
 The in-portal restore turns maintenance mode on and leaves it on if
@@ -184,6 +201,12 @@ until the portal tables are present and you have signed in.
    `./infra/restore-maintenance.sh clear --i-verified-the-database`
    refuses otherwise. It does not delete volumes. API replicas
    re-read the flag within a few seconds.
+   An in-portal restore also writes `.restore-in-progress` in the
+   portal-api backups volume (`/app/backups`) before `pg_restore`
+   starts, and removes it only when the restore succeeds. If the API
+   stopped or the restore failed, maintenance stays on while that file
+   exists. Once you have verified the database, remove it with
+   `docker compose exec portal-api rm -f /app/backups/.restore-in-progress`.
 5. A forgotten portal password is not fixed by deleting volumes.
    Reset the user with `./infra/reset-portal-password.sh <username>`.
    That talks to Keycloak inside the container. It does not open the
@@ -221,5 +244,18 @@ tags on its own.
   has an address column and no coordinates geocodes the first 200
   rows against that same local Nominatim only. It does not use the
   public fallback.
+- Tile disk cache: set `TILE_CACHE_DIR=/var/cache/gg-tiles` in
+  `infra/.env.prod` to keep vector tiles on the `tile-cache` volume as
+  well as in memory, so a restart or a deploy does not start every map
+  cold. `TILE_CACHE_DISK_MAX_BYTES` (1 GiB) and
+  `TILE_CACHE_DISK_MAX_FILES` (100,000) cap it. Both API replicas
+  share the volume; each tracks only its own writes between sweeps,
+  so together they can hold up to about twice the cap for up to 16
+  minutes. Relate tiles and tiles under 1 KiB are not written. An
+  in-app restore clears it. Each file is named by the layer's
+  data version, read from Postgres, so an edit, including one made
+  while the API was down, is never answered with an old tile. Only
+  tiles go to disk; dashboard aggregates stay in memory. Off when
+  unset. The NAS stack turns it on by default.
 - The maintenance and golden-snapshot scripts in `infra/` exist for the
   public demo's nightly reset and are not part of a normal deployment.

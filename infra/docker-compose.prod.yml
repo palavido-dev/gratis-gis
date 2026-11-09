@@ -4,7 +4,7 @@ name: gratis-gis-prod
 # infra/docker-compose.yml (the dev stack) on every axis that matters:
 #
 #   - No public ports except Caddy on 80/443. Postgres, Keycloak,
-#     MinIO, pg_tileserv, and the apps all live on the internal
+#     MinIO, and the apps all live on the internal
 #     `gratis-net` network and are only reachable through the proxy.
 #   - Keycloak runs in production mode (`start --optimized`), not
 #     `start-dev`, with a real PostgreSQL store rather than dev-file.
@@ -25,6 +25,20 @@ name: gratis-gis-prod
 #
 # Or, with the deploy.sh helper:
 #   ./infra/deploy.sh
+#
+# Container hardening. Services that run as a non-root user and need no
+# Linux capabilities carry no-new-privileges and cap_drop: [ALL]
+# (portal-migrate, portal-api, portal-worker, portal-web,
+# pointcloud-worker; script-executor has its own stricter block). The
+# exceptions are deliberate:
+#   - postgres, keycloak, minio and caddy start as root and drop to
+#     their own user (postgres, minio) or bind 80/443 (caddy), which
+#     needs capabilities. Their images are upstream.
+#   - chromium needs SYS_ADMIN for Chrome's namespace sandbox.
+#   - No app service is read_only: portal-api's entrypoint runs
+#     `prisma generate` into /app/node_modules at start, and Next.js
+#     writes its cache under the app directory. The app code therefore
+#     stays owned by the `app` user in the image.
 #
 # NAS / Dockge / TrueNAS / Portainer: do not paste this file into a
 # compose UI. It builds from local directories (./postgres, the repo
@@ -340,25 +354,12 @@ services:
     networks:
       - gratis-net
 
-  pg_tileserv:
-    # TODO(pinning): `latest` is the only tag we have evidence for in
-    # this repo, and floating tags turn upstream releases into
-    # unreviewed deploys (see the node:25 note in the app
-    # Dockerfiles). At the next deploy, capture the digest the box is
-    # actually running with
-    #   docker inspect --format '{{index .RepoDigests 0}}' gratis-gis-prod-pg_tileserv
-    # and pin it here as pramsey/pg_tileserv@sha256:<digest>. Do not
-    # guess a version tag.
-    image: pramsey/pg_tileserv:latest
-    container_name: gratis-gis-prod-pg_tileserv
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
-    networks:
-      - gratis-net
+  # pg_tileserv used to run here. Nothing in the apps called it: vector
+  # tiles come from portal-api, which checks sharing. It served every
+  # geometry table, unauthenticated, with the database owner's role,
+  # to anything on gratis-net, including the print sidecars that load
+  # user-authored map styles. The dev stack (docker-compose.yml) still
+  # runs it on 127.0.0.1 for local exploration.
 
   # One-shot migration runner. Runs `prisma migrate deploy` against the
   # production database, then exits. Other services depend_on this with
@@ -368,6 +369,11 @@ services:
   # an extra build target.
   portal-migrate:
     image: gratis-gis/portal-api:latest
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     container_name: gratis-gis-prod-portal-migrate
     build:
       context: ..
@@ -394,6 +400,11 @@ services:
 
   portal-api:
     image: gratis-gis/portal-api:latest
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # NOTE: container_name removed so docker compose can spawn N
     # replicas (otherwise compose errors out about a name conflict).
     # Cron leader-election is handled inside the process via PG
@@ -406,7 +417,9 @@ services:
       dockerfile: apps/portal-api/Dockerfile
     restart: unless-stopped
     deploy:
-      replicas: 2
+      # bootstrap.sh writes GG_API_REPLICAS=1, which fits a 4 GB box.
+      # The public demo runs 2.
+      replicas: ${GG_API_REPLICAS:-2}
     # Memory budget for the 7.6 GiB (8 GB nominal) prod box. Two
     # things are capped per service: the V8 old-space ceiling
     # (NODE_OPTIONS) and the cgroup limit (mem_limit, heap plus
@@ -653,6 +666,11 @@ services:
       # Extra public origins whose Keycloak issuer the API accepts, for
       # a portal reached under more than one address.
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      # Prometheus /metrics on portal-api:4000, internal network only.
+      # Off unless set; scrapers send `Authorization: Bearer <token>`.
+      # At least 32 characters: openssl rand -hex 32.
+      # See docs/operations/metrics.md.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
       GRATIS_OPERATOR_ORG_ID: ${GRATIS_OPERATOR_ORG_ID:-}
       GRATIS_ADMIN_AUDIT_RETENTION_DAYS: ${GRATIS_ADMIN_AUDIT_RETENTION_DAYS:-}
@@ -673,9 +691,24 @@ services:
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       # `off` stops the admin Updates page from calling GitHub.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
+      # Name of the install's organization when the admin first signs
+      # in (bootstrap.sh asks for it). Later changes go through the
+      # admin Branding page.
+      DEFAULT_ORG_NAME: ${DEFAULT_ORG_NAME:-}
+      DEFAULT_ORG_SLUG: ${DEFAULT_ORG_SLUG:-}
+      # Disk tier for the vector tile cache, so a restart does not
+      # start every map cold. Off here unless set; to turn it on use
+      # TILE_CACHE_DIR=/var/cache/gg-tiles (the volume below). Both
+      # replicas share it safely; together they can briefly hold up to
+      # about twice the cap. Caps: bytes (default 1 GiB) and files
+      # (default 100000).
+      TILE_CACHE_DIR: ${TILE_CACHE_DIR:-}
+      TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
+      TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
+      - tile-cache:/var/cache/gg-tiles
     networks:
       - gratis-net
       # #221: also reachable from the script network, because a script
@@ -700,6 +733,11 @@ services:
   # GIN attrs pending list flushes anyway.
   portal-worker:
     image: gratis-gis/portal-api:latest
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     container_name: gratis-gis-prod-portal-worker
     build:
       context: ..
@@ -957,8 +995,8 @@ services:
     networks:
       gg-script-net:
         # Static address so the egress fence never points at a stale IP.
-        # Must sit inside the pinned subnet and outside the range Docker
-        # hands out dynamically to the other members.
+        # Must sit inside the pinned subnet and outside ip_range below,
+        # the range Docker hands out dynamically to the other members.
         ipv4_address: 172.19.0.10
 
   # #184 workbench: server-heavy analysis tier. PDAL + untwine +
@@ -972,6 +1010,11 @@ services:
   # presigned URLs, so there is no reason to hairpin through Caddy.
   pointcloud-worker:
     image: gratis-gis/pointcloud-worker:latest
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     container_name: gratis-gis-prod-pointcloud-worker
     build:
       context: ..
@@ -1023,6 +1066,11 @@ services:
 
   portal-web:
     image: gratis-gis/portal-web:latest
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     container_name: gratis-gis-prod-portal-web
     build:
       context: ..
@@ -1111,7 +1159,7 @@ services:
     # and pin BOTH chromium services to
     # ghcr.io/browserless/chromium@sha256:<digest> together. Do not
     # guess a version tag.
-    image: ghcr.io/browserless/chromium:latest
+    image: ghcr.io/browserless/chromium:latest@sha256:bcad9a1c271ddb9d95f7de5981c68cb2fcc9fd1f07e8da07c4e5c9d1ef4fc099
     container_name: gratis-gis-prod-chromium-1
     restart: unless-stopped
     networks:
@@ -1127,7 +1175,7 @@ services:
   chromium-2:
     # TODO(pinning): pin to the same digest as chromium-1; see the
     # note there.
-    image: ghcr.io/browserless/chromium:latest
+    image: ghcr.io/browserless/chromium:latest@sha256:bcad9a1c271ddb9d95f7de5981c68cb2fcc9fd1f07e8da07c4e5c9d1ef4fc099
     container_name: gratis-gis-prod-chromium-2
     restart: unless-stopped
     networks:
@@ -1207,6 +1255,9 @@ volumes:
   # intermediate rasters. A named volume so a mid-job crash doesn't
   # bloat the container layer; the runner cleans per-job subdirs.
   pointcloud-scratch:
+  # Optional disk tier of the vector tile cache (TILE_CACHE_DIR).
+  # Disposable: deleting it only costs recomputing tiles.
+  tile-cache:
 
 networks:
   gratis-net:
@@ -1245,3 +1296,8 @@ networks:
       config:
         - subnet: 172.19.0.0/16
           gateway: 172.19.0.1
+          # Docker hands out dynamic addresses only from this half, so
+          # the executor's static 172.19.0.10 can never be taken by a
+          # portal-api replica or script-runner while the executor is
+          # being recreated.
+          ip_range: 172.19.128.0/17

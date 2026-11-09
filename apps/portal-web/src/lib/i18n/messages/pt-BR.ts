@@ -3934,6 +3934,8 @@ export const ptBR: Partial<CatalogShape> = {
     preview: 'Pré-visualizar',
     defaultsFootnote:
       'Desligar aqui silencia o tipo em toda a plataforma para usuários que não optaram explicitamente. Preferências por usuário ainda valem. Personalizar reescreve o corpo do e-mail da sua organização; modelos salvos substituem placeholders mustache como {{itemTitle}} e {{baseUrl}} do payload do gatilho.',
+    operatorOnlyNote:
+      'O servidor de e-mail, a fila de envio, a atividade recente e os padrões valem para toda a instalação, então só administradores da organização operadora podem vê-los ou alterá-los. Você pode editar os modelos e as pré-visualizações.',
     previewHeading: 'Pré-visualização',
     subject: 'Assunto',
     html: 'HTML',

@@ -53,6 +53,8 @@ import {
 } from '../data-layer/tile-settings.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
+import { ItemsService } from '../items/items.service.js';
+import { redactItemData } from '../items/item-data-redact.js';
 import {
   PUBLIC_TIER_SELECT,
   publicTierGeoLimit,
@@ -75,6 +77,7 @@ export class PublicController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly v3: DataLayerFeaturesService,
+    private readonly itemsService: ItemsService,
   ) {}
 
   /**
@@ -293,7 +296,20 @@ export class PublicController {
     // meta.ui is the shared presentation contract for web / QGIS /
     // MCP (docs/meta-ui.md); computed here so anon detail matches
     // the authenticated GET /api/items/:id shape.
-    return withMetaUi(synthesizeThumbnailUrl(item));
+    // Same reader view a signed-in non-editor gets: per-layer access
+    // applied to a map (custom-access layers and their rosters do not
+    // reach an anonymous reader), and server-only fields such as
+    // anonymous markup tokens removed. Without this, signing out
+    // showed more than signing in.
+    const data =
+      item.type === 'map'
+        ? await this.itemsService.filterMapForViewer(null, item.data)
+        : item.data;
+    const safe = {
+      ...item,
+      data: redactItemData(item.type, data, { canEdit: false }) as typeof item.data,
+    };
+    return withMetaUi(synthesizeThumbnailUrl(safe));
   }
 
   /**
@@ -1233,19 +1249,19 @@ export class PublicController {
         // recommended field, and aggregators like data.gov filter
         // their crawls to license-bearing rows).
         license: true,
-        // Include the data payload so the landing tile can route a
-        // templated web_app (editor / viewer) straight to its
-        // runtime URL. Without `data`, getItemHref / isViewerItem
-        // can't read the `template` discriminator and falls through
-        // to /items/:id, which middleware then redirects to sign-in
-        // for anonymous visitors. The payload is already public-by-
-        // construction (we only emit access='public' rows) and the
-        // data shape across the supported types is small.
+        // Read so the landing tile can route a templated web_app
+        // (editor / viewer / custom) straight to its runtime URL;
+        // getItemHref needs the `template` discriminator. Only that
+        // field is returned (landingItemData): the full blob carries
+        // map drawings' anonymous author tokens, data layer sync
+        // conflicts and layers a public map hides from viewers.
         data: true,
       },
       orderBy: { updatedAt: 'desc' },
     });
-    const all = rows.map((r) => synthesizeThumbnailUrl(r));
+    const all = rows.map((r) =>
+      synthesizeThumbnailUrl({ ...r, data: landingItemData(r.data) }),
+    );
     if (featuredIds.length === 0) return all;
 
     // Featured = strict filter when it resolves to anything: when the
@@ -1349,4 +1365,15 @@ function pickV3Layer(data: unknown, layerId: string): V3LayerInfo | null {
     ...(match.bbox !== undefined ? { bbox: match.bbox } : {}),
     raw: match,
   };
+}
+
+/**
+ * The part of a public item's `data` the landing page needs: the
+ * web_app `template` discriminator that getItemHref routes on.
+ * Everything else is dropped.
+ */
+export function landingItemData(data: unknown): { template: string } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const template = (data as { template?: unknown }).template;
+  return typeof template === 'string' ? { template } : null;
 }

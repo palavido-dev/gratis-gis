@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { FeatureField, FeatureRecord } from '@gratis-gis/shared-types';
+import { csvCell } from '@gratis-gis/shared-types';
 
 /**
  * RFC-4180 CSV exporter for data_layer features.
@@ -78,7 +79,7 @@ export function csvHeaderRow(plan: CsvColumnPlan): string {
     if (plan.emitLonLat) headers.push('geometry_lon', 'geometry_lat');
     if (plan.emitWkt) headers.push('geometry_wkt');
   }
-  return headers.map(csvEscape).join(',');
+  return headers.map(csvCell).join(',');
 }
 
 /** One feature's row (no trailing newline) for a column plan. */
@@ -94,12 +95,12 @@ export function csvFeatureRow(
   if (plan.includeGeometry) {
     if (plan.emitLonLat) {
       const pt = pointCoords(feat.geometry);
-      cells.push(pt ? csvEscape(String(pt[0])) : '');
-      cells.push(pt ? csvEscape(String(pt[1])) : '');
+      cells.push(pt ? csvCell(pt[0]) : '');
+      cells.push(pt ? csvCell(pt[1]) : '');
     }
     if (plan.emitWkt) {
       const wkt = geometryToWkt(feat.geometry);
-      cells.push(wkt ? csvEscape(wkt) : '');
+      cells.push(wkt ? csvCell(wkt) : '');
     }
   }
   return cells.join(',');
@@ -153,43 +154,26 @@ function formatField(raw: unknown, field: FeatureField): string {
         .filter((x) => x !== null && x !== undefined)
         .map((x) => String(x))
         .join(',');
-      return csvEscape(joined);
+      return csvCell(joined);
     }
     // Legacy non-array value: stringify whatever's there.
-    return csvEscape(String(raw));
+    return csvCell(String(raw));
   }
   if (field.type === 'boolean') {
     return raw ? 'true' : 'false';
   }
   if (field.type === 'date' && raw instanceof Date) {
-    return csvEscape(raw.toISOString());
+    return csvCell(raw.toISOString());
   }
   if (typeof raw === 'object') {
     // Catch-all for nested JSON we don't have a typed mapping for
     // (matrix responses, etc.). JSON-stringify and quote so the
     // cell stays well-formed; downstream consumers that care about
     // the structure can re-parse.
-    return csvEscape(JSON.stringify(raw));
+    return csvCell(JSON.stringify(raw));
   }
-  return csvEscape(String(raw));
-}
-
-/**
- * Wrap a cell in double quotes when the value contains a CSV-meta
- * character (comma, double-quote, CR, LF), and escape any inner
- * double-quotes per RFC-4180. Plain values pass through untouched.
- */
-function csvEscape(s: string): string {
-  if (s === '') return '';
-  if (
-    s.includes(',') ||
-    s.includes('"') ||
-    s.includes('\n') ||
-    s.includes('\r')
-  ) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
+  // Strings get the spreadsheet formula guard; numbers stay numeric.
+  return csvCell(raw);
 }
 
 /** Extract [lon, lat] from a Point GeoJSON; null otherwise. */

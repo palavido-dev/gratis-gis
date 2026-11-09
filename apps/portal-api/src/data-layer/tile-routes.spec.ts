@@ -255,6 +255,7 @@ describe('anonymous portal tile route and TileJSON', () => {
     const controller = new PublicController(
       { item: { findFirst } } as unknown as PrismaService,
       { mvtTile } as never,
+      {} as never, // itemsService, not used by the tile routes
     );
     return { controller, findFirst, mvtTile };
   }
@@ -412,6 +413,7 @@ describe('label points through the routes', () => {
     const controller = new PublicController(
       { item: { findFirst } } as unknown as PrismaService,
       { mvtTile } as never,
+      {} as never, // itemsService, not used by the tile routes
     );
     await expect(
       controller.layerTile(

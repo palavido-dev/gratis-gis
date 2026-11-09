@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Optional,
   Patch,
   Post,
   Query,
@@ -19,6 +20,8 @@ import {
 } from 'class-validator';
 
 import { AdminGuard } from './admin.guard.js';
+import { AdminAuditService } from './admin-audit.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
@@ -52,6 +55,12 @@ class HousekeepingConfigDto {
  * actions scoped there means the audit log and permissions model
  * work the same way whether the admin reached the item from this
  * page or anywhere else.
+ *
+ * Routes that take a user act on that user's organization. The
+ * routes marked with OperatorOrgGuard act on the whole install (the
+ * schedule config and its runs touch every organization, storage and
+ * table sizes are cluster-wide, orphaned uploads share one bucket),
+ * so only admins of the operator organization may call them.
  */
 @ApiTags('admin', 'housekeeping')
 @ApiBearerAuth()
@@ -61,6 +70,7 @@ export class HousekeepingController {
   constructor(
     private readonly housekeeping: HousekeepingService,
     private readonly schedule: HousekeepingScheduleService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   @Get('summary')
@@ -100,6 +110,7 @@ export class HousekeepingController {
    * and not as part of the lighter `summary` cards.
    */
   @Get('storage')
+  @UseGuards(OperatorOrgGuard)
   storage() {
     return this.housekeeping.storageMetrics();
   }
@@ -110,6 +121,7 @@ export class HousekeepingController {
    * name / total / table / index bytes plus a row estimate.
    */
   @Get('largest-tables')
+  @UseGuards(OperatorOrgGuard)
   largestTables() {
     return this.housekeeping.largestTables();
   }
@@ -167,18 +179,42 @@ export class HousekeepingController {
   }
 
   @Patch('config')
-  updateConfig(@Body() dto: HousekeepingConfigDto) {
-    return this.schedule.updateConfig(dto);
+  @UseGuards(OperatorOrgGuard)
+  async updateConfig(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: HousekeepingConfigDto,
+  ) {
+    const out = await this.schedule.updateConfig(dto);
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'housekeeping.config',
+      targetType: 'housekeeping',
+      targetId: 'schedule',
+      outcome: 'succeeded',
+      detail: { ...dto },
+    });
+    return out;
   }
 
   @Get('runs')
+  @UseGuards(OperatorOrgGuard)
   listRuns(@Query('limit') limit?: string) {
     const n = Number(limit);
     return this.schedule.listRuns(Number.isFinite(n) && n > 0 ? n : 25);
   }
 
   @Post('run')
-  runNow(@CurrentUser() user: AuthUser) {
+  @UseGuards(OperatorOrgGuard)
+  async runNow(@CurrentUser() user: AuthUser) {
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'housekeeping.run',
+      targetType: 'housekeeping',
+      targetId: 'schedule',
+      outcome: 'succeeded',
+    });
     return this.schedule.runOnce({
       trigger: 'manual',
       startedBy: user.id,
@@ -222,6 +258,7 @@ export class HousekeepingController {
    * The delete is a separate explicit POST below.
    */
   @Get('orphaned-uploads')
+  @UseGuards(OperatorOrgGuard)
   orphanedUploads() {
     return this.housekeeping.orphanedUploadsReport();
   }
@@ -235,8 +272,18 @@ export class HousekeepingController {
    * the dry run.
    */
   @Post('orphaned-uploads/purge')
-  purgeOrphanedUploads() {
-    return this.housekeeping.purgeOrphanedUploads();
+  @UseGuards(OperatorOrgGuard)
+  async purgeOrphanedUploads(@CurrentUser() user: AuthUser) {
+    const out = await this.housekeeping.purgeOrphanedUploads();
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'housekeeping.purge',
+      targetType: 'housekeeping',
+      targetId: 'orphaned-uploads',
+      outcome: 'succeeded',
+    });
+    return out;
   }
 }
 

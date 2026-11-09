@@ -99,6 +99,21 @@ export interface AuthUser {
  * the org, leaving only the group and override read to save, for
  * traffic that is scripts rather than dashboards.
  */
+/**
+ * Display name for an organization created on first sign-in. The
+ * install's own organization (DEFAULT_ORG_SLUG, gratis-gis by default)
+ * takes DEFAULT_ORG_NAME, which bootstrap.sh asks for. Any other org
+ * starts with its slug; admins rename it on the Branding page.
+ */
+export function initialOrgName(
+  orgSlug: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const installSlug = env.DEFAULT_ORG_SLUG?.trim() || 'gratis-gis';
+  const name = env.DEFAULT_ORG_NAME?.trim();
+  return orgSlug === installSlug && name ? name : orgSlug;
+}
+
 @Injectable()
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
@@ -353,7 +368,7 @@ export class AuthSyncService {
         (await this.prisma.organization.upsert({
           where: { slug: orgSlug },
           update: {},
-          create: { slug: orgSlug, name: orgSlug },
+          create: { slug: orgSlug, name: initialOrgName(orgSlug) },
         }));
     }
 

@@ -26,6 +26,7 @@
  */
 
 import { writeXlsx } from './xlsx';
+import { csvCell } from '@gratis-gis/shared-types';
 
 export interface ExportFeature {
   id?: string;
@@ -211,15 +212,10 @@ function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60);
 }
 
-/** Quote a CSV cell.  Doubles internal quotes per RFC 4180. */
+/** One CSV cell: RFC 4180 quoting plus the spreadsheet formula guard
+ *  (csvCell in shared-types). */
 function csvQuote(v: string | number | boolean | null): string {
-  const s = v === null ? '' : String(v);
-  if (s.length === 0) return '';
-  // Quote when the value contains a comma, quote, or newline.
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  return csvCell(v);
 }
 
 /** Build a CSV file from features and trigger a download. */

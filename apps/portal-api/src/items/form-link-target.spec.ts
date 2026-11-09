@@ -87,7 +87,12 @@ function makeService() {
     itemShare: { findMany: jest.fn(async () => []) },
     $transaction: jest.fn(async (fn: (tx: unknown) => unknown): Promise<unknown> => fn(prisma)),
     $queryRaw: jest.fn(async () => [
-      { data: ROWS[FORM_ID]!.data, updated_at: ROWS[FORM_ID]!.updatedAt },
+      {
+        data: ROWS[FORM_ID]!.data,
+        updated_at: ROWS[FORM_ID]!.updatedAt,
+        // lockItemRow reads the row's updated_at as epoch ms.
+        updated_at_ms: ROWS[FORM_ID]!.updatedAt.getTime(),
+      },
     ]),
   };
   const sharing = new SharingService(prisma as never, new PolicyService());

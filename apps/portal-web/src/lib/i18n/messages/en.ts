@@ -4079,6 +4079,8 @@ export const en = {
     preview: 'Preview',
     defaultsFootnote:
       'Off here mutes the type platform-wide for users who haven\'t explicitly opted in. Per-user opt-ins still win. Customize rewrites the email body for your org; saved templates substitute mustache-style placeholders like {{itemTitle}} and {{baseUrl}} from the trigger payload.',
+    operatorOnlyNote:
+      'The mail server, delivery queue, recent activity and the on/off defaults apply to the whole install, so only admins of the operator organization can see or change them. Templates and previews are yours to edit.',
     previewHeading: 'Preview',
     subject: 'Subject',
     html: 'HTML',

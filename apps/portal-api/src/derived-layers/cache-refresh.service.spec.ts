@@ -174,8 +174,18 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
       updates.push(args as { where: unknown; data: unknown });
       return {};
     });
+    // The write runs under the item lock; the locked read returns the
+    // same fixture row, so these tests see no concurrent change.
+    const tx = {
+      $queryRaw: jest.fn(async (_strings: TemplateStringsArray, id: string) => {
+        const row = opts.dependents.find((d) => d.id === id);
+        return row ? [{ data: row.data, updated_at_ms: 1 }] : [];
+      }),
+      item: { update },
+    };
     const prisma = {
       item: { findMany, findUnique, update },
+      $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     };
     // Cast through unknown to the constructor parameter type so
     // PrismaService's massive type doesn't bleed into the test
@@ -333,5 +343,38 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
     expect(updates).toHaveLength(2);
     const ids = updates.map((u) => (u.where as { id: string }).id).sort();
     expect(ids).toEqual(['der-a', 'der-b']);
+  });
+});
+
+describe('DerivedLayerCacheRefreshService.notifySourceWrite under the item lock', () => {
+  it('grows the cap on the recipe as it is under the lock, not the stale list read', async () => {
+    const stale = recipe([fieldStep('radius_m', 'meters', 500)]);
+    // A recipe PATCH saved after findMany: new field limit and an
+    // extra fixed step. The refresh must keep both.
+    const current: DerivedLayerData = {
+      ...recipe([fieldStep('radius_m', 'meters', 500), fixedStep(10)]),
+      featureLimit: 50,
+    };
+    const update = jest.fn(async () => undefined);
+    const tx = {
+      $queryRaw: jest.fn(async () => [{ data: current, updated_at_ms: 1 }]),
+      item: { update },
+    };
+    const prisma = {
+      item: {
+        findUnique: jest.fn(async () => ({ orgId: 'org-1', bbox: [-122.5, 37.5, -122.0, 38.0] })),
+        findMany: jest.fn(async () => [{ id: 'dl-1', data: stale }]),
+      },
+      $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+    };
+    const svc = new DerivedLayerCacheRefreshService(prisma as never);
+    await svc.notifySourceWrite('src-1', null, [{ radius_m: 900 }]);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    const written = (update.mock.calls[0] as unknown as [{ data: { data: DerivedLayerData } }])[0]
+      .data.data;
+    expect(written.featureLimit).toBe(50);
+    expect(written.pipeline).toHaveLength(2);
+    expect(bufferParamsOf(written.pipeline[0]!)).toMatchObject({ cachedMaxMeters: 900 });
   });
 });

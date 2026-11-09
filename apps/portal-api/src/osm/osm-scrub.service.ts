@@ -49,7 +49,9 @@ export class OsmScrubService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    if (!this.leader.shouldRun()) {
+    // Leadership only: the hourly tick checks shouldRun() itself, so
+    // maintenance at boot must not log the scrub as disabled.
+    if (!this.leader.holdsLock()) {
       this.log.log(
         'OSM cache scrub disabled on this replica (not the cron leader).',
       );

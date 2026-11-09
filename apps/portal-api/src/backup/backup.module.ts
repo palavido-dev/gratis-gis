@@ -8,6 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 import { AdminAuditModule } from '../admin/admin-audit.module.js';
 import { AdminGuard } from '../admin/admin.guard.js';
+import { EngineModule } from '../engine/engine.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { BackupFailureNotice } from './backup-failure-notice.js';
 import { OperatorOrgGuard } from './operator-org.js';
@@ -25,7 +26,12 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
  * that happen to land on a BackupModule controller.
  */
 @Module({
-  imports: [ScheduleModule.forRoot(), AdminAuditModule, NotificationsModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    AdminAuditModule,
+    NotificationsModule,
+    EngineModule,
+  ],
   controllers: [BackupController],
   providers: [
     BackupService,

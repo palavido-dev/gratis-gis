@@ -56,6 +56,7 @@ describe('PublicController.resolvePublicVia', () => {
       // a bare object rather than a stub is the assertion that it
       // must not.
       {} as never,
+      {} as never,
     ) as unknown as {
       resolvePublicVia(v: ParsedVia | undefined): Promise<unknown>;
     };

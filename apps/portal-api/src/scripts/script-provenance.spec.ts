@@ -42,18 +42,26 @@ function itemsServiceFor(existing: { data: unknown }, captured: {
     data: existing.data,
     updatedAt: new Date(),
   };
+  const prisma: Record<string, unknown> = {
+    itemShare: { findMany: async () => [] },
+    item: {
+      findUnique: async () => row,
+      update: async (args: { data: { data?: unknown } }) => {
+        captured.data = args.data.data;
+        return { ...row, ...args.data };
+      },
+    },
+    // update() writes under the item row lock (lockItemRow), which
+    // reads the stored data and updated_at as epoch ms.
+    $queryRaw: async () => [
+      { data: row.data, updated_at_ms: row.updatedAt.getTime() },
+    ],
+  };
+  prisma.$transaction = async (fn: (tx: unknown) => unknown) => fn(prisma);
   Object.assign(svc, {
     get: async () => row,
     sharing: { canEdit: () => true },
-    prisma: {
-      itemShare: { findMany: async () => [] },
-      item: {
-        update: async (args: { data: { data?: unknown } }) => {
-          captured.data = args.data.data;
-          return { ...row, ...args.data };
-        },
-      },
-    },
+    prisma,
   });
   return svc;
 }
@@ -149,18 +157,25 @@ describe('DataSnapshotService.revert on a script', () => {
         itemId: 'script-1',
         data: { version: 1, source: 'old()', schedule: NIGHTLY, sourceEditedBy: OWNER },
       }),
-      prisma: {
-        item: {
-          findUnique: async () => ({
-            type: 'script',
-            ownerId: OWNER,
-            data: { version: 1, source: 'new()' },
-          }),
-          update: async (args: { data: { data: unknown } }) => {
-            written = args.data.data;
+      prisma: (() => {
+        const current = { version: 1, source: 'new()' };
+        const prisma: Record<string, unknown> = {
+          item: {
+            findUnique: async () => ({
+              type: 'script',
+              ownerId: OWNER,
+              data: current,
+            }),
+            update: async (args: { data: { data: unknown } }) => {
+              written = args.data.data;
+            },
           },
-        },
-      },
+          // revert() restores under the item row lock.
+          $queryRaw: async () => [{ data: current, updated_at_ms: 0 }],
+        };
+        prisma.$transaction = async (fn: (tx: unknown) => unknown) => fn(prisma);
+        return prisma;
+      })(),
     });
     await svc.revert('snap-1', EDITOR);
     expect(written).toEqual({ version: 1, source: 'old()', sourceEditedBy: EDITOR });
@@ -237,7 +252,15 @@ describe('ItemsService.reassignOwner on a script', () => {
       sharing: { canAdmin: () => true },
       noteAudit: () => undefined,
       prisma: {
-        user: { findUnique: async () => ({ id: ADMIN, orgId: ORG }) },
+        user: {
+          findUnique: async () => ({
+            id: ADMIN,
+            orgId: ORG,
+            orgRole: 'admin',
+            deletedAt: null,
+            capabilityOverrides: [],
+          }),
+        },
         $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
       },
     });

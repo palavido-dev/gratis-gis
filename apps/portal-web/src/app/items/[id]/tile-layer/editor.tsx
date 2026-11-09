@@ -36,6 +36,7 @@ import {
   type PresignResponse,
 } from '@/lib/presign-upload';
 import { DemAnalysisSection } from './dem-analysis';
+import { itemDataFromBody } from '@/lib/item-response';
 
 /** What one presigned-PUT source upload produces (#199); the shape
  *  mosaic-build / mosaic-add-sources take per source. */
@@ -136,10 +137,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
           credentials: 'include',
         });
         if (!res.ok) return;
-        const body = (await res.json()) as { item?: { data?: unknown } };
+        const next = itemDataFromBody(await res.json());
         if (cancelled) return;
-        if (body.item?.data && isTileLayerData(body.item.data)) {
-          const next = body.item.data;
+        if (next && isTileLayerData(next)) {
           // Most ticks return a payload identical to what we already
           // hold, just as a fresh object.  Adopting that new identity
           // re-rendered everything keyed on `data`, most painfully the
@@ -620,9 +620,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         credentials: 'include',
       });
       if (!res.ok) return;
-      const body = (await res.json()) as { item?: { data?: unknown } };
-      if (body.item?.data && isTileLayerData(body.item.data)) {
-        setData(body.item.data);
+      const next = itemDataFromBody(await res.json());
+      if (next && isTileLayerData(next)) {
+        setData(next);
       }
     } catch {
       /* the poll will catch up */

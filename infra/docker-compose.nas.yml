@@ -55,13 +55,18 @@ name: gratis-gis
 
 services:
   bootstrap:
-    image: python:3.12-alpine
+    # Pinned by digest: this container generates every secret.
+    image: python:3.12-alpine@sha256:e064671ca452259bab50e8e2c7bd896e39e9a343bb06ca25234adf6fe18d0fc7
     container_name: gratis-gis-bootstrap
     restart: unless-stopped
     # So the first boot can see the NAS address on the host, while
     # this container still joins the compose network below and can
-    # reach Keycloak by name.
+    # reach Keycloak by name. It reads the host route table on every
+    # start (the address can change), so pid: host stays for the
+    # container's life. It runs only nas-init.py from this file.
     pid: host
+    security_opt:
+      - no-new-privileges:true
     environment:
       GRATIS_MODE: ${GRATIS_MODE:-lan}
       GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
@@ -88,8 +93,10 @@ services:
         Runs inside the bootstrap container (python:3.12-alpine). On an empty
         volume it generates secrets, a Keycloak realm, and a Caddyfile, then
         prints the address. The admin password is printed only when the
-        secrets are first created, and it is not written to a file. A second
-        start keeps the same secrets and does not print the password again.
+        secrets are first created. Until the admin changes it at first
+        sign-in, it is also stored in the boot volume (the env file and the
+        realm import), which the stack's own containers mount. A second start
+        keeps the same secrets and does not print the password again.
 
         No default passwords. Secrets are random per install.
         """
@@ -333,6 +340,27 @@ services:
                 lines.append(f"{key}={sh_quote(value)}")
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             path.chmod(0o644)
+
+
+        # Services that handle untrusted input get only the variables they read.
+        # chromium renders user-authored map styles; pointcloud-worker parses
+        # uploaded point clouds and rasters with PDAL and GDAL.
+        SERVICE_ENV_KEYS = {
+            "env.chromium": ("CHROMIUM_TOKEN",),
+            "env.pointcloud": (
+                "ANALYSIS_TIERS",
+                "DATABASE_URL",
+                "MINIO_ENDPOINT",
+                "MINIO_ACCESS_KEY",
+                "MINIO_SECRET_KEY",
+                "MINIO_BUCKET",
+            ),
+        }
+
+
+        def write_service_envs(boot: Path, values: dict[str, str]) -> None:
+            for name, keys in SERVICE_ENV_KEYS.items():
+                write_env(boot / name, {key: values.get(key, "") for key in keys})
 
 
         def read_env(path: Path) -> dict[str, str]:
@@ -607,6 +635,11 @@ services:
         		reverse_proxy keycloak:8080
         	}}
 
+        	# portal-api's /metrics is scraped on the docker network only.
+        	@metrics path /metrics /metrics/*
+        	handle @metrics {{
+        		respond 404
+        	}}
         	handle /api/auth/* {{
         		reverse_proxy portal-web:3000
         	}}
@@ -647,6 +680,11 @@ services:
         	encode gzip zstd
         	request_body {{
         		max_size 1GB
+        	}}
+        	# portal-api's /metrics is scraped on the docker network only.
+        	@metrics path /metrics /metrics/*
+        	handle @metrics {{
+        		respond 404
         	}}
         	handle /api/auth/* {{
         		reverse_proxy portal-web:3000
@@ -1179,9 +1217,9 @@ services:
                 password = (
                     f"Password:           {values['INITIAL_USER_PASSWORD']}\n"
                     "Keycloak will ask you to change this password.\n"
-                    "This password is printed only on the first start. It is not\n"
-                    "written to a file. Copy it now, then change it before you\n"
-                    "share this log. Do not post it publicly.\n"
+                    "This password is printed only on the first start. Copy it\n"
+                    "now and change it at first sign-in, before you share this\n"
+                    "log. Do not post it publicly.\n"
                 )
             else:
                 password = (
@@ -1222,7 +1260,7 @@ services:
                 "top of the file and use that same port in GRATIS_BASE_URL.\n"
                 "\n"
                 "The first-start admin password is printed once, only when\n"
-                "startup succeeds on an empty volume. It is not written to a file.\n"
+                "startup succeeds on an empty volume.\n"
                 "Do not post it publicly.\n"
                 "===============================\n"
             )
@@ -1269,6 +1307,7 @@ services:
                 return
             values = assemble(urls, secret)
             write_env(env_path, values)
+            write_service_envs(boot, values)
             realm = build_realm(values)
             realm_path = boot / "realm-gratis-gis.json"
             realm_path.write_text(json.dumps(realm, indent=2) + "\n", encoding="utf-8")
@@ -1437,6 +1476,11 @@ services:
 
   portal-api:
     image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 1536m
@@ -1472,6 +1516,7 @@ services:
       PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       JWT_ALLOWED_AZP: ${JWT_ALLOWED_AZP:-}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-}
@@ -1489,11 +1534,18 @@ services:
       HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      # Vector tiles are also kept on disk, so maps load quickly after
+      # a restart or an update. Set TILE_CACHE_DISK_MAX_BYTES=0 to turn
+      # it off. The default cap is 1 GiB.
+      TILE_CACHE_DIR: ${TILE_CACHE_DIR:-/var/cache/gg-tiles}
+      TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
+      TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
+      - tile-cache:/var/cache/gg-tiles
     depends_on:
       postgres:
         condition: service_healthy
@@ -1512,6 +1564,11 @@ services:
 
   portal-worker:
     image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 1536m
@@ -1562,15 +1619,23 @@ services:
   # can answer 503 instead of queueing work nothing will run.
   pointcloud-worker:
     image: ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 2560m
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ -f /boot/ready ] && [ -f /boot/env.pointcloud ]; do sleep 1; done
+        # Only what runner.py reads. PDAL and GDAL parse uploaded
+        # files here, so this process does not get Keycloak, NextAuth
+        # or credential-encryption secrets.
         set -a
-        . /boot/env
+        . /boot/env.pointcloud
         set +a
         if [ "$$ANALYSIS_TIERS" != "server-heavy" ]; then exec sleep infinity; fi
         echo "pointcloud-worker starting"
@@ -1621,6 +1686,11 @@ services:
 
   portal-web:
     image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
@@ -1657,21 +1727,21 @@ services:
       - gratis-net
 
   chromium:
-    image: ghcr.io/browserless/chromium:latest
+    image: ghcr.io/browserless/chromium:latest@sha256:bcad9a1c271ddb9d95f7de5981c68cb2fcc9fd1f07e8da07c4e5c9d1ef4fc099
     restart: unless-stopped
     mem_limit: 768m
+    # Chrome's namespace sandbox needs SYS_ADMIN.
     cap_add:
       - SYS_ADMIN
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ -f /boot/ready ] && [ -f /boot/env.chromium ]; do sleep 1; done
+        # Only the print token. Chrome renders user-authored map
+        # styles, so it does not get the database or storage secrets.
         set -a
-        . /boot/env
+        . /boot/env.chromium
         set +a
-        # /boot/env sets PORT for the API. Browserless would follow
-        # that and leave the websocket URL (port 3000) with nothing
-        # listening.
         export PORT=3000
         export TOKEN="$$CHROMIUM_TOKEN"
         if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
@@ -1735,6 +1805,8 @@ volumes:
   # Upload staging shared by portal-api and portal-worker. Files here
   # expire after an hour, so it holds nothing you need to back up.
   gg-staging:
+  # Vector tile disk cache. Safe to delete; tiles are rebuilt on use.
+  tile-cache:
 
 networks:
   gratis-net:

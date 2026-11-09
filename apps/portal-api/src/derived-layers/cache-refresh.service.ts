@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { withLockedItem } from '../items/item-data-lock.js';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Item, Prisma } from '@prisma/client';
 import {
@@ -93,22 +94,30 @@ export class DerivedLayerCacheRefreshService {
         ? (source.bbox as number[])
         : [];
       for (const item of dependents) {
-        const data = item.data as unknown as DerivedLayerData | null;
-        if (!data || data.version !== 1) continue;
-        const next = growCachedCaps(data, properties);
-        if (!next) continue; // No buffer step in this recipe needed updating.
-        const totalReach = totalOutwardReach(next.pipeline);
-        next.bbox = padBboxByMeters(sourceBbox, totalReach);
-        await this.prisma.item.update({
-          where: { id: item.id },
-          data: {
-            // Prisma's input shape rejects raw JsonValue (which
-            // includes JS `null`) and wants Prisma.InputJsonValue,
-            // so cast through unknown. The recipe is always a
-            // populated object in this code path; never null.
-            data: next as unknown as Prisma.InputJsonValue,
-            bbox: next.bbox,
-          },
+        const listed = item.data as unknown as DerivedLayerData | null;
+        if (!listed || listed.version !== 1) continue;
+        // Cheap pre-check on the unlocked read, then rebuild from the
+        // row as it is under the lock: a recipe PATCH saved since the
+        // findMany must not be reverted by this write.
+        if (!growCachedCaps(listed, properties)) continue;
+        await withLockedItem(this.prisma, item.id, async (tx, locked) => {
+          const data = locked?.data as unknown as DerivedLayerData | null;
+          if (!data || data.version !== 1) return;
+          const next = growCachedCaps(data, properties);
+          if (!next) return; // No buffer step in this recipe needed updating.
+          const totalReach = totalOutwardReach(next.pipeline);
+          next.bbox = padBboxByMeters(sourceBbox, totalReach);
+          await tx.item.update({
+            where: { id: item.id },
+            data: {
+              // Prisma's input shape rejects raw JsonValue (which
+              // includes JS `null`) and wants Prisma.InputJsonValue,
+              // so cast through unknown. The recipe is always a
+              // populated object in this code path; never null.
+              data: next as unknown as Prisma.InputJsonValue,
+              bbox: next.bbox,
+            },
+          });
         });
       }
     } catch (err) {

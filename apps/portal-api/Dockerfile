@@ -356,7 +356,13 @@ RUN node -e "require('/app/dist/ingest/parquet-reader.js').bakeSpatialExtension(
 # IngestStagingService can mkdir under it as the non-root `app` user.
 # Without this pre-create, the volume mount lands as root:root and
 # every `/ingest/stage` POST hits EACCES.
-RUN mkdir -p /app/backups /app/data /var/lib/gg-staging && chown -R app:app /app/backups /app/data /var/lib/gg-staging
+#
+# /var/cache/gg-tiles is where both compose stacks mount the `tile-cache`
+# volume for the optional disk tier of the tile cache (TILE_CACHE_DIR).
+# Same trick again: owned by `app` so the volume is writable on first
+# attach.
+RUN mkdir -p /app/backups /app/data /var/lib/gg-staging /var/cache/gg-tiles \
+  && chown -R app:app /app/backups /app/data /var/lib/gg-staging /var/cache/gg-tiles
 
 # Entrypoint: apply migrations, then start. Idempotent on a current
 # DB (no-op when nothing pending). Surfaces migration errors as exit

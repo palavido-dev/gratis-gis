@@ -47,10 +47,11 @@ interface FakePrisma {
   };
   itemShare: { findMany: jest.Mock };
   $queryRaw: jest.Mock;
+  $transaction: jest.Mock;
 }
 
 function makePrisma(): FakePrisma {
-  return {
+  const prisma: FakePrisma = {
     item: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
@@ -59,7 +60,10 @@ function makePrisma(): FakePrisma {
     },
     itemShare: { findMany: jest.fn().mockResolvedValue([]) },
     $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn(),
   };
+  prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  return prisma;
 }
 
 function makeService(prisma: FakePrisma): ItemsService {
@@ -379,6 +383,7 @@ describe('PublicController GET /public/items mirror', () => {
     PublicController: new (
       prisma: unknown,
       v3: unknown,
+      itemsService: unknown,
     ) => {
       items: (
         res: unknown,
@@ -391,7 +396,7 @@ describe('PublicController GET /public/items mirror', () => {
   };
 
   function makePublic(prisma: FakePrisma) {
-    const controller = new PublicController(prisma as never, {} as never);
+    const controller = new PublicController(prisma as never, {} as never, {} as never);
     return { controller, res: { setHeader: jest.fn() } };
   }
 
@@ -453,6 +458,10 @@ describe('ItemsService update expectedUpdatedAt precondition', () => {
     });
     prisma.item.findUnique.mockResolvedValue(row);
     prisma.item.update.mockResolvedValue({ ...row, title: 'Renamed' });
+    // The row as the write sees it under its lock: unchanged.
+    prisma.$queryRaw.mockResolvedValue([
+      { data: (row as { data?: unknown }).data, updated_at_ms: ROW_UPDATED_AT.getTime() },
+    ]);
   }
 
   it('409s when the supplied expectedUpdatedAt is stale', async () => {
@@ -496,6 +505,90 @@ describe('ItemsService update expectedUpdatedAt precondition', () => {
 
     await svc.update(makeUser(), 'item-1', { title: 'Renamed' });
 
+    expect(prisma.item.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ItemsService update under the row lock', () => {
+  const T1 = new Date('2026-07-01T12:00:00.000Z');
+  const T2 = new Date('2026-07-01T12:00:05.000Z');
+
+  function folderRow(updatedAt: Date, childItemIds: string[]) {
+    return makeListRow({
+      type: 'folder',
+      updatedAt,
+      data: { version: 1, childItemIds },
+    });
+  }
+
+  it('recomputes from the new row when a save lands between read and write', async () => {
+    const prisma = makePrisma();
+    const stale = folderRow(T1, ['a']);
+    const fresh = folderRow(T2, ['a', 'b']);
+    prisma.item.findUnique
+      .mockResolvedValueOnce(stale)
+      .mockResolvedValue(fresh);
+    prisma.item.findMany.mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a', 'b'] }, updated_at_ms: T2.getTime() },
+    ]);
+    prisma.item.update.mockResolvedValue(fresh);
+    const svc = makeService(prisma);
+
+    await svc.update(makeUser(), 'item-1', {
+      data: { version: 1, childItemIds: ['a', 'b', 'c'] },
+    });
+
+    // First attempt saw T1, the lock saw T2, so it ran again from the
+    // fresh read and wrote once.
+    expect(prisma.item.findUnique).toHaveBeenCalledTimes(2);
+    expect(prisma.item.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('409s under the lock when expectedUpdatedAt passed the early check but the row moved', async () => {
+    const prisma = makePrisma();
+    prisma.item.findUnique.mockResolvedValue(folderRow(T1, ['a']));
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a', 'b'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await expect(
+      svc.update(makeUser(), 'item-1', {
+        title: 'Renamed',
+        expectedUpdatedAt: T1.toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+
+  it('gives up with a 409 when the row keeps moving', async () => {
+    const prisma = makePrisma();
+    prisma.item.findUnique.mockResolvedValue(folderRow(T1, ['a']));
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await expect(
+      svc.update(makeUser(), 'item-1', {
+        data: { version: 1, childItemIds: ['a', 'c'] },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a metadata-only patch', async () => {
+    const prisma = makePrisma();
+    const row = folderRow(T1, ['a']);
+    prisma.item.findUnique.mockResolvedValue(row);
+    prisma.item.update.mockResolvedValue(row);
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await svc.update(makeUser(), 'item-1', { title: 'Renamed' });
     expect(prisma.item.update).toHaveBeenCalledTimes(1);
   });
 });

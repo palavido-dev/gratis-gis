@@ -3935,6 +3935,8 @@ export const es: Partial<CatalogShape> = {
     preview: 'Vista previa',
     defaultsFootnote:
       'Desactivar aquí silencia el tipo en toda la plataforma para usuarios que no hayan optado explícitamente. Las preferencias por usuario siguen teniendo prioridad. Personalizar reescribe el cuerpo del correo de tu organización; las plantillas guardadas sustituyen marcadores al estilo mustache como {{itemTitle}} y {{baseUrl}} del payload del evento.',
+    operatorOnlyNote:
+      'El servidor de correo, la cola de envío, la actividad reciente y los valores predeterminados afectan a toda la instalación, por lo que solo los administradores de la organización operadora pueden verlos o cambiarlos. Puedes editar las plantillas y las vistas previas.',
     previewHeading: 'Vista previa',
     subject: 'Asunto',
     html: 'HTML',

@@ -3,6 +3,7 @@
 
 import type * as maplibregl from 'maplibre-gl';
 import type { GpsPosition } from './use-geolocation';
+import { metersPerPixel } from '@/lib/web-mercator';
 
 /**
  * Manages the "you are here" blue dot + accuracy ring overlay on top of
@@ -64,11 +65,11 @@ export function createGpsMarker(map: maplibregl.Map): GpsMarkerHandle {
     if (!lastPosition) return 0;
     const lat = lastPosition.lat;
     const zoom = map.getZoom();
-    const metersPerPixel =
-      (40075016.686 * Math.cos((lat * Math.PI) / 180)) /
-      (256 * Math.pow(2, zoom));
-    if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) return 0;
-    return lastPosition.accuracyM / metersPerPixel;
+    // MapLibre zoom is on 512 px tiles; the 256 px formula drew the
+    // ring at half its true radius.
+    const mpp = metersPerPixel(lat, zoom);
+    if (!Number.isFinite(mpp) || mpp <= 0) return 0;
+    return lastPosition.accuracyM / mpp;
   }
 
   function pushSourceData() {

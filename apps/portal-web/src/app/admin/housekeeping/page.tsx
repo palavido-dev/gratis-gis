@@ -302,9 +302,11 @@ async function BundleSection() {
       apiFetch<HousekeepingBundle['expiringUsers']>(
         '/api/admin/housekeeping/expiring-users',
       ),
+      // Install-wide, so the API limits it to the operator
+      // organization. Other org admins get the rest of the page.
       apiFetch<HousekeepingBundle['storage']>(
         '/api/admin/housekeeping/storage',
-      ),
+      ).catch(() => null),
       apiFetch<HousekeepingBundle['largestDataLayers']>(
         '/api/admin/housekeeping/largest-data-layers',
       ),
