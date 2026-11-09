@@ -639,8 +639,8 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
    * the layer, but the link is stored and replayed later, by the
    * submitter and by the repair pass, so the target is checked again
    * at write time: it must be a live data layer in the form's own
-   * org, and either the form's paired layer or one the form's owner
-   * can still edit. Throws, so the repair pass backs off instead of
+   * org, and owned by the form's owner or one the form's owner can
+   * still edit. Throws, so the repair pass backs off instead of
    * writing.
    */
   private async assertMirrorTarget(
@@ -660,7 +660,11 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         `form ${form.id} links to ${layerId}, which is not a live data layer in its org`,
       );
     }
-    if ((layer.tags ?? []).includes('form-paired')) return;
+    // The form's owner may always write into a layer they own. The
+    // `form-paired` tag is not a reason to skip the check: tags are
+    // editable by anyone with edit on the layer, so a form linked by
+    // someone whose share was later revoked would keep writing.
+    if (layer.ownerId === form.ownerId) return;
     const owner = await this.authSync.principalForUserId(form.ownerId);
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: layer.id },

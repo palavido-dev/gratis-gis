@@ -394,4 +394,17 @@ describe('FormsService mirror target re-check', () => {
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).toHaveBeenCalled();
   });
+
+  it('does not write into a form-paired layer after the form owner lost edit on it', async () => {
+    // B had edit on A's paired layer, linked their own form to it, and
+    // A then revoked the share. The layer still carries the tag.
+    const m = makeMocks({
+      form: { ownerId: 'user-b' },
+      layer: { ownerId: 'user-a', tags: ['form-paired'], access: 'private' },
+      shares: [],
+    });
+    await m.service.submit('form-1', makeUser(), VALID_DTO);
+    await flush();
+    expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+  });
 });
