@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Get, Patch, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Patch,
+  Query,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsEmail,
@@ -208,10 +216,18 @@ export class UsersController {
     // the next JWT refresh overwrote it). If Keycloak rejects, the
     // client gets the error and nothing local has changed yet.
     if (Object.keys(identityPatch).length > 0) {
+      // An API key must not be able to change the account's email:
+      // with "Forgot password" on the new address, a leaked key would
+      // become the whole account. Same rule as minting keys.
+      if (user.authKind === 'api_key') {
+        throw new ForbiddenException(
+          'Name and email can only be changed from a signed-in session, not with an API key.',
+        );
+      }
       if (!this.kc.isConfigured()) {
         // Surface a 503 instead of silently no-op'ing so the user
         // knows why their edit didn't stick.
-        throw new Error(
+        throw new ServiceUnavailableException(
           'Keycloak admin API is not configured: identity edits are disabled',
         );
       }
