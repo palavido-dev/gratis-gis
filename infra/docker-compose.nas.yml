@@ -635,6 +635,11 @@ services:
         		reverse_proxy keycloak:8080
         	}}
 
+        	# portal-api's /metrics is scraped on the docker network only.
+        	@metrics path /metrics /metrics/*
+        	handle @metrics {{
+        		respond 404
+        	}}
         	handle /api/auth/* {{
         		reverse_proxy portal-web:3000
         	}}
@@ -675,6 +680,11 @@ services:
         	encode gzip zstd
         	request_body {{
         		max_size 1GB
+        	}}
+        	# portal-api's /metrics is scraped on the docker network only.
+        	@metrics path /metrics /metrics/*
+        	handle @metrics {{
+        		respond 404
         	}}
         	handle /api/auth/* {{
         		reverse_proxy portal-web:3000
@@ -1506,6 +1516,7 @@ services:
       PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       JWT_ALLOWED_AZP: ${JWT_ALLOWED_AZP:-}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-}

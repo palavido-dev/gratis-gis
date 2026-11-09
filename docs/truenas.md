@@ -170,6 +170,9 @@ line. In TrueNAS, add them to the app's environment. Then restart.
   volume, so maps load quickly after a restart or an update. Set it to
   `0` to keep tiles in memory only. Deleting the volume is safe; tiles
   are rebuilt as maps ask for them.
+- `METRICS_TOKEN` turns on Prometheus metrics at `portal-api:4000/metrics`
+  for a Prometheus on the stack's network
+  (docs/operations/metrics.md).
 
 Links in email use the address in the bootstrap log.
 

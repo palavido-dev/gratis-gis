@@ -17,10 +17,14 @@ import type {
 } from '@gratis-gis/shared-types';
 import { isPointCloudData } from '@gratis-gis/shared-types';
 
-import { ItemsService } from '../items/items.service.js';
+import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -150,6 +154,12 @@ export class PointCloudService {
       );
     }
     const sources = this.validateSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      sources.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
     return this.enqueueBuild(user, item, sources);
   }
 
@@ -177,6 +187,12 @@ export class PointCloudService {
       );
     }
     const added = this.validateSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      added.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
     const prev = isPointCloudData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding tiles to a cloud that was a single-file upload: the
@@ -309,6 +325,15 @@ export class PointCloudService {
     if (!isValidAssetKey(input.storageKey, ITEM_ASSET_KIND.point_cloud)) {
       throw new BadRequestException('storageKey is not a point-cloud upload');
     }
+    // The prefix alone does not make the key this caller's. A
+    // re-finalize deletes the previous key, so a copied key would be
+    // a delete primitive over another item's cloud.
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      [input.storageKey],
+      itemDataStorageKeys(item.data),
+    );
     if (typeof input.fileName !== 'string' || input.fileName.length === 0) {
       throw new BadRequestException('fileName is required');
     }
@@ -378,7 +403,9 @@ export class PointCloudService {
       previous.storageKey &&
       previous.storageKey !== input.storageKey
     ) {
-      await this.storage.deleteObject(previous.storageKey);
+      await deleteIfUnreferenced(this.prisma, this.storage, previous.storageKey, {
+        itemId,
+      });
     }
 
     await this.items.update(user, itemId, {
