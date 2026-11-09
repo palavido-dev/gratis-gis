@@ -17,6 +17,7 @@
  */
 
 import type { ISODateString } from './ids';
+import type { LayerTileSettings } from './tile-settings';
 
 /**
  * Authoritative column types. Keep synced with the form-schema package.
@@ -243,6 +244,12 @@ export interface DataLayerSublayer {
    * so existing layers keep working unchanged.
    */
   editingPolicy?: 'all-rows' | 'own-rows-only';
+  /**
+   * Optional vector tile settings (fields carried, zoom range, feature
+   * cap, browser cache age). Absent keeps the server defaults. See
+   * tile-settings.ts for the bounds; the API validates on save.
+   */
+  tiles?: LayerTileSettings;
   /** Should features in this layer carry attachments (photos, docs)?
    *  Backend support is Phase E; the flag is stored today so Phase B
    *  UIs can read/write it without a second migration. */

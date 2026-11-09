@@ -28,6 +28,7 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { CreateSharedPickListDialog } from './create-shared-pick-list-dialog';
+import { TileSettingsSection } from './tile-settings-section';
 import { useT } from '@/lib/i18n/locale-context';
 import type {
   FeatureField,
@@ -554,6 +555,14 @@ function LayerCard({
               </select>
             </label>
           </div>
+
+          {layer.geometryType !== null ? (
+            <TileSettingsSection
+              layer={layer}
+              onPatch={onPatch}
+              onReplace={onReplace}
+            />
+          ) : null}
 
           {layer.geometryType === null ? (
             <ParentLinkRow

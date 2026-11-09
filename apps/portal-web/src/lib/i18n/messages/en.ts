@@ -502,6 +502,28 @@ export const en = {
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
   },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Vector tiles',
+    intro:
+      'How this layer is cut into map tiles. Leave a box empty to keep the default.',
+    fieldsHeading: 'Fields in tiles',
+    allFields: 'All fields (default)',
+    someFields: 'Only these fields',
+    noFields: 'This layer has no fields yet.',
+    fieldsNote:
+      'Fields a map uses for its style, labels, filter or hover popup are always added back, so maps keep drawing. Other unchecked fields are left out of the tiles, so app widgets that filter the map by them in the browser will not see them. This only makes tiles smaller. It does not hide data: every field is still readable through the layer\'s features, popups and exports.',
+    minZoom: 'Min zoom',
+    maxZoom: 'Max zoom',
+    maxFeatures: 'Max features per tile',
+    cacheMaxAge: 'Browser cache (seconds)',
+    default: 'default',
+    zoomHint:
+      'Max zoom is the deepest zoom tiles are built for; maps zoomed in further keep showing those tiles, enlarged. Below min zoom the layer is not drawn. Zoom from {min} to {max}.',
+    maxFeaturesHint: 'The feature cap can only be lowered, up to {max}.',
+    cacheHint:
+      'Cache from 0 to {max} seconds. Tiles of a layer that is not public are always cached privately, in the viewer\'s browser only.',
+  },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
   recipeTitle: 'Recipe',

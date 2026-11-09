@@ -1202,8 +1202,22 @@ export class DataLayerFeaturesService {
        */
       where?: MapLayerFilter;
       via?: AggregateVia;
+      /** From the layer's tile settings; see data-layer/tile-settings.ts. */
+      maxFeaturesPerTile?: number;
+      /**
+       * From the layer's tile settings. A tile outside the range is
+       * answered empty without touching the database or the cache, the
+       * same empty body a table sublayer gets.
+       */
+      zoomRange?: { min: number; max: number };
     } = {},
   ): Promise<TileResult> {
+    if (
+      opts.zoomRange !== undefined &&
+      (z < opts.zoomRange.min || z > opts.zoomRange.max)
+    ) {
+      return { mvt: Buffer.alloc(0), etag: '"empty-zoom"' };
+    }
     return this.dataLayer.mvtTile({
       itemId,
       layerId,
@@ -1223,6 +1237,9 @@ export class DataLayerFeaturesService {
       ...(opts.fields ? { fields: opts.fields } : {}),
       ...(opts.where !== undefined ? { where: opts.where } : {}),
       ...(opts.via !== undefined ? { via: opts.via } : {}),
+      ...(opts.maxFeaturesPerTile !== undefined
+        ? { maxFeaturesPerTile: opts.maxFeaturesPerTile }
+        : {}),
     });
   }
 

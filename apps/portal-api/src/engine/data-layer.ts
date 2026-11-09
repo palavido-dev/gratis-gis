@@ -27,6 +27,7 @@ import {
   uuidv7,
   validateObservation,
 } from '@gratis-gis/engine';
+import { MAX_FEATURES_PER_TILE as SERVER_MAX_FEATURES_PER_TILE } from '@gratis-gis/shared-types';
 
 import { syncVersionSource } from '../data-layer/layer-delta.js';
 import {
@@ -4161,6 +4162,13 @@ export class DataLayerEngine {
      * right; see FeaturesController.resolveVia.
      */
     via?: AggregateVia;
+    /**
+     * Per-layer feature cap from the layer's tile settings. Clamped to
+     * the server ceiling (MAX_FEATURES_PER_TILE) in the compute step, so
+     * a setting can only lower it. Part of the cache key like every
+     * other option here.
+     */
+    maxFeaturesPerTile?: number;
   }): Promise<TileResult> {
     if (args.isTable === true) {
       // Empty MVT is stable (always Buffer.alloc(0)); compute the
@@ -4401,7 +4409,16 @@ export class DataLayerEngine {
     // 30s statement_timeout and downstream MVT serialization stays
     // bounded. Layers that are sparse enough to fit in fewer rows
     // are unaffected -- this is a worst-case ceiling, not a floor.
-    const MAX_FEATURES_PER_TILE = args.maxFeaturesPerTile ?? 5000;
+    //
+    // A layer's tile settings may lower the cap (never raise it), so
+    // the requested value is clamped to the ceiling here, where the
+    // SQL is built, rather than trusted from the caller.
+    const MAX_FEATURES_PER_TILE =
+      args.maxFeaturesPerTile !== undefined &&
+      Number.isInteger(args.maxFeaturesPerTile) &&
+      args.maxFeaturesPerTile >= 1
+        ? Math.min(args.maxFeaturesPerTile, SERVER_MAX_FEATURES_PER_TILE)
+        : SERVER_MAX_FEATURES_PER_TILE;
     // Row-scope (#40), mirroring listFeatures' candidate_entities CTE
     // exactly. The predicate belongs on the entity's `create`
     // observation, NOT on whichever version this tile happens to

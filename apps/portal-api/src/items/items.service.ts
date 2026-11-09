@@ -12,6 +12,7 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeTileSettingsInData } from '../data-layer/tile-settings.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
@@ -1482,6 +1483,14 @@ export class ItemsService {
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
     assertRenderSafeData(input.type, resolvedData);
+    // Per-layer vector tile settings: refuse an out-of-range value
+    // here, where every data_layer write passes, rather than at tile
+    // time where a bad value could only be ignored.
+    if (input.type === 'data_layer') {
+      resolvedData = normalizeTileSettingsInData(
+        resolvedData,
+      ) as Prisma.InputJsonValue;
+    }
     if (opts.clientKeys) {
       await assertKeysAttachable(
         this.prisma,
@@ -2140,6 +2149,12 @@ export class ItemsService {
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData, item.data);
     assertRenderSafeData(item.type, nextData);
+    // Same tile settings validation as create(). The cache needs no
+    // invalidation here: a setting that changes tile bytes changes the
+    // tile cache key (see data-layer/tile-settings.ts).
+    if (item.type === 'data_layer' && nextData !== undefined) {
+      nextData = normalizeTileSettingsInData(nextData) as Prisma.InputJsonValue;
+    }
     if (opts.clientKeys && nextData !== undefined) {
       await assertKeysAttachable(
         this.prisma,

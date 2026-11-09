@@ -458,6 +458,28 @@ export const de: Partial<CatalogShape> = {
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
   },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Vektorkacheln',
+    intro:
+      'Wie dieser Layer in Kartenkacheln zerlegt wird. Lassen Sie ein Feld leer, um den Standard zu behalten.',
+    fieldsHeading: 'Felder in den Kacheln',
+    allFields: 'Alle Felder (Standard)',
+    someFields: 'Nur diese Felder',
+    noFields: 'Dieser Layer hat noch keine Felder.',
+    fieldsNote:
+      'Felder, die eine Karte für Stil, Beschriftungen, Filter oder Hover-Popup nutzt, werden immer wieder hinzugefügt, damit Karten weiter zeichnen. Andere nicht angehakte Felder fehlen in den Kacheln, sodass App-Widgets, die die Karte im Browser danach filtern, sie nicht sehen. Das macht Kacheln nur kleiner. Es verbirgt keine Daten: Jedes Feld bleibt über die Features, Popups und Exporte des Layers lesbar.',
+    minZoom: 'Min. Zoom',
+    maxZoom: 'Max. Zoom',
+    maxFeatures: 'Max. Features pro Kachel',
+    cacheMaxAge: 'Browser-Cache (Sekunden)',
+    default: 'Standard',
+    zoomHint:
+      'Max. Zoom ist die tiefste Zoomstufe, für die Kacheln erzeugt werden; weiter hineingezoomte Karten zeigen diese Kacheln vergrößert weiter an. Unterhalb des min. Zooms wird der Layer nicht gezeichnet. Zoom von {min} bis {max}.',
+    maxFeaturesHint: 'Die Feature-Obergrenze kann nur gesenkt werden, bis {max}.',
+    cacheHint:
+      'Cache von 0 bis {max} Sekunden. Kacheln eines nicht öffentlichen Layers werden immer nur privat im Browser des Betrachters zwischengespeichert.',
+  },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
   recipeTitle: 'Recipe',
