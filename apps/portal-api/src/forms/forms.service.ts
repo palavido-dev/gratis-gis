@@ -10,6 +10,7 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { Item } from '@prisma/client';
 import { validate } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
 
@@ -17,7 +18,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
+import { AuthSyncService } from '../auth/auth-sync.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { SharingService } from '../items/sharing.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { dataLayerScope } from '../engine/data-layer.js';
 import {
@@ -25,6 +28,7 @@ import {
   receiptFilename,
   renderSubmissionPdf,
 } from './submission-pdf.js';
+import { cleanSubmission } from './submission-clean.js';
 import { isPlainEmailAddress } from '../notifications/email-address.js';
 
 /**
@@ -80,6 +84,8 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerAttachments: DataLayerAttachmentsService,
+    private readonly sharing: SharingService,
+    private readonly authSync: AuthSyncService,
     @Optional() private readonly leader?: LeaderElectionService,
   ) {}
 
@@ -117,47 +123,28 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /** Fetch the form item, gating by visibility for the caller. Used
-   *  to look up the orgId we'll stamp on the submission. Selects
+   *  to look up the orgId we'll stamp on the submission. Returns
    *  `data` so submit() can read linkedLayerId / linkedLayerKey for
-   *  the paired-data_layer mirror write (#281e). */
-  private async getVisibleForm(formId: string, user: AuthUser) {
-    const item = await this.prisma.item.findUnique({
-      where: { id: formId },
-      select: {
-        id: true,
-        type: true,
-        orgId: true,
-        ownerId: true,
-        access: true,
-        title: true,
-        data: true,
-      },
-    });
-    if (!item || item.type !== 'form') {
+   *  the paired-data_layer mirror write (#281e).
+   *
+   *  Access is the same read rule every other item route uses
+   *  (SharingService.canRead), so an expired share or a trashed form
+   *  grants nothing here either. The org check stays on top of it:
+   *  a public form from another org is readable, but submissions are
+   *  only taken from members of the form's own org. */
+  private async getVisibleForm(formId: string, user: AuthUser): Promise<Item> {
+    const item = await this.prisma.item.findUnique({ where: { id: formId } });
+    if (!item || item.type !== 'form' || item.deletedAt !== null) {
       throw new NotFoundException('Form not found.');
     }
-    // Same org check is the cheap baseline. Org-wide-public forms
-    // pass; private forms only pass when the respondent has a share.
     if (item.orgId !== user.orgId) {
       throw new ForbiddenException('Form is not in your organization.');
     }
-    if (item.access === 'private' && item.ownerId !== user.id) {
-      const share = await this.prisma.itemShare.findFirst({
-        where: {
-          itemId: item.id,
-          OR: [
-            { principalType: 'user', principalId: user.id },
-            {
-              principalType: 'group',
-              principalId: { in: user.groupIds },
-            },
-          ],
-        },
-        select: { itemId: true },
-      });
-      if (!share) {
-        throw new ForbiddenException('You do not have access to this form.');
-      }
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: item.id },
+    });
+    if (!this.sharing.canRead(user, item, shares)) {
+      throw new ForbiddenException('You do not have access to this form.');
     }
     return item;
   }
@@ -216,7 +203,14 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
           'Re-open the form to pick up the latest version and try again.',
       );
     }
-    const validation = validate(schema, dto.response as FormResponse);
+    // Recompute calculated answers and drop everything the form would
+    // not have sent: answers to questions hidden by their rules, and
+    // keys that match no question. Validation skips both, so storing
+    // the raw body would let a stale tab or a hand-crafted POST put
+    // unchecked values into the submission, the paired layer and the
+    // receipt email. The browser runtime does the same before it posts.
+    const response = cleanSubmission(schema, dto.response as FormResponse);
+    const validation = validate(schema, response);
     if (!validation.ok) {
       const details = validation.errors
         .map((e) => `${e.questionId}: ${e.message}`)
@@ -238,7 +232,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         orgId: form.orgId,
         clientId: dto.clientId,
         schemaVersion: dto.schemaVersion,
-        response: dto.response as Prisma.InputJsonValue,
+        response: response as Prisma.InputJsonValue,
         submittedBy: user.id,
         capturedAt: captured,
       },
@@ -265,7 +259,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         formData: form.data,
         submissionId: result.id,
         submitter: user,
-        response: dto.response,
+        response,
       });
       // Mirror the submission into the paired data_layer (#281e).
       // V1 stores everything under `properties` on the layer's
@@ -283,7 +277,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         clientId: dto.clientId,
         submissionId: result.id,
         schemaVersion: dto.schemaVersion,
-        response: dto.response,
+        response,
         submittedBy: user.id,
         capturedAt: captured,
         user,
@@ -355,6 +349,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       FROM form_submission s
       JOIN item f ON f.id = s.form_id AND f.deleted_at IS NULL
       JOIN item l ON l.id::text = f.data_json->>'linkedLayerId'
+        AND l.org_id = f.org_id
         AND l.deleted_at IS NULL
       WHERE jsonb_typeof(f.data_json->'linkedLayerId') = 'string'
         AND s.created_at > now() - make_interval(days => ${MIRROR_REPAIR_WINDOW_DAYS})
@@ -402,7 +397,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         capabilities: new Set<string>(),
       } as AuthUser;
       const ok = await this.mirrorWithRetry({
-        form: { id: form.id, data: form.data },
+        form,
         clientId: submission.clientId,
         submissionId: submission.id,
         schemaVersion: submission.schemaVersion,
@@ -431,7 +426,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async mirrorToPairedLayer(args: {
-    form: { id: string; data: Prisma.JsonValue };
+    form: Pick<Item, 'id' | 'orgId' | 'ownerId' | 'data'>;
     clientId: string;
     submissionId: string;
     schemaVersion: number;
@@ -452,6 +447,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         ? data.linkedLayerKey
         : 'submissions';
     if (!layerId) return;
+    await this.assertMirrorTarget(args.form, layerId);
 
     // Pull every attachment descriptor (#292) recursively so we can
     // register them in the standard v3 feature_attachment table
@@ -633,6 +629,49 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
     if (attachments.length > 0) {
       this.log.log(
         `submission ${args.submissionId}: ${attachmentsOk}/${attachments.length} attachment(s) registered`,
+      );
+    }
+  }
+
+  /**
+   * Re-check the link before writing into it. The save path already
+   * requires the person who set `linkedLayerId` to be able to edit
+   * the layer, but the link is stored and replayed later, by the
+   * submitter and by the repair pass, so the target is checked again
+   * at write time: it must be a live data layer in the form's own
+   * org, and owned by the form's owner or one the form's owner can
+   * still edit. Throws, so the repair pass backs off instead of
+   * writing.
+   */
+  private async assertMirrorTarget(
+    form: Pick<Item, 'id' | 'orgId' | 'ownerId'>,
+    layerId: string,
+  ): Promise<void> {
+    const layer = UUID_RE.test(layerId)
+      ? await this.prisma.item.findUnique({ where: { id: layerId } })
+      : null;
+    if (
+      !layer ||
+      layer.type !== 'data_layer' ||
+      layer.deletedAt !== null ||
+      layer.orgId !== form.orgId
+    ) {
+      throw new Error(
+        `form ${form.id} links to ${layerId}, which is not a live data layer in its org`,
+      );
+    }
+    // The form's owner may always write into a layer they own. The
+    // `form-paired` tag is not a reason to skip the check: tags are
+    // editable by anyone with edit on the layer, so a form linked by
+    // someone whose share was later revoked would keep writing.
+    if (layer.ownerId === form.ownerId) return;
+    const owner = await this.authSync.principalForUserId(form.ownerId);
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: layer.id },
+    });
+    if (!owner || !this.sharing.canEdit(owner, layer, shares)) {
+      throw new Error(
+        `form ${form.id} owner can no longer edit linked layer ${layerId}`,
       );
     }
   }
@@ -1046,6 +1085,9 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
  * be rendered by the runtime either, so refusing its submissions
  * is the consistent posture.
  */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function readFormSchema(data: Prisma.JsonValue): FormSchema | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const d = data as { schemaVersion?: unknown; questions?: unknown };

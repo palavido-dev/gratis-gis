@@ -237,7 +237,14 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
             process.env.SCRIPT_MAX_NOTEBOOK_BYTES ?? SCRIPT_MAX_NOTEBOOK_BYTES,
           ),
         }),
-        signal: ac.signal,
+        // Our own deadline as well as the cancel signal. The executor
+        // enforces the run timeout, but if it ever fails to answer, this
+        // claimer must not wait forever: it is the only one, and every
+        // queued run would wait behind it.
+        signal: AbortSignal.any([
+          ac.signal,
+          AbortSignal.timeout((timeoutSeconds + EXECUTOR_GRACE_SECONDS) * 1000),
+        ]),
       });
 
       if (!res.ok) {
@@ -302,13 +309,17 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     } catch (err) {
       // An aborted fetch is the cancel path, not a failure of ours.
       const cancelled = ac.signal.aborted;
+      const timedOut =
+        !cancelled && err instanceof Error && err.name === 'TimeoutError';
       await this.finish(job.id, {
         state: cancelled ? 'cancelled' : 'failed',
         error: cancelled
           ? 'Cancelled.'
-          : `Could not reach the script executor: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+          : timedOut
+            ? 'The script executor did not answer in time.'
+            : `Could not reach the script executor: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
         apiKeyId: key.id,
       });
     } finally {
@@ -366,6 +377,9 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     return res.count === 1;
   }
 }
+
+/** How long past the run timeout the claimer waits for the executor. */
+const EXECUTOR_GRACE_SECONDS = 120;
 
 /** States in which a claimer owns the run. */
 const LIVE_STATES = ['running', 'cancel_requested'] as const;

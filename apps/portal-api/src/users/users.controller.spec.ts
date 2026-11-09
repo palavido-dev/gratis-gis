@@ -82,3 +82,50 @@ describe('UsersController.me', () => {
     });
   });
 });
+
+describe('UsersController.updateMe identity fields', () => {
+  function build() {
+    const prisma = {
+      user: {
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue({ avatarUrl: null, fullName: 'Pat' }),
+      },
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }),
+      },
+    } as unknown as PrismaService;
+    const updateUser = jest.fn().mockResolvedValue({});
+    const kc = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      updateUser,
+    } as unknown as KeycloakAdminService;
+    return { controller: new UsersController(prisma, kc), updateUser };
+  }
+
+  it('refuses an email change made with an API key', async () => {
+    const { controller, updateUser } = build();
+    const user = { ...userWithRole('contributor'), authKind: 'api_key' as const };
+    await expect(
+      controller.updateMe(user, { email: 'attacker@example.test' }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('still lets an API key set the avatar', async () => {
+    const { controller, updateUser } = build();
+    const user = { ...userWithRole('contributor'), authKind: 'api_key' as const };
+    await controller.updateMe(user, { avatarUrl: 'https://example.test/a.png' });
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 when Keycloak admin is not configured', async () => {
+    const prisma = {} as unknown as PrismaService;
+    const kc = {
+      isConfigured: jest.fn().mockReturnValue(false),
+    } as unknown as KeycloakAdminService;
+    const controller = new UsersController(prisma, kc);
+    await expect(
+      controller.updateMe(userWithRole('viewer'), { firstName: 'P' }),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+});
