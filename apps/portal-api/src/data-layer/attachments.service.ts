@@ -149,6 +149,12 @@ export class DataLayerAttachmentsService {
     featureId: string,
     input: RegisterFeatureAttachmentInput,
     userId: string,
+    opts: {
+      /** Keys a stored server record already names (the form mirror
+       *  repair re-registering a saved submission). Accepted without
+       *  a presign grant, which is pruned after two days. */
+      storedKeys?: readonly string[];
+    } = {},
   ): Promise<FeatureAttachment> {
     if (
       typeof input.storageKey !== 'string' ||
@@ -161,7 +167,12 @@ export class DataLayerAttachmentsService {
     // The prefix alone does not make the key this caller's: attachment
     // URLs carry the key to every download-tier reader, and remove()
     // deletes the object.
-    await assertKeysAttachable(this.prisma, userId, [input.storageKey]);
+    await assertKeysAttachable(
+      this.prisma,
+      userId,
+      [input.storageKey],
+      opts.storedKeys ?? [],
+    );
 
     // #224: refuse to parent an attachment to a feature that does
     // not exist (orphans were invisible and never cleaned up).
