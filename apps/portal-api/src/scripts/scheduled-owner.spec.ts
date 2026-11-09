@@ -17,7 +17,8 @@ function build(owner: { deletedAt: Date | null; disabledAt: Date | null }) {
         id: 's1',
         orgId: 'o1',
         ownerId: 'u1',
-        data: { source: 'print(1)' },
+        // Code the owner wrote, so only the owner check can skip it.
+        data: { source: 'print(1)', sourceEditedBy: 'u1' },
       })),
     },
     user: {
