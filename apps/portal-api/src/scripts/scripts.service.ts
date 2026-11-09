@@ -170,12 +170,13 @@ export class ScriptsService {
       return null;
     }
 
-    // The owner must still be a live user. An owner who has been
-    // deactivated should not keep executing code every night, and
+    // The owner must still be a live, enabled user. An owner who has
+    // been disabled or deleted should not keep executing code every
+    // night (the schedule resumes if the account is enabled again), and
     // failing closed here is the difference between a stale schedule
     // and a standing grant that outlives the account.
     const owner = await this.prisma.user.findFirst({
-      where: { id: item.ownerId, deletedAt: null },
+      where: { id: item.ownerId, deletedAt: null, disabledAt: null },
       select: { id: true },
     });
     if (!owner) {
