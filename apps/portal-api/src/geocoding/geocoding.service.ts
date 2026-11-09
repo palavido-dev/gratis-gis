@@ -12,6 +12,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import { isGeocodingServiceData } from '@gratis-gis/shared-types';
 
+import { geoLimitSql } from '../common/closed-geo-limit.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -232,6 +233,33 @@ export class GeocodingService {
     const filterSql =
       filters.length > 0 ? Prisma.join(filters, ' ') : Prisma.empty;
 
+    // The caller's share scope on the source layer, applied to the
+    // live rows: a geo limit or own-rows share narrows candidates the
+    // same way the engine's reads do. Own rows key on the entity's
+    // latest create, so a re-created id belongs to whoever re-created
+    // it.
+    const shareScope = await this.items.featureReadScope(
+      user,
+      source,
+      sublayerId,
+    );
+    const scopeFilters: Prisma.Sql[] = [];
+    if (shareScope.geoLimit) {
+      scopeFilters.push(geoLimitSql(shareScope.geoLimit, 'geom', 'AND '));
+    }
+    if (shareScope.rowScope === 'own') {
+      scopeFilters.push(Prisma.sql`AND (
+        SELECT c.author_sub FROM observation c
+        WHERE c.scope = ${scope}
+          AND c.entity = latest.entity
+          AND c.kind = 'create'
+        ORDER BY c.valid_from DESC, c.tx_time DESC, c.id DESC
+        LIMIT 1
+      ) = ${shareScope.userId}`);
+    }
+    const scopeSql =
+      scopeFilters.length > 0 ? Prisma.join(scopeFilters, ' ') : Prisma.empty;
+
     // Index-using filter (#74 perf followup). The %> operator
     // (word similarity above pg_trgm.word_similarity_threshold)
     // can use a GIN trigram index on `(attrs->>'field')`, which
@@ -310,6 +338,7 @@ export class GeocodingService {
         WHERE kind <> 'delete'
         ${trgmFilterSql}
         ${filterSql}
+        ${scopeSql}
       ),
       scored AS (
         SELECT

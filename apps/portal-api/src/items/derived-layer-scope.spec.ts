@@ -82,6 +82,10 @@ function service(items: Record<string, unknown>) {
         findUnique: jest.fn(
           async ({ where }: { where: { id: string } }) => items[where.id] ?? null,
         ),
+        findMany: jest.fn(
+          async ({ where }: { where: { id: { in: string[] } } }) =>
+            where.id.in.map((id) => items[id]).filter(Boolean),
+        ),
       },
     },
     sharing: new SharingService(undefined as never, new PolicyService()),
@@ -138,5 +142,76 @@ describe('derived layers honour the reader scope on their inputs', () => {
         assertDerivedInputsUnscoped: (u: unknown, d: unknown) => Promise<void>;
       }).assertDerivedInputsUnscoped(reader, derivedItem().data),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('fails closed when the input walk hits its cap', async () => {
+    // A chain longer than the walk cap with the limited source at the
+    // far end: inputs past the cap were never checked, so the reader
+    // gets nothing rather than the unchecked tail.
+    const chain: Record<string, unknown> = {};
+    const ids = Array.from(
+      { length: 30 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    );
+    ids.forEach((id, i) => {
+      const next = ids[i + 1];
+      chain[id] = next
+        ? {
+            id,
+            type: 'derived_layer',
+            deletedAt: null,
+            shares: [],
+            data: {
+              version: 1,
+              source: { kind: 'derived_layer', itemId: next, layerKey: 'l' },
+              pipeline: [],
+            },
+          }
+        : dataLayer(id, [viewShare({ geoLimit: POLY })]);
+    });
+    const { svc } = service(chain);
+    const limited = await (svc as unknown as {
+      derivedInputScopeLimit: (u: unknown, d: unknown) => Promise<string | null>;
+    }).derivedInputScopeLimit(reader, {
+      source: { kind: 'derived_layer', itemId: ids[0], layerKey: 'l' },
+      pipeline: [],
+    });
+    expect(limited).not.toBeNull();
+  });
+
+  it('a limited reader does not see the derived extent or buffer cap', async () => {
+    const stored = {
+      ...derivedItem([
+        {
+          tool: 'buffer',
+          params: { mode: 'field', field: 'r', unit: 'm', cachedMaxMeters: 900 },
+        },
+      ]),
+      access: 'private',
+      orgId: 'org-1',
+      deletedAt: null,
+      shares: [],
+      bbox: [10, 10, 20, 20],
+    };
+    (stored.data as Record<string, unknown>).bbox = [10, 10, 20, 20];
+    const { svc } = service({
+      [SOURCE]: dataLayer(SOURCE, [viewShare({ geoLimit: POLY })]),
+      [DERIVED]: stored,
+    });
+    const got = (await svc.get(reader as never, DERIVED)) as unknown as {
+      bbox: unknown;
+      data: { bbox?: unknown; pipeline: Array<{ params: Record<string, unknown> }> };
+    };
+    expect(got.bbox).toEqual([]);
+    expect(got.data.bbox).toBeUndefined();
+    expect(got.data.pipeline[0]!.params.cachedMaxMeters).toBeUndefined();
+    expect(got.data.pipeline[0]!.params.field).toBe('r');
+
+    const rows = (await (svc as unknown as {
+      redactLimitedDerivedRows: (u: unknown, r: unknown[]) => Promise<unknown[]>;
+    }).redactLimitedDerivedRows(reader, [
+      { id: DERIVED, type: 'derived_layer', bbox: [10, 10, 20, 20] },
+    ])) as Array<{ bbox: unknown }>;
+    expect(rows[0]!.bbox).toEqual([]);
   });
 });

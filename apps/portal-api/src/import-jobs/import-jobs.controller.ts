@@ -95,7 +95,11 @@ export class ImportJobsController {
         `Layer ${layerId} is not part of this item's schema.`,
       );
     }
-    await this.items.assertCanEdit(user, itemId);
+    await this.items.assertCanImportAllRows(
+      user,
+      itemId,
+      (layer as { editingPolicy?: unknown }).editingPolicy,
+    );
 
     // Pre-validate the staging so a doomed job never lands in the
     // queue. getStaging throws Forbidden if the staging belongs to

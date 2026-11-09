@@ -37,6 +37,7 @@ const OWNER = '30000000-0000-4000-8000-000000000002';
 const READER = '30000000-0000-4000-8000-000000000003';
 const INSIDE = '30000000-0000-4000-8000-0000000000a1';
 const OUTSIDE = '30000000-0000-4000-8000-0000000000a2';
+const MOVED = '30000000-0000-4000-8000-0000000000a3';
 
 const DISTRICT = {
   type: 'Polygon',
@@ -159,5 +160,21 @@ d('legacy v2 feature routes honour share scope', () => {
     shares = [share({})];
     const fc = await controller.list(reader, ITEM);
     expect(fc.features).toHaveLength(2);
+  });
+
+  it('history of a feature since moved out of the area stays hidden', async () => {
+    shares = [share({ geoLimit: DISTRICT })];
+    await features.bulkInsert(
+      ITEM,
+      [{ globalId: MOVED, geometry: { type: 'Point', coordinates: [0.5, 0.5] }, properties: { n: 3 } }],
+      owner,
+    );
+    await controller.update(owner, ITEM, MOVED, {
+      geometry: { type: 'Point', coordinates: [60, 60] },
+    });
+    // The first version sits inside the district, the current one
+    // does not: the reader cannot see the feature, so not its past.
+    expect(await controller.history(reader, ITEM, MOVED)).toEqual([]);
+    expect(await controller.history(owner, ITEM, MOVED)).toHaveLength(2);
   });
 });

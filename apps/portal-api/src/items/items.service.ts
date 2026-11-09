@@ -2,7 +2,14 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
+import type {
+  Item,
+  ItemAccess,
+  ItemShare,
+  ItemType,
+  PrincipalType,
+  SharePermission,
+} from '@prisma/client';
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
@@ -23,6 +30,7 @@ import {
   SharingService,
   isScopeLimited,
   legacyTableScopeConditions,
+  type FeatureScope,
 } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
@@ -39,6 +47,37 @@ const SMART_FOLDER_TYPES: readonly string[] = ITEM_TYPES;
  * must move together if they ever change.
  */
 const MAX_DERIVED_CHAIN_DEPTH = 5;
+
+/** derivedInputScopeLimit's answer when the input walk hit its cap. */
+const DERIVED_WALK_CAPPED = 'derived-walk-capped';
+
+/**
+ * A derived layer's stored extent (item bbox, recipe bbox) and the
+ * buffer cap `cachedMaxMeters` are computed from the whole of every
+ * input. A reader limited on an input must not learn them.
+ */
+function redactDerivedExtent<T extends { bbox?: unknown; data: unknown }>(
+  item: T,
+): T {
+  const data = item.data as Record<string, unknown> | null;
+  let nextData: unknown = data;
+  if (data && typeof data === 'object') {
+    const { bbox: _bbox, ...rest } = data;
+    const pipeline = Array.isArray(rest.pipeline)
+      ? rest.pipeline.map((step: unknown) => {
+          const params = (step as { params?: unknown } | null)?.params;
+          if (!params || typeof params !== 'object') return step;
+          const { cachedMaxMeters: _cap, ...p } = params as Record<
+            string,
+            unknown
+          >;
+          return { ...(step as object), params: p };
+        })
+      : rest.pipeline;
+    nextData = { ...rest, ...(pipeline !== undefined && { pipeline }) };
+  }
+  return { ...item, bbox: [], data: nextData };
+}
 
 /**
  * Coarse degree-equivalent of a kilometer buffer. Good enough for
@@ -649,7 +688,10 @@ export class ItemsService {
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
     const where = await this.buildListWhere(user, opts);
-    return this.queryListRows(where, opts);
+    return this.redactLimitedDerivedRows(
+      user,
+      await this.queryListRows(where, opts),
+    );
   }
 
   /**
@@ -669,7 +711,39 @@ export class ItemsService {
       this.queryListRows(where, opts),
       this.prisma.item.count({ where }),
     ]);
-    return { rows, total };
+    return { rows: await this.redactLimitedDerivedRows(user, rows), total };
+  }
+
+  /**
+   * List form of the get() redaction: a derived layer row whose
+   * inputs the caller reads only in part loses its stored extent.
+   */
+  private async redactLimitedDerivedRows(
+    user: AuthUser,
+    rows: unknown[],
+  ): Promise<unknown[]> {
+    const derivedIds = rows
+      .filter((r) => (r as { type?: unknown }).type === 'derived_layer')
+      .map((r) => (r as { id: string }).id);
+    if (derivedIds.length === 0) return rows;
+    const recipes = await this.prisma.item.findMany({
+      where: { id: { in: derivedIds } },
+      select: { id: true, data: true },
+    });
+    const limited = new Set<string>();
+    for (const r of recipes) {
+      if ((await this.derivedInputScopeLimit(user, r.data)) !== null) {
+        limited.add(r.id);
+      }
+    }
+    if (limited.size === 0) return rows;
+    return rows.map((r) => {
+      const row = r as { id: string; bbox?: unknown; data?: unknown };
+      if (!limited.has(row.id)) return r;
+      return 'data' in row
+        ? redactDerivedExtent(row as { data: unknown })
+        : { ...row, bbox: [] };
+    });
   }
 
   /**
@@ -1158,6 +1232,12 @@ export class ItemsService {
         }),
       );
     }
+    if (
+      item.type === 'derived_layer' &&
+      (await this.derivedInputScopeLimit(user, item.data)) !== null
+    ) {
+      return withMetaUi(synthesizeThumbnailUrl(redactDerivedExtent(item)));
+    }
     return withMetaUi(synthesizeThumbnailUrl(item));
   }
 
@@ -1603,7 +1683,9 @@ export class ItemsService {
     while (queue.length > 0) {
       const data = queue.shift();
       walked += 1;
-      if (walked > 1 + MAX_DERIVED_CHAIN_DEPTH * 4) break;
+      // Inputs past the walk cap were never checked, so treat the
+      // recipe as limited rather than hand out unchecked inputs.
+      if (walked > 1 + MAX_DERIVED_CHAIN_DEPTH * 4) return DERIVED_WALK_CAPPED;
       const deps = extractDependencies({ type: 'derived_layer', data });
       for (const depId of deps.itemIds) {
         if (visited.has(depId)) continue;
@@ -1638,6 +1720,52 @@ export class ItemsService {
       }
     }
     return null;
+  }
+
+  /**
+   * The caller's read scope on one layer of a data layer item, from
+   * the shared resolver. `layerKey` picks a v3 sublayer's
+   * editingPolicy; a v1/v2 item reads it from item.data.
+   */
+  async featureReadScope(
+    user: AuthUser,
+    item: Item & { shares?: ItemShare[] },
+    layerKey?: string,
+  ): Promise<FeatureScope> {
+    const shares =
+      item.shares ??
+      (await this.prisma.itemShare.findMany({ where: { itemId: item.id } }));
+    const data = item.data as {
+      editingPolicy?: unknown;
+      layers?: Array<{ id?: string; editingPolicy?: unknown }>;
+    } | null;
+    const policy = Array.isArray(data?.layers)
+      ? data.layers.find((l) => l.id === layerKey)?.editingPolicy
+      : data?.editingPolicy;
+    return this.sharing.featureScopeFor(user, item, shares, {
+      action: 'read',
+      layerPolicy: policy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+  }
+
+  /**
+   * True when the caller can read the item's features only in part:
+   * a share scope on a data layer, or a limited input anywhere under
+   * a derived layer. Throws NotFound when the item is not readable.
+   * For paths that read a layer's extent or rows outside the engine
+   * and cannot apply the scope themselves.
+   */
+  async isFeatureReadLimited(
+    user: AuthUser,
+    itemId: string,
+    layerKey?: string,
+  ): Promise<boolean> {
+    const item = await this.get(user, itemId);
+    if (item.type === 'derived_layer') {
+      return (await this.derivedInputScopeLimit(user, item.data)) !== null;
+    }
+    if (item.type !== 'data_layer') return false;
+    return isScopeLimited(await this.featureReadScope(user, item, layerKey));
   }
 
   /** Save and preview form of derivedInputScopeLimit: refuse. */
@@ -1896,6 +2024,38 @@ export class ItemsService {
     if (!this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException(
         'You do not have edit permission on this item',
+      );
+    }
+  }
+
+  /**
+   * Edit access for a bulk import, which can replace every row and
+   * insert anywhere. A share limited to the caller's own rows or to
+   * an area cannot authorize that, so a limited editor is refused.
+   * `editingPolicy` is the target layer's raw editingPolicy value.
+   */
+  async assertCanImportAllRows(
+    user: AuthUser,
+    id: string,
+    editingPolicy?: unknown,
+  ): Promise<void> {
+    const item = await this.get(user, id);
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: id },
+    });
+    if (!this.sharing.canEdit(user, item, shares)) {
+      throw new ForbiddenException(
+        'You do not have edit permission on this item',
+      );
+    }
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action: 'edit',
+      layerPolicy:
+        editingPolicy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+    if (isScopeLimited(scope)) {
+      throw new ForbiddenException(
+        'Import replaces or adds rows across the whole layer; your access is limited to some rows or an area.',
       );
     }
   }

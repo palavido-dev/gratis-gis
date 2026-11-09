@@ -651,14 +651,18 @@ export class FeaturesService {
     }
     const tbl = toTableName(itemId);
     const params: unknown[] = [globalId];
-    // Each version is checked on its own: a version outside the
-    // caller's area or written by someone else under own-rows stays
-    // hidden.
-    const scopeSql = scope
-      ? legacyTableScopeConditions(scope, params)
-          .map((c) => ` AND ${c}`)
-          .join('')
-      : '';
+    // A limited caller sees the history only of a feature whose
+    // current version is inside their scope, and within it only the
+    // versions that are inside it too. Checking versions alone let a
+    // feature since moved out of the area, or handed to another
+    // owner, keep showing its past.
+    let scopeSql = '';
+    if (scope) {
+      const conds = legacyTableScopeConditions(scope, params);
+      // Inside the EXISTS the bare column names resolve to `cur`.
+      const tail = conds.map((c) => ` AND ${c}`).join('');
+      scopeSql = `${tail} AND EXISTS (SELECT 1 FROM "${tbl}" cur WHERE cur.global_id = $1::uuid AND cur.valid_to IS NULL${tail})`;
+    }
     const rows = await this.prisma.$queryRawUnsafe<FeatureRow[]>(
       `SELECT *, ST_AsGeoJSON(geom) AS geom
          FROM "${tbl}"
