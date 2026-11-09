@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { pickDefaultBasemap } from './default-basemap.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
@@ -68,6 +68,7 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -411,16 +412,34 @@ export interface ShareItemInput {
  * See `storage/asset-keys.ts` for why this is enforced rather than
  * trusted.
  */
-function assertItemAssetKey(itemType: string, data: unknown): void {
+function assertItemAssetKey(
+  itemType: string,
+  data: unknown,
+  prevData?: unknown,
+): void {
   if (data === undefined || data === null || typeof data !== 'object') return;
-  const key = (data as { storageKey?: unknown }).storageKey;
-  if (assetKeyFor(itemType, key).ok) return;
-  throw new BadRequestException(
-    `storageKey must be an upload under ${
-      ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
-    }/ for a ${itemType} item.`,
-  );
+  const prev =
+    prevData && typeof prevData === 'object'
+      ? (prevData as Record<string, unknown>)
+      : {};
+  for (const field of ASSET_KEY_FIELDS) {
+    const key = (data as Record<string, unknown>)[field];
+    // The derived keys (the COG and PMTiles a tile_layer is served
+    // from, which the analysis worker downloads with its own
+    // credentials) are checked when they change. A value carried over
+    // unchanged from the stored item keeps every existing item saveable.
+    if (field !== 'storageKey' && key === prev[field]) continue;
+    if (assetKeyFor(itemType, key).ok) continue;
+    throw new BadRequestException(
+      `${field} must be an upload under ${
+        ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
+      }/ for a ${itemType} item.`,
+    );
+  }
 }
+
+/** Fields in item data that name an object in the shared bucket. */
+const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
 
 /**
  * Depth limit for the attribution walk. Item data blobs nest (a custom
@@ -555,6 +574,11 @@ export class ItemsService {
     // (Prisma-only) precisely so this import is not a cycle.
     private readonly offlinePackages: OfflinePackageService,
     @Optional() private readonly audit?: AdminAuditService,
+    // Resolves a field-queue manifest's user into a principal so the
+    // schema-break notice reaches only people who can read the
+    // deployment. Optional so unit tests can omit it; without it only
+    // the deployment owner is notified.
+    @Optional() private readonly authSync?: AuthSyncService,
   ) {}
 
   private noteAudit(
@@ -1856,7 +1880,7 @@ export class ItemsService {
     // item type's own prefix here, which is the only choke point every
     // writer passes through: point-cloud and tile-layer validate their
     // own finalize inputs, but this generic path bypasses both.
-    assertItemAssetKey(item.type, nextData);
+    assertItemAssetKey(item.type, nextData, item.data);
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -2098,6 +2122,33 @@ export class ItemsService {
    * for v1 we tell the deployment owner so they can warn their
    * field crew themselves.
    */
+  /**
+   * The owner plus every manifest-reported user who can read the
+   * data_collection, judged by the same sharing rules as a read.
+   * Without the principal resolver only the owner is returned.
+   */
+  private async schemaBreakRecipients(
+    dataCollectionId: string,
+    ownerId: string,
+    reported: string[],
+  ): Promise<string[]> {
+    const out = new Set<string>([ownerId]);
+    const others = [...new Set(reported)].filter((id) => id !== ownerId);
+    if (others.length === 0 || !this.authSync) return [...out];
+    const item = await this.prisma.item.findUnique({
+      where: { id: dataCollectionId },
+      include: { shares: true },
+    });
+    if (!item) return [...out];
+    for (const userId of others) {
+      const principal = await this.authSync.principalForUserId(userId);
+      if (principal && this.sharing.canRead(principal, item, item.shares)) {
+        out.add(userId);
+      }
+    }
+    return [...out];
+  }
+
   private async notifyDataCollectionSchemaBreak(args: {
     dataLayerId: string;
     dataLayerTitle: string;
@@ -2208,8 +2259,16 @@ export class ItemsService {
             { dataCollectionId: dc.id },
           ])}::jsonb`}
         `);
-        const recipients = new Set<string>([dc.ownerId]);
-        for (const row of downloaders) recipients.add(row.user_id);
+        // A manifest is whatever the device posted, and any signed-in
+        // user can post one naming any data_collection id. Only
+        // people who can read the deployment hear about it, or the
+        // notice would hand item and layer titles to anyone who
+        // listed a known id (any org).
+        const recipients = await this.schemaBreakRecipients(
+          dc.id,
+          dc.ownerId,
+          downloaders.map((row) => row.user_id),
+        );
         for (const userId of recipients) {
           await this.notifications.notify(
             userId,
@@ -2476,6 +2535,11 @@ export class ItemsService {
     itemType: ItemType,
     itemData: unknown,
   ): Promise<void> {
+    if (itemType === 'geocoding_service') {
+      // Its search indexes sit on the shared observation table and
+      // slow every write there. Nothing else drops them.
+      await dropGeocoderIndexes(this.prisma, itemId).catch(() => []);
+    }
     if (itemType === 'data_collection') {
       // #74: delete the offline basemap archives before the item row
       // goes. The rows themselves die by FK cascade with the item,

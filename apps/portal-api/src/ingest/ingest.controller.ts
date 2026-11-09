@@ -46,6 +46,8 @@ import {
 import {
   acquireIngestSlot,
   assertIngestDiskRoomAt,
+  IngestBusyException,
+  IngestDiskException,
 } from './ingest-slots.js';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
@@ -467,6 +469,7 @@ export class IngestController {
       res.end();
     };
 
+    let releaseSlot: (() => void) | undefined;
     try {
       if (!file && !stagingId) {
         return failStream(
@@ -532,6 +535,10 @@ export class IngestController {
       let provenanceSizeBytes: number;
       let sourcePath: string;
       let cleanupSourceDir: (() => Promise<void>) | null = null;
+      // Same per-user and global slot the other four upload routes take.
+      // This route streams for minutes over a file up to 1 GB, so it is
+      // the one that most needs the cap. Released in the finally below.
+      releaseSlot = acquireIngestSlot(user.id);
       if (stagingId) {
         const staged = await this.staging.getStaging(stagingId, user.id);
         sourcePath = staged.filePath;
@@ -542,6 +549,7 @@ export class IngestController {
         // The bytes are already in the directory this process created.
         // Open that recorded path. Do not open the caller's filename.
         const contained = takeContainedDiskUpload(req);
+        await assertIngestDiskRoomAt(contained.directory, f.size);
         sourcePath = contained.filePath;
         provenanceFileName = f.originalname;
         provenanceSizeBytes = f.size;
@@ -669,6 +677,7 @@ export class IngestController {
               layerId,
               removedEntityIds,
               authorSub: user.id,
+              replace: true,
             });
             await writer.commit();
             copyClosed = true;
@@ -715,6 +724,11 @@ export class IngestController {
       });
 
       try {
+        // Per-layer featureCount, as the async import worker stamps it.
+        // Clients (the QGIS plugin's size hint) read it, and a sync
+        // import used to leave it stale. Before the bbox read, which
+        // re-reads the item, same order as the worker.
+        await this.dataLayerTables.stampFeatureCounts(itemId);
         const fresh = await this.prisma.item.findUnique({
           where: { id: itemId },
           select: { data: true },
@@ -757,7 +771,9 @@ export class IngestController {
           ? 'You cannot import into that item.'
           : err instanceof NotFoundException
             ? 'That item or layer was not found.'
-            : err instanceof BadRequestException
+            : err instanceof BadRequestException ||
+                err instanceof IngestBusyException ||
+                err instanceof IngestDiskException
               ? err.message
               : 'Ingest failed.';
       // A BadRequestException carries text this service wrote for the
@@ -770,6 +786,7 @@ export class IngestController {
       writeEvent({ event: 'error', message });
       res.end();
     } finally {
+      releaseSlot?.();
       await discardDiskUpload(req);
     }
   }

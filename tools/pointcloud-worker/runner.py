@@ -862,6 +862,40 @@ RASTER_TARGET_KINDS = {
 }
 
 
+TILE_LAYER_KEY_PREFIX = "item-tile-layer/"
+POINT_CLOUD_KEY_PREFIX = "item-point-cloud/"
+
+
+def pinned_source_key(data: dict, prefix: str, *fields: str) -> str | None:
+    """The first non-empty key among `fields`, refused unless it sits
+    under `prefix`.
+
+    Source item data is owner-writable through the generic items PATCH,
+    and this worker downloads with service credentials that can read
+    the whole bucket. Without the pin an owner could point a source at
+    another org's raster, an analysis artifact, or a feedback
+    screenshot, run an analysis over it, and get the derived result
+    written into an item they own. The serve path pins the same way.
+    Returns None when no field is set, so callers keep their own
+    "has no file" message.
+    """
+    for field in fields:
+        key = data.get(field)
+        if not key:
+            continue
+        if (
+            not isinstance(key, str)
+            or not key.startswith(prefix)
+            or any(seg in ("", ".", "..") for seg in key[len(prefix):].split("/"))
+        ):
+            raise RuntimeError(
+                "This layer's file is not stored where this kind of layer "
+                "keeps its files, so it was not read."
+            )
+        return key
+    return None
+
+
 def stamp_target_failed(conn, job, error: str) -> None:
     """Mark a failed job's pre-created target item as failed.
 
@@ -887,6 +921,34 @@ def stamp_target_failed(conn, job, error: str) -> None:
         )
     except Exception:
         conn.rollback()
+
+
+def settle_cancelled(conn, job) -> None:
+    """Stamp the husk item, then mark the job cancelled.
+
+    In that order: merge_item_data only writes while the job row is
+    still running or cancel_requested under this claim. Marking the job
+    first made every stamp lose its lease and silently roll back, so a
+    cancelled raster job left its pre-created item with no state and
+    no explanation.
+    """
+    stamp_target_failed(
+        conn,
+        job,
+        "This analysis was cancelled before it finished.",
+    )
+    mark_cancelled(conn, job["id"], job.get("claim_token"))
+
+
+def settle_failed(conn, job, error: str) -> None:
+    """Stamp the husk item, then mark the job failed. Order as above.
+
+    Raster jobs pre-create their target tile_layer item; without the
+    stamp a failure leaves that item as a blank husk with no state and
+    no explanation.
+    """
+    stamp_target_failed(conn, job, error)
+    finish_job(conn, job["id"], error, job.get("claim_token"))
 
 
 def wgs84_bbox(tif: Path) -> list[float] | None:
@@ -1168,7 +1230,7 @@ def do_hillshade(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1303,7 +1365,7 @@ def do_elevation(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1442,7 +1504,9 @@ def do_viewshed(conn, s3, job) -> None:
         )
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -1685,7 +1749,9 @@ def do_contours(conn, s3, job):
         )
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -1867,7 +1933,9 @@ def do_zonal_stats(conn, s3, job):
         raise RuntimeError("The zone features were not staged for this job.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The raster layer has no file.")
 
@@ -2050,7 +2118,9 @@ def do_steepness(conn, s3, job) -> None:
     cog->pmtiles pyramid path. Nodata stays transparent.
     """
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -2191,7 +2261,7 @@ def do_heightmap(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -2392,7 +2462,7 @@ def do_sam_embed(conn, s3, job) -> None:
         raise RuntimeError("Zoom in further to use the outline tool.")
 
     source = item_data(conn, job["source_item_id"])
-    key = source.get("cogStorageKey")
+    key = pinned_source_key(source, TILE_LAYER_KEY_PREFIX, "cogStorageKey")
     if not key:
         raise RuntimeError("This imagery layer has no image file.")
 
@@ -2579,7 +2649,7 @@ def do_colorize(conn, s3, job) -> None:
         raise RuntimeError("Colorize job is missing its target item.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -2589,7 +2659,9 @@ def do_colorize(conn, s3, job) -> None:
             "Elevation layers have no color to paint with. "
             "Pick an aerial or satellite imagery layer."
         )
-    raster_key = raster.get("cogStorageKey") or raster.get("storageKey")
+    raster_key = pinned_source_key(
+        raster, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not raster_key:
         raise RuntimeError("The imagery layer has no image file yet.")
 
@@ -3490,20 +3562,11 @@ def main() -> None:
                 # handler, same as its failure path).
                 conn.rollback()
                 log(f"job {job['id']}: cancelled by user")
-                mark_cancelled(conn, job["id"], job.get("claim_token"))
-                stamp_target_failed(
-                    conn,
-                    job,
-                    "This analysis was cancelled before it finished.",
-                )
+                settle_cancelled(conn, job)
             except Exception as err:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")
-                finish_job(conn, job["id"], str(err), job.get("claim_token"))
-                # Raster jobs pre-create their target tile_layer item;
-                # without this stamp a failure leaves that item as a
-                # blank husk with no state and no explanation.
-                stamp_target_failed(conn, job, str(err))
+                settle_failed(conn, job, str(err))
             finally:
                 _current_job_id = None
                 forget_lease(str(job["id"]))

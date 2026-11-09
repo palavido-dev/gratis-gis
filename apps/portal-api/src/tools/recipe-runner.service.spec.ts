@@ -207,3 +207,42 @@ describe('substituteStep', () => {
   });
 });
 
+
+describe('RecipeRunnerService SQL failure', () => {
+  it('does not echo the database error to the caller', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RecipeRunnerService } = require('./recipe-runner.service.js') as typeof import('./recipe-runner.service.js');
+    const leak = 'column "ssn_last4" of relation "observation" does not exist';
+    const svc = new RecipeRunnerService(
+      {
+        $queryRawUnsafe: async () => {
+          throw new Error(leak);
+        },
+      } as never,
+      { get: async () => ({ id: 'layer-1', type: 'data_layer' }) } as never,
+      {} as never,
+    );
+    const recipe = {
+      parameters: [
+        {
+          kind: 'feature-source',
+          name: 'target',
+          label: 'Target',
+          binding: {
+            mode: 'hardcoded',
+            value: { kind: 'data_layer', itemId: 'layer-1', layerKey: 'default' },
+          },
+        },
+      ],
+      pipeline: [],
+      output: { kind: 'selection', targetParameterRef: 'target' },
+    };
+    const run = (
+      svc as unknown as {
+        runSelectionInternal(...a: unknown[]): Promise<unknown>;
+      }
+    ).runSelectionInternal({ id: 'u' }, 'tool-1', recipe, { parameters: {} });
+    await expect(run).rejects.toBeInstanceOf(BadRequestException);
+    await expect(run).rejects.not.toThrow(/ssn_last4/);
+  });
+});

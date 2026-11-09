@@ -1369,8 +1369,7 @@ model ImportJob {
   layerId           String          @map("layer_id")
   /// References /tmp/gg-staging/<id>/ where the staged file lives.
   /// The IngestStagingService cleanup cron evicts stagings older
-  /// than 1h; a job that does not start within that window will
-  /// fail at run time and the user can re-upload.
+  /// than 1h, except those a queued or running job still reads.
   stagingId         String          @map("staging_id")
   /// Source filename the user uploaded. Cosmetic; carried for the
   /// detail-page banner ("Importing parcels.gdb.zip...").
