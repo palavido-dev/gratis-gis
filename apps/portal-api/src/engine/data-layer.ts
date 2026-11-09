@@ -2023,13 +2023,19 @@ export class DataLayerEngine {
         ${currentsLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -2038,10 +2044,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -2137,13 +2146,19 @@ export class DataLayerEngine {
         LIMIT ${innerLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -2152,10 +2167,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -2513,13 +2531,19 @@ export class DataLayerEngine {
           ) l
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2530,10 +2554,13 @@ export class DataLayerEngine {
           c.content_match,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `
         : await this.prisma.$queryRaw<IterRow[]>`
@@ -2557,13 +2584,19 @@ export class DataLayerEngine {
           LIMIT ${pageSize}
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2573,10 +2606,13 @@ export class DataLayerEngine {
           c.kind,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `;
     if (rows.length === 0) return { features: [], nextCursor: null, asOf };

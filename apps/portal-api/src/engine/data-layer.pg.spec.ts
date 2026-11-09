@@ -2683,8 +2683,63 @@ d('observation-log read paths against real PostGIS', () => {
       expect(again.inserted).toBe(1);
       expect(again.deduplicated).toBe(0);
       expect(await createRowCount(scope, gid)).toBe(2);
+      // Both create rows used to join, listing the entity twice with
+      // two different `_created_at` values. Exactly one row, stamped
+      // with the latest create, on every read that joins creates.
+      const engine = makeEngine();
+      const list = await engine.listFeatures({ itemId, layerId });
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      const creates = await pool.query(
+        `SELECT tx_time FROM observation
+          WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'
+          ORDER BY valid_from DESC, tx_time DESC, id DESC`,
+        [scope, gid],
+      );
+      expect(new Date(mine[0]!.properties._created_at as string).getTime()).toBe(
+        (creates.rows[0].tx_time as Date).getTime(),
+      );
+      const bbox = await engine.listFeatures({
+        itemId,
+        layerId,
+        bbox: [HERE[0] - 1, HERE[1] - 1, HERE[0] + 1, HERE[1] + 1],
+      });
+      expect(bbox.features.filter((f) => f.id === gid)).toHaveLength(1);
+      const paged: string[] = [];
+      for await (const page of engine.iterateFeatures({ itemId, layerId })) {
+        for (const f of page) if (f.id === gid) paged.push(String(f.id));
+      }
+      expect(paged).toHaveLength(1);
+    });
+
+    it('an entity whose create row is missing still lists', async () => {
+      const svc = makeService();
+      const gid = uuidv7();
+      const scope = dataLayerScope(itemId, layerId);
+      await svc.insertFeatures(
+        itemId,
+        layerId,
+        [{ globalId: gid, geometry: { type: 'Point', coordinates: HERE }, properties: { NAME: 'Orphan' } }],
+        user,
+      );
+      await makeEngine().writeFeatureUpdate({
+        itemId,
+        layerId,
+        globalId: gid,
+        principal: PRINCIPAL,
+        properties: { NAME: 'Orphan 2' },
+        geometry: { type: 'Point', coordinates: HERE },
+      });
+      // A replace import that raced an online edit can leave the head
+      // live with no create row; tiles and aggregates still show it.
+      await pool.query(
+        `DELETE FROM observation WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'`,
+        [scope, gid],
+      );
       const list = await makeEngine().listFeatures({ itemId, layerId });
-      expect(list.features.some((f) => f.id === gid)).toBe(true);
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.properties._created_by).toBe(PRINCIPAL.sub);
     });
   });
 
