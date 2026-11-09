@@ -23,7 +23,16 @@
  * also in this module.
  */
 
-const TOKEN_CACHE = new Map<string, { token: string; expires: number }>();
+interface CachedToken {
+  token: string;
+  expires: number;
+  /** The password that minted the token, so a replaced password is
+   *  never answered with the old one's token. Held in memory only,
+   *  like the credential the caller already passed in. */
+  password: string;
+}
+
+const TOKEN_CACHE = new Map<string, CachedToken>();
 
 /**
  * Exchange a username + password for an ArcGIS token. Returns the
@@ -36,7 +45,7 @@ const TOKEN_CACHE = new Map<string, { token: string; expires: number }>();
  * than 60s remaining are treated as expired so a slow downstream
  * call doesn't fail mid-flight.
  */
-import { createHash } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 
 import { safeFetch } from '../common/net-guards.js';
 
@@ -44,15 +53,32 @@ import { safeFetch } from '../common/net-guards.js';
  * Cache key for an exchanged token. The token is sent to `serviceUrl`,
  * so the key carries it: a token minted for one URL must not be reused
  * after the item's URL is changed, even when the new URL advertises the
- * same token endpoint. A hash of the password is in the key too, so a
- * replaced password is used on the next request.
+ * same token endpoint. The password is not in the key; the entry
+ * records it and `reusableToken` checks it, so a replaced password is
+ * used on the next request.
  */
 export function tokenCacheKey(
-  args: { cacheKey: string; username: string; password: string; serviceUrl: string },
+  args: { cacheKey: string; username: string; serviceUrl: string },
   tokenUrl: string,
 ): string {
-  const secret = createHash('sha256').update(args.password).digest('hex').slice(0, 16);
-  return [args.cacheKey, args.serviceUrl, args.username, secret, tokenUrl].join('|');
+  return [args.cacheKey, args.serviceUrl, args.username, tokenUrl].join('|');
+}
+
+/**
+ * The cached token when it was minted with this password and has more
+ * than 60 seconds left, else null. The password comparison runs in
+ * constant time.
+ */
+export function reusableToken(
+  entry: CachedToken | undefined,
+  password: string,
+  now: number = Date.now(),
+): string | null {
+  if (!entry || entry.expires - 60_000 <= now) return null;
+  const a = Buffer.from(entry.password, 'utf8');
+  const b = Buffer.from(password, 'utf8');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return entry.token;
 }
 
 export async function exchangeBasicForArcgisToken(args: {
@@ -72,10 +98,8 @@ export async function exchangeBasicForArcgisToken(args: {
     );
   }
   const compositeKey = tokenCacheKey(args, tokenUrl);
-  const cached = TOKEN_CACHE.get(compositeKey);
-  if (cached && cached.expires - 60_000 > Date.now()) {
-    return cached.token;
-  }
+  const cached = reusableToken(TOKEN_CACHE.get(compositeKey), args.password);
+  if (cached !== null) return cached;
 
   const body = new URLSearchParams({
     f: 'json',
@@ -126,7 +150,11 @@ export async function exchangeBasicForArcgisToken(args: {
   // ArcGIS reports `expires` as a millisecond epoch.
   const expires =
     typeof data.expires === 'number' ? data.expires : Date.now() + 60 * 60_000;
-  TOKEN_CACHE.set(compositeKey, { token: data.token, expires });
+  TOKEN_CACHE.set(compositeKey, {
+    token: data.token,
+    expires,
+    password: args.password,
+  });
   return data.token;
 }
 

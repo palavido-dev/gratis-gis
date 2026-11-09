@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { tokenCacheKey } from './arcgis-auth.js';
+import { reusableToken, tokenCacheKey } from './arcgis-auth.js';
 
 /**
  * The exchanged token is sent to the item's service URL. The cache was
@@ -25,10 +25,31 @@ describe('tokenCacheKey', () => {
     );
   });
 
-  it('differs when the password changes and never contains it', () => {
+  it('never puts the password in the key', () => {
     const key = tokenCacheKey(base, TOKEN_URL);
-    expect(key).not.toBe(tokenCacheKey({ ...base, password: 'new' }, TOKEN_URL));
-    expect(key).not.toContain('pw|');
+    expect(key).not.toContain(base.password);
     expect(tokenCacheKey(base, TOKEN_URL)).toBe(key);
+  });
+});
+
+describe('reusableToken', () => {
+  const now = 1_000_000;
+  const entry = { token: 'tok', expires: now + 10 * 60_000, password: 'pw' };
+
+  it('reuses a live token minted with the same password', () => {
+    expect(reusableToken(entry, 'pw', now)).toBe('tok');
+  });
+
+  it('refuses the token after the password is replaced', () => {
+    expect(reusableToken(entry, 'new', now)).toBeNull();
+    expect(reusableToken(entry, 'pwx', now)).toBeNull();
+  });
+
+  it('refuses a token within 60 seconds of expiry', () => {
+    expect(reusableToken({ ...entry, expires: now + 59_000 }, 'pw', now)).toBeNull();
+  });
+
+  it('refuses when nothing is cached', () => {
+    expect(reusableToken(undefined, 'pw', now)).toBeNull();
   });
 });
