@@ -123,6 +123,12 @@ function makeAuthed(opts: {
   const sharing = {
     geoLimitFor: jest.fn(async () => opts.geoLimit ?? null),
     effectiveRowScope: jest.fn(() => opts.rowScope ?? 'all'),
+    // assertV3Layer resolves the caller's scope through this one call.
+    featureScopeFor: jest.fn(async (user: { id: string }) => ({
+      geoLimit: opts.geoLimit ?? null,
+      rowScope: opts.rowScope ?? 'all',
+      userId: user.id,
+    })),
   };
   type Ctor = ConstructorParameters<typeof DataLayerFeaturesController>;
   const controller = new DataLayerFeaturesController(
