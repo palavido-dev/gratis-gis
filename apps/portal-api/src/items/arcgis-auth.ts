@@ -36,7 +36,24 @@ const TOKEN_CACHE = new Map<string, { token: string; expires: number }>();
  * than 60s remaining are treated as expired so a slow downstream
  * call doesn't fail mid-flight.
  */
+import { createHash } from 'node:crypto';
+
 import { safeFetch } from '../common/net-guards.js';
+
+/**
+ * Cache key for an exchanged token. The token is sent to `serviceUrl`,
+ * so the key carries it: a token minted for one URL must not be reused
+ * after the item's URL is changed, even when the new URL advertises the
+ * same token endpoint. A hash of the password is in the key too, so a
+ * replaced password is used on the next request.
+ */
+export function tokenCacheKey(
+  args: { cacheKey: string; username: string; password: string; serviceUrl: string },
+  tokenUrl: string,
+): string {
+  const secret = createHash('sha256').update(args.password).digest('hex').slice(0, 16);
+  return [args.cacheKey, args.serviceUrl, args.username, secret, tokenUrl].join('|');
+}
 
 export async function exchangeBasicForArcgisToken(args: {
   serviceUrl: string;
@@ -54,7 +71,7 @@ export async function exchangeBasicForArcgisToken(args: {
       'This service does not advertise a token endpoint. Try the ArcGIS Token credential type and paste a token directly.',
     );
   }
-  const compositeKey = `${args.cacheKey}|${args.username}|${tokenUrl}`;
+  const compositeKey = tokenCacheKey(args, tokenUrl);
   const cached = TOKEN_CACHE.get(compositeKey);
   if (cached && cached.expires - 60_000 > Date.now()) {
     return cached.token;

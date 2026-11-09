@@ -187,7 +187,11 @@ export function assertPostgisLayersOnSave(next: unknown): void {
   for (const layer of layers) {
     if (!layer || typeof layer !== 'object') continue;
     const srid = (layer as { srid?: unknown }).srid;
-    if (srid !== undefined && !isValidSrid(srid)) {
+    // 0 (or null) is what PostGIS reports for a geometry column with
+    // no declared SRID. It is not injectable and must not block saving
+    // the rest of the item; reading that layer is refused instead.
+    if (srid === undefined || srid === null || srid === 0) continue;
+    if (!isValidSrid(srid)) {
       throw new BadRequestException('Each layer srid must be a positive whole number.');
     }
   }

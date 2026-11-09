@@ -84,6 +84,13 @@ describe('PostGIS Live srid', () => {
       assertPostgisLayersOnSave({ ...base, layers: [{ srid: '(SELECT 1)' }] }),
     ).toThrow(BadRequestException);
     expect(() => assertPostgisLayersOnSave({ ...base, layers: [{ srid: 4326 }] })).not.toThrow();
+    // No declared SRID: the item still saves.
+    expect(() =>
+      assertPostgisLayersOnSave({ ...base, layers: [{ srid: 0 }, { srid: 4326 }] }),
+    ).not.toThrow();
+    expect(() => assertPostgisLayersOnSave({ ...base, layers: [{ srid: -1 }] })).toThrow(
+      BadRequestException,
+    );
     expect(() =>
       assertPostgisLayersOnSave({ protocol: 'wms', layers: [{ srid: 'x' }] }),
     ).not.toThrow();
