@@ -296,7 +296,7 @@ export class GeocodingService {
         FROM observation
         WHERE scope = ${scope}
           AND entity IN (SELECT entity FROM candidates)
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ),
       live AS (
         SELECT entity, attrs, geom

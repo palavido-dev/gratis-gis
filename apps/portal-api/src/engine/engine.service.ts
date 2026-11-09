@@ -154,7 +154,7 @@ export class EngineService {
         SELECT id
         FROM observation
         WHERE scope = ${obs.scope} AND entity = ${obs.entity}::uuid
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       `;
       const headId = head[0]?.id ?? null;
@@ -378,7 +378,7 @@ export class EngineService {
         WHERE scope = ${query.scope}
           AND valid_from <= ${asOf}::timestamptz
           ${entityFilter}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT *
       FROM currents

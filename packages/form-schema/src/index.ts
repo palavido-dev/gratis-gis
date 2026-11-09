@@ -2927,6 +2927,7 @@ export {
   EXPRESSION_OP_ENGINE_VERSION,
   BUILTIN_ENGINE_VERSION,
   FORM_SCHEMA_ENGINE_VERSION,
+  BEHAVIOUR_ENGINE_VERSION,
   engineRequirement,
   requiredEngineVersion,
   engineSupports,
