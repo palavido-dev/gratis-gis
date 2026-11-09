@@ -471,6 +471,9 @@ services:
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
+      # GML and other XML drivers must not fetch remote schemas. The
+      # ingest code sets this too; this is the second layer.
+      GML_DOWNLOAD_SCHEMA: "NO"
       GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       # Token issuer side: KEYCLOAK_URL is the public-facing Keycloak
@@ -689,10 +692,8 @@ services:
       # leader-election service from acquiring an extra connection it
       # doesn't need.
       ENABLE_CRONS: "false"
-      # worker.main.ts gates the script claimer on this. Missing here for
-      # the same reason it was missing on portal-api: it was documented
-      # and never wired.
-      PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # No PORTAL_SCRIPTS_ENABLED here: this process never claims
+      # script runs (worker.main.ts). script-runner is the only claimer.
       # Cap the Prisma pool below the API default (25). The worker does
       # not serve tiles, so it does not need a wide pool, and this keeps
       # total DB demand (portal-api 2x25 + this + script-runner +
@@ -704,6 +705,9 @@ services:
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
+      # GML and other XML drivers must not fetch remote schemas. The
+      # ingest code sets this too; this is the second layer.
+      GML_DOWNLOAD_SCHEMA: "NO"
       GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       KEYCLOAK_URL: https://${AUTH_DOMAIN:-auth.gratisgis.org}
@@ -954,6 +958,9 @@ services:
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
+      # GML and other XML drivers must not fetch remote schemas. The
+      # ingest code sets this too; this is the second layer.
+      GML_DOWNLOAD_SCHEMA: "NO"
       # Operator tuning knobs (#205 / #199 / #208). These were
       # documented as env-tunable but never passed through compose,
       # so only the code defaults ever applied; discovered when the
