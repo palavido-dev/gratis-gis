@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { Transform } from 'node:stream';
+import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { crc32, createInflateRaw } from 'node:zlib';
 
@@ -579,6 +579,87 @@ export async function extractZipToDir(
   } finally {
     await fh.close();
   }
+}
+
+/**
+ * Read one member of an already-opened zip into memory, inflating at
+ * most `maxBytes`. Same guards as extractEntry: the central directory
+ * budget, no encrypted members, stored or deflate only, the byte cap
+ * enforced while inflating, and the CRC checked. Returns null when the
+ * archive has no member by that name, or when the member is larger
+ * than `maxBytes` (the caller decides what a too-large member means).
+ * Used to read the KML document out of a KMZ.
+ */
+export async function readZipMember(
+  fh: FileHandle,
+  memberName: string,
+  maxBytes: number,
+): Promise<Buffer | null> {
+  const { size: fileSize } = await fh.stat();
+  const entries = await assertCentralDirectoryBudget(fh, fileSize);
+  const entry = entries.find((e) => e.name === memberName);
+  if (!entry) return null;
+  if (entry.uncompressedSize > maxBytes) return null;
+  if ((entry.flags & 0x0001) !== 0) {
+    throw new Error(`Zip entry is encrypted: ${entry.name}`);
+  }
+  if (entry.method !== 0 && entry.method !== 8) {
+    throw new Error(
+      `Unsupported zip compression method ${entry.method} for ${entry.name}`,
+    );
+  }
+  if (entry.method === 0 && entry.compressedSize !== entry.uncompressedSize) {
+    throw new Error(`Corrupt zip: stored entry size mismatch on ${entry.name}`);
+  }
+  if (entry.compressedSize === 0) return Buffer.alloc(0);
+  if (entry.localHeaderOffset + 30 > fileSize) {
+    throw new Error(`Corrupt zip: local header out of range for ${entry.name}`);
+  }
+  const loc = await readExact(fh, entry.localHeaderOffset, 30);
+  if (loc.readUInt32LE(0) !== LOC_SIG) {
+    throw new Error(`Corrupt zip: bad local header for ${entry.name}`);
+  }
+  const dataStart =
+    entry.localHeaderOffset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
+  if (dataStart + entry.compressedSize > fileSize) {
+    throw new Error(
+      `Corrupt zip: entry data extends past end of file for ${entry.name}`,
+    );
+  }
+  const chunks: Buffer[] = [];
+  let written = 0;
+  let crc = 0;
+  const collect = new Writable({
+    write(chunk: Buffer, _enc, cb) {
+      written += chunk.length;
+      if (written > entry.uncompressedSize || written > maxBytes) {
+        cb(new Error(`Zip entry inflated past its declared size: ${entry.name}`));
+        return;
+      }
+      crc = crc32(chunk, crc);
+      chunks.push(chunk);
+      cb();
+    },
+  });
+  const source = fh.createReadStream({
+    start: dataStart,
+    end: dataStart + entry.compressedSize - 1,
+    autoClose: false,
+  });
+  if (entry.method === 8) {
+    await pipeline(source, createInflateRaw(), collect);
+  } else {
+    await pipeline(source, collect);
+  }
+  if (written !== entry.uncompressedSize) {
+    throw new Error(
+      `Corrupt zip: ${entry.name} inflated to ${written} bytes, expected ${entry.uncompressedSize}`,
+    );
+  }
+  if ((crc >>> 0) !== entry.crc) {
+    throw new Error(`Corrupt zip: CRC mismatch on ${entry.name}`);
+  }
+  return Buffer.concat(chunks, written);
 }
 
 /** Parse the central directory and refuse bombs by declared size /
