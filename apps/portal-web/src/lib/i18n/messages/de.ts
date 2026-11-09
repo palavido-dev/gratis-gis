@@ -3428,16 +3428,8 @@ export const de: Partial<CatalogShape> = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       'Feedback senden geht in den Posteingang des Maintainers; kein Konto nötig. Discussions ist der GitHub-Ort für längere Threads.',
-    testingTitle:
-      'Dies ist eine öffentliche Testinstanz. Sie wird jeden Tag um 04:00 UTC auf einen kuratierten Ausgangszustand zurückgesetzt.',
-    testingBodyBefore: 'Melden Sie sich an mit',
-    testingBodyOr: 'oder',
-    testingBodyAfter:
-      '. Elemente, Benutzer und Bearbeitungen, die Sie anlegen, verschwinden beim nächsten Reset. Problem gefunden? Nutzen Sie die Feedback-Schaltfläche in der Ecke jeder Seite. Kein Konto nötig.',
-    testingSampleLead: 'Neu hier? Öffnen Sie den Ordner',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'nach dem Anmelden: ein vollständiger Demo-Arbeitsbereich mit gestylten Layern, einer Karte, einem Formular mit Antworten, einer Felderhebung und öffentlichen Apps, alles rund um einen kleinen County in West Virginia.',
+    testingNotice: 'Öffentliche Demo. Sie wird jeden Tag um 04:00 UTC zurückgesetzt.',
+    testingSignInLink: 'Die Testkonten stehen auf der Anmeldeseite.',
   },
   auth: {
     redirecting: 'Weiterleitung zur Anmeldung...',

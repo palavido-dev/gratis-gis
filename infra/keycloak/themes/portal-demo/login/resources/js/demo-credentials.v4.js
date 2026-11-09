@@ -45,9 +45,9 @@
 
     var p = document.createElement('p');
     p.textContent =
-      'Sign in with any of the shared accounts below. Everything you '
-      + 'create is wiped and restored to a curated sample every day at '
-      + '04:00 UTC.';
+      'Sign in with any shared account below. Everything resets every '
+      + 'day at 04:00 UTC. New here? Start in the Sample: Randolph County '
+      + 'folder.';
     panel.appendChild(p);
 
     ACCOUNTS.forEach(function (acct) {

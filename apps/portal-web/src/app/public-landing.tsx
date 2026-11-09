@@ -498,65 +498,31 @@ function ProjectAboutSection({ locale }: { locale: SupportedLocale }) {
 }
 
 /**
- * #141: Public-testing-mode banner. Rendered at the very top of
- * the landing page (above the Hero) when the deploy sets
- * NEXT_PUBLIC_PUBLIC_TESTING=1. Spells out:
+ * #141: Public-testing-mode banner. Rendered at the very top of the
+ * landing page (above the Hero) when the deploy sets
+ * NEXT_PUBLIC_PUBLIC_TESTING=1.
  *
- *   - The instance is a test environment, not a production
- *     deployment (so testers don't expect their data to persist).
- *   - The three documented test users and their passwords
- *     (matches what seed-test-users.sh provisions).
- *   - The daily reset window (matches what
- *     gg-reset-demo.timer fires at).
- *
- * Tone is informational, not alarming. Amber-styled because
- * "heads up, this is a sandbox" reads better in amber than the
- * danger red.
+ * One line: this is a sandbox that resets daily, and where to find
+ * the test accounts. The accounts themselves, with a button that
+ * fills the form, live on the sign-in page (the portal-demo Keycloak
+ * theme), which is where people need them. The old three-paragraph
+ * banner repeated them here and pushed the page content below the
+ * fold on a phone.
  */
 function TestingBanner({ locale }: { locale: SupportedLocale }) {
   return (
-    <div className="border-b border-warn/40 bg-warn/10 px-6 py-3 text-sm">
-      <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-        <div className="flex-1 text-warn">
-          <p className="font-medium">
-            {t('landing.testingTitle', undefined, locale)}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            {t('landing.testingBodyBefore', undefined, locale)}{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-admin
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Admin123!
-            </code>
-            ,{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-contributor
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Contributor123!
-            </code>
-            , {t('landing.testingBodyOr', undefined, locale)}{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-viewer
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Viewer123!
-            </code>
-            {t('landing.testingBodyAfter', undefined, locale)}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            {t('landing.testingSampleLead', undefined, locale)}{' '}
-            <span className="font-medium">
-              {t('landing.testingSampleName', undefined, locale)}
-            </span>{' '}
-            {t('landing.testingSampleTail', undefined, locale)}
-          </p>
-        </div>
+    <div className="border-b border-warn/40 bg-warn/10 px-6 py-2 text-sm">
+      <div className="mx-auto flex w-full max-w-5xl items-center gap-2 text-warn">
+        <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          {t('landing.testingNotice', undefined, locale)}{' '}
+          <Link
+            href="/signin?callbackUrl=%2Fitems"
+            className="font-medium underline underline-offset-2"
+          >
+            {t('landing.testingSignInLink', undefined, locale)}
+          </Link>
+        </p>
       </div>
     </div>
   );

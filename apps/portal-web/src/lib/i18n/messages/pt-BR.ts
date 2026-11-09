@@ -3410,16 +3410,8 @@ export const ptBR: Partial<CatalogShape> = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       'Enviar feedback vai para a caixa de entrada do mantenedor; nenhuma conta necessária. Discussions é o espaço do GitHub para threads mais longos.',
-    testingTitle:
-      'Esta é uma instância pública de teste. Ela volta a um estado de referência todos os dias às 04:00 UTC.',
-    testingBodyBefore: 'Entre com',
-    testingBodyOr: 'ou',
-    testingBodyAfter:
-      '. Itens, usuários e edições que você criar desaparecem no próximo reset. Achou um problema? Use o botão de Feedback no canto de qualquer página. Nenhuma conta necessária.',
-    testingSampleLead: 'Novo por aqui? Abra a pasta',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'depois de entrar: um espaço de trabalho de demonstração completo com camadas estilizadas, um mapa, um formulário com respostas, um levantamento de campo e apps públicos, tudo baseado em um pequeno condado da West Virginia.',
+    testingNotice: 'Demo pública. Ela é reiniciada todos os dias às 04:00 UTC.',
+    testingSignInLink: 'As contas de teste estão na página de login.',
   },
   auth: {
     redirecting: 'Redirecionando para o login...',

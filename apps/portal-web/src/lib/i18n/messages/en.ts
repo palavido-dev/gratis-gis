@@ -3547,16 +3547,8 @@ export const en = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       "Send feedback goes to the maintainer's inbox; no account required. Discussions is the GitHub place for longer threads.",
-    testingTitle:
-      'This is a public test instance. Resets to a curated golden state every day at 04:00 UTC.',
-    testingBodyBefore: 'Sign in with',
-    testingBodyOr: 'or',
-    testingBodyAfter:
-      '. Items, users, and edits you create vanish at the next reset. Found a problem? Use the Feedback button in the corner of any page. No account needed.',
-    testingSampleLead: 'New here? Open the',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'folder after signing in: a complete demo workspace with styled layers, a map, a form with responses, a field survey, and public apps, all built on one small West Virginia county.',
+    testingNotice: 'Public demo. It resets every day at 04:00 UTC.',
+    testingSignInLink: 'Test accounts are on the sign-in page.',
   },
   /** /signin redirect chrome (#162). */
   auth: {
