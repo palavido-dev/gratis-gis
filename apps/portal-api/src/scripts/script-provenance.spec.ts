@@ -237,7 +237,15 @@ describe('ItemsService.reassignOwner on a script', () => {
       sharing: { canAdmin: () => true },
       noteAudit: () => undefined,
       prisma: {
-        user: { findUnique: async () => ({ id: ADMIN, orgId: ORG }) },
+        user: {
+          findUnique: async () => ({
+            id: ADMIN,
+            orgId: ORG,
+            orgRole: 'admin',
+            deletedAt: null,
+            capabilityOverrides: [],
+          }),
+        },
         $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
       },
     });
