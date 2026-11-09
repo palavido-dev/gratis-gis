@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { containedPayloadFile, serverUploadName } from './ingest-disk-path.js';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1582,17 +1582,20 @@ export class IngestService {
       const safePath = await this.resolveInsideIngestRoot(filePath);
       if (safePath === null) return [];
       let xml: Buffer | null;
-      if (lower.endsWith('.kml')) {
-        const st = await stat(safePath);
-        xml = st.size <= KML_EXTENDED_MAX_BYTES ? await readFile(safePath) : null;
-      } else {
-        const fh = await open(safePath, 'r');
-        try {
+      // One handle for the size check and the read, so the file cannot
+      // change between them.
+      const fh = await open(safePath, 'r');
+      try {
+        if (lower.endsWith('.kml')) {
+          const { size } = await fh.stat();
+          xml = size <= KML_EXTENDED_MAX_BYTES ? await fh.readFile() : null;
+          if (xml !== null && xml.length > KML_EXTENDED_MAX_BYTES) xml = null;
+        } else {
           const member = preferredKmlZipEntry(await assertZipExpansionBudget(fh));
           xml = member ? await readZipMember(fh, member, KML_EXTENDED_MAX_BYTES) : null;
-        } finally {
-          await fh.close();
         }
+      } finally {
+        await fh.close();
       }
       if (xml === null) {
         this.log.warn(
