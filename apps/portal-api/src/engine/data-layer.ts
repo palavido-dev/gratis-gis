@@ -785,6 +785,22 @@ function compileAttrFilter(
  * for a data_layer sublayer. Every adapter call uses this; no other
  * surface should construct scopes by hand.
  */
+/**
+ * Appended to an own-rows predicate on a `create` row selected from
+ * an unaliased `observation`: keeps it only when it is the entity's
+ * latest create. An id deleted and then re-created by someone else
+ * has two creates, and the caller owns it only if they made the
+ * latest one. Same ordering as the per-entity collapse.
+ */
+const LATEST_CREATE_ONLY = Prisma.sql`AND NOT EXISTS (
+              SELECT 1 FROM observation later_create
+              WHERE later_create.scope = observation.scope
+                AND later_create.entity = observation.entity
+                AND later_create.kind = 'create'
+                AND (later_create.valid_from, later_create.tx_time, later_create.id)
+                  > (observation.valid_from, observation.tx_time, observation.id)
+            )`;
+
 export function dataLayerScope(itemId: string, layerId: string): string {
   return `data_layer:${itemId}:${layerId}`;
 }
@@ -2004,7 +2020,11 @@ export class DataLayerEngine {
         SELECT c.author_sub, c.tx_time
         FROM observation c
         WHERE c.scope = o.scope AND c.entity = o.entity AND c.kind = 'create'
-        ORDER BY c.tx_time ASC, c.id ASC
+          -- The create this observation belongs to: the latest one at
+          -- or before it. A re-created id (deleted, then created again
+          -- by someone else) belongs to its new creator from then on.
+          AND (c.tx_time, c.id) <= (o.tx_time, o.id)
+        ORDER BY c.tx_time DESC, c.id DESC
         LIMIT 1
       ) cr ON true
       WHERE ${where}
@@ -2169,13 +2189,19 @@ export class DataLayerEngine {
         ${currentsLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -2184,10 +2210,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -2283,13 +2312,19 @@ export class DataLayerEngine {
         LIMIT ${innerLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -2298,10 +2333,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -2371,7 +2409,8 @@ export class DataLayerEngine {
 
     if (args.ownRowsOnly !== undefined) {
       candidateFilters.push(
-        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}`,
+        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}`,
       );
     }
 
@@ -2659,13 +2698,19 @@ export class DataLayerEngine {
           ) l
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2676,10 +2721,13 @@ export class DataLayerEngine {
           c.content_match,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `
         : await this.prisma.$queryRaw<IterRow[]>`
@@ -2703,13 +2751,19 @@ export class DataLayerEngine {
           LIMIT ${pageSize}
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2719,10 +2773,13 @@ export class DataLayerEngine {
           c.kind,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `;
     if (rows.length === 0) return { features: [], nextCursor: null, asOf };
@@ -2898,6 +2955,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
@@ -3309,6 +3367,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
@@ -3711,6 +3770,7 @@ export class DataLayerEngine {
             WHERE scope = ${scope}
               AND kind = 'create'
               AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
           )`
         : Prisma.empty;
 
@@ -3889,6 +3949,7 @@ export class DataLayerEngine {
                   WHERE scope = ${scope}
                     AND kind = 'create'
                     AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
                 )`
               : Prisma.empty
           }
@@ -3964,6 +4025,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
@@ -4433,6 +4495,7 @@ export class DataLayerEngine {
             WHERE scope = ${scope}
               AND kind = 'create'
               AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
           ),`
         : Prisma.empty;
     const ownerFilter =

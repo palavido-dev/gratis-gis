@@ -169,32 +169,6 @@ export class DataLayerTablesService {
   }
 
   /**
-   * Empty a layer's data without dropping the data_layer item itself
-   * (#244). Replace-mode ingest contract: "this is the data now,
-   * forget what was there before." Phase 2.4 rewires this onto the
-   * engine: every observation in the scope is removed, including
-   * history. The append-only log alternative (write a tombstone per
-   * entity) preserves history but isn't what replace-ingest asked
-   * for and would balloon the log on full-file refreshes.
-   *
-   * Caveat: this DELETE commits in its own transaction. The async
-   * import worker no longer calls it for replace mode; it runs the
-   * scoped delete through CopyWriter.deleteScope INSIDE the COPY
-   * transaction, so a failed or cancelled replace rolls back to the
-   * pre-import rows instead of an empty layer. The synchronous
-   * ingest controller still uses this method and carries that
-   * empty-on-failure caveat.
-   */
-  async truncateLayer(itemId: string, layerId: string): Promise<void> {
-    const scope = `data_layer:${itemId}:${layerId}`;
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM observation WHERE scope = $1`,
-      scope,
-    );
-    this.log.log(`Wiped engine scope ${scope} (replace ingest)`);
-  }
-
-  /**
    * Return the count of currently-live entities in a layer scope
    * (one row per entity, latest observation, tombstones excluded).
    * Replaces the pre-Phase-2.5 `SELECT COUNT(*) FROM "fs_..."` the

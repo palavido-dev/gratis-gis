@@ -14,6 +14,7 @@
 //   clip arrives as a delete, and a feature never inside stays
 //   invisible.
 
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
@@ -277,6 +278,60 @@ d('delta sync protocol on migrated PostGIS', () => {
     expect(byEntity.get(editMe!)?.createdBy).toBe(WORKER);
     expect(byEntity.get(deleteMe!)?.kind).toBe('delete');
     expect(byEntity.has(theirRow!)).toBe(false);
+  });
+
+  it('own rows: a re-created id follows its new creator', async () => {
+    // The worker creates and deletes a feature; the supervisor then
+    // creates one with the same id. Each observation belongs to the
+    // create it follows, so the worker keeps its own create and delete
+    // and never receives the supervisor's create.
+    const gid = randomUUID();
+    const before = (await service.listDelta(ITEM, SCOPED, 0, { limit: 1 })).syncVersion;
+    const create = (sub: string) =>
+      engine.commitLayerSync(ITEM, SCOPED, async ({ tx, source }) => {
+        await engine.writeFeaturesCreateIdempotent(
+          [
+            {
+              itemId: ITEM,
+              layerId: SCOPED,
+              globalId: gid,
+              principal: { sub, displayName: sub },
+              source,
+              properties: { value: 7 },
+              geometry: point(4, 4),
+            },
+          ],
+          tx,
+        );
+        return { wrote: true, value: null };
+      });
+    await create(WORKER);
+    await engine.commitLayerSync(ITEM, SCOPED, async ({ tx, source }) => {
+      await engine.writeFeatureDelete(
+        {
+          itemId: ITEM,
+          layerId: SCOPED,
+          globalId: gid,
+          principal: { sub: WORKER, displayName: 'worker' },
+          source,
+        },
+        tx,
+      );
+      return { wrote: true, value: null };
+    });
+    await create(SUPERVISOR);
+
+    const kinds = async (userId: string) =>
+      (await walk(SCOPED, before, 1_000, { ownRowsOnly: true, userId })).changes
+        .filter((c) => c.entity === gid)
+        .map((c) => `${c.kind}:${c.authorSub}:${c.createdBy}`);
+    expect(await kinds(WORKER)).toEqual([
+      `create:${WORKER}:${WORKER}`,
+      `delete:${WORKER}:${WORKER}`,
+    ]);
+    expect(await kinds(SUPERVISOR)).toEqual([
+      `create:${SUPERVISOR}:${SUPERVISOR}`,
+    ]);
   });
 
   it('geo limit: a feature moved out of the clip arrives as a delete', async () => {
