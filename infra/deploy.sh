@@ -208,9 +208,10 @@ fi
 #      shipped in the first realm import with a portal-wide https
 #      redirect and web origin it never needed; the import pass will
 #      not tighten an existing client, so this does).
-#   2. Every existing realm user holds the `offline_access` role,
-#      so the native clients' refresh-token flow doesn't 400 on
-#      first sign-in.
+#   2. The realm's default role includes `offline_access`, and every
+#      existing realm user holds it, so the native clients'
+#      refresh-token flow doesn't 400 on first sign-in, including
+#      for users created after this deploy.
 #   3. The realm's offline session idle timeout is pinned to 30 days
 #      (Keycloak's default, made explicit because the Android field
 #      client's sign-in lifetime depends on it).
@@ -237,15 +238,18 @@ echo "=== Reconciling Keycloak realm (native clients + offline_access) ==="
 # Wait up to 60s for Keycloak's admin endpoint to be responsive.
 # Fresh containers take a few seconds; an already-running container
 # returns immediately.
+# kcadm reads the password from KC_CLI_PASSWORD. `-e KC_CLI_PASSWORD`
+# with no value copies it from this shell, so the master-realm password
+# never appears on a command line that `ps` shows.
 kc_wait() {
   local i
+  export KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"
   for i in $(seq 1 30); do
-    if docker exec "$KEYCLOAK_CONTAINER" \
+    if docker exec -e KC_CLI_PASSWORD "$KEYCLOAK_CONTAINER" \
         /opt/keycloak/bin/kcadm.sh config credentials \
           --server http://localhost:8080 \
           --realm master \
-          --user "$KEYCLOAK_ADMIN" \
-          --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null 2>&1; then
+          --user "$KEYCLOAK_ADMIN" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -334,25 +338,88 @@ json.dump(client, sys.stdout)
     echo "WARN: realm offlineSessionIdleTimeout update failed." >&2
   fi
 
+  # --- user profile: declare org and org_role ---
+  # Keycloak 26 drops user attributes the user-profile schema does not
+  # declare, and the realm import does not carry that schema. Without
+  # this, an invited user loses org / org_role and every sign-in 401s
+  # with "JWT is missing required org claim". The NAS bootstrap does
+  # the same on every start. Idempotent.
+  GG_PROFILE="$(KC get users/profile -r gratis-gis 2>/dev/null || true)"
+  GG_PROFILE_RC=0
+  GG_PATCHED="$(printf '%s' "$GG_PROFILE" \
+    | python3 infra/keycloak/patch-user-profile-via-docker.py --filter 2>/dev/null)" \
+    || GG_PROFILE_RC=$?
+  if [[ -z "$GG_PROFILE" ]]; then
+    echo "WARN: could not read the user-profile schema." >&2
+  elif [[ "$GG_PROFILE_RC" -eq 3 ]]; then
+    echo "User-profile schema already declares org and org_role."
+  elif [[ "$GG_PROFILE_RC" -eq 0 ]] \
+      && printf '%s' "$GG_PATCHED" | docker exec -i "$KEYCLOAK_CONTAINER" \
+        /opt/keycloak/bin/kcadm.sh update users/profile -r gratis-gis -f - >/dev/null; then
+    echo "User-profile schema now declares org and org_role."
+  else
+    echo "WARN: could not update the user-profile schema." >&2
+  fi
+  # The import may already have dropped them from the first admin.
+  GG_ADMIN_ROW="$(KC get users -r gratis-gis -q username=admin -q exact=true \
+      --fields id,attributes 2>/dev/null \
+    | python3 -c 'import sys,json
+rows = json.load(sys.stdin)
+if rows:
+    attrs = rows[0].get("attributes") or {}
+    print(rows[0]["id"], "has-org" if attrs.get("org") else "no-org")' 2>/dev/null || true)"
+  if [[ "$GG_ADMIN_ROW" == *" no-org" ]]; then
+    if KC update "users/${GG_ADMIN_ROW%% *}" -r gratis-gis \
+        -s "attributes.org=[\"${DEFAULT_ORG_SLUG:-gratis-gis}\"]" \
+        -s 'attributes.org_role=["admin"]' >/dev/null 2>&1; then
+      echo "Restored org and org_role on the admin user."
+    else
+      echo "WARN: could not restore org and org_role on the admin user." >&2
+    fi
+  fi
+
+  # --- offline_access on the realm's default role ---
+  # The realm template names `viewer` as the default role, and viewer
+  # does not carry offline_access, so a user created after the import
+  # (an admin invite, or anyone on a fresh install) could not sign in
+  # to the field app or QGIS: "Offline tokens not allowed for the user
+  # or client". Adding offline_access to the default role covers every
+  # user who holds it, including future ones. Idempotent.
+  GG_DEFAULT_ROLE="$(KC get realms/gratis-gis --fields defaultRole 2>/dev/null \
+    | python3 -c 'import sys,json; print((json.load(sys.stdin).get("defaultRole") or {}).get("name",""))' \
+      2>/dev/null || true)"
+  if [[ -n "$GG_DEFAULT_ROLE" ]] \
+      && KC add-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --rolename offline_access >/dev/null 2>&1; then
+    echo "Default role $GG_DEFAULT_ROLE includes offline_access."
+  else
+    echo "WARN: could not add offline_access to the default role${GG_DEFAULT_ROLE:+ $GG_DEFAULT_ROLE}." >&2
+  fi
+
   # --- offline_access for every realm user ---
   # The native clients ask for the offline_access scope so their
   # refresh-token survives restarts and weeks offline. Keycloak gates
   # that on the user holding the offline_access realm role; without
   # it the PKCE code exchange returns "Offline tokens not allowed for
-  # the user or client". Grant to everyone; add-roles is idempotent.
+  # the user or client". Grant to everyone, a page at a time so a
+  # realm with more than one page of users is covered; add-roles is
+  # idempotent.
   echo "Granting offline_access to every realm user..."
-  KC get users -r gratis-gis --fields username --offset 0 --limit 200 \
-      2>/dev/null \
-    | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
-    | while read -r username; do
-        if [[ -z "$username" ]]; then continue; fi
-        # add-roles errors when the user already has the role; the
-        # `|| true` swallows that so the loop stays idempotent.
-        KC add-roles -r gratis-gis --uusername "$username" \
-            --rolename offline_access >/dev/null 2>&1 \
-          && echo "  + $username" \
-          || echo "  = $username (already had role)"
-      done
+  GG_KC_OFFSET=0
+  while :; do
+    GG_KC_PAGE="$(KC get users -r gratis-gis --fields username \
+        --offset "$GG_KC_OFFSET" --limit 100 2>/dev/null \
+      | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
+        2>/dev/null || true)"
+    [[ -n "$GG_KC_PAGE" ]] || break
+    while read -r username; do
+      if [[ -z "$username" ]]; then continue; fi
+      KC add-roles -r gratis-gis --uusername "$username" \
+          --rolename offline_access >/dev/null 2>&1 \
+        && echo "  + $username" \
+        || echo "  = $username (already had role)"
+    done <<< "$GG_KC_PAGE"
+    GG_KC_OFFSET=$((GG_KC_OFFSET + 100))
+  done
   echo "Offline-access reconciliation done."
 
   # --- portal-api-admin: portal-admin identity for snapshot tooling ---

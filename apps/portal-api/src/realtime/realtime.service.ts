@@ -177,6 +177,12 @@ export class RealtimeService {
     }
 
     const existing = room.members.get(connectionId);
+    // Connection ids are broadcast in every roster, so without this
+    // any reader could move another member's cursor or keep their
+    // avatar alive after they left.
+    if (existing && existing.userId !== user.id) {
+      throw new ForbiddenException('That connection belongs to someone else.');
+    }
     let member: PresenceMember;
     if (existing) {
       if (cursorUpdate !== undefined) existing.cursor = cursorUpdate;

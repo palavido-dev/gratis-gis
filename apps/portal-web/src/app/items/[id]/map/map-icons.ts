@@ -5,6 +5,8 @@
 // Source: lucide-react icon SVG nodes, ISC-licensed.
 // ------------------------------------------------------------------
 
+import { safeCssColor } from '@gratis-gis/shared-types';
+
 /**
  * Map point-symbol icon registry (#73). Each entry is a
  * lucide-react glyph extracted to its raw SVG body. The picker
@@ -1036,8 +1038,12 @@ export function renderIconSvg(
 ): string | null {
   const icon = MAP_ICONS[name];
   if (!icon) return null;
-  const stroke = opts.stroke ?? 'currentColor';
-  const w = opts.strokeWidth ?? 2;
+  // Both values are interpolated into markup that callers set with
+  // innerHTML, and the stroke comes from map style data an author
+  // controls. Only a value that cannot leave the attribute gets in.
+  const stroke = safeCssColor(opts.stroke, 'currentColor');
+  const width = Number(opts.strokeWidth ?? 2);
+  const w = Number.isFinite(width) ? width : 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ` +
     `fill="none" stroke="${stroke}" stroke-width="${w}" ` +
     `stroke-linecap="round" stroke-linejoin="round">${icon.body}</svg>`;

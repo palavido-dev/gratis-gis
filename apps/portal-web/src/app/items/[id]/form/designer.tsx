@@ -111,6 +111,7 @@ import {
 } from '@/components/form-runtime';
 import { RegexQuestionFields } from './regex-builder';
 import { SubmissionReceipts } from './submission-receipts';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -419,7 +420,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: form }),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
       // Path-1 schema sync (#293 / #281d). Walk top-level and group
       // children for question types that map cleanly to typed
       // columns. Add missing columns to the linked layer's matching
@@ -7000,17 +7001,17 @@ async function syncPairedLayerColumns(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ data: nextData }),
   });
-  // eslint-disable-next-line no-console
-  console.info(
-    '[gratisgis] syncPairedLayerColumns PATCH',
-    res.status,
-    res.ok ? 'ok' : await res.text().catch(() => ''),
-  );
   if (!res.ok) {
-    throw new Error(
-      `Layer schema patch failed: ${res.status} ${await res.text().catch(() => '')}`,
-    );
+    // Read the body once. It used to be read for this log line and
+    // again for the error, and the second read always came back empty,
+    // so the validator's sentence never reached the author.
+    const message = await parseApiError(res, 'Layer schema patch failed');
+    // eslint-disable-next-line no-console
+    console.info('[gratisgis] syncPairedLayerColumns PATCH', res.status, message);
+    throw new Error(message);
   }
+  // eslint-disable-next-line no-console
+  console.info('[gratisgis] syncPairedLayerColumns PATCH', res.status, 'ok');
 }
 
 /**

@@ -25,8 +25,14 @@ client id) against an allowlist of the portal fronts above
 access tokens by default, so passport-jwt audience checking is not
 used. Operators can override the list with `JWT_ALLOWED_AZP`
 (comma-separated). Service-account clients such as `portal-api-admin`
-are not on the default list; they talk to Keycloak's admin API, not
-portal-api as a user JWT.
+are not on the default list. portal-api uses that client for
+Keycloak's admin API. The demo's pre-snapshot purge
+(`infra/cleanup-non-admin.mjs`, run by `snapshot-golden.sh`) also
+calls portal-api with a `portal-api-admin` client-credentials token.
+That call is refused unless `JWT_ALLOWED_AZP` lists
+`portal-api-admin` along with the defaults, for example
+`JWT_ALLOWED_AZP=portal-web,field-app,qgis-plugin,portal-api-admin`.
+The purge fails closed when it is refused.
 
 ## Token Flow
 
@@ -42,16 +48,21 @@ portal-api as a user JWT.
 
 | claim | meaning |
 | --- | --- |
-| `sub` | Keycloak user id: becomes `user.id` |
-| `preferred_username` | → `user.username` |
+| `sub` | Keycloak user id: becomes `user.id` for a user created on first sign-in. Seeded users keep their own id. |
+| `preferred_username` | `user.username`. The local row is found by this, not by `sub`. |
 | `email` | → `user.email` |
 | `name` | → `user.full_name` |
-| `org` (custom) | Organization slug: mapped to `user.org_id` at first login |
+| `org` (custom) | Organization slug: mapped to `user.org_id`, re-checked on every sign-in |
 | `org_role` (custom) | `viewer` \| `contributor` \| `admin` |
 
-Org assignment and org-role are set in Keycloak via user attributes; the
-portal-api `auth.service` looks them up and upserts the local `User` row on
-each login.
+Org assignment and org-role are set in Keycloak via user attributes. The
+portal-api `AuthSyncService` reads them from the token and updates the
+local `User` row when they change, so a role or org change in Keycloak
+takes effect at the next sign-in.
+
+Keycloak 26 drops attributes that the realm's user-profile schema does
+not declare. `deploy.sh`, `restore-golden.sh` and the NAS bootstrap
+declare `org` and `org_role` on every run.
 
 ## Authorization in the API
 
@@ -101,10 +112,18 @@ portal-api, which Caddy routes without passing through the web tier.
 ## Session Security
 
 - Access token TTL: 5 minutes
-- Refresh token TTL: 1 day (web). Native clients (`qgis-plugin`,
-  `field-app`) request `offline_access` and get Keycloak offline
-  sessions instead, which idle out after 30 days (Keycloak's default
-  `offlineSessionIdleTimeout`; the realm template does not override it).
+- Web sessions: the realm sets `ssoSessionIdleTimeout` to 1 hour and
+  `ssoSessionMaxLifespan` to 10 hours, so the web refresh token stops
+  working after an hour idle or ten hours in total. The portal cookie
+  has its own lifetime (`docs/operations/session.md`).
+- Native clients (`qgis-plugin`, `field-app`) request `offline_access`
+  and get Keycloak offline sessions instead, which idle out after 30
+  days. The realm template sets `offlineSessionIdleTimeout` to 2592000
+  and `deploy.sh` pins it on every deploy.
+- `offline_access` is part of the realm's default role, so every user
+  can start an offline session, including users created after the
+  deploy. `deploy.sh`, `restore-golden.sh` and the NAS bootstrap add it
+  to the default role on every run.
 - Per-device revocation is per offline session: each native sign-in is
   its own offline session, listed and revocable per user in the Keycloak
   admin console and Admin REST API. There is no device-id claim and no
@@ -136,4 +155,5 @@ protect nothing. The server is the verifier. A past `exp` means
 ## Future
 
 - SAML realm aliases for enterprise SSO
-- Audit log for admin actions
+
+Admin actions are already audited (Admin -> Audit).

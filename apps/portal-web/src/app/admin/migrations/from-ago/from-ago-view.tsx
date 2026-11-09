@@ -21,6 +21,8 @@ import {
   STATE_STORAGE_KEY,
   TOKEN_CHANNEL_NAME,
 } from './oauth-storage-keys';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
+import { shouldRetryPoll } from '@/lib/poll-retry';
 
 interface AgoConnection {
   id: string;
@@ -156,6 +158,15 @@ export function FromAgoView() {
   // current job id without a stale-closure problem.
   const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
+  // Leaving the page stops the poll: the loop exits when the active
+  // job id no longer matches, and nothing else clears it on unmount.
+  // The job itself keeps running on the server.
+  useEffect(
+    () => () => {
+      activeJobIdRef.current = null;
+    },
+    [],
+  );
   // Ref for the import-results section so we can scroll it into
   // view the moment the job completes (the import-results
   // section sits below the preview, which can be a long table).
@@ -203,7 +214,7 @@ export function FromAgoView() {
           '/api/portal/admin/import-ago/connections',
         );
         if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status} ${await resp.text()}`);
+          throw new Error(await apiErrorMessage(resp));
         }
         const list = (await resp.json()) as AgoConnection[];
         setConns(list);
@@ -318,7 +329,7 @@ export function FromAgoView() {
       });
       if (!resp.ok) {
         throw new Error(
-          `OAuth start failed: HTTP ${resp.status} ${await resp.text()}`,
+          await parseApiError(resp, 'OAuth start failed'),
         );
       }
       const data = (await resp.json()) as {
@@ -423,7 +434,7 @@ export function FromAgoView() {
       });
       if (!resp.ok) {
         throw new Error(
-          `Preview failed: HTTP ${resp.status} ${await resp.text()}`,
+          await parseApiError(resp, 'Preview failed'),
         );
       }
       setPreview((await resp.json()) as DryRunReport);
@@ -472,7 +483,7 @@ export function FromAgoView() {
       );
       if (!startResp.ok) {
         throw new Error(
-          `Import failed: HTTP ${startResp.status} ${await startResp.text()}`,
+          await parseApiError(startResp, 'Import failed'),
         );
       }
       const { id: jobId } = (await startResp.json()) as { id: string };
@@ -480,6 +491,7 @@ export function FromAgoView() {
       // Poll every second until we land on a terminal state. The
       // server-side runner writes done + currentItem on every item
       // boundary so the progress bar updates smoothly.
+      let pollFailures = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await sleep(POLL_INTERVAL_MS);
@@ -488,14 +500,24 @@ export function FromAgoView() {
           // polling this one rather than racing the UI state.
           return;
         }
-        const statusResp = await fetch(
-          `/api/portal/admin/import-ago/run/${encodeURIComponent(jobId)}`,
-        );
+        let statusResp: Response;
+        try {
+          statusResp = await fetch(
+            `/api/portal/admin/import-ago/run/${encodeURIComponent(jobId)}`,
+          );
+        } catch (err) {
+          pollFailures += 1;
+          if (shouldRetryPoll(null, pollFailures)) continue;
+          throw err;
+        }
         if (!statusResp.ok) {
+          pollFailures += 1;
+          if (shouldRetryPoll(statusResp.status, pollFailures)) continue;
           throw new Error(
-            `Job polling failed: HTTP ${statusResp.status} ${await statusResp.text()}`,
+            await parseApiError(statusResp, 'Job polling failed'),
           );
         }
+        pollFailures = 0;
         const job = (await statusResp.json()) as AgoImportJob;
         setJobProgress({
           done: job.done,
