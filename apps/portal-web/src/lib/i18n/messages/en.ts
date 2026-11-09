@@ -519,7 +519,7 @@ export const en = {
     cacheMaxAge: 'Browser cache (seconds)',
     default: 'default',
     zoomHint:
-      'Zoom from {min} to {max}; outside the range the tiles are empty.',
+      'Max zoom is the deepest zoom tiles are built for; maps zoomed in further keep showing those tiles, enlarged. Below min zoom the layer is not drawn. Zoom from {min} to {max}.',
     maxFeaturesHint: 'The feature cap can only be lowered, up to {max}.',
     cacheHint:
       'Cache from 0 to {max} seconds. Tiles of a layer that is not public are always cached privately, in the viewer\'s browser only.',

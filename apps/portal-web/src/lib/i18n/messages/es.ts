@@ -477,7 +477,7 @@ export const es: Partial<CatalogShape> = {
     cacheMaxAge: 'Caché del navegador (segundos)',
     default: 'predeterminado',
     zoomHint:
-      'Zoom de {min} a {max}; fuera del rango las teselas están vacías.',
+      'El zoom máximo es el nivel más profundo para el que se generan teselas; los mapas con más zoom siguen mostrando esas teselas ampliadas. Por debajo del zoom mínimo la capa no se dibuja. Zoom de {min} a {max}.',
     maxFeaturesHint: 'El límite de entidades solo se puede reducir, hasta {max}.',
     cacheHint:
       'Caché de 0 a {max} segundos. Las teselas de una capa que no es pública siempre se guardan solo de forma privada en el navegador del usuario.',

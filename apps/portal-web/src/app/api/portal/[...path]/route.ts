@@ -161,6 +161,12 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   ) {
     return `public/${suffix}`;
   }
+  // The layer's TileJSON, which the map reads for the tile zoom range
+  // (minzoom / maxzoom) of its vector source. Same public mirror and
+  // same access='public' gate as the tiles it describes.
+  if (/^items\/[^/]+\/layers\/[^/]+\/tilejson\.json$/.test(suffix)) {
+    return `public/${suffix}`;
+  }
   // Designer-baked thumbnail SVG. Public landing tiles + anon
   // catalog cards point their <img src> at this endpoint via
   // synthesizeThumbnailUrl. portal-api's thumbnail route is now
