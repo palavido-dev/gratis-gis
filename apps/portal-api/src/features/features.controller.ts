@@ -22,12 +22,16 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { Prisma } from '@prisma/client';
+import type { ItemShare, Prisma } from '@prisma/client';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  isScopeLimited,
+  type FeatureScope,
+} from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   FeaturesService,
@@ -155,7 +159,8 @@ export class FeaturesController {
     @Query('offset') offsetStr?: string,
     @Query('meta') meta?: string,
   ) {
-    await this.requireReadAccess(user, id);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
 
     let parsedBbox: [number, number, number, number] | undefined;
     if (bbox) {
@@ -179,6 +184,7 @@ export class FeaturesController {
     if (since !== undefined) queryOpts.since = since;
     else if (at !== undefined) queryOpts.at = at;
     if (meta === 'true') queryOpts.includeMeta = true;
+    if (scope) queryOpts.scope = scope;
 
     const feats = await this.features.query(id, queryOpts);
 
@@ -195,7 +201,14 @@ export class FeaturesController {
     @Param('id') id: string,
     @Body() dto: BulkImportDto,
   ) {
-    await this.requireEditAccess(user, id);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
+    if (scope) {
+      await this.features.assertGeometriesInsideLimit(
+        scope,
+        dto.features.map((f) => f.geometry),
+      );
+    }
     const inputs: InsertFeatureInput[] = dto.features.map((f) => {
       const input: InsertFeatureInput = { properties: f.properties ?? {} };
       if (f.globalId !== undefined) input.globalId = f.globalId;
@@ -218,7 +231,14 @@ export class FeaturesController {
     @Param('id') id: string,
     @Body() body: { type?: string; features?: unknown[] },
   ) {
-    await this.requireEditAccessAndProvision(user, id);
+    const item = await this.requireEditAccessAndProvision(user, id);
+    // Import replaces every row of the layer, which a share limited to
+    // some rows or some area cannot authorize.
+    if (await this.scopeFor(user, item, 'edit')) {
+      throw new ForbiddenException(
+        'Your share on this layer is limited to some rows or an area, so you cannot replace the whole layer',
+      );
+    }
 
     if (!body.features || !Array.isArray(body.features)) {
       throw new BadRequestException('Body must be a GeoJSON FeatureCollection with a features array');
@@ -245,8 +265,9 @@ export class FeaturesController {
     @Param('fid') fid: string,
     @Query('at') at?: string,
   ) {
-    await this.requireReadAccess(user, id);
-    return this.features.getFeature(id, fid, at);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
+    return this.features.getFeature(id, fid, at, scope);
   }
 
   /** Get the full version history for a feature. */
@@ -256,8 +277,9 @@ export class FeaturesController {
     @Param('id') id: string,
     @Param('fid') fid: string,
   ) {
-    await this.requireReadAccess(user, id);
-    return this.features.getHistory(id, fid);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
+    return this.features.getHistory(id, fid, scope);
   }
 
   /** Update a feature's geometry and/or properties. */
@@ -268,11 +290,12 @@ export class FeaturesController {
     @Param('fid') fid: string,
     @Body() dto: UpdateFeatureDto,
   ) {
-    await this.requireEditAccess(user, id);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
     const patch: UpdateFeatureInput = {};
     if (dto.geometry !== undefined) patch.geometry = dto.geometry;
     if (dto.properties !== undefined) patch.properties = dto.properties;
-    const result = await this.features.updateFeature(id, fid, patch, user);
+    const result = await this.features.updateFeature(id, fid, patch, user, scope);
     await this.syncItemMeta(id);
     return result;
   }
@@ -284,8 +307,9 @@ export class FeaturesController {
     @Param('id') id: string,
     @Param('fid') fid: string,
   ) {
-    await this.requireEditAccess(user, id);
-    await this.features.deleteFeature(id, fid, user);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
+    await this.features.deleteFeature(id, fid, user, scope);
     await this.syncItemMeta(id);
     return { deleted: true };
   }
@@ -319,14 +343,20 @@ export class FeaturesController {
     @Query('offset') offsetStr?: string,
   ) {
     // Caller must be able to read the parent AND the child.
-    await this.requireReadAccess(user, id);
-    await this.requireReadAccess(user, childItemId);
+    const parent = await this.requireReadAccess(user, id);
+    const child = await this.requireReadAccess(user, childItemId);
+    // The parent must be visible to the caller, and the children are
+    // clipped to the caller's scope on the child layer.
+    const parentScope = await this.scopeFor(user, parent, 'read');
+    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    const childScope = await this.scopeFor(user, child, 'read');
 
     const opts: Parameters<typeof this.features.getRelatedFeatures>[3] = {
       limit: limitStr ? Math.min(parseInt(limitStr, 10), 5_000) : 500,
       offset: offsetStr ? parseInt(offsetStr, 10) : 0,
     };
     if (at !== undefined) opts.at = at;
+    if (childScope) opts.scope = childScope;
 
     const feats = await this.features.getRelatedFeatures(
       childItemId,
@@ -358,8 +388,14 @@ export class FeaturesController {
       fkColumn?: string;
     },
   ) {
-    await this.requireReadAccess(user, id);
-    await this.requireEditAccess(user, childItemId);
+    const parent = await this.requireReadAccess(user, id);
+    const child = await this.requireEditAccess(user, childItemId);
+    const parentScope = await this.scopeFor(user, parent, 'read');
+    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    const childScope = await this.scopeFor(user, child, 'edit');
+    if (childScope) {
+      await this.features.assertGeometriesInsideLimit(childScope, [body.geometry]);
+    }
 
     const input: Parameters<typeof this.features.createRelatedFeature>[3] = {
       properties: body.properties ?? {},
@@ -381,6 +417,28 @@ export class FeaturesController {
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * The caller's share scope on this layer, from the same resolver
+   * the v3 routes use, or undefined when nothing limits them. These
+   * routes read the per-item table directly, so without this a
+   * geo-limited or own-rows grantee read and wrote every row.
+   */
+  private async scopeFor(
+    user: AuthUser,
+    item: Awaited<ReturnType<ItemsService['get']>>,
+    action: 'read' | 'edit',
+  ): Promise<FeatureScope | undefined> {
+    const shares = (item as { shares?: ItemShare[] }).shares ?? [];
+    const editingPolicy = (item.data as { editingPolicy?: unknown } | null)
+      ?.editingPolicy;
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action,
+      layerPolicy:
+        editingPolicy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+    return isScopeLimited(scope) ? scope : undefined;
+  }
 
   /**
    * After any write, refresh the item's metadata (feature count, bbox,

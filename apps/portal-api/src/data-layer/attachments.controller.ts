@@ -23,7 +23,11 @@ import {
   FEATURE_ATTACHMENT_MAX_BYTES,
   StorageService,
 } from '../storage/storage.service.js';
-import { assertAttachmentAccess } from './attachments-access.js';
+import {
+  assertAttachmentAccess,
+  assertFeatureVisible,
+} from './attachments-access.js';
+import { DataLayerEngine } from '../engine/data-layer.js';
 import { DataLayerAttachmentsService } from './attachments.service.js';
 
 class RegisterAttachmentDto implements RegisterFeatureAttachmentInput {
@@ -57,6 +61,7 @@ export class DataLayerAttachmentsController {
     private readonly sharing: SharingService,
     private readonly attachments: DataLayerAttachmentsService,
     private readonly storage: StorageService,
+    private readonly engine: DataLayerEngine,
   ) {}
 
   @Get()
@@ -66,7 +71,7 @@ export class DataLayerAttachmentsController {
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -74,6 +79,7 @@ export class DataLayerAttachmentsController {
       layerId,
       'download',
     );
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     return this.attachments.list(itemId, layerId, featureId);
   }
 
@@ -85,7 +91,7 @@ export class DataLayerAttachmentsController {
     @Param('fid') featureId: string,
     @Body() dto: RegisterAttachmentDto,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -99,6 +105,7 @@ export class DataLayerAttachmentsController {
       featureId,
       dto,
       user.id,
+      access,
     );
   }
 
@@ -117,7 +124,7 @@ export class DataLayerAttachmentsController {
     @Headers('range') rangeHeader: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -125,6 +132,7 @@ export class DataLayerAttachmentsController {
       layerId,
       'download',
     );
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     const row = await this.attachments.getForDownload(
       itemId,
       layerId,
@@ -173,7 +181,7 @@ export class DataLayerAttachmentsController {
     @Param('fid') featureId: string,
     @Param('attId') attachmentId: string,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -181,6 +189,9 @@ export class DataLayerAttachmentsController {
       layerId,
       'write',
     );
+    // An own-rows or geo-limited editor may only remove attachments
+    // on features they can edit.
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     await this.attachments.remove(itemId, layerId, featureId, attachmentId);
   }
 }

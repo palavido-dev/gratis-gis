@@ -19,7 +19,10 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  featureScopeFilter,
+} from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseCollectionId } from '../public/ogc/collection-id.js';
 import {
@@ -297,22 +300,16 @@ export class AuthedOgcFeaturesController {
     // public inside SharingService. Skipping either here would make
     // this surface see MORE than the portal's own reads.
     const shares = (item as { shares?: ItemShare[] }).shares ?? [];
-    const geoLimit = await this.sharing.geoLimitFor(user, item, shares);
-    const rowScope = this.sharing.effectiveRowScope(
-      user,
-      item,
-      shares,
-      layer.editingPolicy ?? 'all-rows',
-      'read',
-    );
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action: 'read',
+      layerPolicy: layer.editingPolicy ?? 'all-rows',
+    });
     const isTable = layer.geometryType === null;
     const clips: {
       geoLimit?: unknown;
       ownRowsOnly?: { userId: string };
       isTable?: boolean;
-    } = {};
-    if (geoLimit) clips.geoLimit = geoLimit;
-    if (rowScope === 'own') clips.ownRowsOnly = { userId: user.id };
+    } = { ...featureScopeFilter(scope) };
     if (isTable) clips.isTable = true;
 
     const label = layer.label ?? layer.id;

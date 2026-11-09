@@ -80,6 +80,24 @@ function makeController(overrides: Partial<Fakes> = {}) {
     {
       geoLimitFor: fakes.geoLimitFor,
       effectiveRowScope: fakes.effectiveRowScope,
+      // Same composition as SharingService.featureScopeFor, over the
+      // two fakes, so each test can steer one clip at a time.
+      featureScopeFor: async (
+        user: { id: string },
+        item: unknown,
+        shares: unknown,
+        o: { action: string; layerPolicy?: string },
+      ) => ({
+        geoLimit: await fakes.geoLimitFor(user, item, shares, o.action),
+        rowScope: fakes.effectiveRowScope(
+          user,
+          item,
+          shares,
+          o.layerPolicy ?? 'all-rows',
+          o.action,
+        ),
+        userId: user.id,
+      }),
       visibleWhere: fakes.visibleWhere,
     } as never,
     { listFeatures: fakes.listFeatures } as never,

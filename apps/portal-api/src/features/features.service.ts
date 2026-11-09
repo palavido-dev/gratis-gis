@@ -10,6 +10,11 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
+import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
+import {
+  legacyTableScopeConditions,
+  type FeatureScope,
+} from '../items/sharing.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +76,9 @@ export interface QueryFeaturesOpts {
    *  (valid_to >= since). Forces includeMeta=true so callers can detect tombstones. */
   since?: string;
   includeMeta?: boolean;
+  /** The caller's share scope (SharingService.featureScopeFor). Rows
+   *  outside it are not returned. */
+  scope?: FeatureScope;
 }
 
 export interface InsertFeatureInput {
@@ -391,12 +399,22 @@ export class FeaturesService {
     globalId: string,
     patch: UpdateFeatureInput,
     user: AuthUser,
+    scope?: FeatureScope,
   ): Promise<GeoJsonFeature> {
     const tbl = toTableName(itemId);
     if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const now = new Date().toISOString();
+    if (scope && patch.geometry !== undefined) {
+      await this.assertGeometriesInsideLimit(scope, [patch.geometry]);
+    }
+    const scopeParams: unknown[] = [globalId];
+    const scopeSql = scope
+      ? legacyTableScopeConditions(scope, scopeParams)
+          .map((c) => ` AND ${c}`)
+          .join('')
+      : '';
 
     // Expire + insert has to be atomic: otherwise a concurrent caller
     // can read the same "current" row, both expire it, and both insert
@@ -411,10 +429,10 @@ export class FeaturesService {
         `SELECT *,
                 ST_AsGeoJSON(geom) AS geom
            FROM "${tbl}"
-          WHERE global_id = $1::uuid AND valid_to IS NULL
+          WHERE global_id = $1::uuid AND valid_to IS NULL${scopeSql}
           LIMIT 1
           FOR UPDATE`,
-        globalId,
+        ...scopeParams,
       );
       if (!current.length) throw new NotFoundException('Feature not found');
       const old = current[0]!;
@@ -485,21 +503,26 @@ export class FeaturesService {
     itemId: string,
     globalId: string,
     user: AuthUser,
+    scope?: FeatureScope,
   ): Promise<void> {
     const tbl = toTableName(itemId);
     if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const now = new Date().toISOString();
+    const params: unknown[] = [now, user.id, globalId];
+    const scopeSql = scope
+      ? legacyTableScopeConditions(scope, params)
+          .map((c) => ` AND ${c}`)
+          .join('')
+      : '';
     const result = await this.prisma.$executeRawUnsafe(
       `UPDATE "${tbl}"
           SET valid_to  = $1::timestamptz,
               edited_by = $2::uuid,
               edited_at = $1::timestamptz
-        WHERE global_id = $3::uuid AND valid_to IS NULL`,
-      now,
-      user.id,
-      globalId,
+        WHERE global_id = $3::uuid AND valid_to IS NULL${scopeSql}`,
+      ...params,
     );
     if ((result as number) === 0) {
       throw new NotFoundException('Feature not found');
@@ -551,6 +574,9 @@ export class FeaturesService {
         `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
       );
     }
+    if (opts.scope) {
+      conditions.push(...legacyTableScopeConditions(opts.scope, params));
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const limit = opts.limit ? `LIMIT ${Math.min(opts.limit, 10_000)}` : 'LIMIT 10000';
@@ -578,6 +604,7 @@ export class FeaturesService {
     itemId: string,
     globalId: string,
     at?: string,
+    scope?: FeatureScope,
   ): Promise<GeoJsonFeature> {
     if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
@@ -594,6 +621,11 @@ export class FeaturesService {
     } else {
       temporalClause = 'AND valid_to IS NULL';
     }
+    if (scope) {
+      for (const c of legacyTableScopeConditions(scope, params)) {
+        temporalClause += ` AND ${c}`;
+      }
+    }
 
     const rows = await this.prisma.$queryRawUnsafe<FeatureRow[]>(
       `SELECT *, ST_AsGeoJSON(geom) AS geom
@@ -609,17 +641,30 @@ export class FeaturesService {
   /**
    * Retrieve version history for a feature (all versions, newest first).
    */
-  async getHistory(itemId: string, globalId: string): Promise<GeoJsonFeature[]> {
+  async getHistory(
+    itemId: string,
+    globalId: string,
+    scope?: FeatureScope,
+  ): Promise<GeoJsonFeature[]> {
     if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const tbl = toTableName(itemId);
+    const params: unknown[] = [globalId];
+    // Each version is checked on its own: a version outside the
+    // caller's area or written by someone else under own-rows stays
+    // hidden.
+    const scopeSql = scope
+      ? legacyTableScopeConditions(scope, params)
+          .map((c) => ` AND ${c}`)
+          .join('')
+      : '';
     const rows = await this.prisma.$queryRawUnsafe<FeatureRow[]>(
       `SELECT *, ST_AsGeoJSON(geom) AS geom
          FROM "${tbl}"
-        WHERE global_id = $1::uuid
+        WHERE global_id = $1::uuid${scopeSql}
         ORDER BY valid_from DESC`,
-      globalId,
+      ...params,
     );
     return rows.map((r) => rowToFeature(r, true));
   }
@@ -698,7 +743,10 @@ export class FeaturesService {
     childItemId: string,
     parentGlobalId: string,
     fkColumn: string,
-    opts: Pick<QueryFeaturesOpts, 'limit' | 'offset' | 'at' | 'includeMeta'> = {},
+    opts: Pick<
+      QueryFeaturesOpts,
+      'limit' | 'offset' | 'at' | 'includeMeta' | 'scope'
+    > = {},
   ): Promise<GeoJsonFeature[]> {
     if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(fkColumn)) {
       throw new BadRequestException('Invalid FK column name');
@@ -720,6 +768,9 @@ export class FeaturesService {
       );
     } else {
       conditions.push('valid_to IS NULL');
+    }
+    if (opts.scope) {
+      conditions.push(...legacyTableScopeConditions(opts.scope, params));
     }
 
     const limit = Math.min(opts.limit ?? 500, 5_000);
@@ -788,4 +839,38 @@ export class FeaturesService {
     return rowToFeature(rows[0]!, true);
   }
 
+  /**
+   * Refuse new geometry outside the caller's geo limit, as the v3
+   * write routes do. A null geometry has nothing to clip.
+   */
+  async assertGeometriesInsideLimit(
+    scope: FeatureScope,
+    geometries: unknown[],
+  ): Promise<void> {
+    if (!scope.geoLimit) return;
+    const closed = isClosedGeoLimit(scope.geoLimit);
+    const limitJson = JSON.stringify(scope.geoLimit);
+    for (const g of geometries) {
+      if (g === undefined || g === null) continue;
+      validateGeoJson(g);
+      if (closed) {
+        throw new BadRequestException(
+          'Geometry is outside the area this layer is shared to you for',
+        );
+      }
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ inside: boolean }>>(
+        `SELECT ST_Intersects(
+                  ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326),
+                  ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326)
+                ) AS inside`,
+        JSON.stringify(g),
+        limitJson,
+      );
+      if (rows[0]?.inside !== true) {
+        throw new BadRequestException(
+          'Geometry is outside the area this layer is shared to you for',
+        );
+      }
+    }
+  }
 }

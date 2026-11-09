@@ -16,6 +16,7 @@ import {
   StorageService,
 } from '../storage/storage.service.js';
 import { DataLayerEngine } from '../engine/data-layer.js';
+import { visibleFeatureIds, type AttachmentAccess } from './attachments-access.js';
 
 /**
  * Storage-key prefix the presign path mints for attachment uploads
@@ -94,7 +95,13 @@ export class DataLayerAttachmentsService {
   async listForLayer(
     itemId: string,
     layerId: string,
-    opts: { featureIds?: string[]; all?: boolean },
+    opts: {
+      featureIds?: string[];
+      all?: boolean;
+      /** The caller's scope from assertAttachmentAccess. When it is
+       *  limited, attachments of features outside it are left out. */
+      access?: AttachmentAccess;
+    },
   ): Promise<FeatureAttachmentGroup[]> {
     const featureIds = opts.featureIds ?? [];
     if (!opts.all && featureIds.length === 0) {
@@ -121,13 +128,33 @@ export class DataLayerAttachmentsService {
       },
     });
 
+    // A row- or geo-limited caller only reaches the attachments of
+    // features they can read. Without this, ?all=1 handed them every
+    // photo on the layer plus the ids of features hidden from them.
+    let visible: Set<string> | null = null;
+    if (opts.access?.limited) {
+      const candidates = opts.all
+        ? rows.map((r) => r.featureId)
+        : featureIds;
+      visible = await visibleFeatureIds(
+        this.dataLayer,
+        itemId,
+        layerId,
+        candidates,
+        opts.access,
+      );
+    }
+
     const byFeature = new Map<string, FeatureAttachment[]>();
     // Preserve the caller's featureId order when scoped; for all=1
     // fall through insertion order from the query.
     if (!opts.all) {
-      for (const fid of featureIds) byFeature.set(fid, []);
+      for (const fid of featureIds) {
+        if (visible === null || visible.has(fid)) byFeature.set(fid, []);
+      }
     }
     for (const row of rows) {
+      if (visible !== null && !visible.has(row.featureId)) continue;
       const { featureId, ...att } = row;
       const pub = toPublicAttachment(att);
       const list = byFeature.get(featureId);
@@ -145,6 +172,7 @@ export class DataLayerAttachmentsService {
     featureId: string,
     input: RegisterFeatureAttachmentInput,
     userId: string,
+    access?: Pick<AttachmentAccess, 'shareScope' | 'isTable'>,
   ): Promise<FeatureAttachment> {
     if (
       typeof input.storageKey !== 'string' ||
@@ -156,11 +184,15 @@ export class DataLayerAttachmentsService {
     }
 
     // #224: refuse to parent an attachment to a feature that does
-    // not exist (orphans were invisible and never cleaned up).
+    // not exist (orphans were invisible and never cleaned up). The
+    // caller's edit scope applies: a feature they cannot edit reads
+    // as missing.
     const current = await this.dataLayer.listFeatures({
       itemId,
       layerId,
       entity: featureId,
+      ...(access?.shareScope ?? {}),
+      ...(access?.isTable ? { isTable: true } : {}),
     });
     if (current.features.length === 0) {
       throw new NotFoundException('Feature not found');

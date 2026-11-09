@@ -66,6 +66,11 @@ function makeController(opts: { canDownload: boolean }) {
     canDownload: jest.fn(() => opts.canDownload),
     geoLimitFor: jest.fn(async () => null),
     effectiveRowScope: jest.fn(() => 'all' as const),
+    featureScopeFor: jest.fn(async (u: { id: string }) => ({
+      geoLimit: null,
+      rowScope: 'all' as const,
+      userId: u.id,
+    })),
   };
   const iterateFeatures = jest.fn(async function* () {
     yield [];
