@@ -24,6 +24,7 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BackupFailureNotice } from './backup-failure-notice.js';
+import { MaintenanceModeService } from './maintenance-mode.service.js';
 import { writeTarGz, type TarEntry } from './tar-pack.js';
 
 /**
@@ -141,8 +142,14 @@ interface BackupManifest {
   createdAt: string;
   /** 'manual' or 'scheduled'. */
   trigger: string;
-  /** Portal app version from package.json (best-effort). */
+  /** Portal release (GG_VERSION in the image, else the package
+   *  version when started through npm). */
   portalVersion: string | null;
+  /** Names of the Prisma migrations applied to the dumped database,
+   *  sorted. Restore refuses an archive whose list differs from the
+   *  running portal's, because pg_restore cannot convert one schema
+   *  into another. Absent on archives made before this field. */
+  appliedMigrations?: string[] | undefined;
   /** Database URL with password redacted. */
   databaseUrl: string;
   /** Names of the dumped databases, in archive order. */
@@ -186,6 +193,7 @@ export class BackupService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
     @Optional() private readonly failureNotice?: BackupFailureNotice,
+    @Optional() private readonly maintenance?: MaintenanceModeService,
   ) {
     // Reuse the same MinIO creds StorageService uses: if one works
     // the other does, which keeps the admin "backup failed" surface
@@ -664,6 +672,15 @@ export class BackupService implements OnModuleInit {
     trigger: 'manual' | 'scheduled',
     startedBy: string | null,
   ) {
+    // A backup taken during maintenance would dump a database that a
+    // restore is rewriting, or one a failed restore left half applied.
+    // Recording that as `succeeded` lets retention evict the last good
+    // archives, so refuse outright. Scheduled runs log and skip.
+    if (this.maintenance?.isActive()) {
+      throw new ConflictException(
+        'The portal is in maintenance mode (a restore is running or did not finish). Backups are paused until it ends.',
+      );
+    }
     // Close out dead rows first, then refuse only if a LIVE run
     // remains. Two replicas share one archive volume and
     // `POST /admin/backup/runs` carries only AdminGuard, so nothing
@@ -884,6 +901,11 @@ export class BackupService implements OnModuleInit {
           totalBytes: plan.totalBytes,
         },
         gitSha: this.cfg.get<string>('GIT_SHA') || null,
+        // Best effort: restore falls back to reading the list from
+        // the dump itself when the manifest has none.
+        appliedMigrations: await this.appliedMigrations().catch(
+          () => undefined,
+        ),
       };
 
       // 4. Seal, streaming object bodies straight from S3 into the
@@ -1533,10 +1555,40 @@ export class BackupService implements OnModuleInit {
   }
 
   private readPortalVersion(): string | null {
-    // npm / pnpm exposes the running package's version via env at
-    // spawn time. If unset (e.g. the process was started by
-    // `node dist/main.js` directly), we just record null: this
-    // field is informational on the manifest and not load-bearing.
-    return process.env.npm_package_version ?? null;
+    // The image starts `node dist/main.js` directly, so npm's
+    // npm_package_version is unset there. GG_VERSION is baked into
+    // the image (updates.service.ts reads the same variable).
+    return (
+      process.env.GG_VERSION || process.env.npm_package_version || null
+    );
+  }
+
+  /**
+   * Sorted names of the Prisma migrations applied to the portal
+   * database, finished and not rolled back. Restore compares the
+   * archive's list with this one.
+   */
+  async appliedMigrations(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ migration_name: string }[]>`
+      SELECT migration_name FROM _prisma_migrations
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+      ORDER BY migration_name`;
+    return rows.map((r) => r.migration_name);
+  }
+
+  /** A `running` row whose process is still beating. */
+  async liveRun(): Promise<{ id: string; startedAt: Date } | null> {
+    const liveCutoff = new Date(Date.now() - STALE_HEARTBEAT_MS);
+    return this.prisma.backupRun.findFirst({
+      where: {
+        status: 'running',
+        OR: [
+          { heartbeatAt: { gte: liveCutoff } },
+          { heartbeatAt: null, startedAt: { gte: liveCutoff } },
+        ],
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true, startedAt: true },
+    });
   }
 }

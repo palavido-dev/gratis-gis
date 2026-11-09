@@ -76,7 +76,10 @@ function makeService(rows: Row[], opts: { leader?: boolean } = {}) {
   const svc = new ScriptScheduleService(
     { $queryRaw: jest.fn(async () => state.rows) } as never,
     { enqueueScheduled } as never,
-    { shouldRun: () => opts.leader !== false } as never,
+    {
+      shouldRun: () => opts.leader !== false,
+      holdsLock: () => opts.leader !== false,
+    } as never,
   );
   const reconcile = () =>
     (svc as unknown as { reconcile(): Promise<void> }).reconcile();

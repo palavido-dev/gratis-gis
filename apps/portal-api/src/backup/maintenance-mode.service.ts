@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 import {
   Injectable,
   Logger,
+  Optional,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 
+import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -44,6 +48,22 @@ export function recoveryMaintenanceFileActive(
     return true;
   }
 }
+
+/**
+ * Marker the in-portal restore writes before pg_restore starts and
+ * removes only after the restore finished. It lives in BACKUP_DIR,
+ * the volume every portal-api replica mounts, so the other replica
+ * stays in maintenance while pg_restore replaces `system_setting`
+ * (which drops the maintenance row and then loads the archive's own
+ * inactive row). A process that dies mid-restore leaves the marker,
+ * so the portal stays in maintenance after a restart.
+ */
+export function restoreMarkerPath(
+  backupDir: string = process.env.BACKUP_DIR || './backups',
+): string {
+  return path.join(path.resolve(backupDir), '.restore-in-progress');
+}
+
 const POLL_MS = 2_000;
 
 type MaintenanceValue = {
@@ -59,10 +79,21 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
   private reason: string | null = null;
   private startedAt: Date | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
+  /** Process-local hold for the replica running a restore. The 2 s
+   *  poll cannot clear it, so a `system_setting` table that pg_restore
+   *  dropped or reloaded with `active:false` does not reopen this
+   *  replica while the restore is still writing. */
+  private localHold: string | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly leader?: LeaderElectionService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
+    // Leader crons pause while maintenance is on (restore running or
+    // a failed restore holding the portal).
+    this.leader?.pauseWhile(() => this.isActive());
     await this.refresh();
     this.pollTimer = setInterval(() => {
       void this.refresh();
@@ -79,16 +110,86 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
   }
 
   isActive(): boolean {
-    return this.active || recoveryMaintenanceFileActive();
+    return (
+      this.active ||
+      this.localHold !== null ||
+      recoveryMaintenanceFileActive() ||
+      recoveryMaintenanceFileActive(restoreMarkerPath())
+    );
   }
 
   snapshot() {
     const file = recoveryMaintenanceFileActive();
+    const marker = recoveryMaintenanceFileActive(restoreMarkerPath());
+    let reason = this.reason;
+    if (!reason && this.localHold) reason = this.localHold;
+    if (!reason && marker) {
+      reason =
+        'An in-portal restore did not finish. The database may be inconsistent.';
+    }
+    if (!reason && file) reason = 'host recovery did not finish';
     return {
-      active: this.active || file,
-      reason: file && !this.reason ? 'host recovery did not finish' : this.reason,
+      active: this.active || this.localHold !== null || file || marker,
+      reason,
       startedAt: this.startedAt?.toISOString() ?? null,
     };
+  }
+
+  /** True while this process is running a restore. */
+  isHeldLocally(): boolean {
+    return this.localHold !== null;
+  }
+
+  /**
+   * Start a restore hold: a local hold the poll cannot clear, plus
+   * the shared marker file. Throws if the marker cannot be written,
+   * so a restore never starts without a crash-safe hold.
+   */
+  async beginRestoreHold(reason: string): Promise<void> {
+    this.localHold = reason;
+    try {
+      const marker = restoreMarkerPath();
+      await fs.mkdir(path.dirname(marker), { recursive: true });
+      await fs.writeFile(
+        marker,
+        `${JSON.stringify({ maintenance: true, phase: 'in-portal-restore', reason, startedAt: new Date().toISOString() })}\n`,
+        { flag: 'w' },
+      );
+    } catch (err) {
+      this.localHold = null;
+      throw err;
+    }
+  }
+
+  /**
+   * Write the maintenance row again. pg_restore replaced
+   * `system_setting` with the archive's copy, which a normal backup
+   * stores as inactive. Called right after pg_restore, never during
+   * it: a row inserted before the data phase would make the COPY of
+   * `system_setting` fail on its primary key.
+   */
+  async reassertHold(): Promise<void> {
+    const reason = this.localHold ?? this.reason ?? 'Restoring a backup.';
+    this.active = true;
+    this.reason = reason;
+    this.startedAt ??= new Date();
+    await this.write({
+      active: true,
+      reason,
+      startedAt: this.startedAt.toISOString(),
+    });
+  }
+
+  /**
+   * End the restore hold. `succeeded` removes the marker; after a
+   * failure the marker stays so the portal stays in maintenance even
+   * if the maintenance row cannot be written.
+   */
+  async endRestoreHold(succeeded: boolean): Promise<void> {
+    if (succeeded) {
+      await fs.rm(restoreMarkerPath(), { force: true });
+    }
+    this.localHold = null;
   }
 
   async activate(
