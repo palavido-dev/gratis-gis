@@ -20,8 +20,9 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { createPrintRequestFilter } from './print-request-filter.js';
 import { ItemsService } from '../items/items.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 
 export interface RenderJobBundle {
   userId: string;
@@ -67,6 +68,7 @@ export class PrintRenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly items: ItemsService,
+    private readonly authSync: AuthSyncService,
   ) {}
 
   /**
@@ -108,24 +110,16 @@ export class PrintRenderService {
   async loadJobByToken(token: string): Promise<RenderJobBundle | null> {
     const claims = await this.consumeToken(token);
     if (!claims) return null;
+    // The same principal every other server-side path builds: null for
+    // a deleted user, real org slug, groups in the trash excluded, real
+    // capabilities. A hand-rolled copy here had drifted on all four.
+    const authUser = await this.authSync.principalForUserId(claims.userId);
+    if (!authUser) return null;
     const user = await this.prisma.user.findUnique({
       where: { id: claims.userId },
+      select: { id: true, fullName: true, username: true },
     });
     if (!user) return null;
-    // Build a minimal AuthUser-like shape for the items service.
-    // We don't have access to the full Keycloak claims here, but
-    // ItemsService.get only consumes id / orgId / orgRole / shares
-    // for permission checks, all of which we have on the user row.
-    const authUser = {
-      id: user.id,
-      orgId: user.orgId,
-      orgSlug: user.orgId,
-      username: user.username,
-      email: user.email ?? '',
-      orgRole: user.orgRole,
-      groupIds: await this.loadGroupIds(user.id),
-      capabilities: new Set<never>(),
-    } as unknown as AuthUser;
     const [template, map] = await Promise.all([
       this.items.get(authUser, claims.templateId),
       this.items.get(authUser, claims.mapId),
@@ -174,14 +168,6 @@ export class PrintRenderService {
       },
       basemap,
     };
-  }
-
-  private async loadGroupIds(userId: string): Promise<string[]> {
-    const rows = await this.prisma.groupMember.findMany({
-      where: { userId },
-      select: { groupId: true },
-    });
-    return rows.map((r: { groupId: string }) => r.groupId);
   }
 
   async render(
@@ -263,6 +249,22 @@ export class PrintRenderService {
     try {
       const page = await browser.newPage();
       try {
+        // Every request the page makes goes through the filter, so a
+        // user-authored URL cannot reach an internal host from here.
+        const allowed = createPrintRequestFilter([
+          previewBase,
+          process.env.PUBLIC_URL,
+          process.env.PORTAL_BASE_URL,
+        ]);
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+          void allowed(request.url()).then(
+            (ok) =>
+              ok
+                ? request.continue().catch(() => undefined)
+                : request.abort('blockedbyclient').catch(() => undefined),
+          );
+        });
         await page.setViewport({
           width: Math.round(inches.w * 96),
           height: Math.round(inches.h * 96),
