@@ -2,6 +2,19 @@
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+
+/** Connection counts of the pool behind Prisma, for /metrics. */
+export interface DbPoolStats {
+  /** Open connections, idle or checked out. */
+  total: number;
+  /** Open connections not checked out. */
+  idle: number;
+  /** Queries waiting for a connection. */
+  waiting: number;
+  /** Configured ceiling (DB_POOL_MAX). */
+  max: number;
+}
 
 /**
  * Prisma 7 moved connection management out of schema.prisma and
@@ -18,6 +31,9 @@ import { PrismaClient } from '@prisma/client';
  */
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private readonly pgPool: Pool;
+  private readonly poolMax: number;
+
   constructor() {
     const url = process.env.DATABASE_URL;
     if (!url) {
@@ -41,9 +57,26 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // that plus Keycloak (which shares this Postgres) and the nightly
     // pg_dump stays inside 100. Override via DB_POOL_MAX per service.
     const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+    // The pool is built here rather than inside the adapter so its
+    // counters can be read for /metrics. Same options the adapter used
+    // to pass to `new pg.Pool`, and `disposeExternalPool` keeps the old
+    // shutdown: $disconnect() still ends the pool.
+    const pool = new Pool({ connectionString: url, max: poolMax });
     super({
-      adapter: new PrismaPg({ connectionString: url, max: poolMax }),
+      adapter: new PrismaPg(pool, { disposeExternalPool: true }),
     });
+    this.pgPool = pool;
+    this.poolMax = poolMax;
+  }
+
+  /** Counters only; reading them does not touch the database. */
+  poolStats(): DbPoolStats {
+    return {
+      total: this.pgPool.totalCount,
+      idle: this.pgPool.idleCount,
+      waiting: this.pgPool.waitingCount,
+      max: this.poolMax,
+    };
   }
 
   async onModuleInit() {

@@ -99,6 +99,16 @@ www.{$PORTAL_DOMAIN} {
         file_server
     }
 
+    # portal-api's Prometheus endpoint lives at /metrics, outside the
+    # /api prefix, so nothing below would route it to portal-api anyway.
+    # This block makes that explicit: Prometheus scrapes each replica
+    # on the docker network (portal-api:4000), never through the edge.
+    # See docs/operations/metrics.md.
+    @metrics path /metrics /metrics/*
+    handle @metrics {
+        respond 404
+    }
+
     handle /api/auth/* {
         reverse_proxy portal-web:3000
     }

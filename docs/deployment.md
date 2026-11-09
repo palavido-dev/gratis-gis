@@ -79,6 +79,10 @@ which analysis capability tiers the hardware honestly supports
 machine; heavier server tiers get a recommendation based on cores,
 memory, and GPU presence). Exit code 0 means no failures.
 
+For ongoing monitoring, portal-api can serve Prometheus metrics to a
+scraper on the docker network when `METRICS_TOKEN` is set. See
+[operations/metrics.md](operations/metrics.md).
+
 ## Sizing the point-cloud scratch disk
 
 A lidar merge is the hungriest thing this stack does. LAZ decompresses
