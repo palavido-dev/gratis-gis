@@ -7,9 +7,23 @@
 // partman.create_parent ran. The CI job that migrates the project
 // Postgres image is that proof.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+
+import { withFileLock } from './file-lock.js';
+
+/**
+ * Some migrations change cluster-wide state (ALTER ROLE sets the app
+ * role's statement_timeout). Each pg spec migrates its own database,
+ * but parallel Jest workers on one server then update the same role
+ * row and one fails with "tuple concurrently updated". Migrations run
+ * one suite at a time under this lock.
+ */
+// Under the package's own node_modules cache rather than the shared
+// system temp dir, so no other user can create or swap the lock.
+const LOCK_DIR = join(process.cwd(), 'node_modules', '.cache', 'gratis-gis');
+const MIGRATION_LOCK = join(LOCK_DIR, 'test-migrations.lock');
 
 export function rewritePartitionMigration(sql: string): string {
   const cut = sql.indexOf('SELECT partman.create_parent');
@@ -42,6 +56,11 @@ END $$;
 }
 
 export function applyTestMigrations(url: string, migrationsDir: string): void {
+  mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+  withFileLock(MIGRATION_LOCK, () => applyAll(url, migrationsDir));
+}
+
+function applyAll(url: string, migrationsDir: string): void {
   const dirs = readdirSync(migrationsDir)
     .filter((name) => name !== 'migration_lock.toml')
     .sort();
