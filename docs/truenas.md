@@ -164,6 +164,9 @@ line. In TrueNAS, add them to the app's environment. Then restart.
   (400), `HOUSEKEEPING_STALE_ITEM_DAYS` (90) and
   `HOUSEKEEPING_STALE_USER_DAYS` (180) change retention.
 - `BACKUP_RETENTION_COUNT` keeps that many backup archives.
+- `METRICS_TOKEN` turns on Prometheus metrics at `portal-api:4000/metrics`
+  for a Prometheus on the stack's network
+  (docs/operations/metrics.md).
 
 Links in email use the address in the bootstrap log.
 

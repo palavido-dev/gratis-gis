@@ -44,6 +44,7 @@
     "@nestjs/websockets": "^12.3.2",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "@prometheus-io/client": "^0.16.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cron": "4.4.0",

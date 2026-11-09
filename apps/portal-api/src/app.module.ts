@@ -46,6 +46,7 @@ import { SamplesModule } from './samples/samples.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
 import { ScriptScheduleModule } from './scripts/script-schedule.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 
 @Module({
@@ -107,6 +108,8 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     RealtimeModule,
     PostgisLiveModule,
     PrintRenderModule,
+    // Prometheus /metrics, off unless METRICS_TOKEN is set (main.ts).
+    MetricsModule,
   ],
   controllers: [HealthController, PortalInfoController],
   providers: [

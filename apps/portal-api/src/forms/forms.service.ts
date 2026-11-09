@@ -405,6 +405,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         submittedBy: user.id,
         capturedAt: submission.capturedAt,
         user,
+        fromStoredSubmission: true,
       });
       if (ok) {
         this.repairBackoff.delete(submission.id);
@@ -434,6 +435,9 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
     submittedBy: string;
     capturedAt: Date;
     user: AuthUser;
+    /** The response comes from a stored form_submission row (the
+     *  leader's repair pass), not from the request being served. */
+    fromStoredSubmission?: boolean;
   }): Promise<void> {
     const data = args.form.data as
       | { linkedLayerId?: unknown; linkedLayerKey?: unknown }
@@ -616,6 +620,16 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
             storageUrl: att.url,
           },
           args.submittedBy,
+          // No share scope: the mirror writes as the form, not as a
+          // caller with limited access.
+          undefined,
+          // The repair pass can run up to MIRROR_REPAIR_WINDOW_DAYS
+          // after the upload, past the presign grant's lifetime. The
+          // keys it registers are the ones the saved submission
+          // already names, so it passes them as already referenced.
+          args.fromStoredSubmission
+            ? { storedKeys: attachments.map((a) => a.key) }
+            : {},
         );
         attachmentsOk += 1;
       } catch (err) {

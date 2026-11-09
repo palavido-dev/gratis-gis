@@ -102,8 +102,14 @@ describe('attachment scope', () => {
 
   it('register checks the feature under the caller edit scope', async () => {
     const engine = engineSeeing([VISIBLE]);
+    // The key was issued to this caller, so only the scope can refuse.
+    const prisma = {
+      storageUploadGrant: {
+        findMany: jest.fn(async () => [{ key: 'feature-attachment/abc' }]),
+      },
+    };
     const svc = new DataLayerAttachmentsService(
-      {} as never,
+      prisma as never,
       { headObjectSize: jest.fn() } as never,
       engine as never,
     );

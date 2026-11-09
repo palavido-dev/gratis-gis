@@ -547,6 +547,11 @@ def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
 		reverse_proxy keycloak:8080
 	}}
 
+	# portal-api's /metrics is scraped on the docker network only.
+	@metrics path /metrics /metrics/*
+	handle @metrics {{
+		respond 404
+	}}
 	handle /api/auth/* {{
 		reverse_proxy portal-web:3000
 	}}
@@ -587,6 +592,11 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	encode gzip zstd
 	request_body {{
 		max_size 1GB
+	}}
+	# portal-api's /metrics is scraped on the docker network only.
+	@metrics path /metrics /metrics/*
+	handle @metrics {{
+		respond 404
 	}}
 	handle /api/auth/* {{
 		reverse_proxy portal-web:3000
