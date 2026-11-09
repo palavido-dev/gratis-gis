@@ -22,6 +22,7 @@ import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { scheduledRunBlockedReason } from './script-provenance.js';
 
 /**
  * Queue and history for `script` item runs (#221).
@@ -153,7 +154,9 @@ export class ScriptsService {
    * somebody, and the owner is the person who took responsibility for
    * the item. Notably this is NOT whoever last edited the schedule,
    * which would let an editor quietly arrange for code to run with the
-   * owner's permissions on a timer.
+   * owner's permissions on a timer. The same goes for the code: a run
+   * is refused when the source was last changed by someone other than
+   * the owner (see script-provenance.ts).
    *
    * Returns the run id, or null when nothing was queued.
    */
@@ -183,6 +186,15 @@ export class ScriptsService {
         item,
         'The person who owns this script no longer has an active account, so the scheduled run did not start.',
       );
+      return null;
+    }
+
+    // The owner's key runs only the owner's code. Without this an
+    // editor could rewrite the source and have it run on the next tick
+    // with the owner's authority.
+    const blocked = scheduledRunBlockedReason(item);
+    if (blocked) {
+      await this.recordSkip(item, blocked);
       return null;
     }
 
