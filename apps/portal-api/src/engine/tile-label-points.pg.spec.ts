@@ -268,6 +268,49 @@ d('label points: one per feature across neighbouring tiles', () => {
     expect(labels.get(cornerSquare)).toBe(1);
   });
 
+  it('falls back to geometry labels in a tile that reached the feature cap', async () => {
+    // The block's (X0+1, Y0+1) tile holds several features. With a cap
+    // below that count the tile is a sample: a feature can be cut from
+    // the one tile holding its label point, so the tile must emit no
+    // labels and mark nothing, leaving the map to label geometry.
+    const engine = makeEngine();
+    const at = { itemId, layerId, z: Z, x: X0 + 1, y: Y0 + 1, fields: FIELDS, labelPoints: true };
+    const full = decodeMvt((await engine.mvtTile(at)).mvt);
+    expect(full.find((l) => l.name === 'features')!.features.length).toBeGreaterThan(1);
+    expect(full.map((l) => l.name)).toEqual(['features', 'labels']);
+    const capped = decodeMvt((await engine.mvtTile({ ...at, maxFeaturesPerTile: 1 })).mvt);
+    expect(capped.map((l) => l.name)).toEqual(['features']);
+    for (const f of capped[0]!.features) expect(f.properties._label_point).toBe(false);
+  });
+
+  it('does not mark a feature whose label point is outside Web Mercator', async () => {
+    // A polygon straddling the 85.05 degree edge: its point on surface
+    // is above the Mercator world, so no tile can emit it. Marking it
+    // would leave it with no label anywhere.
+    const polarLayer = 'polar';
+    const polarScope = dataLayerScope(itemId, polarLayer);
+    const polar = uuidv7();
+    await pool.query(
+      `INSERT INTO ${SCHEMA}.observation
+         (id, valid_from, scope, entity, kind, attrs, geom, author_sub, source)
+       VALUES ($1, now(), $2, $3, 'create', '{}', ST_GeomFromText($4, 4326), 'itest', '{}')`,
+      [uuidv7(), polarScope, polar, sq(0.1, 85.0, 0.6, 85.9)],
+    );
+    const { mvt } = await makeEngine().mvtTile({
+      itemId,
+      layerId: polarLayer,
+      z: 4,
+      x: 8,
+      y: 0,
+      labelPoints: true,
+    });
+    const layers = decodeMvt(mvt);
+    const feat = layers.find((l) => l.name === 'features')!.features;
+    expect(feat).toHaveLength(1);
+    expect(feat[0]!.properties._label_point).toBe(false);
+    expect(layers.find((l) => l.name === 'labels')).toBeUndefined();
+  });
+
   it('keeps label tiles and plain tiles in separate cache slots', async () => {
     const engine = makeEngine();
     const at = { itemId, layerId, z: Z, x: X0 + 1, y: Y0 + 1, fields: FIELDS };

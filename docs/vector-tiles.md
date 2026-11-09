@@ -63,8 +63,17 @@ as before.
   carry `_label_point: true`. The web map then labels marked features
   from their point and everything else from the geometry; labels set
   to follow lines keep labelling the line. The points come from the
-  same capped, access-filtered feature set as the tile, so the extra
-  cost is one point per feature already in the tile.
+  same capped, access-filtered feature set as the tile. Only features
+  whose point exists and lies inside the Web Mercator world (below
+  about 85 degrees latitude) are marked. A tile that reaches the
+  feature cap is only a sample, so it sends no `labels` layer and
+  marks nothing, and the map labels from geometry there.
+
+  Cost: this is opt-in and not free. Each tile computes one point per
+  feature it holds, from the full stored geometry, so a feature
+  crossing many tiles is computed once per tile. That is cheap for
+  parcels and roads and heavier for layers with very large polygons
+  (watersheds, state boundaries) at low zoom. Points are not stored.
 
 The API validates the settings when the layer is saved and refuses a
 value outside these ranges. Field names that are no longer on the
