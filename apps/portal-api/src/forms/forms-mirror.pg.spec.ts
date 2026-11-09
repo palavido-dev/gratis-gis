@@ -46,6 +46,11 @@ d('form mirror repair query against Postgres', () => {
   const onTrashedForm = randomUUID();
   const onTrashedLayer = randomUUID();
   const old = randomUUID();
+  const otherOrgLayer = randomUUID();
+  const formOnOtherOrgLayer = randomUUID();
+  const onOtherOrgLayer = randomUUID();
+  const orgA = randomUUID();
+  const orgB = randomUUID();
 
   beforeAll(async () => {
     admin = new PgClient({ connectionString: TEST_URL });
@@ -54,6 +59,7 @@ d('form mirror repair query against Postgres', () => {
     await admin.query(`
       CREATE TABLE ${schema}.item (
         id uuid PRIMARY KEY,
+        org_id uuid NOT NULL,
         data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
         deleted_at timestamptz
       );
@@ -70,13 +76,19 @@ d('form mirror repair query against Postgres', () => {
     `);
     const linked = (id: string) => JSON.stringify({ linkedLayerId: id });
     await admin.query(
-      `INSERT INTO ${schema}.item (id, data_json, deleted_at) VALUES
-         ($1, '{}', NULL),
-         ($2, '{}', now()),
-         ($3, $6::jsonb, NULL),
-         ($4, $6::jsonb, now()),
-         ($5, $7::jsonb, NULL)`,
-      [layer, trashedLayer, form, trashedForm, formOnTrashedLayer, linked(layer), linked(trashedLayer)],
+      `INSERT INTO ${schema}.item (id, org_id, data_json, deleted_at) VALUES
+         ($1, $10, '{}', NULL),
+         ($2, $10, '{}', now()),
+         ($3, $10, $6::jsonb, NULL),
+         ($4, $10, $6::jsonb, now()),
+         ($5, $10, $7::jsonb, NULL),
+         ($8, $11, '{}', NULL),
+         ($9, $10, $12::jsonb, NULL)`,
+      [
+        layer, trashedLayer, form, trashedForm, formOnTrashedLayer,
+        linked(layer), linked(trashedLayer),
+        otherOrgLayer, formOnOtherOrgLayer, orgA, orgB, linked(otherOrgLayer),
+      ],
     );
     await admin.query(
       `INSERT INTO ${schema}.form_submission (id, form_id, created_at) VALUES
@@ -84,8 +96,12 @@ d('form mirror repair query against Postgres', () => {
          ($2, $6, now()),
          ($3, $7, now()),
          ($4, $8, now()),
-         ($5, $6, now() - interval '30 days')`,
-      [unmirrored, mirrored, onTrashedForm, onTrashedLayer, old, form, trashedForm, formOnTrashedLayer],
+         ($5, $6, now() - interval '30 days'),
+         ($9, $10, now())`,
+      [
+        unmirrored, mirrored, onTrashedForm, onTrashedLayer, old, form, trashedForm,
+        formOnTrashedLayer, onOtherOrgLayer, formOnOtherOrgLayer,
+      ],
     );
     await admin.query(
       `INSERT INTO ${schema}.observation (scope, entity, kind) VALUES ($1, $2, 'create')`,
@@ -104,7 +120,7 @@ d('form mirror repair query against Postgres', () => {
     await admin?.end();
   });
 
-  it('repairs only the recent, unmirrored submission on a live form and layer', async () => {
+  it('repairs only the recent, unmirrored submission on a live form and same-org layer', async () => {
     const prisma = {
       $queryRaw: client.$queryRaw.bind(client),
       formSubmission: {
@@ -122,7 +138,15 @@ d('form mirror repair query against Postgres', () => {
       item: { findUnique: jest.fn(async () => ({ id: form, data: {} })) },
     };
     const leader = { shouldRun: () => true } as unknown as LeaderElectionService;
-    const svc = new FormsService(prisma as never, {} as never, {} as never, {} as never, leader);
+    const svc = new FormsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      leader,
+    );
     const mirror = jest
       .spyOn(
         svc as unknown as { mirrorToPairedLayer: (a: unknown) => Promise<void> },

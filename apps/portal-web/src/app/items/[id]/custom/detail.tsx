@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   useCallback,
   useEffect,
@@ -154,6 +156,8 @@ export interface ThemeItemSummary {
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   /**
    * Item title for the BuilderShell top bar. Pass-through from the
    * parent detail page (`item.title`).
@@ -205,11 +209,14 @@ interface Props {
  */
 export function CustomAppDetail({
   itemId,
+  updatedAt,
   itemTitle,
   initial,
   canEdit,
   themeItems = [],
 }: Props) {
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   // #357: migrate any v1 (12-col / 48px-row) app to the new v2 grid
   // (24-col / 24px-row) on load so the rest of the designer can
   // assume v2 coordinates. Idempotent: v2 input passes through
@@ -397,11 +404,11 @@ export function CustomAppDetail({
         template: 'custom',
         config: { template: 'custom', custom: app },
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data }),
-      });
+      const res = await patchItem({ data });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`save failed: ${res.status} ${txt}`);
@@ -414,7 +421,7 @@ export function CustomAppDetail({
     } finally {
       setSaving(false);
     }
-  }, [app, itemId]);
+  }, [app, patchItem, t]);
 
   // #22: "Save as template" creates a new app_template item with
   // the current blueprint, owned by the requesting user, default

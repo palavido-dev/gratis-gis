@@ -16,6 +16,8 @@ import type { CatalogShape } from '../locales';
 
 export const de: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Jemand anderes hat dieses Element gespeichert, nachdem Sie es geöffnet haben. Ihre Änderungen wurden daher nicht gespeichert, sind aber noch sichtbar. Laden Sie die Seite neu, um die aktuelle Version zu sehen, und nehmen Sie Ihre Änderungen erneut vor.',
     save: 'Speichern',
     cancel: 'Abbrechen',
     delete: 'Löschen',
@@ -898,7 +900,7 @@ export const de: Partial<CatalogShape> = {
     editableLayersCount:
       '{count, plural, one {# bearbeitbare Ebene} other {# bearbeitbare Ebenen}}',
     toolAdd: 'Hinzufügen',
-    toolMagic: 'Magic outline-solid',
+    toolMagic: 'Magic outline',
     toolSnap: 'Fangen',
     toolUndo: 'Rückgängig',
     toolRedo: 'Wiederholen',
@@ -926,12 +928,12 @@ export const de: Partial<CatalogShape> = {
     deleteThisFeature: 'Dieses Feature löschen',
     layerFallback: 'Ebene',
     magicNeedsImagery:
-      'Fügen Sie diesem Kartenbild eine Imagery-Ebene hinzu, um outline-solid zu nutzen.',
+      'Fügen Sie diesem Kartenbild eine Imagery-Ebene hinzu, um Magic Outline zu nutzen.',
     outlining: 'Umriss wird erstellt...',
     magicProblem:
-      'Das outline-solid-Werkzeug hatte ein Problem. Bitte erneut versuchen.',
+      'Das Magic-Outline-Werkzeug hatte ein Problem. Bitte erneut versuchen.',
     magicNeedsPolygon:
-      'Das outline-solid-Werkzeug braucht eine bearbeitbare Polygon-Ebene als Ziel. Öffnen Sie die Editor-Konfiguration, um eine hinzuzufügen.',
+      'Das Magic-Outline-Werkzeug braucht eine bearbeitbare Polygon-Ebene als Ziel. Öffnen Sie die Editor-Konfiguration, um eine hinzuzufügen.',
     noEditableTargetsAdd:
       'Keine bearbeitbaren Ziel-Ebenen konfiguriert. Öffnen Sie die Editor-Konfiguration, um eine hinzuzufügen.',
     noEditableTargetsEdit:
@@ -1328,30 +1330,6 @@ export const de: Partial<CatalogShape> = {
   },
   presence: {
     youSuffix: ' (Sie)',
-  },
-  comments: {
-    title: 'Kommentare',
-    showResolved: 'Gelöste anzeigen',
-    startThread: 'Neuen Thread starten...',
-    post: 'Veröffentlichen',
-    reply: 'Antworten...',
-    resolve: 'Lösen',
-    reopen: 'Wieder öffnen',
-    threadCount: '{count, plural, one {# Thread} other {# Threads}}',
-    noOpen:
-      'Keine offenen Threads. Aktivieren Sie „Gelöste anzeigen", um geschlossene zu sehen.',
-    noComments:
-      'Noch keine Kommentare. Starten Sie die Unterhaltung unten.',
-    signInPrompt: 'Melden Sie sich an, um diese Karte zu kommentieren.',
-  },
-  markup: {
-    title: 'Markierungen',
-    add: 'Markierung hinzufügen',
-    empty:
-      'Noch keine Markierungen. Fügen Sie einen Satz hinzu und setzen Sie dann Pins, um die Karte zu markieren.',
-    dropPin: 'Pin in der Mitte setzen',
-    signInPrompt:
-      'Melden Sie sich an, um Markierungen zu dieser Karte hinzuzufügen.',
   },
   print: {
     chooserTitle: 'Diese Karte drucken',
@@ -2164,15 +2142,6 @@ export const de: Partial<CatalogShape> = {
     noFeaturesInExtent: 'Keine Features in diesem Kartenausschnitt.',
     noFeatures: 'Keine Features zum Anzeigen.',
     sortAndCalculate: 'Klicken zum Sortieren, Rechtsklick für Feld berechnen',
-  },
-  addToMap: {
-    newMap: 'Neue Karte',
-    existingMap: 'Eine vorhandene Karte',
-    loadingMaps: 'Karten werden geladen...',
-    noMaps: 'Noch keine Karten',
-    layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
-    tableNoShapes:
-      '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
     export: 'Exportieren',
     exportAllRows: 'Alle Zeilen ({count})',
     exportSelectedRows: 'Ausgewählte Zeilen ({count})',
@@ -2255,6 +2224,15 @@ export const de: Partial<CatalogShape> = {
     savingCell: 'Wird gespeichert...',
     readOnlyHere:
       'Diese Tabelle ist hier schreibgeschützt. Zeilen können auf Ebenen bearbeitet werden, für die Sie Änderungsrechte haben.',
+  },
+  addToMap: {
+    newMap: 'Neue Karte',
+    existingMap: 'Eine vorhandene Karte',
+    loadingMaps: 'Karten werden geladen...',
+    noMaps: 'Noch keine Karten',
+    layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
+    tableNoShapes:
+      '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
   },
   mapAddLayer: {
     title: 'Ebene hinzufügen',
@@ -5037,21 +5015,21 @@ export const de: Partial<CatalogShape> = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
@@ -5119,7 +5097,6 @@ export const de: Partial<CatalogShape> = {
       layers: "Ebenen",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Drucken",
