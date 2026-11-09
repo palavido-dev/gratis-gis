@@ -768,7 +768,93 @@ function claimRow(db, storeName, key, canClaim, patch) {
  * are still offline), which the caller turns into "leave the row
  * pending and let the browser re-fire the sync".
  */
-async function replayFeatureRecord(r) {
+/**
+ * MIRROR of isOwnEditEcho in packages/shared-types/src/sync-outcome.ts:
+ * whether a 409 on a replayed update is this device's own earlier
+ * write whose response was lost (the server's `current` already holds
+ * every queued value, ignoring `_` keys, and the queued geometry).
+ */
+const ECHO_COORD_TOLERANCE = 1e-8;
+function echoSameValue(a, b, coords) {
+  if (a === undefined) a = null;
+  if (b === undefined) b = null;
+  if (typeof a === 'number' && typeof b === 'number') {
+    return coords ? Math.abs(a - b) <= ECHO_COORD_TOLERANCE : a === b;
+  }
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return a === b;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => echoSameValue(v, b[i], coords));
+  }
+  const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+  for (const k of keys) {
+    if (!echoSameValue(a[k], b[k], coords)) return false;
+  }
+  return true;
+}
+function isOwnEditEcho(edit, current) {
+  if (edit.op !== 'update' || !current) return false;
+  const now = current.properties || {};
+  const props = edit.properties || {};
+  for (const key of Object.keys(props)) {
+    if (key.startsWith('_')) continue;
+    if (!echoSameValue(props[key], now[key], false)) return false;
+  }
+  if (edit.geometry !== null && edit.geometry !== undefined) {
+    if (!echoSameValue(edit.geometry, current.geometry || null, true)) return false;
+  }
+  return true;
+}
+
+/** True when `res` is a 409 whose `current` is the queued update. */
+async function isEchoConflict(res, r) {
+  if (res.status !== 409) return false;
+  try {
+    const body = await res.clone().json();
+    return isOwnEditEcho(
+      { op: 'update', geometry: r.geometry, properties: r.properties },
+      body && body.current ? body.current : null,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * MIRROR of rebaseFeatureHead in src/lib/offline-store.ts, queue half:
+ * after an update lands, the same account's pending rows of that
+ * feature queued AFTER it move to the new head. Another account's row,
+ * or an earlier one, keeps its base so it still gets a 409 instead of
+ * overwriting this write. The cached feature copy is refreshed by the
+ * page's next delta.
+ */
+async function rebaseQueuedRows(db, r, head) {
+  const rows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
+  for (const row of rows) {
+    if (
+      row.id !== r.id &&
+      r.ownerUserId !== undefined &&
+      row.ownerUserId === r.ownerUserId &&
+      row.queuedAt > r.queuedAt &&
+      row.dataCollectionId === r.dataCollectionId &&
+      row.globalId === r.globalId &&
+      row.dataLayerId === r.dataLayerId &&
+      row.layerKey === r.layerKey &&
+      row.baseObservationId !== undefined &&
+      (row.syncStatus === 'pending' || row.syncStatus === 'failed')
+    ) {
+      await idbPut(
+        db,
+        OFFLINE_QUEUE_STORE,
+        Object.assign({}, row, { baseObservationId: head }),
+      ).catch(() => {});
+    }
+  }
+}
+
+async function replayFeatureRecord(r, db) {
   const layerPath =
     '/api/portal/items/' +
     r.dataLayerId +
@@ -792,17 +878,21 @@ async function replayFeatureRecord(r) {
       }),
     });
   } else if (r.op === 'update') {
+    // baseObservationId rides on both requests so a stale edit gets a
+    // 409 instead of last writer wins. LOCKSTEP with offline-sync.ts.
     const patchBody = Object.assign(
       { properties: r.properties || {} },
       r.geometry !== null && r.geometry !== undefined
         ? { geometry: r.geometry }
         : {},
+      r.baseObservationId ? { baseObservationId: r.baseObservationId } : {},
     );
     const checkRes = await fetch(layerPath + '/' + r.globalId, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(Object.assign({}, patchBody, { checkOnly: true })),
     });
+    if (await isEchoConflict(checkRes, r)) return 'done';
     const checkOutcome = replayOutcomeForStatus(checkRes.status, r.op);
     if (checkOutcome !== 'done') {
       const checkBody = await checkRes.text().catch(() => '');
@@ -816,11 +906,24 @@ async function replayFeatureRecord(r) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patchBody),
     });
+    if (await isEchoConflict(res, r)) return 'done';
+    if (res.ok && db) {
+      try {
+        const written = await res.clone().json();
+        const head = written && written.properties && written.properties._observation_id;
+        if (typeof head === 'string' && head) await rebaseQueuedRows(db, r, head);
+      } catch {
+        // No body to read; the next edit may park as a conflict.
+      }
+    }
   } else if (r.op === 'delete') {
+    const deleteBody = r.baseObservationId
+      ? { baseObservationId: r.baseObservationId }
+      : {};
     const checkRes = await fetch(layerPath + '/' + r.globalId, {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ checkOnly: true }),
+      body: JSON.stringify(Object.assign({}, deleteBody, { checkOnly: true })),
     });
     const checkOutcome = replayOutcomeForStatus(checkRes.status, r.op);
     if (checkOutcome !== 'done') {
@@ -830,7 +933,16 @@ async function replayFeatureRecord(r) {
         reason: messageFromBody(checkBody, checkRes.status),
       };
     }
-    res = await fetch(layerPath + '/' + r.globalId, { method: 'DELETE' });
+    res = await fetch(
+      layerPath + '/' + r.globalId,
+      r.baseObservationId
+        ? {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(deleteBody),
+          }
+        : { method: 'DELETE' },
+    );
   } else {
     // Only a row written by a newer client can get here; retrying
     // cannot teach this worker a new op.
@@ -1009,7 +1121,7 @@ async function drainFeatureQueue() {
       }
       if (!claimed) continue; // another drain took it
       try {
-        const outcome = await replayFeatureRecord(record);
+        const outcome = await replayFeatureRecord(record, db);
         if (outcome === 'done') {
           await idbDelete(db, OFFLINE_QUEUE_STORE, key);
         } else {

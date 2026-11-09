@@ -43,3 +43,67 @@ export function replayOutcomeForStatus(
   }
   return 'retry';
 }
+
+/** The parts of a queued edit and of a 409's `current` feature that
+ *  `isOwnEditEcho` compares. */
+export interface EchoEdit {
+  op: 'insert' | 'update' | 'delete';
+  geometry: unknown | null;
+  properties: Record<string, unknown> | null;
+}
+
+export interface EchoFeature {
+  geometry?: unknown;
+  properties?: Record<string, unknown> | null;
+}
+
+/** Geometry the server returns went through PostGIS, which prints at
+ *  most 9 decimals. Anything closer than this is the same point. */
+const COORD_TOLERANCE = 1e-8;
+
+function sameValue(a: unknown, b: unknown, coords: boolean): boolean {
+  if (a === undefined) a = null;
+  if (b === undefined) b = null;
+  if (typeof a === 'number' && typeof b === 'number') {
+    return coords ? Math.abs(a - b) <= COORD_TOLERANCE : a === b;
+  }
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return a === b;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => sameValue(v, b[i], coords));
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(ao), ...Object.keys(bo)]);
+  for (const k of keys) {
+    if (!sameValue(ao[k], bo[k], coords)) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether a 409 `feature-conflict` on a replayed update is the
+ * device's own earlier write coming back.
+ *
+ * An update can commit on the server and its response be lost (a
+ * timeout in poor coverage). The row stays queued with its old
+ * `baseObservationId`, and the retry gets 409 because the head is now
+ * that same write. When the server's `current` feature already holds
+ * every value the queued edit sends (ignoring `_` keys, which the
+ * server owns) and the queued geometry, the edit landed: the row is
+ * done, not a conflict. Anything else stays a conflict for a person.
+ */
+export function isOwnEditEcho(edit: EchoEdit, current: EchoFeature | null): boolean {
+  if (edit.op !== 'update' || current === null) return false;
+  const now = current.properties ?? {};
+  for (const [key, value] of Object.entries(edit.properties ?? {})) {
+    if (key.startsWith('_')) continue;
+    if (!sameValue(value, now[key], false)) return false;
+  }
+  if (edit.geometry !== null && edit.geometry !== undefined) {
+    if (!sameValue(edit.geometry, current.geometry ?? null, true)) return false;
+  }
+  return true;
+}
