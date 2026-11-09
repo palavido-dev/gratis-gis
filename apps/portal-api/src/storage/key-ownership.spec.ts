@@ -248,6 +248,7 @@ describe('presign records who was issued the key', () => {
       prisma as never,
       {} as never,
       {} as never,
+      {} as never, // engine, only used for attachment downloads
     );
     await ctl.presignUpload(ATTACKER, {
       kind: 'item-file',
