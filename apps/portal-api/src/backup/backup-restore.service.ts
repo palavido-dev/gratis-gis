@@ -12,6 +12,7 @@ import {
 } from '@aws-sdk/client-s3';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -38,6 +39,85 @@ export interface ArchiveManifest {
   minio: { bucket: string; objectCount: number; totalBytes: number };
   gitSha?: string | null;
   portalVersion?: string | null;
+  appliedMigrations?: string[];
+}
+
+/**
+ * The restore stopped before it changed anything (no pg_restore, no
+ * object writes). The controller then lifts the maintenance it
+ * raised instead of holding the portal as if a restore had failed
+ * half way.
+ */
+export class RestoreNotStartedError extends Error {}
+
+/**
+ * Compare the archive's applied migrations with the running portal's.
+ * Returns null when they match, otherwise the reason to refuse.
+ * pg_restore `--clean` only drops objects that are in the archive, so
+ * any difference leaves a schema the running code does not expect.
+ */
+export function schemaMismatch(
+  archive: string[],
+  live: string[],
+  archiveVersion: string | null | undefined,
+): string | null {
+  const a = new Set(archive);
+  const l = new Set(live);
+  const missing = live.filter((m) => !a.has(m));
+  const extra = archive.filter((m) => !l.has(m));
+  if (missing.length === 0 && extra.length === 0) return null;
+  const made = archiveVersion ? ` (GratisGIS ${archiveVersion})` : '';
+  if (extra.length === 0) {
+    return (
+      `This archive${made} was made before ${missing.length} database ` +
+      `migration(s) this portal runs, starting with ${missing[0]}. ` +
+      'An in-portal restore cannot convert an older schema. Restore it ' +
+      'on the GratisGIS release that made it, then upgrade.'
+    );
+  }
+  if (missing.length === 0) {
+    return (
+      `This archive${made} has ${extra.length} database migration(s) ` +
+      `this portal does not know, starting with ${extra[0]}. Upgrade ` +
+      'the portal to the release that made it before restoring.'
+    );
+  }
+  return (
+    `This archive${made} has a different database schema from this ` +
+    `portal (${missing.length} migration(s) missing, ${extra.length} ` +
+    'unknown). Restore it on the GratisGIS release that made it.'
+  );
+}
+
+/** Parse the `_prisma_migrations` COPY block that
+ *  `pg_restore --data-only --table=_prisma_migrations -f -` prints.
+ *  Returns the sorted names of finished, not rolled back, rows, or
+ *  null when the block is missing. */
+export function parseMigrationsCopy(sql: string): string[] | null {
+  const lines = sql.split('\n');
+  const start = lines.findIndex((l) =>
+    /^COPY\s+(?:"?public"?\.)?"?_prisma_migrations"?\s*\(/.test(l),
+  );
+  if (start < 0) return null;
+  const header = lines[start] ?? '';
+  const cols = header
+    .slice(header.indexOf('(') + 1, header.indexOf(')'))
+    .split(',')
+    .map((c) => c.trim().replace(/^"|"$/g, ''));
+  const iName = cols.indexOf('migration_name');
+  const iFinished = cols.indexOf('finished_at');
+  const iRolled = cols.indexOf('rolled_back_at');
+  if (iName < 0 || iFinished < 0 || iRolled < 0) return null;
+  const names: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (line === '\\.') break;
+    const f = line.split('\t');
+    if (f[iFinished] === '\\N' || f[iRolled] !== '\\N') continue;
+    const name = f[iName];
+    if (name) names.push(name);
+  }
+  return names.sort();
 }
 
 /**
@@ -123,6 +203,13 @@ export class BackupRestoreService {
         `Archive manifest version ${manifest.version} isn't supported by this portal. Upgrade before restoring.`,
       );
     }
+    if (manifest.appliedMigrations) {
+      await this.assertSchemaMatches(
+        manifest.appliedMigrations,
+        manifest.portalVersion,
+        (m) => new BadRequestException(m),
+      );
+    }
     const stat = await fs.stat(archivePath);
     return {
       runId,
@@ -133,14 +220,38 @@ export class BackupRestoreService {
   }
 
   /**
+   * Checks that need no maintenance window. The controller runs them
+   * before it raises maintenance, so a refused restore never leaves
+   * the portal in a failed-restore hold.
+   */
+  async preflight(runId: string): Promise<void> {
+    const live = await this.backup.liveRun();
+    if (live) {
+      throw new ConflictException(
+        `A backup is running (started ${live.startedAt.toISOString()}). Wait for it to finish or cancel it before restoring.`,
+      );
+    }
+    await this.peekArchive(runId);
+  }
+
+  /**
    * Execute the destructive restore. Caller must have already
    * flipped maintenance mode on. Returns the audit row once the
-   * restore completes.
+   * restore completes. Throws RestoreNotStartedError when it stopped
+   * before changing anything.
    */
   async runRestore(args: { runId: string; startedBy: string }) {
     if (!this.mode.isActive()) {
-      throw new Error(
+      throw new RestoreNotStartedError(
         'Maintenance mode must be active before runRestore(). The controller is supposed to handle this; refusing as a safety net.',
+      );
+    }
+    // Re-checked inside maintenance: the other replica can start a
+    // scheduled backup until it sees the flag (one poll interval).
+    const live = await this.backup.liveRun();
+    if (live) {
+      throw new RestoreNotStartedError(
+        `A backup is running (started ${live.startedAt.toISOString()}). Wait for it to finish or cancel it before restoring.`,
       );
     }
 
@@ -156,54 +267,85 @@ export class BackupRestoreService {
     );
     await fs.mkdir(stageDir, { recursive: true });
 
-    const failWith = async (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.log.error(`RESTORE FAILED: ${msg}`);
-      // Clean the staging dir on failure; leaving half-extracted
-      // tarball bytes lying around is confusing the next time someone
-      // debugs BACKUP_DIR.
-      await fs.rm(stageDir, { recursive: true, force: true });
-      // We cannot write the audit row on the "pre-restore" DB when
-      // we failed mid-restore: pg_restore may have partially
-      // rewritten the schema. Best we can do is log + return.
-      throw new Error(msg);
-    };
+    // Set once the hold is in place and pg_restore may have run.
+    // Everything before it changes nothing.
+    let started = false;
+    const notStarted = (msg: string) => new RestoreNotStartedError(msg);
 
     try {
       // 1. Extract the archive into a staging dir. We shell out to
       //    the system tar so we don't carry the npm `tar` dep (#47).
-      await extractTarGz(archivePath, stageDir);
+      await extractTarGz(archivePath, stageDir).catch((e: unknown) => {
+        throw notStarted(e instanceof Error ? e.message : String(e));
+      });
 
-      const manifest = await this.readStagedManifest(stageDir);
+      const manifest = await this.readStagedManifest(stageDir).catch(() => {
+        throw notStarted('Archive manifest.json is missing or not valid JSON.');
+      });
       if (manifest.version !== 1) {
-        return failWith(
+        throw notStarted(
           `Archive manifest version ${manifest.version} isn't supported.`,
         );
       }
 
-      // 2. Restore postgres. The dump is in custom format; we use
-      //    pg_restore with --clean --if-exists to drop & recreate
-      //    every object in our schema before reloading. This assumes
-      //    the portal's DB user owns the schema.
       const dumpRel = path.join(
         'postgres',
         `${manifest.databases[0] ?? 'gratisgis'}.dump`,
       );
       const dumpPath = path.join(stageDir, dumpRel);
       await fs.access(dumpPath).catch(() => {
-        throw new Error(`Archive is missing ${dumpRel}`);
+        throw notStarted(`Archive is missing ${dumpRel}`);
       });
-      await this.runPgRestore(dumpPath);
 
-      // 3. Rebuild the MinIO bucket. #233: PUT archive objects first
+      // 2. The archive's schema must be the running portal's schema.
+      //    Archives made before the manifest carried the list are
+      //    read from the dump itself.
+      const archiveMigrations =
+        manifest.appliedMigrations ?? (await this.readDumpMigrations(dumpPath));
+      if (!archiveMigrations) {
+        throw notStarted(
+          'Could not read which database migrations this archive contains, so it cannot be checked against this portal. Restore it with the host recovery tools on the release that made it.',
+        );
+      }
+      await this.assertSchemaMatches(
+        archiveMigrations,
+        manifest.portalVersion,
+        notStarted,
+      );
+
+      // 3. Backup history lives in the database the restore replaces.
+      //    Keep the live rows: they describe the archives on disk.
+      const history = await this.snapshotBackupHistory();
+
+      // 4. Hold maintenance through the whole restore. The local hold
+      //    covers this replica, the marker file covers the other one
+      //    and survives a crash. Written before pg_restore starts.
+      await this.mode
+        .beginRestoreHold(
+          `Restoring backup ${args.runId.slice(0, 8)}. An interrupted restore leaves maintenance on.`,
+        )
+        .catch((e: unknown) => {
+          throw notStarted(
+            `Could not write the restore marker, so the restore did not start: ${
+              e instanceof Error ? e.message : e
+            }`,
+          );
+        });
+      started = true;
+
+      // 5. Restore postgres with --clean --if-exists.
+      await this.runPgRestore(dumpPath);
+      // The archive's own `system_setting` row (inactive) is now in
+      // place. Put the maintenance row back before anything else.
+      await this.mode.reassertHold();
+      await this.restoreBackupHistory(history);
+
+      // 6. Rebuild the MinIO bucket. #233: PUT archive objects first
       //    (overwrite in place), then delete keys that were not in
-      //    the archive. Emptying first left a half-empty bucket if
-      //    restoreMinio failed mid-way; this order keeps prior
-      //    objects until their replacements land.
+      //    the archive.
       await this.restoreMinio(path.join(stageDir, 'minio'));
 
-      // 4. Write the audit row on the restored DB. We know the
-      //    schema is intact because pg_restore just rebuilt it.
+      // 7. Write the audit row on the restored DB.
       const audit = await this.prisma.backupRestore.create({
         data: {
           fromRunId: args.runId,
@@ -213,14 +355,89 @@ export class BackupRestoreService {
           startedBy: args.startedBy,
         },
       });
+      await this.mode.endRestoreHold(true);
+      started = false;
       this.log.warn(
         `RESTORE SUCCEEDED: audit=${audit.id} archive=${filename}`,
       );
       return audit;
     } catch (e) {
-      return failWith(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      this.log.error(`RESTORE FAILED: ${msg}`);
+      if (started) {
+        // Keep the marker: the database may be half restored.
+        await this.mode.endRestoreHold(false);
+      }
+      if (e instanceof RestoreNotStartedError) throw e;
+      throw new Error(msg);
     } finally {
       await fs.rm(stageDir, { recursive: true, force: true });
+    }
+  }
+
+  /** Live backup history, read before pg_restore replaces it. */
+  async snapshotBackupHistory() {
+    const [runs, notices, restores] = await Promise.all([
+      this.prisma.backupRun.findMany(),
+      this.prisma.backupFailureNotice.findMany(),
+      this.prisma.backupRestore.findMany(),
+    ]);
+    return { runs, notices, restores };
+  }
+
+  /**
+   * Put the live backup history back after pg_restore. The archive's
+   * copy shows its own run as `running` (the dump is taken mid-run),
+   * which reclaim would close as failed with a false "backup failed"
+   * notice, and it lacks every run made after it. The live rows match
+   * the archives on disk, so they win.
+   */
+  async restoreBackupHistory(
+    history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>>,
+  ): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.backupRun.deleteMany({}),
+      this.prisma.backupRun.createMany({ data: history.runs }),
+      this.prisma.backupFailureNotice.deleteMany({}),
+      this.prisma.backupFailureNotice.createMany({ data: history.notices }),
+      this.prisma.backupRestore.deleteMany({}),
+      this.prisma.backupRestore.createMany({ data: history.restores }),
+    ]);
+  }
+
+  private async assertSchemaMatches(
+    archive: string[],
+    archiveVersion: string | null | undefined,
+    toError: (msg: string) => Error,
+  ): Promise<void> {
+    const live = await this.backup.appliedMigrations();
+    const why = schemaMismatch(archive, live, archiveVersion);
+    if (why) throw toError(why);
+  }
+
+  /**
+   * Read the applied migrations out of the dump's `_prisma_migrations`
+   * data without touching the database. Null when the dump has no
+   * such table or the read fails.
+   */
+  private async readDumpMigrations(dumpPath: string): Promise<string[] | null> {
+    const container = this.cfg.get<string>('BACKUP_PGDUMP_DOCKER_CONTAINER', '');
+    const args = [
+      '--data-only',
+      '--table=_prisma_migrations',
+      '-f',
+      '-',
+    ];
+    try {
+      const out = container
+        ? await this.captureCmd('docker', ['exec', '-i', container, 'pg_restore', ...args], dumpPath)
+        : await this.captureCmd('pg_restore', [...args, dumpPath]);
+      return parseMigrationsCopy(out);
+    } catch (e) {
+      this.log.warn(
+        `Could not read migrations from the dump: ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
     }
   }
 
@@ -398,6 +615,37 @@ export class BackupRestoreService {
    * message on non-zero exit; stdout is discarded because the tools
    * we invoke here don't produce useful stdout.
    */
+  private captureCmd(
+    bin: string,
+    args: string[],
+    stdinFile?: string,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(bin, args, {
+        stdio: [stdinFile ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      });
+      const out: Buffer[] = [];
+      const err: Buffer[] = [];
+      child.stdout?.on('data', (c: Buffer) => out.push(c));
+      child.stderr?.on('data', (c: Buffer) => err.push(c));
+      child.on('error', reject);
+      if (stdinFile && child.stdin) {
+        const src = createReadStream(stdinFile);
+        src.on('error', reject);
+        child.stdin.on('error', () => undefined);
+        src.pipe(child.stdin);
+      }
+      child.on('close', (code) => {
+        if (code === 0) return resolve(Buffer.concat(out).toString('utf8'));
+        reject(
+          new Error(
+            `${bin} exited with code ${code}: ${Buffer.concat(err).toString('utf8').slice(-300)}`,
+          ),
+        );
+      });
+    });
+  }
+
   private runCmd(bin: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(bin, args, {
