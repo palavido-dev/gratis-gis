@@ -898,7 +898,7 @@ export class ItemsController {
 
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateItemDto) {
-    return this.items.create(user, dto);
+    return this.items.create(user, dto, { clientKeys: true });
   }
 
   @Patch(':id')
@@ -907,7 +907,7 @@ export class ItemsController {
     @Param('id') id: string,
     @Body() dto: UpdateItemDto,
   ) {
-    return this.items.update(user, id, dto);
+    return this.items.update(user, id, dto, { clientKeys: true });
   }
 
   @Delete(':id')

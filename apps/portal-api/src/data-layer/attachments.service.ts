@@ -12,6 +12,10 @@ import type {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
+import {
   FEATURE_ATTACHMENT_MAX_BYTES,
   StorageService,
 } from '../storage/storage.service.js';
@@ -154,6 +158,10 @@ export class DataLayerAttachmentsService {
         'storageKey is not an attachment upload',
       );
     }
+    // The prefix alone does not make the key this caller's: attachment
+    // URLs carry the key to every download-tier reader, and remove()
+    // deletes the object.
+    await assertKeysAttachable(this.prisma, userId, [input.storageKey]);
 
     // #224: refuse to parent an attachment to a feature that does
     // not exist (orphans were invisible and never cleaned up).
@@ -176,7 +184,7 @@ export class DataLayerAttachmentsService {
       );
     }
     if (realSize > FEATURE_ATTACHMENT_MAX_BYTES) {
-      await this.storage.deleteObject(input.storageKey);
+      await deleteIfUnreferenced(this.prisma, this.storage, input.storageKey);
       throw new BadRequestException(
         `Attachment exceeds the ${FEATURE_ATTACHMENT_MAX_BYTES} byte limit`,
       );
@@ -245,7 +253,11 @@ export class DataLayerAttachmentsService {
     // and deleting one verbatim is exactly the primitive we are
     // closing. A leaked object is the safe failure mode.
     if (row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
-      await this.storage.deleteObject(row.storageKey);
+      // Another row may share the key (registered before attach paths
+      // checked ownership). Leave the object to it.
+      await deleteIfUnreferenced(this.prisma, this.storage, row.storageKey, {
+        attachmentId: row.id,
+      });
     }
   }
 }

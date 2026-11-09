@@ -68,6 +68,10 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
@@ -440,6 +444,32 @@ function assertItemAssetKey(
 
 /** Fields in item data that name an object in the shared bucket. */
 const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
+
+/** Every storage key an item's data names: the asset fields plus
+ *  mosaic / multi-tile `sources[].storageKey`. */
+export function itemDataStorageKeys(data: unknown): string[] {
+  if (!data || typeof data !== 'object') return [];
+  const d = data as Record<string, unknown>;
+  const keys: string[] = [];
+  for (const field of ASSET_KEY_FIELDS) {
+    const v = d[field];
+    if (typeof v === 'string' && v.length > 0) keys.push(v);
+  }
+  if (Array.isArray(d.sources)) {
+    for (const src of d.sources) {
+      const v = (src as { storageKey?: unknown } | null)?.storageKey;
+      if (typeof v === 'string' && v.length > 0) keys.push(v);
+    }
+  }
+  return keys;
+}
+
+/** Options for writes whose `data` came straight from an HTTP body. */
+export interface ClientWriteOptions {
+  /** Storage keys in `data` are client-supplied: each must be issued
+   *  to the caller or already referenced by this item. */
+  clientKeys?: boolean;
+}
 
 /**
  * Depth limit for the attribution walk. Item data blobs nest (a custom
@@ -1226,7 +1256,11 @@ export class ItemsService {
     return { ...(data as Record<string, unknown>), layers: out };
   }
 
-  async create(user: AuthUser, input: CreateItemInput) {
+  async create(
+    user: AuthUser,
+    input: CreateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
     // The authorization gate for creating anything at all.
     //
     // This had no check of any kind, which made ownership a
@@ -1317,6 +1351,13 @@ export class ItemsService {
     // wizard legitimately posts a presigned key here, so this
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
+    if (opts.clientKeys) {
+      await assertKeysAttachable(
+        this.prisma,
+        user.id,
+        itemDataStorageKeys(resolvedData),
+      );
+    }
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
     }
@@ -1776,7 +1817,12 @@ export class ItemsService {
     }
   }
 
-  async update(user: AuthUser, id: string, input: UpdateItemInput) {
+  async update(
+    user: AuthUser,
+    id: string,
+    input: UpdateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
     const item = await this.get(user, id);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
     if (!this.sharing.canEdit(user, item, shares)) {
@@ -1881,6 +1927,14 @@ export class ItemsService {
     // writer passes through: point-cloud and tile-layer validate their
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData, item.data);
+    if (opts.clientKeys && nextData !== undefined) {
+      await assertKeysAttachable(
+        this.prisma,
+        user.id,
+        itemDataStorageKeys(nextData),
+        itemDataStorageKeys(item.data),
+      );
+    }
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -2603,7 +2657,13 @@ export class ItemsService {
           );
         } else {
           try {
-            await this.storage.deleteObject(key);
+            // Another item or attachment may still reference the same
+            // object (rows from before attach paths checked
+            // ownership). Leave it; the orphan sweep reclaims it once
+            // nothing does.
+            await deleteIfUnreferenced(this.prisma, this.storage, key, {
+              itemId,
+            });
           } catch (err) {
             void err;
           }

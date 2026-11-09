@@ -300,6 +300,21 @@ model AdminAuditEvent {
   @@map("admin_audit_event")
 }
 
+/// Who was issued a presigned upload key. A client-supplied key is
+/// attached to an item, a tile layer, a point cloud or a feature
+/// attachment only when the caller was issued it here, or the target
+/// already references it. Without this, any reader could copy another
+/// item's key into their own item, then delete or republish the
+/// object. Rows older than two days are pruned on the next presign.
+model StorageUploadGrant {
+  key       String   @id
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@map("storage_upload_grant")
+}
+
 /// Bytes held by one staged upload or queued import. Released when
 /// the import finishes or fails. No per-org cap sums these rows.
 model StorageReservation {
