@@ -279,8 +279,14 @@ d('label points: one per feature across neighbouring tiles', () => {
     expect(full.find((l) => l.name === 'features')!.features.length).toBeGreaterThan(1);
     expect(full.map((l) => l.name)).toEqual(['features', 'labels']);
     const capped = decodeMvt((await engine.mvtTile({ ...at, maxFeaturesPerTile: 1 })).mvt);
-    expect(capped.map((l) => l.name)).toEqual(['features']);
-    for (const f of capped[0]!.features) expect(f.properties._label_point).toBe(false);
+    // Which single feature the cap keeps is not ordered, and it can be
+    // one whose box touches the tile while its geometry clips away, so
+    // the features layer may be empty. The rule under test holds either
+    // way: no labels layer, and no feature marked for label points.
+    expect(capped.map((l) => l.name)).not.toContain('labels');
+    for (const layer of capped) {
+      for (const f of layer.features) expect(f.properties._label_point).toBe(false);
+    }
   });
 
   it('does not mark a feature whose label point is outside Web Mercator', async () => {
