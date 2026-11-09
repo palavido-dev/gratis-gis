@@ -67,8 +67,10 @@ export interface OpenItemAction {
  * Open an absolute URL.  This is the escape hatch -- author drops
  * an internal /items/* path with query params (for selection,
  * highlighting, etc.) OR an external URL to a third-party tool.
- * The URL is opened either in the same tab or a new tab; we don't
- * server-side validate it.
+ * The URL is opened either in the same tab or a new tab. Only an
+ * app-relative path or an http(s) URL is accepted (`safeNavigationUrl`):
+ * portal-api rejects anything else on save and the runtime refuses
+ * to navigate to it.
  */
 export interface OpenUrlAction {
   kind: 'open-url';

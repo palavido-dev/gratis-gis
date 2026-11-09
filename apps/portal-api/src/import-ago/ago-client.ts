@@ -114,6 +114,25 @@ export class AgoClient {
   }
 
   /**
+   * URLs of the servers federated with this portal. Used to decide
+   * where the portal token may be sent. Best-effort: ArcGIS Online and
+   * some Enterprise versions answer with an error or nothing, which
+   * means "only the portal itself".
+   */
+  async portalServers(): Promise<string[]> {
+    try {
+      const body = await this.fetchJson<{
+        servers?: Array<{ url?: unknown }>;
+      }>('/portals/self/servers', {});
+      return (body.servers ?? [])
+        .map((s) => s.url)
+        .filter((u): u is string => typeof u === 'string');
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * List one page of a user's content at root (or in a specific
    * folder). AGO paginates with ``start`` + ``num`` and surfaces
    * ``nextStart`` (or -1 if no more); callers usually want

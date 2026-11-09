@@ -14,6 +14,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IMAGE_UPLOAD_MAX_BYTES } from '@gratis-gis/shared-types';
 
 /**
  * Kinds of content we host. Each gets its own path prefix inside the
@@ -96,7 +97,8 @@ const TILE_LAYER_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
  *  lidar, still a bound. */
 const POINT_CLOUD_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB; thumbnails should be small.
+// Thumbnails should be small. Shared with the web clients' early check.
+const MAX_UPLOAD_BYTES = IMAGE_UPLOAD_MAX_BYTES;
 
 export interface PresignResult {
   /** URL the browser PUTs the bytes to. Expires in 60 seconds. */
