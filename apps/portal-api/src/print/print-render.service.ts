@@ -20,7 +20,7 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { createPrintRequestFilter } from './print-request-filter.js';
+import { answerPrintRequest, createPrintRequestFilter } from './print-request-filter.js';
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 
@@ -251,19 +251,17 @@ export class PrintRenderService {
       try {
         // Every request the page makes goes through the filter, so a
         // user-authored URL cannot reach an internal host from here.
-        const allowed = createPrintRequestFilter([
+        // Third-party URLs are fetched by portal-api through safeFetch
+        // and answered with respond(), so Chromium never resolves a
+        // name the check did not see.
+        const decide = createPrintRequestFilter([
           previewBase,
           process.env.PUBLIC_URL,
           process.env.PORTAL_BASE_URL,
         ]);
         await page.setRequestInterception(true);
         page.on('request', (request) => {
-          void allowed(request.url()).then(
-            (ok) =>
-              ok
-                ? request.continue().catch(() => undefined)
-                : request.abort('blockedbyclient').catch(() => undefined),
-          );
+          void answerPrintRequest(request, decide);
         });
         await page.setViewport({
           width: Math.round(inches.w * 96),

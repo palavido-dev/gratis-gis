@@ -30,9 +30,6 @@ AUTH_DOMAIN_IN=""
 STORAGE_DOMAIN_IN=""
 ACME_EMAIL_IN=""
 ORG_NAME="GratisGIS"
-IMAGE_TAG="edge"
-PGDATA=""
-MINIO_DATA=""
 ASSUME_YES=0
 FORCE=0
 RERENDER=0
@@ -45,9 +42,18 @@ while [ $# -gt 0 ]; do
     --storage-domain) STORAGE_DOMAIN_IN="$2"; shift 2 ;;
     --acme-email) ACME_EMAIL_IN="$2"; shift 2 ;;
     --org-name) ORG_NAME="$2"; shift 2 ;;
-    --image-tag) IMAGE_TAG="$2"; shift 2 ;;
-    --pgdata) PGDATA="$2"; shift 2 ;;
-    --minio-data) MINIO_DATA="$2"; shift 2 ;;
+    # These used to be accepted and then read by nothing: Postgres and
+    # MinIO always use the pgdata and miniodata named volumes, and the
+    # VPS stack builds its images from source. Refuse rather than let
+    # someone snapshot an empty host directory as their backup.
+    --pgdata|--minio-data)
+      echo "$1 is not supported. Postgres and MinIO keep their data in the pgdata and miniodata Docker volumes. Back up with Admin -> Backup or infra/recovery (docs/deployment.md)." >&2
+      exit 1
+      ;;
+    --image-tag)
+      echo "--image-tag is not supported. The VPS stack builds images from the checked-out release; the NAS stack reads GG_IMAGE_TAG from its own compose file." >&2
+      exit 1
+      ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --realm-out) REALM_OUT="$2"; shift 2 ;;
     --yes) ASSUME_YES=1; shift ;;
@@ -75,21 +81,6 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required to render the Key
 
 # shellcheck source=infra/lib-env.sh
 . "${SCRIPT_DIR}/lib-env.sh"
-
-prepare_host_dir() {
-  local path="$1" uid="$2" gid="$3" what="$4"
-  case "$path" in
-    /*) ;;
-    *) die "${what} must be an absolute path (it starts with /)." ;;
-  esac
-  mkdir -p "$path"
-  if [ "$(id -u)" -eq 0 ]; then
-    chown "${uid}:${gid}" "$path"
-    chmod 700 "$path"
-  else
-    warn "Not root, so ${path} was not chowned to ${uid}:${gid}. The ${what} container may not be able to write there."
-  fi
-}
 
 render_realm() {
   export AUTH_URL="https://${AUTH_DOMAIN}"
@@ -202,23 +193,9 @@ if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$INITIAL_USER_PASSWORD" ] || [ -z "$CRED
   die "openssl did not produce a secret. Check that openssl works and re-run."
 fi
 
-if [ -n "$PGDATA" ]; then
-  prepare_host_dir "$PGDATA" 999 999 "Postgres data"
-fi
-if [ -n "$MINIO_DATA" ]; then
-  # The MinIO image runs as root. Named volumes are still the better
-  # default; this path is for a dataset you snapshot yourself.
-  prepare_host_dir "$MINIO_DATA" 0 0 "MinIO data"
-fi
-
 if [[ "$ORG_NAME" == *$'\n'* || "$ORG_NAME" == *'#'* || "$ORG_NAME" == *\\* || "$ORG_NAME" == *'"'* || "$ORG_NAME" == *\'* || "$ORG_NAME" == *'`'* || "$ORG_NAME" == *'$'* ]]; then
   die "Organization name cannot contain a newline, hash, quote, backtick, or dollar sign."
 fi
-case "$IMAGE_TAG" in
-  *[!A-Za-z0-9._-]*)
-    die "--image-tag may only contain letters, numbers, dots, underscores, and dashes."
-    ;;
-esac
 
 if [ "$QUIET" != "1" ]; then
   say ""
@@ -312,30 +289,17 @@ CHROMIUM_TOKEN=${CHROMIUM_TOKEN}
 SCRIPT_EXECUTOR_TOKEN=${SCRIPT_EXECUTOR_TOKEN}
 
 # --- Organization branding ---
+# Name of the first organization, set when the admin first signs in.
+# Change it later on Admin -> Branding.
 DEFAULT_ORG_NAME=${ORG_NAME}
 
-# --- Prebuilt images (infra/docker-compose.nas.yml) ---
-# edge follows main. Pin a release tag (vX.Y.Z) when you want upgrades
-# to be a choice you make. GG_PULL_POLICY=missing skips the pull when
-# the tag is already on disk.
-GG_IMAGE_TAG=${IMAGE_TAG}
-GG_PULL_POLICY=always
-# Leave these at 80 and 443. The public URLs above have no port.
-# On TrueNAS, move the web UI off 80 and 443 instead of changing these.
-GG_HTTP_PORT=80
-GG_HTTPS_PORT=443
-# One API container. Set 2 to match the public demo.
+# portal-api containers. One fits a 4 GB box; the compose default
+# without this line is 2, which is what the public demo runs.
 GG_API_REPLICAS=1
 GRATIS_DIR=${REPO_ROOT}
 GG_VERSION=${GG_VERSION}
 EOF
 
-if [ -n "$PGDATA" ]; then
-  printf 'GG_PGDATA=%s\n' "$PGDATA" >> "$ENV_FILE"
-fi
-if [ -n "$MINIO_DATA" ]; then
-  printf 'GG_MINIODATA=%s\n' "$MINIO_DATA" >> "$ENV_FILE"
-fi
 chmod 600 "$ENV_FILE"
 
 # Load what we just wrote so the checks see the same bytes Compose
@@ -351,7 +315,10 @@ if [ "$QUIET" != "1" ]; then
   say "Save these initial credentials somewhere safe:"
   say "  Portal sign-in:      https://${DOMAIN}  ->  admin / ${INITIAL_USER_PASSWORD}"
   say "                       (you will be asked to set a new password on first login)"
-  say "  Keycloak console:    https://${AUTH_DOMAIN}/admin/  ->  admin / ${KEYCLOAK_ADMIN_PASSWORD}"
+  say "  Keycloak admin:      admin / ${KEYCLOAK_ADMIN_PASSWORD} (master realm)"
+  say "                       Not reachable from the internet: Caddy blocks /admin and the"
+  say "                       master realm. Use kcadm.sh inside the container:"
+  say "                       docker exec -it gratis-gis-prod-keycloak /opt/keycloak/bin/kcadm.sh"
   say ""
 fi
 say "Next, for a VPS:"

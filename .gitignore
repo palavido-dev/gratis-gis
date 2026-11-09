@@ -129,6 +129,8 @@ docs/marketing/
 !/scripts/backup-help.test.sh
 !/scripts/reset-portal-password.test.sh
 !/scripts/restore-maintenance.test.sh
+!/scripts/check-prisma-drift.sh
+!/scripts/check-prisma-drift.test.sh
 !/scripts/script-net-firewall.test.sh
 
 # Internal security review documents.  These contain exploitable

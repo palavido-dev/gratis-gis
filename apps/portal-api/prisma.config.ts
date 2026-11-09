@@ -44,6 +44,9 @@ if (fs.existsSync(envPath) && !process.env.DATABASE_URL) {
 // container has no DB connection yet) while the runtime + migrate
 // paths still fail loudly if the env-var is missing later.
 const databaseUrl = process.env.DATABASE_URL;
+// Only `migrate dev` and `migrate diff --from-migrations` (the CI
+// schema drift check) need a shadow database.
+const shadowDatabaseUrl = process.env.SHADOW_DATABASE_URL;
 
 export default defineConfig({
   schema: path.join('prisma', 'schema.prisma'),
@@ -51,6 +54,11 @@ export default defineConfig({
     path: path.join('prisma', 'migrations'),
   },
   ...(databaseUrl
-    ? { datasource: { url: databaseUrl } }
+    ? {
+        datasource: {
+          url: databaseUrl,
+          ...(shadowDatabaseUrl ? { shadowDatabaseUrl } : {}),
+        },
+      }
     : {}),
 });

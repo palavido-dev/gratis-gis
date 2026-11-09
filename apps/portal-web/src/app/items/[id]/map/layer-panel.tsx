@@ -63,6 +63,7 @@ import {
 import { LayerSwatch } from './layer-swatch';
 import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
 import { useT } from '@/lib/i18n/locale-context';
+import { scaleDenominator } from '@/lib/web-mercator';
 
 interface Props {
   layers: MapLayer[];
@@ -2766,13 +2767,12 @@ function ZoomRange({
 }
 
 /**
- * Rough zoom → scale denominator conversion. Web Mercator ~1:500M at
- * zoom 0, halving per zoom level. Just a hint so users familiar with
- * scale-denominator thinking can orient: not a precise projection.
+ * Zoom to an equator scale denominator, as a hint for people who
+ * think in 1:N. Same 512 px tile math as everything else (see
+ * lib/web-mercator.ts).
  */
 function zoomToScaleLabel(zoom: number): string {
-  const base = 500_000_000;
-  const denom = base / Math.pow(2, zoom);
+  const denom = scaleDenominator(0, zoom);
   if (denom >= 1_000_000) return `1:${Math.round(denom / 1_000_000)}M`;
   if (denom >= 1_000) return `1:${Math.round(denom / 1_000)}k`;
   return `1:${Math.round(denom)}`;
