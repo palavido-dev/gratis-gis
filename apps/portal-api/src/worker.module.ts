@@ -42,10 +42,9 @@ import { ScriptsModule } from './scripts/scripts.module.js';
     // Analysis-to-import bridge: stages vector analysis outputs
     // (contours) from MinIO into the async import pipeline above.
     AnalysisBridgeModule,
-    // #221: makes the script runner available. Its polling loop is
-    // started explicitly in the entry point, and only when the
-    // feature is enabled, so importing the module here does not by
-    // itself turn this process into an execution host.
+    // #221: imported for the providers it brings into the graph, not
+    // for the script runner. worker.main.ts never starts a claimer;
+    // only the script-runner container does.
     ScriptsModule,
   ],
 })

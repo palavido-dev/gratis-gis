@@ -634,7 +634,7 @@ async function compileViaFilter(
         FROM observation
         WHERE scope = ${args.parentScope}
           AND valid_from <= ${args.asOf}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) p
       WHERE p.kind <> 'delete'
         AND p.attrs->>${args.parentField} IS NOT NULL
@@ -871,7 +871,7 @@ export function dataLayerSourceSqlFragment(
         entity, geom, attrs, kind, valid_from, valid_to
       FROM observation
       WHERE scope = '${escapedScope}'${collapse}${candidateSemiJoin}
-      ORDER BY entity, valid_from DESC, tx_time DESC
+      ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
     ) latest
     WHERE kind <> 'delete'${latestRecheck}
   `;
@@ -1088,6 +1088,16 @@ export class DataLayerEngine {
    * same version so a delta client drops them. The item cursor moves
    * only when at least one of those rows exists. The caller commits.
    * An abort before that commit leaves the cursor where it was.
+   *
+   * For a replace, the item row is locked FIRST and the set of live
+   * entities is recomputed under that lock. The replace deleted the
+   * scope at the start of a transaction that can run for minutes, and
+   * online edits are not blocked meanwhile: an edit committed during
+   * the COPY survives the delete. Online writes take the same item lock
+   * (commitLayerSync), so under it the scope is stable. Every entity
+   * still live that this import did not write is tombstoned, and
+   * tombstones are dated with clock_timestamp(), not the transaction's
+   * start time, so they sort after any edit they supersede.
    */
   async commitCopiedLayer(
     writer: import('./copy-writer.js').CopyWriter,
@@ -1096,9 +1106,18 @@ export class DataLayerEngine {
       layerId: string;
       removedEntityIds: readonly string[];
       authorSub: string;
+      /** True for a replace import. */
+      replace?: boolean;
     },
   ): Promise<{ wrote: boolean; syncVersion: number }> {
     const scope = this.scope(args.itemId, args.layerId);
+    let locked: { rows: Array<{ data_json: unknown }> } | null = null;
+    if (args.replace) {
+      locked = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+        [args.itemId],
+      );
+    }
     const fresh = await writer.query<{ entity: string }>(
       `SELECT entity::text AS entity
        FROM observation
@@ -1108,7 +1127,29 @@ export class DataLayerEngine {
       [scope],
     );
     const written = new Set(fresh.rows.map((row) => row.entity));
-    const removed = args.removedEntityIds.filter((id) => !written.has(id));
+    const removedSet = new Set(
+      args.removedEntityIds.filter((id) => !written.has(id)),
+    );
+    if (args.replace) {
+      // Entities edited online while the COPY ran: their rows were
+      // committed after the replace's delete, so they are still live.
+      const stragglers = await writer.query<{ entity: string }>(
+        `SELECT entity::text AS entity
+         FROM (
+           SELECT DISTINCT ON (entity) entity, kind, xmin
+           FROM observation
+           WHERE scope = $1
+           ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+         ) latest
+         WHERE kind <> 'delete'
+           AND xmin <> pg_current_xact_id()::xid`,
+        [scope],
+      );
+      for (const row of stragglers.rows) {
+        if (!written.has(row.entity)) removedSet.add(row.entity);
+      }
+    }
+    const removed = [...removedSet];
     if (written.size === 0 && removed.length === 0) {
       const current = await writer.query<{ data_json: unknown }>(
         'SELECT data_json FROM item WHERE id = $1::uuid',
@@ -1120,7 +1161,7 @@ export class DataLayerEngine {
         layer && typeof layer.syncVersion === 'number' ? layer.syncVersion : 0;
       return { wrote: false, syncVersion: prev };
     }
-    const locked = await writer.query<{ data_json: unknown }>(
+    locked ??= await writer.query<{ data_json: unknown }>(
       'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
       [args.itemId],
     );
@@ -1164,7 +1205,7 @@ export class DataLayerEngine {
            id, tx_time, valid_from, scope, entity, kind,
            author_sub, source, parents
          )
-         SELECT u.id, now(), now(), $1, u.entity, 'delete',
+         SELECT u.id, now(), clock_timestamp(), $1, u.entity, 'delete',
                 $2, $3::jsonb, '{}'::uuid[]
          FROM unnest($4::uuid[], $5::uuid[]) AS u(id, entity)`,
         [
@@ -1448,7 +1489,7 @@ export class DataLayerEngine {
               FROM observation
               WHERE scope = t.scope
                 AND entity = t.entity
-              ORDER BY valid_from DESC, tx_time DESC
+              ORDER BY valid_from DESC, tx_time DESC, id DESC
               LIMIT 1
             ) latest
             WHERE latest.kind <> 'delete'
@@ -1694,7 +1735,7 @@ export class DataLayerEngine {
         SELECT o.id
         FROM observation o
         WHERE o.scope = t.scope AND o.entity = t.entity
-        ORDER BY o.valid_from DESC, o.tx_time DESC
+        ORDER BY o.valid_from DESC, o.tx_time DESC, o.id DESC
         LIMIT 1
       ) = t.expected_head
       RETURNING id, entity
@@ -1708,7 +1749,7 @@ export class DataLayerEngine {
         FROM observation
         WHERE entity = ANY(${missed.map((p) => p.obs.entity)}::uuid[])
           AND scope = ANY(${missed.map((p) => p.obs.scope)}::text[])
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, observation.id DESC
       `;
       heads = new Map(headRows.map((r) => [r.entity, r.id]));
     }
@@ -1978,7 +2019,7 @@ export class DataLayerEngine {
           AND valid_from <= ${asOf}
           ${currentsCandidateFilter}
           ${currentExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         ${currentsLimit}
       ),
       creates AS (
@@ -2087,7 +2128,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND entity = cand.entity
             AND valid_from <= ${asOf}
-          ORDER BY valid_from DESC, tx_time DESC
+          ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
         ) l
         WHERE l.kind <> 'delete'
@@ -2467,7 +2508,7 @@ export class DataLayerEngine {
             WHERE scope = ${scope}
               AND entity = cand.entity
               AND valid_from <= ${asOf}
-            ORDER BY valid_from DESC, tx_time DESC
+            ORDER BY valid_from DESC, tx_time DESC, id DESC
             LIMIT 1
           ) l
         ),
@@ -2512,7 +2553,7 @@ export class DataLayerEngine {
             ${cursorFilter}
             ${currentsCandidateFilter}
             ${currentExtras}
-          ORDER BY entity, valid_from DESC, tx_time DESC
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
           LIMIT ${pageSize}
         ),
         creates AS (
@@ -2839,7 +2880,7 @@ export class DataLayerEngine {
         WHERE scope = ${scope}
           AND valid_from <= ${asOf}
           ${collapseExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) latest
       WHERE kind <> 'delete'
       LIMIT ${fetchN}
@@ -2871,7 +2912,7 @@ export class DataLayerEngine {
         WHERE scope = ${scope}
           AND entity = cand.entity
           AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
@@ -3344,7 +3385,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND valid_from <= ${asOf}
             ${collapseExtras}
-          ORDER BY entity, valid_from DESC, tx_time DESC
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         ) l
         WHERE l.kind <> 'delete'
           ${contentExtras}
@@ -3571,7 +3612,7 @@ export class DataLayerEngine {
         FROM observation
         WHERE scope = ${scope}
           AND entity = cand.entity
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
@@ -3705,7 +3746,7 @@ export class DataLayerEngine {
                 )`
               : Prisma.empty
           }
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         ST_XMin(ST_Extent(geom)) AS xmin,
@@ -3863,7 +3904,7 @@ export class DataLayerEngine {
         WHERE scope = ${scope}
           AND entity = cand.entity
           AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
@@ -4124,17 +4165,13 @@ export class DataLayerEngine {
     if (Array.isArray(args.fields)) {
       for (const f of args.fields) {
         if (!SAFE_NAME.test(f.name)) continue;
-        const cast = sqlCastForFieldType(f.type);
         // `attrs` is the JSONB column on observation; `->>'name'`
         // extracts as text, then we cast where the schema declares
-        // a numeric / boolean / date type so MapLibre's typed
-        // expressions (e.g. `['>', ['get', 'pop'], 5]`) actually
-        // work without string coercion warnings.
-        fieldProjections.push(
-          Prisma.raw(
-            `(attrs->>'${f.name}')${cast} AS "${f.name}"`,
-          ),
-        );
+        // a numeric type so MapLibre's typed expressions (e.g.
+        // `['>', ['get', 'pop'], 5]`) actually work without string
+        // coercion warnings. The cast is guarded: see
+        // tileFieldProjection.
+        fieldProjections.push(Prisma.raw(tileFieldProjection(f.name, f.type)));
       }
     }
     const fieldProjection =
@@ -4288,7 +4325,7 @@ export class DataLayerEngine {
           FROM observation
           WHERE scope = ${scope}
             AND entity = cand.entity
-          ORDER BY valid_from DESC, tx_time DESC
+          ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
         ) l
         WHERE l.kind <> 'delete'
@@ -4391,16 +4428,20 @@ function requireId(id: string | undefined): string {
 }
 
 /**
- * Map a FeatureFieldType to a PostgreSQL cast suffix so the JSONB
- * `->>` text extraction lands in MVT with the right typed
- * property. Boolean and date are intentionally string-typed in
- * MVT (MVT itself doesn't have boolean/date wire types; MapLibre
- * compares them as strings), so we leave those uncast. Number
- * fields go through `::numeric` so `['>', ['get', 'pop'], 5]`
- * works without coercion warnings. Unknown / missing types fall
- * back to text.
+ * The SQL that projects one attribute into an MVT tile, typed by its
+ * FeatureFieldType. Boolean and date are intentionally string-typed
+ * in MVT (MVT itself doesn't have boolean/date wire types; MapLibre
+ * compares them as strings), so those stay text. Number fields are
+ * cast to numeric so `['>', ['get', 'pop'], 5]` works without
+ * coercion warnings, but only when the value parses: an empty string
+ * or text left over from before a type change would otherwise fail
+ * the whole tile with 22P02. Such a value projects as null, the same
+ * guard the aggregates use. Unknown / missing types fall back to
+ * text. `name` must already match SAFE_NAME.
  */
-function sqlCastForFieldType(type: string | undefined): string {
-  if (type === 'number') return '::numeric';
-  return '';
+export function tileFieldProjection(name: string, type: string | undefined): string {
+  if (type === 'number') {
+    return `CASE WHEN pg_input_is_valid(attrs->>'${name}', 'numeric') THEN (attrs->>'${name}')::numeric END AS "${name}"`;
+  }
+  return `(attrs->>'${name}') AS "${name}"`;
 }
