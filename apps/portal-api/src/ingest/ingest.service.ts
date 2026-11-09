@@ -36,6 +36,7 @@ import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import { assertZipExpansionBudget } from '../tile-layer/tile-conversion.js';
 import { readGpkgFeatureTables } from './gpkg-catalog.js';
 import { preferredKmlZipEntry } from './kmz-entry.js';
+import { gdalTypeToSimple, normalizeGdalProps } from './gdal-values.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -1641,18 +1642,6 @@ function safeFilename(name: string): string {
   return base.length > 0 && base !== '_' ? base : 'upload.bin';
 }
 
-function gdalTypeToSimple(
-  t: string,
-): 'string' | 'number' | 'boolean' | 'date' {
-  const u = t.toLowerCase();
-  if (u.includes('int') || u.includes('real') || u.includes('double')) {
-    return 'number';
-  }
-  if (u.includes('date') || u.includes('time')) return 'date';
-  if (u.includes('bool')) return 'boolean';
-  return 'string';
-}
-
 /**
  * Reduce a GDAL WKB geometry type (Point, MultiLineString, etc.) to the
  * tri-state we expose in the builder. Returns null when GDAL reports no
@@ -1713,9 +1702,12 @@ function gdalGeomToSimple(
   return null;
 }
 
+/** How many rows peekFirstFeatureGeomType reads before giving up. */
+const PEEK_GEOMETRY_ROWS = 1000;
+
 /**
- * Read the first feature's geometry from a GDAL layer and classify
- * it as point / line / polygon. Used when the layer's DECLARED
+ * Read the first rows' geometry from a GDAL layer and classify the
+ * first one found as point / line / polygon. Used when the layer's DECLARED
  * geometry type is unknown (wkbUnknown / wkbGeometry / 'GEOMETRY' in
  * GeoPackage parlance) but the rows themselves carry real
  * geometries. Without this, GPKG layers registered with the
@@ -1731,11 +1723,21 @@ function peekFirstFeatureGeomType(
     const l = layer as {
       features: {
         first: () => { geometry: { name: string } | null } | null;
+        next: () => { geometry: { name: string } | null } | null;
       };
     };
-    const first = l.features.first();
-    if (!first || !first.geometry) return null;
-    return gdalGeomToSimple(first.geometry.name);
+    // The first row can carry no geometry (a GeoJSON feature with
+    // "geometry": null) while the rest do. Look a little further before
+    // calling the whole layer a table.
+    let feature = l.features.first();
+    for (let seen = 0; feature && seen < PEEK_GEOMETRY_ROWS; seen += 1) {
+      if (feature.geometry) {
+        const kind = gdalGeomToSimple(feature.geometry.name);
+        if (kind) return kind;
+      }
+      feature = l.features.next();
+    }
+    return null;
   } catch {
     return null;
   }
@@ -1839,9 +1841,12 @@ function remapPropsToSafeNames(
   raw: Record<string, unknown>,
   rename: Map<string, string>,
 ): Record<string, unknown> {
-  if (rename.size === 0) return raw;
+  // GDAL date objects become ISO strings here, the one place every
+  // GDAL read path passes its property bag through.
+  const values = normalizeGdalProps(raw);
+  if (rename.size === 0) return values;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(raw)) {
+  for (const [k, v] of Object.entries(values)) {
     out[rename.get(k) ?? k] = v;
   }
   return out;
