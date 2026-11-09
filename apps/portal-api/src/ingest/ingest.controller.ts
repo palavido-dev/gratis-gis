@@ -49,6 +49,7 @@ import {
 } from './ingest-slots.js';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
+import { assertNotV3DataLayer } from '../features/v3-guard.js';
 
 /**
  * Server-side ingest endpoint. Accepts a multipart upload of an
@@ -295,6 +296,10 @@ export class IngestController {
       if (!this.sharing.canEdit(user, item, shares)) {
         throw new ForbiddenException('You do not have edit permission on this item.');
       }
+      // This route rewrites item.data as a v2 document; a v3 item would
+      // lose its layers[] and every layer id that maps, forms and
+      // field clients reference.
+      assertNotV3DataLayer(item);
 
       release = acquireIngestSlot(user.id);
       await assertIngestDiskRoomAt(contained.directory, file.size);
