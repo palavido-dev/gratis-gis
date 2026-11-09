@@ -673,9 +673,16 @@ services:
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       # `off` stops the admin Updates page from calling GitHub.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
+      # Disk tier for the vector tile cache, so a restart does not
+      # start every map cold. Off here unless set; to turn it on use
+      # TILE_CACHE_DIR=/var/cache/gg-tiles (the volume below). Both
+      # replicas share it safely. Cap in bytes, default 1 GiB.
+      TILE_CACHE_DIR: ${TILE_CACHE_DIR:-}
+      TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
+      - tile-cache:/var/cache/gg-tiles
     networks:
       - gratis-net
       # #221: also reachable from the script network, because a script
@@ -1207,6 +1214,9 @@ volumes:
   # intermediate rasters. A named volume so a mid-job crash doesn't
   # bloat the container layer; the runner cleans per-job subdirs.
   pointcloud-scratch:
+  # Optional disk tier of the vector tile cache (TILE_CACHE_DIR).
+  # Disposable: deleting it only costs recomputing tiles.
+  tile-cache:
 
 networks:
   gratis-net:

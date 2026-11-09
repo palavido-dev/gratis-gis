@@ -220,5 +220,14 @@ tags on its own.
   has an address column and no coordinates geocodes the first 200
   rows against that same local Nominatim only. It does not use the
   public fallback.
+- Tile disk cache: set `TILE_CACHE_DIR=/var/cache/gg-tiles` in
+  `infra/.env.prod` to keep vector tiles on the `tile-cache` volume as
+  well as in memory, so a restart or a deploy does not start every map
+  cold. `TILE_CACHE_DISK_MAX_BYTES` caps it (1 GiB by default). Both
+  API replicas share the volume. Each file is named by the layer's
+  data version, read from Postgres, so an edit, including one made
+  while the API was down, is never answered with an old tile. Only
+  tiles go to disk; dashboard aggregates stay in memory. Off when
+  unset. The NAS stack turns it on by default.
 - The maintenance and golden-snapshot scripts in `infra/` exist for the
   public demo's nightly reset and are not part of a normal deployment.

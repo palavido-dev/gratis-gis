@@ -436,6 +436,28 @@ and the other replica lags by the notification only.
   the same answer the query never runs; a compute that has already
   started, or that another caller coalesced onto, runs to completion
   and is stored, because the work is sunk and the next pan wants it.
+- **Tile disk tier** (optional, `TILE_CACHE_DIR`,
+  `apps/portal-api/src/engine/tile-disk-cache.ts`). MVT buffers only.
+  A memory miss on a tile reads the disk before it takes a compute
+  slot; a compute writes both tiers, the disk in the background. A
+  file is named by a hash of the memory key plus the data version of
+  the tile's scope and of every scope it depends on (a relate's
+  parent). The version comes from Postgres (`scopeDataVersion`: row
+  count, the sum of a hash of every row id, and the count of rows not
+  yet in effect), memoized per scope until the next write or the
+  memory TTL. So invalidation needs no walk of the directory: a write
+  changes the version, the old file is never looked up again, and LRU
+  eviction reclaims it. This also covers writes made while the
+  process was down and deletes that fire no NOTIFY, which a
+  generation counter kept by the process could not. A salt of
+  `TILE_BYTES_REVISION`, `GG_VERSION` and `GIT_SHA` keeps an upgrade
+  from serving tiles an older encoder wrote. Files are written to a
+  temp name and renamed, carry their full key and a CRC-32, and are
+  deleted and recomputed when they fail validation. Eviction is LRU by
+  mtime (touched at most once a minute per file) under
+  `TILE_CACHE_DISK_MAX_BYTES`; a sweep reconciles one of 256 shard
+  directories per minute, which also picks up files another replica
+  sharing the volume wrote.
 - **Relate parent keys.** `compileViaFilter` resolves the parent's
   matching key set as its own query and hands the child
   `= ANY($keys)`. That key set is cached under the PARENT scope

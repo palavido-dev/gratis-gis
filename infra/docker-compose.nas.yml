@@ -1489,11 +1489,17 @@ services:
       HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      # Vector tiles are also kept on disk, so maps load quickly after
+      # a restart or an update. Set TILE_CACHE_DISK_MAX_BYTES=0 to turn
+      # it off. The default cap is 1 GiB.
+      TILE_CACHE_DIR: ${TILE_CACHE_DIR:-/var/cache/gg-tiles}
+      TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
+      - tile-cache:/var/cache/gg-tiles
     depends_on:
       postgres:
         condition: service_healthy
@@ -1735,6 +1741,8 @@ volumes:
   # Upload staging shared by portal-api and portal-worker. Files here
   # expire after an hour, so it holds nothing you need to back up.
   gg-staging:
+  # Vector tile disk cache. Safe to delete; tiles are rebuilt on use.
+  tile-cache:
 
 networks:
   gratis-net:
