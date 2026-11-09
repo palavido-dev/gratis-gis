@@ -27,6 +27,8 @@ import {
   sanitizeAttributionHtml,
   sanitizePopupHtml,
   scaledStyleExpression,
+  TILE_INCLUDE_PARAM,
+  tileFieldRefs,
 } from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
@@ -2773,6 +2775,16 @@ function dataLayerTileUrl(
   boundaryFilterItemId: string | null | undefined,
   mapClipBoundaryId: string | undefined,
   asOfTime: string | null | undefined,
+  /**
+   * The attribute fields this layer reads from its tiles (tileFieldRefs:
+   * renderer, labels, filter, hover popup). An owner can trim the
+   * fields a layer's tiles carry; the server always adds back the ones
+   * named here, so this map's own styling keeps working. A layer with
+   * no tile field setting ignores the param, so its tiles and cache
+   * are unchanged. Changing the style's fields changes the URL, which
+   * refetches the tiles with the new set, as it must.
+   */
+  include: string[] = [],
 ): string {
   const base = source.layerKey
     ? `/api/portal/items/${source.itemId}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
@@ -2795,6 +2807,11 @@ function dataLayerTileUrl(
   // an expression over the tile already in cache.
   if (source.via) {
     tileParams.push(`via=${encodeURIComponent(JSON.stringify(source.via))}`);
+  }
+  if (include.length > 0) {
+    tileParams.push(
+      `${TILE_INCLUDE_PARAM}=${include.map(encodeURIComponent).join(',')}`,
+    );
   }
   return tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
 }
@@ -2897,6 +2914,7 @@ function syncOverlays(
           l.boundaryFilterItemId,
           mapClipBoundaryId,
           asOfTime,
+          tileFieldRefs(l),
         ),
         type: 'vector',
       });
@@ -3155,6 +3173,7 @@ function syncOverlays(
             layer.boundaryFilterItemId,
             mapClipBoundaryId,
             asOfTime,
+            tileFieldRefs(layer),
           );
         m.addSource(sourceId, {
           type: 'vector',

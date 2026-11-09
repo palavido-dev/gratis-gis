@@ -458,6 +458,28 @@ export const es: Partial<CatalogShape> = {
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
   },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Teselas vectoriales',
+    intro:
+      'Cómo se divide esta capa en teselas del mapa. Deje un campo vacío para mantener el valor predeterminado.',
+    fieldsHeading: 'Campos en las teselas',
+    allFields: 'Todos los campos (predeterminado)',
+    someFields: 'Solo estos campos',
+    noFields: 'Esta capa aún no tiene campos.',
+    fieldsNote:
+      'Los campos que un mapa usa para su estilo, etiquetas, filtro o ventana emergente al pasar el cursor se añaden siempre, así que los mapas siguen dibujando. Los demás campos sin marcar quedan fuera de las teselas, así que los widgets de aplicaciones que filtran el mapa por ellos en el navegador no los verán. Esto solo hace las teselas más pequeñas. No oculta datos: todos los campos siguen siendo legibles en las entidades, ventanas emergentes y exportaciones de la capa.',
+    minZoom: 'Zoom mínimo',
+    maxZoom: 'Zoom máximo',
+    maxFeatures: 'Máx. entidades por tesela',
+    cacheMaxAge: 'Caché del navegador (segundos)',
+    default: 'predeterminado',
+    zoomHint:
+      'Zoom de {min} a {max}; fuera del rango las teselas están vacías.',
+    maxFeaturesHint: 'El límite de entidades solo se puede reducir, hasta {max}.',
+    cacheHint:
+      'Caché de 0 a {max} segundos. Las teselas de una capa que no es pública siempre se guardan solo de forma privada en el navegador del usuario.',
+  },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
   recipeTitle: 'Recipe',

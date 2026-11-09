@@ -121,6 +121,13 @@ When the PostGIS path ships, `/geojson` gains `?bbox`, `?where`, and
 several ingest verbs (`POST /:id/features` for append,
 `DELETE /:id/features/:fid` for single-feature delete, and so on).
 
+## Vector tiles
+
+Hosted (v3) layers are drawn from Mapbox Vector Tiles. Owners can tune
+each layer's tiles (fields carried, zoom range, feature cap, browser
+cache age), and every tile route has a TileJSON document next to it.
+See [vector-tiles.md](vector-tiles.md).
+
 ## Web map integration
 
 Web-map layers choose a `feature-service` source and reference an

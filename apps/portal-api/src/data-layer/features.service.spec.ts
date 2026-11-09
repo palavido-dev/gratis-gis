@@ -936,6 +936,8 @@ describe('mvtTile forwards every option to the engine', () => {
       ownRowsOnly: { userId: 'user-1' },
       where: WHERE,
       via: VIA,
+      maxFeaturesPerTile: 250,
+      zoomRange: { min: 0, max: 24 },
     });
     expect(mvtTile.mock.calls[0]![0]).toEqual({
       itemId: ITEM_ID,
@@ -948,7 +950,28 @@ describe('mvtTile forwards every option to the engine', () => {
       ownRowsOnly: { userId: 'user-1' },
       where: WHERE,
       via: VIA,
+      // The tile settings cap is forwarded (it changes bytes and so
+      // must reach the cache key); the zoom range is not, because it
+      // is decided here before the engine is asked.
+      maxFeaturesPerTile: 250,
     });
+  });
+
+  it('answers an empty tile outside the zoom range without asking the engine', async () => {
+    const { service, mvtTile } = makeTiler();
+    const below = await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    const above = await service.mvtTile(ITEM_ID, LAYER_ID, 15, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    expect(below.mvt.length).toBe(0);
+    expect(above.mvt.length).toBe(0);
+    expect(mvtTile).not.toHaveBeenCalled();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 10, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    expect(mvtTile).toHaveBeenCalledTimes(1);
   });
 });
 

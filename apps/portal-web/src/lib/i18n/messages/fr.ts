@@ -456,6 +456,28 @@ export const fr: Partial<CatalogShape> = {
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
   },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Tuiles vectorielles',
+    intro:
+      'Comment cette couche est découpée en tuiles. Laissez un champ vide pour garder la valeur par défaut.',
+    fieldsHeading: 'Champs dans les tuiles',
+    allFields: 'Tous les champs (par défaut)',
+    someFields: 'Seulement ces champs',
+    noFields: 'Cette couche n\'a pas encore de champs.',
+    fieldsNote:
+      'Les champs qu\'une carte utilise pour son style, ses étiquettes, son filtre ou sa fenêtre au survol sont toujours rajoutés, donc les cartes continuent de s\'afficher. Les autres champs non cochés sont absents des tuiles, donc les widgets d\'application qui filtrent la carte sur ces champs dans le navigateur ne les verront pas. Cela réduit seulement la taille des tuiles. Cela ne masque aucune donnée : chaque champ reste lisible via les entités, les fenêtres et les exports de la couche.',
+    minZoom: 'Zoom min.',
+    maxZoom: 'Zoom max.',
+    maxFeatures: 'Entités max. par tuile',
+    cacheMaxAge: 'Cache du navigateur (secondes)',
+    default: 'par défaut',
+    zoomHint:
+      'Zoom de {min} à {max} ; hors de cette plage, les tuiles sont vides.',
+    maxFeaturesHint: 'Le plafond d\'entités ne peut qu\'être abaissé, jusqu\'à {max}.',
+    cacheHint:
+      'Cache de 0 à {max} secondes. Les tuiles d\'une couche non publique sont toujours mises en cache uniquement dans le navigateur de l\'utilisateur.',
+  },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
   recipeTitle: 'Recipe',

@@ -21,6 +21,7 @@ export * from './comments';
 export * from './dcat-themes';
 export * from './meta-ui';
 export * from './data-layer';
+export * from './tile-settings';
 export * from './feature-validate';
 export * from './submission-stamp';
 export * from './sync-outcome';

@@ -454,6 +454,28 @@ export const ptBR: Partial<CatalogShape> = {
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
   },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Blocos vetoriais',
+    intro:
+      'Como esta camada é dividida em blocos do mapa. Deixe um campo vazio para manter o padrão.',
+    fieldsHeading: 'Campos nos blocos',
+    allFields: 'Todos os campos (padrão)',
+    someFields: 'Somente estes campos',
+    noFields: 'Esta camada ainda não tem campos.',
+    fieldsNote:
+      'Os campos que um mapa usa para estilo, rótulos, filtro ou pop-up ao passar o mouse são sempre incluídos de volta, então os mapas continuam desenhando. Os outros campos desmarcados ficam fora dos blocos, então widgets de aplicativos que filtram o mapa por eles no navegador não os verão. Isso só deixa os blocos menores. Não esconde dados: todo campo continua legível pelas feições, pop-ups e exportações da camada.',
+    minZoom: 'Zoom mínimo',
+    maxZoom: 'Zoom máximo',
+    maxFeatures: 'Máx. de feições por bloco',
+    cacheMaxAge: 'Cache do navegador (segundos)',
+    default: 'padrão',
+    zoomHint:
+      'Zoom de {min} a {max}; fora do intervalo os blocos ficam vazios.',
+    maxFeaturesHint: 'O limite de feições só pode ser reduzido, até {max}.',
+    cacheHint:
+      'Cache de 0 a {max} segundos. Os blocos de uma camada que não é pública são sempre guardados apenas de forma privada no navegador de quem vê.',
+  },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
   recipeTitle: 'Recipe',

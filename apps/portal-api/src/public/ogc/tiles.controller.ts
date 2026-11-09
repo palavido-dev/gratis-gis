@@ -20,6 +20,16 @@ import {
   tileOverloadRetryAfterSeconds,
 } from '../../engine/tile-cache.service.js';
 import { absoluteBase } from './url.js';
+import {
+  DEFAULT_ADVERTISED_MAXZOOM,
+  buildTileJson,
+  layerAttribution,
+  planTile,
+  readTileSettings,
+  storedLayerBounds,
+  tileCacheControl,
+  tileJsonBase,
+} from '../../data-layer/tile-settings.js';
 import { parseCollectionId, formatCollectionId } from './collection-id.js';
 import {
   PUBLIC_TIER_SELECT,
@@ -155,6 +165,12 @@ export class OgcTilesController {
               rel: 'http://www.opengis.net/def/rel/ogc/1.0/tiling-scheme',
               type: 'application/json',
             },
+            {
+              href: `${listBase}/WebMercatorQuad/tilejson.json`,
+              rel: 'describedby',
+              type: 'application/json',
+              title: 'TileJSON',
+            },
           ],
         },
       ],
@@ -188,6 +204,7 @@ export class OgcTilesController {
     if (!row) throw new NotFoundException('Tileset not found.');
     const base = absoluteBase(req);
     const tileBase = `${base}/api/public/ogc/collections/${collectionId}/tiles/${tmsId}`;
+    const settings = readTileSettings(row.tiles);
     return {
       title: row.title,
       ...(row.description ? { description: row.description } : {}),
@@ -218,19 +235,69 @@ export class OgcTilesController {
           type: 'application/vnd.mapbox-vector-tile',
           templated: true,
         },
+        {
+          href: `${tileBase}/tilejson.json`,
+          rel: 'describedby',
+          type: 'application/json',
+          title: 'TileJSON',
+        },
       ],
       vectorLayers: row.geometryType
         ? [
             {
               id: row.layerId,
-              fields: row.fieldSchema,
+              // Only the fields the tiles carry, so a client that
+              // builds a style from this list never names a field the
+              // owner left out of the tiles.
+              fields: planTile({ declared: row.fieldSchema, settings }).fields,
               geometryType: row.geometryType,
-              minzoom: 0,
-              maxzoom: 22,
+              minzoom: settings.minZoom ?? 0,
+              maxzoom: settings.maxZoom ?? DEFAULT_ADVERTISED_MAXZOOM,
             },
           ]
         : [],
     };
+  }
+
+  /**
+   * TileJSON 3.0.0 for the tileset, for clients (MapLibre, QGIS,
+   * tile proxies) that speak TileJSON rather than OGC Tiles. Same gate
+   * as the tiles it describes (resolvePublicTileset: public, not
+   * deleted). The URL template points at this controller's own tile
+   * route; the origin comes from PORTAL_BASE_URL, never from Host.
+   */
+  @Public()
+  @Get('collections/:collectionId/tiles/:tmsId/tilejson.json')
+  async tileJson(
+    @Res() res: Response,
+    @Param('collectionId') collectionId: string,
+    @Param('tmsId') tmsId: string,
+  ) {
+    if (tmsId !== 'WebMercatorQuad') {
+      throw new NotFoundException('TileMatrixSet not found for this tileset.');
+    }
+    const row = await this.resolvePublicTileset(collectionId);
+    if (!row || !row.geometryType) {
+      throw new NotFoundException('Tileset not found.');
+    }
+    const settings = readTileSettings(row.tiles);
+    const plan = planTile({ declared: row.fieldSchema, settings });
+    const doc = buildTileJson({
+      name: row.title,
+      description: row.description,
+      // MVT z/x/y order maps to the OGC {tileMatrix}/{tileRow}/{tileCol}.
+      tileUrl:
+        `${tileJsonBase()}/api/public/ogc/collections/` +
+        `${encodeURIComponent(collectionId)}/tiles/${tmsId}/{z}/{y}/{x}`,
+      settings,
+      fields: plan.fields,
+      bounds: row.publicGeoBoundaryId
+        ? null
+        : storedLayerBounds(row.layerBbox, row.itemBbox),
+      attribution: layerAttribution(row.rawLayer, row.itemData),
+    });
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json(doc);
   }
 
   /**
@@ -281,6 +348,11 @@ export class OgcTilesController {
       this.prisma,
       row.publicGeoBoundaryId,
     );
+    // The layer's tile settings, as on every other tile route. An OGC
+    // client sends no `include`, so it gets the owner's field choice.
+    const tileSettings = readTileSettings(row.tiles);
+    const plan = planTile({ declared: row.fieldSchema, settings: tileSettings });
+    const cacheControl = tileCacheControl(tileSettings, 'public');
 
     let mvt: Buffer;
     let etag: string;
@@ -293,9 +365,13 @@ export class OgcTilesController {
         y,
         {
           ...(row.fieldSchema.length > 0
-            ? { fields: row.fieldSchema.map((f) => ({ name: f.name, type: f.type })) }
+            ? { fields: plan.fields }
             : {}),
           ...(tierClip ? { geoLimit: tierClip } : {}),
+          ...(plan.maxFeaturesPerTile !== undefined
+            ? { maxFeaturesPerTile: plan.maxFeaturesPerTile }
+            : {}),
+          ...(plan.zoomRange ? { zoomRange: plan.zoomRange } : {}),
         },
       ));
     } catch (e) {
@@ -312,7 +388,7 @@ export class OgcTilesController {
     // answer with 304 + no body, saving the transfer.
     if (matchesIfNoneMatch(req.headers['if-none-match'], etag)) {
       res.setHeader('ETag', etag);
-      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Cache-Control', cacheControl);
       res.status(304).end();
       return;
     }
@@ -323,8 +399,10 @@ export class OgcTilesController {
     // a 60s private cache window; we use a longer 5-minute public
     // window since the OGC consumer is more likely a downstream
     // caching client (QGIS, an aggregator) where the cache hit
-    // matters more than write-recency for anonymous data.
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    // matters more than write-recency for anonymous data. The
+    // layer's tile settings may choose another max-age (at most an
+    // hour).
+    res.setHeader('Cache-Control', cacheControl);
     res.end(mvt);
   }
 
@@ -349,6 +427,7 @@ export class OgcTilesController {
         title: true,
         description: true,
         data: true,
+        bbox: true,
         ...PUBLIC_TIER_SELECT,
       },
     });
@@ -375,6 +454,11 @@ export class OgcTilesController {
       description: item.description,
       fieldSchema: target.fields,
       publicGeoBoundaryId: item.publicGeoBoundaryId ?? null,
+      tiles: target.tiles,
+      layerBbox: target.bbox,
+      itemBbox: item.bbox,
+      rawLayer: target.raw,
+      itemData: item.data,
     };
   }
 }
@@ -390,6 +474,12 @@ interface TilesetRow {
   /** #80 tier boundary; the OGC tile feed clips by it like every
    *  other public mirror. */
   publicGeoBoundaryId: string | null;
+  /** Raw stored tile settings; read with readTileSettings. */
+  tiles: unknown;
+  layerBbox: unknown;
+  itemBbox: unknown;
+  rawLayer: unknown;
+  itemData: unknown;
 }
 
 interface V3LayerLite {
@@ -397,6 +487,9 @@ interface V3LayerLite {
   label: string;
   geometryType: string | null;
   fields: Array<{ name: string; type: string }>;
+  tiles: unknown;
+  bbox: unknown;
+  raw: unknown;
 }
 
 function pickV3Layers(data: unknown): V3LayerLite[] {
@@ -408,6 +501,8 @@ function pickV3Layers(data: unknown): V3LayerLite[] {
       label?: unknown;
       geometryType?: unknown;
       fields?: Array<{ name?: unknown; type?: unknown }>;
+      tiles?: unknown;
+      bbox?: unknown;
     }>;
   };
   if (d.version !== 3 || !Array.isArray(d.layers)) return [];
@@ -431,7 +526,15 @@ function pickV3Layers(data: unknown): V3LayerLite[] {
         }
       }
     }
-    out.push({ id, label, geometryType, fields });
+    out.push({
+      id,
+      label,
+      geometryType,
+      fields,
+      tiles: l?.tiles,
+      bbox: l?.bbox,
+      raw: l,
+    });
   }
   return out;
 }
