@@ -88,7 +88,7 @@ export class ScriptScheduleService
       this.log.log('Scripts are off; no schedules registered.');
       return;
     }
-    if (!this.leader.holdsLock()) {
+    if (!this.leader.shouldRun()) {
       this.log.log(
         'Not the cron leader; script schedules run on another replica.',
       );
