@@ -169,6 +169,9 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     let pageCount = 0;
     while (realmUsersSeen < KeycloakSyncService.MAX_USERS_PER_RUN) {
       let page: KeycloakUserRep[];
+      // Taken before the request: anything changed locally after this
+      // moment is newer than what Keycloak is about to tell us.
+      const fetchedAt = new Date();
       try {
         page = await this.kc.listUsers({
           first,
@@ -278,8 +281,11 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           await disableLocalAccount(this.prisma, result.id);
           this.authSync.invalidate(result.id);
         } else if (kcUser.enabled === true && result.disabledAt !== null) {
-          await enableLocalAccount(this.prisma, result.id);
-          this.authSync.invalidate(result.id);
+          // Only a disable older than this page. An admin may have
+          // disabled the user after Keycloak answered.
+          if (await enableLocalAccount(this.prisma, result.id, fetchedAt)) {
+            this.authSync.invalidate(result.id);
+          }
         }
 
         // The upsert helper doesn't tell us whether it inserted or

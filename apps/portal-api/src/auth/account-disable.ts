@@ -32,13 +32,23 @@ export async function disableLocalAccount(
   });
 }
 
-/** Clear the local disabled marker. Revoked keys stay revoked. */
+/**
+ * Clear the local disabled marker. Revoked keys stay revoked.
+ *
+ * `disabledBefore` limits the clear to a disable older than that time.
+ * The Keycloak reconcile passes the moment it fetched the user, so a
+ * disable an admin made after that fetch is not undone by stale data.
+ */
 export async function enableLocalAccount(
   prisma: Pick<PrismaClient, 'user'> | Prisma.TransactionClient,
   userId: string,
+  disabledBefore?: Date,
 ): Promise<boolean> {
   const r = await prisma.user.updateMany({
-    where: { id: userId, disabledAt: { not: null } },
+    where: {
+      id: userId,
+      disabledAt: disabledBefore ? { not: null, lt: disabledBefore } : { not: null },
+    },
     data: { disabledAt: null },
   });
   return r.count > 0;
