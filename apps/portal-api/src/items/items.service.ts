@@ -2,7 +2,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
+import type { Item, ItemAccess, ItemShare, ItemType, PrincipalType, SharePermission } from '@prisma/client';
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
@@ -23,6 +23,7 @@ import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.servi
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
+import { redactItemData } from './item-data-redact.js';
 
 /** Allow-list of types a smart folder's saved query can filter to.
  *  Just the runtime ITEM_TYPES set as a plain string array so we
@@ -654,7 +655,7 @@ export class ItemsService {
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
     const where = await this.buildListWhere(user, opts);
-    return this.queryListRows(where, opts);
+    return this.queryListRows(user, where, opts);
   }
 
   /**
@@ -671,7 +672,7 @@ export class ItemsService {
   ): Promise<{ rows: unknown[]; total: number }> {
     const where = await this.buildListWhere(user, opts);
     const [rows, total] = await Promise.all([
-      this.queryListRows(where, opts),
+      this.queryListRows(user, where, opts),
       this.prisma.item.count({ where }),
     ]);
     return { rows, total };
@@ -811,6 +812,7 @@ export class ItemsService {
    * WHERE object.
    */
   private async queryListRows(
+    user: AuthUser,
     where: Prisma.ItemWhereInput,
     opts: ItemsListOptions,
   ) {
@@ -1073,7 +1075,25 @@ export class ItemsService {
       updatedAt: Date;
       thumbnailUrl: string | null;
       thumbnailDesign?: Prisma.JsonValue | null;
-    }>).map(synthesizeThumbnailUrl);
+    }>)
+      .map((r) => this.redactRow(user, r))
+      .map(synthesizeThumbnailUrl);
+  }
+
+  /** Apply redactItemData to a list or detail row that carries `data`. */
+  redactRow<T>(user: AuthUser, row: T): T {
+    const r = row as T & {
+      type?: string;
+      data?: unknown;
+      shares?: ItemShare[];
+    };
+    if (r.data === undefined || typeof r.type !== 'string') return row;
+    const canEdit = this.sharing.canEdit(
+      user,
+      r as unknown as Item,
+      r.shares ?? [],
+    );
+    return { ...r, data: redactItemData(r.type, r.data, { canEdit }) } as T;
   }
 
   /**
@@ -1167,6 +1187,20 @@ export class ItemsService {
   }
 
   /**
+   * get() for a response body. get() itself returns the stored data
+   * because update() and other internal callers build on it (the map
+   * Save merge needs the anonymous markup tokens). Anything that sends
+   * an item to a client goes through this instead.
+   */
+  async getForReader(
+    user: AuthUser,
+    id: string,
+    opts: { includeTrashed?: boolean } = {},
+  ) {
+    return this.redactRow(user, await this.get(user, id, opts));
+  }
+
+  /**
    * Apply per-layer access for a viewer. Walks each layer in the
    * web map and:
    *   1. Drops it if the viewer has no item-level access to the
@@ -1183,8 +1217,8 @@ export class ItemsService {
    * Backing items are fetched in a single batched query. Items the
    * caller can't read are treated the same as "doesn't exist".
    */
-  private async filterMapForViewer(
-    viewer: AuthUser,
+  async filterMapForViewer(
+    viewer: AuthUser | null,
     rawData: unknown,
   ): Promise<unknown> {
     if (!rawData || typeof rawData !== 'object') return rawData;
@@ -1227,7 +1261,12 @@ export class ItemsService {
       ) {
         const target = byId.get(src.itemId);
         if (!target) continue;
-        if (!this.sharing.canRead(viewer, target, target.shares)) continue;
+        // A null viewer is an anonymous reader of a public map: only
+        // public sources are readable to them.
+        const readable = viewer
+          ? this.sharing.canRead(viewer, target, target.shares)
+          : target.access === 'public';
+        if (!readable) continue;
       }
 
       const access = (
@@ -1247,7 +1286,11 @@ export class ItemsService {
 
       let effective = { view: true, query: true, edit: false };
       if (access?.policy === 'custom') {
+        // Anonymous readers match no entry, so a custom-access layer
+        // is hidden from them, as it is from a signed-in reader who
+        // is not on its list.
         const entry = (access.entries ?? []).find((e) => {
+          if (!viewer) return false;
           if (e.principalType === 'user') return e.principalId === viewer.id;
           if (e.principalType === 'group') {
             return viewer.groupIds.includes(e.principalId);
