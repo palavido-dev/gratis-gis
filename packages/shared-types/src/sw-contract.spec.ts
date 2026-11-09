@@ -31,7 +31,7 @@ import {
   SW_OFFLINE_MESSAGE_CODES,
 } from './offline-message.js';
 import { isQueueRowOwnedBy, QUEUE_CLAIM_STALE_MS } from './queue-replay.js';
-import { replayOutcomeForStatus } from './sync-outcome.js';
+import { isOwnEditEcho, replayOutcomeForStatus } from './sync-outcome.js';
 
 // packages/shared-types/src -> repo root -> the worker.
 const SW_PATH = join(
@@ -269,6 +269,40 @@ describe('service worker offline-queue contract', () => {
         expect(swOutcome(status, op)).toBe(replayOutcomeForStatus(status, op));
       }
     }
+  });
+
+  it('recognises a lost-response echo the same way shared-types does', () => {
+    const swEcho = liftFunction<typeof isOwnEditEcho>(sw, 'isOwnEditEcho', {
+      constants: ['ECHO_COORD_TOLERANCE'],
+      functions: ['echoSameValue'],
+    });
+    const pt = (x: number) => ({ type: 'Point', coordinates: [x, 1] });
+    const cases: Array<Parameters<typeof isOwnEditEcho>> = [
+      [{ op: 'update', geometry: null, properties: { a: 1 } }, { properties: { a: 1, _x: 2 } }],
+      [{ op: 'update', geometry: null, properties: { a: 1 } }, { properties: { a: 2 } }],
+      [{ op: 'update', geometry: pt(1), properties: {} }, { geometry: pt(1.000000001), properties: {} }],
+      [{ op: 'update', geometry: pt(1), properties: {} }, { geometry: pt(1.1), properties: {} }],
+      [{ op: 'update', geometry: null, properties: { n: null } }, { properties: {} }],
+      [{ op: 'update', geometry: null, properties: { o: { b: [1, 2] } } }, { properties: { o: { b: [1, 2] } } }],
+      [{ op: 'delete', geometry: null, properties: null }, { properties: {} }],
+      [{ op: 'update', geometry: null, properties: {} }, null],
+    ];
+    for (const [edit, current] of cases) {
+      expect(swEcho(edit, current)).toBe(isOwnEditEcho(edit, current));
+    }
+  });
+
+  it('rebases only the same account\'s later rows after an update lands', () => {
+    // A shared device: moving another account's row to this head
+    // would let it overwrite this write without a 409.
+    const rebase = functionSource(sw, 'rebaseQueuedRows');
+    expect(rebase).toContain('row.ownerUserId === r.ownerUserId');
+    expect(rebase).toContain('row.queuedAt > r.queuedAt');
+  });
+
+  it('sends the conflict guard on update and delete replays', () => {
+    const replay = functionSource(sw, 'replayFeatureRecord');
+    expect(replay.match(/baseObservationId: r\.baseObservationId/g)?.length).toBe(2);
   });
 
   it('declares the same failure codes shared-types does', () => {

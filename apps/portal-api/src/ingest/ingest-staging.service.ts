@@ -6,9 +6,11 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import {
   copyFile,
   mkdir,
@@ -55,8 +57,9 @@ import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
  * wizard's Create item flow is the only thing that consumes a staging
  * -- shared/team uploads are out of scope for v1.
  *
- * Lifetime: one hour. The cleanup cron runs every 15 minutes and
- * blows away any staging whose meta.createdAt is older than that. A
+ * Lifetime: one hour. The cleanup cron runs every 30 minutes and
+ * blows away any staging whose meta.createdAt is older than that,
+ * unless an import job still queued or running reads from it. A
  * user who pauses on the Create item screen for over an hour will
  * have to re-upload, which we treat as an acceptable trade for
  * bounded disk usage. Stagings are also implicitly bounded by the
@@ -93,7 +96,12 @@ function insideRoot(root: string, ...parts: string[]): string | null {
 export class IngestStagingService implements OnModuleInit {
   private readonly log = new Logger(IngestStagingService.name);
 
-  constructor(private readonly leader: LeaderElectionService) {}
+  constructor(
+    private readonly leader: LeaderElectionService,
+    // Optional so the bare-construction specs keep working. Every Nest
+    // graph that provides this service has the global PrismaModule.
+    @Optional() private readonly prisma?: PrismaService,
+  ) {}
 
   /** Stagings expire after this many ms of wall-clock age. */
   private readonly maxAgeMs = 60 * 60 * 1000; // 1h
@@ -384,7 +392,13 @@ export class IngestStagingService implements OnModuleInit {
    * Periodic cleanup. Walks the staging root and removes any
    * directory whose meta.createdAt is older than maxAgeMs. Also
    * deletes meta-less directories older than maxAgeMs (a stage()
-   * that crashed before writing meta.json). Runs every 15 min.
+   * that crashed before writing meta.json). Runs every 30 min.
+   *
+   * A staging that a queued or running import job still reads from is
+   * kept whatever its age. The import worker runs one job at a time,
+   * so a multi-layer upload, or anything queued behind a county-sized
+   * import, can easily wait over an hour; deleting its file then fails
+   * an import the user was already told was queued.
    */
   @Cron(CronExpression.EVERY_30_MINUTES)
   async cleanupStaleScheduled(): Promise<void> {
@@ -394,6 +408,29 @@ export class IngestStagingService implements OnModuleInit {
     // recursive deletes.
     if (!this.leader.shouldRun()) return;
     await this.cleanupStaleSync();
+  }
+
+  /**
+   * Staging ids an unfinished import job still needs, or null when that
+   * cannot be read. A failed read skips the sweep: deleting a file a
+   * job needs is worse than keeping one an extra half hour.
+   */
+  private async stagingIdsInUse(): Promise<Set<string> | null> {
+    if (!this.prisma) return new Set();
+    try {
+      const rows = await this.prisma.importJob.findMany({
+        where: { status: { in: [...STAGING_SWEEP_KEEPS_JOB_STATES] } },
+        select: { stagingId: true },
+      });
+      return new Set(rows.map((r) => r.stagingId));
+    } catch (err) {
+      this.log.warn(
+        `Staging cleanup skipped; could not read import jobs: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      return null;
+    }
   }
 
   private async cleanupStaleSync(): Promise<void> {
@@ -409,9 +446,12 @@ export class IngestStagingService implements OnModuleInit {
       );
       return;
     }
+    const inUse = await this.stagingIdsInUse();
+    if (inUse === null) return;
     const now = Date.now();
     let removed = 0;
     for (const id of entries) {
+      if (inUse.has(id)) continue;
       const dir = join(this.root, id);
       const metaPath = join(dir, 'meta.json');
       let createdAt: number | null = null;
@@ -445,6 +485,9 @@ export class IngestStagingService implements OnModuleInit {
     }
   }
 }
+
+/** Exported for the spec. */
+export const STAGING_SWEEP_KEEPS_JOB_STATES = ['queued', 'running'] as const;
 
 interface StagingMeta {
   ownerId: string;
