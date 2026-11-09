@@ -11,8 +11,8 @@ is the tested path, not aspiration.
   organization and enough for the heavier analysis tiers; 2 cores and
   4 GB can boot the stack for evaluation but leave little headroom.
   20 GB or more of free disk.
-- Docker Engine with the compose v2 plugin, plus git, curl, and
-  openssl. The installer checks and tells you what is missing; it does
+- Docker Engine with the compose v2 plugin, plus git, curl, openssl,
+  and python3. The installer checks and tells you what is missing; it does
   not install Docker for you.
 - Three DNS A records pointing at the server: the portal hostname, an
   auth hostname, and a storage hostname (for example `gis.example.org`,
@@ -202,7 +202,8 @@ Each customer runs their own stack. Do not point a second
 organization at the first stack's database. On a new machine:
 
 ```bash
-GRATIS_DIR=/opt/gratis-gis-customer ./infra/install.sh
+curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh \
+  | GRATIS_DIR=/opt/gratis-gis-customer bash
 ```
 
 Give that install its own domain, its own `infra/.env.prod`, and

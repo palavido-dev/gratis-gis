@@ -27,6 +27,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@cedar-policy/cedar-wasm": "4.14.0",
     "@duckdb/node-api": "1.5.4-r.1",
+    "@eslint-community/regexpp": "4.12.2",
     "@gratis-gis/engine": "workspace:*",
     "@gratis-gis/form-schema": "workspace:*",
     "@gratis-gis/shared-types": "workspace:*",

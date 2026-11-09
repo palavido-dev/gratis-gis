@@ -38,7 +38,11 @@ export interface LocaleInfo {
   englishName: string;
   /**
    * Translation completeness as a percentage: the share of English
-   * leaf keys this catalog defines. Maintained by hand as a floor,
+   * leaf keys this catalog translates. A key whose value is a copy
+   * of the English sentence (four or more words, identical text)
+   * does not count, since it shows English to the reader; short
+   * identical values ("CSV", "Excel", "OK") are cognates and do.
+   * No UI reads this yet. Maintained by hand as a floor,
    * and `locales.spec.ts` fails when a catalog drops below its
    * declared figure, so adding English keys without translating them
    * eventually forces this number down rather than letting it lie.
@@ -68,37 +72,39 @@ export const LOCALES: LocaleInfo[] = [
   // had drifted to 59 percent of the English keys, with about twenty
   // sections (feature editing, the whole field arc, item detail, the
   // map and app cards, exports, offline areas and more) existing only
-  // in English. The same day's translation pass closed that gap: each
-  // catalog defines every English key again, so the figure below is
-  // the measured 100 rounded down to a multiple of 5. The spec treats
-  // it as a floor, so adding English keys without translating them
-  // fails the suite until the keys are translated or this is lowered.
+  // in English. The same day's translation pass gave each catalog
+  // every English key again, but about 400 to 500 of them per locale
+  // are English sentences copied as-is, which the spec now counts as
+  // untranslated. The figures below are the measured share rounded
+  // down to a multiple of 5. The spec treats each as a floor, so
+  // adding English keys without translating them fails the suite
+  // until the keys are translated or the figure is lowered.
   {
     code: 'es',
     nativeName: 'Español',
     englishName: 'Spanish',
-    completeness: 100,
+    completeness: 90,
     machineTranslated: true,
   },
   {
     code: 'pt-BR',
     nativeName: 'Português (Brasil)',
     englishName: 'Portuguese (Brazil)',
-    completeness: 100,
+    completeness: 85,
     machineTranslated: true,
   },
   {
     code: 'fr',
     nativeName: 'Français',
     englishName: 'French',
-    completeness: 100,
+    completeness: 85,
     machineTranslated: true,
   },
   {
     code: 'de',
     nativeName: 'Deutsch',
     englishName: 'German',
-    completeness: 100,
+    completeness: 85,
     machineTranslated: true,
   },
 ];

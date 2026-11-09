@@ -92,9 +92,12 @@ components handle interactive UI (maps, builders).
 
 ### portal-mcp (Model Context Protocol server)
 
-A small stdio MCP server that exposes a read-only view of a portal
-(list items, get item, read layer features) to MCP clients such as
-Claude Desktop and Cursor. Authenticates against portal-api with a
+A small stdio MCP server that exposes a portal (list items, get item,
+read layer features) to MCP clients such as Claude Desktop and Cursor.
+It is read-only by default. Write tools, `run_tool` and
+`create_data_layer_from_geojson`, are offered only when the operator
+sets `GRATIS_MCP_ALLOW_WRITES=1`, and a read-only API key still blocks
+them at portal-api. Authenticates against portal-api with a
 bearer token; sharing and geographic limits are enforced server-side
 like any other client. See `apps/portal-mcp/README.md`.
 
@@ -113,9 +116,11 @@ layer: a key is refused on `/admin/*` outright, and a key marked
 read-only is refused on any unsafe HTTP method. Tokens are stored as
 a one-way hash, so a database dump yields nothing usable.
 
-No hosted execution environment ships with v1; external tools run
-wherever the user runs them. Server-side scheduled execution is
-tracked separately.
+External tools run wherever the user runs them. The portal can also
+run user-written Python on the server: script items, behind the
+`scripts` Compose profile and `PORTAL_SCRIPTS_ENABLED`, off by
+default. A run executes in a separate, fenced container with its
+owner's permissions (see `docs/scripts.md`).
 
 ### tool-builder + tool-runner (future)
 
@@ -170,7 +175,7 @@ Organization 1───* User *───* Group
 Item *──── ItemShare *── (Group | User | Org | public)
 ```
 
-`Item.type` is a closed string union of 28 values (map, data_layer,
+`Item.type` is a closed string union of 29 values (map, data_layer,
 form, web_app, tool, basemap, point_cloud, ...). The single source of
 truth is `ITEM_TYPES` in `packages/shared-types/src/item-types.ts`;
 this document deliberately does not duplicate the full list.
@@ -294,8 +299,9 @@ Conflicts are surfaced to the user as merge prompts in the app.
 
 - **Local dev**: `docker-compose up` starts infra; `pnpm dev` starts apps.
 - **CI**: GitHub Actions runs lint, typecheck, test, build across workspace.
-- **Prod (future)**: Container images pushed to GHCR; deployable via
-  Docker Compose (single node) or Kubernetes (scale). No cloud lock-in.
+- **Prod**: `publish-images.yml` pushes container images to GHCR after
+  CI passes; the NAS compose file pulls them. The VPS stack builds from
+  source with Docker Compose on a single node. No cloud lock-in.
 
 ## Non-goals (for now)
 

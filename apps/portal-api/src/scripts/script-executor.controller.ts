@@ -5,11 +5,11 @@ import {
   Headers,
   HttpCode,
   Post,
-  Req,
+  Res,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 
 import {
@@ -63,7 +63,7 @@ export class ScriptExecutorController {
       maxNotebookBytes?: number;
     },
     @Headers('x-script-executor-token') token: string | undefined,
-    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<ExecuteResult> {
     assertToken(token);
 
@@ -77,12 +77,23 @@ export class ScriptExecutorController {
       throw new ServiceUnavailableException('No run key supplied.');
     }
 
-    // Cancel is the claimer hanging up. Express fires 'close' on the
-    // request when the socket goes away, which aborts the child.
-    // Modelling cancel as "the caller left" avoids a second endpoint
-    // and a run-id registry that could leak entries.
+    // Cancel is the claimer hanging up. Modelling cancel as "the caller
+    // left" avoids a second endpoint and a run-id registry that could
+    // leak entries.
+    //
+    // Listen on the RESPONSE, not the request. Since Node 16 the
+    // request emits 'close' as soon as its body has been read, which
+    // the JSON body parser has already done by the time this handler
+    // runs. A listener there fired once on every run, before spawn, and
+    // never on a hang-up, so cancel never reached the child. The
+    // response closes when the socket goes away; if it closes before we
+    // finished writing, the caller left.
     const ac = new AbortController();
-    req.on('close', () => ac.abort());
+    const onClose = () => {
+      if (!res.writableFinished) ac.abort();
+    };
+    if (res.destroyed || res.socket?.destroyed) ac.abort();
+    else res.on('close', onClose);
 
     return this.executor.execute(
       {
