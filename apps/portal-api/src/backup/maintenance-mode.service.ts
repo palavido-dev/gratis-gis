@@ -150,9 +150,13 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
     try {
       const marker = restoreMarkerPath();
       await fs.mkdir(path.dirname(marker), { recursive: true });
+      // Only presence matters. The body is a fixed payload plus a
+      // server timestamp, never caller text: the reason can carry
+      // request data, and this file sits on a shared volume an
+      // operator reads by hand.
       await fs.writeFile(
         marker,
-        `${JSON.stringify({ maintenance: true, phase: 'in-portal-restore', reason, startedAt: new Date().toISOString() })}\n`,
+        `${JSON.stringify({ maintenance: true, phase: 'in-portal-restore', startedAt: new Date().toISOString() })}\n`,
         { flag: 'w' },
       );
     } catch (err) {
