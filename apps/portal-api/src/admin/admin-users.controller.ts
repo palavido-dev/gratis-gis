@@ -34,6 +34,7 @@ import {
 } from './keycloak-admin.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
 
@@ -89,6 +90,13 @@ class UpdateUserDto {
    */
   @IsOptional() @IsDateString() autoDisableAt?: string | null;
 }
+
+/** Role order, used to tell a demotion from a promotion. */
+const ROLE_RANK: Record<'viewer' | 'contributor' | 'admin', number> = {
+  viewer: 0,
+  contributor: 1,
+  admin: 2,
+};
 
 /**
  * Admin-only CRUD endpoints for managing users in the built-in
@@ -280,7 +288,7 @@ export class AdminUsersController {
     if (dto.orgRole !== undefined) intent.orgRole = dto.orgRole;
     if (dto.enabled !== undefined) intent.enabled = dto.enabled;
     if (dto.autoDisableAt !== undefined) intent.autoDisableAt = dto.autoDisableAt;
-    await this.assertMutationAllowed(me, id, intent);
+    const { localUser: target } = await this.assertMutationAllowed(me, id, intent);
 
     // Drop any undefined optional keys so the service's read-modify-
     // write logic doesn't overwrite existing values with undefined.
@@ -370,6 +378,28 @@ export class AdminUsersController {
         });
       }
     }
+    // API keys and scheduled scripts never ask Keycloak, so the local
+    // row has to follow. Changes that take access away are written
+    // before the Keycloak call, so a Keycloak failure leaves the
+    // account with less access rather than more. Changes that give
+    // access back are written after Keycloak accepts them.
+    const demotes =
+      target !== null &&
+      dto.orgRole !== undefined &&
+      ROLE_RANK[dto.orgRole] < ROLE_RANK[target.orgRole];
+    if (target && demotes && dto.orgRole !== undefined) {
+      await this.prisma.user.update({
+        where: { id: target.id },
+        data: { orgRole: dto.orgRole },
+      });
+    }
+    if (target && patch.enabled === false) {
+      await disableLocalAccount(this.prisma, target.id);
+    }
+    if (target && (demotes || patch.enabled === false)) {
+      this.authSync.invalidate(target.id);
+    }
+
     let kcUserAfter: KeycloakUserRep;
     try {
       kcUserAfter = await this.kc.updateUser(id, patch);
@@ -388,6 +418,18 @@ export class AdminUsersController {
         });
       }
       throw err;
+    }
+    if (target) {
+      if (dto.orgRole !== undefined && !demotes) {
+        await this.prisma.user.update({
+          where: { id: target.id },
+          data: { orgRole: dto.orgRole },
+        });
+      }
+      if (patch.enabled === true) {
+        await enableLocalAccount(this.prisma, target.id);
+      }
+      this.authSync.invalidate(target.id);
     }
     // Enrich with the local-only fields so the FE row update gets a
     // complete AdminUserRep (matches what /admin/users list returns).
@@ -858,7 +900,9 @@ export class AdminUsersController {
     // Defense in depth: a target whose local row is in a different
     // org from the caller can't be touched, even if the AdminGuard
     // route was somehow reached cross-org.
-    if (localUser && localUser.orgId !== me.orgId) {
+    // A user who has never signed in has no local row, so the
+    // Keycloak `org` attribute decides; same rule as the GET routes.
+    if (!inCallerOrg(me, kcUser, localUser?.orgId)) {
       throw new ForbiddenException('User is not in your organization');
     }
     // Self-identity check via username (stable across Keycloak sub
@@ -904,8 +948,9 @@ export class AdminUsersController {
       autoDisableAt?: string | null;
       kind?: 'delete';
     },
-  ): Promise<void> {
-    const { localUser, isSelf } = await this.loadTarget(me, targetId);
+  ): Promise<Awaited<ReturnType<AdminUsersController['loadTarget']>>> {
+    const target = await this.loadTarget(me, targetId);
+    const { localUser, isSelf } = target;
 
     // (1) Protected master admin: untouchable through any API
     // surface. The error message is intentionally generic so we
@@ -987,6 +1032,7 @@ export class AdminUsersController {
         );
       }
     }
+    return target;
   }
 }
 

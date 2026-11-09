@@ -50,10 +50,14 @@ export function ScriptPanel({
   itemId,
   initial,
   canEdit,
+  canSchedule = canEdit,
 }: {
   itemId: string;
   initial: ScriptData;
   canEdit: boolean;
+  /** Only the owner may set a schedule, since scheduled runs carry the
+   *  owner's permissions. The server enforces this too. */
+  canSchedule?: boolean;
 }) {
   const fmt = useFormat();
   const [source, setSource] = useState(initial.source ?? '');
@@ -363,7 +367,7 @@ export function ScriptPanel({
           </span>
         </header>
         <div className="p-4">
-          {canEdit ? (
+          {canEdit && canSchedule ? (
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
@@ -521,9 +525,19 @@ export function ScriptPanel({
               ) : null}
             </>
           ) : (
-            <p className="text-sm text-muted">
-              {summarizeScriptSchedule(schedule)}.
-            </p>
+            <>
+              <p className="text-sm text-muted">
+                {summarizeScriptSchedule(schedule)}.
+              </p>
+              {canEdit ? (
+                <p className="mt-3 text-xs text-muted">
+                  Only the owner can change the schedule, because scheduled
+                  runs carry the owner&apos;s permissions. If you change the
+                  code, scheduled runs pause until the owner saves the
+                  script again.
+                </p>
+              ) : null}
+            </>
           )}
         </div>
       </section>

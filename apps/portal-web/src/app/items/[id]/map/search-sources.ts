@@ -18,6 +18,7 @@ import type { MapLayer } from '@gratis-gis/shared-types';
 import { parseApiError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { geometryBbox } from '@/lib/geo-bbox';
 
 export type SearchResult =
   | {
@@ -543,35 +544,7 @@ export async function geocode(
 function featureBbox(
   f: GeoJSON.Feature,
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let seen = false;
-  function visit(v: unknown) {
-    if (Array.isArray(v)) {
-      if (v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
-        const x = v[0] as number;
-        const y = v[1] as number;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        seen = true;
-      } else {
-        for (const c of v) visit(c);
-      }
-    }
-  }
-  const geom = f.geometry;
-  if (!geom) return null;
-  if ('coordinates' in geom) visit(geom.coordinates);
-  else if (geom.type === 'GeometryCollection') {
-    for (const g of geom.geometries) {
-      if ('coordinates' in g) visit(g.coordinates);
-    }
-  }
-  return seen ? [minX, minY, maxX, maxY] : null;
+  return geometryBbox(f.geometry);
 }
 
 function featureCenter(f: GeoJSON.Feature): [number, number] | null {

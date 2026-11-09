@@ -15,7 +15,10 @@ function service(retention: string | undefined) {
         return [];
       }),
     },
-    group: { deleteMany: jest.fn(async () => ({ count: 0 })) },
+    group: {
+      findMany: jest.fn(async () => []),
+      deleteMany: jest.fn(async () => ({ count: 0 })),
+    },
   } as unknown as PrismaService;
   const cfg = {
     get: (key: string) => (key === 'RECYCLE_BIN_RETENTION_DAYS' ? retention : undefined),

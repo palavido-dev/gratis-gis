@@ -27,6 +27,7 @@ import {
   TerraDrawSelectMode,
 } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
+import { geometryBbox } from '@/lib/geo-bbox';
 
 /**
  * Minimal raster OSM style used as the preview backdrop. The geo-
@@ -829,45 +830,16 @@ function extractPolygonGeometryFromAny(
   return null;
 }
 
-/**
- * Minimum / maximum longitude + latitude of a polygon geometry.
- * Walks every coord exactly once; no external dep.
- */
+/** Minimum / maximum longitude + latitude of a polygon geometry. */
 function computeBBox(
   g: GeoBoundaryGeometry,
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const visit = (coord: GeoJSON.Position) => {
-    // Positions are [lon, lat, (elev)]; we only care about the first
-    // two. Under noUncheckedIndexedAccess the 0 / 1 reads are typed
-    // `number | undefined`, so we guard before comparing.
-    const x = coord[0];
-    const y = coord[1];
-    if (typeof x !== 'number' || typeof y !== 'number') return;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  };
-  const rings =
-    g.type === 'Polygon'
-      ? [g.coordinates as GeoJSON.Position[][]]
-      : (g.coordinates as GeoJSON.Position[][][]);
-  for (const poly of rings) {
-    for (const ring of poly) {
-      for (const pt of ring) visit(pt);
-    }
-  }
-  if (!Number.isFinite(minX)) return null;
-  return [minX, minY, maxX, maxY];
+  return geometryBbox(g);
 }
 
 /**
- * Rough spherical-polygon area in kmAï¿½, adequate for operator-facing
- * "this boundary covers N kmAï¿½" summaries. Not a replacement for
+ * Rough spherical-polygon area in km², adequate for operator-facing
+ * "this boundary covers N km²" summaries. Not a replacement for
  * PostGIS on the server: the API still computes its own answer for
  * anywhere that needs precision.
  */
