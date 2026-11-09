@@ -160,6 +160,20 @@ Downloading an archive in the browser stores it wherever that
 browser saves files. That is not an off-site copy until the file,
 and `infra/.env.prod` or the NAS `boot` volume, are on another disk.
 
+### Before an in-portal restore
+
+- Stop the background workers first: `portal-worker`, `script-runner`
+  and `pointcloud-worker`. They do not read the maintenance flag, so
+  they keep writing rows and objects while the restore replaces them.
+  Start them again after the restore succeeds.
+- The archive must come from the same database schema the portal runs
+  now. Restore refuses an archive made before or after a release that
+  added migrations, because `pg_restore` cannot convert one schema into
+  another. Restore an older archive on the release that made it, then
+  upgrade. Take a fresh backup right after every upgrade.
+- Restore refuses to start while a backup is running. Backups and
+  scheduled jobs pause while maintenance is on.
+
 ## When a restore fails
 
 The in-portal restore turns maintenance mode on and leaves it on if
@@ -184,6 +198,12 @@ until the portal tables are present and you have signed in.
    `./infra/restore-maintenance.sh clear --i-verified-the-database`
    refuses otherwise. It does not delete volumes. API replicas
    re-read the flag within a few seconds.
+   An in-portal restore also writes `.restore-in-progress` in the
+   portal-api backups volume (`/app/backups`) before `pg_restore`
+   starts, and removes it only when the restore succeeds. If the API
+   stopped or the restore failed, maintenance stays on while that file
+   exists. Once you have verified the database, remove it with
+   `docker compose exec portal-api rm -f /app/backups/.restore-in-progress`.
 5. A forgotten portal password is not fixed by deleting volumes.
    Reset the user with `./infra/reset-portal-password.sh <username>`.
    That talks to Keycloak inside the container. It does not open the
