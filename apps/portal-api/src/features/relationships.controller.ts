@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { withLockedItem } from '../items/item-data-lock.js';
 import {
   BadRequestException,
   Body,
@@ -147,37 +148,42 @@ export class RelationshipsController {
       cardinality,
     };
 
-    // Update parent metadata.
-    const parentData = (await this.prisma.item.findUnique({ where: { id }, select: { data: true } }))?.data;
-    const parentRels = ((parentData as Record<string, unknown>)?.['relationships'] as FeatureRelationship[]) ?? [];
-    // Prevent duplicate registrations for the same child.
-    if (parentRels.some((r) => r.relatedItemId === dto.relatedItemId && r.fkColumn === fkColumn)) {
-      throw new BadRequestException('A relationship with this child item and FK column already exists');
-    }
-    await this.prisma.item.update({
-      where: { id },
-      data: {
+    // Update parent metadata, then the child back-reference, each
+    // built from the row as it is under its lock so a concurrent save
+    // of either item is not reverted.
+    await withLockedItem(this.prisma, id, async (tx, locked) => {
+      const parentData = (locked?.data ?? {}) as Record<string, unknown>;
+      const parentRels = (parentData['relationships'] as FeatureRelationship[]) ?? [];
+      // Prevent duplicate registrations for the same child.
+      if (parentRels.some((r) => r.relatedItemId === dto.relatedItemId && r.fkColumn === fkColumn)) {
+        throw new BadRequestException('A relationship with this child item and FK column already exists');
+      }
+      await tx.item.update({
+        where: { id },
         data: {
-          ...(parentData as Record<string, unknown>),
-          relationships: [...parentRels, newRel],
-        } as unknown as Prisma.InputJsonValue,
-      },
+          data: {
+            ...parentData,
+            relationships: [...parentRels, newRel],
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
     });
 
-    // Update child back-reference.
-    const childData = (await this.prisma.item.findUnique({ where: { id: dto.relatedItemId }, select: { data: true } }))?.data;
-    await this.prisma.item.update({
-      where: { id: dto.relatedItemId },
-      data: {
+    await withLockedItem(this.prisma, dto.relatedItemId, async (tx, locked) => {
+      const childData = (locked?.data ?? {}) as Record<string, unknown>;
+      await tx.item.update({
+        where: { id: dto.relatedItemId },
         data: {
-          ...(childData as Record<string, unknown>),
-          parentRelationship: {
-            parentItemId: id,
-            fkColumn,
-            relationshipId: relId,
-          } satisfies ChildRelationshipRef,
-        } as unknown as Prisma.InputJsonValue,
-      },
+          data: {
+            ...childData,
+            parentRelationship: {
+              parentItemId: id,
+              fkColumn,
+              relationshipId: relId,
+            } satisfies ChildRelationshipRef,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
     });
 
     return newRel;
@@ -193,36 +199,37 @@ export class RelationshipsController {
     @Param('id') id: string,
     @Param('relId') relId: string,
   ) {
-    const item = await this.requireAdmin(user, id);
-    const data = item.data as Record<string, unknown>;
-    const rels = (data?.['relationships'] as FeatureRelationship[]) ?? [];
-    const target = rels.find((r) => r.id === relId);
-    if (!target) throw new NotFoundException('Relationship not found');
-
-    const updated = rels.filter((r) => r.id !== relId);
-    await this.prisma.item.update({
-      where: { id },
-      data: {
-        data: { ...data, relationships: updated } as unknown as Prisma.InputJsonValue,
-      },
+    await this.requireAdmin(user, id);
+    const target = await withLockedItem(this.prisma, id, async (tx, locked) => {
+      const data = (locked?.data ?? {}) as Record<string, unknown>;
+      const rels = (data['relationships'] as FeatureRelationship[]) ?? [];
+      const found = rels.find((r) => r.id === relId);
+      if (!found) throw new NotFoundException('Relationship not found');
+      await tx.item.update({
+        where: { id },
+        data: {
+          data: {
+            ...data,
+            relationships: rels.filter((r) => r.id !== relId),
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return found;
     });
 
     // Clear the back-reference on the child if it points to this relationship.
-    const childData = (await this.prisma.item.findUnique({
-      where: { id: target.relatedItemId },
-      select: { data: true },
-    }))?.data as Record<string, unknown> | null;
-    if (childData) {
+    await withLockedItem(this.prisma, target.relatedItemId, async (tx, locked) => {
+      const childData = locked?.data as Record<string, unknown> | null | undefined;
+      if (!childData || typeof childData !== 'object') return;
       const ref = childData['parentRelationship'] as ChildRelationshipRef | undefined;
-      if (ref?.relationshipId === relId) {
-        const { parentRelationship: _ref, ...rest } = childData;
-        void _ref;
-        await this.prisma.item.update({
-          where: { id: target.relatedItemId },
-          data: { data: rest as unknown as Prisma.InputJsonValue },
-        });
-      }
-    }
+      if (ref?.relationshipId !== relId) return;
+      const { parentRelationship: _ref, ...rest } = childData;
+      void _ref;
+      await tx.item.update({
+        where: { id: target.relatedItemId },
+        data: { data: rest as unknown as Prisma.InputJsonValue },
+      });
+    });
 
     return { removed: true };
   }

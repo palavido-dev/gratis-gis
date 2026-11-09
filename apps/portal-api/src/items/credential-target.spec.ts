@@ -60,6 +60,10 @@ function makeService(opts: { hasCredential: boolean; data: Record<string, unknow
     itemCredential: {
       findUnique: jest.fn(async () => (opts.hasCredential ? { itemId: ID } : null)),
     },
+    // update() writes under the item row lock (lockItemRow), which
+    // reads the stored data and updated_at as epoch ms.
+    $queryRaw: jest.fn(async () => [{ data: row.data, updated_at_ms: row.updatedAt.getTime() }]),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown): Promise<unknown> => fn(prisma)),
   };
   const sharing = new SharingService(prisma as never, new PolicyService());
   const svc = new ItemsService(

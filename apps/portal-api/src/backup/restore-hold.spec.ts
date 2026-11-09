@@ -21,6 +21,7 @@ import {
   MaintenanceModeService,
   restoreMarkerPath,
 } from './maintenance-mode.service.js';
+import type { TileCacheService } from '../engine/tile-cache.service.js';
 
 const MIGRATIONS = ['20260101000000_a', '20260201000000_b'];
 
@@ -191,6 +192,7 @@ describe('runRestore', () => {
       new ConfigService(),
       backup as unknown as BackupService,
       mode,
+      { resetAfterRestore: async () => {} } as unknown as TileCacheService,
     );
     const pgRestore = jest.fn(async () => {});
     const minio = jest.fn(async () => {});

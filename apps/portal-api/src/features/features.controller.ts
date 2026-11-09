@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { withLockedItem } from '../items/item-data-lock.js';
 import {
   BadRequestException,
   Body,
@@ -454,10 +455,9 @@ export class FeaturesController {
       // Read and write under the item row lock so a concurrent writer
       // (a syncVersion bump, a schema save) is not rolled back by a
       // stale copy of item.data.
-      await this.prisma.$transaction(async (tx) => {
-        const rows = await tx.$queryRaw<Array<{ data: unknown }>>`
-          SELECT data_json AS data FROM item WHERE id = ${itemId}::uuid FOR UPDATE`;
-        const existing = (rows[0]?.data ?? {}) as Record<string, unknown>;
+      await withLockedItem(this.prisma, itemId, async (tx, locked) => {
+        if (!locked) return;
+        const existing = (locked.data ?? {}) as Record<string, unknown>;
         // The route guards refuse v3 items; never downgrade one here.
         if (existing.version === 3) return;
         await tx.item.update({

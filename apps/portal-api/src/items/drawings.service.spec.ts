@@ -68,10 +68,12 @@ interface FakePrisma {
   user: {
     findUnique: jest.Mock;
   };
+  $queryRaw: jest.Mock;
+  $transaction: jest.Mock;
 }
 
 function makePrisma(): FakePrisma {
-  return {
+  const prisma: FakePrisma = {
     item: {
       findFirst: jest.fn(),
       update: jest.fn(),
@@ -85,7 +87,15 @@ function makePrisma(): FakePrisma {
         username: 'alice',
       }),
     },
+    // The row lock reads the same row findFirst serves, unless a test
+    // overrides it to simulate a write that landed in between.
+    $queryRaw: jest.fn(async () => {
+      const item = (await prisma.item.findFirst()) as Item | null;
+      return item ? [{ data: item.data, updated_at_ms: 0 }] : [];
+    }),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   };
+  return prisma;
 }
 
 function makeService(prisma: FakePrisma): DrawingsService {
@@ -110,6 +120,60 @@ describe('DrawingsService', () => {
       await expect(svc.list(null, 'map-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('writes under the row lock', () => {
+    it('applies a create to the data read under the lock, not the earlier read', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public', data: { drawings: [] } as never }),
+      );
+      // Another reviewer's set (and a map Save's layers) landed after
+      // the permission read.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: {
+            layers: [{ id: 'saved-layer' }],
+            drawings: [{ id: 'other-set', authorId: 'u2', color: '#ff0000', features: [] }],
+          },
+          updated_at_ms: 0,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.create({ kind: 'user', user: makeUser() }, 'map-1', {});
+      const written = (prisma.item.update.mock.calls[0]![0] as {
+        data: { data: { layers: unknown[]; drawings: Array<{ id: string }> } };
+      }).data.data;
+      expect(written.layers).toEqual([{ id: 'saved-layer' }]);
+      expect(written.drawings.map((d) => d.id)).toContain('other-set');
+      expect(written.drawings).toHaveLength(2);
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('keeps a concurrent edit to another set when updating one', async () => {
+      const prisma = makePrisma();
+      const mine = { id: 'mine', authorId: 'author-1', color: '#00ff00', title: 'Mine', features: [] };
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', data: { drawings: [mine] } as never }),
+      );
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: {
+            drawings: [mine, { id: 'theirs', authorId: 'u2', color: '#ff0000', features: [] }],
+          },
+          updated_at_ms: 0,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', { title: 'Renamed' });
+      const written = (prisma.item.update.mock.calls[0]![0] as {
+        data: { data: { drawings: Array<{ id: string; title?: string }> } };
+      }).data.data;
+      expect(written.drawings.map((d) => d.id)).toEqual(['mine', 'theirs']);
+      expect(written.drawings[0]!.title).toBe('Renamed');
     });
   });
 

@@ -16,6 +16,7 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from './sharing.service.js';
+import { withLockedItem } from './item-data-lock.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
@@ -25,9 +26,11 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  * service is the only write path: every mutation reads the item,
  * checks permissions against the caller (signed-in user or null
  * anonymous), modifies the array, and writes the whole `data` blob
- * back via Prisma. Each write bumps the item's `updatedAt` and goes
- * through a transaction so two concurrent edits to different drawing
- * sets don't clobber each other.
+ * back via Prisma. Permissions are checked on a plain read; the change
+ * itself is applied to the data read again under the item's row lock
+ * (withLockedItem), inside the transaction that writes it, so two
+ * concurrent edits to different drawing sets, or a drawing edit and a
+ * map Save, don't clobber each other.
  *
  * Permission posture (different from item edit because the WHOLE
  * point is letting non-editors mark up):
@@ -96,45 +99,42 @@ export class DrawingsService {
         'Anonymous markup is not enabled on this map',
       );
     }
-    const sets = data.drawings ?? [];
-    if (sets.length >= DRAWING_LIMITS.MAX_SETS_PER_MAP) {
-      throw new BadRequestException(
-        `This map already has ${sets.length} drawing sets ` +
-          `(maximum ${DRAWING_LIMITS.MAX_SETS_PER_MAP}). ` +
-          'Delete an existing set before adding a new one.',
-      );
-    }
-    const usedColors = sets.map((s) => s.color);
-    const now = new Date().toISOString();
     const authorId =
       author.kind === 'user' ? author.user.id : null;
     const authorDisplay = await this.resolveAuthorDisplay(author);
-    const next: DrawingSet = {
-      id: randomUUID(),
-      authorId,
-      authorDisplay,
-      ...(author.kind === 'anonymous'
-        ? { anonymousAuthorToken: author.anon.token }
-        : {}),
-      title:
-        typeof input.title === 'string' && input.title.trim().length > 0
-          ? input.title.trim().slice(0, 200)
-          : defaultDrawingSetTitle(authorDisplay),
-      color: validateHexColor(input.color) ?? nextDrawingSetColor(usedColors),
-      visible: true,
-      features: sanitizeFeatures(input.features ?? []),
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextData: MapDataLike = {
-      ...data,
-      drawings: [...sets, next],
-    };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    return this.mutateMapData(item.id, (fresh) => {
+      const sets = fresh.drawings ?? [];
+      if (sets.length >= DRAWING_LIMITS.MAX_SETS_PER_MAP) {
+        throw new BadRequestException(
+          `This map already has ${sets.length} drawing sets ` +
+            `(maximum ${DRAWING_LIMITS.MAX_SETS_PER_MAP}). ` +
+            'Delete an existing set before adding a new one.',
+        );
+      }
+      const usedColors = sets.map((s) => s.color);
+      const now = new Date().toISOString();
+      const next: DrawingSet = {
+        id: randomUUID(),
+        authorId,
+        authorDisplay,
+        ...(author.kind === 'anonymous'
+          ? { anonymousAuthorToken: author.anon.token }
+          : {}),
+        title:
+          typeof input.title === 'string' && input.title.trim().length > 0
+            ? input.title.trim().slice(0, 200)
+            : defaultDrawingSetTitle(authorDisplay),
+        color: validateHexColor(input.color) ?? nextDrawingSetColor(usedColors),
+        visible: true,
+        features: sanitizeFeatures(input.features ?? []),
+        createdAt: now,
+        updatedAt: now,
+      };
+      return {
+        data: { ...fresh, drawings: [...sets, next] },
+        result: publicDrawingSet(next),
+      };
     });
-    return publicDrawingSet(next);
   }
 
   async update(
@@ -149,35 +149,39 @@ export class DrawingsService {
     },
   ): Promise<DrawingSet> {
     const { data, item } = await this.loadMapForWrite(author, mapId);
-    const sets = data.drawings ?? [];
-    const idx = sets.findIndex((s) => s.id === drawingId);
-    if (idx < 0) throw new NotFoundException('Drawing set not found');
-    const existing = sets[idx]!;
-    await this.assertCanWriteSet(author, item, existing);
-    const updated: DrawingSet = {
-      ...existing,
-      ...(typeof patch.title === 'string'
-        ? { title: patch.title.trim().slice(0, 200) }
-        : {}),
-      ...(validateHexColor(patch.color)
-        ? { color: validateHexColor(patch.color)! }
-        : {}),
-      ...(typeof patch.visible === 'boolean'
-        ? { visible: patch.visible }
-        : {}),
-      ...(Array.isArray(patch.features)
-        ? { features: sanitizeFeatures(patch.features) }
-        : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    const nextSets = sets.slice();
-    nextSets[idx] = updated;
-    const nextData: MapDataLike = { ...data, drawings: nextSets };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    const found = (data.drawings ?? []).find((s) => s.id === drawingId);
+    if (!found) throw new NotFoundException('Drawing set not found');
+    // Who wrote a set never changes, so this check also holds for the
+    // copy read under the lock below.
+    await this.assertCanWriteSet(author, item, found);
+    return this.mutateMapData(item.id, (fresh) => {
+      const sets = fresh.drawings ?? [];
+      const idx = sets.findIndex((s) => s.id === drawingId);
+      if (idx < 0) throw new NotFoundException('Drawing set not found');
+      const existing = sets[idx]!;
+      const updated: DrawingSet = {
+        ...existing,
+        ...(typeof patch.title === 'string'
+          ? { title: patch.title.trim().slice(0, 200) }
+          : {}),
+        ...(validateHexColor(patch.color)
+          ? { color: validateHexColor(patch.color)! }
+          : {}),
+        ...(typeof patch.visible === 'boolean'
+          ? { visible: patch.visible }
+          : {}),
+        ...(Array.isArray(patch.features)
+          ? { features: sanitizeFeatures(patch.features) }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      const nextSets = sets.slice();
+      nextSets[idx] = updated;
+      return {
+        data: { ...fresh, drawings: nextSets },
+        result: publicDrawingSet(updated),
+      };
     });
-    return publicDrawingSet(updated);
   }
 
   async remove(
@@ -190,11 +194,13 @@ export class DrawingsService {
     const existing = sets.find((s) => s.id === drawingId);
     if (!existing) return; // idempotent delete
     await this.assertCanWriteSet(author, item, existing);
-    const nextSets = sets.filter((s) => s.id !== drawingId);
-    const nextData: MapDataLike = { ...data, drawings: nextSets };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    await this.mutateMapData(item.id, (fresh) => {
+      const current = fresh.drawings ?? [];
+      if (!current.some((s) => s.id === drawingId)) return null;
+      return {
+        data: { ...fresh, drawings: current.filter((s) => s.id !== drawingId) },
+        result: undefined,
+      };
     });
   }
 
@@ -236,11 +242,30 @@ export class DrawingsService {
         'You do not have edit permission on this map',
       );
     }
-    const data = (item.data ?? {}) as MapDataLike;
-    const nextData: MapDataLike = { ...data, allowAnonymousDrawings: allowed };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    await this.mutateMapData(item.id, (fresh) => ({
+      data: { ...fresh, allowAnonymousDrawings: allowed },
+      result: undefined,
+    }));
+  }
+
+  /**
+   * Apply `change` to the map's data as read under the row lock and
+   * write the result in the same transaction. `change` returns null
+   * for "nothing to write".
+   */
+  private async mutateMapData<T>(
+    mapId: string,
+    change: (fresh: MapDataLike) => { data: MapDataLike; result: T } | null,
+  ): Promise<T> {
+    return withLockedItem(this.prisma, mapId, async (tx, locked) => {
+      if (!locked) throw new NotFoundException('Map not found');
+      const out = change((locked.data ?? {}) as MapDataLike);
+      if (out === null) return undefined as T;
+      await tx.item.update({
+        where: { id: mapId },
+        data: { data: out.data as object },
+      });
+      return out.result;
     });
   }
 

@@ -39,6 +39,11 @@ import {
 } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
+import {
+  carryLayerSyncVersionsFrom,
+  lockItemRow,
+  withLockedItem,
+} from './item-data-lock.js';
 import { redactItemData } from './item-data-redact.js';
 
 /** Allow-list of types a smart folder's saved query can filter to.
@@ -83,6 +88,16 @@ function redactDerivedExtent<T extends { bbox?: unknown; data: unknown }>(
     nextData = { ...rest, ...(pipeline !== undefined && { pipeline }) };
   }
   return { ...item, bbox: [], data: nextData };
+}
+
+/** How many times update() recomputes after a concurrent save. */
+const UPDATE_STALE_RETRIES = 3;
+
+/** update() read the row, then someone else saved before the write. */
+class StaleItemRead extends Error {
+  constructor() {
+    super('item changed between read and write');
+  }
 }
 
 const UUID_RE =
@@ -2215,11 +2230,40 @@ export class ItemsService {
     }
   }
 
+  /**
+   * PATCH an item. Everything update() derives from the stored row
+   * (the form link and map drawing merges, folder children, a data
+   * layer's previous schema) is computed from a read taken before the
+   * write. The write re-reads the row under its lock, and if anything
+   * saved in between, the whole update is computed again from the new
+   * row, up to three times, instead of writing a blob built from stale
+   * data. A caller that sent `expectedUpdatedAt` gets a 409 instead.
+   */
   async update(
     user: AuthUser,
     id: string,
     input: UpdateItemInput,
     opts: ClientWriteOptions = {},
+  ) {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.updateOnce(user, id, input, opts);
+      } catch (err) {
+        if (!(err instanceof StaleItemRead)) throw err;
+        if (attempt >= UPDATE_STALE_RETRIES) {
+          throw new ConflictException(
+            'This item is being changed by someone else. Try again in a moment.',
+          );
+        }
+      }
+    }
+  }
+
+  private async updateOnce(
+    user: AuthUser,
+    id: string,
+    input: UpdateItemInput,
+    opts: ClientWriteOptions,
   ) {
     const item = await this.get(user, id);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
@@ -2537,13 +2581,30 @@ export class ItemsService {
           ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
         },
       });
-    const updated =
-      item.type === 'data_layer' && nextData !== undefined
-        ? await this.prisma.$transaction(async (tx) => {
-            nextData = await carryLayerSyncVersions(tx, id, nextData!);
-            return writeItem(tx);
-          })
-        : await writeItem(this.prisma);
+    // The precondition and the stale-read check run against the row
+    // under its lock, so nothing can land between the check and the
+    // write. Only a `data` write is rebuilt on a stale read: the other
+    // columns are set outright and do not depend on what was read.
+    const readMs = new Date(item.updatedAt).getTime();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await lockItemRow(tx, id);
+      if (!locked) throw new NotFoundException('Item not found');
+      if (locked.updatedAtMs !== readMs) {
+        if (
+          input.expectedUpdatedAt !== undefined &&
+          input.expectedUpdatedAt !== null
+        ) {
+          throw new ConflictException(
+            'This item changed since you loaded it. Refresh to see the latest version, then apply your change again.',
+          );
+        }
+        if (nextData !== undefined) throw new StaleItemRead();
+      }
+      if (item.type === 'data_layer' && nextData !== undefined) {
+        nextData = carryLayerSyncVersionsFrom(locked.data, nextData);
+      }
+      return writeItem(tx);
+    });
     if (input.access !== undefined && input.access !== item.access) {
       this.noteAudit(user, 'item.access', id, 'succeeded', {
         from: item.access,
@@ -3238,15 +3299,22 @@ export class ItemsService {
         AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${deletedItemId}::text))
     `;
     for (const row of candidates) {
-      const data = row.data_json as { version?: number; childItemIds?: unknown } | null;
-      if (!data || !Array.isArray(data.childItemIds)) continue;
-      const next = (data.childItemIds as unknown[]).filter(
-        (id) => id !== deletedItemId,
-      );
-      if (next.length === data.childItemIds.length) continue;
-      await this.prisma.item.update({
-        where: { id: row.id },
-        data: { data: { ...data, childItemIds: next } as Prisma.InputJsonValue },
+      // Re-read under the row lock: the candidate scan is a plain read,
+      // and a folder save between it and this write would be reverted.
+      await withLockedItem(this.prisma, row.id, async (tx, locked) => {
+        const data = locked?.data as
+          | { version?: number; childItemIds?: unknown }
+          | null
+          | undefined;
+        if (!data || !Array.isArray(data.childItemIds)) return;
+        const next = (data.childItemIds as unknown[]).filter(
+          (id) => id !== deletedItemId,
+        );
+        if (next.length === data.childItemIds.length) return;
+        await tx.item.update({
+          where: { id: row.id },
+          data: { data: { ...data, childItemIds: next } as Prisma.InputJsonValue },
+        });
       });
     }
   }
@@ -4523,31 +4591,8 @@ export async function carryLayerSyncVersions(
   id: string,
   next: Prisma.InputJsonValue,
 ): Promise<Prisma.InputJsonValue> {
-  const rows = await tx.$queryRaw<Array<{ data: unknown }>>`
-    SELECT data_json AS data FROM item WHERE id = ${id}::uuid FOR UPDATE
-  `;
-  const current = rows[0]?.data as
-    | { layers?: Array<{ id?: unknown; syncVersion?: unknown }> }
-    | null
-    | undefined;
-  const incoming = next as { layers?: unknown };
-  if (!current || !Array.isArray(incoming.layers)) return next;
-  const stored = new Map<string, unknown>();
-  for (const layer of current.layers ?? []) {
-    if (typeof layer.id === 'string') stored.set(layer.id, layer.syncVersion);
-  }
-  const layers = (incoming.layers as Array<Record<string, unknown>>).map(
-    (layer) => {
-      if (!layer || typeof layer !== 'object') return layer;
-      const layerId = layer.id;
-      const { syncVersion: _clientValue, ...rest } = layer;
-      void _clientValue;
-      if (typeof layerId !== 'string' || !stored.has(layerId)) return rest;
-      const keep = stored.get(layerId);
-      return keep === undefined ? rest : { ...rest, syncVersion: keep };
-    },
-  );
-  return { ...(next as object), layers } as Prisma.InputJsonValue;
+  const locked = await lockItemRow(tx, id);
+  return carryLayerSyncVersionsFrom(locked?.data, next);
 }
 
 /** Sharing an item, or widening its access, needs can_share_items. */

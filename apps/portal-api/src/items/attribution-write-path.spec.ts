@@ -91,6 +91,11 @@ function serviceForUpdate(
           return { ...row, ...args.data };
         },
       },
+      $queryRaw: async () => [
+        { data: row.data, updated_at_ms: row.updatedAt.getTime() },
+      ],
+      $transaction: async (fn: (tx: unknown) => unknown) =>
+        fn((svc as unknown as { prisma: unknown }).prisma),
     },
   });
   return svc;

@@ -76,6 +76,14 @@ function serviceForUpdate(
       },
     },
   });
+  // update() writes under the item row lock; the locked read sees the
+  // same row, so no concurrent change.
+  const prisma = (svc as unknown as { prisma: Record<string, unknown> }).prisma;
+  prisma.$transaction = async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn({
+      ...prisma,
+      $queryRaw: async () => [{ data: row.data, updated_at_ms: row.updatedAt.getTime() }],
+    });
   return svc;
 }
 

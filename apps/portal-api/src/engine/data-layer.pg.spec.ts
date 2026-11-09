@@ -2772,6 +2772,149 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  describe('scenario 12: disk tiles follow the scope data version', () => {
+    // The disk tier files a tile under the scope's data version, read
+    // from Postgres. It must move on every change a tile can see,
+    // including ones no NOTIFY reports (a raw DELETE) and a delete plus
+    // insert of the same row count in one transaction, and it must not
+    // move for another scope.
+    const itemId = uuidv7();
+    const layerId = 'layer-disk-version';
+    const scope = dataLayerScope(itemId, layerId);
+    let dir: string;
+    const prevDir = process.env.TILE_CACHE_DIR;
+    const prevSha = process.env.GIT_SHA;
+
+    beforeAll(async () => {
+      const { mkdtemp } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      dir = await mkdtemp(join(tmpdir(), 'gg-tile-disk-pg-'));
+    });
+
+    afterAll(async () => {
+      if (prevDir === undefined) delete process.env.TILE_CACHE_DIR;
+      else process.env.TILE_CACHE_DIR = prevDir;
+      if (prevSha === undefined) delete process.env.GIT_SHA;
+      else process.env.GIT_SHA = prevSha;
+      const { rm } = await import('node:fs/promises');
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    it('changes on insert, raw delete and same-count replace, and not for other scopes', async () => {
+      const engine = makeEngine();
+      const v0 = await engine.scopeDataVersion(scope);
+      const a = uuidv7();
+      await seed(scope, a, 'create', { N: 1 }, HERE);
+      const v1 = await engine.scopeDataVersion(scope);
+      expect(v1).not.toBe(v0);
+
+      await seed(dataLayerScope(uuidv7(), layerId), uuidv7(), 'create', {}, HERE);
+      expect(await engine.scopeDataVersion(scope)).toBe(v1);
+
+      // Replace one row with another in one transaction: same count.
+      const tx = await pool.connect();
+      await tx.query('BEGIN');
+      await tx.query('DELETE FROM observation WHERE scope = $1', [scope]);
+      await tx.query(
+        `INSERT INTO observation (id, valid_from, scope, entity, kind, attrs, geom, author_sub, source)
+         VALUES ($1, now() - interval '1 day', $2, $3, 'create', '{"N":2}',
+                 ST_SetSRID(ST_MakePoint($4, $5), 4326), 'itest', '{}')`,
+        [uuidv7(), scope, a, HERE[0], HERE[1]],
+      );
+      await tx.query('COMMIT');
+      tx.release();
+      const v2 = await engine.scopeDataVersion(scope);
+      expect(v2).not.toBe(v1);
+
+      // A raw delete fires no NOTIFY; the version still moves.
+      await pool.query('DELETE FROM observation WHERE scope = $1', [scope]);
+      expect(await engine.scopeDataVersion(scope)).not.toBe(v2);
+    });
+
+    it('serves a restarted process from disk, and recomputes after a write it never heard', async () => {
+      process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
+      const e = uuidv7();
+      await seed(scope, e, 'create', { STATUS: 'Open' }, HERE);
+      // Tiles under 1 KiB are not persisted; forty more points make
+      // this one comfortably larger.
+      for (let i = 0; i < 40; i += 1) {
+        await seed(scope, uuidv7(), 'create', {}, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+
+      const first = new TileCacheService();
+      const before = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, first)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(tileContains(before.mvt, e)).toBe(true);
+      await first.onModuleDestroy();
+
+      // "Restart": a fresh cache and engine over the same directory.
+      const second = new TileCacheService();
+      const again = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, second)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(second.getStats().diskHits).toBe(1);
+      expect(again.etag).toBe(before.etag);
+      await second.onModuleDestroy();
+
+      // A delete written while no process was listening.
+      await seed(scope, e, 'delete', null, null);
+      const third = new TileCacheService();
+      const after = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, third)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(third.getStats().diskHits).toBe(0);
+      expect(tileContains(after.mvt, e)).toBe(false);
+      await third.onModuleDestroy();
+    });
+
+    it('never persists a relate (via) tile', async () => {
+      process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
+      const { readdir } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const countFiles = async () => {
+        let n = 0;
+        for (const shard of await readdir(dir).catch(() => [] as string[])) {
+          if (!/^[0-9a-f]{2}$/.test(shard)) continue;
+          n += (await readdir(join(dir, shard))).filter((f) => f.endsWith('.tile')).length;
+        }
+        return n;
+      };
+      const parentItemId = uuidv7();
+      const parentLayerId = 'layer-disk-parent';
+      const parentScope = dataLayerScope(parentItemId, parentLayerId);
+      await seed(parentScope, uuidv7(), 'create', { KEY: 'k' }, HERE);
+      const childItemId = uuidv7();
+      const childScope = dataLayerScope(childItemId, layerId);
+      for (let i = 0; i < 40; i += 1) {
+        await seed(childScope, uuidv7(), 'create', { SITE: 'k' }, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const cache = new TileCacheService();
+      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const before = await countFiles();
+      const plain = await engine.mvtTile({ itemId: childItemId, layerId, z: 14, x, y });
+      expect(plain.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      // The plain tile was written: the tier is on and the tile is big
+      // enough, so the next assertion means something.
+      expect(await countFiles()).toBe(before + 1);
+      const viaTile = await engine.mvtTile({
+        itemId: childItemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        via: { myField: 'SITE', parentField: 'KEY', parentItemId, parentLayerId },
+      });
+      expect(viaTile.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      expect(await countFiles()).toBe(before + 1);
+      await cache.onModuleDestroy();
+    });
+  });
+
   describe('scenario 11: guarded writes refuse a stale head (field edit conflicts)', () => {
     // The field client queues an edit against the `_observation_id` it
     // read, possibly hours before it has signal. The guard makes the
