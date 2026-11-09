@@ -108,9 +108,15 @@ interface PreviewPayload {
 }
 
 interface Props {
-  initialStats: Stats;
+  /**
+   * True for admins of the operator organization. Everyone else gets
+   * null stats and SMTP (those routes are install-wide and answer 403),
+   * read-only defaults, and the template editor.
+   */
+  operator: boolean;
+  initialStats: Stats | null;
   initialRecent: RecentRow[];
-  initialSmtp: SmtpState;
+  initialSmtp: SmtpState | null;
   initialDefaults: DefaultsRow[];
   initialTemplateOverrides: TemplateOverrideRow[];
 }
@@ -128,6 +134,7 @@ interface Props {
  *     rendered against a hardcoded sample payload from the server.
  */
 export function NotificationsAdminView({
+  operator,
   initialStats,
   initialRecent,
   initialSmtp,
@@ -136,7 +143,7 @@ export function NotificationsAdminView({
 }: Props) {
   const t = useT();
   const fmt = useFormat();
-  const [stats, setStats] = useState<Stats>(initialStats);
+  const [stats, setStats] = useState<Stats | null>(initialStats);
   const [recent, setRecent] = useState<RecentRow[]>(initialRecent);
   const [refreshing, setRefreshing] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -252,72 +259,83 @@ export function NotificationsAdminView({
 
   return (
     <div className="space-y-6">
-      <SmtpCard initial={initialSmtp} />
+      {initialSmtp ? <SmtpCard initial={initialSmtp} /> : null}
 
-      <div className="flex items-center justify-end gap-2">
-        {error ? (
-          <span className="text-xs text-danger" role="alert">
-            {error}
-          </span>
-        ) : null}
-        <button
-          type="button"
-          disabled={refreshing}
-          onClick={() => void refresh()}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-        >
-          {refreshing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCcw className="h-3.5 w-3.5" />
-          )}
-          {t('adminNotifications.refresh')}
-        </button>
-      </div>
+      {!operator ? (
+        <p className="rounded-lg border border-border bg-surface-1 px-4 py-3 text-sm text-muted">
+          {t('adminNotifications.operatorOnlyNote')}
+        </p>
+      ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metric
-          icon={<Clock className="h-4 w-4" />}
-          label={t('adminNotifications.metricQueueDepth')}
-          value={fmt.number(stats.queueDepth)}
-          tone={stats.queueDepth > 100 ? 'warn' : 'normal'}
-          help={t('adminNotifications.metricQueueHelp')}
-        />
-        <Metric
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          label={t('adminNotifications.metricSent24h')}
-          value={fmt.number(stats.sentLast24h)}
-          tone="normal"
-        />
-        <Metric
-          icon={<AlertTriangle className="h-4 w-4" />}
-          label={t('adminNotifications.metricFailed24h')}
-          value={fmt.number(stats.failedLast24h)}
-          tone={stats.failedLast24h > 0 ? 'warn' : 'normal'}
-          help={
-            stats.failedTotal > stats.failedLast24h
-              ? t('adminNotifications.metricFailedTotalHelp', {
-                  total: fmt.number(stats.failedTotal),
-                })
-              : undefined
-          }
-        />
-        <Metric
-          icon={<Clock className="h-4 w-4" />}
-          label={t('adminNotifications.metricAvgLatency')}
-          value={
-            stats.avgLatencyMs === null
-              ? '-'
-              : formatLatency(stats.avgLatencyMs, t)
-          }
-          tone="normal"
-          help={t('adminNotifications.metricLatencyHelp')}
-        />
-      </div>
+      {stats ? (
+        <>
+          <div className="flex items-center justify-end gap-2">
+            {error ? (
+              <span className="text-xs text-danger" role="alert">
+                {error}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            >
+              {refreshing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-3.5 w-3.5" />
+              )}
+              {t('adminNotifications.refresh')}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Metric
+              icon={<Clock className="h-4 w-4" />}
+              label={t('adminNotifications.metricQueueDepth')}
+              value={fmt.number(stats.queueDepth)}
+              tone={stats.queueDepth > 100 ? 'warn' : 'normal'}
+              help={t('adminNotifications.metricQueueHelp')}
+            />
+            <Metric
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              label={t('adminNotifications.metricSent24h')}
+              value={fmt.number(stats.sentLast24h)}
+              tone="normal"
+            />
+            <Metric
+              icon={<AlertTriangle className="h-4 w-4" />}
+              label={t('adminNotifications.metricFailed24h')}
+              value={fmt.number(stats.failedLast24h)}
+              tone={stats.failedLast24h > 0 ? 'warn' : 'normal'}
+              help={
+                stats.failedTotal > stats.failedLast24h
+                  ? t('adminNotifications.metricFailedTotalHelp', {
+                      total: fmt.number(stats.failedTotal),
+                    })
+                  : undefined
+              }
+            />
+            <Metric
+              icon={<Clock className="h-4 w-4" />}
+              label={t('adminNotifications.metricAvgLatency')}
+              value={
+                stats.avgLatencyMs === null
+                  ? '-'
+                  : formatLatency(stats.avgLatencyMs, t)
+              }
+              tone="normal"
+              help={t('adminNotifications.metricLatencyHelp')}
+            />
+          </div>
+        </>
+      ) : null}
 
       <DefaultsCard
         initial={initialDefaults}
-        statsByType={stats.byType}
+        canEdit={operator}
+        statsByType={stats?.byType ?? null}
         templateOverrides={templateOverrides}
         onPreview={(type) => void openPreview(type)}
         onCustomize={(row) =>
@@ -329,94 +347,96 @@ export function NotificationsAdminView({
         }
       />
 
-      <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
-          {t('adminNotifications.recentActivity')}
-        </h2>
-        {recent.length === 0 ? (
-          <p className="text-sm text-muted">
-            {t('adminNotifications.recentEmpty')}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead className="text-muted">
-                <tr>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colType')}
-                  </th>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colAddress')}
-                  </th>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colStatus')}
-                  </th>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colCreated')}
-                  </th>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colSent')}
-                  </th>
-                  <th className="pb-1 text-left font-medium">
-                    {t('adminNotifications.colAttempts')}
-                  </th>
-                  <th className="pb-1 text-right font-medium">
-                    {t('adminNotifications.colAction')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((row) => {
-                  const failed = row.status === 'failed';
-                  return (
-                    <tr key={row.id} className="border-t border-border">
-                      <td className="py-1.5 align-top text-ink-1">{row.type}</td>
-                      <td className="py-1.5 align-top">{row.address}</td>
-                      <td className="py-1.5 align-top">
-                        <StatusBadge status={row.status} />
-                        {failed && row.lastError ? (
-                          <p
-                            className="mt-0.5 max-w-xs truncate text-2xs text-warn"
-                            title={row.lastError}
-                          >
-                            {row.lastError}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="py-1.5 align-top tabular-nums">
-                        {formatRel(row.createdAt, fmt.locale)}
-                      </td>
-                      <td className="py-1.5 align-top tabular-nums">
-                        {row.sentAt ? formatRel(row.sentAt, fmt.locale) : '-'}
-                      </td>
-                      <td className="py-1.5 align-top tabular-nums">
-                        {row.attempts}
-                      </td>
-                      <td className="py-1.5 text-right align-top">
-                        {failed ? (
-                          <button
-                            type="button"
-                            disabled={retryingId === row.id}
-                            onClick={() => void retry(row.id)}
-                            className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-                          >
-                            {retryingId === row.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <RotateCw className="h-3 w-3" />
-                            )}
-                            {t('adminNotifications.retry')}
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {stats ? (
+        <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
+          <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
+            {t('adminNotifications.recentActivity')}
+          </h2>
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted">
+              {t('adminNotifications.recentEmpty')}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs">
+                <thead className="text-muted">
+                  <tr>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colType')}
+                    </th>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colAddress')}
+                    </th>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colStatus')}
+                    </th>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colCreated')}
+                    </th>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colSent')}
+                    </th>
+                    <th className="pb-1 text-left font-medium">
+                      {t('adminNotifications.colAttempts')}
+                    </th>
+                    <th className="pb-1 text-right font-medium">
+                      {t('adminNotifications.colAction')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((row) => {
+                    const failed = row.status === 'failed';
+                    return (
+                      <tr key={row.id} className="border-t border-border">
+                        <td className="py-1.5 align-top text-ink-1">{row.type}</td>
+                        <td className="py-1.5 align-top">{row.address}</td>
+                        <td className="py-1.5 align-top">
+                          <StatusBadge status={row.status} />
+                          {failed && row.lastError ? (
+                            <p
+                              className="mt-0.5 max-w-xs truncate text-2xs text-warn"
+                              title={row.lastError}
+                            >
+                              {row.lastError}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="py-1.5 align-top tabular-nums">
+                          {formatRel(row.createdAt, fmt.locale)}
+                        </td>
+                        <td className="py-1.5 align-top tabular-nums">
+                          {row.sentAt ? formatRel(row.sentAt, fmt.locale) : '-'}
+                        </td>
+                        <td className="py-1.5 align-top tabular-nums">
+                          {row.attempts}
+                        </td>
+                        <td className="py-1.5 text-right align-top">
+                          {failed ? (
+                            <button
+                              type="button"
+                              disabled={retryingId === row.id}
+                              onClick={() => void retry(row.id)}
+                              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                            >
+                              {retryingId === row.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RotateCw className="h-3 w-3" />
+                              )}
+                              {t('adminNotifications.retry')}
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {preview ? (
         <PreviewModal preview={preview} onClose={() => setPreview(null)} />
@@ -767,13 +787,17 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
 
 function DefaultsCard({
   initial,
+  canEdit,
   statsByType,
   templateOverrides,
   onPreview,
   onCustomize,
 }: {
   initial: DefaultsRow[];
-  statsByType: Stats['byType'];
+  /** Saving a default is operator-only; others see the switch read-only. */
+  canEdit: boolean;
+  /** Null for non-operators: the counts come from install-wide stats. */
+  statsByType: Stats['byType'] | null;
   templateOverrides: TemplateOverrideRow[];
   onPreview: (type: string) => void;
   onCustomize: (row: DefaultsRow) => void;
@@ -782,7 +806,10 @@ function DefaultsCard({
   const fmt = useFormat();
   const [rows, setRows] = useState<DefaultsRow[]>(initial);
   const [busy, setBusy] = useState<string | null>(null);
-  const statsLookup = new Map(statsByType.map((s) => [s.type, s] as const));
+  const statsLookup = new Map(
+    (statsByType ?? []).map((s) => [s.type, s] as const),
+  );
+  const showCounts = statsByType !== null;
   // Set of `${type}|${channel}` keys that have a saved per-org
   // template override. Used to badge the row + flip the Customize
   // button affordance from "Customize" to "Edit".
@@ -831,15 +858,19 @@ function DefaultsCard({
             <th className="pb-1 text-left font-medium">
               {t('adminNotifications.colType')}
             </th>
-            <th className="pb-1 text-right font-medium">
-              {t('adminNotifications.colQueued')}
-            </th>
-            <th className="pb-1 text-right font-medium">
-              {t('adminNotifications.colSent')}
-            </th>
-            <th className="pb-1 text-right font-medium">
-              {t('adminNotifications.colFailed')}
-            </th>
+            {showCounts ? (
+              <>
+                <th className="pb-1 text-right font-medium">
+                  {t('adminNotifications.colQueued')}
+                </th>
+                <th className="pb-1 text-right font-medium">
+                  {t('adminNotifications.colSent')}
+                </th>
+                <th className="pb-1 text-right font-medium">
+                  {t('adminNotifications.colFailed')}
+                </th>
+              </>
+            ) : null}
             <th className="pb-1 text-right font-medium">
               {t('adminNotifications.colDefault')}
             </th>
@@ -865,25 +896,29 @@ function DefaultsCard({
                     </span>
                   ) : null}
                 </td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {fmt.number(s?.queued ?? 0)}
-                </td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {fmt.number(s?.sent ?? 0)}
-                </td>
-                <td
-                  className={`py-1.5 text-right tabular-nums ${
-                    (s?.failed ?? 0) > 0 ? 'text-warn' : ''
-                  }`}
-                >
-                  {fmt.number(s?.failed ?? 0)}
-                </td>
+                {showCounts ? (
+                  <>
+                    <td className="py-1.5 text-right tabular-nums">
+                      {fmt.number(s?.queued ?? 0)}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums">
+                      {fmt.number(s?.sent ?? 0)}
+                    </td>
+                    <td
+                      className={`py-1.5 text-right tabular-nums ${
+                        (s?.failed ?? 0) > 0 ? 'text-warn' : ''
+                      }`}
+                    >
+                      {fmt.number(s?.failed ?? 0)}
+                    </td>
+                  </>
+                ) : null}
                 <td className="py-1.5 text-right">
                   <label className="inline-flex items-center gap-1 text-2xs">
                     <input
                       type="checkbox"
                       checked={row.effective}
-                      disabled={busy === key}
+                      disabled={!canEdit || busy === key}
                       onChange={(e) =>
                         void setOverride(row, e.target.checked)
                       }

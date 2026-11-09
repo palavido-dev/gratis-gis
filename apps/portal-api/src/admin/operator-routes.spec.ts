@@ -15,6 +15,13 @@ import { OperatorOrgGuard } from '../backup/operator-org.js';
  *
  * A new admin controller, or a new route on a mixed controller,
  * fails this spec until someone decides which side it is on.
+ *
+ * By design, a new route on a controller classified `org` or
+ * `operator` passes without review: the class-level rule covers it.
+ * An `operator` controller guards at the class, so the new route is
+ * operator-only. On an `org` controller the reviewer of that change
+ * must check the new route really is org scoped; if it is not, move
+ * the controller to `mixed`.
  */
 
 type Rule =
