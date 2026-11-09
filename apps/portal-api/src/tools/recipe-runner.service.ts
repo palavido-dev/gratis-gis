@@ -529,8 +529,10 @@ export class RecipeRunnerService {
       this.logger.warn(
         `recipe-runner SQL failure for tool ${toolId}: ${(err as Error).message}`,
       );
+      // Fixed text: the route is public, and a Postgres message carries
+      // column names, types, and the offending values.
       throw new BadRequestException(
-        `Tool execution failed: ${(err as Error).message}`,
+        'Tool execution failed. Check the tool inputs and try again.',
       );
     }
 
