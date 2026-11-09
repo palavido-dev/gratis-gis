@@ -87,8 +87,9 @@ request using that key fails. Revoked keys stay listed so you keep the
 record of what existed.
 
 Disabling or deleting the owning account revokes its keys, without
-any extra step. This covers an admin's **Disable**, an auto-disable
-date passing, and Housekeeping pausing a quiet account. Enabling the
+any extra step. This covers an admin's **Disable** and Housekeeping
+pausing a quiet account. Keys stop working when an auto-disable date
+passes, and are revoked the next time housekeeping runs. Enabling the
 account again does not bring the keys back; the owner creates new
 ones.
 
