@@ -666,6 +666,11 @@ services:
       # Extra public origins whose Keycloak issuer the API accepts, for
       # a portal reached under more than one address.
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      # Prometheus /metrics on portal-api:4000, internal network only.
+      # Off unless set; scrapers send `Authorization: Bearer <token>`.
+      # At least 32 characters: openssl rand -hex 32.
+      # See docs/operations/metrics.md.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
       GRATIS_OPERATOR_ORG_ID: ${GRATIS_OPERATOR_ORG_ID:-}
       GRATIS_ADMIN_AUDIT_RETENTION_DAYS: ${GRATIS_ADMIN_AUDIT_RETENTION_DAYS:-}
