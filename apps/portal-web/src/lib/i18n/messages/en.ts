@@ -968,7 +968,7 @@ export const en = {
     editableLayersCount:
       '{count, plural, one {# editable layer} other {# editable layers}}',
     toolAdd: 'Add',
-    toolMagic: 'Magic outline-solid',
+    toolMagic: 'Magic outline',
     toolSnap: 'Snap',
     toolUndo: 'Undo',
     toolRedo: 'Redo',
@@ -996,11 +996,11 @@ export const en = {
     deleteThisFeature: 'Delete this feature',
     layerFallback: 'Layer',
     magicNeedsImagery:
-      'Add an imagery layer to this map to outline-solid from it.',
+      'Add an imagery layer to this map to outline from it.',
     outlining: 'Outlining...',
-    magicProblem: 'The outline-solid tool hit a problem. Try again.',
+    magicProblem: 'The outline tool hit a problem. Try again.',
     magicNeedsPolygon:
-      'The outline-solid tool needs an editable polygon layer as a target. Open the editor config to add one.',
+      'The outline tool needs an editable polygon layer as a target. Open the editor config to add one.',
     noEditableTargetsAdd:
       'No editable target layers configured. Open the editor config to add one.',
     noEditableTargetsEdit:
@@ -1401,29 +1401,6 @@ export const en = {
   },
   presence: {
     youSuffix: ' (you)',
-  },
-  comments: {
-    title: 'Comments',
-    showResolved: 'Show resolved',
-    startThread: 'Start a new thread...',
-    post: 'Post',
-    reply: 'Reply...',
-    resolve: 'Resolve',
-    reopen: 'Reopen',
-    threadCount:
-      '{count, plural, one {# thread} other {# threads}}',
-    noOpen:
-      'No open threads. Toggle "Show resolved" to see closed ones.',
-    noComments: 'No comments yet. Start the conversation below.',
-    signInPrompt: 'Sign in to comment on this map.',
-  },
-  markup: {
-    title: 'Markup',
-    add: 'Add markup',
-    empty:
-      'No markup yet. Add a set, then drop pins to mark up the map.',
-    dropPin: 'Drop pin at center',
-    signInPrompt: 'Sign in to add markup to this map.',
   },
   print: {
     chooserTitle: 'Print this map',
@@ -2322,17 +2299,6 @@ export const en = {
     noFeaturesInExtent: 'No features in this map extent.',
     noFeatures: 'No features to show.',
     sortAndCalculate: 'Click to sort, right-click to Calculate Field',
-  },
-  // Sending a portal item to a map, from its detail page and from the
-  // map builder's auto add.
-  addToMap: {
-    newMap: 'New map',
-    existingMap: 'An existing map',
-    loadingMaps: 'Loading maps...',
-    noMaps: 'No maps yet',
-    layerGone: '{item} no longer has a layer "{layerKey}".',
-    tableNoShapes:
-      '{layer} is a table with no shapes, so there is nothing to draw.',
     export: 'Export',
     exportAllRows: 'All rows ({count})',
     exportSelectedRows: 'Selected rows ({count})',
@@ -2415,6 +2381,17 @@ export const en = {
     savingCell: 'Saving...',
     readOnlyHere:
       'This table is read-only here. Rows can be edited on layers you have permission to change.',
+  },
+  // Sending a portal item to a map, from its detail page and from the
+  // map builder's auto add.
+  addToMap: {
+    newMap: 'New map',
+    existingMap: 'An existing map',
+    loadingMaps: 'Loading maps...',
+    noMaps: 'No maps yet',
+    layerGone: '{item} no longer has a layer "{layerKey}".',
+    tableNoShapes:
+      '{layer} is a table with no shapes, so there is nothing to draw.',
   },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {
@@ -5186,21 +5163,21 @@ export const en = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
@@ -5268,7 +5245,6 @@ export const en = {
       layers: "Layers",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Print",

@@ -52,6 +52,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { getCachedUserName, prefetchUserNames } from '@/lib/user-name-cache';
+import { featuresBbox } from '@/lib/geo-bbox';
 
 interface Props {
   open: boolean;
@@ -3129,48 +3130,12 @@ function formatTimestamp(
   }
 }
 
-/**
- * Bounding box across an arbitrary set of features. Walks every
- * coordinate; safe for small-to-mid datasets (the selection in the
- * attribute table). Returns null for a selection that has no valid
- * geometries.
- */
+/** Bounding box across the selected features, or null when none
+ *  has a valid geometry. */
 function bboxOfFeatures(
   features: GeoJSON.Feature[],
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let seen = false;
-
-  function visit(coord: unknown) {
-    if (Array.isArray(coord)) {
-      if (coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-        const x = coord[0] as number;
-        const y = coord[1] as number;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        seen = true;
-      } else {
-        for (const c of coord) visit(c);
-      }
-    }
-  }
-
-  for (const f of features) {
-    const geom = f.geometry;
-    if (!geom) continue;
-    if ('coordinates' in geom) visit(geom.coordinates);
-    if (geom.type === 'GeometryCollection') {
-      for (const g of geom.geometries) {
-        if ('coordinates' in g) visit(g.coordinates);
-      }
-    }
-  }
-  return seen ? [minX, minY, maxX, maxY] : null;
+  return featuresBbox(features);
 }
 
 /**
