@@ -243,6 +243,41 @@ const cases: Array<[string, unknown]> = [
   ],
   ['sync.outcome', { status: 404, op: 'delete' }],
   ['sync.outcome', { status: 422, op: 'insert' }],
+  [
+    'sync.isOwnEditEcho',
+    {
+      edit: { op: 'update', geometry: null, properties: { a: 1 } },
+      current: { geometry: null, properties: { a: 1, _observation_id: 'o' } },
+    },
+  ],
+  [
+    'sync.deltaNext',
+    {
+      page: {
+        syncVersion: 9,
+        changes: [{ observationId: 'o', entity: 'e', kind: 'create', syncVersion: 4 }],
+        truncated: true,
+        nextSince: 4,
+        nextAfter: 'o',
+      },
+      since: 0,
+    },
+  ],
+  [
+    'sync.deltaProperties',
+    {
+      change: {
+        observationId: 'o',
+        entity: 'e',
+        kind: 'update',
+        syncVersion: 4,
+        txTime: '2026-11-08T00:00:00.000Z',
+        authorSub: 'u',
+        properties: { a: 1 },
+      },
+      prior: { _created_by: 'w', _created_at: '2026-11-01T00:00:00.000Z' },
+    },
+  ],
   ['message.sanitize', { message: { code: 'sync.rejected', params: { status: 422 } } }],
   ['message.sanitize', { message: 'old client text' }],
 ];
@@ -296,5 +331,11 @@ describe('surface round-trips through the bundle', () => {
 
     expect(viaBundle('sync.outcome', { status: 404, op: 'delete' })).toEqual({ ok: true, result: 'done' });
     expect(viaBundle('sync.outcome', { status: 422, op: 'insert' })).toEqual({ ok: true, result: 'rejected' });
+    expect(
+      viaBundle('sync.deltaNext', {
+        page: { syncVersion: 9, changes: [], truncated: true, nextSince: 4, nextAfter: 'o' },
+        since: 0,
+      }),
+    ).toEqual({ ok: true, result: { kind: 'next', since: 4, after: 'o', safeCursor: 3 } });
   });
 });
