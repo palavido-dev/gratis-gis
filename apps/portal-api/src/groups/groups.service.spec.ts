@@ -113,6 +113,14 @@ describe('GroupsService org-scoped reads', () => {
       ).resolves.toEqual(group);
     });
 
+    it('shows a private group to a member', async () => {
+      const group = makeGroup({ id: 'group-p', orgId: 'org-a', access: 'private' });
+      const { svc } = makeService(group);
+      await expect(
+        svc.get(makeUser({ id: 'u-1', orgRole: 'contributor', groupIds: ['group-p'] }), group.id),
+      ).resolves.toEqual(group);
+    });
+
     it('hides a private group from a non-admin who is not the owner', async () => {
       const group = makeGroup({ orgId: 'org-a', access: 'private' });
       const { svc } = makeService(group);
@@ -192,5 +200,45 @@ describe('GroupsService org-scoped reads', () => {
       );
       expect(prisma.groupMember.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('GroupsService.purge', () => {
+  it('removes item shares that name the group with the group', async () => {
+    const group = {
+      id: 'g-1',
+      orgId: 'org-a',
+      title: 't',
+      description: '',
+      access: 'private' as const,
+      ownerId: 'admin-a',
+      thumbnailUrl: null,
+      createdAt: new Date(),
+      deletedAt: new Date(),
+    };
+    const shareDelete = jest.fn(async () => ({ count: 2 }));
+    const groupDelete = jest.fn(async () => ({ count: 1 }));
+    const tx = { itemShare: { deleteMany: shareDelete }, group: { deleteMany: groupDelete } };
+    const prisma = {
+      group: { findUnique: jest.fn(async () => group) },
+      $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+    };
+    const svc = new GroupsService(
+      prisma as unknown as ConstructorParameters<typeof GroupsService>[0],
+      { invalidate: jest.fn() } as unknown as ConstructorParameters<typeof GroupsService>[1],
+    );
+    await svc.purge(
+      {
+        id: 'admin-a',
+        orgId: 'org-a',
+        orgRole: 'admin',
+        groupIds: [],
+      } as unknown as AuthUser,
+      'g-1',
+    );
+    expect(shareDelete).toHaveBeenCalledWith({
+      where: { principalType: 'group', principalId: { in: ['g-1'] } },
+    });
+    expect(groupDelete).toHaveBeenCalledWith({ where: { id: { in: ['g-1'] } } });
   });
 });
