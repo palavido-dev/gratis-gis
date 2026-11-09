@@ -71,12 +71,12 @@ describe('script schedule expressions', () => {
 type Row = { id: string; title: string; schedule: unknown };
 
 function makeService(rows: Row[], opts: { leader?: boolean } = {}) {
-  const state = { rows };
+  const state = { rows, leader: opts.leader !== false };
   const enqueueScheduled = jest.fn(async () => 'run-1');
   const svc = new ScriptScheduleService(
     { $queryRaw: jest.fn(async () => state.rows) } as never,
     { enqueueScheduled } as never,
-    { shouldRun: () => opts.leader !== false } as never,
+    { shouldRun: () => state.leader } as never,
   );
   const reconcile = () =>
     (svc as unknown as { reconcile(): Promise<void> }).reconcile();
@@ -189,6 +189,53 @@ describe('ScriptScheduleService reconcile', () => {
     await expect(fire('a', 'Nightly')).resolves.toBeUndefined();
   });
 
+  it('picks up schedules when this replica becomes leader mid-life', async () => {
+    // The replica booted as a follower. Leadership later moves to it
+    // because the old leader died. It must start firing schedules.
+    const prev = process.env.PORTAL_SCRIPTS_ENABLED;
+    process.env.PORTAL_SCRIPTS_ENABLED = '1';
+    try {
+      const { svc, state, reconcile } = makeService(
+        [{ id: 'a', title: 'Nightly', schedule: daily }],
+        { leader: false },
+      );
+      try {
+        svc.onApplicationBootstrap();
+        await reconcile();
+        expect(svc.describe()).toEqual([]);
+        state.leader = true;
+        await reconcile();
+        expect(svc.describe()).toEqual([{ scriptId: 'a', cron: '30 4 * * *' }]);
+        // And drops them again when it loses the lock.
+        state.leader = false;
+        await reconcile();
+        expect(svc.describe()).toEqual([]);
+      } finally {
+        svc.onModuleDestroy();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.PORTAL_SCRIPTS_ENABLED;
+      else process.env.PORTAL_SCRIPTS_ENABLED = prev;
+    }
+  });
+
+  it('keeps its re-read timer running on a follower', () => {
+    const prev = process.env.PORTAL_SCRIPTS_ENABLED;
+    process.env.PORTAL_SCRIPTS_ENABLED = '1';
+    try {
+      const { svc } = makeService([], { leader: false });
+      try {
+        svc.onApplicationBootstrap();
+        expect((svc as unknown as { timer: unknown }).timer).not.toBeNull();
+      } finally {
+        svc.onModuleDestroy();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.PORTAL_SCRIPTS_ENABLED;
+      else process.env.PORTAL_SCRIPTS_ENABLED = prev;
+    }
+  });
+
   it('does not fire on a replica that is not the leader', async () => {
     const { svc, enqueueScheduled } = makeService([], { leader: false });
     await (
@@ -197,25 +244,5 @@ describe('ScriptScheduleService reconcile', () => {
     // Checked per tick, not only at registration: a replica that loses
     // the lock mid-life would otherwise double every scheduled run.
     expect(enqueueScheduled).not.toHaveBeenCalled();
-  });
-
-  it('a replica that boots as follower still reads schedules (API-OPS-06)', async () => {
-    const prev = process.env.PORTAL_SCRIPTS_ENABLED;
-    process.env.PORTAL_SCRIPTS_ENABLED = 'true';
-    try {
-      const { svc } = makeService(
-        [{ id: 'a', title: 'Nightly', schedule: { mode: 'daily', hour: 4, minute: 30 } }],
-        { leader: false },
-      );
-      svc.onApplicationBootstrap();
-      // Leadership can move to this replica later; fire() gates each
-      // tick, so the jobs must already be registered here.
-      await new Promise((r) => setImmediate(r));
-      expect(svc.describe()).toEqual([{ scriptId: 'a', cron: '30 4 * * *' }]);
-      svc.onModuleDestroy();
-    } finally {
-      if (prev === undefined) delete process.env.PORTAL_SCRIPTS_ENABLED;
-      else process.env.PORTAL_SCRIPTS_ENABLED = prev;
-    }
   });
 });
