@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 
 import { useRef, useState, useTransition } from 'react';
@@ -73,6 +72,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
+  const fmt = useFormat();
   const [, startTransition] = useTransition();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -250,7 +250,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
           {protocolLabel} {staged.protocolVersion} &middot;{' '}
           {t('serviceEditors.probedPrefix', {
             when: staged.probedAt
-              ? formatRelative(staged.probedAt)
+              ? fmt.relativeTime(staged.probedAt)
               : t('serviceEditors.probedNotYet'),
           })}
         </p>
@@ -582,21 +582,3 @@ function formatBbox(b: [number, number, number, number]): string {
   return `${w.toFixed(3)}, ${s.toFixed(3)} → ${e.toFixed(3)}, ${n.toFixed(3)}`;
 }
 
-function formatRelative(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const ms = Date.now() - d.getTime();
-    const sec = Math.round(ms / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 30) return `${day}d ago`;
-    return formatDate(d, DEFAULT_LOCALE);
-  } catch {
-    return iso;
-  }
-}
