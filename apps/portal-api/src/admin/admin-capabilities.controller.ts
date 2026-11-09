@@ -21,6 +21,7 @@ import {
   ROLE_BASELINES,
   effectiveCapabilities,
   isCapabilityKey,
+  isEnforcedCapability,
   type CapabilityKey,
 } from '../auth/capabilities.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -40,6 +41,9 @@ interface CapabilityRow {
   baseline: boolean;
   /** Effective value the user actually has right now. */
   effective: boolean;
+  /** False when no route checks this capability yet. Overrides on it
+   *  are refused; an old one can still be removed. */
+  enforced: boolean;
   /** Override row, if present. Null means no deviation from baseline. */
   override: {
     enabled: boolean;
@@ -122,6 +126,7 @@ export class AdminCapabilitiesController {
         capability: cap,
         baseline: baseline.has(cap),
         effective: effective.has(cap),
+        enforced: isEnforcedCapability(cap),
         override: o
           ? {
               enabled: o.enabled,
@@ -145,6 +150,11 @@ export class AdminCapabilitiesController {
     if (!isCapabilityKey(body.capability)) {
       throw new BadRequestException(
         `Unknown capability "${body.capability}".`,
+      );
+    }
+    if (!isEnforcedCapability(body.capability)) {
+      throw new BadRequestException(
+        `"${body.capability}" is not checked anywhere yet, so an override would have no effect.`,
       );
     }
     const user = await this.resolveLocalUser(userId, actor.orgId);
