@@ -11,6 +11,12 @@ TrueNAS's shell often has no jq, which the shell script requires.
 
 KC_URL overrides container discovery. The password is an environment
 variable, never a command-line argument.
+
+deploy.sh and restore-golden.sh already hold a kcadm session, so they
+use the filter mode instead: the schema JSON on stdin, the patched
+schema on stdout. Exit 0 means it changed, 3 means nothing to do.
+
+    kcadm.sh get users/profile -r gratis-gis | python3 ... --filter
 """
 
 from __future__ import annotations
@@ -143,5 +149,16 @@ def main() -> None:
     print("user-profile schema now declares org and org_role.")
 
 
+def filter_main() -> int:
+    schema = json.load(sys.stdin)
+    if not isinstance(schema, dict):
+        raise SystemExit("user-profile schema is not a JSON object")
+    changed = ensure_org_attributes(schema)
+    json.dump(schema, sys.stdout)
+    return 0 if changed else 3
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--filter"]:
+        sys.exit(filter_main())
     main()
