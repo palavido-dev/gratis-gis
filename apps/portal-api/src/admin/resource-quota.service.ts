@@ -8,15 +8,19 @@ import { stagingDiskPath } from '../ingest/ingest-staging.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { diskDecision } from './resource-quota.js';
 
+/** Advisory lock key for every reservation decision. */
+const RESERVATION_LOCK = 'storage_reservation';
+
 @Injectable()
 export class ResourceQuotaService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Hold bytes for one staged upload or import. The transaction takes
-   * an advisory lock for the org, drops reservations whose import
-   * already finished or that outlived a crashed upload, and then
-   * refuses the hold if the staging disk does not have room. There is
+   * one install-wide advisory lock (the staging disk is shared by every
+   * org), drops reservations whose import already finished or that
+   * outlived a crashed upload, and then refuses the hold if the staging
+   * disk does not have room for it on top of every live hold. There is
    * no per-org storage or concurrency cap.
    */
   async reserve(orgId: string, bytes: bigint, purpose: string): Promise<{ id: string }> {
@@ -31,11 +35,13 @@ export class ResourceQuotaService {
     const id = randomUUID();
     const heldPurpose = purpose.slice(0, 80);
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${orgId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${RESERVATION_LOCK}, 0))`;
+      // Every org's stale holds, not just this one's: the held total
+      // below is install-wide, so another org's leftovers would
+      // otherwise count against this request.
       await tx.$executeRaw`
         DELETE FROM storage_reservation AS r
-        WHERE r.org_id = ${orgId}::uuid
-          AND (
+        WHERE (
             EXISTS (
               SELECT 1 FROM import_job AS done
               WHERE done.org_id = r.org_id
@@ -63,9 +69,13 @@ export class ResourceQuotaService {
         where: { orgId, purpose: heldPurpose },
       });
       if (existing) return;
+      const held = await tx.storageReservation.aggregate({
+        _sum: { bytes: true },
+      });
       const decision = diskDecision({
         requestedBytes: bytes,
         freeBytes: await this.freeBytes(),
+        heldBytes: held._sum.bytes ?? 0n,
       });
       if (!decision.ok) {
         throw new ConflictException('The disk does not have room for this import.');
