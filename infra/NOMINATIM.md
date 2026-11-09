@@ -1,7 +1,11 @@
 # Self-hosted Nominatim
 
-GratisGIS ships with a `nominatim` service in `docker-compose.yml` that
-hosts your own geocoder. The map-viewer search bar and any future
+This covers the **development** stack only. `infra/docker-compose.yml`
+has a `nominatim` service. The VPS stack (`docker-compose.prod.yml`)
+and the NAS stack run none: on those, run Nominatim on a separate
+host and set `NOMINATIM_URL` to it (see docs/deployment.md).
+
+The dev `nominatim` service hosts your own geocoder. The map-viewer search bar and any future
 place-lookup features route through `/api/geocode` on portal-web,
 which forwards to `NOMINATIM_URL` (the local container by default).
 
@@ -107,11 +111,13 @@ updates.
 
 ### Freeze
 
-`NOMINATIM_FREEZE=true` (compose default) drops a chunk of tables and
-indexes that aren't needed for query-time lookups, cutting the planet
-footprint by ~30 %. Cost: you can't re-import or apply diffs without
-a full rebuild. Turn it off (`false`) if you plan to reimport, or
-leave on for a geocoder-only deployment.
+`NOMINATIM_FREEZE=true` drops a chunk of tables and indexes that
+aren't needed for query-time lookups, cutting the planet footprint by
+~30 %. Cost: you can't re-import or apply diffs without a full
+rebuild. The compose default is `false`, because replication is on by
+default and a frozen database never applies its diffs. Set it to
+`true` only together with an empty `NOMINATIM_REPLICATION_URL`, for a
+geocoder you rebuild rather than update.
 
 ### Resetting
 

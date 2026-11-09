@@ -139,8 +139,21 @@ export class AiConfigService {
       throw new BadRequestException('API key cannot contain line breaks.');
     }
 
-    let encryptedSecret = existing?.encryptedSecret ?? null;
-    let encryptedSecretIv = existing?.encryptedSecretIv ?? null;
+    // The stored key is only reused for the provider and endpoint it
+    // was pasted for. Otherwise any admin could point a saved paid key
+    // at a host they run, or hand one vendor's key to another, without
+    // ever seeing it.
+    const sameTarget =
+      existing !== null &&
+      existing.provider === input.provider &&
+      (existing.baseUrl ?? null) === baseUrl;
+    let encryptedSecret = sameTarget ? existing.encryptedSecret : null;
+    let encryptedSecretIv = sameTarget ? existing.encryptedSecretIv : null;
+    if (!pasted && existing && !sameTarget) {
+      throw new BadRequestException(
+        'Paste the API key again when you change the provider or base URL.',
+      );
+    }
     if (pasted) {
       const enc = this.encrypt(pasted, orgId);
       encryptedSecret = enc.ciphertext;

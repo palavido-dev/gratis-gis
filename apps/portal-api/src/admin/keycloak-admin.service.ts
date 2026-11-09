@@ -51,6 +51,7 @@ export interface KeycloakUserRep {
   lastName?: string;
   enabled: boolean;
   emailVerified?: boolean;
+  requiredActions?: string[];
   createdTimestamp?: number;
   attributes?: Record<string, string[]>;
   /** Convenience: combined name for display. */
@@ -472,6 +473,19 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       enabled: patch.enabled ?? current.enabled,
       attributes,
     };
+    // A new address is unproven. Keycloak's admin API keeps the old
+    // emailVerified flag on a PUT, so clear it and ask the user to
+    // verify on the next sign-in. Without this, whoever changed the
+    // address could use "Forgot password" on it straight away.
+    if (
+      patch.email !== undefined &&
+      patch.email.trim().toLowerCase() !== (current.email ?? '').trim().toLowerCase()
+    ) {
+      body.emailVerified = false;
+      body.requiredActions = Array.from(
+        new Set([...(current.requiredActions ?? []), 'VERIFY_EMAIL']),
+      );
+    }
     const res = await fetch(this.adminUrl(`/users/${id}`), {
       method: 'PUT',
       headers: {
