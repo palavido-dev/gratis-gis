@@ -44,6 +44,7 @@ import {
 } from './templates.js';
 import { SAMPLE_PAYLOADS } from './sample-payloads.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+import { textEnv } from '../common/env.js';
 
 class SaveSmtpDto {
   @IsBoolean() enabled!: boolean;
@@ -486,7 +487,7 @@ export class NotificationsAdminController {
         `No sample payload registered for ${type}. Add one in sample-payloads.ts.`,
       );
     }
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     const rendered = renderNotification(type, payload, { orgLabel, baseUrl });
     if (!rendered) {
@@ -542,7 +543,7 @@ export class NotificationsAdminController {
     const type = parseType(typeRaw);
     const channel = parseChannel(channelRaw);
     const override = await this.templates.get(me.orgId, type, channel);
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     // Always include a preview of the hardcoded default so the
     // editor can show "what you'll get if you click Reset".
@@ -610,7 +611,7 @@ export class NotificationsAdminController {
   async previewTemplate(
     @Body() dto: PreviewTemplateDto,
   ): Promise<{ subject: string; text: string; html: string }> {
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     const rendered = this.templates.previewUnsaved(
       { subject: dto.subject, bodyText: dto.bodyText, bodyHtml: dto.bodyHtml },

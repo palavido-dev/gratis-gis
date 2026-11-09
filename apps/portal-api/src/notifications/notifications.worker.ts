@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { textEnv } from '../common/env.js';
 import { EmailTransport } from './email-transport.js';
 import { NotificationTemplateService } from './notification-template.service.js';
 import { renderNotification, type RenderContext } from './templates.js';
@@ -71,7 +72,7 @@ export class NotificationsWorker {
       this.cfg.get<string>('NOTIFICATIONS_MAX_ATTEMPTS') ?? '5',
     );
     this.renderCtx = {
-      orgLabel: this.cfg.get<string>('PORTAL_NAME') ?? 'GratisGIS',
+      orgLabel: textEnv(this.cfg.get<string>('PORTAL_NAME'), 'GratisGIS'),
       baseUrl:
         (this.cfg.get<string>('PORTAL_BASE_URL') ?? 'http://localhost:3000').replace(
           /\/$/,

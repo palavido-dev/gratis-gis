@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
@@ -22,7 +21,6 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { FormsService } from './forms.service.js';
 
 class SubmitDto {
@@ -34,7 +32,6 @@ class SubmitDto {
 
 @ApiTags('forms')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('forms')
 export class FormsController {
   constructor(private readonly forms: FormsService) {}

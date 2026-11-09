@@ -56,6 +56,7 @@ import { ItemAccessMatrix } from '@/components/item-access-matrix';
 import { PublicCascadeDialog } from '@/components/public-cascade-dialog';
 import { PublicCascadeRevertDialog } from '@/components/public-cascade-revert-dialog';
 import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -173,7 +174,7 @@ export function SharingPanel({
     if (!res.ok) {
       setAccess(prev); // revert
       setAccessSaveState('error');
-      setError(`Visibility update failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Visibility update failed'));
       return;
     }
     setAccessSaveState('saved');
@@ -232,7 +233,7 @@ export function SharingPanel({
       if (tier === 'public') setPublicBoundaryId(prev);
       else setOrgBoundaryId(prev);
       setBoundarySaveState('error');
-      setError(`Boundary update failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Boundary update failed'));
       return;
     }
     setBoundarySaveState('saved');
@@ -550,7 +551,7 @@ export function SharingPanel({
           keyOf(s) === k ? { ...s, permission: share.permission } : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Update failed'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -603,7 +604,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Update failed'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -655,7 +656,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Update failed'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -725,7 +726,7 @@ export function SharingPanel({
         }),
       });
       if (!res.ok) {
-        setError(`Could not save restriction: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Could not save restriction'));
         return;
       }
       const updated: ItemShare = await res.json();
@@ -755,7 +756,7 @@ export function SharingPanel({
       body: JSON.stringify({ principalType, principalId, permission }),
     });
     if (!res.ok) {
-      setError(`Share failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Share failed'));
       return;
     }
     const added: ItemShare = await res.json();
@@ -890,7 +891,7 @@ export function SharingPanel({
         });
         if (!res.ok) {
           throw new Error(
-            `Grant on "${dep.title}" failed: ${res.status} ${await res.text()}`,
+            await parseApiError(res, `Grant on "${dep.title}" failed`),
           );
         }
       }
@@ -971,7 +972,7 @@ export function SharingPanel({
       }),
     });
     if (!res.ok) {
-      setError(`Unshare failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Unshare failed'));
       return;
     }
     setShares((cur) =>
