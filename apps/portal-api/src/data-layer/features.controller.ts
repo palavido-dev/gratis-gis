@@ -78,7 +78,7 @@ import {
   csvHeaderRow,
   type CsvExportOptions,
 } from './csv-export.js';
-import { parseDeltaLimit, parseSinceParam } from './layer-delta.js';
+import { parseDeltaAfterParam, parseDeltaLimit, parseSinceParam } from './layer-delta.js';
 import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
@@ -1124,11 +1124,14 @@ export class DataLayerFeaturesController {
    *
    * `GET .../delta?since=N` returns every observation stamped with
    * syncVersion > N under the caller's share geo limit and row scope,
-   * including delete tombstones. The response `syncVersion` is the
-   * layer's current counter; store it and pass it as `since` next time.
-   * Cap with `limit` (default 1000, max 10000); `truncated: true` means
-   * call again with the same since until clear (or advance since to
-   * the last change's syncVersion once clients want page-by-version).
+   * including delete tombstones, ordered by (syncVersion, tx_time, id).
+   * Cap with `limit` (default 1000, max 10000). When `truncated` is
+   * true the response carries `nextSince` and `nextAfter`; call again
+   * with `since=nextSince&after=nextAfter` until `truncated` is false,
+   * then store the response `syncVersion` as the next `since`. Do not
+   * advance `since` to the last change's syncVersion without `after`:
+   * one write batch shares one syncVersion and can span pages.
+   * Protocol: docs/sync-protocol.md.
    */
   @Get('delta')
   async delta(
@@ -1137,9 +1140,11 @@ export class DataLayerFeaturesController {
     @Param('layerId') layerId: string,
     @Query('since') sinceParam?: string,
     @Query('limit') limitParam?: string,
+    @Query('after') afterParam?: string,
   ) {
     const since = parseSinceParam(sinceParam);
     const limit = parseDeltaLimit(limitParam);
+    const after = parseDeltaAfterParam(afterParam);
     const { geoLimit, rowScope, isTable } = await this.assertV3Layer(
       user,
       itemId,
@@ -1148,6 +1153,7 @@ export class DataLayerFeaturesController {
     );
     return this.v3.listDelta(itemId, layerId, since, {
       limit,
+      ...(after !== undefined ? { after } : {}),
       ...(geoLimit ? { geoLimit: geoLimit as GeoJsonGeometry } : {}),
       ...(rowScope === 'own'
         ? { ownRowsOnly: true, userId: user.id }
