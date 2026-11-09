@@ -14,6 +14,8 @@ import type { CatalogShape } from '../locales';
 
 export const ptBR: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Outra pessoa salvou este item depois que você o abriu, então seu salvamento não foi aplicado. Suas alterações continuam na tela. Recarregue para ver a versão mais recente e refaça suas alterações.',
     save: 'Salvar',
     cancel: 'Cancelar',
     delete: 'Excluir',

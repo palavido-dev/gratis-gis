@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -36,6 +37,8 @@ import { ConvertToCustomButton } from '../convert-to-custom';
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: ViewerData;
   canEdit: boolean;
 }
@@ -69,7 +72,8 @@ interface Props {
  * Persistence: PATCH /api/portal/items/<id> with `{ data: viewer }`.
  * Same shape and dirty/save flow as MapEditor and EditorDetail.
  */
-export function ViewerDetail({ itemId, initial, canEdit }: Props) {
+export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
   // Working copy. Seed `tools` from the default palette when the
   // persisted item is older than the tools field landing (matches
@@ -310,11 +314,11 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         template: 'viewer',
         config: { template: 'viewer', viewer },
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         setError(`Save failed: ${res.status} ${await res.text()}`);
         return;

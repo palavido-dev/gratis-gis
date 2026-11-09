@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import { useT } from '@/lib/i18n/locale-context';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -41,13 +43,17 @@ import { DEFAULT_PICK_LIST } from '@gratis-gis/shared-types';
  */
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: PickListData;
   canEdit: boolean;
 }
 
 type DupePolicy = 'reject' | 'replace';
 
-export function PickListEditor({ itemId, initial, canEdit }: Props) {
+export function PickListEditor({ itemId, initial, canEdit, updatedAt }: Props) {
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const router = useRouter();
   const [data, setData] = useState<PickListData>(() => ({
     ...DEFAULT_PICK_LIST,
@@ -239,10 +245,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const res = await patchItem({
           data: {
             ...data,
             entries: data.entries.map((e) => ({
@@ -253,8 +256,11 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                 : {}),
             })),
           },
-        }),
-      });
+        });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         setError(`Save failed: ${res.status} ${await res.text()}`);
         return;
