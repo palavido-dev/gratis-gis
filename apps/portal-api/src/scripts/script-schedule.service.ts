@@ -88,12 +88,9 @@ export class ScriptScheduleService
       this.log.log('Scripts are off; no schedules registered.');
       return;
     }
-    if (!this.leader.shouldRun()) {
-      this.log.log(
-        'Not the cron leader; script schedules run on another replica.',
-      );
-      return;
-    }
+    // Registered on every replica; fire() checks leadership per tick.
+    // A boot-time leader check left no schedules anywhere once
+    // leadership moved to a replica that booted as follower.
     void this.reconcileSafely();
     this.timer = setInterval(() => void this.reconcileSafely(), RECONCILE_MS);
     // Never hold the process open for this.

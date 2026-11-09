@@ -198,4 +198,24 @@ describe('ScriptScheduleService reconcile', () => {
     // the lock mid-life would otherwise double every scheduled run.
     expect(enqueueScheduled).not.toHaveBeenCalled();
   });
+
+  it('a replica that boots as follower still reads schedules (API-OPS-06)', async () => {
+    const prev = process.env.PORTAL_SCRIPTS_ENABLED;
+    process.env.PORTAL_SCRIPTS_ENABLED = 'true';
+    try {
+      const { svc } = makeService(
+        [{ id: 'a', title: 'Nightly', schedule: { mode: 'daily', hour: 4, minute: 30 } }],
+        { leader: false },
+      );
+      svc.onApplicationBootstrap();
+      // Leadership can move to this replica later; fire() gates each
+      // tick, so the jobs must already be registered here.
+      await new Promise((r) => setImmediate(r));
+      expect(svc.describe()).toEqual([{ scriptId: 'a', cron: '30 4 * * *' }]);
+      svc.onModuleDestroy();
+    } finally {
+      if (prev === undefined) delete process.env.PORTAL_SCRIPTS_ENABLED;
+      else process.env.PORTAL_SCRIPTS_ENABLED = prev;
+    }
+  });
 });
