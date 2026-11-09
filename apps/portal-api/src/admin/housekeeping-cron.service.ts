@@ -51,13 +51,18 @@ export class HousekeepingCronService implements OnApplicationBootstrap {
     // re-evaluate on config changes either way; a config change
     // received by a follower replica is a no-op (apply() short-
     // circuits below).
-    if (!this.leader.shouldRun()) {
+    // Register by leadership alone. shouldRun() is false while
+    // maintenance is on, and a leader that booted mid-restore (crash
+    // left the marker) would otherwise never register its schedule:
+    // clearing the marker without a restart would leave it off for
+    // good. Each run checks shouldRun() instead.
+    if (!this.leader.holdsLock()) {
       this.log.log(
         'Skipping housekeeping cron registration on this replica (not the cron leader).',
       );
       // Subscribe to config changes anyway so a future leader handoff
       // would pick up the latest config -- safe because apply() also
-      // gates on shouldRun.
+      // gates on holdsLock.
       this.schedule.onConfigChange((next) => this.apply(next));
       return;
     }
@@ -67,7 +72,7 @@ export class HousekeepingCronService implements OnApplicationBootstrap {
   }
 
   private apply(cfg: HousekeepingConfig) {
-    if (!this.leader.shouldRun()) return;
+    if (!this.leader.holdsLock()) return;
     this.unregister();
 
     if (cfg.scheduleMode === 'off') {
@@ -133,6 +138,8 @@ export class HousekeepingCronService implements OnApplicationBootstrap {
   }
 
   private async runSafely() {
+    // Per-run gate: leadership can move, and maintenance pauses runs.
+    if (!this.leader.shouldRun()) return;
     try {
       const res = await this.schedule.runOnce({
         trigger: 'scheduled',

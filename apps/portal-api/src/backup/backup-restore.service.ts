@@ -313,6 +313,17 @@ export class BackupRestoreService {
         notStarted,
       );
 
+      // A backup started on the other replica before it saw the flag
+      // can begin after the check at the top (unpacking the archive
+      // takes time). Check again right before the hold, the last
+      // point at which refusing changes nothing.
+      const lateLive = await this.backup.liveRun();
+      if (lateLive) {
+        throw notStarted(
+          `A backup started while the restore was preparing (started ${lateLive.startedAt.toISOString()}). Wait for it to finish or cancel it before restoring.`,
+        );
+      }
+
       // 3. Backup history lives in the database the restore replaces.
       //    Keep the live rows: they describe the archives on disk.
       const history = await this.snapshotBackupHistory();

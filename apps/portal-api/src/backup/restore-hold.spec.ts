@@ -277,6 +277,23 @@ describe('runRestore', () => {
     expect(existsSync(restoreMarkerPath())).toBe(false);
   });
 
+  it('re-checks for a backup right before the hold', async () => {
+    // Another replica starts a scheduled backup in the poll interval
+    // before it sees the maintenance flag: the first check is clean,
+    // the run exists by the time the hold would be written.
+    const t = setup();
+    (t.svc as unknown as { backup: { liveRun: jest.Mock } }).backup.liveRun
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'b2', startedAt: new Date() });
+    await t.mode.activate('restore');
+    await expect(
+      t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' }),
+    ).rejects.toBeInstanceOf(RestoreNotStartedError);
+    expect(existsSync(restoreMarkerPath())).toBe(false);
+    expect(t.mode.isHeldLocally()).toBe(false);
+    expect(t.pgRestore).not.toHaveBeenCalled();
+  });
+
   it('refuses while a backup is running (API-OPS-04)', async () => {
     const t = setup({ live: { id: 'b1', startedAt: new Date() } });
     await t.mode.activate('restore');

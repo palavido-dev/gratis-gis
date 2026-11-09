@@ -81,7 +81,12 @@ export class BackupCronService implements OnApplicationBootstrap {
     // want fanned out across replicas. The leader is the single
     // writer; followers handle download/list traffic and never
     // generate new archives.
-    if (!this.leader.shouldRun()) {
+    // Register by leadership alone. shouldRun() is false while
+    // maintenance is on, and a leader that booted mid-restore (crash
+    // left the marker) would otherwise never register its schedule:
+    // clearing the marker without a restart would leave it off for
+    // good. Each run checks shouldRun() instead.
+    if (!this.leader.holdsLock()) {
       this.log.log(
         'Skipping backup cron registration on this replica (not the cron leader).',
       );
@@ -95,7 +100,11 @@ export class BackupCronService implements OnApplicationBootstrap {
     // reclaim is a stale row, a missed registration is no backups at
     // all.
     try {
-      const reclaimed = await this.backup.reclaimStaleRuns();
+      // The reclaim writes, so it waits out maintenance; the periodic
+      // sweep picks up what it skips.
+      const reclaimed = this.leader.shouldRun()
+        ? await this.backup.reclaimStaleRuns()
+        : 0;
       if (reclaimed > 0) {
         this.log.warn(
           `Reclaimed ${reclaimed} abandoned backup run(s) on startup. ` +
@@ -121,7 +130,7 @@ export class BackupCronService implements OnApplicationBootstrap {
    * them in the UI and save again without restarting the process.
    */
   private apply(cfg: BackupConfig) {
-    if (!this.leader.shouldRun()) return;
+    if (!this.leader.holdsLock()) return;
     this.unregister();
 
     if (cfg.scheduleMode === 'off') {
@@ -181,6 +190,8 @@ export class BackupCronService implements OnApplicationBootstrap {
    * the cron timer.
    */
   private async runSafely() {
+    // Per-run gate: leadership can move, and maintenance pauses runs.
+    if (!this.leader.shouldRun()) return;
     try {
       const res = await this.backup.runBackup('scheduled', null);
       this.log.log(
