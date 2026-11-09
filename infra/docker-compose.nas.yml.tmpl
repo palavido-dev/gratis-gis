@@ -214,10 +214,6 @@ __NAS_INIT_BODY__
       # Empty keeps unpaged feature reads streaming; `required` refuses
       # them and points at the csv export.
       GRATIS_FEATURE_QUERY_PAGE: ${GRATIS_FEATURE_QUERY_PAGE:-}
-      # GDAL network lockdown, as in docker-compose.prod.yml. Ingest
-      # reads uploads with GDAL here; GML and other XML drivers must
-      # not fetch remote schemas. The code sets this too.
-      GML_DOWNLOAD_SCHEMA: "NO"
       # Uploaded files wait here for the import worker. The worker
       # mounts the same volume at the same path. Without it, every
       # queued import fails with "Source file expired".
@@ -262,10 +258,6 @@ __NAS_INIT_BODY__
       # Same path and volume as portal-api, so the worker can read
       # the files portal-api staged for import.
       STAGING_DIR: /var/lib/gg-staging
-      # GDAL network lockdown, as in docker-compose.prod.yml. Imports
-      # read uploads with GDAL here; GML and other XML drivers must
-      # not fetch remote schemas. The code sets this too.
-      GML_DOWNLOAD_SCHEMA: "NO"
     volumes:
       - boot:/boot:ro
       - gg-staging:/var/lib/gg-staging
@@ -313,8 +305,6 @@ __NAS_INIT_BODY__
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
-      # GML and other XML drivers must not fetch remote schemas.
-      GML_DOWNLOAD_SCHEMA: "NO"
     volumes:
       - boot:/boot:ro
       - pointcloud-scratch:/scratch
