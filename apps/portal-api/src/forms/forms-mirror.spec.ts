@@ -8,6 +8,8 @@ function service(leader?: { shouldRun: () => boolean }, prisma?: object) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
     leader as LeaderElectionService,
   );
 }

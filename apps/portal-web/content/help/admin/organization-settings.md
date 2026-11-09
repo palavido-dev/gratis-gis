@@ -1,7 +1,7 @@
 ---
 id: admin-organization-settings
 title: Organization settings
-summary: "Org-wide preferences: default basemap, default item sharing, storage budget, allowed file types, contact info."
+summary: Where the organization-wide settings live, and which limits come from the server rather than a page.
 category: admin
 order: 40
 complexity: basic
@@ -14,51 +14,44 @@ related:
   - admin-branding
 ---
 
-The **organization settings** page (admin → organization) is
-where the org-level defaults and policies live. Settings here
-affect every member of the org and every item they create.
+There is no single organization settings page. Organization-wide
+settings are spread across the admin pages by topic, and some limits
+are server settings that the person who runs the portal sets.
 
-## What's configurable
+## Settings by page
 
-- **Org name and short id.** The short id appears in URLs and
- in API responses; once set, changing it breaks every existing
- link. Pick deliberately.
-- **Contact information.** Org admin email (where alerts go);
- support contact (shown in the portal footer if set).
-- **Default basemap.** The basemap new maps start with. Override
- per map.
-- **Default item sharing.** What sharing tier new items default
- to (Owner only, Organization, or Public).
-- **Allowed file types.** Whitelist of MIME types the portal
- accepts on file uploads. Default is permissive; tighten if
- your org has a policy.
-- **Maximum file size.** Per-upload cap. Default 1 GB.
-- **Storage budget.** Soft cap on MinIO bytes; admins are
- notified when the org crosses 80% / 95%. Hard caps are an
- infra-side configuration, not exposed here.
-- **Per-user item quotas** (optional). Maximum number of items
- per user. Useful in classroom or evaluation deployments.
-- **Session timeout.** How long a sign-in lasts; default 7
- days.
-- **Show "Coming from ArcGIS Online?"** card on the portal
- home page. Toggle if your audience is not a migration cohort.
+- **Admin -> Branding**: organization name and the public landing
+  page.
+- **Admin -> Users**: invite people, set roles, disable or delete
+  accounts, and set auto-disable dates.
+- **Admin -> Sign-in**: add a work account provider people already
+  have, and require an authenticator at the next sign-in.
+- **Admin -> Notifications**: SMTP for outgoing email and the email
+  delivery queue.
+- **Admin -> Housekeeping**: stale content, quiet accounts and
+  scheduled cleanup.
+- **Admin -> Backup**: backup schedule, retention and restore.
+- **Admin -> AI**: optional connection to an AI provider.
+- **Admin -> Updates**: the running version and what is available.
+- **Admin -> Audit** and **Admin -> Permissions**: what admins did,
+  and who can reach which items.
 
-## What's NOT here
+## Limits that are server settings
 
-- **User account management.** Lives in **Roles** (admin →
- roles). Adding users, role changes, disabling accounts.
-- **Keycloak realm config.** External Keycloak surface; not a
- portal setting. See **admin → identity** for the bridge that
- the portal needs (issuer URL, audience).
-- **Branding (logo, colors, fonts).** Lives in **Branding**
- (admin → branding).
+These are environment variables on the server, not portal pages:
 
-## Notes
+- **Email on or off.** Email is sent only when
+  `NOTIFICATIONS_ENABLED=true`, even with SMTP saved.
+- **Session length.** The portal sign-in cookie lasts 365 days by
+  default (`GRATIS_SESSION_MAX_AGE_SECONDS`), with an optional idle
+  limit (`GRATIS_SESSION_IDLE_SECONDS`). Keycloak's own web session
+  ends after 1 hour idle or 10 hours in total.
+- **Retention.** The recycle bin keeps items 30 days
+  (`RECYCLE_BIN_RETENTION_DAYS`) and the admin audit log 400 days
+  (`GRATIS_ADMIN_AUDIT_RETENTION_DAYS`).
 
-- **Multi-org deployments.** Each org has its own settings.
- Cross-org defaults aren't a thing today; the portal is
- designed for one org per portal instance, with multi-org
- layered on top as a tenanting concern.
-- **Settings audit log.** Every settings change is logged with
- who, when, and what changed. View at admin → organization →
- history.
+## What does not exist
+
+There is no storage budget or storage alert, no per-user item quota,
+no allowed file type list, and no history of setting changes beyond
+the admin audit log. Watch disk use on Admin -> Housekeeping.
