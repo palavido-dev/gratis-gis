@@ -1259,158 +1259,174 @@ export class DataLayerFeaturesService {
   > {
     const isTable = opts.isTable === true;
 
-    // Look up the current state. The candidate-entities CTE inside
-    // listFeatures filters by created_by when ownRowsOnly is set, so
-    // a feature that exists but was created by someone else will
-    // come back empty here; we surface that as NotFound to match the
-    // pre-engine "don't leak existence" pattern.
-    const current = await this.dataLayer.listFeatures({
-      itemId,
-      layerId,
-      entity: featureId,
-      ...(opts.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: user.id } }
-        : {}),
-      ...(isTable ? { isTable: true } : {}),
-    });
-    if (current.features.length === 0) {
-      throw new NotFoundException('Feature not found');
-    }
-    const existing = current.features[0]!;
-
-    // MERGE the patch over the current values. This is what the
-    // docblock above has always promised and what every caller
-    // assumed; the code used to replace the whole bag instead, so a
-    // client that sent only the keys it changed silently cleared every
-    // other column. The field runtime's edit path sends only the
-    // form's own keys, which on a paired submissions layer meant an
-    // edit wiped `submitted_at` and `submitted_by`.
-    //
-    // Merging is also what makes 'patch' mode validation exact: a key
-    // the caller did not mention keeps its value, so "not mentioned"
-    // and "cleared" are different things, and only the second can
-    // violate a required field. Under replace semantics they were the
-    // same write and the validator had to pick a side.
-    //
-    // Underscore keys are stripped from BOTH sides: the read path
-    // inlines them and a client that echoes them back would otherwise
-    // freeze a stale `_created_at` into attrs.
-    const base = stripUnderscoreKeys(existing.properties);
-    const nextProps =
-      patch.properties !== undefined
-        ? {
-            ...base,
-            ...stripUnderscoreKeys(
-              (await this.validateProperties(
-                itemId,
-                layerId,
-                patch.properties,
-                'patch',
-                user,
-              )) ?? patch.properties,
-            ),
-          }
-        : base;
-
-    const nextGeometry: GeoJsonGeometry | null = isTable
-      ? null
-      : patch.geometry !== undefined
-        ? (patch.geometry as GeoJsonGeometry | null)
-        : existing.geometry;
-
-    const losingSide: DataLayerFeatureOut = {
-      type: 'Feature',
-      id: featureId,
-      geometry: nextGeometry,
-      properties: nextProps,
-    };
-
-    if (
-      opts.baseObservationId !== undefined &&
-      existing.properties._observation_id !== opts.baseObservationId
-    ) {
-      throw await this.raiseFeatureConflict({
+    const implicitBase = opts.baseObservationId === undefined;
+    for (let attempt = 1; ; attempt += 1) {
+      // Look up the current state. The candidate-entities CTE inside
+      // listFeatures filters by created_by when ownRowsOnly is set, so
+      // a feature that exists but was created by someone else will
+      // come back empty here; we surface that as NotFound to match the
+      // pre-engine "don't leak existence" pattern.
+      const current = await this.dataLayer.listFeatures({
         itemId,
         layerId,
-        featureId,
-        op: 'update',
-        current: existing,
-        losingSide,
-        baseObservationId: opts.baseObservationId,
-      });
-    }
-
-    if (opts.checkOnly === true) {
-      const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
-      const head = existing.properties._observation_id;
-      return {
-        ok: true,
-        headObservationId: typeof head === 'string' ? head : null,
-        syncVersion,
-      };
-    }
-
-    const principal = { sub: user.id, displayName: user.username ?? '' };
-    const committed = await this.dataLayer.commitLayerSync(
-      itemId,
-      layerId,
-      async ({ tx, source }) => {
-        const written = await this.dataLayer.writeFeatureUpdate(
-          {
-            itemId,
-            layerId,
-            globalId: featureId,
-            principal,
-            source,
-            properties: nextProps,
-            geometry: nextGeometry,
-            ...(opts.baseObservationId !== undefined
-              ? { expectedHeadObservationId: opts.baseObservationId }
-              : {}),
-          },
-          tx,
-        );
-        return { wrote: !('conflict' in written), value: written };
-      },
-    );
-    const written = committed.value;
-
-    const refreshed = await this.dataLayer.listFeatures({
-      itemId,
-      layerId,
-      entity: featureId,
-      ...(isTable ? { isTable: true } : {}),
-    });
-    if ('conflict' in written) {
-      // Somebody landed between our read and our write. Report what is
-      // there now; the read-back is the head the guard refused against.
-      throw await this.raiseFeatureConflict({
-        itemId,
-        layerId,
-        featureId,
-        op: 'update',
-        current: refreshed.features[0] ?? null,
-        losingSide,
-        ...(opts.baseObservationId !== undefined
-          ? { baseObservationId: opts.baseObservationId }
+        entity: featureId,
+        ...(opts.ownRowsOnly === true
+          ? { ownRowsOnly: { userId: user.id } }
           : {}),
+        ...(isTable ? { isTable: true } : {}),
       });
-    }
-    const result = refreshed.features[0];
-    if (result === undefined) {
-      // Defensive: writeFeatureUpdate succeeded but the read came
-      // back empty. Treat as 500-equivalent rather than masquerading
-      // as 404; this should not happen.
-      throw new Error('Feature update succeeded but read-back returned no rows');
-    }
+      if (current.features.length === 0) {
+        throw new NotFoundException('Feature not found');
+      }
+      const existing = current.features[0]!;
 
-    void this.cacheRefresh.notifySourceWrite(itemId, layerId, [nextProps]);
-    this.scheduleBboxRefresh(itemId, {
-      kind: 'update',
-      before: [existing.geometry],
-      after: [nextGeometry],
-    });
-    return result;
+      // MERGE the patch over the current values. This is what the
+      // docblock above has always promised and what every caller
+      // assumed; the code used to replace the whole bag instead, so a
+      // client that sent only the keys it changed silently cleared every
+      // other column. The field runtime's edit path sends only the
+      // form's own keys, which on a paired submissions layer meant an
+      // edit wiped `submitted_at` and `submitted_by`.
+      //
+      // Merging is also what makes 'patch' mode validation exact: a key
+      // the caller did not mention keeps its value, so "not mentioned"
+      // and "cleared" are different things, and only the second can
+      // violate a required field. Under replace semantics they were the
+      // same write and the validator had to pick a side.
+      //
+      // Underscore keys are stripped from BOTH sides: the read path
+      // inlines them and a client that echoes them back would otherwise
+      // freeze a stale `_created_at` into attrs.
+      const base = stripUnderscoreKeys(existing.properties);
+      const nextProps =
+        patch.properties !== undefined
+          ? {
+              ...base,
+              ...stripUnderscoreKeys(
+                (await this.validateProperties(
+                  itemId,
+                  layerId,
+                  patch.properties,
+                  'patch',
+                  user,
+                )) ?? patch.properties,
+              ),
+            }
+          : base;
+
+      const nextGeometry: GeoJsonGeometry | null = isTable
+        ? null
+        : patch.geometry !== undefined
+          ? (patch.geometry as GeoJsonGeometry | null)
+          : existing.geometry;
+
+      const losingSide: DataLayerFeatureOut = {
+        type: 'Feature',
+        id: featureId,
+        geometry: nextGeometry,
+        properties: nextProps,
+      };
+
+      if (
+        opts.baseObservationId !== undefined &&
+        existing.properties._observation_id !== opts.baseObservationId
+      ) {
+        throw await this.raiseFeatureConflict({
+          itemId,
+          layerId,
+          featureId,
+          op: 'update',
+          current: existing,
+          losingSide,
+          baseObservationId: opts.baseObservationId,
+        });
+      }
+
+      if (opts.checkOnly === true) {
+        const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+        const head = existing.properties._observation_id;
+        return {
+          ok: true,
+          headObservationId: typeof head === 'string' ? head : null,
+          syncVersion,
+        };
+      }
+
+      // Without a base from the caller, the head we merged onto is the
+      // expected head. The write runs under the entity lock, so a
+      // concurrent edit to another field is caught there instead of
+      // being reverted by this write's whole property bag.
+      const head = existing.properties._observation_id;
+      const expectedHead =
+        opts.baseObservationId ?? (typeof head === 'string' ? head : undefined);
+      const principal = { sub: user.id, displayName: user.username ?? '' };
+      const committed = await this.dataLayer.commitLayerSync(
+        itemId,
+        layerId,
+        async ({ tx, source }) => {
+          const written = await this.dataLayer.writeFeatureUpdate(
+            {
+              itemId,
+              layerId,
+              globalId: featureId,
+              principal,
+              source,
+              properties: nextProps,
+              geometry: nextGeometry,
+              ...(expectedHead !== undefined
+                ? { expectedHeadObservationId: expectedHead }
+                : {}),
+            },
+            tx,
+          );
+          return { wrote: !('conflict' in written), value: written };
+        },
+      );
+      const written = committed.value;
+
+      const refreshed = await this.dataLayer.listFeatures({
+        itemId,
+        layerId,
+        entity: featureId,
+        ...(isTable ? { isTable: true } : {}),
+      });
+      if ('conflict' in written && implicitBase && attempt < 2) {
+        // Another edit landed between our read and our write. The caller
+        // did not claim a base, so this is not their conflict to see:
+        // read again and merge their patch over the new head.
+        continue;
+      }
+      if ('conflict' in written) {
+        // Somebody landed between our read and our write. Report what is
+        // there now; the read-back is the head the guard refused against.
+        throw await this.raiseFeatureConflict({
+          itemId,
+          layerId,
+          featureId,
+          op: 'update',
+          current: refreshed.features[0] ?? null,
+          losingSide,
+          ...(opts.baseObservationId !== undefined
+            ? { baseObservationId: opts.baseObservationId }
+            : {}),
+        });
+      }
+      const result = refreshed.features[0];
+      if (result === undefined) {
+        // Defensive: writeFeatureUpdate succeeded but the read came
+        // back empty. Treat as 500-equivalent rather than masquerading
+        // as 404; this should not happen.
+        throw new Error('Feature update succeeded but read-back returned no rows');
+      }
+
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [nextProps]);
+      this.scheduleBboxRefresh(itemId, {
+        kind: 'update',
+        before: [existing.geometry],
+        after: [nextGeometry],
+      });
+      return result;
+    }
   }
 
   /** Soft-delete a feature by appending a `kind: 'delete'`
