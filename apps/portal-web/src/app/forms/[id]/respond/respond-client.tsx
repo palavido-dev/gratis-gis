@@ -14,6 +14,7 @@ import {
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
 import { useFormat } from '@/lib/i18n/format';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface Props {
   form: FormSchema;
@@ -97,7 +98,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
           },
         );
         if (!res.ok) {
-          throw new Error(`${res.status} ${await res.text().catch(() => '')}`);
+          throw new Error(await apiErrorMessage(res));
         }
       });
     } finally {
