@@ -36,7 +36,9 @@ function fakeRes() {
   };
 }
 
-function makeController() {
+function makeController(
+  assertCanImportAllRows: () => Promise<void> = async () => undefined,
+) {
   const stampFeatureCounts = jest.fn(async () => true);
   const streamLayerFromPath = jest.fn(async () => ({
     fields: [],
@@ -56,7 +58,7 @@ function makeController() {
         type: 'data_layer',
         data: { version: 3, layers: [{ id: 'L1', fields: [] }] },
       }),
-      assertCanEdit: async () => undefined,
+      assertCanImportAllRows,
     } as never,
     undefined as never,
     {
@@ -102,5 +104,19 @@ describe('IngestController.ingestV3Layer', () => {
     expect(stampFeatureCounts).toHaveBeenCalledWith('item-1');
     // The slot was released: the same user can take it again.
     expect(() => acquireIngestSlot(USER.id)()).not.toThrow();
+  });
+
+  it('refuses an editor whose share is limited, before reading the file', async () => {
+    const { ForbiddenException } = await import('@nestjs/common');
+    const { controller, streamLayerFromPath } = makeController(async () => {
+      throw new ForbiddenException('limited');
+    });
+    const { res, events } = fakeRes();
+    await controller.ingestV3Layer(res, USER, 'item-1', 'L1', undefined, {}, undefined, 'replace', STAGING);
+    expect(streamLayerFromPath).not.toHaveBeenCalled();
+    expect(events().at(-1)).toMatchObject({
+      event: 'error',
+      message: 'You cannot import into that item.',
+    });
   });
 });

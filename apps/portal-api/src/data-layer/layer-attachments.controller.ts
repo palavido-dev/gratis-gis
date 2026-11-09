@@ -50,7 +50,7 @@ export class DataLayerLayerAttachmentsController {
     @Param('layerId') layerId: string,
     @Query() query: ListLayerAttachmentsQuery,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -65,6 +65,7 @@ export class DataLayerLayerAttachmentsController {
     return this.attachments.listForLayer(itemId, layerId, {
       featureIds,
       all: query.all === true,
+      access,
     });
   }
 }

@@ -24,7 +24,7 @@ import { hasCapability } from '../auth/capabilities.js';
 import { ItemsService } from '../items/items.service.js';
 import { stampV3LayerSource } from '../data-layer/stamp-layer-source.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import { SharingService, isScopeLimited } from '../items/sharing.service.js';
 import { FeaturesService } from '../features/features.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import {
@@ -298,6 +298,20 @@ export class IngestController {
       if (!this.sharing.canEdit(user, item, shares)) {
         throw new ForbiddenException('You do not have edit permission on this item.');
       }
+      // The ingest replaces every row, which an editor limited to
+      // their own rows or an area cannot authorize.
+      const editingPolicy = (item.data as { editingPolicy?: unknown } | null)
+        ?.editingPolicy;
+      const scope = await this.sharing.featureScopeFor(user, item, shares, {
+        action: 'edit',
+        layerPolicy:
+          editingPolicy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+      });
+      if (isScopeLimited(scope)) {
+        throw new ForbiddenException(
+          'Ingest replaces every row; your access is limited to some rows or an area.',
+        );
+      }
       // This route rewrites item.data as a v2 document; a v3 item would
       // lose its layers[] and every layer id that maps, forms and
       // field clients reference.
@@ -504,7 +518,11 @@ export class IngestController {
       if (!layer) {
         return failStream(404, 'That layer is not part of this item.');
       }
-      await this.items.assertCanEdit(user, itemId);
+      await this.items.assertCanImportAllRows(
+        user,
+        itemId,
+        (layer as { editingPolicy?: unknown }).editingPolicy,
+      );
 
       // #234: the replace-mode truncate moved DOWN into the streaming
       // block below, after the source file is resolved and probed.

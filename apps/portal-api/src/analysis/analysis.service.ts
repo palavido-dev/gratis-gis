@@ -12,6 +12,7 @@ import type { Prisma } from '@prisma/client';
 import { isPointCloudData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { featureScopeFilter } from '../items/sharing.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
@@ -811,10 +812,17 @@ export class AnalysisService {
 
     let zonesFc: { type: 'FeatureCollection'; features: unknown[] };
     if (zoneLayerKey) {
+      // Zones are the caller's own read of the layer: a share limited
+      // to some rows or an area clips them as every other read does.
+      const zoneScope = await this.items.featureReadScope(
+        user,
+        zoneItem,
+        zoneLayerKey,
+      );
       zonesFc = await this.features.listFeatures(
         params.zoneItemId,
         zoneLayerKey,
-        { limit: MAX_ZONAL_ZONES + 1 },
+        { limit: MAX_ZONAL_ZONES + 1, ...featureScopeFilter(zoneScope) },
       );
     } else {
       zonesFc = await this.items.getGeoJson(user, params.zoneItemId);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -665,7 +666,7 @@ export class RecipeRunnerService {
           'This tool requires sign-in: layer-based AOIs are not available to anonymous viewers. Draw an area on the map instead.',
         );
       }
-      bbox = await this.computeAoiBbox(aoiVal.value);
+      bbox = await this.computeAoiBbox(user, aoiVal.value);
       if (!bbox) {
         throw new BadRequestException(
           `Could not compute a bbox from AOI parameter '${recipe.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
@@ -908,7 +909,7 @@ export class RecipeRunnerService {
         'This tool requires sign-in: layer-based AOIs are not available to anonymous viewers. Draw an area on the map instead.',
       );
     }
-    const bbox = await this.computeAoiBbox(aoiVal.value);
+    const bbox = await this.computeAoiBbox(user, aoiVal.value);
     if (!bbox) {
       throw new BadRequestException(
         `Could not compute a bbox from AOI parameter '${action.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
@@ -1197,6 +1198,7 @@ export class RecipeRunnerService {
    * AOI is empty" error instead of a silent zero-area query.
    */
   private async computeAoiBbox(
+    user: AuthUser | null,
     value: FeatureSourceValue,
   ): Promise<[number, number, number, number] | null> {
     if (value.kind === 'inline-geojson' && value.geojson) {
@@ -1207,6 +1209,26 @@ export class RecipeRunnerService {
       value.itemId &&
       value.layerKey
     ) {
+      // The extent below is read straight from the observation log,
+      // so the caller must be able to read the layer, and in full: an
+      // extent over rows outside their share would leak where those
+      // rows are.
+      if (!user) {
+        throw new UnauthorizedException(
+          'Layer-based AOIs require sign-in. Draw an area on the map instead.',
+        );
+      }
+      if (
+        await this.items.isFeatureReadLimited(
+          user,
+          value.itemId,
+          value.layerKey,
+        )
+      ) {
+        throw new ForbiddenException(
+          'That layer is shared to you with a row or area limit, so it cannot be used as an area of interest. Draw an area on the map instead.',
+        );
+      }
       const scope = dataLayerScope(value.itemId, value.layerKey);
       // Read the latest-truth bbox over the observation log: a row
       // is "current" when its entity has no later observation, the

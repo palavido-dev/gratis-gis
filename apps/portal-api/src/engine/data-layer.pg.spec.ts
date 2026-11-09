@@ -1453,6 +1453,12 @@ d('observation-log read paths against real PostGIS', () => {
     const itemsStub = {
       get: async (_user: AuthUser, id: string) =>
         id === geocoderId ? geocoderItem : sourceItem,
+      // The owner reads every row: no geo limit, no own-rows scope.
+      featureReadScope: async () => ({
+        geoLimit: null,
+        rowScope: 'all' as const,
+        userId: 'owner',
+      }),
     };
 
     beforeAll(async () => {

@@ -620,6 +620,9 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
             storageUrl: att.url,
           },
           args.submittedBy,
+          // No share scope: the mirror writes as the form, not as a
+          // caller with limited access.
+          undefined,
           // The repair pass can run up to MIRROR_REPAIR_WINDOW_DAYS
           // after the upload, past the presign grant's lifetime. The
           // keys it registers are the ones the saved submission
