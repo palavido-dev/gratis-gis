@@ -403,11 +403,9 @@ gg.export_layer(item_id, "parcels", format="csv", path="parcels.csv",
 
 Without `path` you get the bytes back instead.
 
-One thing to know when the layer is large: **`geoparquet` exports
-everything, `csv` stops at 100,000 rows.** GeoParquet streams through
-the paging iterator; CSV goes through the read path, which has a
-ceiling, and it does not warn you when it hits it. If the row count
-matters, use GeoParquet.
+Both `geoparquet` and `csv` stream the whole layer, however large it
+is. GeoParquet keeps the geometry and column types; CSV is the one to
+hand to a spreadsheet.
 
 Exporting bulk data needs **download** permission, a step above being
 able to see the layer on a map. A view-only share gets a clear error.

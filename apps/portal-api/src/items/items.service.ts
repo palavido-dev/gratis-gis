@@ -17,7 +17,7 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
-import { hasCapability } from '../auth/capabilities.js';
+import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
 import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
 import { SharingService } from './sharing.service.js';
@@ -89,6 +89,11 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertScheduleChangeAllowed,
+  provenanceOnReassign,
+  stampScriptProvenance,
+} from '../scripts/script-provenance.js';
 import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
@@ -1313,6 +1318,13 @@ export class ItemsService {
         'Creating items requires the contributor or admin role.',
       );
     }
+    // Creating straight into org or public access is sharing, the same
+    // as widening access in update(). Every creation path (POST /items,
+    // AGO import, web map JSON import, drawing promotion) comes through
+    // here, so this one check covers them all.
+    if (input.access !== undefined && input.access !== 'private') {
+      assertCanShare(user);
+    }
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -1389,6 +1401,16 @@ export class ItemsService {
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
     assertRenderSafeData(input.type, resolvedData);
+    // The creator owns the item, so the code it starts with is theirs.
+    // Overwrites anything the client sent for the server-owned field.
+    if (input.type === 'script') {
+      resolvedData = stampScriptProvenance({
+        ownerId: user.id,
+        editorId: user.id,
+        prevData: null,
+        nextData: resolvedData,
+      }) as Prisma.InputJsonValue;
+    }
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
     }
@@ -1932,6 +1954,16 @@ export class ItemsService {
       }
     }
 
+    // Widening access (to org or public) is sharing, so it needs the
+    // same capability as share(). Narrowing to private never does.
+    if (
+      input.access !== undefined &&
+      input.access !== item.access &&
+      input.access !== 'private'
+    ) {
+      assertCanShare(user);
+    }
+
     // Form-paired data_layer access invariant.  A form's "submissions"
     // data_layer (tagged `form-paired`) mirrors every submission row
     // including any PII the form collects.  If the paired layer's
@@ -2009,6 +2041,19 @@ export class ItemsService {
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData, item.data);
     assertRenderSafeData(item.type, nextData);
+    // A scheduled script runs with its owner's key. Record who wrote the
+    // code so the scheduler can refuse code the owner did not write, and
+    // keep the schedule itself in the owner's hands.
+    if (input.data !== undefined && item.type === 'script') {
+      const provenance = {
+        ownerId: item.ownerId,
+        editorId: user.id,
+        prevData: item.data,
+        nextData: input.data,
+      };
+      assertScheduleChangeAllowed(provenance);
+      nextData = stampScriptProvenance(provenance) as Prisma.InputJsonValue;
+    }
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -3236,10 +3281,29 @@ export class ItemsService {
     // org boundaries.
     const newOwner = await this.prisma.user.findUnique({
       where: { id: input.newOwnerId },
-      select: { id: true, orgId: true, username: true, fullName: true },
+      select: {
+        id: true,
+        orgId: true,
+        username: true,
+        fullName: true,
+        orgRole: true,
+        deletedAt: true,
+        capabilityOverrides: { select: { capability: true, enabled: true } },
+      },
     });
-    if (!newOwner) {
+    if (!newOwner || newOwner.deletedAt !== null) {
       throw new BadRequestException('Unknown user');
+    }
+    // Owners can do anything to their own items, so the new owner must
+    // be someone allowed to create items in the first place.
+    if (
+      !effectiveCapabilities(newOwner.orgRole, newOwner.capabilityOverrides).has(
+        'can_publish_items',
+      )
+    ) {
+      throw new BadRequestException(
+        'The new owner must be a contributor or admin.',
+      );
     }
     if (newOwner.orgId !== item.orgId) {
       throw new BadRequestException(
@@ -3257,7 +3321,20 @@ export class ItemsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.item.update({
         where: { id },
-        data: { ownerId: input.newOwnerId },
+        data: {
+          ownerId: input.newOwnerId,
+          // A scheduled script runs with its owner's key. The new owner
+          // did not write this code, so record who did; scheduled runs
+          // stay paused until the new owner saves it.
+          ...(item.type === 'script'
+            ? {
+                data: provenanceOnReassign(
+                  item.data,
+                  prevOwnerId,
+                ) as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
       if (input.keepPreviousOwnerAccess) {
         await tx.itemShare.upsert({
@@ -3339,7 +3416,8 @@ export class ItemsService {
     if (!this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
-    await this.assertPrincipalExists(input.principalType, input.principalId);
+    assertCanShare(user);
+    await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit
     // "clear" signal and DOES pass through to Prisma.
@@ -3508,16 +3586,30 @@ export class ItemsService {
     });
   }
 
-  private async assertPrincipalExists(type: PrincipalType, id: string) {
+  /**
+   * A share target must be a live user or group in the item's own
+   * organization. Shares are honoured regardless of org on the read
+   * side, so a cross-org principal here would hand another tenant
+   * access; group membership refuses cross-org members for the same
+   * reason. A removed user is not a valid target either.
+   */
+  private async assertPrincipalExists(
+    type: PrincipalType,
+    id: string,
+    orgId: string,
+  ) {
     if (type === 'user') {
-      const hit = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      const hit = await this.prisma.user.findFirst({
+        where: { id, orgId, deletedAt: null },
+        select: { id: true },
+      });
       if (!hit) throw new BadRequestException('Unknown user principal');
     } else if (type === 'group') {
       // A trashed group should not be a valid share target; treat it as
       // unknown so clients can't create new references to something that
       // will disappear on purge.
       const hit = await this.prisma.group.findFirst({
-        where: { id, deletedAt: null },
+        where: { id, orgId, deletedAt: null },
         select: { id: true },
       });
       if (!hit) throw new BadRequestException('Unknown group principal');
@@ -4129,4 +4221,11 @@ export async function carryLayerSyncVersions(
 ): Promise<Prisma.InputJsonValue> {
   const locked = await lockItemRow(tx, id);
   return carryLayerSyncVersionsFrom(locked?.data, next);
+}
+
+/** Sharing an item, or widening its access, needs can_share_items. */
+function assertCanShare(user: AuthUser): void {
+  if (!hasCapability(user, 'can_share_items')) {
+    throw new ForbiddenException('You do not have permission to share items.');
+  }
 }

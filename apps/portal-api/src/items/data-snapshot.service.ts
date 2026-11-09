@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { itemBbox } from './item-bbox.js';
 import { carryLayerSyncVersionsFrom, withLockedItem } from './item-data-lock.js';
+import { stampScriptProvenance } from '../scripts/script-provenance.js';
 
 /**
  * Versioning for an Item's data blob. Callers take a snapshot
@@ -115,12 +116,30 @@ export class DataSnapshotService {
       if (!locked) throw new NotFoundException('Item not found');
       const row = await tx.item.findUnique({
         where: { id: snap.itemId },
-        select: { type: true },
+        select: { type: true, ownerId: true },
       });
       if (!row) throw new NotFoundException('Item not found');
       let restored = snap.data as Prisma.InputJsonValue;
       if (row.type === 'data_layer') {
         restored = carryLayerSyncVersionsFrom(locked.data, restored);
+      }
+      if (row.type === 'script') {
+        // A revert writes code just like a save does, so it goes through
+        // the same rules. Someone other than the owner who reverts becomes
+        // the author of the restored code, and cannot bring back an old
+        // schedule: the current one stays.
+        const current = (locked.data ?? {}) as Record<string, unknown>;
+        const next = stampScriptProvenance({
+          ownerId: row.ownerId,
+          editorId: userId,
+          prevData: current,
+          nextData: snap.data,
+        });
+        if (userId !== row.ownerId) {
+          if (current.schedule === undefined) delete next.schedule;
+          else next.schedule = current.schedule;
+        }
+        restored = next as Prisma.InputJsonValue;
       }
       await tx.item.update({
         where: { id: snap.itemId },

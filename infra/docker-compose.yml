@@ -139,8 +139,9 @@ services:
   #     NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/north-america-updates/
   #     NOMINATIM_SHM_SIZE=8gb
   #
-  #   Planet (~80 GB, 1-3 days on adequate hardware: the default):
-  #     see NOMINATIM.md for the hardware baseline.
+  #   Planet (the default): an ~80 GB download that imports into a
+  #     1.1-1.3 TB database over 36-72 hours. See NOMINATIM.md for the
+  #     hardware baseline.
   nominatim:
     image: mediagis/nominatim:4.5
     container_name: gratis-gis-nominatim
@@ -152,10 +153,12 @@ services:
       # result quality and costs ~20 GB to import. Off for small
       # extracts; flip to true in your .env for planet deployments.
       IMPORT_WIKIPEDIA: ${NOMINATIM_IMPORT_WIKIPEDIA:-true}
-      # Freeze drops indexes and columns not needed for query-time so
-      # disk footprint shrinks. Safe for a geocoder-only deployment;
-      # turn off if you want to keep the raw OSM tables around.
-      FREEZE: ${NOMINATIM_FREEZE:-true}
+      # Freeze drops the tables updates need, which shrinks the disk
+      # footprint by about 30 % but stops REPLICATION_URL from ever
+      # applying a diff. Off by default because replication is on by
+      # default. Set it to true only together with an empty
+      # NOMINATIM_REPLICATION_URL, for a geocoder you never update.
+      FREEZE: ${NOMINATIM_FREEZE:-false}
       NOMINATIM_PASSWORD: devpassword
       THREADS: ${NOMINATIM_THREADS:-8}
     ports:

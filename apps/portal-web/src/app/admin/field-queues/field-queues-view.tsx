@@ -317,7 +317,7 @@ function DeviceRow({
             ) : null}
             {oldest ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-muted">
-                Oldest queued: {formatRelative(oldest)}
+                Oldest queued: {fmt.relativeTime(oldest)}
               </span>
             ) : null}
             <span
@@ -328,7 +328,7 @@ function DeviceRow({
               }`}
               title={fmt.dateTime(row.reportedAt)}
             >
-              Last seen: {formatRelative(row.reportedAt)}
+              Last seen: {fmt.relativeTime(row.reportedAt)}
             </span>
             {usagePct !== null ? (
               <span
@@ -406,6 +406,7 @@ function DeviceRow({
 
 function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
   const t = useT();
+  const fmt = useFormat();
   const queued = entry.queuedRecords.length;
   const failed = entry.queuedRecords.filter((r) => r.status === 'failed');
   const rejected = entry.queuedRecords.filter((r) => r.status === 'rejected');
@@ -452,7 +453,7 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
         </div>
         <p className="shrink-0 text-2xs text-muted">
           {entry.cachedAt
-            ? `cached ${formatRelative(entry.cachedAt)}`
+            ? `cached ${fmt.relativeTime(entry.cachedAt)}`
             : 'no cache'}
         </p>
       </div>
@@ -561,15 +562,3 @@ function describeUserAgent(ua: string | null): string {
   return `${device} ${browser}`;
 }
 
-function formatRelative(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return 'just now';
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  return `${day}d ago`;
-}

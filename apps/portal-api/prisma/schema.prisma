@@ -345,6 +345,11 @@ model User {
   /// (default). Org admins are exempted by the admin form to
   /// avoid lockout.
   autoDisableAt DateTime? @map("auto_disable_at")
+  /// Set when the account is disabled (admin Disable, housekeeping
+  /// auto-disable) and cleared when it is enabled again. Keycloak's
+  /// `enabled` flag stops sign-in; this column is what API keys and
+  /// scheduled scripts check, since they never ask Keycloak.
+  disabledAt    DateTime? @map("disabled_at")
   /// Soft-delete marker for users whose Keycloak entry is gone.
   /// Set by the KeycloakSyncService.reconcile() pass. Soft-deleted
   /// users are filtered out of the principal picker and render as

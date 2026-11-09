@@ -106,4 +106,52 @@ describe('ItemsService.create authorization', () => {
       true,
     );
   });
+
+  /**
+   * Creating an item straight into org or public access is sharing.
+   * Every creation path (POST /items, AGO import, web map JSON import,
+   * drawing promotion) goes through create(), so the gate lives here.
+   */
+  describe('initial access needs can_share_items', () => {
+    function noShare(): AuthUser {
+      const u = userWithRole('contributor');
+      (u.capabilities as Set<CapabilityKey>).delete('can_share_items');
+      return u;
+    }
+
+    it.each(['public', 'org'] as const)(
+      'refuses access %s when sharing is revoked',
+      async (access) => {
+        await expect(
+          bareService().create(noShare(), {
+            type: 'map',
+            title: 'x',
+            access,
+          } as never),
+        ).rejects.toThrow(/permission to share/i);
+      },
+    );
+
+    it('allows private (or unset) access when sharing is revoked', async () => {
+      for (const access of ['private', undefined]) {
+        await expect(
+          bareService().create(noShare(), {
+            type: 'map',
+            title: 'x',
+            access,
+          } as never),
+        ).rejects.not.toBeInstanceOf(ForbiddenException);
+      }
+    });
+
+    it('lets a contributor with sharing create public items', async () => {
+      await expect(
+        bareService().create(userWithRole('contributor'), {
+          type: 'map',
+          title: 'x',
+          access: 'public',
+        } as never),
+      ).rejects.not.toBeInstanceOf(ForbiddenException);
+    });
+  });
 });
