@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 
-import { assertFormPatternsCompile } from './form-pattern-check.js';
+import { MAX_FORM_PATTERN_LENGTH, assertFormPatternsCompile } from './form-pattern-check.js';
 
 describe('assertFormPatternsCompile', () => {
   it('accepts valid patterns and non-form data', () => {
@@ -37,5 +37,17 @@ describe('assertFormPatternsCompile', () => {
     }
     expect(caught).toBeInstanceOf(BadRequestException);
     expect((caught as Error).message).toContain('top, inner, flags');
+  });
+
+  it('refuses a pattern longer than the cap', () => {
+    const long = 'a'.repeat(MAX_FORM_PATTERN_LENGTH + 1);
+    expect(() =>
+      assertFormPatternsCompile({ questions: [{ id: 'big', type: 'text', pattern: long }] }),
+    ).toThrow(/big/);
+    expect(() =>
+      assertFormPatternsCompile({
+        questions: [{ id: 'ok', type: 'text', pattern: 'a'.repeat(MAX_FORM_PATTERN_LENGTH) }],
+      }),
+    ).not.toThrow();
   });
 });
