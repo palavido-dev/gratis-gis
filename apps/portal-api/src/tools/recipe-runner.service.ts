@@ -1231,7 +1231,7 @@ export class RecipeRunnerService {
                   AND valid_from <= now()
                   AND (valid_to IS NULL OR valid_to > now())
                   AND entity = ANY(${ids}::uuid[])
-                ORDER BY entity, valid_from DESC, tx_time DESC
+                ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
               ) latest
               WHERE latest.kind != 'delete' AND latest.geom IS NOT NULL
             `,
@@ -1245,7 +1245,7 @@ export class RecipeRunnerService {
                 WHERE scope = ${scope}
                   AND valid_from <= now()
                   AND (valid_to IS NULL OR valid_to > now())
-                ORDER BY entity, valid_from DESC, tx_time DESC
+                ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
               ) latest
               WHERE latest.kind != 'delete' AND latest.geom IS NOT NULL
             `,
