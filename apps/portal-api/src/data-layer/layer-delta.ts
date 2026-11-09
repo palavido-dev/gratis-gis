@@ -28,6 +28,23 @@ export function parseSinceParam(raw: string | undefined): number {
   return n;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `?after=` for /delta: the `nextAfter` observation id from the
+ * previous truncated page. Absent or empty means start of `since`.
+ */
+export function parseDeltaAfterParam(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  if (!UUID_RE.test(raw)) {
+    throw new BadRequestException(
+      'after must be the nextAfter observation id from a truncated delta page.',
+    );
+  }
+  return raw.toLowerCase();
+}
+
 export const DELTA_DEFAULT_LIMIT = 1000;
 export const DELTA_MAX_LIMIT = 10000;
 

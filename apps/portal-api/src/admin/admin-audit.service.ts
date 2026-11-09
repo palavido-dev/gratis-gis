@@ -78,6 +78,9 @@ export interface AuditEventOut {
 const DEFAULT_RETENTION_DAYS = 400;
 
 export function auditRetentionDays(raw = process.env.GRATIS_ADMIN_AUDIT_RETENTION_DAYS): number {
+  // Compose passes an unset setting as an empty string. Number('') is
+  // 0, which would clamp to the 30-day floor and purge a year of audit.
+  if (!raw?.trim()) return DEFAULT_RETENTION_DAYS;
   const n = Number(raw);
   if (!Number.isFinite(n)) return DEFAULT_RETENTION_DAYS;
   return Math.min(3650, Math.max(30, Math.floor(n)));

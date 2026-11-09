@@ -96,6 +96,10 @@ ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
 # Empty means a local or unscripted build; the UI renders "dev".
 ARG NEXT_PUBLIC_GG_VERSION=
 ENV NEXT_PUBLIC_GG_VERSION=$NEXT_PUBLIC_GG_VERSION
+# Canonical public origin for SEO URLs (src/lib/portal-url.ts). Empty
+# falls back to https://gratisgis.org.
+ARG NEXT_PUBLIC_PORTAL_URL=
+ENV NEXT_PUBLIC_PORTAL_URL=$NEXT_PUBLIC_PORTAL_URL
 
 # Self-host the DuckDB-WASM spatial extension (#175 unit 2). The
 # browser Analyze panel loads spatial via
@@ -211,7 +215,7 @@ ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG GG_VERSION=dev
 ARG GIT_SHA=
-ARG REQUIRED_COMPOSE_REV=2
+ARG REQUIRED_COMPOSE_REV=3
 ENV GG_VERSION=$GG_VERSION \
     GIT_SHA=$GIT_SHA \
     REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV

@@ -2,6 +2,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { stagingDiskPath } from '../ingest/ingest-staging.service.js';
+import { isAnalysisEnabled } from '../analysis/analysis-tiers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const TIMEOUT_MS = 2000;
@@ -37,6 +38,17 @@ function originOnly(raw: string | undefined): string | null {
  * storage, the identity realm, and the job queue, and it does not
  * return credentials or URLs that contain them.
  */
+/**
+ * Analysis is on when ANALYSIS_TIERS includes server-heavy, the same
+ * switch the API uses to accept or refuse analysis work. GRATIS_ANALYSIS
+ * is a NAS bootstrap input that never reaches portal-api.
+ */
+export function analysisConfigured(
+  tiers: string | undefined = process.env.ANALYSIS_TIERS,
+): 'on' | 'off' {
+  return isAnalysisEnabled(tiers) ? 'on' : 'off';
+}
+
 @Injectable()
 export class ReadinessService {
   constructor(private readonly prisma: PrismaService) {}
@@ -55,7 +67,7 @@ export class ReadinessService {
       `/realms/${encodeURIComponent(process.env.KEYCLOAK_REALM || 'gratis')}/.well-known/openid-configuration`,
     );
     const queue = await this.pingQueue();
-    const configured = process.env.GRATIS_ANALYSIS === 'off' ? 'off' : 'on';
+    const configured = analysisConfigured();
     return {
       database,
       objectStore,

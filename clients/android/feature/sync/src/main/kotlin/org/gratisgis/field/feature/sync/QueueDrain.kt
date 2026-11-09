@@ -44,6 +44,9 @@ data class SyncError(val recordId: String, val op: String, val layerKey: String,
  *  - `sync.outcome` decides done / retry / rejected from the status.
  *  - A network failure (no response at all) restores the row without
  *    counting an attempt, so an outage does not climb the ladder.
+ *  - A 409 on an update whose `current` already holds the queued
+ *    values is this device's own earlier write whose response was
+ *    lost (`sync.isOwnEditEcho`): the row is done, not a conflict.
  */
 class QueueDrain(
   private val db: FieldDatabase,
@@ -169,6 +172,11 @@ class QueueDrain(
       }
       Replay.Done
     } catch (e: PortalError.Conflict) {
+      if (e.code == "feature-conflict" && r.op == "update" && isOwnEcho(geometry, properties, e.current)) {
+        // The PATCH committed earlier and its response was lost (a
+        // timeout in poor coverage), so the head is our own write.
+        return Replay.Done
+      }
       if (e.code == "feature-conflict") {
         // Somebody else's edit landed between our read and this replay.
         // Terminal: a person has to look at both versions (screen 3a).
@@ -194,6 +202,28 @@ class QueueDrain(
     } catch (e: IOException) {
       Replay.Unreachable(message("sync.networkUnavailableDetail", "error" to JsonPrimitive(e.message ?: e.toString())))
     }
+  }
+
+  private suspend fun isOwnEcho(
+    geometry: kotlinx.serialization.json.JsonElement?,
+    properties: JsonObject,
+    current: kotlinx.serialization.json.JsonElement?,
+  ): Boolean {
+    if (current == null || current is JsonNull) return false
+    return engine.callOrThrow(
+      "sync.isOwnEditEcho",
+      buildJsonObject {
+        put(
+          "edit",
+          buildJsonObject {
+            put("op", JsonPrimitive("update"))
+            put("geometry", geometry ?: JsonNull)
+            put("properties", properties)
+          },
+        )
+        put("current", current)
+      },
+    ).jsonPrimitive.content.toBoolean()
   }
 
   private fun message(code: String, vararg params: Pair<String, JsonPrimitive>): JsonObject = buildJsonObject {
