@@ -631,6 +631,47 @@ services:
       # stored. Unset means a per-process random salt, so the rate
       # limit resets on restart and the two replicas count separately.
       FEEDBACK_IP_SALT: ${FEEDBACK_IP_SALT:-}
+      # Operator settings the code reads. Each one was documented and
+      # never reached the container until infra/check-env-passthrough.py
+      # started failing CI on that. Empty means the code default.
+      #
+      # Email notifications are off unless this is `true`. SMTP can be
+      # set on the admin Notifications page instead of SMTP_*.
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      # Public demo: `true` stops admins from inviting or promoting
+      # anyone to admin (pairs with infra/seed-test-users.sh).
+      PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
+      # Comma-separated origins allowed to call the API from a browser.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Extra public origins whose Keycloak issuer the API accepts, for
+      # a portal reached under more than one address.
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
+      GRATIS_OPERATOR_ORG_ID: ${GRATIS_OPERATOR_ORG_ID:-}
+      GRATIS_ADMIN_AUDIT_RETENTION_DAYS: ${GRATIS_ADMIN_AUDIT_RETENTION_DAYS:-}
+      RECYCLE_BIN_RETENTION_DAYS: ${RECYCLE_BIN_RETENTION_DAYS:-}
+      ITEM_SNAPSHOT_TTL_DAYS: ${ITEM_SNAPSHOT_TTL_DAYS:-}
+      ITEM_SNAPSHOT_CAP_PER_ITEM: ${ITEM_SNAPSHOT_CAP_PER_ITEM:-}
+      HOUSEKEEPING_STALE_ITEM_DAYS: ${HOUSEKEEPING_STALE_ITEM_DAYS:-}
+      HOUSEKEEPING_STALE_USER_DAYS: ${HOUSEKEEPING_STALE_USER_DAYS:-}
+      HOUSEKEEPING_TOP_N: ${HOUSEKEEPING_TOP_N:-}
+      HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS: ${HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS:-}
+      HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS:-}
+      HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
+      # Offline packages fetch the basemap from this mirror when set.
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
+      # Address geocoding for CSV imports. This stack runs no
+      # Nominatim, so it stays off unless you point it at one.
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      # `off` stops the admin Updates page from calling GitHub.
+      UPDATE_CHECK: ${UPDATE_CHECK:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
@@ -722,6 +763,13 @@ services:
       # code path. Set here too rather than relying on the worker never
       # sending mail, which is true today and easy to break.
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
+      # worker.module.ts loads NotificationsService too, so the worker
+      # needs the same switch and portal name as portal-api.
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      # CSV address geocoding runs in import jobs here.
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
     volumes:
       - gg-staging:/var/lib/gg-staging
 
@@ -1002,6 +1050,9 @@ services:
         # compose build without it renders "dev" in the UI, which is
         # honest for an unscripted build.
         NEXT_PUBLIC_GG_VERSION: ${GG_VERSION:-}
+        # Canonical, Open Graph and sitemap URLs. Without it a self-host
+        # on its own domain advertises gratisgis.org.
+        NEXT_PUBLIC_PORTAL_URL: ${PUBLIC_URL:-https://gratisgis.org}
     restart: unless-stopped
     depends_on:
       portal-api:
@@ -1037,6 +1088,14 @@ services:
       # to register.
       KEYCLOAK_CLIENT_ID_WEB: ${KEYCLOAK_CLIENT_ID:-portal-web}
       KEYCLOAK_CLIENT_SECRET_WEB: ${KEYCLOAK_CLIENT_SECRET:-}
+      # Map address search. This stack runs no Nominatim. With
+      # NOMINATIM_URL empty, searches go to the public
+      # nominatim.openstreetmap.org unless NOMINATIM_PUBLIC_FALLBACK=0.
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
+      # Portal cookie lifetime and idle window (docs/operations/session.md).
+      GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
+      GRATIS_SESSION_IDLE_SECONDS: ${GRATIS_SESSION_IDLE_SECONDS:-}
     networks:
       - gratis-net
 

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { formatBytes } from './format-bytes';
 /**
  * Unified spatial-file importer for callers that need a GeoJSON
  * FeatureCollection in the browser (geo-boundary paste/upload, map
@@ -51,9 +52,9 @@ export function detectFormat(filename: string): SpatialFormat {
 export async function importSpatialFile(file: File): Promise<SpatialImportResult> {
   if (file.size > MAX_BYTES) {
     throw new Error(
-      `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the current cap is ${
-        MAX_BYTES / 1024 / 1024
-      } MB. Use a smaller sample or wait for server-side ingest.`,
+      `That file is ${formatBytes(file.size)}; the current cap is ${formatBytes(
+        MAX_BYTES,
+      )}. Use a smaller sample or wait for server-side ingest.`,
     );
   }
 

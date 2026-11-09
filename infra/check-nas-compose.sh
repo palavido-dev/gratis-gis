@@ -120,6 +120,7 @@ assert vals["GRATIS_COMPOSE_REV"] == "1"
 assert "GG_VERSION" not in vals
 assert vals["MINIO_PUBLIC_BASE"] == "http://192.168.4.15:8900"
 assert vals["STORAGE_ALLOWED_ORIGINS"] == vals["PUBLIC_URL"]
+assert vals["PORTAL_BASE_URL"] == vals["PUBLIC_URL"]
 assert len(vals["INITIAL_USER_PASSWORD"]) >= 16
 assert vals["INITIAL_USER_PASSWORD"] not in {"admin", "password", "gratisgis"}
 assert len(base64.b64decode(vals["CREDENTIAL_ENCRYPTION_KEY"], validate=True)) == 32
@@ -201,6 +202,7 @@ assert vals["KC_HOSTNAME"] == "http://192.168.4.15:8085"
 assert vals["MINIO_PUBLIC_BASE"] == "http://192.168.4.15:8901"
 assert vals["MINIO_API_CORS_ALLOW_ORIGIN"] == vals["PUBLIC_URL"]
 assert vals["STORAGE_ALLOWED_ORIGINS"] == vals["PUBLIC_URL"]
+assert vals["PORTAL_BASE_URL"] == vals["PUBLIC_URL"]
 realm = json.loads((boot / "realm-gratis-gis.json").read_text())
 web = next(client for client in realm["clients"] if client["clientId"] == "portal-web")
 assert web["redirectUris"] == ["http://192.168.4.15:8085/*"]

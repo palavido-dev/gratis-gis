@@ -40,6 +40,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Inline feature browser + editor for a single v3 layer.
@@ -699,7 +700,7 @@ function ExportMenu({
         onProgress: (msg) => setBundleProgress(msg),
       });
       setBundleProgress(
-        `Done -- ${result.layerCount} layer${result.layerCount === 1 ? '' : 's'} · ${result.featureCount} feature${result.featureCount === 1 ? '' : 's'} · ${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'} · ${(result.bytes / 1024 / 1024).toFixed(1)} MB`,
+        `Done: ${result.layerCount} layer${result.layerCount === 1 ? '' : 's'} · ${result.featureCount} feature${result.featureCount === 1 ? '' : 's'} · ${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'} · ${formatBytes(result.bytes)}`,
       );
       // Close the modal after a short delay so the user sees the
       // "Done" confirmation; their browser is in the middle of the

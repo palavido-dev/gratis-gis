@@ -6,12 +6,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.gratisgis.field.core.database.CollectionEntity
 import org.gratisgis.field.core.database.FeatureEntity
 import org.gratisgis.field.core.database.FieldDatabase
@@ -46,8 +50,10 @@ data class DownloadProgress(
  *
  * Feature refresh uses `GET .../delta?since=N` when a per-layer
  * `syncVersion` cursor is already stored (portal-web #350 /
- * R4-android-field-delta). First package (or unknown / broken cursor)
- * still pulls full GeoJSON, then seeds the cursor.
+ * R4-android-field-delta), paging with `nextSince` / `nextAfter`.
+ * First package (or unknown / broken cursor) reads the head cursor
+ * first, then pulls the full GeoJSON with keyset paging.
+ * docs/sync-protocol.md.
  *
  * Layer resolution follows apps/portal-web/src/app/items/[id]/field/page.tsx:
  * a map layer with `source.kind === 'data-layer'` names a data_layer
@@ -62,6 +68,11 @@ class OfflineDownloader(
   private val packageDir: File,
 ) {
   private val json = Json { ignoreUnknownKeys = true }
+
+  private companion object {
+    /** Page size for the keyset-paged full GeoJSON pull. */
+    const val FULL_PAGE_LIMIT = 5_000
+  }
 
   suspend fun download(collection: ItemSummary, onProgress: (DownloadProgress) -> Unit) {
     var progress = DownloadProgress(phase = "resolving")
@@ -186,11 +197,18 @@ class OfflineDownloader(
 
   private data class LayerPull(val layer: LayerEntity, val applied: Int)
 
+  /** An older server truncated a page that is all one version and
+   *  gave no `nextAfter`; paging cannot progress, so pull in full. */
+  private class DeltaStalled : IllegalStateException("Delta cannot page past one version on this server")
+
   /**
    * Walk `GET .../delta` pages until `truncated` clears, applying each
-   * page (upsert + delete). Advances `since` to the last change's
-   * syncVersion while truncated (page-by-version); stores the layer
-   * head when the walk completes. Mirrors portal-web `pullLayerDelta`.
+   * page (upsert + delete). Each truncated page names its last row in
+   * `nextSince` / `nextAfter`; the engine's `sync.deltaNext` decides
+   * the next request, so a write batch larger than a page arrives
+   * whole. Stopping early stores the last version applied completely,
+   * never a cursor past rows not yet applied. Mirrors portal-web
+   * `pullLayerDelta`.
    */
   private suspend fun pullLayerDelta(
     collectionId: String,
@@ -199,14 +217,16 @@ class OfflineDownloader(
     cachedAt: String,
   ): LayerPull {
     var since = sinceStart
+    var after: String? = null
     var applied = 0
-    var head = sinceStart
+    var safe = sinceStart
     for (page in 0 until 100) {
       val body = portal.getLayerDelta(
         layer.dataLayerId,
         layer.layerKey,
         since,
         LayerDeltaApply.DELTA_PAGE_LIMIT,
+        after,
       )
       val (upserts, deletes) = LayerDeltaApply.applyDeltaChanges(
         body.changes,
@@ -226,48 +246,104 @@ class OfflineDownloader(
       }
       applied += upserts.size + deletes.size
 
-      if (!body.truncated) {
-        head = body.syncVersion
-        break
-      }
+      // The step reads only the page flags and its last row.
       val last = body.changes.lastOrNull()
-      if (last == null) {
-        head = body.syncVersion
-        break
+      val step = engine.callOrThrow(
+        "sync.deltaNext",
+        buildJsonObject {
+          put(
+            "page",
+            buildJsonObject {
+              put("syncVersion", JsonPrimitive(body.syncVersion))
+              put("truncated", JsonPrimitive(body.truncated))
+              body.nextSince?.let { put("nextSince", JsonPrimitive(it)) }
+              body.nextAfter?.let { put("nextAfter", JsonPrimitive(it)) }
+              put(
+                "changes",
+                buildJsonArray {
+                  if (last != null) {
+                    add(
+                      buildJsonObject {
+                        put("observationId", JsonPrimitive(last.observationId))
+                        put("entity", JsonPrimitive(last.entity))
+                        put("kind", JsonPrimitive(last.kind))
+                        put("syncVersion", JsonPrimitive(last.syncVersion))
+                      },
+                    )
+                  }
+                },
+              )
+            },
+          )
+          put("since", JsonPrimitive(since))
+        },
+      ).jsonObject
+      when (step["kind"]?.jsonPrimitive?.contentOrNull) {
+        "done" -> return LayerPull(layer.copy(syncVersion = step.getValue("cursor").jsonPrimitive.long), applied)
+        "stalled" -> throw DeltaStalled()
+        else -> {
+          safe = step.getValue("safeCursor").jsonPrimitive.long
+          since = step.getValue("since").jsonPrimitive.long
+          after = step["after"]?.jsonPrimitive?.contentOrNull
+        }
       }
-      since = last.syncVersion
-      head = since
     }
-    return LayerPull(layer.copy(syncVersion = head), applied)
+    return LayerPull(layer.copy(syncVersion = safe), applied)
   }
 
-  /** Full GeoJSON replace + seed syncVersion via `delta?since=0&limit=1`. */
+  /**
+   * Full replace + seed. The head cursor is read FIRST: a write that
+   * commits during the download is then newer than the stored cursor
+   * and the next delta delivers it again (applying is idempotent).
+   * Read after the pull, that write would be skipped for good. The
+   * GeoJSON is walked with keyset paging (`limit`, then `cursor` and
+   * `at` pinned to the first page's `asOf`), which works whether or
+   * not the server allows unpaged reads. Rows replace the layer only
+   * once every page has arrived.
+   */
   private suspend fun pullFullAndSeed(
     collectionId: String,
     layer: LayerEntity,
     now: String,
   ): LayerPull {
-    val text = portal.getLayerGeoJson(layer.dataLayerId, layer.layerKey)
-    val features = json.parseToJsonElement(text).jsonObject["features"]?.jsonArray
-      ?: JsonArray(emptyList())
-    val rows = features.map { f ->
-      val obj = f.jsonObject
-      val props = obj["properties"] as? JsonObject
-      val globalId = props?.get("_global_id")?.jsonPrimitive?.contentOrNull
-        ?: obj["id"]?.jsonPrimitive?.contentOrNull
-        ?: stableId(obj)
-      FeatureEntity(collectionId, layer.dataLayerId, layer.layerKey, globalId, obj.toString(), now)
+    val seeded = seedSyncVersionCursor(layer.dataLayerId, layer.layerKey)
+    val rows = mutableListOf<FeatureEntity>()
+    var cursor: String? = null
+    var at: String? = null
+    val seen = HashSet<String>()
+    while (true) {
+      val text = portal.getLayerGeoJson(
+        layer.dataLayerId,
+        layer.layerKey,
+        limit = FULL_PAGE_LIMIT,
+        cursor = cursor,
+        at = at,
+      )
+      val body = json.parseToJsonElement(text).jsonObject
+      val features = body["features"]?.jsonArray ?: JsonArray(emptyList())
+      features.mapTo(rows) { f ->
+        val obj = f.jsonObject
+        val props = obj["properties"] as? JsonObject
+        val globalId = props?.get("_global_id")?.jsonPrimitive?.contentOrNull
+          ?: obj["id"]?.jsonPrimitive?.contentOrNull
+          ?: stableId(obj)
+        FeatureEntity(collectionId, layer.dataLayerId, layer.layerKey, globalId, obj.toString(), now)
+      }
+      if (at == null) at = (body["asOf"] as? JsonPrimitive)?.contentOrNull
+      val next = (body["nextCursor"] as? JsonPrimitive)?.contentOrNull
+      // A repeated cursor would loop forever; treat it as the end.
+      if (next == null || !seen.add(next)) break
+      cursor = next
     }
     db.features().deleteForLayer(collectionId, layer.dataLayerId, layer.layerKey)
     db.features().insertAll(rows)
-    val seeded = seedSyncVersionCursor(layer.dataLayerId, layer.layerKey)
     return LayerPull(layer.copy(syncVersion = seeded), rows.size)
   }
 
   /**
-   * After a full GeoJSON pull, read the layer head via a cheap
-   * `delta?since=0&limit=1`. Null when the endpoint is unavailable so
-   * the next run retries a full pull + seed.
+   * Read the layer head via a cheap `delta?since=0&limit=1`, before a
+   * full pull. Null when the endpoint is unavailable so the next run
+   * retries a full pull + seed.
    */
   private suspend fun seedSyncVersionCursor(dataLayerId: String, layerKey: String): Long? =
     try {

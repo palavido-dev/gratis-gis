@@ -33,6 +33,7 @@ import {
   type FeatureScope,
 } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { assertNotV3DataLayer } from './v3-guard.js';
 import {
   FeaturesService,
   type InsertFeatureInput,
@@ -102,6 +103,7 @@ export class FeaturesController {
     if (item.type !== 'data_layer') {
       throw new BadRequestException('Item is not a feature service');
     }
+    assertNotV3DataLayer(item);
     if (!(await this.features.tableExists(itemId))) {
       throw new NotFoundException('Feature table not provisioned for this item');
     }
@@ -126,6 +128,7 @@ export class FeaturesController {
     if (item.type !== 'data_layer') {
       throw new BadRequestException('Item is not a feature service');
     }
+    assertNotV3DataLayer(item);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId } });
     if (!this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException('You do not have edit permission on this item');
@@ -448,20 +451,28 @@ export class FeaturesController {
   private async syncItemMeta(itemId: string): Promise<void> {
     try {
       const s = await this.features.stats(itemId);
-      const item = await this.prisma.item.findUnique({ where: { id: itemId }, select: { data: true } });
-      const existing = (item?.data ?? {}) as Record<string, unknown>;
-      await this.prisma.item.update({
-        where: { id: itemId },
-        data: {
+      // Read and write under the item row lock so a concurrent writer
+      // (a syncVersion bump, a schema save) is not rolled back by a
+      // stale copy of item.data.
+      await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ data: unknown }>>`
+          SELECT data_json AS data FROM item WHERE id = ${itemId}::uuid FOR UPDATE`;
+        const existing = (rows[0]?.data ?? {}) as Record<string, unknown>;
+        // The route guards refuse v3 items; never downgrade one here.
+        if (existing.version === 3) return;
+        await tx.item.update({
+          where: { id: itemId },
           data: {
-            ...existing,
-            version: 2,
-            storageType: 'postgis',
-            featureCount: s.featureCount,
-            bbox: s.bbox,
-            updatedAt: new Date().toISOString(),
-          } as unknown as Prisma.InputJsonValue,
-        },
+            data: {
+              ...existing,
+              version: 2,
+              storageType: 'postgis',
+              featureCount: s.featureCount,
+              bbox: s.bbox,
+              updatedAt: new Date().toISOString(),
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
       });
     } catch (err) {
       // Non-fatal: metadata sync failure shouldn't roll back the write.
