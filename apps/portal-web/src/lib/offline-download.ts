@@ -16,10 +16,12 @@
  * can render a live status without polling.
  */
 
-import type {
-  FeatureField,
-  OfflineMessage,
-  PickListData,
+import {
+  deltaChangeProperties,
+  nextDeltaStep,
+  type FeatureField,
+  type OfflineMessage,
+  type PickListData,
 } from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
 import {
@@ -181,12 +183,19 @@ const ASSUMED_PREPARED_PACKAGE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_WARM_ZOOM: [number, number] = [12, 17];
 
 /**
- * Page size for `GET .../delta`. Server max is 10_000; field refresh
- * asks for the max so a single write batch rarely truncates mid-
- * syncVersion. Truncation still advances `since` to the last change
- * on the page (page-by-version) until `truncated` clears.
+ * Page size for `GET .../delta`. Server max is 10_000. A truncated
+ * page names its last row in `nextSince` / `nextAfter`, and the next
+ * request resumes there, so a write batch larger than a page (one
+ * syncVersion) still arrives whole. docs/sync-protocol.md.
  */
 const DELTA_PAGE_LIMIT = 10_000;
+
+/**
+ * Page size for the keyset-paged full GeoJSON pull. Paged reads work
+ * whether or not the server sets GRATIS_FEATURE_QUERY_PAGE=required,
+ * and keep each response bounded.
+ */
+const FULL_PAGE_LIMIT = 5_000;
 
 /** One observation row from `GET .../delta` (R1-layer-delta-sync). */
 export interface LayerDeltaChange {
@@ -197,6 +206,9 @@ export interface LayerDeltaChange {
   syncVersion: number;
   txTime?: string;
   authorSub?: string;
+  /** Author and time of the entity's create observation. */
+  createdBy?: string | null;
+  createdAt?: string | null;
   geometry: GeoJSON.Geometry | null;
   properties: Record<string, unknown> | null;
 }
@@ -206,6 +218,9 @@ export interface LayerDeltaResponse {
   since: number;
   changes: LayerDeltaChange[];
   truncated: boolean;
+  /** Present when truncated: send back as `since` and `after`. */
+  nextSince?: number;
+  nextAfter?: string;
 }
 
 /**
@@ -380,66 +395,38 @@ export async function downloadDeployment(
         totalFeatureBytes += deltaResult.bytes;
         progress.featuresFetched += deltaResult.applied;
         schema.syncVersion = deltaResult.syncVersion;
-        progress.message = {
-          code: 'download.layerCached',
-          params: { layer: layer.layerLabel, count: deltaResult.applied },
-        };
-        onProgress({ ...progress });
-        continue;
+        if (!deltaResult.stalled) {
+          progress.message = {
+            code: 'download.layerCached',
+            params: { layer: layer.layerLabel, count: deltaResult.applied },
+          };
+          onProgress({ ...progress });
+          continue;
+        }
+        // An older server could not page past one oversized version.
+        // Fall through to a full pull, which re-seeds the cursor.
       }
 
-      const url = buildFeatureUrl(
-        layer.dataLayerId,
-        layer.layerKey,
-        input.bbox,
-      );
-      const res = await fetch(url);
-      if (!res.ok) {
+      const full = await pullLayerFull({
+        dataCollectionId: input.dataCollectionId,
+        layer,
+        bbox: input.bbox,
+      });
+      totalFeatureBytes += full.bytes;
+      if (full.kind === 'failed') {
         // The same message serves as the live line and as the entry in
         // the manifest's shortfall list, so the two cannot disagree
         // about what went wrong with this layer.
-        const failure: OfflineMessage = {
-          code: 'download.layerHttpError',
-          params: { layer: layer.layerLabel, status: res.status },
-        };
-        noteShortfall(failure);
-        progress.message = failure;
+        noteShortfall(full.failure);
+        progress.message = full.failure;
         onProgress({ ...progress });
         continue;
       }
-      const text = await res.text();
-      totalFeatureBytes += text.length;
-      let body: { features?: GeoJSON.Feature[] };
-      try {
-        body = JSON.parse(text) as { features?: GeoJSON.Feature[] };
-      } catch {
-        const failure: OfflineMessage = {
-          code: 'download.layerMalformed',
-          params: { layer: layer.layerLabel },
-        };
-        noteShortfall(failure);
-        progress.message = failure;
-        onProgress({ ...progress });
-        continue;
-      }
-      const features = body.features ?? [];
-      const rows: CachedFeature[] = features.map((f) =>
-        featureToCachedRow(input.dataCollectionId, layer, f),
-      );
-      await putFeatures(rows);
-      progress.featuresFetched += features.length;
-      // Seed the syncVersion cursor so the next refresh can delta.
-      // GeoJSON does not return the layer counter; a limit=1 delta
-      // since=0 is enough to read head without applying changes
-      // (we already hold the full snapshot).
-      const seeded = await seedSyncVersionCursor(
-        layer.dataLayerId,
-        layer.layerKey,
-      );
-      if (seeded !== null) schema.syncVersion = seeded;
+      progress.featuresFetched += full.count;
+      if (full.cursor !== null) schema.syncVersion = full.cursor;
       progress.message = {
         code: 'download.layerCached',
-        params: { layer: layer.layerLabel, count: features.length },
+        params: { layer: layer.layerLabel, count: full.count },
       };
       onProgress({ ...progress });
     } catch (err) {
@@ -803,13 +790,18 @@ export function buildFeatureUrl(
   dataLayerId: string,
   layerKey: string,
   bbox: [number, number, number, number] | undefined,
+  page?: { limit: number; cursor?: string; at?: string },
 ): string {
   const base = `/api/portal/items/${dataLayerId}/layers/${encodeURIComponent(layerKey)}/geojson`;
-  if (!bbox) return base;
-  const qs = new URLSearchParams({
-    bbox: bbox.join(','),
-  });
-  return `${base}?${qs.toString()}`;
+  const qs = new URLSearchParams();
+  if (bbox) qs.set('bbox', bbox.join(','));
+  if (page) {
+    qs.set('limit', String(page.limit));
+    if (page.cursor) qs.set('cursor', page.cursor);
+    if (page.at) qs.set('at', page.at);
+  }
+  const text = qs.toString();
+  return text ? `${base}?${text}` : base;
 }
 
 /**
@@ -821,8 +813,10 @@ export function buildDeltaUrl(
   layerKey: string,
   since: number,
   limit?: number,
+  after?: string,
 ): string {
   const qs = new URLSearchParams({ since: String(since) });
+  if (after) qs.set('after', after);
   if (limit !== undefined) qs.set('limit', String(limit));
   return `/api/portal/items/${dataLayerId}/layers/${encodeURIComponent(layerKey)}/delta?${qs.toString()}`;
 }
@@ -856,10 +850,9 @@ export function applyDeltaChanges(
       byEntity.set(change.entity, { kind: 'delete' });
       continue;
     }
-    const props: Record<string, unknown> = {
-      ...(change.properties ?? {}),
-      _global_id: change.entity,
-    };
+    // Same extra keys a full read inlines, so a refreshed row keeps
+    // its `_observation_id` conflict token and editor fields.
+    const props = deltaChangeProperties(change);
     // Geometry may be null on table rows / unlocated features; the
     // project's GeoJSON.Feature typedef requires Geometry, so assert.
     const feature = {
@@ -891,27 +884,39 @@ export function applyDeltaChanges(
 
 /**
  * Walk `GET .../delta` pages until `truncated` clears, applying each
- * page to IndexedDB. Advances `since` to the last change's
- * syncVersion while truncated (page-by-version); stores the layer
- * head `syncVersion` when the walk completes.
+ * page to IndexedDB. Each truncated page names its last row in
+ * `nextSince` / `nextAfter`, and the next request resumes after it,
+ * so a write batch larger than a page arrives whole. Returns the
+ * cursor to store: the head when the walk completes, otherwise the
+ * last version applied completely. `stalled` means an older server
+ * cannot page this layer and the caller should do a full pull.
+ * Steps come from shared-types `nextDeltaStep` (docs/sync-protocol.md).
  */
 async function pullLayerDelta(args: {
   dataCollectionId: string;
   layer: DownloadLayer;
   since: number;
-}): Promise<{ applied: number; syncVersion: number; bytes: number }> {
+}): Promise<{
+  applied: number;
+  syncVersion: number;
+  bytes: number;
+  stalled: boolean;
+}> {
   let since = args.since;
+  let after: string | undefined;
   let applied = 0;
   let bytes = 0;
-  let head = args.since;
+  let safe = args.since;
   // Cap the number of pages so a stuck truncated response cannot
-  // spin forever. 10_000 * 10_000 changes would already be absurd.
+  // spin forever. Stopping early stores `safe`, never a cursor past
+  // rows not yet applied, so the next refresh picks up from there.
   for (let page = 0; page < 100; page += 1) {
     const url = buildDeltaUrl(
       args.layer.dataLayerId,
       args.layer.layerKey,
       since,
       DELTA_PAGE_LIMIT,
+      after,
     );
     const res = await fetch(url);
     if (!res.ok) {
@@ -946,37 +951,31 @@ async function pullLayerDelta(args: {
     );
     applied += upserts.length + deletes.length;
 
-    if (!body.truncated) {
-      head =
-        typeof body.syncVersion === 'number' && Number.isFinite(body.syncVersion)
-          ? body.syncVersion
-          : since;
-      break;
+    const step = nextDeltaStep(body, since);
+    if (step.kind === 'done') {
+      return { applied, syncVersion: step.cursor, bytes, stalled: false };
     }
-    const last = body.changes[body.changes.length - 1];
-    if (!last) {
-      // Truncated with an empty page should not happen; treat as done.
-      head =
-        typeof body.syncVersion === 'number' && Number.isFinite(body.syncVersion)
-          ? body.syncVersion
-          : since;
-      break;
+    if (step.kind === 'stalled') {
+      return { applied, syncVersion: step.safeCursor, bytes, stalled: true };
     }
-    // Page-by-version: next request asks for syncVersion > last.
-    since = last.syncVersion;
-    head = since;
+    safe = step.safeCursor;
+    since = step.since;
+    after = step.after;
   }
-  return { applied, syncVersion: head, bytes };
+  return { applied, syncVersion: safe, bytes, stalled: false };
 }
 
 /**
- * After a full GeoJSON pull, read the layer's current syncVersion
- * via a cheap `delta?since=0&limit=1` so the next refresh can delta.
- * Returns null when the endpoint is unavailable (older server, 404)
- * so the manifest stays cursor-less and the next run retries a full
- * pull + seed.
+ * Read the layer's current syncVersion via a cheap
+ * `delta?since=0&limit=1`. Called BEFORE the full pull: a write that
+ * commits during the download is then newer than the stored cursor
+ * and the next delta delivers it again (harmless, applying is
+ * idempotent). Read after the pull, that write would be skipped for
+ * good. Returns null when the endpoint is unavailable (older server,
+ * 404) so the manifest stays cursor-less and the next run retries a
+ * full pull + seed.
  */
-async function seedSyncVersionCursor(
+async function readSyncVersionHead(
   dataLayerId: string,
   layerKey: string,
 ): Promise<number | null> {
@@ -991,6 +990,81 @@ async function seedSyncVersionCursor(
   } catch {
     return null;
   }
+}
+
+/**
+ * First download (or a cursor reset): read the head, then walk the
+ * layer's GeoJSON with keyset paging (`limit` + `cursor`, `at` pinned
+ * to the first page's `asOf`) so every page reads one snapshot. Works
+ * when the server refuses unpaged reads (GRATIS_FEATURE_QUERY_PAGE=
+ * required). A server that ignores paging answers with the whole
+ * collection and no `nextCursor`, which ends the walk after one page.
+ */
+async function pullLayerFull(args: {
+  dataCollectionId: string;
+  layer: DownloadLayer;
+  bbox: [number, number, number, number] | undefined;
+}): Promise<
+  | { kind: 'ok'; count: number; bytes: number; cursor: number | null }
+  | { kind: 'failed'; failure: OfflineMessage; bytes: number }
+> {
+  const { layer } = args;
+  const head = await readSyncVersionHead(layer.dataLayerId, layer.layerKey);
+  let count = 0;
+  let bytes = 0;
+  let cursor: string | undefined;
+  let at: string | undefined;
+  const seen = new Set<string>();
+  for (;;) {
+    const url = buildFeatureUrl(layer.dataLayerId, layer.layerKey, args.bbox, {
+      limit: FULL_PAGE_LIMIT,
+      ...(cursor ? { cursor } : {}),
+      ...(at ? { at } : {}),
+    });
+    const res = await fetch(url);
+    if (!res.ok) {
+      return {
+        kind: 'failed',
+        bytes,
+        failure: {
+          code: 'download.layerHttpError',
+          params: { layer: layer.layerLabel, status: res.status },
+        },
+      };
+    }
+    const text = await res.text();
+    bytes += text.length;
+    let body: {
+      features?: GeoJSON.Feature[];
+      nextCursor?: string | null;
+      asOf?: string;
+    };
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      return {
+        kind: 'failed',
+        bytes,
+        failure: {
+          code: 'download.layerMalformed',
+          params: { layer: layer.layerLabel },
+        },
+      };
+    }
+    const features = body.features ?? [];
+    const rows: CachedFeature[] = features.map((f) =>
+      featureToCachedRow(args.dataCollectionId, layer, f),
+    );
+    await putFeatures(rows);
+    count += features.length;
+    if (!at && typeof body.asOf === 'string') at = body.asOf;
+    const next = typeof body.nextCursor === 'string' ? body.nextCursor : null;
+    // A repeated cursor would loop forever; treat it as the end.
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    cursor = next;
+  }
+  return { kind: 'ok', count, bytes, cursor: head };
 }
 
 function featureToCachedRow(

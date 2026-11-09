@@ -21,7 +21,11 @@ printf '%s' "$flat" | grep -q "Keycloak" || fail "help does not mention Keycloak
 printf '%s' "$flat" | grep -q "CREDENTIAL_ENCRYPTION_KEY" || fail "help does not mention the encryption key"
 printf '%s' "$flat" | grep -q "not an off-site copy" || fail "help does not distinguish a download from an off-site copy"
 printf '%s' "$flat" | grep -q "restore-maintenance.sh" || fail "help does not point at the failed-restore checker"
-printf '%s' "$flat" | grep -q "does not send mail" || fail "help still implies a failure notification"
+# A failed run queues a backup_failed notice for the admins of the
+# first organization (BackupFailureNotice), which is emailed only when
+# notifications are on. The help must say both halves.
+printf '%s' "$flat" | grep -q "When email notifications are on" || fail "help does not say when a failed backup is emailed"
+printf '%s' "$flat" | grep -q "With notifications off, the page is the only place a failure shows" || fail "help implies a failure email even with notifications off"
 
 # The panel must not tell an admin that recreating users on a fresh
 # install is sufficient.

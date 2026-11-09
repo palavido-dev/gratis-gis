@@ -47,6 +47,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useT } from '@/lib/i18n/locale-context';
+import { IMAGE_UPLOAD_MAX_MB } from '@gratis-gis/shared-types';
 
 interface Props {
   /** Current asset reference. */
@@ -60,7 +61,8 @@ interface Props {
    * Defaults to `['image/']` (the common case).
    */
   acceptMimePrefixes?: string[];
-  /** Maximum upload size in megabytes. Defaults to 10 MB. */
+  /** Maximum upload size in megabytes. Defaults to the server's cap
+   *  for image uploads (IMAGE_UPLOAD_MAX_MB, 5 MB). */
   maxMb?: number;
   /** Disable interaction (read-only). */
   disabled?: boolean;
@@ -97,7 +99,7 @@ export function AssetPicker({
   value,
   onChange,
   acceptMimePrefixes = ['image/'],
-  maxMb = 10,
+  maxMb = IMAGE_UPLOAD_MAX_MB,
   disabled = false,
   label,
   hint,

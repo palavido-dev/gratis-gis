@@ -139,11 +139,33 @@ shape as the VPS install in [deployment.md](./deployment.md).
 Address search calls this portal, then the public OpenStreetMap
 Nominatim service when this stack has no local geocoder. The NAS
 must be able to reach the internet for that. It is not GPS, and it
-works on the plain HTTP address.
+works on the plain HTTP address. Set `NOMINATIM_PUBLIC_FALLBACK=0`
+(see Optional settings below) to keep searches off the public
+service, or `NOMINATIM_URL` to use your own Nominatim.
 
 **My location** is the browser's GPS. Browsers refuse it on
 `http://192.168.x.x` and on `http://100.x`. Use the Tailscale HTTPS
 name above, or `localhost`. The portal does not bypass that rule.
+
+## Optional settings
+
+The compose file passes these to the containers. Empty keeps the
+default. In Dockge, add them to the env box, one `NAME=value` per
+line. In TrueNAS, add them to the app's environment. Then restart.
+
+- `NOTIFICATIONS_ENABLED=true` turns on email notifications. Enter
+  the SMTP server on **Admin -> Notifications**.
+- `PORTAL_NAME` is the name used in email.
+- `NOMINATIM_URL` and `NOMINATIM_PUBLIC_FALLBACK=0` control address
+  search (above).
+- `GRATIS_SESSION_MAX_AGE_SECONDS` and `GRATIS_SESSION_IDLE_SECONDS`
+  set the portal cookie lifetime (docs/operations/session.md).
+- `RECYCLE_BIN_RETENTION_DAYS` (30), `GRATIS_ADMIN_AUDIT_RETENTION_DAYS`
+  (400), `HOUSEKEEPING_STALE_ITEM_DAYS` (90) and
+  `HOUSEKEEPING_STALE_USER_DAYS` (180) change retention.
+- `BACKUP_RETENTION_COUNT` keeps that many backup archives.
+
+Links in email use the address in the bootstrap log.
 
 ## What this stack does not do
 
@@ -249,8 +271,11 @@ Compose file revision 2 adds the `gg-staging` volume that
 portal-api and portal-worker share. On revision 1, creating a data
 layer from a file left the layer empty with "Source file expired
 before the import started". The Updates page says the compose file
-is out of date until you paste revision 2. Nothing else changes, and
-no data moves.
+is out of date until you paste the current revision. No data moves.
+
+Revision 3 passes the optional settings (see Optional settings
+above) to the containers, uses the portal address in email links,
+and leaves scheduled jobs to portal-api.
 
 Keep the volumes when the first start never became healthy (Keycloak waiting,
 Silo exiting). The saved passwords stay, and Keycloak imports the

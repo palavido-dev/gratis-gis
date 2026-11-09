@@ -7,6 +7,7 @@ import type { PortalInfo } from '@gratis-gis/shared-types';
 
 import { isAnalysisEnabled } from './analysis/analysis-tiers.js';
 import { Public } from './auth/public.decorator.js';
+import { textEnv } from './common/env.js';
 import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { isScriptsEnabled } from './scripts/scripts-config.js';
@@ -78,7 +79,7 @@ export class PortalInfoController {
     });
     if (org?.landingTitle) return org.landingTitle;
     if (org?.name) return org.name;
-    return process.env.PORTAL_NAME ?? 'GratisGIS Portal';
+    return textEnv(process.env.PORTAL_NAME, 'GratisGIS Portal');
   }
 
   /**

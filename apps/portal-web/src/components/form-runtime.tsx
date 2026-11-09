@@ -47,6 +47,7 @@ import {
   updateGroupAnswer,
   updateRepeatInstance,
 } from '@/lib/form-value-update';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Mobile-first runtime that renders any FormSchema and captures a
@@ -2082,12 +2083,6 @@ function FileInput({
     onChange(files.filter((_, i) => i !== idx));
   }
 
-  function fmtSize(b: number): string {
-    if (b < 1024) return `${b} B`;
-    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-    return `${(b / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   return (
     <div className="space-y-2">
       {files.length > 0 ? (
@@ -2100,7 +2095,7 @@ function FileInput({
               <span className="flex-1 truncate" title={f.name}>
                 {f.name}
               </span>
-              <span className="text-2xs text-muted">{fmtSize(f.sizeBytes)}</span>
+              <span className="text-2xs text-muted">{formatBytes(f.sizeBytes)}</span>
               {!readOnly ? (
                 <button
                   type="button"

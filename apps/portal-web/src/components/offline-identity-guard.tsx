@@ -11,7 +11,8 @@
  * outcome. Until ownership existed that meant whoever signed in next
  * replayed them under THEIR session, and the server stamped
  * `submitted_by` from the caller. Rows now record who captured them
- * and both drains send only the current account's, which leaves two
+ * and every drain (feature queue, form outbox, service worker) sends
+ * only the current account's, which leaves two
  * jobs for the page, done here on every authenticated load:
  *
  *   1. Persist the session's user id as the device identity, so the

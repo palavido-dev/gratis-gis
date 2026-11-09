@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -98,13 +99,17 @@ class FormViewModel(
         ?: error("Form $formId not cached — download the collection offline first")
       formEntity = form
       val root = json.parseToJsonElement(form.schemaJson).jsonObject
+      requireSupportedEngine(form, root)
       schema = root
       val fields = parseFields(root)
       var values = fields.associate { it.id to "" }
       val draftId = _state.value.draftId
+      // Resume only the draft that was asked for. A new form gets a
+      // fresh id and starts empty; falling back to "any draft of this
+      // form" reopened and overwrote the first one, so a worker could
+      // never start a second record.
       val draft = app.db.drafts().get(draftId)
         ?: existingDraftId?.let { app.db.drafts().get(it) }
-        ?: app.db.drafts().forCollection(collectionId).firstOrNull { it.formId == formId }
       if (draft != null) {
         val response = json.parseToJsonElement(draft.responseJson).jsonObject
         values = fields.associate { f ->
@@ -126,6 +131,27 @@ class FormViewModel(
       _state.update { it.copy(error = t.message ?: t.toString()) }
     } finally {
       _state.update { it.copy(busy = false) }
+    }
+  }
+
+  /**
+   * Refuse to evaluate a form this app's engine is too old for. The
+   * server stamps `requiredEngineVersion` on save; the engine's own
+   * `form.requirement` covers forms saved before the stamp existed
+   * and anything this build does not recognise (which reads as newer
+   * than this build). The higher of the two must not exceed the
+   * engine's version. packages/form-schema/src/engine-version.ts.
+   */
+  private suspend fun requireSupportedEngine(form: FormEntity, root: JsonObject) {
+    val engine = app.engine.await()
+    val walked = when (val r = engine.call("form.requirement", buildJsonObject { put("form", root) })) {
+      is CallResult.Ok -> (r.result as? JsonObject)?.get("version")?.jsonPrimitive?.intOrNull
+      is CallResult.Error -> null
+    } ?: Int.MAX_VALUE
+    val needed = maxOf(form.requiredEngineVersion ?: 0, walked)
+    val have = engine.info.engineVersion
+    if (needed > have) {
+      error("This form needs a newer version of the field app (form engine $needed, this app has $have). Update the app to fill it in.")
     }
   }
 

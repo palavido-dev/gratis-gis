@@ -62,6 +62,7 @@ import {
   useTerraDraw,
   type MarkupDrawTool,
 } from './use-terra-draw';
+import { portalJson } from '@/lib/portal-json';
 
 type MarkupTool = 'off' | MarkupDrawTool;
 
@@ -979,33 +980,6 @@ function hintForTool(
 function message(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
   return fallback;
-}
-
-/**
- * Tiny client-side wrapper around fetch for the BFF surface. Lives
- * here rather than in a shared lib because most other map editor
- * panels inline their fetches and we don't want to pull them all
- * into a refactor right now. Returns parsed JSON on success or
- * undefined for empty responses (e.g. 204 on DELETE).
- */
-async function portalJson<T = unknown>(
-  url: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const headers: Record<string, string> = {
-    ...((init.headers as Record<string, string>) ?? {}),
-  };
-  if (init.body && !headers['content-type'] && !headers['Content-Type']) {
-    headers['content-type'] = 'application/json';
-  }
-  const res = await fetch(url, { ...init, headers });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${res.status}: ${body || res.statusText}`);
-  }
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
 }
 
 /**
