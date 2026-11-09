@@ -24,6 +24,7 @@ export * from './data-layer';
 export * from './feature-validate';
 export * from './submission-stamp';
 export * from './sync-outcome';
+export * from './delta-sync';
 export * from './offline-message';
 export * from './queue-fold';
 export * from './queue-replay';
