@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Known differences between the migration history and schema.prisma.
 -- scripts/check-prisma-drift.sh fails when `prisma migrate diff` finds
 -- a statement that is not listed here. Never hand-lift these into a
