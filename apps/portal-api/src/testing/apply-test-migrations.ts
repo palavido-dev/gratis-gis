@@ -7,9 +7,8 @@
 // partman.create_parent ran. The CI job that migrates the project
 // Postgres image is that proof.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { withFileLock } from './file-lock.js';
@@ -21,7 +20,10 @@ import { withFileLock } from './file-lock.js';
  * row and one fails with "tuple concurrently updated". Migrations run
  * one suite at a time under this lock.
  */
-const MIGRATION_LOCK = join(tmpdir(), 'gratis-gis-test-migrations.lock');
+// Under the package's own node_modules cache rather than the shared
+// system temp dir, so no other user can create or swap the lock.
+const LOCK_DIR = join(process.cwd(), 'node_modules', '.cache', 'gratis-gis');
+const MIGRATION_LOCK = join(LOCK_DIR, 'test-migrations.lock');
 
 export function rewritePartitionMigration(sql: string): string {
   const cut = sql.indexOf('SELECT partman.create_parent');
@@ -54,6 +56,7 @@ END $$;
 }
 
 export function applyTestMigrations(url: string, migrationsDir: string): void {
+  mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
   withFileLock(MIGRATION_LOCK, () => applyAll(url, migrationsDir));
 }
 

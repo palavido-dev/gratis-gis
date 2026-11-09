@@ -51,7 +51,7 @@ export function withFileLock<T>(
   for (;;) {
     let fd: number | null = null;
     try {
-      fd = openSync(path, 'wx');
+      fd = openSync(path, 'wx', 0o600);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     }
