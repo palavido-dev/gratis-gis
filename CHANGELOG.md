@@ -178,6 +178,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Saving a large item no longer fails with 413 "request entity too
+  large". The API accepted JSON bodies up to Express's 100 KB default,
+  which a data layer with many related tables (around 80) crossed when
+  saving its schema. The limit is now 10 MB. (#679)
 - Bulk imports that take longer than 30 seconds no longer fail. The
   database role's 30 second statement limit applied to the single
   COPY statement that loads the whole file, so large shapefiles and
