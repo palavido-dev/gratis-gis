@@ -130,6 +130,48 @@ describe('AiConfigService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('does not reuse a stored key for a different provider', async () => {
+    const { prisma, rows } = memoryPrisma();
+    const svc = new AiConfigService(prisma as unknown as PrismaService);
+    await svc.save(ORG, 'admin-1', {
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      apiKey: SECRET,
+    });
+    await expect(
+      svc.save(ORG, 'admin-2', { provider: 'anthropic', model: 'claude-x' }),
+    ).rejects.toThrow(/Paste the API key again/);
+    expect(rows.get(ORG)?.provider).toBe('openai');
+  });
+
+  it('does not reuse a stored key for a new base URL', async () => {
+    const { prisma, rows } = memoryPrisma();
+    const svc = new AiConfigService(prisma as unknown as PrismaService);
+    rows.set(ORG, {
+      orgId: ORG,
+      provider: 'openai-compatible',
+      model: 'llama3.2',
+      baseUrl: 'https://llm.example.org/v1',
+      encryptedSecret: 'ct',
+      encryptedSecretIv: 'iv',
+      updatedBy: 'admin-1',
+    });
+    const before = { ...rows.get(ORG)! };
+    // The base URL check runs before the key check and resolves DNS;
+    // stub it so this spec stays offline.
+    jest
+      .spyOn(await import('./providers.js'), 'assertCompatibleBaseUrl')
+      .mockImplementation(async (u: string) => u);
+    await expect(
+      svc.save(ORG, 'admin-2', {
+        provider: 'openai-compatible',
+        model: 'llama3.2',
+        baseUrl: 'https://attacker.example/v1',
+      }),
+    ).rejects.toThrow(/Paste the API key again/);
+    expect(rows.get(ORG)).toEqual(before);
+  });
+
   it('clears the row', async () => {
     const { prisma, rows } = memoryPrisma();
     const svc = new AiConfigService(prisma as unknown as PrismaService);
