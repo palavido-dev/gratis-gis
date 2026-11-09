@@ -475,7 +475,7 @@ export const de: Partial<CatalogShape> = {
     cacheMaxAge: 'Browser-Cache (Sekunden)',
     default: 'Standard',
     zoomHint:
-      'Zoom von {min} bis {max}; außerhalb des Bereichs sind die Kacheln leer.',
+      'Max. Zoom ist die tiefste Zoomstufe, für die Kacheln erzeugt werden; weiter hineingezoomte Karten zeigen diese Kacheln vergrößert weiter an. Unterhalb des min. Zooms wird der Layer nicht gezeichnet. Zoom von {min} bis {max}.',
     maxFeaturesHint: 'Die Feature-Obergrenze kann nur gesenkt werden, bis {max}.',
     cacheHint:
       'Cache von 0 bis {max} Sekunden. Kacheln eines nicht öffentlichen Layers werden immer nur privat im Browser des Betrachters zwischengespeichert.',

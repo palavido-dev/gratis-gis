@@ -473,7 +473,7 @@ export const ptBR: Partial<CatalogShape> = {
     cacheMaxAge: 'Cache do navegador (segundos)',
     default: 'padrão',
     zoomHint:
-      'Zoom de {min} a {max}; fora do intervalo os blocos ficam vazios.',
+      'O zoom máximo é o nível mais profundo para o qual os blocos são gerados; mapas com mais zoom continuam mostrando esses blocos ampliados. Abaixo do zoom mínimo a camada não é desenhada. Zoom de {min} a {max}.',
     maxFeaturesHint: 'O limite de feições só pode ser reduzido, até {max}.',
     cacheHint:
       'Cache de 0 a {max} segundos. Os blocos de uma camada que não é pública são sempre guardados apenas de forma privada no navegador de quem vê.',

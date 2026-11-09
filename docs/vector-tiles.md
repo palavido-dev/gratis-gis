@@ -32,8 +32,14 @@ as before.
   it. This only makes tiles smaller. It is not access control: every
   field is still readable through the layer's features API, click
   popups and exports.
-- **Min zoom / Max zoom** (0 to 24). Outside the range a tile is
-  empty, without a database query.
+- **Min zoom / Max zoom** (0 to 24). Max zoom is the deepest zoom
+  tiles are built for. The web map reads the range from the layer's
+  TileJSON and sets it on its vector source, so past max zoom MapLibre
+  keeps showing the deepest tiles, enlarged (overzoom), and below min
+  zoom it requests nothing. TileJSON clients do the same. A request
+  outside the range still gets an empty tile, without a database
+  query. A map that is already open picks up a changed range on
+  reload.
 - **Max features per tile** (1 to 5000). Lowers the server's per-tile
   cap. It cannot raise it.
 - **Browser cache (seconds)** (0 to 3600). Changes the `max-age` on

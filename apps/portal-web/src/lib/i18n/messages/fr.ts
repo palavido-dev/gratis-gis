@@ -475,7 +475,7 @@ export const fr: Partial<CatalogShape> = {
     cacheMaxAge: 'Cache du navigateur (secondes)',
     default: 'par défaut',
     zoomHint:
-      'Zoom de {min} à {max} ; hors de cette plage, les tuiles sont vides.',
+      'Le zoom max. est le niveau le plus profond pour lequel les tuiles sont produites ; au-delà, les cartes continuent d\'afficher ces tuiles agrandies. Sous le zoom min., la couche n\'est pas dessinée. Zoom de {min} à {max}.',
     maxFeaturesHint: 'Le plafond d\'entités ne peut qu\'être abaissé, jusqu\'à {max}.',
     cacheHint:
       'Cache de 0 à {max} secondes. Les tuiles d\'une couche non publique sont toujours mises en cache uniquement dans le navigateur de l\'utilisateur.',
