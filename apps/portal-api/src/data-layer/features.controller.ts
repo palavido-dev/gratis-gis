@@ -82,6 +82,7 @@ import { parseDeltaAfterParam, parseDeltaLimit, parseSinceParam } from './layer-
 import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
+import { linkedDataCollection } from './data-collection-link.js';
 
 class AppendFeatureDto {
   @IsOptional() @IsString() globalId?: string;
@@ -1707,11 +1708,14 @@ export class DataLayerFeaturesController {
     creator: AuthUser;
   }): Promise<void> {
     try {
-      const dc = await this.prisma.item.findUnique({
-        where: { id: args.dataCollectionId },
-        select: { id: true, title: true, ownerId: true, type: true },
-      });
-      if (!dc || dc.type !== 'data_collection') return;
+      const dc = await linkedDataCollection(
+        this.prisma,
+        this.items,
+        args.creator,
+        args.dataCollectionId,
+        args.dataLayerId,
+      );
+      if (!dc) return;
       const dataLayer = await this.prisma.item.findUnique({
         where: { id: args.dataLayerId },
         select: { title: true },

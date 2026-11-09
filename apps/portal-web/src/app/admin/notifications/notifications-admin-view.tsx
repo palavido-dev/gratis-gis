@@ -32,6 +32,7 @@ import {
 } from '@/lib/i18n/format';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 import { useT } from '@/lib/i18n/locale-context';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
 
 export interface Stats {
   queueDepth: number;
@@ -207,7 +208,7 @@ export function NotificationsAdminView({
         { method: 'POST' },
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
     } catch (err) {
       // Only the retry POST itself rolls back the optimistic row.
@@ -238,7 +239,7 @@ export function NotificationsAdminView({
         `/api/portal/admin/notifications/preview/${type}`,
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       setPreview((await res.json()) as PreviewPayload);
     } catch (err) {
@@ -489,7 +490,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
       const fresh = (await res.json()) as SmtpState;
       setForm({ ...fresh, password: '' });
       // The DB save + worker-transport reload always succeeded if
@@ -549,6 +550,15 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ to: testTo, config }),
       });
+      if (!res.ok) {
+        // A 4xx carries the validator's sentence and a 502 an HTML
+        // page; neither is the { ok, error } body read below.
+        setMsg({
+          kind: 'err',
+          text: await parseApiError(res, t('adminNotifications.testFailedUnclear')),
+        });
+        return;
+      }
       const out = (await res.json()) as { ok: boolean; error?: string };
       if (out.ok) {
         setMsg({
@@ -812,7 +822,7 @@ function DefaultsCard({
           enabled,
         }),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
     } catch {
       setRows(prev);
     } finally {
@@ -1087,7 +1097,7 @@ function TemplateEditModal({
         const res = await fetch(
           `/api/portal/admin/notifications/templates/${type}/${channel}`,
         );
-        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        if (!res.ok) throw new Error(await apiErrorMessage(res));
         const json = (await res.json()) as {
           override: {
             subject: string;
@@ -1254,7 +1264,7 @@ function TemplateEditModal({
               body: JSON.stringify({ type, subject, bodyText, bodyHtml }),
             },
           );
-          if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+          if (!res.ok) throw new Error(await apiErrorMessage(res));
           setPreview(
             (await res.json()) as { subject: string; text: string; html: string },
           );
@@ -1283,7 +1293,7 @@ function TemplateEditModal({
           body: JSON.stringify({ subject, bodyText, bodyHtml }),
         },
       );
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
       setHasOverride(true);
       onSaved(true);
     } catch (e) {
@@ -1302,7 +1312,7 @@ function TemplateEditModal({
         { method: 'DELETE' },
       );
       if (!res.ok && res.status !== 204) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       setHasOverride(false);
       onSaved(false);

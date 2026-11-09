@@ -283,8 +283,18 @@ pnpm test
 ## 8. Optional: email notifications
 
 The portal can send email notifications for share-created events
-(more triggers in follow-up phases). Off by default. To turn it on,
-add the following to your `apps/portal-api/.env`:
+(more triggers in follow-up phases). Off by default.
+
+On a VPS install, add `NOTIFICATIONS_ENABLED=true` to
+`infra/.env.prod` and run `./infra/deploy.sh`. On the NAS stack, set
+`NOTIFICATIONS_ENABLED=true` in Dockge's env box (or the app's
+environment in TrueNAS) and restart. Then enter the SMTP server on
+**Admin -> Notifications**. The `SMTP_*` and `PORTAL_NAME` values
+below also pass through both stacks, as a fallback when the admin
+page has no SMTP saved.
+
+For local development, add the following to your
+`apps/portal-api/.env`:
 
 ```bash
 NOTIFICATIONS_ENABLED=true

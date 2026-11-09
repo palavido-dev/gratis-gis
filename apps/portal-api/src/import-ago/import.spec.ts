@@ -740,6 +740,47 @@ describe('AgoImportService.run', () => {
     expect(svc?.warnings).toEqual([]);
   });
 
+  it('never sends the AGO token to a referenced third-party server', async () => {
+    const items = [
+      sample({
+        id: 'svc-county',
+        type: 'Map Service',
+        title: 'County Map',
+        url: 'https://server.example.com/arcgis/rest/services/County/MapServer',
+      }),
+    ];
+    const seen: string[] = [];
+    globalThis.fetch = jest.fn(async (input: unknown) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : (input as { toString(): string }).toString();
+      seen.push(url);
+      if (/mapserver/i.test(url)) {
+        return new Response(JSON.stringify({ layers: [], tables: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('not-found', { status: 404 });
+    }) as unknown as typeof fetch;
+    const importer = new AgoImportService(
+      makeFakeItems(),
+      makeFakeWebMapImport(),
+      makeFakeHostedFs(),
+      makeFakeStorage(),
+    );
+    await importer.run({
+      user: USER,
+      portalUrl: PORTAL_URL,
+      token: 'secret-ago-token',
+      report: reportFrom(items),
+    });
+    const toCounty = seen.filter((u) => new URL(u).hostname === 'server.example.com');
+    expect(toCounty.length).toBeGreaterThan(0);
+    expect(toCounty.some((u) => u.includes('secret-ago-token'))).toBe(false);
+  });
+
   it('records a warning when auto-probe cannot reach the service', async () => {
     const items = [
       sample({
