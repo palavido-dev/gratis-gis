@@ -102,8 +102,7 @@ export class DataLayerTablesService {
              SELECT DISTINCT ON (entity) entity, geom, kind
              FROM observation
              WHERE scope = $1
-               AND valid_to IS NULL
-             ORDER BY entity, valid_from DESC, tx_time DESC
+             ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
            ) latest
            WHERE kind <> 'delete' AND geom IS NOT NULL`,
           scope,
@@ -283,8 +282,7 @@ export class DataLayerTablesService {
            SELECT DISTINCT ON (entity) entity, kind
            FROM observation
            WHERE scope = $1
-             AND valid_to IS NULL
-           ORDER BY entity, valid_from DESC, tx_time DESC
+           ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
          ) latest
          WHERE kind <> 'delete'`,
         scope,

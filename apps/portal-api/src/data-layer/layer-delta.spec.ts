@@ -2,6 +2,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import {
+  parseDeltaAfterParam,
   parseDeltaLimit,
   parseSinceParam,
   syncVersionSource,
@@ -43,5 +44,22 @@ describe('syncVersionSource', () => {
       kind: 'data_layer:write',
       details: { syncVersion: 7 },
     });
+  });
+});
+
+describe('parseDeltaAfterParam', () => {
+  it('treats missing or empty as no cursor', () => {
+    expect(parseDeltaAfterParam(undefined)).toBeUndefined();
+    expect(parseDeltaAfterParam('')).toBeUndefined();
+  });
+
+  it('accepts an observation uuid and lowercases it', () => {
+    expect(parseDeltaAfterParam('0190A0B0-0000-7000-8000-00000000000A')).toBe(
+      '0190a0b0-0000-7000-8000-00000000000a',
+    );
+  });
+
+  it.each(['1', 'abc', "x' OR 1=1"])('refuses %s', (raw) => {
+    expect(() => parseDeltaAfterParam(raw)).toThrow(BadRequestException);
   });
 });

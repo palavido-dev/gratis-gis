@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { textEnv } from '../common/env.js';
 import {
   encryptCredential,
   decryptCredential,
@@ -41,12 +42,19 @@ export interface SmtpConfig {
 
 const SMTP_KEY = 'smtp';
 
+/** How long a replica trusts its copy of the SMTP row. One primary key
+ *  read per 30 s is cheap; a stale relay or password is not. */
+export const SMTP_CACHE_TTL_MS = 30_000;
+
 @Injectable()
 export class SystemSettingsService {
   private readonly log = new Logger(SystemSettingsService.name);
-  /** Memoised SMTP config. Cleared by saveSmtpConfig() so a fresh
-   *  read always reflects the most recent admin write. */
+  /** Memoised SMTP config, kept for SMTP_CACHE_TTL_MS. A save on this
+   *  replica clears it at once; a save on another replica (the leader
+   *  drains the queue, the PUT can land anywhere) is picked up when
+   *  the entry expires. */
   private smtpCache: SmtpConfig | null | undefined = undefined;
+  private smtpCachedAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -60,7 +68,12 @@ export class SystemSettingsService {
    * `cfg !== null && cfg.enabled && cfg.host`.
    */
   async getSmtpConfig(): Promise<SmtpConfig | null> {
-    if (this.smtpCache !== undefined) return this.smtpCache;
+    if (
+      this.smtpCache !== undefined &&
+      Date.now() - this.smtpCachedAt < SMTP_CACHE_TTL_MS
+    ) {
+      return this.smtpCache;
+    }
     const row = await this.prisma.systemSetting.findUnique({
       where: { key: SMTP_KEY },
     });
@@ -71,6 +84,7 @@ export class SystemSettingsService {
         row.encryptedSecretIv,
       );
       this.smtpCache = parsed;
+      this.smtpCachedAt = Date.now();
       return parsed;
     }
     // Fallback: synthesise from env vars so first-run deployments
@@ -78,6 +92,7 @@ export class SystemSettingsService {
     // Save.
     const fromEnv = this.smtpFromEnv();
     this.smtpCache = fromEnv;
+    this.smtpCachedAt = Date.now();
     return fromEnv;
   }
 
@@ -151,14 +166,16 @@ export class SystemSettingsService {
   private smtpFromEnv(): SmtpConfig | null {
     const host = this.cfg.get<string>('SMTP_HOST');
     if (!host) return null;
-    const portRaw = this.cfg.get<string>('SMTP_PORT') ?? '587';
+    const portRaw = textEnv(this.cfg.get<string>('SMTP_PORT'), '587');
     const port = Number(portRaw);
     const secureRaw = (this.cfg.get<string>('SMTP_SECURE') ?? '').toLowerCase();
     const secure = secureRaw === 'true' || (secureRaw === '' && port === 465);
     const user = this.cfg.get<string>('SMTP_USER') ?? '';
     const pass = this.cfg.get<string>('SMTP_PASS') ?? '';
-    const fromRaw =
-      this.cfg.get<string>('SMTP_FROM') ?? 'GratisGIS <noreply@gratisgis.local>';
+    const fromRaw = textEnv(
+      this.cfg.get<string>('SMTP_FROM'),
+      'GratisGIS <noreply@gratisgis.local>',
+    );
     const { from, fromDisplayName } = parseFrom(fromRaw);
     const enabled =
       (this.cfg.get<string>('NOTIFICATIONS_ENABLED') ?? '').toLowerCase() ===

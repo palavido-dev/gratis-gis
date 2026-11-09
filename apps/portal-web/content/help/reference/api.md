@@ -63,7 +63,7 @@ provisioning afterwards; the item takes features straight away.
 | `PATCH /api/items/:id/layers/:layer/features/:fid` | Update one feature's geometry or properties. |
 | `DELETE /api/items/:id/layers/:layer/features/:fid` | Remove one feature. |
 | `GET /api/items/:id/layers/:layer/features-search?q=&fields=` | Text containment search. |
-| `GET /api/items/:id/layers/:layer/delta?since=N` | Observation-log changes (including deletes) since sync version `N`, for O(changes) field / QGIS sync. |
+| `GET /api/items/:id/layers/:layer/delta?since=N` | Observation-log changes (including deletes) since sync version `N`, for O(changes) field / QGIS sync. When `truncated` is true, call again with `since=nextSince&after=nextAfter` from the response. |
 
 Feature `PATCH` / `DELETE` accept `checkOnly=true` to validate
 optimistic concurrency (`baseObservationId`) and schema without
