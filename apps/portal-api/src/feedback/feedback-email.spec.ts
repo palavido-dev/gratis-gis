@@ -17,11 +17,17 @@ function makeService(sent: Array<Record<string, string>>) {
       sent.push(msg);
     }),
   } as unknown as EmailTransport;
-  const prisma = {
+  const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(0),
     feedback: {
       create: jest.fn().mockResolvedValue({ id: 'fb-abc' }),
       count: jest.fn().mockResolvedValue(0),
+      update: jest.fn().mockResolvedValue({}),
     },
+  };
+  const prisma = {
+    ...tx,
+    $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
   } as unknown as PrismaService;
   const storage = {
     uploadBuffer: jest

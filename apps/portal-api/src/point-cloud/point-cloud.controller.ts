@@ -8,18 +8,17 @@ import {
   Post,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { PointCloudService } from './point-cloud.service.js';
 import { mergeCostModel } from './merge-estimate.js';
+import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
 
 /**
  * HTTP surface for point_cloud items (#179).
@@ -40,7 +39,6 @@ import { mergeCostModel } from './merge-estimate.js';
 @ApiTags('point-cloud')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class PointCloudController {
   constructor(
     private readonly pointCloud: PointCloudService,
@@ -167,7 +165,12 @@ export class PointCloudController {
     res.setHeader('Content-Disposition', 'attachment');
     if (upstream.etag) res.setHeader('ETag', upstream.etag);
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    // `private` for a signed-in caller, whose item may not be public;
+    // see byteProxyCacheControl.
+    res.setHeader(
+      'Cache-Control',
+      byteProxyCacheControl(user, 86400, { immutable: true }),
+    );
 
     try {
       upstream.body.pipe(res);

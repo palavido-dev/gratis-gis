@@ -28,6 +28,7 @@ import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Wire shapes returned by /admin/housekeeping endpoints. Kept
@@ -1738,9 +1739,3 @@ function ExpiringUsersTable({
   );
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}

@@ -113,4 +113,7 @@ export const SAMPLE_PAYLOADS: { [K in NotificationType]?: unknown } = {
     mentionedByName: 'Alice Author',
     snippet: 'Hey @bob can you check the north entrance pin?',
   } satisfies CommentMentionedPayload,
+  backup_failed: {
+    runId: '00000000-0000-4000-8000-0000000000b1',
+  },
 };

@@ -49,6 +49,7 @@ import { StorageService } from '../storage/storage.service.js';
 import { WebMapJsonImportService } from '../items/web-map-json-import.service.js';
 
 import { AgoApiError, AgoClient } from './ago-client.js';
+import { agoTokenMayGoTo, agoTokenOrigins } from './ago-url.js';
 import { agoAccessToPortal, type DryRunItem, type DryRunReport } from './dry-run.js';
 import { AgoHostedFsImportService } from './hosted-fs.js';
 import { sortByImportOrder } from './type-mapping.js';
@@ -230,6 +231,14 @@ export class AgoImportService {
       }
     >();
 
+    // Where the AGO token may go. A row's serviceUrl comes from the
+    // client-submitted dry-run report and, for referenced services,
+    // points at somebody else's ArcGIS Server.
+    const tokenScope: TokenScope = {
+      portalUrl: args.portalUrl,
+      origins: agoTokenOrigins(args.portalUrl, await client.portalServers()),
+    };
+
     const results: ImportResult[] = [];
     for (let i = 0; i < ordered.length; i += 1) {
       const item = ordered[i]!;
@@ -239,6 +248,7 @@ export class AgoImportService {
         item,
         args.token,
         agoUrlToPortalDataLayer,
+        tokenScope,
       ).catch(
         (e): ImportResult => ({
           agoId: item.agoId,
@@ -349,10 +359,18 @@ export class AgoImportService {
       string,
       { itemId: string; agoLayerIdToSublayerKey: Record<number, string> }
     >,
+    tokenScope?: TokenScope,
   ): Promise<ImportResult> {
+    // The token only travels to the portal and its own servers.
+    // Everything else is fetched anonymously.
+    const tokenFor = (url: string): string =>
+      !tokenScope ||
+      agoTokenMayGoTo(url, tokenScope.portalUrl, tokenScope.origins)
+        ? token
+        : '';
     switch (row.targetType) {
       case 'service':
-        return this.importService(user, row, token);
+        return this.importService(user, row, tokenFor(row.serviceUrl ?? ''));
       case 'data_layer':
         // Hosted feature services route through the dedicated
         // hosted-FS importer that walks the AGO REST surface,
@@ -367,13 +385,17 @@ export class AgoImportService {
         return this.importHostedFs(
           user,
           row,
-          token,
+          tokenFor(row.serviceUrl ?? ''),
           agoUrlToPortalDataLayer,
         );
       case 'map':
         return this.importMap(user, client, row, agoUrlToPortalDataLayer);
       case 'file':
-        return this.importFile(user, row, token);
+        return this.importFile(
+          user,
+          row,
+          tokenFor(inferPortalBaseFromRow(row)),
+        );
       default:
         // The dry-run + type-mapping should have caught
         // unsupported types and marked them willImport=false
@@ -702,7 +724,9 @@ export class AgoImportService {
     // <id>/data endpoint is the canonical download URL on every
     // ArcGIS portal.
     const portalBase = inferPortalBaseFromRow(row);
-    const downloadUrl = `${portalBase}/content/items/${row.agoId}/data?token=${encodeURIComponent(token)}`;
+    const downloadUrl = token
+      ? `${portalBase}/content/items/${row.agoId}/data?token=${encodeURIComponent(token)}`
+      : `${portalBase}/content/items/${row.agoId}/data`;
     // safeFetch, not fetch: the base comes off the user-supplied
     // dry-run report, so this download must pass the same SSRF
     // guard the AgoClient routes all its traffic through.
@@ -838,6 +862,12 @@ export function normalizeAgoServiceUrl(raw: string): string {
  * a fallback that mismatches the actual portal would fail at
  * fetch time with a clear AGO error.
  */
+/** Where an import may send the AGO token. See agoTokenMayGoTo. */
+interface TokenScope {
+  portalUrl: string;
+  origins: ReadonlySet<string>;
+}
+
 function inferPortalBaseFromRow(row: DryRunItem): string {
   if (row.serviceUrl) {
     // serviceUrl looks like https://palavido.maps.arcgis.com/arcgis/rest/services/X/FeatureServer

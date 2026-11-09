@@ -55,7 +55,7 @@ import {
 } from '../map/use-terra-draw';
 import { fetchFeatureFromServer } from '../map/fetch-feature';
 import type { TerraDraw } from 'terra-draw';
-import { parseApiError } from '@/lib/api-error';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
 import {
   EDITOR_TARGET_LAYER_PREFIX,
   editorTargetLayerId,
@@ -966,7 +966,7 @@ export function EditorRuntime({
           ],
         }),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
     } else if (mode === 'update') {
       if (op.kind !== 'update') {
         throw new Error('Apply.update requires an update op');
@@ -979,14 +979,14 @@ export function EditorRuntime({
           properties: op.properties,
         }),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
     } else {
       const res = await fetch(`${baseUrl}/${op.featureId}`, {
         method: 'DELETE',
         headers,
       });
       if (!res.ok && res.status !== 204) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
     }
     refreshTarget(op.dataLayerId, op.layerKey);
@@ -2041,7 +2041,7 @@ export function EditorRuntime({
         },
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       refreshTarget(dataLayerId, layerKey);
     },

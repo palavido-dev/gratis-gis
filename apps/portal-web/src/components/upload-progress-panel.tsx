@@ -2,6 +2,7 @@
 'use client';
 
 import { FileUp, Loader2, XCircle } from 'lucide-react';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Shared upload-progress UI + helper. Used wherever a sizeable file
@@ -205,17 +206,5 @@ export async function uploadWithProgress<T>(
   });
 }
 
-/** Tiny byte formatter so the panel doesn't reach into offline-store
- *  helpers (which would also pull IDB code into bundles that don't
- *  need it). */
-export function formatBytesSimple(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${v < 10 ? v.toFixed(1) : v.toFixed(0)} ${units[i]}`;
-}
+/** Kept for existing importers; the one formatter is lib/format-bytes. */
+export const formatBytesSimple = formatBytes;

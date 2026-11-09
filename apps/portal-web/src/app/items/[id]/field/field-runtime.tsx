@@ -4318,6 +4318,15 @@ function FormModal({
     // (Slice 5 doesn't act on it yet, but capturing it now means an
     // upgraded portal can reconcile without a queue migration).
     const schemaHash = await hashLayerSchema(modal.layer.fields);
+    // The server observation this edit was made against. Sent as
+    // `baseObservationId` so a stale edit gets a 409 instead of
+    // overwriting someone else's newer one (docs/sync-protocol.md).
+    const baseObservationId =
+      modal.mode === 'edit' &&
+      typeof modal.properties._observation_id === 'string' &&
+      modal.properties._observation_id !== ''
+        ? modal.properties._observation_id
+        : undefined;
 
     // Local apply path (used by both offline mode and online mode's
     // network-failure fallback). Enqueues the operation, writes the
@@ -4342,6 +4351,7 @@ function FormModal({
         // Who captured it, so only this account's session ever sends
         // it. The server stamps submitted_by from the caller.
         ownerUserId: currentUserId,
+        ...(baseObservationId ? { baseObservationId } : {}),
       });
       // The fold keeps the original capture time, so the cached
       // feature's timestamps must come from the surviving row rather
@@ -4368,6 +4378,9 @@ function FormModal({
           properties: {
             ...properties,
             _global_id: featureId,
+            // Keep the server token the edit was made against, so a
+            // second edit before sync still carries the right base.
+            ...(baseObservationId ? { _observation_id: baseObservationId } : {}),
             _created_by: currentUserId,
             _edited_by: currentUserId,
             _created_at: queuedAt,
@@ -4450,7 +4463,10 @@ function FormModal({
               {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ properties }),
+                body: JSON.stringify({
+                  properties,
+                  ...(baseObservationId ? { baseObservationId } : {}),
+                }),
               },
             );
           } catch {

@@ -39,6 +39,7 @@ import {
   X,
 } from 'lucide-react';
 import type { CommentAnchor } from './comment-anchors';
+import { portalJson as api } from '@/lib/portal-json';
 
 interface CommentDTO {
   id: string;
@@ -525,23 +526,6 @@ export function CommentsPanel({
 function message(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
   return fallback;
-}
-
-async function api<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    ...((init.headers as Record<string, string>) ?? {}),
-  };
-  if (init.body && !headers['content-type'] && !headers['Content-Type']) {
-    headers['content-type'] = 'application/json';
-  }
-  const res = await fetch(url, { ...init, headers });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${res.status}: ${body || res.statusText}`);
-  }
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
 }
 
 /** Highlight `@username` tokens; unknown handles stay plain text. */

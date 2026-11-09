@@ -16,6 +16,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface AgoConnection {
   id: string;
@@ -37,7 +38,7 @@ export function ConnectionsView() {
     try {
       const resp = await fetch('/api/portal/admin/import-ago/connections');
       if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} ${await resp.text()}`);
+        throw new Error(await apiErrorMessage(resp));
       }
       setConns((await resp.json()) as AgoConnection[]);
     } catch (e) {
@@ -63,7 +64,7 @@ export function ConnectionsView() {
         { method: 'DELETE' },
       );
       if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} ${await resp.text()}`);
+        throw new Error(await apiErrorMessage(resp));
       }
       await reload();
     } catch (e) {
@@ -222,7 +223,7 @@ function ConnectionModal({
         body: JSON.stringify(body),
       });
       if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} ${await resp.text()}`);
+        throw new Error(await apiErrorMessage(resp));
       }
       onSaved();
     } catch (e) {

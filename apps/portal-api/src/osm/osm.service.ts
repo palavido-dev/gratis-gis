@@ -567,7 +567,7 @@ export class OsmService {
           entity, geom, attrs, kind, valid_from, tx_time
         FROM observation
         WHERE scope = ${scope}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) latest
       WHERE kind <> 'delete'
     `;

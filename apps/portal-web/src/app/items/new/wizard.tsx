@@ -2338,7 +2338,7 @@ function FileItemUploader({
               {value.fileName}
             </div>
             <div className="mt-0.5 text-xs text-muted">
-              {humanFileSize(value.sizeBytes)} &middot;{' '}
+              {formatBytes(value.sizeBytes)} &middot;{' '}
               <span className="font-mono">{value.mimeType}</span>
             </div>
           </div>
@@ -2711,14 +2711,6 @@ function OgcConfigSection({
   );
 }
 
-
-/** Human-friendly size string for the file metadata row. */
-function humanFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 interface ArcgisConfigProps {
   urlDraft: string;
