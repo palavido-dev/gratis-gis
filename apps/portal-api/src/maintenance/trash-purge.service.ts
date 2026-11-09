@@ -8,6 +8,10 @@ import type { ItemType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { ItemsService } from '../items/items.service.js';
+import { purgeGroups } from '../groups/groups.service.js';
+
+/** Teardown of one large layer can take minutes; the row lock waits. */
+const ITEM_PURGE_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Permanently deletes rows from the trash once their retention window
@@ -74,21 +78,38 @@ export class TrashPurgeService {
     let itemsPurged = 0;
     for (const it of expiredItems) {
       try {
-        await this.items.tearDownItemBackingStorage(
-          it.id,
-          it.type as ItemType,
-          it.data,
+        // The candidate list is a snapshot. Lock the row and re-check
+        // it is still in the trash past the cutoff before tearing
+        // anything down: an item restored since the findMany must not
+        // lose its features and files. The lock holds until the row is
+        // deleted, so a restore that arrives meanwhile waits and then
+        // finds the item gone instead of half torn down.
+        const purged = await this.prisma.$transaction(
+          async (tx) => {
+            const claimed = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT id FROM "item"
+              WHERE id = ${it.id}::uuid AND deleted_at < ${cutoff}
+              FOR UPDATE SKIP LOCKED`;
+            if (claimed.length === 0) return false;
+            await this.items.tearDownItemBackingStorage(
+              it.id,
+              it.type as ItemType,
+              it.data,
+            );
+            // #238: the interactive purge path has always spliced the id
+            // out of the lists that name it; this sweep did not, so an
+            // item that simply aged out of the trash left a dead uuid in
+            // every folder that held it and in the landing-page featured
+            // pins. Same call, same place in the order: detach before the
+            // row goes, so a failure leaves the item rather than a
+            // half-detached graph.
+            await this.items.detachPurgedItemReferences(it.id);
+            await tx.item.delete({ where: { id: it.id } });
+            return true;
+          },
+          { maxWait: 10_000, timeout: ITEM_PURGE_TIMEOUT_MS },
         );
-        // #238: the interactive purge path has always spliced the id
-        // out of the lists that name it; this sweep did not, so an
-        // item that simply aged out of the trash left a dead uuid in
-        // every folder that held it and in the landing-page featured
-        // pins. Same call, same place in the order: detach before the
-        // row goes, so a failure leaves the item rather than a
-        // half-detached graph.
-        await this.items.detachPurgedItemReferences(it.id);
-        await this.prisma.item.delete({ where: { id: it.id } });
-        itemsPurged += 1;
+        if (purged) itemsPurged += 1;
       } catch (err) {
         // Log + continue. We don't want one bad row to halt the
         // whole sweep; it'll get another chance on tomorrow's run.
@@ -100,13 +121,21 @@ export class TrashPurgeService {
       }
     }
 
-    const groups = await this.prisma.group.deleteMany({
+    // Group shares go with the group: item_share has no foreign key
+    // to group, so a bare group delete would leave share rows naming a
+    // principal that no longer exists.
+    const expiredGroups = await this.prisma.group.findMany({
       where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
     });
+    const groupsPurged = await purgeGroups(
+      this.prisma,
+      expiredGroups.map((g) => g.id),
+    );
 
     this.log.log(
-      `Purge swept trash older than ${retentionDays}d: items=${itemsPurged}, groups=${groups.count}`,
+      `Purge swept trash older than ${retentionDays}d: items=${itemsPurged}, groups=${groupsPurged}`,
     );
-    return { items: itemsPurged, groups: groups.count };
+    return { items: itemsPurged, groups: groupsPurged };
   }
 }
