@@ -148,4 +148,52 @@ describe('DrawingsCollabService', () => {
     const issued = await svc.mintTicket(makeUser(), 'map-1', 'set-1');
     expect(() => svc.consumeTicket(issued.ticket, 'map-1', 'other')).toThrow();
   });
+
+  it('saves the last edit as the writer who made it after only an observer is left', async () => {
+    const { svc, drawings } = makeSvc({ writable: true });
+    const writer = makeUser();
+    const wIssue = await svc.mintTicket(writer, 'map-1', 'set-1');
+    const wRec = svc.consumeTicket(wIssue.ticket, 'map-1', 'set-1');
+    await svc.join(wRec, () => undefined);
+    const oIssue = await svc.mintTicket(makeUser({ id: 'user-2' }), 'map-1', 'set-1');
+    const oRec = { ...svc.consumeTicket(oIssue.ticket, 'map-1', 'set-1'), role: 'observer' as const };
+    await svc.join(oRec, () => undefined);
+
+    const local = new Y.Doc();
+    local.getMap<string>('features').set(
+      'f9',
+      JSON.stringify({ id: 'f9', kind: 'pin', geometry: { type: 'Point', coordinates: [2, 2] } }),
+    );
+    svc.applyUpdate(
+      'map-1',
+      'set-1',
+      wRec.connectionId,
+      Buffer.from(Y.encodeStateAsUpdate(local)).toString('base64'),
+    );
+
+    // Writer closes the tab inside the debounce, then the observer.
+    svc.leave('map-1', 'set-1', wRec.connectionId);
+    svc.leave('map-1', 'set-1', oRec.connectionId);
+    await new Promise((r) => setImmediate(r));
+
+    expect(drawings.update).toHaveBeenCalledTimes(1);
+    const [author, , , patch] = drawings.update.mock.calls[0] as [
+      { kind: string; user: AuthUser },
+      string,
+      string,
+      { features: Array<{ id: string }> },
+    ];
+    expect(author.user.id).toBe('user-1');
+    expect(patch.features.map((f) => f.id)).toContain('f9');
+  });
+
+  it('does not write when the room closes with no changes', async () => {
+    const { svc, drawings } = makeSvc({ writable: true });
+    const issued = await svc.mintTicket(makeUser(), 'map-1', 'set-1');
+    const rec = svc.consumeTicket(issued.ticket, 'map-1', 'set-1');
+    await svc.join(rec, () => undefined);
+    svc.leave('map-1', 'set-1', rec.connectionId);
+    await new Promise((r) => setImmediate(r));
+    expect(drawings.update).not.toHaveBeenCalled();
+  });
 });

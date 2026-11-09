@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Environment variables the apps read that Compose deliberately does
+# not pass through. infra/check-env-passthrough.py fails on any other
+# variable that apps/portal-api or apps/portal-web reads and that is
+# missing from infra/docker-compose.prod.yml or the NAS stack.
+#
+# Format: NAME prod|nas|both reason
+# Add a line only with a reason a reviewer can check. A setting an
+# operator is told to change belongs in the compose files instead.
+
+# Set by the image, the OS or the build, not by the operator.
+PATH both system search path
+SSL_CERT_FILE both system CA bundle path, read by the script executor
+SSL_CERT_DIR both system CA directory, read by the script executor
+TAR_BIN both test hook; the image ships tar on PATH
+GG_DEPLOYMENT_ID both generated inside the portal-web Dockerfile build stage
+NEXT_PUBLIC_GG_DEPLOYMENT_ID both generated inside the portal-web Dockerfile build stage
+REQUIRED_COMPOSE_REV both baked into each image by its Dockerfile
+GG_VERSION nas baked into the published image by publish-images.yml
+GIT_SHA nas baked into the published image by publish-images.yml
+GRATIS_COMPOSE_REV prod NAS contract revision; the VPS compose has none
+GG_IMAGE_TAG both fallback for GG_CHANNEL, which both stacks set
+GITHUB_REPOSITORY both development override for the Updates page repo
+GRATIS_GIS_OSM_PRESET_CATALOG_PATH both image file layout; tests override it
+GRATIS_GIS_SAMPLE_CONTENT_PATH both image file layout; tests override it
+GRATIS_GIS_SHOWCASE_PATH both image file layout; tests override it
+
+# portal-web build-time values. The NAS stack runs images built by
+# publish-images.yml, which cannot know a NAS install's address.
+NEXT_PUBLIC_GG_VERSION nas build arg in publish-images.yml
+NEXT_PUBLIC_GITHUB_REPO nas build arg in publish-images.yml
+NEXT_PUBLIC_PROJECT_LANDING nas build arg in publish-images.yml
+NEXT_PUBLIC_PUBLIC_TESTING nas public demo banner; off in published images
+NEXT_PUBLIC_PORTAL_URL nas canonical and sitemap URLs fall back to gratisgis.org on prebuilt images
+NEXT_PUBLIC_PORTAL_API_URL both server fallback behind PORTAL_API_URL, which both stacks set
+
+# Development and diagnostics only.
+API_FETCH_TIMING both development timing log
+BFF_TIMING both development timing log
+ITEMS_LIST_TIMING both development timing log
+GRATIS_UX_FIXTURE both development page, always off in production
+BACKUP_PGDUMP_DOCKER_CONTAINER both development: runs pg_dump through docker exec from a host checkout
+COOKIE_SECURE both development override; NODE_ENV=production already sets Secure
+OIDC_ISSUER both portal-info derives it from KEYCLOAK_URL and KEYCLOAK_REALM
+PORTAL_API_BASE_URL both portal-info derives it from the request
+PORTAL_API_INTERNAL_URL both code default http://portal-api:4000 is the service name in both stacks
+PUBLIC_URL prod portal-web reads it only as a fallback behind NEXTAUTH_URL, which the prod compose sets
+KEYCLOAK_INTERNAL_URL prod portal-web reaches Keycloak through the public URL on the VPS, so the token issuer matches
+
+# Performance tuning with code defaults. Documented in .env.example.
+AGGREGATE_CACHE_TTL_MS both tuning knob with a code default
+AGGREGATE_MAX_CONCURRENT both tuning knob with a code default
+AGGREGATE_MAX_QUEUED both tuning knob with a code default
+AUTH_USER_CACHE_TTL_MS both tuning knob with a code default
+LAYER_SCHEMA_CACHE_TTL_MS both tuning knob with a code default
+TILE_CACHE_COMPUTE_TIMEOUT_MS both tuning knob with a code default
+TILE_CACHE_MAX_BYTES both tuning knob with a code default
+TILE_CACHE_MAX_CONCURRENT both tuning knob with a code default
+TILE_CACHE_MAX_ENTRIES both tuning knob with a code default
+TILE_CACHE_TTL_MS both tuning knob with a code default
+PYRAMID_CMD_TIMEOUT_SEC both tuning knob with a code default
+GRATIS_SAFE_FETCH_MAX_BYTES both tuning knob with a code default
+GRATIS_SAFE_FETCH_TIMEOUT_MS both tuning knob with a code default
+NOTIFICATIONS_BATCH_SIZE both tuning knob with a code default
+NOTIFICATIONS_MAX_ATTEMPTS both tuning knob with a code default
+NOTIFICATIONS_EXPIRY_WARNING_DAYS both tuning knob with a code default
+DB_POOL_MAX nas code default fits the NAS memory budget
+MERGE_TIMEOUT_SEC nas analysis cost model; code default
+MERGE_DOWNLOAD_MIB_PER_SEC nas analysis cost model; code default
+MERGE_UNTWINE_SEC_PER_GIB nas analysis cost model; code default
+MERGE_PER_TILE_OVERHEAD_SEC nas analysis cost model; code default
+MERGE_TIME_CEILING_SEC nas analysis cost model; code default
+MOSAIC_TIMEOUT_SEC nas analysis cost model; code default
+MOSAIC_DOWNLOAD_MIB_PER_SEC nas analysis cost model; code default
+MOSAIC_GDAL_SEC_PER_GIB nas analysis cost model; code default
+MOSAIC_PER_TILE_OVERHEAD_SEC nas analysis cost model; code default
+MOSAIC_TIME_CEILING_SEC nas analysis cost model; code default
+GRID_DOWNLOAD_MIB_PER_SEC nas analysis cost model; code default
+GRID_SEC_PER_MILLION_POINTS nas analysis cost model; code default
+GRID_SEC_PER_MILLION_CELLS nas analysis cost model; code default
+GRID_PER_CHUNK_OVERHEAD_SEC nas analysis cost model; code default
+GRID_CHUNK_CELLS nas analysis cost model; code default
+GRID_TIME_CEILING_SEC nas analysis cost model; code default
+
+# The code sets the same safe value when the variable is unset
+# (ingest/gdal-open-guard.ts).
+GDAL_DISABLE_READDIR_ON_OPEN nas gdal-open-guard sets EMPTY_DIR
+GDAL_HTTP_CONNECTTIMEOUT nas gdal-open-guard sets 2
+GDAL_HTTP_TIMEOUT nas gdal-open-guard sets 5
+CPL_VSIL_CURL_USE_HEAD nas gdal-open-guard sets NO
+GDAL_ALLOWED_DRIVERS nas gdal-open-guard sets the same driver list
+
+# The admin Integrations page stores the Overpass endpoint. The env
+# value is a fallback, and a blank one would replace the default.
+GRATIS_GIS_OSM_OVERPASS_ENDPOINT both admin Integrations page setting; env is a development fallback
+
+# Opt-in host recovery. The operator adds the status file mount and
+# these variables in a compose override (infra/recovery/README.md).
+GRATIS_RECOVERY_STATUS_FILE both set with the recovery mount in a compose override
+GRATIS_RECOVERY_NOTICE_TO both set with the recovery mount in a compose override
+GRATIS_RECOVERY_MAINTENANCE_FILE both set with the recovery mount in a compose override
+
+# ACME_EMAIL is the default for FEEDBACK_RECIPIENT_EMAIL in the prod
+# compose, which passes the result.
+ACME_EMAIL prod folded into FEEDBACK_RECIPIENT_EMAIL
+
+# Public demo features. The NAS stack is a single-operator install.
+PORTAL_FEEDBACK_ENABLED nas public demo feedback form
+FEEDBACK_RECIPIENT_EMAIL nas public demo feedback form
+FEEDBACK_IP_SALT nas public demo feedback form
+
+# Scripts run only in the VPS stack's scripts profile. The NAS stack
+# has no script-runner or script-executor.
+PORTAL_SCRIPTS_ENABLED nas no script services on NAS
+SCRIPT_EXECUTOR_PORT nas no script services on NAS
+SCRIPT_EXECUTOR_TOKEN nas no script services on NAS
+SCRIPT_EXECUTOR_URL nas no script services on NAS
+SCRIPT_MAX_LOG_BYTES nas no script services on NAS
+SCRIPT_POLL_MS nas no script services on NAS
+SCRIPT_TIMEOUT_SECONDS nas no script services on NAS
+SCRIPT_GID both code default
+SCRIPT_HOME both code default
+SCRIPT_MAX_NOTEBOOK_BYTES both code default
+SCRIPT_PAPERMILL both set by infra/script-runner/Dockerfile
+SCRIPT_PYTHON both code default
+SCRIPT_STALE_MS both code default
+SCRIPT_TMPDIR both code default
+SCRIPT_UID both code default
+
+# Print renders go to http://portal-web:3000 by default, which is the
+# NAS service name.
+PRINT_PREVIEW_BASE_URL nas code default matches the NAS service name
+
+# Forced by the code, not operator settings.
+GML_DOWNLOAD_SCHEMA both set to NO in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs
+GML_SKIP_RESOLVE_ELEMS both set to ALL in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs

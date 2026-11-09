@@ -33,6 +33,7 @@ import { AddTargetDialog } from '../editor/add-target-dialog';
 import { AddFromMapDialog } from '../editor/add-from-map-dialog';
 import { PickMapDialog } from '../editor/pick-map-dialog';
 import { ConvertToCustomButton } from '../convert-to-custom';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -316,7 +317,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         body: JSON.stringify({ data: payload }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       setDirty(false);

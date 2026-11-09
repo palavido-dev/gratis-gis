@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 import { getTypeMeta } from './notification-types.js';
+import { isPlainEmailAddress } from './email-address.js';
 
 /**
  * Public entry point for any service that wants to notify a user.
@@ -190,9 +191,9 @@ export class NotificationsService {
     address: string,
   ): Promise<void> {
     if (!this.enabled) return;
-    if (!address || !address.includes('@')) {
+    if (!isPlainEmailAddress(address)) {
       this.log.warn(
-        `notifyAddress: invalid address "${address}" for ${type}; skipping`,
+        `notifyAddress: invalid address ${JSON.stringify(address)} for ${type}; skipping`,
       );
       return;
     }

@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { UserRound } from 'lucide-react';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Thin client-side wrapper rendered in the item detail-page header
@@ -44,7 +45,7 @@ export function ReassignOwnerButton({
       });
       if (!res.ok) {
         throw new Error(
-          `Reassign failed: ${res.status} ${await res.text().catch(() => '')}`,
+          await parseApiError(res, 'Reassign failed'),
         );
       }
       setOpen(false);
