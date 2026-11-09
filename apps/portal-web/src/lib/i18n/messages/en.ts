@@ -21,6 +21,8 @@
  */
 export const en = {
   common: {
+    itemChangedElsewhere:
+      'Someone else saved this item after you opened it, so your save was not applied. Your changes are still on screen. Reload to see the latest version, then make your changes again.',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',

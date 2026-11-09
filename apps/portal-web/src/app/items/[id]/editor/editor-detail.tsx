@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -40,6 +41,8 @@ import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: EditorData;
   canEdit: boolean;
 }
@@ -68,7 +71,8 @@ interface Props {
  *   - Feature template authoring per target.
  *   - The actual editing canvas runtime.
  */
-export function EditorDetail({ itemId, initial, canEdit }: Props) {
+export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
   // The working copy. We seed `tools` from the default palette when
   // the persisted shape is older than slice 1 and missing the
@@ -363,11 +367,11 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         template: 'editor',
         config: { template: 'editor', editor },
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         setError(await parseApiError(res, 'Save failed'));
         return;
