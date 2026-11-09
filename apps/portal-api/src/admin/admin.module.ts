@@ -40,6 +40,7 @@ import { FieldQueueModule } from '../field-queue/field-queue.module.js';
 import { FieldQueueAdminController } from '../field-queue/field-queue-admin.controller.js';
 import { UpdatesController } from '../updates/updates.controller.js';
 import { UpdatesService } from '../updates/updates.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -89,6 +90,7 @@ import { UpdatesService } from '../updates/updates.service.js';
     KeycloakAdminService,
     KeycloakSyncService,
     AdminGuard,
+    OperatorOrgGuard,
     HousekeepingService,
     HousekeepingScheduleService,
     HousekeepingCronService,

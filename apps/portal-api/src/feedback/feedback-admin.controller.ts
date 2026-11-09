@@ -17,6 +17,7 @@ import type { Response } from 'express';
 import { IsIn, IsString } from 'class-validator';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -36,11 +37,15 @@ class UpdateFeedbackDto {
  * who turns the form off still needs to read, action, and delete
  * whatever came in while it was on. Gating the reader on the writer's
  * flag would strand exactly the data the flag flip was reacting to.
+ *
+ * Feedback is install-wide: anonymous reports carry no organization,
+ * and signed-in reports from every organization land in one table.
+ * Only admins of the operator organization triage it.
  */
 @ApiTags('admin')
 @ApiBearerAuth()
 @Controller('admin/feedback')
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 export class FeedbackAdminController {
   constructor(
     private readonly prisma: PrismaService,

@@ -11,7 +11,9 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Install-wide backup is not an organization admin power. The
+ * Install-wide powers (backup, maintenance, realm security and SMTP,
+ * housekeeping schedule, feedback triage and the like) are not
+ * organization admin powers. The
  * operator organization is GRATIS_OPERATOR_ORG_ID when that is set,
  * otherwise the oldest organization. A one-organization install is
  * unchanged. Admins of any later organization are not operators.
@@ -70,7 +72,7 @@ export class OperatorOrgGuard implements CanActivate {
     const orgId = await operatorOrgId(this.prisma);
     if (!user || !orgId || user.orgId !== orgId) {
       throw new ForbiddenException(
-        'Install backup is limited to admins of the operator organization.',
+        'This action is limited to admins of the operator organization.',
       );
     }
     return true;

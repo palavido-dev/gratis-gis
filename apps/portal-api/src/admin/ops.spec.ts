@@ -228,6 +228,49 @@ describe('backup failure notice', () => {
   });
 });
 
+describe('backup failure notice recipients', () => {
+  const OP = '11111111-2222-4333-8444-555555555555';
+  const OLDEST = '99999999-2222-4333-8444-555555555555';
+  afterEach(() => {
+    delete process.env.GRATIS_OPERATOR_ORG_ID;
+  });
+
+  function build() {
+    const notifyMany = jest.fn(async (_ids: string[]) => undefined);
+    const prisma = {
+      backupFailureNotice: { create: async () => undefined },
+      organization: {
+        findFirst: async (args: { where?: { id?: string } }) =>
+          args.where?.id ? { id: args.where.id } : { id: OLDEST },
+      },
+      user: {
+        findMany: async (args: { where?: { orgId?: string } }) => [
+          { id: `admin-of-${args.where?.orgId}` },
+        ],
+      },
+    };
+    const notice = new BackupFailureNotice(
+      prisma as unknown as PrismaService,
+      { notifyMany } as unknown as NotificationsService,
+    );
+    return { notice, notifyMany };
+  }
+
+  it('mails the GRATIS_OPERATOR_ORG_ID admins, not the oldest org', async () => {
+    process.env.GRATIS_OPERATOR_ORG_ID = OP;
+    const { notice, notifyMany } = build();
+    await notice.announce('run-2');
+    expect(notifyMany.mock.calls[0]?.[0]).toEqual([`admin-of-${OP}`]);
+  });
+
+  it('mails nobody when GRATIS_OPERATOR_ORG_ID is malformed', async () => {
+    process.env.GRATIS_OPERATOR_ORG_ID = 'not-a-uuid';
+    const { notice, notifyMany } = build();
+    await notice.announce('run-3');
+    expect(notifyMany.mock.calls[0]?.[0]).toEqual([]);
+  });
+});
+
 describe('storage reservation', () => {
   it('locks the org before it inserts a reservation', async () => {
     const sql: string[] = [];
