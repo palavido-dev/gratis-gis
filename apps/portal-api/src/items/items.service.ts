@@ -1251,6 +1251,13 @@ export class ItemsService {
         'Creating items requires the contributor or admin role.',
       );
     }
+    // Creating straight into org or public access is sharing, the same
+    // as widening access in update(). Every creation path (POST /items,
+    // AGO import, web map JSON import, drawing promotion) comes through
+    // here, so this one check covers them all.
+    if (input.access !== undefined && input.access !== 'private') {
+      assertCanShare(user);
+    }
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,

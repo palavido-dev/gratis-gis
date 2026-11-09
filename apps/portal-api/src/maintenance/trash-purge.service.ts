@@ -86,6 +86,15 @@ export class TrashPurgeService {
         // finds the item gone instead of half torn down.
         const purged = await this.prisma.$transaction(
           async (tx) => {
+            // This transaction sits idle while teardown runs on other
+            // connections, so the server's idle_in_transaction timeout
+            // (5 minutes in production) would kill it mid-teardown and
+            // leave a torn-down item whose row survives. Turn that off
+            // for this transaction only. Each statement here is still
+            // bounded by statement_timeout, and the whole transaction by
+            // ITEM_PURGE_TIMEOUT_MS.
+            await tx.$executeRaw`SET LOCAL idle_in_transaction_session_timeout = 0`;
+            await tx.$executeRaw`SET LOCAL statement_timeout = '60s'`;
             const claimed = await tx.$queryRaw<Array<{ id: string }>>`
               SELECT id FROM "item"
               WHERE id = ${it.id}::uuid AND deleted_at < ${cutoff}

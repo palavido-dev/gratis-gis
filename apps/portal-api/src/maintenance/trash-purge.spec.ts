@@ -17,6 +17,7 @@ function build(stillTrashed: Set<string>) {
   const deleted: string[] = [];
   const shareDeletes: unknown[] = [];
   const tx = {
+    $executeRaw: jest.fn(async () => 0),
     $queryRaw: jest.fn(async (_s: TemplateStringsArray, id: string) =>
       stillTrashed.has(id) ? [{ id }] : [],
     ),
