@@ -79,3 +79,25 @@ export async function stampAnalysisTargetFailed(
     // (which may be mid-sweep over other rows).
   }
 }
+
+/**
+ * Cancel the import an analysis handed its result to, if it has not
+ * finished. Conditional, so a finished import keeps its real outcome.
+ * The import worker checks for this between batches and rolls back.
+ */
+export async function cancelLinkedImport(
+  prisma: {
+    importJob: {
+      updateMany(args: {
+        where: { id: string; status: { in: Array<'queued' | 'running'> } };
+        data: { status: 'cancelled'; finishedAt: Date };
+      }): Promise<unknown>;
+    };
+  },
+  importJobId: string,
+): Promise<void> {
+  await prisma.importJob.updateMany({
+    where: { id: importJobId, status: { in: ['queued', 'running'] } },
+    data: { status: 'cancelled', finishedAt: new Date() },
+  });
+}
