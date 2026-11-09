@@ -14,6 +14,12 @@ changes only in major releases, additions in minors, fixes in patches.
 Every breaking change is called out in the release's changelog section
 with a line starting `Breaking:`.
 
+One exception: a security fix may change behavior on the public
+surface in a minor release when waiting for a major would leave
+deployments exposed. Each such change is still called out with
+`Breaking:`, says what to do, and is limited to closing the hole. The
+first use was v1.3.0.
+
 A patch bump contains fixes, plus additions that are off by default and
 change nothing for a deployment that ignores them. It is always a safe
 upgrade: no configuration change, no behavior change you did not ask
