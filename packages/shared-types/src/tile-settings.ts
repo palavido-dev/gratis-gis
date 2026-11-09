@@ -34,7 +34,21 @@ export interface LayerTileSettings {
   maxFeatures?: number;
   /** Browser cache lifetime for tiles, in seconds (Cache-Control max-age). */
   cacheMaxAge?: number;
+  /**
+   * Add a `labels` layer to each tile: one point per line or polygon
+   * feature, in the one tile that contains it, so the map labels each
+   * feature once instead of once per tile it crosses. Off by default.
+   * Line and polygon features in `features` then carry
+   * `_label_point: true`, which tells the map to label them from
+   * `labels`. Has no effect on point layers.
+   */
+  labelPoints?: boolean;
 }
+
+/** MVT layer name of the label points (tile settings `labelPoints`). */
+export const TILE_LABELS_LAYER = 'labels';
+/** Property marking a `features` feature that has a label point. */
+export const TILE_LABEL_POINT_PROP = '_label_point';
 
 /** Zoom bounds the tile routes accept at all. */
 export const TILE_ZOOM_MIN = 0;

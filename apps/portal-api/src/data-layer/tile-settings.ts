@@ -23,6 +23,8 @@ import {
   TILE_CACHE_DEFAULT_PRIVATE,
   TILE_CACHE_DEFAULT_PUBLIC,
   TILE_CACHE_MAX_AGE_MAX,
+  TILE_LABEL_POINT_PROP,
+  TILE_LABELS_LAYER,
   TILE_ZOOM_MAX,
   TILE_ZOOM_MIN,
   sanitizeAttributionHtml,
@@ -35,12 +37,13 @@ const SAFE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 /** Most attribute names one include param may carry. */
 const MAX_INCLUDE_NAMES = 200;
 
-const KNOWN_KEYS = new Set([
+const KNOWN_KEYS = new Set<string>([
   'fields',
   'minZoom',
   'maxZoom',
   'maxFeatures',
   'cacheMaxAge',
+  'labelPoints',
 ]);
 
 function isInt(v: unknown): v is number {
@@ -113,6 +116,11 @@ export function normalizeTileSettings(
       bad(`cacheMaxAge must be a whole number of seconds from 0 to ${TILE_CACHE_MAX_AGE_MAX}.`);
     }
     out.cacheMaxAge = v as number;
+  }
+  if (r.labelPoints !== undefined && r.labelPoints !== null) {
+    if (typeof r.labelPoints !== 'boolean') bad('labelPoints must be true or false.');
+    // Off is the default, so only `true` is stored.
+    if (r.labelPoints === true) out.labelPoints = true;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -192,6 +200,7 @@ export function readTileSettings(raw: unknown): LayerTileSettings {
   if (isInt(r.cacheMaxAge) && r.cacheMaxAge >= 0) {
     out.cacheMaxAge = Math.min(r.cacheMaxAge, TILE_CACHE_MAX_AGE_MAX);
   }
+  if (r.labelPoints === true) out.labelPoints = true;
   return out;
 }
 
@@ -241,6 +250,19 @@ export interface TilePlan {
   maxFeaturesPerTile?: number;
   /** Zoom range outside which the tile is empty, when one is set. */
   zoomRange?: { min: number; max: number };
+  /** Emit the `labels` layer (line and polygon layers only). */
+  labelPoints?: true;
+}
+
+/**
+ * Whether a layer's declared geometry can have label points. Lenient
+ * about case and Multi prefixes because the stored value has come from
+ * several importers over time.
+ */
+export function geometryTakesLabelPoints(geometryType: unknown): boolean {
+  if (typeof geometryType !== 'string') return false;
+  const g = geometryType.toLowerCase();
+  return g.includes('line') || g.includes('polygon');
 }
 
 /**
@@ -258,6 +280,8 @@ export function planTile(args: {
   declared: ReadonlyArray<TileField>;
   settings: LayerTileSettings;
   include?: string[] | '*' | null;
+  /** The layer's declared geometry type; label points need line or polygon. */
+  geometryType?: unknown;
 }): TilePlan {
   const { declared, settings, include } = args;
   let fields: TileField[];
@@ -280,6 +304,9 @@ export function planTile(args: {
       min: settings.minZoom ?? TILE_ZOOM_MIN,
       max: settings.maxZoom ?? TILE_ZOOM_MAX,
     };
+  }
+  if (settings.labelPoints === true && geometryTakesLabelPoints(args.geometryType)) {
+    plan.labelPoints = true;
   }
   return plan;
 }
@@ -327,11 +354,16 @@ export function buildTileJson(args: {
   fields: ReadonlyArray<TileField>;
   bounds?: [number, number, number, number] | null;
   attribution?: unknown;
+  /** The plan's labelPoints: adds the `labels` layer to vector_layers. */
+  labelPoints?: boolean;
 }): Record<string, unknown> {
   const minzoom = args.settings.minZoom ?? TILE_ZOOM_MIN;
   const maxzoom = args.settings.maxZoom ?? DEFAULT_ADVERTISED_MAXZOOM;
   const fields: Record<string, string> = { _global_id: 'String' };
   for (const f of args.fields) fields[f.name] = tileJsonType(f.type);
+  const featureFields: Record<string, string> = args.labelPoints
+    ? { ...fields, [TILE_LABEL_POINT_PROP]: 'Boolean' }
+    : fields;
   const doc: Record<string, unknown> = {
     tilejson: '3.0.0',
     name: args.name,
@@ -343,10 +375,22 @@ export function buildTileJson(args: {
     vector_layers: [
       {
         id: 'features',
-        fields,
+        fields: featureFields,
         minzoom,
         maxzoom,
       },
+      ...(args.labelPoints
+        ? [
+            {
+              id: TILE_LABELS_LAYER,
+              description:
+                'One point per line or polygon feature, in the tile that contains it.',
+              fields,
+              minzoom,
+              maxzoom,
+            },
+          ]
+        : []),
     ],
   };
   if (args.bounds && isValidBounds(args.bounds)) doc.bounds = args.bounds;

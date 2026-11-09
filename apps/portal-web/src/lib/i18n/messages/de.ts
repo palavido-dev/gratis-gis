@@ -479,6 +479,9 @@ export const de: Partial<CatalogShape> = {
     maxFeaturesHint: 'Die Feature-Obergrenze kann nur gesenkt werden, bis {max}.',
     cacheHint:
       'Cache von 0 bis {max} Sekunden. Kacheln eines nicht öffentlichen Layers werden immer nur privat im Browser des Betrachters zwischengespeichert.',
+    labelPoints: 'Jede Linie und jedes Polygon nur einmal beschriften',
+    labelPointsHint:
+      'Fügt den Kacheln einen Beschriftungspunkt pro Linie oder Polygon hinzu, damit ein Feature, das Kachelgrenzen kreuzt, nicht in jeder Kachel beschriftet wird. Karten beschriften dann an diesem Punkt (außer Beschriftungen entlang von Linien).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {

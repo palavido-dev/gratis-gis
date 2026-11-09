@@ -14,7 +14,7 @@
  * uses the historical range, 0 to 22, which is what every layer without
  * tile settings advertises anyway.
  */
-import { TILE_ZOOM_MAX, TILE_ZOOM_MIN } from '@gratis-gis/shared-types';
+import { TILE_LABELS_LAYER, TILE_ZOOM_MAX, TILE_ZOOM_MIN } from '@gratis-gis/shared-types';
 
 export interface SourceZoom {
   minzoom: number;
@@ -113,8 +113,10 @@ export function dataLayerVectorSource(
     minzoom: zoom.minzoom,
     maxzoom: zoom.maxzoom,
     // Vector-source promoteId is keyed by source-layer name. Our MVT
-    // emits one layer named "features", so the promote rule goes there.
-    promoteId: { features: '_global_id' },
+    // emits "features", plus "labels" when the layer's tile settings
+    // turn label points on; both carry the same _global_id, so a hover
+    // on a label point resolves to the same feature as its geometry.
+    promoteId: { features: '_global_id', [TILE_LABELS_LAYER]: '_global_id' },
   };
 }
 

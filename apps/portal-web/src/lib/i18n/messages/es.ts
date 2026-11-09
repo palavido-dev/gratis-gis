@@ -481,6 +481,9 @@ export const es: Partial<CatalogShape> = {
     maxFeaturesHint: 'El límite de entidades solo se puede reducir, hasta {max}.',
     cacheHint:
       'Caché de 0 a {max} segundos. Las teselas de una capa que no es pública siempre se guardan solo de forma privada en el navegador del usuario.',
+    labelPoints: 'Etiquetar cada línea y polígono una sola vez',
+    labelPointsHint:
+      'Añade a las teselas un punto de etiqueta por línea o polígono, para que una entidad que cruza bordes de teselas no se etiquete una vez por tesela. Los mapas etiquetan entonces desde ese punto (salvo las etiquetas colocadas a lo largo de líneas).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
