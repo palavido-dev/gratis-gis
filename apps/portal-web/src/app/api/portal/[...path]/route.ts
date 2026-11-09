@@ -12,6 +12,12 @@ import { revalidatePath } from 'next/cache';
 import { resolveRouteSession, type CookieWrite } from '@/lib/session-roll';
 import { isSessionStale } from '@/lib/session-state';
 import { mintRequestId } from '@/lib/api-error';
+import {
+  hasUnsafePathSegment,
+  isCrossOriginMutation,
+  securityResponseHeaders,
+} from '@/lib/bff-guards';
+import { PAGE_CSP } from '@/lib/content-security-policy.mjs';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -323,21 +329,6 @@ function isAnonymousDrawingMutationAllowed(
   return false;
 }
 
-/**
- * True when a path segment would collapse during URL normalization:
- * empty (from '//'), a single dot, or a double dot. WHATWG URL (and
- * therefore fetch) also treats the percent-encoded spellings '%2e',
- * '%2e%2e', '.%2e', and '%2e.' as dot segments, so those count too:
- * Next decodes catch-all segments once, meaning a double-encoded
- * '%252e%252e' arrives here as the literal text '%2e%2e' and would
- * still normalize into '..' when the upstream URL is parsed.
- */
-function isDotOrEmptySegment(segment: string): boolean {
-  if (segment === '') return true;
-  const decodedDots = segment.toLowerCase().replace(/%2e/g, '.');
-  return decodedDots === '.' || decodedDots === '..';
-}
-
 async function forward(req: NextRequest, pathSegments: string[]) {
   const { response, cookies } = await forwardInner(req, pathSegments);
   for (const c of cookies) response.cookies.set(c.name, c.value, c.options);
@@ -376,9 +367,26 @@ async function forwardInner(
   // segments introduced by an embedded decoded '/' are checked too.
   // No legitimate client sends dot or empty segments, so a flat 400
   // is safe for authenticated callers as well.
-  if (suffix.split('/').some(isDotOrEmptySegment)) {
+  // Backslashes, `?`, `#` and control characters are refused for the
+  // same reason: WHATWG URL reinterprets each of them (see
+  // isUnsafePathSegment).
+  if (hasUnsafePathSegment(suffix)) {
     return {
       response: NextResponse.json({ message: 'Bad request' }, { status: 400 }),
+      cookies: sessionCookies,
+    };
+  }
+
+  // The session cookie becomes a bearer below, so a state-changing
+  // request must come from this origin. SameSite=Lax alone lets any
+  // same-site page (another app on the NAS IP, a sibling subdomain)
+  // POST a plain form here.
+  if (isCrossOriginMutation(req.method, req.headers)) {
+    return {
+      response: NextResponse.json(
+        { message: 'Cross-origin request refused' },
+        { status: 403 },
+      ),
       cookies: sessionCookies,
     };
   }
@@ -620,6 +628,16 @@ async function forwardInner(
   // mirrored, so a 206 arrives as a 206; without Content-Range
   // the client cannot place the slice, and without ETag /
   // Accept-Ranges the reader disables range mode entirely.
+  // Protective headers portal-api sets per response (the proxies'
+  // sandbox CSP, thumbnail.svg's script-free CSP, nosniff). Dropping
+  // them would put a proxied document under the page CSP, which
+  // allows inline script.
+  for (const [name, value] of securityResponseHeaders(
+    upstream.headers,
+    PAGE_CSP,
+  )) {
+    outHeaders.set(name, value);
+  }
   const contentRange = upstream.headers.get('content-range');
   if (contentRange) outHeaders.set('content-range', contentRange);
   const acceptRanges = upstream.headers.get('accept-ranges');
