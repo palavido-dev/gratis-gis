@@ -237,12 +237,24 @@ describe('script executor isolation', () => {
     // documented way to turn the feature on had never worked.
     //
     // Asserted per service that actually reads it. portal-api gates the
-    // run endpoints and the portal-info flag; worker.main.ts gates the
-    // claimer. A flag that reaches neither is a switch wired to nothing.
-    for (const name of ['portal-api', 'portal-worker']) {
+    // run endpoints, the schedules, and the portal-info flag;
+    // script-worker.main.ts gates the claimer. A flag that reaches
+    // neither is a switch wired to nothing.
+    for (const name of ['portal-api', 'script-runner']) {
       const env = compose.services[name]?.environment ?? {};
       expect(Object.keys(env)).toContain('PORTAL_SCRIPTS_ENABLED');
     }
+  });
+
+  it('claims script runs only in the container that can reach the executor', () => {
+    // portal-worker used to start a second claimer whenever the flag was
+    // set. It shares no network with script-executor and has no token,
+    // so every run it won failed with "Could not reach the script
+    // executor", about half of all runs.
+    const src = (f: string) =>
+      readFileSync(join(__dirname, '..', f), 'utf8');
+    expect(src('worker.main.ts')).not.toMatch(/ScriptRunnerWorker/);
+    expect(src('script-worker.main.ts')).toMatch(/ScriptRunnerWorker/);
   });
 
   it('does not cut the executor off from the internet', () => {
