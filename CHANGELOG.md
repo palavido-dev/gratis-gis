@@ -8,6 +8,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- KML and KMZ imports keep the attributes stored in each placemark's
+  `ExtendedData` (both `Data` and typed `SchemaData`), not only Name and
+  Description. Each layer's extra columns are attached only when its
+  placemarks line up one to one with what GDAL read; otherwise the layer
+  imports as before. (#573)
 - Opt-in host recovery for a compose project the operator names twice.
   The real names (`gratis-gis-prod`, `gratis-gis`) are accepted, and
   each script first checks that the named project really has the
@@ -173,6 +178,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Shapefile, GeoPackage and GeoJSON imports with a date column no
+  longer fail every row ("is a date field but received an object") and
+  import with no features. Time-only fields import as text, and a layer
+  whose first feature has no geometry is no longer taken for a table.
+  (#674)
 - Stamping an import's source on a layer no longer rewrites the whole
   item document. It locks the row and changes only that layer's
   `source`, so a sync cursor bumped during the import can no longer go
