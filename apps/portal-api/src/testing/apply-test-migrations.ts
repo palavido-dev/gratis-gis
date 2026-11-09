@@ -9,7 +9,19 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { withFileLock } from './file-lock.js';
+
+/**
+ * Some migrations change cluster-wide state (ALTER ROLE sets the app
+ * role's statement_timeout). Each pg spec migrates its own database,
+ * but parallel Jest workers on one server then update the same role
+ * row and one fails with "tuple concurrently updated". Migrations run
+ * one suite at a time under this lock.
+ */
+const MIGRATION_LOCK = join(tmpdir(), 'gratis-gis-test-migrations.lock');
 
 export function rewritePartitionMigration(sql: string): string {
   const cut = sql.indexOf('SELECT partman.create_parent');
@@ -42,6 +54,10 @@ END $$;
 }
 
 export function applyTestMigrations(url: string, migrationsDir: string): void {
+  withFileLock(MIGRATION_LOCK, () => applyAll(url, migrationsDir));
+}
+
+function applyAll(url: string, migrationsDir: string): void {
   const dirs = readdirSync(migrationsDir)
     .filter((name) => name !== 'migration_lock.toml')
     .sort();
