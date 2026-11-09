@@ -3411,16 +3411,8 @@ export const es: Partial<CatalogShape> = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       'Enviar comentarios llega a la bandeja del mantenedor; no hace falta una cuenta. Discussions es el espacio de GitHub para hilos más largos.',
-    testingTitle:
-      'Esta es una instancia de prueba pública. Se restablece a un estado de referencia cada día a las 04:00 UTC.',
-    testingBodyBefore: 'Inicia sesión con',
-    testingBodyOr: 'o',
-    testingBodyAfter:
-      '. Los elementos, usuarios y ediciones que crees desaparecen en el siguiente restablecimiento. ¿Encontraste un problema? Usa el botón de comentarios en la esquina de cualquier página. No hace falta una cuenta.',
-    testingSampleLead: '¿Nuevo aquí? Abre la carpeta',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'después de iniciar sesión: un espacio de trabajo de demostración completo con capas con estilo, un mapa, un formulario con respuestas, un levantamiento de campo y aplicaciones públicas, todo basado en un pequeño condado de West Virginia.',
+    testingNotice: 'Demo pública. Se restablece cada día a las 04:00 UTC.',
+    testingSignInLink: 'Las cuentas de prueba están en la página de inicio de sesión.',
   },
   auth: {
     redirecting: 'Redirigiendo al inicio de sesión...',
