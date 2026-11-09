@@ -31,7 +31,12 @@ import type { ViewerData } from './viewer';
  * previously a Survey app, and every form's submissions are visible
  * at `/items/<formId>/responses` without a wrapping web_app item.
  */
-export type WebAppTemplate = 'editor' | 'viewer' | 'custom';
+export const WEB_APP_TEMPLATES = ['editor', 'viewer', 'custom'] as const;
+export type WebAppTemplate = (typeof WEB_APP_TEMPLATES)[number];
+
+export function isWebAppTemplate(value: unknown): value is WebAppTemplate {
+  return (WEB_APP_TEMPLATES as readonly unknown[]).includes(value);
+}
 
 /**
  * Top-level shape on a web_app's `data` field.

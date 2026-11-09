@@ -6,6 +6,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { textEnv } from '../common/env.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { ItemsService } from '../items/items.service.js';
 
@@ -50,7 +51,7 @@ export class TrashPurgeService {
    */
   async purgeExpired() {
     const retentionDays = Number(
-      this.cfg.get<string>('RECYCLE_BIN_RETENTION_DAYS', '30'),
+      textEnv(this.cfg.get<string>('RECYCLE_BIN_RETENTION_DAYS'), '30'),
     );
     if (!Number.isFinite(retentionDays) || retentionDays < 1) {
       this.log.warn(

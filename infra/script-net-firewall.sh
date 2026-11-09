@@ -68,7 +68,9 @@ case "$SCRIPT_EGRESS" in
     ;;
 esac
 
-if [[ $EUID -ne 0 ]]; then
+# The unit test drives this script against fake iptables and docker
+# binaries; nothing else should set this.
+if [[ $EUID -ne 0 && "${GG_FENCE_TEST_ALLOW_NONROOT:-}" != "1" ]]; then
   echo "FATAL: must run as root (iptables)." >&2
   exit 1
 fi
@@ -107,10 +109,12 @@ fi
 # script-runner are ours and must not be fenced. Matching them by address
 # is exact, and re-reading it every five minutes handles the address
 # changing when the container is recreated.
-# Our INPUT rules are recognised by their source lying inside the script
-# subnet. Narrow enough not to touch anybody else's firewall, and it
-# still finds rules written for an address the executor has since lost.
-GG_INPUT_MARK="${SUBNET%%.*}."
+# Our INPUT rules carry this comment, and the sweep below touches only
+# rules that carry it. An earlier version recognised them by text (any
+# INPUT line containing the subnet's first octet, "172." in practice)
+# and so deleted an operator's own `-s 172.16.0.0/12 -j DROP` every five
+# minutes.
+FENCE_TAG="gg-script-fence"
 EXECUTOR_MATCH="${GG_SCRIPT_EXECUTOR_NAME:-script-executor}"
 EXECUTOR_IPS="$(docker network inspect "$NETWORK" \
   --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}
@@ -190,19 +194,47 @@ done
 #
 # ESTABLISHED first so anything the HOST initiates toward a container
 # still gets its replies. Only script-initiated connections are refused.
-while read -r stale; do
-  [[ -z "$stale" ]] && continue
-  iptables -D INPUT -s "$stale" -j DROP 2>/dev/null || true
-  iptables -D INPUT -s "$stale" -m conntrack \
-    --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-done < <(iptables -S INPUT 2>/dev/null \
-  | awk -v n="$GG_INPUT_MARK" '$0 ~ n {for (i=1;i<NF;i++) if ($i=="-s") print $(i+1)}' \
-  | sort -u)
+# Remove one INPUT rule given in `iptables -S` form.
+delete_input_rule() {
+  local rule="$1"
+  local -a spec
+  read -ra spec <<< "${rule#-A INPUT }"
+  iptables -D INPUT "${spec[@]}" 2>/dev/null || true
+}
+
+# Our own rules, by tag. This also finds rules written for an address
+# the executor has since lost.
+while IFS= read -r rule; do
+  [[ -n "$rule" ]] && delete_input_rule "$rule"
+done < <(iptables -S INPUT 2>/dev/null | grep -F -- "--comment $FENCE_TAG" || true)
+
+# One-time cleanup of rules written by versions before the tag. Only the
+# exact two shapes those versions wrote, untagged, for a single address
+# that lies inside the script subnet by arithmetic, not by text.
+while IFS= read -r rule; do
+  [[ -n "$rule" ]] && delete_input_rule "$rule"
+done < <(iptables -S INPUT 2>/dev/null | awk -v subnet="$SUBNET" '
+  function ip2n(ip,   a) { split(ip, a, "."); return ((a[1] * 256 + a[2]) * 256 + a[3]) * 256 + a[4] }
+  BEGIN {
+    split(subnet, s, "/")
+    size = 2 ^ (32 - s[2])
+    net = int(ip2n(s[1]) / size) * size
+  }
+  $1 == "-A" && $2 == "INPUT" && $3 == "-s" {
+    drop = (NF == 6 && $5 == "-j" && $6 == "DROP")
+    est = (NF == 10 && $5 == "-m" && $6 == "conntrack" && $7 == "--ctstate" \
+           && $8 ~ /ESTABLISHED/ && $8 ~ /RELATED/ && $9 == "-j" && $10 == "ACCEPT")
+    if (!drop && !est) next
+    split($4, h, "/")
+    if (h[2] != "32") next
+    n = ip2n(h[1])
+    if (n >= net && n < net + size) print
+  }')
 
 for ip in $EXECUTOR_IPS; do
-  iptables -I INPUT 1 -s "$ip" -j DROP
+  iptables -I INPUT 1 -s "$ip" -m comment --comment "$FENCE_TAG" -j DROP
   iptables -I INPUT 1 -s "$ip" -m conntrack \
-    --ctstate ESTABLISHED,RELATED -j ACCEPT
+    --ctstate ESTABLISHED,RELATED -m comment --comment "$FENCE_TAG" -j ACCEPT
 done
 
 echo "Script executor(s) fenced: $(echo $EXECUTOR_IPS | tr '\n' ' ')"

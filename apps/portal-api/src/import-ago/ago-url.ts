@@ -114,3 +114,55 @@ export function buildAgoAuthorizeUrl(args: {
   }
   return `${args.sharingRestBase}/oauth2/authorize?${params.toString()}`;
 }
+
+/**
+ * Origins an AGO token may be sent to for one import: the portal
+ * itself, plus any federated server the portal lists. ArcGIS clients
+ * only attach a portal token to the portal and its trusted servers.
+ * Anything else (a county or partner ArcGIS Server registered as a
+ * referenced item) is probed anonymously, so the token never lands in a
+ * third party's access log.
+ */
+export function agoTokenOrigins(
+  portalUrl: string,
+  serverUrls: readonly string[] = [],
+): Set<string> {
+  const out = new Set<string>();
+  for (const raw of [portalUrl, ...serverUrls]) {
+    try {
+      out.add(new URL(raw).origin);
+    } catch {
+      // Not a URL; nothing to trust.
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether the token may travel to `url`. Same origin as the portal or a
+ * listed server, or, when the portal is ArcGIS Online, an HTTPS host
+ * under arcgis.com (hosted services live on services*.arcgis.com and
+ * tiles.arcgis.com, run by the same operator as the portal).
+ */
+export function agoTokenMayGoTo(
+  url: string,
+  portalUrl: string,
+  trustedOrigins: ReadonlySet<string>,
+): boolean {
+  let target: URL;
+  let portal: URL;
+  try {
+    target = new URL(url);
+    portal = new URL(portalUrl);
+  } catch {
+    return false;
+  }
+  if (trustedOrigins.has(target.origin)) return true;
+  const isAgo = (host: string) =>
+    host === 'arcgis.com' || host.endsWith('.arcgis.com');
+  return (
+    target.protocol === 'https:' &&
+    isAgo(portal.hostname.toLowerCase()) &&
+    isAgo(target.hostname.toLowerCase())
+  );
+}
