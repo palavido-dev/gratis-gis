@@ -43,6 +43,8 @@ import {
 import { requestAbortSignal } from '../common/request-signal.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
+import { ItemsService } from '../items/items.service.js';
+import { redactItemData } from '../items/item-data-redact.js';
 import {
   PUBLIC_TIER_SELECT,
   publicTierGeoLimit,
@@ -65,6 +67,7 @@ export class PublicController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly v3: DataLayerFeaturesService,
+    private readonly itemsService: ItemsService,
   ) {}
 
   /**
@@ -283,7 +286,20 @@ export class PublicController {
     // meta.ui is the shared presentation contract for web / QGIS /
     // MCP (docs/meta-ui.md); computed here so anon detail matches
     // the authenticated GET /api/items/:id shape.
-    return withMetaUi(synthesizeThumbnailUrl(item));
+    // Same reader view a signed-in non-editor gets: per-layer access
+    // applied to a map (custom-access layers and their rosters do not
+    // reach an anonymous reader), and server-only fields such as
+    // anonymous markup tokens removed. Without this, signing out
+    // showed more than signing in.
+    const data =
+      item.type === 'map'
+        ? await this.itemsService.filterMapForViewer(null, item.data)
+        : item.data;
+    const safe = {
+      ...item,
+      data: redactItemData(item.type, data, { canEdit: false }) as typeof item.data,
+    };
+    return withMetaUi(synthesizeThumbnailUrl(safe));
   }
 
   /**
