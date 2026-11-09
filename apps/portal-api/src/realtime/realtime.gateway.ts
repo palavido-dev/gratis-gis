@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Logger } from '@nestjs/common';
+import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -166,6 +166,16 @@ export class RealtimeGateway
       this.send(client, { type: 'error', message: `Unknown type: ${msg.type}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Request failed';
+      // The socket was authorized once, at connect. A heartbeat that
+      // fails the read check means access was revoked (or the map was
+      // trashed) since then: stop pushing the roster and close.
+      if (err instanceof ForbiddenException || err instanceof NotFoundException) {
+        st.unsubscribe();
+        this.state.delete(client);
+        void this.realtime.leave(st.user, st.mapId, st.connectionId).catch(() => undefined);
+        this.close(client, message);
+        return;
+      }
       this.send(client, { type: 'error', message });
     }
   }
