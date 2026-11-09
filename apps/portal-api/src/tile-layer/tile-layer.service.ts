@@ -20,9 +20,13 @@ import type {
 import { isTileLayerData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { ItemsService } from '../items/items.service.js';
+import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { assertServerHeavyTier } from '../analysis/analysis-tiers.js';
 import {
@@ -167,6 +171,15 @@ export class TileLayerService {
     if (!input.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
       throw new BadRequestException('storageKey is not a tile-layer upload');
     }
+    // The prefix alone does not make the key this caller's: another
+    // item's key is readable by anyone who can read that item, and
+    // finalize deletes the source once it converts.
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      [input.storageKey],
+      itemDataStorageKeys(item.data),
+    );
     if (typeof input.storageUrl !== 'string' || input.storageUrl.length === 0) {
       throw new BadRequestException('storageUrl is required');
     }
@@ -248,7 +261,12 @@ export class TileLayerService {
         // source TIFF / JP2 once the COG has landed.  A failed
         // delete leaks bytes but doesn't break the item.
         try {
-          await this.storage.deleteObject(input.storageKey);
+          await deleteIfUnreferenced(
+            this.prisma,
+            this.storage,
+            input.storageKey,
+            { itemId },
+          );
         } catch (err) {
           this.log.warn(
             `Failed to delete original upload ${input.storageKey}: ${err instanceof Error ? err.message : err}`,
@@ -734,6 +752,12 @@ export class TileLayerService {
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     const item = await this.assertMosaicTarget(user, itemId, 'build');
     const sources = validateMosaicSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      sources.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
     // A rebuild over already-registered sources (the failed-build
     // retry path) keeps each source's original addedAt instead of
     // restamping history.
@@ -763,6 +787,12 @@ export class TileLayerService {
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     const item = await this.assertMosaicTarget(user, itemId, 'add');
     const added = validateMosaicSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      added.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
     const prev = isTileLayerData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding images to a layer that was a single-file upload: fold
@@ -1113,7 +1143,9 @@ export class TileLayerService {
       return;
     }
     try {
-      await this.storage.deleteObject(tl.storageKey);
+      await deleteIfUnreferenced(this.prisma, this.storage, tl.storageKey, {
+        itemId,
+      });
     } catch (err) {
       this.log.warn(
         `Failed to delete tile_layer storage object for item ${itemId}: ${err instanceof Error ? err.message : err}`,
