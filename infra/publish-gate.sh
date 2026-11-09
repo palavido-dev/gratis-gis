@@ -15,7 +15,10 @@
 #
 # Writes publish, sha, ref_type and ref_name to GITHUB_OUTPUT. A
 # workflow_run that should not publish exits 0 with publish=false;
-# a tag push or manual run that should not publish exits 1.
+# a tag push or manual run that should not publish exits 1. A tag
+# push or manual run waits up to GATE_WAIT_SECONDS (default 3600) for
+# CI and Security on its commit to finish, polling every
+# GATE_POLL_SECONDS (default 30).
 #
 #   bash infra/publish-gate.test.sh
 set -euo pipefail
@@ -45,15 +48,33 @@ case "$EVENT" in
     ;;
   *) refuse "Unexpected event $EVENT." ;;
 esac
+# A tag goes on the release commit minutes after it merges, while CI
+# and Security on that commit are still running, so a tag push (or a
+# manual run) waits for them instead of refusing at once. Before this
+# every release tag failed here and needed a manual re-run. A
+# workflow_run never waits: the run that is still going starts this
+# workflow again when it finishes.
+wait_left="${GATE_WAIT_SECONDS:-3600}"
+poll="${GATE_POLL_SECONDS:-30}"
+status_of() {
+  gh api "repos/$repo/actions/workflows/$1/runs?head_sha=$sha&event=push&branch=main&per_page=20" \
+    --jq '[.workflow_runs[]] | sort_by(.created_at) | last | if . == null then "missing" else "\(.status) \(.conclusion)" end'
+}
 for wf in ci.yml security.yml; do
-  # Latest push run of this workflow on main for this commit.
-  row="$(gh api "repos/$repo/actions/workflows/$wf/runs?head_sha=$sha&event=push&branch=main&per_page=20" \
-    --jq '[.workflow_runs[]] | sort_by(.created_at) | last | if . == null then "missing" else "\(.status) \(.conclusion)" end')"
+  row="$(status_of "$wf")"
+  if [ "$EVENT" != workflow_run ]; then
+    while [ "${row%% *}" != completed ] && [ "$row" != missing ] && [ "$wait_left" -gt 0 ]; do
+      echo "$wf is ${row%% *} on $sha; checking again in ${poll}s (${wait_left}s left)."
+      sleep "$poll"
+      wait_left=$((wait_left - poll))
+      row="$(status_of "$wf")"
+    done
+  fi
   case "$row" in
     "completed success") echo "$wf passed on $sha" ;;
     missing) [ "$EVENT" = workflow_run ] && skip "$wf has no push run for $sha." || refuse "$wf has no push run on main for $sha." ;;
     completed*) [ "$EVENT" = workflow_run ] && skip "$wf concluded ${row#completed } on $sha." || refuse "$wf concluded ${row#completed } on $sha." ;;
-    *) [ "$EVENT" = workflow_run ] && skip "$wf is still running on $sha; its completion starts this workflow again." || refuse "$wf is still running on $sha. Try again when it finishes." ;;
+    *) [ "$EVENT" = workflow_run ] && skip "$wf is still running on $sha; its completion starts this workflow again." || refuse "$wf is still running on $sha after waiting. Try again when it finishes." ;;
   esac
 done
 {

@@ -42,15 +42,22 @@ permissions:
   contents: read
   packages: write
 
+# One group per commit, whatever triggered the run. A release tag and
+# main share a commit, and once the tag waits for CI both publish
+# runs start together. Side by side they pushed the same images at
+# once, and on v1.3.0 GitHub never created script-runner in either.
+# Queued, the second run starts after the first finishes.
 concurrency:
-  group: publish-images-${{ github.event.workflow_run.head_sha || github.ref }}
+  group: publish-images-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   gate:
     name: CI and Security passed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # A tag push waits up to an hour for CI and Security on its commit
+    # (infra/publish-gate.sh), so the job needs more than that.
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read

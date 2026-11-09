@@ -20,7 +20,17 @@ cat > "$work/bin/gh" <<'GH'
 url="$2"
 case "$url" in
   */commits/main) echo "$FAKE_TIP" ;;
-  */workflows/ci.yml/runs*) echo "$FAKE_CI" ;;
+  */workflows/ci.yml/runs*)
+    # FAKE_CI_AFTER: answer FAKE_CI for this many calls, then
+    # "completed success" (a run that finishes while the gate waits).
+    n=0; [ -f "$HOME/ci-calls" ] && n="$(cat "$HOME/ci-calls")"
+    echo $((n + 1)) > "$HOME/ci-calls"
+    if [ -n "${FAKE_CI_AFTER:-}" ] && [ "$n" -ge "$FAKE_CI_AFTER" ]; then
+      echo "completed success"
+    else
+      echo "$FAKE_CI"
+    fi
+    ;;
   */workflows/security.yml/runs*) echo "$FAKE_SEC" ;;
   *) echo "unexpected gh call: $*" >&2; exit 2 ;;
 esac
@@ -37,10 +47,12 @@ run() {
   shift 3
   local out="$work/out" code=0
   : > "$out"
+  rm -f "$work/ci-calls"
   env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work" \
     GITHUB_REPOSITORY=palavido-dev/gratis-gis GITHUB_OUTPUT="$out" \
     FAKE_TIP="$SHA" FAKE_CI="completed success" FAKE_SEC="completed success" \
     RUN_EVENT=push RUN_REPO=palavido-dev/gratis-gis RUN_CONCLUSION=success RUN_SHA="$SHA" \
+    GATE_WAIT_SECONDS=0 GATE_POLL_SECONDS=0 \
     "$@" bash "$gate" > "$work/log" 2>&1 || code=$?
   local publish
   publish="$(sed -n 's/^publish=//p' "$out" | tail -1)"
@@ -76,6 +88,15 @@ grep -q '^ref_type=tag$' "$work/out" && grep -q '^ref_name=v1.2.3$' "$work/out" 
 run "release tag with red CI is refused" 1 false EVENT=push \
   GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
   FAKE_CI="completed failure"
+run "release tag waits for CI that is still running" 0 true EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="in_progress null" FAKE_CI_AFTER=2 GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+run "release tag gives up when CI is still running after the wait" 1 false EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="in_progress null"
+run "release tag that waits and then sees red CI is refused" 1 false EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="completed failure" GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
 run "branch push is refused" 1 false EVENT=push \
   GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main GITHUB_REF_TYPE=branch GITHUB_SHA="$SHA"
 
