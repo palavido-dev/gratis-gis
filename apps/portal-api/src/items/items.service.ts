@@ -17,7 +17,7 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
-import { hasCapability } from '../auth/capabilities.js';
+import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
 import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
 import { SharingService } from './sharing.service.js';
@@ -1303,6 +1303,13 @@ export class ItemsService {
         'Creating items requires the contributor or admin role.',
       );
     }
+    // Creating straight into org or public access is sharing, the same
+    // as widening access in update(). Every creation path (POST /items,
+    // AGO import, web map JSON import, drawing promotion) comes through
+    // here, so this one check covers them all.
+    if (input.access !== undefined && input.access !== 'private') {
+      assertCanShare(user);
+    }
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -1906,6 +1913,16 @@ export class ItemsService {
           'This item changed since you loaded it. Refresh to see the latest version, then apply your change again.',
         );
       }
+    }
+
+    // Widening access (to org or public) is sharing, so it needs the
+    // same capability as share(). Narrowing to private never does.
+    if (
+      input.access !== undefined &&
+      input.access !== item.access &&
+      input.access !== 'private'
+    ) {
+      assertCanShare(user);
     }
 
     // Form-paired data_layer access invariant.  A form's "submissions"
@@ -3201,10 +3218,29 @@ export class ItemsService {
     // org boundaries.
     const newOwner = await this.prisma.user.findUnique({
       where: { id: input.newOwnerId },
-      select: { id: true, orgId: true, username: true, fullName: true },
+      select: {
+        id: true,
+        orgId: true,
+        username: true,
+        fullName: true,
+        orgRole: true,
+        deletedAt: true,
+        capabilityOverrides: { select: { capability: true, enabled: true } },
+      },
     });
-    if (!newOwner) {
+    if (!newOwner || newOwner.deletedAt !== null) {
       throw new BadRequestException('Unknown user');
+    }
+    // Owners can do anything to their own items, so the new owner must
+    // be someone allowed to create items in the first place.
+    if (
+      !effectiveCapabilities(newOwner.orgRole, newOwner.capabilityOverrides).has(
+        'can_publish_items',
+      )
+    ) {
+      throw new BadRequestException(
+        'The new owner must be a contributor or admin.',
+      );
     }
     if (newOwner.orgId !== item.orgId) {
       throw new BadRequestException(
@@ -3317,7 +3353,8 @@ export class ItemsService {
     if (!this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
-    await this.assertPrincipalExists(input.principalType, input.principalId);
+    assertCanShare(user);
+    await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit
     // "clear" signal and DOES pass through to Prisma.
@@ -3486,16 +3523,30 @@ export class ItemsService {
     });
   }
 
-  private async assertPrincipalExists(type: PrincipalType, id: string) {
+  /**
+   * A share target must be a live user or group in the item's own
+   * organization. Shares are honoured regardless of org on the read
+   * side, so a cross-org principal here would hand another tenant
+   * access; group membership refuses cross-org members for the same
+   * reason. A removed user is not a valid target either.
+   */
+  private async assertPrincipalExists(
+    type: PrincipalType,
+    id: string,
+    orgId: string,
+  ) {
     if (type === 'user') {
-      const hit = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      const hit = await this.prisma.user.findFirst({
+        where: { id, orgId, deletedAt: null },
+        select: { id: true },
+      });
       if (!hit) throw new BadRequestException('Unknown user principal');
     } else if (type === 'group') {
       // A trashed group should not be a valid share target; treat it as
       // unknown so clients can't create new references to something that
       // will disappear on purge.
       const hit = await this.prisma.group.findFirst({
-        where: { id, deletedAt: null },
+        where: { id, orgId, deletedAt: null },
         select: { id: true },
       });
       if (!hit) throw new BadRequestException('Unknown group principal');
@@ -4130,4 +4181,11 @@ export async function carryLayerSyncVersions(
     },
   );
   return { ...(next as object), layers } as Prisma.InputJsonValue;
+}
+
+/** Sharing an item, or widening its access, needs can_share_items. */
+function assertCanShare(user: AuthUser): void {
+  if (!hasCapability(user, 'can_share_items')) {
+    throw new ForbiddenException('You do not have permission to share items.');
+  }
 }
