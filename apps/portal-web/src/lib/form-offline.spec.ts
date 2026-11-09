@@ -9,6 +9,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import {
+  ANONYMOUS_SUBMISSION_OWNER,
   countForeignSubmissions,
   countUnsentSubmissions,
   drain,
@@ -43,7 +44,7 @@ describe('form outbox ownership', () => {
     const row = await capture('alice');
     expect(row.ownerUserId).toBe('alice');
     const anon = await capture(null);
-    expect(anon.ownerUserId).toBeUndefined();
+    expect(anon.ownerUserId).toBe(ANONYMOUS_SUBMISSION_OWNER);
   });
 
   it("never sends one account's responses under another's session", async () => {
@@ -81,6 +82,27 @@ describe('form outbox ownership', () => {
     expect(await removeForeignSubmissions('bob')).toBe(1);
     expect(await countForeignSubmissions('bob')).toBe(0);
     expect(await countUnsentSubmissions('bob')).toBe(1);
+  });
+});
+
+describe('responses captured with no account', () => {
+  it('are shown but never sent under a later account', async () => {
+    await capture(null);
+    const send = jest.fn(async () => {});
+    await drain('form-1', 'bob', send);
+    await drain('form-1', null, send);
+    expect(send).not.toHaveBeenCalled();
+    const shown = await listQueued('bob');
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.ownerUserId).toBe(ANONYMOUS_SUBMISSION_OWNER);
+  });
+
+  it('are not counted as another account or as sendable work', async () => {
+    await capture(null);
+    expect(await countForeignSubmissions('bob')).toBe(0);
+    expect(await countUnsentSubmissions('bob')).toBe(0);
+    expect(await removeForeignSubmissions('bob')).toBe(0);
+    expect(await listQueued('bob')).toHaveLength(1);
   });
 });
 

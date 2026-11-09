@@ -167,6 +167,14 @@ describe('service worker offline-queue contract', () => {
       /const rows = allRows\.filter\(\(r\) => isQueueRowOwnedBy\(r, identity\)\)/,
     );
     expect(body).toMatch(/const canClaim = \(r\) =>\s+isQueueRowOwnedBy\(r, identity\) &&/);
+    // A row captured with no account (form-offline.ts
+    // ANONYMOUS_SUBMISSION_OWNER) is never sent under a signed-in one.
+    const owned = liftFunction<(row: object, id: string | null) => boolean>(
+      sw,
+      'isQueueRowOwnedBy',
+    );
+    expect(owned({ ownerUserId: 'anonymous' }, 'bob')).toBe(false);
+    expect(owned({ ownerUserId: 'anonymous' }, null)).toBe(false);
   });
 
   it('leaves features alone while they still owe a file upload', () => {

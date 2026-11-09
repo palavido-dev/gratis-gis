@@ -52,6 +52,21 @@ export interface QueuedSubmission {
   ownerUserId?: string;
 }
 
+/**
+ * Owner stamped on a response captured while no account was known
+ * (nobody signed in, or the identity could not be read). No portal
+ * user id can equal it. Such a row is listed so it is not lost, but it
+ * is never sent: sending it with whichever session the device holds
+ * later would record that person as the respondent, and the form
+ * submission endpoint has no anonymous mode to send it under instead.
+ */
+export const ANONYMOUS_SUBMISSION_OWNER = 'anonymous';
+
+/** True for a row captured without an account (see above). */
+export function isAnonymousSubmission(row: { ownerUserId?: string }): boolean {
+  return row.ownerUserId === ANONYMOUS_SUBMISSION_OWNER;
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDb(): Promise<IDBDatabase> {
@@ -109,8 +124,8 @@ export async function queueSubmission(opts: {
   formId: string;
   schemaVersion: number;
   response: Record<string, unknown>;
-  /** The device identity (getOfflineIdentity), or null when nobody
-   *  is signed in. */
+  /** The capturing account, or null when none is known; a null owner
+   *  is stored as ANONYMOUS_SUBMISSION_OWNER and the row is held. */
   ownerUserId: string | null;
 }): Promise<QueuedSubmission> {
   const db = await openDb();
@@ -123,7 +138,7 @@ export async function queueSubmission(opts: {
     status: 'queued',
     attempts: 0,
   };
-  if (opts.ownerUserId) row.ownerUserId = opts.ownerUserId;
+  row.ownerUserId = opts.ownerUserId || ANONYMOUS_SUBMISSION_OWNER;
   await new Promise<void>((resolve, reject) => {
     const r = tx(db, 'readwrite').add(row);
     r.onsuccess = () => resolve();
@@ -141,11 +156,24 @@ async function listAll(): Promise<QueuedSubmission[]> {
   });
 }
 
-/** Queued submissions the given account may see and send. */
+/** Queued submissions the given account may see: its own, legacy
+ *  rows with no owner, and rows captured without an account (shown so
+ *  they are not lost, never sent; see ANONYMOUS_SUBMISSION_OWNER). */
 export async function listQueued(
   currentUserId: string | null,
 ): Promise<QueuedSubmission[]> {
-  return (await listAll()).filter((r) => isQueueRowOwnedBy(r, currentUserId));
+  return (await listAll()).filter(
+    (r) => isAnonymousSubmission(r) || isQueueRowOwnedBy(r, currentUserId),
+  );
+}
+
+/** Queued submissions the given account may send. */
+function listSendable(currentUserId: string | null): Promise<QueuedSubmission[]> {
+  return listAll().then((rows) =>
+    rows.filter(
+      (r) => !isAnonymousSubmission(r) && isQueueRowOwnedBy(r, currentUserId),
+    ),
+  );
 }
 
 /** Unsent submissions that belong to `currentUserId` (or to nobody).
@@ -153,12 +181,16 @@ export async function listQueued(
 export async function countUnsentSubmissions(
   currentUserId: string | null,
 ): Promise<number> {
-  return (await listQueued(currentUserId)).filter((r) => r.status !== 'sent')
+  return (await listSendable(currentUserId)).filter((r) => r.status !== 'sent')
     .length;
 }
 
 function isForeign(row: QueuedSubmission, currentUserId: string): boolean {
-  return row.ownerUserId !== undefined && row.ownerUserId !== currentUserId;
+  return (
+    row.ownerUserId !== undefined &&
+    !isAnonymousSubmission(row) &&
+    row.ownerUserId !== currentUserId
+  );
 }
 
 /** Unsent submissions another account left on this device. */
@@ -249,7 +281,7 @@ export async function drain(
   currentUserId: string | null,
   send: (s: QueuedSubmission) => Promise<void>,
 ): Promise<{ sent: number; failed: number; remaining: number }> {
-  const all = await listQueued(currentUserId);
+  const all = await listSendable(currentUserId);
   const mine = all.filter((r) => r.formId === formId && r.status !== 'sent');
   let sent = 0;
   let failed = 0;

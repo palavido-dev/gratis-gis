@@ -68,5 +68,10 @@ export default async function FormRespondPage(props: Props) {
       </div>
     );
   }
-  return <RespondClient form={schema} formItemTitle={item.title} />;
+  // The account submitting, so an offline response is stamped with it
+  // even before the device identity guard has caught up.
+  const me = await apiFetch<{ id: string }>('/api/users/me').catch(() => null);
+  return (
+    <RespondClient form={schema} formItemTitle={item.title} userId={me?.id ?? null} />
+  );
 }
