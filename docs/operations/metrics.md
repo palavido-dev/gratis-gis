@@ -35,6 +35,9 @@ route stays off.
 - Requests need `Authorization: Bearer <METRICS_TOKEN>`. The token is
   compared in constant time. A missing or wrong token gets 401, and a
   client that keeps guessing gets 429 for the rest of the minute.
+  The block is per address and applies before the token is checked,
+  so a correct scraper on the same address as a failing one is
+  refused too.
 - The route is outside the `/api` prefix. Neither shipped Caddy config
   routes it, and both answer `/metrics` with 404 at the edge on
   purpose. Do not add a Caddy route for it. Prometheus scrapes each API
@@ -44,8 +47,10 @@ route stays off.
 - portal-api is also on the scripts network, so user scripts can open a
   connection to `portal-api:4000`. The token is what keeps them out;
   it is never passed to the script containers.
-- Rotate the token by changing it in both the env file and the
-  Prometheus secret file, then restarting portal-api.
+- Rotate the token by changing it in the env file and in every
+  Prometheus job's secret file at the same time, then restarting
+  portal-api. A job left on the old token fails every scrape, and from
+  the same address that soon gets the updated jobs a 429 as well.
 
 ## Scrape config
 

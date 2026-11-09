@@ -47,9 +47,15 @@ export function bearerMatches(header: unknown, token: string): boolean {
 
 /**
  * Fixed-window counter of failed token checks per client address. A
- * scraper with the right token is never limited; a caller guessing
- * tokens gets 429 after `limit` misses in a window. The map is cleared
- * every window, so it cannot grow past one window's distinct callers.
+ * caller guessing tokens gets 429 after `limit` misses in a window. The
+ * map is cleared every window, so it cannot grow past one window's
+ * distinct callers.
+ *
+ * The block is per address and is checked before the token, so a
+ * scraper with the right token is also refused while anything else on
+ * the same address is over the limit (for example a second scrape job
+ * still sending the old token after a rotation). Checking the token
+ * first would let a guesser keep testing tokens, so the order stays.
  */
 export class FailedAuthLimiter {
   private windowStart = 0;

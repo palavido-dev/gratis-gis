@@ -9,7 +9,8 @@ import {
 } from '@prometheus-io/client';
 
 // A value import: Nest reads the constructor's parameter types at
-// runtime to inject PrismaService.
+// runtime to inject PrismaService, so `import type` would break DI.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import { PrismaService, type DbPoolStats } from '../prisma/prisma.service.js';
 import { FAILED_WINDOW_SECONDS, JOB_TYPES, JobMetricsReader } from './job-metrics.js';
 
