@@ -256,7 +256,15 @@ client and the server get it too:
   before the stamp existed carry none; the app computes the same
   value locally through `form.requirement` in that case, which is
   also what it does for the auto-generated no-authoring forms.
-- The app compares against its own `ENGINE_VERSION`. A collection whose
+- A behaviour change to a feature that already existed (version 2: a
+  required signature is validated) bumps `ENGINE_VERSION` and is
+  registered in `BEHAVIOUR_ENGINE_VERSION` with a walker rule naming
+  the forms it affects. A bump with no registered rule changes no
+  stamp, so no client would ever be gated.
+- The app compares the higher of the stamp and its own
+  `form.requirement` result against its own `ENGINE_VERSION`
+  (`FormViewModel.load`). A form saved before a later bump keeps its
+  old stamp until it is saved again. A collection whose
   forms need a newer engine opens in drain-only mode: queued records
   still sync, capture is disabled, and the message says to update the
   app. Never silently evaluate with an older engine.
