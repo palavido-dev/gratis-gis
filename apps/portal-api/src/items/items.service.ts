@@ -74,6 +74,11 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertScheduleChangeAllowed,
+  provenanceOnReassign,
+  stampScriptProvenance,
+} from '../scripts/script-provenance.js';
 import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
@@ -1374,6 +1379,16 @@ export class ItemsService {
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
     assertRenderSafeData(input.type, resolvedData);
+    // The creator owns the item, so the code it starts with is theirs.
+    // Overwrites anything the client sent for the server-owned field.
+    if (input.type === 'script') {
+      resolvedData = stampScriptProvenance({
+        ownerId: user.id,
+        editorId: user.id,
+        prevData: null,
+        nextData: resolvedData,
+      }) as Prisma.InputJsonValue;
+    }
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
     }
@@ -1970,6 +1985,19 @@ export class ItemsService {
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData, item.data);
     assertRenderSafeData(item.type, nextData);
+    // A scheduled script runs with its owner's key. Record who wrote the
+    // code so the scheduler can refuse code the owner did not write, and
+    // keep the schedule itself in the owner's hands.
+    if (input.data !== undefined && item.type === 'script') {
+      const provenance = {
+        ownerId: item.ownerId,
+        editorId: user.id,
+        prevData: item.data,
+        nextData: input.data,
+      };
+      assertScheduleChangeAllowed(provenance);
+      nextData = stampScriptProvenance(provenance) as Prisma.InputJsonValue;
+    }
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -3194,7 +3222,20 @@ export class ItemsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.item.update({
         where: { id },
-        data: { ownerId: input.newOwnerId },
+        data: {
+          ownerId: input.newOwnerId,
+          // A scheduled script runs with its owner's key. The new owner
+          // did not write this code, so record who did; scheduled runs
+          // stay paused until the new owner saves it.
+          ...(item.type === 'script'
+            ? {
+                data: provenanceOnReassign(
+                  item.data,
+                  prevOwnerId,
+                ) as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
       if (input.keepPreviousOwnerAccess) {
         await tx.itemShare.upsert({
