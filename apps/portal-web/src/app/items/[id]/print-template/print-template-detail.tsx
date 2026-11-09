@@ -24,6 +24,7 @@
  *     WYSIWYG-ish DOM render; runtime renders to PDF separately)
  */
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import {
   useCallback,
   useEffect,
@@ -78,6 +79,8 @@ import {
 
 interface PrintTemplateDetailProps {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initialBlueprint: PrintTemplateData;
   seedKind: string | null;
   canEdit: boolean;
@@ -211,10 +214,12 @@ interface ActiveGesture {
 
 export function PrintTemplateDetail({
   itemId,
+  updatedAt,
   initialBlueprint,
   seedKind,
   canEdit,
 }: PrintTemplateDetailProps) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
   const [data, setData] = useState<PrintTemplateData>(() => initialBlueprint);
   const [dirty, setDirty] = useState(false);
@@ -247,11 +252,11 @@ export function PrintTemplateDetail({
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data }),
-      });
+      const res = await patchItem({ data });
+      if (isStaleItemSave(res)) {
+        setSaveError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} ${txt}`);
@@ -262,7 +267,7 @@ export function PrintTemplateDetail({
     } finally {
       setSaving(false);
     }
-  }, [canEdit, data, itemId]);
+  }, [canEdit, data, patchItem, t]);
 
   // ---- Element CRUD ----------------------------------------------
 

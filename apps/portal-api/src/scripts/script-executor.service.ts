@@ -55,15 +55,65 @@ export interface ExecuteResult {
  * design could open a socket to postgres:5432 with no credentials;
  * verified, not theorised. Credentials were never the whole story.
  */
+/** How long to keep reading output after the interpreter exits. */
+const EXIT_DRAIN_MS = 2000;
+
 @Injectable()
 export class ScriptExecutorService {
   private readonly log = new Logger(ScriptExecutorService.name);
+  /**
+   * Tail of the run queue. Every run waits for the one before it to
+   * finish, including its uid sweep, before it starts.
+   *
+   * Every run executes as the same script uid, and a process of that
+   * uid can read /proc/<pid>/environ of any other, which holds
+   * GRATISGIS_API_KEY. So two runs must never be alive at once. The
+   * claimer is meant to send one run at a time, but that is a property
+   * of a different process. If a cancel ever fails to stop a child, or
+   * a second claimer appears, the executor itself still refuses to let
+   * a lingering process sit beside the next run's key.
+   */
+  private queue: Promise<void> = Promise.resolve();
 
   async execute(
     req: ExecuteRequest,
     /** Fires when the caller goes away, i.e. a cancel. */
     signal?: AbortSignal,
   ): Promise<ExecuteResult> {
+    const previous = this.queue;
+    let release!: () => void;
+    this.queue = new Promise<void>((r) => (release = r));
+    try {
+      await previous;
+      return await this.executeAlone(req, signal);
+    } finally {
+      release();
+    }
+  }
+
+  private async executeAlone(
+    req: ExecuteRequest,
+    signal?: AbortSignal,
+  ): Promise<ExecuteResult> {
+    // A cancel that arrived while this run waited in the queue, or
+    // before the abort listener below is attached, must not be lost.
+    // A listener added to an already-aborted signal never fires.
+    if (signal?.aborted) {
+      return { exitCode: null, log: '', killedBy: 'cancel', notebook: null };
+    }
+    const asUser = scriptUser();
+    // Nothing owned by the script uid may be alive when this run's key
+    // is handed to a child. A leftover from an earlier run (a double
+    // fork that escaped its process group, a cancel that raced) could
+    // otherwise read the new key straight out of /proc.
+    if (asUser && !(await this.sweepUid(asUser.uid))) {
+      return {
+        exitCode: null,
+        log: 'A process from an earlier script run could not be stopped, so this run did not start.\n',
+        killedBy: null,
+        notebook: null,
+      };
+    }
     // Scratch under a directory owned by the script user, not shared
     // /tmp, so one run cannot plant a file another one picks up.
     const base = process.env.SCRIPT_TMPDIR ?? tmpdir();
@@ -99,7 +149,6 @@ export class ScriptExecutorService {
     // Not caught: if this fails the child cannot read its own source
     // and would die somewhere confusing, so a clear error here is
     // better.
-    const asUser = scriptUser();
     if (asUser) {
       await chown(file, 0, asUser.gid);
       await chmod(file, 0o640);
@@ -111,6 +160,11 @@ export class ScriptExecutorService {
     let truncated = false;
 
     try {
+      // The awaits above give a cancel time to land. Check again so a
+      // run cancelled during setup never starts.
+      if (signal?.aborted) {
+        return { exitCode: null, log: '', killedBy: 'cancel', notebook: null };
+      }
       // A notebook goes through papermill rather than the interpreter.
       // Same one process, same uid, same limits, same kill: the only
       // difference is what reads the file.
@@ -187,6 +241,11 @@ export class ScriptExecutorService {
           } catch {
             // Already gone.
           }
+          // A script can leave its process group with os.setsid() or a
+          // double fork, and a negative-pid kill never reaches it. Kill
+          // the whole script uid too, so a timeout or cancel stops
+          // everything the run started.
+          if (asUser) void this.killByUid(asUser.uid);
         };
 
         const timer = setTimeout(() => {
@@ -200,6 +259,9 @@ export class ScriptExecutorService {
           hardKill();
         };
         signal?.addEventListener('abort', onAbort, { once: true });
+        // Belt and braces for the gap between the check above and the
+        // listener: an abort in between would otherwise go unheard.
+        if (signal?.aborted) onAbort();
 
         const done = (code: number | null) => {
           if (settled) return;
@@ -227,6 +289,20 @@ export class ScriptExecutorService {
           done(null);
         });
         child.on('close', (code) => done(code));
+        // 'close' waits for stdout and stderr to end, and a descendant
+        // that escaped the process group can hold them open forever.
+        // Then the run never settled, its cleanup never ran, and the
+        // run queue blocked every later run. Once the interpreter itself
+        // has exited, give the pipes a moment to drain, then stop
+        // reading and settle on the exit code.
+        child.on('exit', (code) => {
+          const grace = setTimeout(() => {
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+            done(code);
+          }, EXIT_DRAIN_MS);
+          grace.unref();
+        });
       });
     } finally {
       // Kill anything the run left behind BEFORE removing its dir.
@@ -234,8 +310,8 @@ export class ScriptExecutorService {
       // hardKill() targets the child's process group, which a script can
       // escape with os.setsid() or a double fork: the orphan lands in a
       // new session that a negative-pid kill never reaches, and survives
-      // until the container stops. Runs are serialised (one claimer, one
-      // at a time), and only scripts run as the script uid, so after a
+      // until the container stops. Runs are serialised by the queue in
+      // execute(), and only scripts run as the script uid, so after a
       // run finishes there should be zero processes owned by that uid.
       // Sweep them.
       if (asUser) await this.killByUid(asUser.uid);
@@ -246,7 +322,22 @@ export class ScriptExecutorService {
   }
 
   /**
-   * SIGKILL every process owned by `uid`. Best-effort.
+   * Kill everything owned by `uid` and confirm it is gone. Returns false
+   * when processes are still listed after a few attempts, in which case
+   * the caller must not start a new run.
+   */
+  private async sweepUid(uid: number): Promise<boolean> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const killed = await this.killByUid(uid);
+      if (killed === 0) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return (await this.killByUid(uid)) === 0;
+  }
+
+  /**
+   * SIGKILL every process owned by `uid`. Best-effort. Returns how many
+   * processes it found.
    *
    * Reads /proc rather than shelling out to pkill, which the slim image
    * does not ship. Needs CAP_KILL, which the executor holds precisely so
@@ -254,19 +345,24 @@ export class ScriptExecutorService {
    * script itself never gets that capability. Safe to sweep the whole
    * uid because runs are serialised and no other process runs as it.
    */
-  private async killByUid(uid: number): Promise<void> {
+  private async killByUid(uid: number): Promise<number> {
     let pids: string[];
     try {
       pids = (await readdir('/proc')).filter((p) => /^\d+$/.test(p));
     } catch {
-      return; // Not Linux, or no /proc. Nothing to sweep.
+      return 0; // Not Linux, or no /proc. Nothing to sweep.
     }
+    let found = 0;
     for (const pid of pids) {
       try {
         const status = await readFile(`/proc/${pid}/status`, 'utf8');
-        // "Uid:\treal\teffective\tsaved\tfs" — match the real uid.
+        // "Uid:\treal\teffective\tsaved\tfs": match the real uid.
         const m = /^Uid:\s+(\d+)/m.exec(status);
         if (!m || Number(m[1]) !== uid) continue;
+        // A zombie keeps its /proc entry until reaped but can no longer
+        // run or read anything, so it does not count.
+        if (/^State:\s+Z/m.test(status)) continue;
+        found++;
         process.kill(Number(pid), 'SIGKILL');
         this.log.warn(
           `Killed leftover script process ${pid} (uid ${uid}) after the run.`,
@@ -276,6 +372,7 @@ export class ScriptExecutorService {
         // could not read. Either way it is not our concern now.
       }
     }
+    return found;
   }
 
   /**

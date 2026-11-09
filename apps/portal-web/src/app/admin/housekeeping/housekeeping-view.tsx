@@ -1603,7 +1603,7 @@ function ExpiringSharesTable({
                 {r.isExpired
                   ? t('adminHousekeeping.expired')
                   : t('adminHousekeeping.expiryIn')}{' '}
-                {formatRelativeShort(r.expiresAt)}
+                {fmt.relativeTime(r.expiresAt)}
               </span>
             </td>
             <td className="px-4 py-2 text-right">
@@ -1692,7 +1692,7 @@ function ExpiringUsersTable({
                 {r.isExpired
                   ? t('adminHousekeeping.pastDue')
                   : t('adminHousekeeping.expiryIn')}{' '}
-                {formatRelativeShort(r.autoDisableAt)}
+                {fmt.relativeTime(r.autoDisableAt)}
               </span>
             </td>
             <td className="px-4 py-2 text-muted">
@@ -1737,24 +1737,5 @@ function ExpiringUsersTable({
       </tbody>
     </table>
   );
-}
-
-/**
- * Compact "in 3d", "in 12h", "23m" relative time. Used by the
- * expiry chips: a full date is on the title attribute for hover.
- */
-function formatRelativeShort(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const diffMs = t - Date.now();
-  const abs = Math.abs(diffMs);
-  const minutes = Math.floor(abs / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 60) return `${days}d`;
-  const months = Math.floor(days / 30);
-  return `${months}mo`;
 }
 
