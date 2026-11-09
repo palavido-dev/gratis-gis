@@ -24,6 +24,7 @@ import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import type { AssetKind } from './storage.service.js';
 import { StorageService } from './storage.service.js';
+import { recordUploadGrant } from './key-ownership.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
 // deliberately absent (its upload path sanitizes server-side and
@@ -89,11 +90,12 @@ export class StorageController {
 
   @Post('presign-upload')
   async presignUpload(
-    @CurrentUser() _user: AuthUser,
+    @CurrentUser() user: AuthUser,
     @Body() dto: PresignUploadDto,
   ) {
+    let signed;
     try {
-      return await this.storage.presignUpload(
+      signed = await this.storage.presignUpload(
         dto.kind,
         dto.contentType,
         dto.sizeBytes,
@@ -102,6 +104,10 @@ export class StorageController {
       const msg = err instanceof Error ? err.message : 'Unable to sign upload';
       throw new BadRequestException(msg);
     }
+    // Record who was issued the key. Attach paths accept a key only
+    // from the user it was issued to (storage/key-ownership.ts).
+    await recordUploadGrant(this.prisma, dto.kind, signed.key, user.id);
+    return signed;
   }
 
   /**
@@ -156,8 +162,12 @@ export class StorageController {
     // Sharing check + filename for content-disposition.
     let filename = key;
     if (kind === 'feature-attachment') {
+      // Oldest row decides the ACL. Attach paths refuse a copied key
+      // now, but rows from before that check can share one, and the
+      // copy is always the newer row.
       const att = await this.prisma.featureAttachment.findFirst({
         where: { storageKey },
+        orderBy: { createdAt: 'asc' },
         select: {
           fileName: true,
           itemId: true,
@@ -206,6 +216,8 @@ export class StorageController {
           ],
           deletedAt: null,
         },
+        // Oldest row decides, as for attachments above.
+        orderBy: { createdAt: 'asc' },
         select: { id: true, type: true, data: true, access: true },
       });
       if (!item) throw new NotFoundException('File not found');

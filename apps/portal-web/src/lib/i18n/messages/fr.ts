@@ -3941,6 +3941,8 @@ export const fr: Partial<CatalogShape> = {
     preview: 'Aperçu',
     defaultsFootnote:
       'Désactiver ici coupe le type pour toute la plateforme pour les utilisateurs qui ne se sont pas explicitement inscrits. Les choix par utilisateur priment. Personnaliser réécrit le corps du mail pour votre organisation ; les modèles enregistrés substituent des placeholders mustache comme {{itemTitle}} et {{baseUrl}} depuis le payload du déclencheur.',
+    operatorOnlyNote:
+      'Le serveur de messagerie, la file d\'envoi, l\'activité récente et les réglages par défaut s\'appliquent à toute l\'installation : seuls les administrateurs de l\'organisation opératrice peuvent les voir ou les modifier. Vous pouvez modifier les modèles et les aperçus.',
     previewHeading: 'Aperçu',
     subject: 'Objet',
     html: 'HTML',

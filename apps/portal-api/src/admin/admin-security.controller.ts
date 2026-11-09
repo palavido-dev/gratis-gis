@@ -18,6 +18,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { assertAlias, assertPublicHttps } from './oidc-url.js';
 
@@ -36,14 +37,18 @@ class MfaDto {
 }
 
 /**
- * Sign-in methods an org admin can add without opening the
- * Keycloak console. One OpenID Connect provider at a time, plus
- * the realm switch that asks every account to set up an
- * authenticator on the next sign-in.
+ * Sign-in methods an admin can add without opening the Keycloak
+ * console. One OpenID Connect provider at a time, plus the realm
+ * switch that asks every account to set up an authenticator on the
+ * next sign-in.
+ *
+ * Every setting here lives on the shared Keycloak realm, so it
+ * affects every organization on the install. Only admins of the
+ * operator organization may read or change it.
  */
 @ApiTags('admin', 'security')
 @ApiBearerAuth()
-@UseGuards(AdminGuard)
+@UseGuards(AdminGuard, OperatorOrgGuard)
 @Controller('admin/security')
 export class AdminSecurityController {
   constructor(
@@ -89,8 +94,18 @@ export class AdminSecurityController {
   }
 
   @Delete('oidc/:alias')
-  async remove(@Param('alias') alias: string) {
-    await this.keycloak.deleteIdentityProvider(assertAlias(alias));
+  async remove(@CurrentUser() user: AuthUser, @Param('alias') alias: string) {
+    const target = assertAlias(alias);
+    await this.keycloak.deleteIdentityProvider(target);
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.security',
+      targetType: 'oidc',
+      targetId: target,
+      outcome: 'succeeded',
+      detail: { op: 'delete' },
+    });
     return { ok: true };
   }
 

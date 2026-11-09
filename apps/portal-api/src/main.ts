@@ -7,6 +7,7 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module.js';
 import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
 import { requestIdMiddleware } from './common/public-error.js';
+import { installMetrics } from './metrics/install-metrics.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
 // uncaughtException OR an unhandledRejection by default; in prod that
@@ -36,6 +37,10 @@ async function bootstrap() {
   // including errors written later by the exception filter. A safe
   // incoming id is kept so the web tier and this process share one.
   app.use(requestIdMiddleware);
+  // Prometheus /metrics and per-route request timing. Installs nothing
+  // unless METRICS_TOKEN is set; outside the /api prefix, so neither
+  // shipped Caddy config routes it. See docs/operations/metrics.md.
+  installMetrics(app);
   // Native ws adapter for presence Phase 1.5 (#156). Kept off
   // socket.io so we do not add another realtime protocol stack.
   app.useWebSocketAdapter(new WsAdapter(app));

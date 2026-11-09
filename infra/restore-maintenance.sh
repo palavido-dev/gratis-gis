@@ -122,6 +122,8 @@ case "$cmd" in
     fi
     psql_c "$container" "INSERT INTO system_setting (key, value, updated_at) VALUES ('maintenance', '{\"active\":false,\"reason\":null,\"startedAt\":null}'::jsonb, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();"
     echo "Maintenance flag cleared. API replicas re-read it within a few seconds."
+    echo "If an in-portal restore was interrupted, the API also stays in maintenance while"
+    echo "/app/backups/.restore-in-progress exists in the portal-api container. Remove it once verified."
     not_a_safety_proof
     echo "If sign-in still fails, restore the snapshot. Do not delete volumes to recover a password."
     ;;

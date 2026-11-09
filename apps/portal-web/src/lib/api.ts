@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions, type SessionWithToken } from './auth';
 import { apiErrorMessage } from './api-error';
+import { isSessionStale } from './session-state';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -32,10 +33,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   // guarantees a 401 from portal-api, which surfaces to the user as
   // the route error boundary. Treat it exactly like having no
   // session: send the user through sign-in to mint a fresh token.
-  if (
-    !session?.accessToken ||
-    session.error === 'RefreshAccessTokenError'
-  ) {
+  //
+  // Any session error counts (isSessionStale), the same rule the BFF
+  // applies: an idle timeout leaves the old access token on the
+  // session too, and forwarding it 401s into the error boundary.
+  if (!session?.accessToken || isSessionStale(session)) {
     // Redirect via the custom /signin so the user skips the
     // default provider picker (we have only one provider).
     redirect('/signin');

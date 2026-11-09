@@ -125,6 +125,11 @@ assert len(vals["INITIAL_USER_PASSWORD"]) >= 16
 assert vals["INITIAL_USER_PASSWORD"] not in {"admin", "password", "gratisgis"}
 assert len(base64.b64decode(vals["CREDENTIAL_ENCRYPTION_KEY"], validate=True)) == 32
 assert "GENERATE" not in (boot / "env").read_text()
+chromium_env = mod.read_env(boot / "env.chromium")
+assert chromium_env == {"CHROMIUM_TOKEN": vals["CHROMIUM_TOKEN"]}, chromium_env
+pointcloud_env = mod.read_env(boot / "env.pointcloud")
+assert set(pointcloud_env) == {"ANALYSIS_TIERS", "DATABASE_URL", "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET"}, pointcloud_env
+assert "INITIAL_USER_PASSWORD" not in (boot / "env.pointcloud").read_text()
 
 realm = json.loads((boot / "realm-gratis-gis.json").read_text())
 web = next(client for client in realm["clients"] if client["clientId"] == "portal-web")
@@ -397,8 +402,28 @@ if not web.startswith("ghcr.io/palavido-dev/gratis-gis/portal-web:"):
     raise SystemExit(web)
 if not pg.startswith("ghcr.io/palavido-dev/gratis-gis/postgres:"):
     raise SystemExit(pg)
-if cfg["services"]["bootstrap"]["image"] != "python:3.12-alpine":
-    raise SystemExit("bootstrap image changed")
+if not cfg["services"]["bootstrap"]["image"].startswith("python:3.12-alpine@sha256:"):
+    raise SystemExit("bootstrap image must stay python:3.12-alpine pinned by digest")
+if "@sha256:" not in cfg["services"]["chromium"]["image"]:
+    raise SystemExit("chromium image must be pinned by digest")
+
+
+def command_text(svc):
+    cmd = svc.get("command") or ""
+    return "\n".join(str(part) for part in cmd) if isinstance(cmd, list) else str(cmd)
+
+
+# Services that handle untrusted input source only their own env file.
+for name, env_file in (("chromium", "/boot/env.chromium"), ("pointcloud-worker", "/boot/env.pointcloud")):
+    text = command_text(cfg["services"][name])
+    if env_file not in text or re.search(r"\. /boot/env\s*$", text, re.M):
+        raise SystemExit(f"{name} must source {env_file}, not /boot/env")
+for name in ("portal-api", "portal-worker", "portal-web", "pointcloud-worker"):
+    svc = cfg["services"][name]
+    if "ALL" not in (svc.get("cap_drop") or []):
+        raise SystemExit(f"{name} must drop all capabilities")
+    if "no-new-privileges:true" not in (svc.get("security_opt") or []):
+        raise SystemExit(f"{name} must set no-new-privileges")
 print("compose config ok")
 print("services", len(cfg["services"]))
 PY

@@ -254,6 +254,7 @@ model Organization {
   /// Privileged admin actions. Not the feature observation log.
   adminAuditEvents      AdminAuditEvent[]
   storageReservations   StorageReservation[]
+  formSubmissions       FormSubmission[]
 
   @@map("organization")
 }
@@ -272,7 +273,7 @@ model OrgAiProvider {
   baseUrl           String?  @map("base_url")
   encryptedSecret   String   @map("encrypted_secret")
   encryptedSecretIv String   @map("encrypted_secret_iv")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy         String   @map("updated_by") @db.Uuid
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -294,10 +295,25 @@ model AdminAuditEvent {
   outcome     String
   detail      Json     @default("{}")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade, map: "admin_audit_event_org_fkey")
 
   @@index([orgId, at(sort: Desc), id(sort: Desc)], map: "admin_audit_event_org_at_idx")
   @@map("admin_audit_event")
+}
+
+/// Who was issued a presigned upload key. A client-supplied key is
+/// attached to an item, a tile layer, a point cloud or a feature
+/// attachment only when the caller was issued it here, or the target
+/// already references it. Without this, any reader could copy another
+/// item's key into their own item, then delete or republish the
+/// object. Rows older than two days are pruned on the next presign.
+model StorageUploadGrant {
+  key       String   @id
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@map("storage_upload_grant")
 }
 
 /// Bytes held by one staged upload or queued import. Released when
@@ -309,7 +325,7 @@ model StorageReservation {
   purpose   String
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade, map: "storage_reservation_org_fkey")
 
   @@index([orgId], map: "storage_reservation_org_idx")
   @@map("storage_reservation")
@@ -344,7 +360,7 @@ model User {
   /// makes the same change in bulk hourly. Null = no auto-disable
   /// (default). Org admins are exempted by the admin form to
   /// avoid lockout.
-  autoDisableAt DateTime? @map("auto_disable_at")
+  autoDisableAt DateTime? @map("auto_disable_at") @db.Timestamptz(6)
   /// Set when the account is disabled (admin Disable, housekeeping
   /// auto-disable) and cleared when it is enabled again. Keycloak's
   /// `enabled` flag stops sign-in; this column is what API keys and
@@ -382,6 +398,7 @@ model User {
   fieldQueueManifests FieldQueueManifest[]
   feedbackSubmitted   Feedback[]               @relation("FeedbackReporter")
   feedbackHandled     Feedback[]               @relation("FeedbackHandler")
+  formSubmissions     FormSubmission[]
 
   @@index([orgId])
   @@index([deletedAt])
@@ -399,7 +416,7 @@ model User {
 /// role baseline. Baselines live in code (apps/portal-api/src/auth/
 /// capabilities.ts), not in the database.
 model UserCapabilityOverride {
-  id         String   @id @default(uuid()) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId     String   @map("user_id") @db.Uuid
   /// Capability key, e.g. "can_manage_basemaps". Plain string rather
   /// than an enum so we can add new capabilities without schema
@@ -416,7 +433,7 @@ model UserCapabilityOverride {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, capability])
+  @@unique([userId, capability], map: "user_capability_override_user_capability_key")
   @@index([userId])
   @@map("user_capability_override")
 }
@@ -441,7 +458,7 @@ model UserCapabilityOverride {
 /// here: keys cannot reach /admin/* at all, and a `readOnly` key is
 /// refused on any unsafe HTTP method. See auth/api-key.service.ts.
 model ApiKey {
-  id         String    @id @default(uuid()) @db.Uuid
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   /// User-supplied label, e.g. "nightly parcel refresh".
   name       String
@@ -585,7 +602,7 @@ model Item {
   /// stale-item heuristic alongside item.updatedAt and underlying
   /// feature activity: an arcgis_service that's being actively
   /// rendered stays fresh even if nobody edits its item card.
-  lastUsageAt         DateTime?  @map("last_usage_at")
+  lastUsageAt         DateTime?  @map("last_usage_at") @db.Timestamptz(6)
   /// #22: stable identifier for items seeded from a built-in
   /// starter. Set when org-bootstrap (or admin restore) stamps a
   /// fresh starter as an app_template item; null on any user-
@@ -595,20 +612,21 @@ model Item {
   /// the seeded items freely without losing the origin marker.
   seedKind            String?    @map("seed_kind")
 
-  org            Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner          User                @relation("ItemOwner", fields: [ownerId], references: [id])
-  shares         ItemShare[]
-  attachments    FeatureAttachment[]
-  snapshots      ItemDataSnapshot[]
-  credential     ItemCredential?
+  org             Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner           User                @relation("ItemOwner", fields: [ownerId], references: [id])
+  shares          ItemShare[]
+  attachments     FeatureAttachment[]
+  snapshots       ItemDataSnapshot[]
+  credential      ItemCredential?
   /// #155: threaded comments scoped to this item. Cascade-deletes
   /// every thread + reply when the item is permanently deleted.
-  commentThreads CommentThread[]
+  commentThreads  CommentThread[]
   /// #70/#74: offline basemap package builds for this item.
   /// Cascade so deleting the item can never strand rows whose
   /// storage keys the orphan sweep would then treat as live
   /// references forever.
   offlinePackages OfflinePackage[]
+  formSubmissions FormSubmission[]    @relation("FormSubmissionForm")
 
   @@index([orgId, access])
   @@index([ownerId])
@@ -619,6 +637,11 @@ model Item {
   /// have a starter with this seedKind?" lookup. Only seeded items
   /// have a non-null seedKind so the index stays small.
   @@index([orgId, type, seedKind], map: "item_org_type_seed_kind_idx")
+  // Created by raw migrations; declared so `migrate diff` keeps them.
+  @@index([orgId, type, deletedAt], map: "item_org_type_deleted_idx")
+  @@index([publicGeoBoundaryId], map: "item_public_geo_boundary_id_idx")
+  @@index([orgGeoBoundaryId], map: "item_org_geo_boundary_id_idx")
+  @@index([data(ops: JsonbPathOps)], type: Gin, map: "item_data_gin")
   @@map("item")
 }
 
@@ -633,7 +656,7 @@ model Item {
 /// per-row (12 bytes, base64). item_id is used as additional
 /// authenticated data so a row can't be moved between items.
 model ItemCredential {
-  id               String   @id @default(uuid()) @db.Uuid
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemId           String   @unique @map("item_id") @db.Uuid
   /// 'bearer', 'basic', 'arcgis_token'. Plain string rather than an
   /// enum so adding a new auth scheme doesn't require a schema
@@ -643,12 +666,12 @@ model ItemCredential {
   encryptedPayload String   @map("encrypted_payload")
   /// AES-GCM IV, base64 encoded (12 bytes pre-encode).
   iv               String
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Last user to set / change the credential.
   updatedBy        String   @map("updated_by") @db.Uuid
 
-  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([itemId])
   @@map("item_credential")
@@ -666,7 +689,7 @@ model ItemCredential {
 /// AND the latest 20 per item, whichever is stricter; older rows
 /// are auto-purged by MaintenanceModule.
 model ItemDataSnapshot {
-  id        String   @id @default(uuid()) @db.Uuid
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemId    String   @map("item_id") @db.Uuid
   /// The pre-replace data blob. Full copy, not a diff — simpler
   /// revert + forward-compatible as the item data shape evolves.
@@ -676,9 +699,9 @@ model ItemDataSnapshot {
   /// User who caused the snapshot (by replacing the data).
   createdBy String   @map("created_by") @db.Uuid
 
-  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([itemId, createdAt])
+  @@index([itemId, createdAt(sort: Desc)])
   @@map("item_data_snapshot")
 }
 
@@ -734,7 +757,7 @@ model BackupConfig {
   /// How many successful backups to keep. Null = fall back to env.
   retentionCount Int? @map("retention_count")
 
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by") @db.Uuid
 
   @@map("backup_config")
@@ -753,7 +776,7 @@ enum RestoreStatus {
 }
 
 model BackupRestore {
-  id         String        @id @default(uuid()) @db.Uuid
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Source run the archive came from. May be null if the admin
   /// restored from an uploaded archive not tied to a prior run
   /// (reserved for Phase 2 upload-flow; Phase 1 always references
@@ -768,12 +791,12 @@ model BackupRestore {
   /// Short error summary. Full trace is in the server log.
   error      String?
 
-  @@index([startedAt])
+  @@index([startedAt(sort: Desc)])
   @@map("backup_restore")
 }
 
 model BackupRun {
-  id         String       @id @default(uuid()) @db.Uuid
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   startedAt  DateTime     @default(now()) @map("started_at")
   finishedAt DateTime?    @map("finished_at")
   status     BackupStatus @default(running)
@@ -819,7 +842,7 @@ model BackupRun {
   /// for those.
   heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
 
-  @@index([startedAt])
+  @@index([startedAt(sort: Desc)])
   /// Partial unique index `backup_run_one_running_idx` (see migration
   /// 20261026042100): at most one row with status='running'. Enforced
   /// in SQL, not Prisma schema, because Prisma cannot express
@@ -839,7 +862,7 @@ model BackupRun {
 /// HOUSEKEEPING_STALE_ITEM_DAYS and HOUSEKEEPING_STALE_USER_DAYS
 /// already work for the manual surface).
 model HousekeepingConfig {
-  id String @id @default(uuid()) @db.Uuid
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
   autoTrashEnabled Boolean @default(false) @map("auto_trash_enabled")
   /// Days of inactivity before an item is auto-trashed. Null falls
@@ -900,7 +923,7 @@ enum HousekeepingStatus {
 }
 
 model HousekeepingRun {
-  id         String             @id @default(uuid()) @db.Uuid
+  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   startedAt  DateTime           @default(now()) @map("started_at")
   finishedAt DateTime?          @map("finished_at")
   status     HousekeepingStatus @default(running)
@@ -978,7 +1001,7 @@ model ItemShare {
   /// past, the share no longer grants access -- enforced at
   /// request time in sharing.service.ts and cleaned up by the
   /// housekeeping cron sweep. Null = never expires (default).
-  expiresAt DateTime? @map("expires_at")
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
 
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
@@ -1003,7 +1026,7 @@ model ItemShare {
 /// model directly. Item-level cascade still catches the common case
 /// when an item is purged — app-level cleanup handles feature deletes.
 model FeatureAttachment {
-  id         String   @id @default(uuid()) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemId     String   @map("item_id") @db.Uuid
   /// Layer id as it appears in item.data.layers[].id (sanitized slug,
   /// not a UUID). Kept as TEXT so the v3 id format can grow.
@@ -1055,7 +1078,7 @@ model NotificationPreference {
 /// log dive. A separate periodic prune (Phase 2) trims rows older
 /// than the configured retention.
 model Notification {
-  id          String              @id @default(uuid()) @db.Uuid
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String              @map("user_id") @db.Uuid
   type        NotificationType
   /// Free-form payload the template renderer reads to produce the
@@ -1117,7 +1140,7 @@ model SystemSetting {
   value             Json     @default("{}")
   encryptedSecret   String?  @map("encrypted_secret")
   encryptedSecretIv String?  @map("encrypted_secret_iv")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   updatedBy         String?  @map("updated_by") @db.Uuid
 
   @@map("system_setting")
@@ -1175,7 +1198,7 @@ model PrintRenderToken {
 ///                     (error 'worker stopped responding').
 ///   done              terminal success.
 model AnalysisJob {
-  id           String    @id @default(uuid()) @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String    @map("org_id") @db.Uuid
   userId       String    @map("user_id") @db.Uuid
   kind         String
@@ -1216,15 +1239,22 @@ model AnalysisJob {
 /// still resolve the response against the right schema even if the
 /// form has been updated since capture.
 model FormSubmission {
-  id            String   @id @default(uuid()) @db.Uuid
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   formId        String   @map("form_id") @db.Uuid
   orgId         String   @map("org_id") @db.Uuid
   clientId      String   @map("client_id")
   schemaVersion Int      @map("schema_version")
   response      Json
   submittedBy   String?  @map("submitted_by") @db.Uuid
-  capturedAt    DateTime @map("captured_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  capturedAt    DateTime @map("captured_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // The migration created these foreign keys; declaring them keeps a
+  // future `migrate diff` from proposing to drop them. Deleting a form
+  // removes its submissions; deleting a user keeps them, unattributed.
+  form      Item         @relation("FormSubmissionForm", fields: [formId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  submitter User?        @relation(fields: [submittedBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@unique([formId, clientId], map: "form_submission_form_client_unique")
   @@index([formId], map: "form_submission_form_idx")
@@ -1295,7 +1325,7 @@ model NotificationTypeDefault {
   type      NotificationType
   channel   NotificationChannel
   enabled   Boolean
-  updatedAt DateTime            @updatedAt @map("updated_at")
+  updatedAt DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@id([type, channel])
   @@map("notification_type_default")
@@ -1327,9 +1357,9 @@ model NotificationTemplate {
   bodyText  String              @map("body_text")
   /// Mustache-lite template for the HTML email body.
   bodyHtml  String              @map("body_html")
-  updatedAt DateTime            @updatedAt @map("updated_at")
+  updatedAt DateTime            @default(now()) @updatedAt @map("updated_at")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([orgId, type, channel])
   @@map("notification_template")
@@ -1368,7 +1398,7 @@ enum ImportJobStatus {
 /// one portal-api today). Future scale-out can swap in PG NOTIFY
 /// or a real queue without touching this row's shape.
 model ImportJob {
-  id                String          @id @default(uuid()) @db.Uuid
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Item the import targets. data_layer items only today.
   itemId            String          @map("item_id") @db.Uuid
   /// v3 layer id within item.data.layers.
@@ -1434,7 +1464,7 @@ model ImportJob {
 /// (it's embedded in the authorize URL) so we store it plain. AGO
 /// app secrets live on the AGO side, not here.
 model AgoOauthConnection {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Canonical org URL, e.g. https://palavido.maps.arcgis.com. Same
   /// shape the importer's URL normalizer outputs.
   orgUrl      String   @map("org_url")
@@ -1486,41 +1516,41 @@ enum AgoImportJobStatus {
 /// because the row carries everything needed to render the
 /// current state.
 model AgoImportJob {
-  id             String             @id @default(uuid()) @db.Uuid
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// User who started the job. Owner of the resulting items.
-  createdBy      String             @map("created_by") @db.Uuid
+  createdBy       String             @map("created_by") @db.Uuid
   /// Org scoping for visibility checks. Denormalized so the
   /// polling endpoint doesn't need a join through user.
-  orgId          String             @map("org_id") @db.Uuid
-  status         AgoImportJobStatus @default(queued)
+  orgId           String             @map("org_id") @db.Uuid
+  status          AgoImportJobStatus @default(queued)
   /// AGO sharing-rest base the job is pulling from. Stored so the
   /// detail-page banner can name the source org.
-  portalUrl      String             @map("portal_url")
+  portalUrl       String             @map("portal_url")
   /// Number of items the dry-run report flagged as willImport. The
   /// progress bar denominator.
-  total          Int                @default(0)
+  total           Int                @default(0)
   /// Live counter the runner bumps after each item finishes (any
   /// status -- created / failed / skipped).
-  done           Int                @default(0)
+  done            Int                @default(0)
   /// Short human description of the in-flight AGO item, e.g.
   /// "Importing 'Parcels' (Feature Service)". Lets the banner show
   /// something more interesting than a percentage.
-  currentItem    String?            @map("current_item")
+  currentItem     String?            @map("current_item")
   /// The dry-run report the user signed off on, persisted so the
   /// background runner has a self-contained input set and the job
   /// detail page can show "what was queued". Includes any
   /// excludedAgoIds the operator deselected in the preview.
-  requestPayload Json               @map("request_payload")
+  requestPayload  Json               @map("request_payload")
   /// The final ImportReport produced by AgoImportService.run.
   /// Populated when status flips to succeeded or failed; null
   /// while queued / running.
-  report         Json?
+  report          Json?
   /// Filled when status flips to failed (covers the runner crash
   /// case where AgoImportService threw before producing a report).
-  errorMessage   String?            @map("error_message")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  startedAt      DateTime?          @map("started_at")
-  finishedAt     DateTime?          @map("finished_at")
+  errorMessage    String?            @map("error_message")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  startedAt       DateTime?          @map("started_at")
+  finishedAt      DateTime?          @map("finished_at")
   /// Worker liveness beat, same contract as ImportJob.lastHeartbeatAt:
   /// the runner stamps it on the queued -> running flip, on every
   /// per-item progress write, and on a timer during a long single-item
@@ -1529,7 +1559,7 @@ model AgoImportJob {
   /// wizard would otherwise poll a spinner forever. Plain timestamp(3)
   /// like started_at: the reclaim compares it against a Prisma Date
   /// cutoff, not raw now(), so it needs no zone anchoring.
-  lastHeartbeatAt DateTime?         @map("last_heartbeat_at")
+  lastHeartbeatAt DateTime?          @map("last_heartbeat_at")
 
   @@index([createdBy, createdAt], map: "ago_import_job_user_created_idx")
   @@index([orgId, status], map: "ago_import_job_org_status_idx")
@@ -1549,7 +1579,7 @@ model AgoImportJob {
 /// icon. Soft-delete is not modeled today; uploads stay until
 /// the row is explicitly removed (rare in practice).
 model MapIconUpload {
-  id         String   @id @default(uuid()) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Object key inside the MinIO bucket
   /// (e.g. `map-icon/abc...uuid`). Same shape as every other
   /// `kind/<uuid>` storage key the StorageService emits.
@@ -1651,7 +1681,7 @@ enum CommentParentKind {
 /// stays auditable. The Comments pane hides resolved threads by
 /// default with a "show resolved" toggle.
 model CommentThread {
-  id         String            @id @default(uuid()) @db.Uuid
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemId     String            @map("item_id") @db.Uuid
   parentKind CommentParentKind @map("parent_kind")
   /// For `parentKind = 'map'`, equals itemId. For 'layer', the
@@ -1669,7 +1699,7 @@ model CommentThread {
   /// opener to close it without an extra join.
   createdBy  String            @map("created_by") @db.Uuid
   createdAt  DateTime          @default(now()) @map("created_at")
-  updatedAt  DateTime          @updatedAt @map("updated_at")
+  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at")
 
   item     Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   comments Comment[]
@@ -1684,7 +1714,7 @@ model CommentThread {
 /// edits the comment; the body history is intentionally not
 /// preserved in Phase 1 (last-write-wins).
 model Comment {
-  id        String    @id @default(uuid()) @db.Uuid
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   threadId  String    @map("thread_id") @db.Uuid
   authorId  String    @map("author_id") @db.Uuid
   body      String
@@ -1892,7 +1922,7 @@ enum OfflinePackageStatus {
 /// below. It is what makes "build now" idempotent under a double
 /// click and under the automatic-refresh sweep firing concurrently.
 model OfflinePackage {
-  id        String @id @default(uuid()) @db.Uuid
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String @map("org_id") @db.Uuid
   /// The data_collection this package belongs to.
   itemId    String @map("item_id") @db.Uuid

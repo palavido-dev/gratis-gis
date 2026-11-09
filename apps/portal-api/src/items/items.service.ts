@@ -2,7 +2,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
+import type { Item, ItemAccess, ItemShare, ItemType, PrincipalType, SharePermission } from '@prisma/client';
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
@@ -19,11 +19,16 @@ import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
-import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
+import {
+  assertPostgisHostOnSave,
+  assertPostgisLayersOnSave,
+} from '../postgis-live/postgis-host.js';
+import { credentialTarget } from './credential-target.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
+import { redactItemData } from './item-data-redact.js';
 
 /** Allow-list of types a smart folder's saved query can filter to.
  *  Just the runtime ITEM_TYPES set as a plain string array so we
@@ -75,6 +80,10 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import {
   assertScheduleChangeAllowed,
   provenanceOnReassign,
@@ -453,6 +462,32 @@ function assertItemAssetKey(
 /** Fields in item data that name an object in the shared bucket. */
 const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
 
+/** Every storage key an item's data names: the asset fields plus
+ *  mosaic / multi-tile `sources[].storageKey`. */
+export function itemDataStorageKeys(data: unknown): string[] {
+  if (!data || typeof data !== 'object') return [];
+  const d = data as Record<string, unknown>;
+  const keys: string[] = [];
+  for (const field of ASSET_KEY_FIELDS) {
+    const v = d[field];
+    if (typeof v === 'string' && v.length > 0) keys.push(v);
+  }
+  if (Array.isArray(d.sources)) {
+    for (const src of d.sources) {
+      const v = (src as { storageKey?: unknown } | null)?.storageKey;
+      if (typeof v === 'string' && v.length > 0) keys.push(v);
+    }
+  }
+  return keys;
+}
+
+/** Options for writes whose `data` came straight from an HTTP body. */
+export interface ClientWriteOptions {
+  /** Storage keys in `data` are client-supplied: each must be issued
+   *  to the caller or already referenced by this item. */
+  clientKeys?: boolean;
+}
+
 /**
  * Reject author data that a client renders without escaping.
  *
@@ -655,7 +690,7 @@ export class ItemsService {
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
     const where = await this.buildListWhere(user, opts);
-    return this.queryListRows(where, opts);
+    return this.queryListRows(user, where, opts);
   }
 
   /**
@@ -672,7 +707,7 @@ export class ItemsService {
   ): Promise<{ rows: unknown[]; total: number }> {
     const where = await this.buildListWhere(user, opts);
     const [rows, total] = await Promise.all([
-      this.queryListRows(where, opts),
+      this.queryListRows(user, where, opts),
       this.prisma.item.count({ where }),
     ]);
     return { rows, total };
@@ -812,6 +847,7 @@ export class ItemsService {
    * WHERE object.
    */
   private async queryListRows(
+    user: AuthUser,
     where: Prisma.ItemWhereInput,
     opts: ItemsListOptions,
   ) {
@@ -1074,7 +1110,25 @@ export class ItemsService {
       updatedAt: Date;
       thumbnailUrl: string | null;
       thumbnailDesign?: Prisma.JsonValue | null;
-    }>).map(synthesizeThumbnailUrl);
+    }>)
+      .map((r) => this.redactRow(user, r))
+      .map(synthesizeThumbnailUrl);
+  }
+
+  /** Apply redactItemData to a list or detail row that carries `data`. */
+  redactRow<T>(user: AuthUser, row: T): T {
+    const r = row as T & {
+      type?: string;
+      data?: unknown;
+      shares?: ItemShare[];
+    };
+    if (r.data === undefined || typeof r.type !== 'string') return row;
+    const canEdit = this.sharing.canEdit(
+      user,
+      r as unknown as Item,
+      r.shares ?? [],
+    );
+    return { ...r, data: redactItemData(r.type, r.data, { canEdit }) } as T;
   }
 
   /**
@@ -1168,6 +1222,20 @@ export class ItemsService {
   }
 
   /**
+   * get() for a response body. get() itself returns the stored data
+   * because update() and other internal callers build on it (the map
+   * Save merge needs the anonymous markup tokens). Anything that sends
+   * an item to a client goes through this instead.
+   */
+  async getForReader(
+    user: AuthUser,
+    id: string,
+    opts: { includeTrashed?: boolean } = {},
+  ) {
+    return this.redactRow(user, await this.get(user, id, opts));
+  }
+
+  /**
    * Apply per-layer access for a viewer. Walks each layer in the
    * web map and:
    *   1. Drops it if the viewer has no item-level access to the
@@ -1184,8 +1252,8 @@ export class ItemsService {
    * Backing items are fetched in a single batched query. Items the
    * caller can't read are treated the same as "doesn't exist".
    */
-  private async filterMapForViewer(
-    viewer: AuthUser,
+  async filterMapForViewer(
+    viewer: AuthUser | null,
     rawData: unknown,
   ): Promise<unknown> {
     if (!rawData || typeof rawData !== 'object') return rawData;
@@ -1228,7 +1296,12 @@ export class ItemsService {
       ) {
         const target = byId.get(src.itemId);
         if (!target) continue;
-        if (!this.sharing.canRead(viewer, target, target.shares)) continue;
+        // A null viewer is an anonymous reader of a public map: only
+        // public sources are readable to them.
+        const readable = viewer
+          ? this.sharing.canRead(viewer, target, target.shares)
+          : target.access === 'public';
+        if (!readable) continue;
       }
 
       const access = (
@@ -1248,7 +1321,11 @@ export class ItemsService {
 
       let effective = { view: true, query: true, edit: false };
       if (access?.policy === 'custom') {
+        // Anonymous readers match no entry, so a custom-access layer
+        // is hidden from them, as it is from a signed-in reader who
+        // is not on its list.
         const entry = (access.entries ?? []).find((e) => {
+          if (!viewer) return false;
           if (e.principalType === 'user') return e.principalId === viewer.id;
           if (e.principalType === 'group') {
             return viewer.groupIds.includes(e.principalId);
@@ -1279,7 +1356,11 @@ export class ItemsService {
     return { ...(data as Record<string, unknown>), layers: out };
   }
 
-  async create(user: AuthUser, input: CreateItemInput) {
+  async create(
+    user: AuthUser,
+    input: CreateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
     // The authorization gate for creating anything at all.
     //
     // This had no check of any kind, which made ownership a
@@ -1395,6 +1476,13 @@ export class ItemsService {
         resolvedData,
       ) as Prisma.InputJsonValue;
     }
+    if (opts.clientKeys) {
+      await assertKeysAttachable(
+        this.prisma,
+        user.id,
+        itemDataStorageKeys(resolvedData),
+      );
+    }
     // The creator owns the item, so the code it starts with is theirs.
     // Overwrites anything the client sent for the server-owned field.
     if (input.type === 'script') {
@@ -1407,6 +1495,7 @@ export class ItemsService {
     }
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
+      assertPostgisLayersOnSave(resolvedData);
     }
 
     // Attribution reaches every viewer of every map that uses this
@@ -1895,7 +1984,12 @@ export class ItemsService {
     }
   }
 
-  async update(user: AuthUser, id: string, input: UpdateItemInput) {
+  async update(
+    user: AuthUser,
+    id: string,
+    input: UpdateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
     const item = await this.get(user, id);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
     if (!this.sharing.canEdit(user, item, shares)) {
@@ -2017,6 +2111,14 @@ export class ItemsService {
     if (item.type === 'data_layer' && nextData !== undefined) {
       nextData = normalizeTileSettingsInData(nextData) as Prisma.InputJsonValue;
     }
+    if (opts.clientKeys && nextData !== undefined) {
+      await assertKeysAttachable(
+        this.prisma,
+        user.id,
+        itemDataStorageKeys(nextData),
+        itemDataStorageKeys(item.data),
+      );
+    }
     // A scheduled script runs with its owner's key. Record who wrote the
     // code so the scheduler can refuse code the owner did not write, and
     // keep the schedule itself in the owner's hands.
@@ -2126,6 +2228,26 @@ export class ItemsService {
     }
     if (item.type === 'service' && nextData !== undefined) {
       await assertPostgisHostOnSave(item.data, nextData);
+      assertPostgisLayersOnSave(nextData);
+    }
+    // The stored credential goes wherever `data` points (the proxy's
+    // url, PostGIS Live's host). Setting the credential needs admin, so
+    // pointing it somewhere else does too; otherwise an editor could
+    // retarget the owner's password or token to a host they control.
+    if (
+      nextData !== undefined &&
+      credentialTarget(item.data) !== credentialTarget(nextData) &&
+      !this.sharing.canAdmin(user, item)
+    ) {
+      const stored = await this.prisma.itemCredential.findUnique({
+        where: { itemId: id },
+        select: { itemId: true },
+      });
+      if (stored) {
+        throw new ForbiddenException(
+          'This item has a stored credential. Only its owner or an org admin can change where it connects.',
+        );
+      }
     }
 
     // Recompute the cached extent when the data blob changes; leave
@@ -2764,7 +2886,13 @@ export class ItemsService {
           );
         } else {
           try {
-            await this.storage.deleteObject(key);
+            // Another item or attachment may still reference the same
+            // object (rows from before attach paths checked
+            // ownership). Leave it; the orphan sweep reclaims it once
+            // nothing does.
+            await deleteIfUnreferenced(this.prisma, this.storage, key, {
+              itemId,
+            });
           } catch (err) {
             void err;
           }

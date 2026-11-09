@@ -77,7 +77,7 @@ export interface HousekeepingBundle {
   }>;
   /** Storage telemetry (#161). Rendered as a single card at the top
    *  of the page so the operator can answer "are we running low" at
-   *  a glance. */
+   *  a glance. Null for admins outside the operator organization. */
   storage: {
     postgres: {
       databaseName: string;
@@ -99,7 +99,7 @@ export interface HousekeepingBundle {
       totalBytes: number;
       freeBytes: number;
     } | null;
-  };
+  } | null;
   /** Top 50 data_layer scopes by approximate observation footprint
    *  (#115 P10 follow-up). After the engine pivot the per-table
    *  list is dominated by `observation_p202xxxxx` partitions that
@@ -670,7 +670,7 @@ export function HousekeepingView({ bundle }: Props) {
           per-store readouts (Postgres + MinIO). The disk gauge is
           the "are we running low" signal at a glance; the readouts
           tell the operator which store dominates. */}
-      <StorageCard storage={storage} />
+      {storage ? <StorageCard storage={storage} /> : null}
 
       {/* Soon-to-expire shares (#86). Mixes already-expired
           (red) and within-window (amber) rows so the admin can
@@ -1363,7 +1363,7 @@ function StaleUsersTable({
 function StorageCard({
   storage,
 }: {
-  storage: HousekeepingBundle['storage'];
+  storage: NonNullable<HousekeepingBundle['storage']>;
 }) {
   const fmt = useFormat();
   const t = useT();

@@ -10,13 +10,17 @@
 #   1. Sanity-checks that infra/.env.prod exists.
 #   1b. Syncs the checkout to the release ref (see gg_resolve_ref).
 #   2. Builds the portal-api + portal-web images from source.
-#   3. Rolls the stack with `docker compose up -d`. Containers whose
-#      image / config didn't change keep running.
+#   3. Rolls the stack with `docker compose up -d --remove-orphans`.
+#      Containers whose image / config didn't change keep running. A
+#      service removed from the compose file (pg_tileserv) is stopped.
+#      Services behind a profile (scripts) are built and started only
+#      when COMPOSE_PROFILES in infra/.env.prod names that profile.
 #   4. Tails recent logs so you can see whether the boot was clean.
 #
-# Migrations: the portal-api container's entrypoint runs `prisma
-# migrate deploy` on every start, so a normal `up -d` is enough to
-# apply pending schema changes. There's no separate migrate step.
+# Migrations: the portal-migrate one-shot service runs `prisma migrate
+# deploy` once per `up`, and the long-lived services wait for it to
+# finish. They set SKIP_MIGRATE, so N replicas never race for the
+# migration lock.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -171,7 +175,7 @@ echo "=== Building images ==="
 "${COMPOSE[@]}" build
 
 echo "=== Bringing up stack ==="
-"${COMPOSE[@]}" up -d
+"${COMPOSE[@]}" up -d --remove-orphans
 
 echo "=== Status ==="
 "${COMPOSE[@]}" ps
@@ -184,7 +188,9 @@ echo "=== Status ==="
 # executor holds a static IP, so this is normally a no-op re-assert, but
 # on a first deploy or a network recreate it is the difference between
 # the executor being fenced and being open to the metadata service until
-# the next timer tick. Non-fatal: the timer is the backstop.
+# the next timer tick. Non-fatal: the timer is the backstop. `sudo -n`
+# clears the environment; the script reads SCRIPT_EGRESS from
+# infra/.env.prod itself, so a portal-only install stays portal-only.
 if [[ -x infra/script-net-firewall.sh ]]; then
   echo "=== Applying script egress fence ==="
   sudo -n infra/script-net-firewall.sh || \
