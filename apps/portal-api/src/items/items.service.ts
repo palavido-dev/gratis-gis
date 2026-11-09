@@ -6,6 +6,8 @@ import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@pris
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
+  findUnsafeMapColors,
+  safeNavigationUrl,
   sanitizeAttributionHtml,
 } from '@gratis-gis/shared-types';
 
@@ -68,6 +70,7 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -411,15 +414,74 @@ export interface ShareItemInput {
  * See `storage/asset-keys.ts` for why this is enforced rather than
  * trusted.
  */
-function assertItemAssetKey(itemType: string, data: unknown): void {
+function assertItemAssetKey(
+  itemType: string,
+  data: unknown,
+  prevData?: unknown,
+): void {
   if (data === undefined || data === null || typeof data !== 'object') return;
-  const key = (data as { storageKey?: unknown }).storageKey;
-  if (assetKeyFor(itemType, key).ok) return;
-  throw new BadRequestException(
-    `storageKey must be an upload under ${
-      ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
-    }/ for a ${itemType} item.`,
-  );
+  const prev =
+    prevData && typeof prevData === 'object'
+      ? (prevData as Record<string, unknown>)
+      : {};
+  for (const field of ASSET_KEY_FIELDS) {
+    const key = (data as Record<string, unknown>)[field];
+    // The derived keys (the COG and PMTiles a tile_layer is served
+    // from, which the analysis worker downloads with its own
+    // credentials) are checked when they change. A value carried over
+    // unchanged from the stored item keeps every existing item saveable.
+    if (field !== 'storageKey' && key === prev[field]) continue;
+    if (assetKeyFor(itemType, key).ok) continue;
+    throw new BadRequestException(
+      `${field} must be an upload under ${
+        ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
+      }/ for a ${itemType} item.`,
+    );
+  }
+}
+
+/** Fields in item data that name an object in the shared bucket. */
+const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
+
+/**
+ * Reject author data that a client renders without escaping.
+ *
+ * - A tool's `open-url` action is passed to `location.assign`, so a
+ *   `javascript:` URL would run on the portal origin for every viewer
+ *   who presses the button. Only an app-relative path or an http(s)
+ *   URL is stored. An empty URL stays allowed (a half-configured tool).
+ * - A map layer's style colors are interpolated into legend SVG
+ *   markup. A value with a quote or angle bracket is never a color.
+ *
+ * The web client checks both again at render time, because rows
+ * written before this landed are still in the database.
+ */
+function assertRenderSafeData(itemType: string, data: unknown): void {
+  if (data === undefined || data === null || typeof data !== 'object') return;
+  if (itemType === 'tool') {
+    const action = (data as { action?: unknown }).action;
+    if (action && typeof action === 'object') {
+      const { kind, url } = action as { kind?: unknown; url?: unknown };
+      if (
+        kind === 'open-url' &&
+        url !== undefined &&
+        url !== '' &&
+        safeNavigationUrl(url) === null
+      ) {
+        throw new BadRequestException(
+          'A tool URL must be an http(s) URL or a path that starts with a single /.',
+        );
+      }
+    }
+  }
+  if (itemType === 'map') {
+    const bad = findUnsafeMapColors(data);
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `Invalid color value at ${bad.join(', ')}.`,
+      );
+    }
+  }
 }
 
 /**
@@ -1298,6 +1360,7 @@ export class ItemsService {
     // wizard legitimately posts a presigned key here, so this
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
+    assertRenderSafeData(input.type, resolvedData);
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
     }
@@ -1861,7 +1924,8 @@ export class ItemsService {
     // item type's own prefix here, which is the only choke point every
     // writer passes through: point-cloud and tile-layer validate their
     // own finalize inputs, but this generic path bypasses both.
-    assertItemAssetKey(item.type, nextData);
+    assertItemAssetKey(item.type, nextData, item.data);
+    assertRenderSafeData(item.type, nextData);
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -2516,6 +2580,11 @@ export class ItemsService {
     itemType: ItemType,
     itemData: unknown,
   ): Promise<void> {
+    if (itemType === 'geocoding_service') {
+      // Its search indexes sit on the shared observation table and
+      // slow every write there. Nothing else drops them.
+      await dropGeocoderIndexes(this.prisma, itemId).catch(() => []);
+    }
     if (itemType === 'data_collection') {
       // #74: delete the offline basemap archives before the item row
       // goes. The rows themselves die by FK cascade with the item,

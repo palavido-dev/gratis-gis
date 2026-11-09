@@ -7,7 +7,6 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -16,7 +15,6 @@ import type { ItemShare } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
@@ -80,7 +78,6 @@ import { absoluteBase } from '../public/ogc/url.js';
 @ApiTags('ogc', 'features')
 @ApiBearerAuth()
 @Controller('ogc')
-@UseGuards(JwtAuthGuard)
 export class AuthedOgcFeaturesController {
   constructor(
     private readonly prisma: PrismaService,

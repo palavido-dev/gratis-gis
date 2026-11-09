@@ -445,7 +445,8 @@ async function forwardInner(
       sessionStale
         ? { message: 'Unauthorized', code: 'session-expired' }
         : { message: 'Unauthorized' },
-      { status: 401 },),
+      { status: 401 },
+    ),
       cookies: sessionCookies,
     };
   }
@@ -554,7 +555,8 @@ async function forwardInner(
         statusCode: 502,
         requestId,
       },
-      { status: 502, headers: { 'x-request-id': requestId } },),
+      { status: 502, headers: { 'x-request-id': requestId } },
+      ),
       cookies: sessionCookies,
     };
   }

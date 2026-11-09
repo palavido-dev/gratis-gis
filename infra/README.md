@@ -37,15 +37,16 @@ deployments should:
 - Run Keycloak with a real database (Postgres), HTTPS, and admin hardening
 - Back MinIO by real object storage or replace with AWS S3 / Cloudflare R2
 - Front everything with a reverse proxy (Caddy/Traefik/Nginx)
-- After Keycloak boots and the realm is imported, run
-  `bash infra/keycloak/patch-user-profile-schema.sh` once. The
-  realm-export JSON does not include the user-profile schema, so a
-  fresh import starts with `org` / `org_role` undeclared. Without
-  the patch, Keycloak 26 silently drops those attributes on every
-  user create and new sign-ins 401 with "JWT is missing required
-  org claim" (the same failure mode that bit prod when the realm
-  was first imported, fixed manually then; #71 makes it
-  reproducible). Idempotent: safe to run on every deploy.
+- Keycloak 26 drops user attributes that the user-profile schema does
+  not declare, and the realm import does not carry that schema. A
+  fresh import therefore starts with `org` / `org_role` undeclared,
+  and sign-ins 401 with "JWT is missing required org claim" (#71).
+  `infra/deploy.sh` and `infra/restore-golden.sh` declare both on
+  every run, and the NAS bootstrap does it on every start. For a
+  stack started some other way, run
+  `KC_ADMIN_PASS=... python3 infra/keycloak/patch-user-profile-via-docker.py`
+  on the Docker host. It reaches Keycloak over the Docker network,
+  because Caddy blocks the master realm on the public name.
 
 ### Postgres tuning
 

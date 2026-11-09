@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { Mail, Loader2 } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface PreferenceState {
   enabled: boolean;
@@ -109,7 +110,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
         },
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       const body = (await res.json()) as PreferenceState;
       // Replace with server-confirmed state (which may flip

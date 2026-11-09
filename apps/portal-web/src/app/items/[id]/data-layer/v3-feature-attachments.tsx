@@ -264,7 +264,7 @@ export function V3FeatureAttachments({
                       {a.fileName}
                     </p>
                     <p className="text-2xs text-muted">
-                      {formatSize(a.sizeBytes)}
+                      {formatBytes(a.sizeBytes)}
                     </p>
                   </div>
                   {canEdit ? (
@@ -287,8 +287,3 @@ export function V3FeatureAttachments({
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}

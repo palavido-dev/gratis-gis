@@ -30,6 +30,7 @@ import {
   type SpatialImportResult,
 } from '@/lib/spatial-import';
 import { DataLayerBboxPreview } from './bbox-preview';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -195,7 +196,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           body: JSON.stringify(staged.geojson),
         });
         if (!res.ok) {
-          setError(`Save failed: ${res.status} ${await res.text()}`);
+          setError(await parseApiError(res, 'Save failed'));
           return;
         }
       } else {
@@ -217,7 +218,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           body: JSON.stringify({ data: nextData }),
         });
         if (!res.ok) {
-          setError(`Save failed: ${res.status} ${await res.text()}`);
+          setError(await parseApiError(res, 'Save failed'));
           return;
         }
       }
