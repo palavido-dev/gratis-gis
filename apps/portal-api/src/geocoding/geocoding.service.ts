@@ -17,6 +17,12 @@ import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
+  GEOCODER_INDEXES_PER_ORG,
+  GEOCODER_INDEX_NAME,
+  dropGeocoderIndexes,
+  geocoderIndexPrefix,
+} from './geocoder-indexes.js';
+import {
   assertSafeOutboundUrl,
   isPrivateOrLoopbackHost,
   safeFetch,
@@ -296,7 +302,7 @@ export class GeocodingService {
         FROM observation
         WHERE scope = ${scope}
           AND entity IN (SELECT entity FROM candidates)
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ),
       live AS (
         SELECT entity, attrs, geom
@@ -409,10 +415,11 @@ export class GeocodingService {
    *
    * The CREATE INDEX runs without CONCURRENTLY because partitioned
    * parent tables (observation is partitioned by tx_time) don't
-   * support concurrent index builds in PG 16. The brief write lock
-   * on the source layer during build is acceptable for the
-   * one-time setup case; if it becomes a problem we can switch to
-   * the per-partition-concurrently pattern.
+   * support concurrent index builds in PG 16. The build takes a
+   * SHARE lock on every partition of observation, so it stalls
+   * feature writes for every layer in every org while it runs, and
+   * a partial index still scans the whole table. That is why only
+   * org admins can rebuild and why each org's count is capped.
    *
    * Indexes are named `idx_geo_<itemIdHex>_<safeFieldName>` so the
    * cleanup pass can identify and drop the ones this geocoder
@@ -435,9 +442,12 @@ export class GeocodingService {
         `Item ${itemId} is not a geocoding_service.`,
       );
     }
-    if (!this.sharing.canAdmin(user, item)) {
+    // Org admins only, not every owner. The build and the drop lock
+    // the shared observation table for every layer in every org, so
+    // this is an install-level cost, like SearchIndexService's rebuild.
+    if (user.orgRole !== 'admin' || !this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException(
-        'Only the owner or an org admin can rebuild geocoder indexes.',
+        'Only an org admin can rebuild geocoder indexes.',
       );
     }
     if (!isGeocodingServiceData(item.data)) {
@@ -506,6 +516,48 @@ export class GeocodingService {
         AND indexname LIKE ${`${GeocodingService.INDEX_NAME_PREFIX}_${itemIdHex}_%`}
     `;
     const existingNames = new Set(existingIndexes.map((r) => r.indexname));
+    // An index left invalid (a build that died) is not an index the
+    // planner uses. Treat it as missing so it is dropped and rebuilt.
+    const invalid = await this.prisma.$queryRaw<Array<{ indexname: string }>>`
+      SELECT c.relname AS indexname
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE NOT i.indisvalid
+        AND c.relname LIKE ${`${GeocodingService.INDEX_NAME_PREFIX}_${itemIdHex}_%`}
+    `;
+    for (const r of invalid) {
+      if (!GEOCODER_INDEX_NAME.test(r.indexname)) continue;
+      await this.prisma.$executeRawUnsafe(
+        `DROP INDEX IF EXISTS "${r.indexname}"`,
+      );
+      existingNames.delete(r.indexname);
+    }
+
+    // Cap the indexes one org can hang off the shared table. Count the
+    // org's other geocoders' indexes plus what this one wants.
+    const toCreate = [...desiredIndexNames].filter((n) => !existingNames.has(n));
+    if (toCreate.length > 0) {
+      const others = await this.prisma.item.findMany({
+        where: { orgId: item.orgId, type: 'geocoding_service', id: { not: itemId } },
+        select: { id: true },
+      });
+      let held = 0;
+      if (others.length > 0) {
+        const prefixes = others.map((o) => `${geocoderIndexPrefix(o.id)}%`);
+        const rows = await this.prisma.$queryRaw<Array<{ n: bigint }>>`
+          SELECT count(*)::bigint AS n
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname LIKE ANY (${prefixes}::text[])
+        `;
+        held = Number(rows[0]?.n ?? 0);
+      }
+      if (held + desiredIndexNames.size > GEOCODER_INDEXES_PER_ORG) {
+        throw new BadRequestException(
+          `This organization's geocoders would hold more than ${GEOCODER_INDEXES_PER_ORG} search indexes. Remove search fields from this or another geocoder first.`,
+        );
+      }
+    }
 
     const created: string[] = [];
     const kept: string[] = [];
@@ -594,30 +646,14 @@ export class GeocodingService {
   /**
    * Drop every geocoder index owned by this item. Used by
    * rebuildIndexes() when the geocoder has no searchFields left,
-   * and by item-delete cleanup elsewhere if we wire it in.
+   * and (through dropGeocoderIndexes) by the item purge teardown.
    */
   private async dropExistingGeocoderIndexes(
     itemId: string,
   ): Promise<string[]> {
-    const itemIdHex = itemId.replace(/-/g, '').slice(0, 16);
-    const existing = await this.prisma.$queryRaw<
-      Array<{ indexname: string }>
-    >`
-      SELECT indexname
-      FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND indexname LIKE ${`${GeocodingService.INDEX_NAME_PREFIX}_${itemIdHex}_%`}
-    `;
-    const dropped: string[] = [];
-    for (const r of existing) {
-      if (!/^idx_geo_[a-f0-9]+_[a-zA-Z0-9_]+$/.test(r.indexname)) continue;
-      await this.prisma.$executeRawUnsafe(
-        `DROP INDEX IF EXISTS "${r.indexname}"`,
-      );
-      dropped.push(r.indexname);
-    }
-    return dropped;
+    return dropGeocoderIndexes(this.prisma, itemId);
   }
+
 
   /**
    * Probe an ArcGIS GeocodeServer URL and return the metadata

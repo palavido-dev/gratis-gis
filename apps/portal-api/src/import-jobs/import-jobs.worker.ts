@@ -295,46 +295,62 @@ export class ImportJobsWorker implements OnModuleInit {
           await writer.deleteScope(scope);
         }
         writer.beginCopy();
-        meta = await this.ingest.streamLayerFromPath(
-          staged.filePath,
-          job.sourceLayerName,
-          async (batch, progress) => {
-            if (cancelled) return;
-            if (await this.jobs.isCancelled(job.id)) {
-              cancelled = true;
-              return;
-            }
-            const filtered = batch.map((b) => ({
-              geometry: b.geometry,
-              properties: filterProps(b.properties),
-            }));
-            const { inserted } =
-              await this.dataLayerFeatures.bulkInsertFeatures(
-                job.itemId,
-                job.layerId,
-                filtered,
-                author,
-                writer,
-                schema,
+        try {
+          meta = await this.ingest.streamLayerFromPath(
+            staged.filePath,
+            job.sourceLayerName,
+            async (batch, progress) => {
+              if (cancelled) throw new ImportCancelled();
+              if (await this.jobs.isCancelled(job.id)) {
+                cancelled = true;
+                // Stop the reader. Returning would let GDAL read and
+                // reproject every remaining feature before the abort,
+                // holding the single import worker (and the open COPY
+                // transaction) for the whole file.
+                throw new ImportCancelled();
+              }
+              const filtered = batch.map((b) => ({
+                geometry: b.geometry,
+                properties: filterProps(b.properties),
+              }));
+              const { inserted } =
+                await this.dataLayerFeatures.bulkInsertFeatures(
+                  job.itemId,
+                  job.layerId,
+                  filtered,
+                  author,
+                  writer,
+                  schema,
+                );
+              totalInserted += inserted;
+              await this.jobs.updateProgress(
+                job.id,
+                progress.processed,
+                totalInserted,
               );
-            totalInserted += inserted;
-            await this.jobs.updateProgress(
-              job.id,
-              progress.processed,
-              totalInserted,
-            );
-          },
-          // Same rule as the synchronous ingest endpoint: the target
-          // layer decides whether these rows have geometry, not the
-          // file. Both paths have to agree or a related-records
-          // import silently succeeds on one and inserts nothing on
-          // the other.
-          { isTable: layer.geometryType == null },
-        );
-        // Important: streamLayerFromPath returns NORMALLY when we
-        // cancel mid-stream (the onBatch callback noops once the
-        // cancelled flag is set, but the GDAL feature pump runs to
-        // completion). If we just unconditionally call writer.end()
+            },
+            // Same rule as the synchronous ingest endpoint: the target
+            // layer decides whether these rows have geometry, not the
+            // file. Both paths have to agree or a related-records
+            // import silently succeeds on one and inserts nothing on
+            // the other.
+            { isTable: layer.geometryType == null },
+          );
+        } catch (err) {
+          // A reader may wrap the sentinel in its own error type, so
+          // the flag decides, not the error class.
+          if (!cancelled) throw err;
+          meta = {
+            fields: [],
+            driver: '',
+            layerName: job.sourceLayerName ?? '',
+            sourceSrs: null,
+            total: 0,
+          };
+        }
+        // Important: on cancel the stream stops early (above) and we
+        // land here with `cancelled` set. If we just unconditionally
+        // call writer.end()
         // here, the COPY transaction COMMITS every row that already
         // streamed before the cancel -- which was the bug behind
         // 1.3M ghost rows in observation after multiple cancelled
@@ -367,6 +383,7 @@ export class ImportJobsWorker implements OnModuleInit {
             layerId: job.layerId,
             removedEntityIds,
             authorSub: job.createdBy,
+            replace: job.mode === 'replace',
           });
           await writer.commit();
           copyClosed = true;
@@ -516,4 +533,12 @@ function driverToFormat(
   if (d.includes('xlsx') || d.includes('excel')) return 'xlsx';
   if (d.includes('csv')) return 'csv';
   return 'api';
+}
+
+/** Thrown from onBatch to stop a cancelled import's reader. */
+class ImportCancelled extends Error {
+  constructor() {
+    super('Import cancelled.');
+    this.name = 'ImportCancelled';
+  }
 }

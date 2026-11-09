@@ -37,6 +37,7 @@ import {
   type PresignResponse,
 } from '@/lib/presign-upload';
 import { useFormat } from '@/lib/i18n/format';
+import { formatBytes } from '@/lib/format-bytes';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -1356,13 +1357,6 @@ function MetaItem({
       </dd>
     </div>
   );
-}
-
-function formatBytes(n: number): string {
-  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${n} B`;
 }
 
 function round1(n: number): string {

@@ -10,14 +10,21 @@ import {
   listQueued,
   queueSubmission,
   type QueuedSubmission,
+  isAnonymousSubmission,
 } from '@/lib/form-offline';
+import { getOfflineIdentity } from '@/lib/offline-store';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
 import { useFormat } from '@/lib/i18n/format';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface Props {
   form: FormSchema;
   formItemTitle: string;
+  /** The signed-in account from the server render, when known. It
+   *  wins over the device identity, which the guard may not have
+   *  updated yet after an account switch. */
+  userId?: string | null;
 }
 
 /**
@@ -46,7 +53,29 @@ interface Props {
  *   { clientId, schemaVersion, response, capturedAt }
  * Idempotent on clientId at the server (a re-drained row is a no-op).
  */
-export function RespondClient({ form, formItemTitle }: Props) {
+/**
+ * The account this device belongs to (set by OfflineIdentityGuard).
+ * Queued responses are stamped with it and only this account's rows
+ * are listed or sent, so a shared device never posts one person's
+ * answers under the next person's session. Null when nobody is signed
+ * in or the offline store is unavailable.
+ */
+async function deviceIdentity(): Promise<string | null> {
+  try {
+    return await getOfflineIdentity();
+  } catch {
+    return null;
+  }
+}
+
+export function RespondClient({ form, formItemTitle, userId = null }: Props) {
+  // A response is stamped with, listed for and sent as this account.
+  // With no account known it is stored as captured anonymously and
+  // held (see ANONYMOUS_SUBMISSION_OWNER in form-offline.ts).
+  const currentIdentity = useCallback(
+    async (): Promise<string | null> => userId ?? (await deviceIdentity()),
+    [userId],
+  );
   const fmt = useFormat();
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -62,20 +91,20 @@ export function RespondClient({ form, formItemTitle }: Props) {
 
   const refreshOutbox = useCallback(async () => {
     try {
-      const all = await listQueued();
+      const all = await listQueued(await currentIdentity());
       setOutbox(all.filter((r) => r.formId === form.id && r.status !== 'sent'));
     } catch {
       // IndexedDB unavailable (private browsing, etc); runtime still
       // works for online-only submissions.
     }
-  }, [form.id]);
+  }, [form.id, currentIdentity]);
 
   const drainOnce = useCallback(async () => {
     if (drainingRef.current) return;
     drainingRef.current = true;
     setDraining(true);
     try {
-      await drain(form.id, async (row) => {
+      await drain(form.id, await currentIdentity(), async (row) => {
         // Upload any offline-captured attachments before posting (#280).
         // The walk mutates row.response in place so a partial drain
         // (some attachments uploaded, some still pending) doesn't have
@@ -97,7 +126,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
           },
         );
         if (!res.ok) {
-          throw new Error(`${res.status} ${await res.text().catch(() => '')}`);
+          throw new Error(await apiErrorMessage(res));
         }
       });
     } finally {
@@ -105,7 +134,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
       setDraining(false);
       await refreshOutbox();
     }
-  }, [form.id, refreshOutbox]);
+  }, [form.id, refreshOutbox, currentIdentity]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -127,6 +156,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
     await queueSubmission({
       formId: form.id,
       schemaVersion: form.schemaVersion,
+      ownerUserId: await currentIdentity(),
       response,
     });
     // Arm background replay in case the tab closes before we get a
@@ -184,15 +214,24 @@ export function RespondClient({ form, formItemTitle }: Props) {
                   <span className="truncate">
                     {fmt.dateTime(r.capturedAt)}
                   </span>
-                  <span
-                    className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${
-                      r.status === 'failed'
-                        ? 'bg-warn/15 text-warn'
-                        : 'bg-surface-2 text-muted'
-                    }`}
-                  >
-                    {r.status}
-                  </span>
+                  {isAnonymousSubmission(r) ? (
+                    <span
+                      className="inline-flex rounded-full bg-warn/15 px-1.5 text-2xs uppercase tracking-wide text-warn"
+                      title="Captured while no one was signed in. It is kept on this device and is not sent under another account."
+                    >
+                      held
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${
+                        r.status === 'failed'
+                          ? 'bg-warn/15 text-warn'
+                          : 'bg-surface-2 text-muted'
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

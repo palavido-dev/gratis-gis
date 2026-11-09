@@ -244,7 +244,8 @@ When the compose file itself is out of date, copy the new
 newer, Stop then Start the app in TrueNAS, or click Update in
 Dockge.
 
-`edge` is the default image channel and tracks `main`. For the
+`edge` is the default image channel and tracks `main`. A commit
+reaches `edge` only after CI and the security checks pass on it. For the
 newest stable release, set `GG_IMAGE_TAG=latest` before the first
 start, or in Dockge's env box. A tag such as `v1.2.3` pins that
 release.

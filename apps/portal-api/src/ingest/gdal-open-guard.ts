@@ -141,6 +141,14 @@ export function applyGdalNetworkHardening(gdal: {
   process.env['GDAL_HTTP_CONNECTTIMEOUT'] ??= '2';
   process.env['GDAL_HTTP_TIMEOUT'] ??= '5';
   process.env['CPL_VSIL_CURL_USE_HEAD'] ??= 'NO';
+  // The GML driver fetches the schema named in xsi:schemaLocation when
+  // a document looks like a WFS response (GML_DOWNLOAD_SCHEMA defaults
+  // to YES). That dial goes out through libcurl, around safeFetch, to
+  // any URL the uploader wrote, including internal hosts. Forced, not
+  // defaulted: no deployment needs an upload to fetch remote schemas.
+  // GML_SKIP_RESOLVE_ELEMS=ALL likewise keeps xlink:href resolution off.
+  process.env['GML_DOWNLOAD_SCHEMA'] = 'NO';
+  process.env['GML_SKIP_RESOLVE_ELEMS'] = 'ALL';
   // Publish the default allowlist into the process env when unset so
   // operators inspecting the container see the same set we enforce
   // in assertAllowedGdalDriver.
@@ -151,5 +159,7 @@ export function applyGdalNetworkHardening(gdal: {
     set('GDAL_HTTP_CONNECTTIMEOUT', '2');
     set('GDAL_HTTP_TIMEOUT', '5');
     set('CPL_VSIL_CURL_USE_HEAD', 'NO');
+    set('GML_DOWNLOAD_SCHEMA', 'NO');
+    set('GML_SKIP_RESOLVE_ELEMS', 'ALL');
   }
 }

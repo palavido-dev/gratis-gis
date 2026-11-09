@@ -9,14 +9,12 @@ import {
   Param,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -74,7 +72,6 @@ const UUID_RE =
 @ApiTags('ogc', 'stac')
 @ApiBearerAuth()
 @Controller('stac')
-@UseGuards(JwtAuthGuard)
 export class AuthedStacController {
   constructor(
     private readonly prisma: PrismaService,

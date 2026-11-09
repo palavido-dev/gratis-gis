@@ -753,10 +753,8 @@ services:
       # leader-election service from acquiring an extra connection it
       # doesn't need.
       ENABLE_CRONS: "false"
-      # worker.main.ts gates the script claimer on this. Missing here for
-      # the same reason it was missing on portal-api: it was documented
-      # and never wired.
-      PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # No PORTAL_SCRIPTS_ENABLED here: this process never claims
+      # script runs (worker.main.ts). script-runner is the only claimer.
       # Cap the Prisma pool below the API default (25). The worker does
       # not serve tiles, so it does not need a wide pool, and this keeps
       # total DB demand (portal-api 2x25 + this + script-runner +
