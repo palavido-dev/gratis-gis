@@ -160,3 +160,35 @@ function isBlockedAddress(address: string): boolean {
   if (dotted && dotted[1] && isBlockedAddress(dotted[1])) return true;
   return false;
 }
+
+/**
+ * An SRID is interpolated into SQL (`ST_Transform(..., <srid>)`), so
+ * it must be a plain positive integer. EPSG codes and PostGIS
+ * spatial_ref_sys ids all fit well under the bound.
+ */
+export function isValidSrid(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= 999_999
+  );
+}
+
+/**
+ * On save of a PostGIS Live service item, refuse a layer whose `srid`
+ * is not a plain positive integer. The read path checks again, so a
+ * row saved before this check cannot inject SQL either.
+ */
+export function assertPostgisLayersOnSave(next: unknown): void {
+  if (readProtocol(next) !== 'postgis_live') return;
+  const layers = (next as { layers?: unknown }).layers;
+  if (!Array.isArray(layers)) return;
+  for (const layer of layers) {
+    if (!layer || typeof layer !== 'object') continue;
+    const srid = (layer as { srid?: unknown }).srid;
+    if (srid !== undefined && !isValidSrid(srid)) {
+      throw new BadRequestException('Each layer srid must be a positive whole number.');
+    }
+  }
+}

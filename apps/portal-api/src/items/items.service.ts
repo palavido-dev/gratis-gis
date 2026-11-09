@@ -15,7 +15,11 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
-import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
+import {
+  assertPostgisHostOnSave,
+  assertPostgisLayersOnSave,
+} from '../postgis-live/postgis-host.js';
+import { credentialTarget } from './credential-target.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
@@ -1319,6 +1323,7 @@ export class ItemsService {
     assertItemAssetKey(input.type, resolvedData);
     if (input.type === 'service') {
       await assertPostgisHostOnSave(null, resolvedData);
+      assertPostgisLayersOnSave(resolvedData);
     }
 
     // Attribution reaches every viewer of every map that uses this
@@ -1965,6 +1970,26 @@ export class ItemsService {
     }
     if (item.type === 'service' && nextData !== undefined) {
       await assertPostgisHostOnSave(item.data, nextData);
+      assertPostgisLayersOnSave(nextData);
+    }
+    // The stored credential goes wherever `data` points (the proxy's
+    // url, PostGIS Live's host). Setting the credential needs admin, so
+    // pointing it somewhere else does too; otherwise an editor could
+    // retarget the owner's password or token to a host they control.
+    if (
+      nextData !== undefined &&
+      credentialTarget(item.data) !== credentialTarget(nextData) &&
+      !this.sharing.canAdmin(user, item)
+    ) {
+      const stored = await this.prisma.itemCredential.findUnique({
+        where: { itemId: id },
+        select: { itemId: true },
+      });
+      if (stored) {
+        throw new ForbiddenException(
+          'This item has a stored credential. Only its owner or an org admin can change where it connects.',
+        );
+      }
     }
 
     // Recompute the cached extent when the data blob changes; leave
