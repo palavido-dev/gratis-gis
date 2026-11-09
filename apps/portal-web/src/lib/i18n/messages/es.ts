@@ -927,7 +927,7 @@ export const es: Partial<CatalogShape> = {
     editableLayersCount:
       '{count, plural, one {# capa editable} other {# capas editables}}',
     toolAdd: 'Añadir',
-    toolMagic: 'Magic outline-solid',
+    toolMagic: 'Magic outline',
     toolSnap: 'Ajuste',
     toolUndo: 'Deshacer',
     toolRedo: 'Rehacer',
@@ -955,11 +955,11 @@ export const es: Partial<CatalogShape> = {
     deleteThisFeature: 'Eliminar esta entidad',
     layerFallback: 'Capa',
     magicNeedsImagery:
-      'Añade una capa de imágenes a este mapa para usar outline-solid.',
+      'Añade una capa de imágenes a este mapa para usar Magic Outline.',
     outlining: 'Trazando...',
-    magicProblem: 'La herramienta outline-solid tuvo un problema. Inténtalo de nuevo.',
+    magicProblem: 'La herramienta Magic Outline tuvo un problema. Inténtalo de nuevo.',
     magicNeedsPolygon:
-      'La herramienta outline-solid necesita una capa de polígonos editable como destino. Abre la configuración del editor para añadir una.',
+      'La herramienta Magic Outline necesita una capa de polígonos editable como destino. Abre la configuración del editor para añadir una.',
     noEditableTargetsAdd:
       'No hay capas de destino editables configuradas. Abre la configuración del editor para añadir una.',
     noEditableTargetsEdit:
@@ -1355,29 +1355,6 @@ export const es: Partial<CatalogShape> = {
   },
   presence: {
     youSuffix: ' (tú)',
-  },
-  comments: {
-    title: 'Comentarios',
-    showResolved: 'Mostrar resueltos',
-    startThread: 'Iniciar un nuevo hilo...',
-    post: 'Publicar',
-    reply: 'Responder...',
-    resolve: 'Resolver',
-    reopen: 'Reabrir',
-    threadCount: '{count, plural, one {# hilo} other {# hilos}}',
-    noOpen:
-      'No hay hilos abiertos. Activa "Mostrar resueltos" para ver los cerrados.',
-    noComments:
-      'Aún no hay comentarios. Inicia la conversación a continuación.',
-    signInPrompt: 'Inicia sesión para comentar en este mapa.',
-  },
-  markup: {
-    title: 'Anotaciones',
-    add: 'Añadir anotación',
-    empty:
-      'Aún no hay anotaciones. Añade un conjunto y luego coloca chinchetas para anotar el mapa.',
-    dropPin: 'Colocar chincheta en el centro',
-    signInPrompt: 'Inicia sesión para añadir anotaciones a este mapa.',
   },
   print: {
     chooserTitle: 'Imprimir este mapa',
@@ -2186,15 +2163,6 @@ export const es: Partial<CatalogShape> = {
     noFeaturesInExtent: 'No hay entidades en esta extensión del mapa.',
     noFeatures: 'No hay entidades que mostrar.',
     sortAndCalculate: 'Clic para ordenar, clic derecho para Calcular campo',
-  },
-  addToMap: {
-    newMap: 'Nuevo mapa',
-    existingMap: 'Un mapa existente',
-    loadingMaps: 'Cargando mapas...',
-    noMaps: 'Aún no hay mapas',
-    layerGone: '{item} ya no tiene una capa "{layerKey}".',
-    tableNoShapes:
-      '{layer} es una tabla sin formas, así que no hay nada que dibujar.',
     export: 'Exportar',
     exportAllRows: 'Todas las filas ({count})',
     exportSelectedRows: 'Filas seleccionadas ({count})',
@@ -2277,6 +2245,15 @@ export const es: Partial<CatalogShape> = {
     savingCell: 'Guardando...',
     readOnlyHere:
       'Esta tabla es de solo lectura aquí. Las filas se pueden editar en las capas que tienes permiso para cambiar.',
+  },
+  addToMap: {
+    newMap: 'Nuevo mapa',
+    existingMap: 'Un mapa existente',
+    loadingMaps: 'Cargando mapas...',
+    noMaps: 'Aún no hay mapas',
+    layerGone: '{item} ya no tiene una capa "{layerKey}".',
+    tableNoShapes:
+      '{layer} es una tabla sin formas, así que no hay nada que dibujar.',
   },
   mapAddLayer: {
     title: 'Añadir capa',
@@ -5044,21 +5021,21 @@ export const es: Partial<CatalogShape> = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
@@ -5126,7 +5103,6 @@ export const es: Partial<CatalogShape> = {
       layers: "Capas",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "Mi ubicación",
       myLocationShort: "My location",
       print: "Imprimir",
