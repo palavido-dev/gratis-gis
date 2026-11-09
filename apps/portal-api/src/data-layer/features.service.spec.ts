@@ -546,16 +546,26 @@ describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
  * the `_observation_id` the client read; the service checks it against
  * the read (cheap, before validation) and threads it into the engine
  * write as `expectedHeadObservationId`, which is the check that holds
- * under a race. Absent, nothing changes: last-writer-wins.
+ * under a race. Absent, the head the service read and merged onto is
+ * the expected head, so a concurrent edit to another field is not
+ * reverted by this write's property bag; on conflict the service reads
+ * again and re-merges once.
  */
 describe('DataLayerFeaturesService.updateFeature / deleteFeature conflict guard', () => {
   const SCHEMA = [{ name: 'value', type: 'number', label: 'Value', nullable: true }];
 
-  it('without a base id the engine write is unguarded', async () => {
+  it('without a base id the engine write is guarded by the head it merged onto', async () => {
     const { service, writeFeatureUpdate } = makeService(SCHEMA);
     await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser());
     const written = writeFeatureUpdate.mock.calls[0]![0] as Record<string, unknown>;
-    expect('expectedHeadObservationId' in written).toBe(false);
+    expect(written.expectedHeadObservationId).toBe(`obs-head-${E1}`);
+  });
+
+  it('without a base id a lost race re-reads and writes once more instead of a 409', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    writeFeatureUpdate.mockResolvedValueOnce({ conflict: true, headObservationId: 'other' } as never);
+    await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser());
+    expect(writeFeatureUpdate).toHaveBeenCalledTimes(2);
   });
 
   it('a current base id is threaded into the engine write', async () => {
