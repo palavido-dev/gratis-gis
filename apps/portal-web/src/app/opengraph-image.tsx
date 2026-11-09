@@ -117,7 +117,7 @@ export default function OgImage() {
               marginTop: 16,
             }}
           >
-            <span>gratisgis.org</span>
+            <span>demo.gratisgis.org</span>
             <span>·</span>
             <span>AGPL-3.0</span>
             <span>·</span>

@@ -90,7 +90,7 @@ dc() {
 }
 
 # Pre-snapshot cleanup. The public demo accounts (tester-admin /
-# tester-contributor / tester-viewer) sit behind the gratisgis.org
+# tester-contributor / tester-viewer) sit behind the demo.gratisgis.org
 # landing banner so anyone can sign in as them; whatever they
 # create between snapshots would otherwise get baked into the
 # golden state and survive every nightly reset forever. Purge any

@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   smoke:
-    name: Anonymous smoke against gratisgis.org
+    name: Anonymous smoke against demo.gratisgis.org
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -45,7 +45,7 @@ jobs:
       - name: Run smoke suite
         run: pnpm -C e2e e2e
         env:
-          E2E_BASE_URL: https://gratisgis.org
+          E2E_BASE_URL: https://demo.gratisgis.org
 
       - name: Upload traces on failure
         if: failure()

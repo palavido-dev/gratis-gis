@@ -77,7 +77,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # #274: NEXT_PUBLIC_* env vars must be present at build time so
 # Next.js can inline them into the client bundle. Setting them in
 # the runtime container env doesn't reach client components. The
-# canonical gratisgis.org deployment passes
+# canonical demo.gratisgis.org deployment passes
 # NEXT_PUBLIC_PROJECT_LANDING=1 as a build arg from compose so the
 # project marketing section renders below the Hero. Per-tenant
 # deployments leave it unset and the Hero stands alone.
@@ -97,7 +97,7 @@ ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
 ARG NEXT_PUBLIC_GG_VERSION=
 ENV NEXT_PUBLIC_GG_VERSION=$NEXT_PUBLIC_GG_VERSION
 # Canonical public origin for SEO URLs (src/lib/portal-url.ts). Empty
-# falls back to https://gratisgis.org.
+# falls back to https://demo.gratisgis.org.
 ARG NEXT_PUBLIC_PORTAL_URL=
 ENV NEXT_PUBLIC_PORTAL_URL=$NEXT_PUBLIC_PORTAL_URL
 

@@ -31,7 +31,7 @@ NEXT_PUBLIC_GG_VERSION nas build arg in publish-images.yml
 NEXT_PUBLIC_GITHUB_REPO nas build arg in publish-images.yml
 NEXT_PUBLIC_PROJECT_LANDING nas build arg in publish-images.yml
 NEXT_PUBLIC_PUBLIC_TESTING nas public demo banner; off in published images
-NEXT_PUBLIC_PORTAL_URL nas canonical and sitemap URLs fall back to gratisgis.org on prebuilt images
+NEXT_PUBLIC_PORTAL_URL nas canonical and sitemap URLs fall back to demo.gratisgis.org on prebuilt images
 NEXT_PUBLIC_PORTAL_API_URL both server fallback behind PORTAL_API_URL, which both stacks set
 
 # Development and diagnostics only.

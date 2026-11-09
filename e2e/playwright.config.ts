@@ -6,7 +6,7 @@
  *
  *   (unset)                     -> http://localhost:3000, the dev
  *                                  stack (`pnpm dev` + `pnpm infra:up`)
- *   https://gratisgis.org       -> the deployed demo, which is what
+ *   https://demo.gratisgis.org  -> the deployed demo, which is what
  *                                  the scheduled prod-smoke workflow
  *                                  points at
  *

@@ -92,7 +92,7 @@ checks any other client gets.
    passing two environment variables:
    - `GRATIS_GIS_BASE_URL`: the URL of your portal API
      (typically the same domain your portal-web is served
-     from, e.g. `https://gratisgis.org`).
+     from, e.g. `https://demo.gratisgis.org`).
    - `GRATIS_GIS_TOKEN`: a portal API key (`ggk_...` from
      Profile / API keys). Prefer an API key over a session
      JWT; JWTs expire quickly and are the wrong shape for a

@@ -80,6 +80,6 @@ class PortalSettings(context: Context) {
     set(value) = prefs.edit().putString("portalInfo", value).apply()
 
   companion object {
-    const val DEFAULT_PORTAL_URL = "https://gratisgis.org"
+    const val DEFAULT_PORTAL_URL = "https://demo.gratisgis.org"
   }
 }

@@ -83,7 +83,7 @@ pnpm install
 pnpm --filter @gratis-gis/portal-mcp build
 
 # Set the portal base URL + a portal API key (ggk_...)
-export GRATIS_GIS_BASE_URL="https://gratisgis.org"
+export GRATIS_GIS_BASE_URL="https://demo.gratisgis.org"
 export GRATIS_GIS_TOKEN="ggk_..."
 
 # Run directly to test

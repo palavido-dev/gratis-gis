@@ -4,7 +4,7 @@ A fresh portal can seed itself with a complete demonstration
 workspace in one click. Admins and contributors landing on an empty
 "My items" page get a welcome panel with three starting points;
 "Load sample data" creates the Randolph County, West Virginia
-workspace, the same content the public demo at gratisgis.org runs.
+workspace, the same content the public demo at demo.gratisgis.org runs.
 
 ## What gets created
 

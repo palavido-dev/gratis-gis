@@ -52,7 +52,7 @@ journalctl -u gg-docker-cleanup.service -n 50
 
 ## gg-reset-demo.timer (#138)
 
-Resets the gratisgis.org public test instance to a captured golden
+Resets the demo.gratisgis.org public test instance to a captured golden
 state every day at 04:00 UTC. Used while the portal is in public-
 testing mode so testers can do anything they want during the day
 and get a clean slate at the next reset.

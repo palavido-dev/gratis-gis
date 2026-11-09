@@ -146,7 +146,8 @@ DOMAIN="${DOMAIN%/}"
 case "$DOMAIN" in
   *" "*|*"/"*) die "The domain must be a hostname, with no spaces and no slash." ;;
 esac
-if [ "$DOMAIN" = "gratisgis.org" ] || [ "$DOMAIN" = "www.gratisgis.org" ]; then
+if [ "$DOMAIN" = "gratisgis.org" ] || [ "$DOMAIN" = "www.gratisgis.org" ] \
+  || [ "$DOMAIN" = "demo.gratisgis.org" ] || [ "$DOMAIN" = "www.demo.gratisgis.org" ]; then
   warn "${DOMAIN} is the public demo. Use a domain name you control."
 fi
 

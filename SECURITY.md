@@ -28,7 +28,7 @@ A useful report typically has:
    Keycloak realm, the Docker stack).
 3. A reproducer: URL, request, payload, or steps. A `curl` command or
    a small script is ideal.
-4. Versions involved (the public preview at gratisgis.org is on the
+4. Versions involved (the public preview at demo.gratisgis.org is on the
    latest `main`; if you tested a self-hosted install, the commit
    hash helps).
 5. Any suggested mitigation if you have one.

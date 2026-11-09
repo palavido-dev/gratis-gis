@@ -32,7 +32,7 @@ dev = ["pytest>=7", "pytest-cov", "respx>=0.20"]
 
 [project.urls]
 Homepage = "https://github.com/palavido-dev/gratis-gis"
-Documentation = "https://gratisgis.org/help/reference/python-client"
+Documentation = "https://demo.gratisgis.org/help/reference/python-client"
 Issues = "https://github.com/palavido-dev/gratis-gis/issues"
 Source = "https://github.com/palavido-dev/gratis-gis/tree/main/clients/python"
 

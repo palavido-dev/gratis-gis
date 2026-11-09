@@ -227,7 +227,7 @@ const STANDARD_VARIABLES: TemplateVariableDescriptor[] = [
     name: 'baseUrl',
     label: 'Portal base URL',
     description: 'Public-facing URL prefix for deep links.',
-    example: 'https://gratisgis.org',
+    example: 'https://demo.gratisgis.org',
   },
 ];
 

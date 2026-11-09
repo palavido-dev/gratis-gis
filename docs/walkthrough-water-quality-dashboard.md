@@ -5,7 +5,7 @@ web server and turning it into a public dashboard that answers real
 questions, on a self-hosted portal, with no commercial licenses.
 
 The finished thing is at
-[gratisgis.org](https://gratisgis.org) under "See it running":
+[demo.gratisgis.org](https://demo.gratisgis.org) under "See it running":
 **Twenty-five years of West Virginia water quality**. 1,175 monitoring
 sites, 285,788 measurements, 1995 to 2019.
 

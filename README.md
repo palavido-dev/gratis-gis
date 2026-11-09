@@ -18,7 +18,7 @@ or enterprise identity depth.
 [changelog](./CHANGELOG.md). Store-listed native mobile apps are not
 part of 1.0; the field PWA is the supported field client.
 
-**Try it:** [gratisgis.org](https://gratisgis.org) is a public demo
+**Try it:** [demo.gratisgis.org](https://demo.gratisgis.org) is a public demo
 (test credentials and a daily reset on the landing page). Same sample
 workspace as in-app "Load sample data." Bugs and chat:
 [Issues](https://github.com/palavido-dev/gratis-gis/issues) ·

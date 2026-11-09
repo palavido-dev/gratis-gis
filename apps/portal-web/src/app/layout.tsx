@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   // Canonical link tag.  Self-host deployments that set
   // NEXT_PUBLIC_PORTAL_URL produce a correct canonical for their
-  // own origin; the gratisgis.org default keeps the public preview
+  // own origin; the demo.gratisgis.org default keeps the public preview
   // canonical.
   alternates: {
     canonical: '/',

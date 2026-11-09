@@ -13,7 +13,7 @@ It is not trying to mirror every route the portal exposes.
 
     from gratisgis import GratisGIS
 
-    gg = GratisGIS("https://gratisgis.org", api_key="ggk_...")
+    gg = GratisGIS("https://demo.gratisgis.org", api_key="ggk_...")
     layer = gg.find_items(type="data_layer", query="parcels")[0]
     fc = gg.read_features(layer["id"], "parcels", limit=500)
 """

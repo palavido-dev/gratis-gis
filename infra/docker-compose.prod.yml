@@ -1,6 +1,6 @@
 name: gratis-gis-prod
 
-# Production stack for gratisgis.org. Distinct from
+# Production stack for the demo.gratisgis.org demo. Distinct from
 # infra/docker-compose.yml (the dev stack) on every axis that matters:
 #
 #   - No public ports except Caddy on 80/443. Postgres, Keycloak,
@@ -343,7 +343,7 @@ services:
       # per-bucket dance entirely. Leave the bucket-policy install
       # in the api alone -- it works -- this only replaces the CORS
       # piece. Multiple origins go in as a comma-separated list.
-      MINIO_API_CORS_ALLOW_ORIGIN: ${PUBLIC_URL:-https://gratisgis.org}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${PUBLIC_URL:-https://demo.gratisgis.org}
     volumes:
       - miniodata:/data
     healthcheck:
@@ -539,8 +539,8 @@ services:
       MINIO_PUBLIC_BASE: https://${STORAGE_DOMAIN:-storage.gratisgis.org}
       # Origins the browser is allowed to PUT from. The bucket CORS
       # rule we install at boot opens this list. Keep it tight: only
-      # the portal-web origin (apex) needs cross-origin access.
-      STORAGE_ALLOWED_ORIGINS: ${PUBLIC_URL:-https://gratisgis.org}
+      # the portal-web origin needs cross-origin access.
+      STORAGE_ALLOWED_ORIGINS: ${PUBLIC_URL:-https://demo.gratisgis.org}
       # Backup archives. The runtime image pre-creates this with
       # app:app ownership so the named volume below inherits it.
       BACKUP_DIR: /app/backups
@@ -563,7 +563,7 @@ services:
       # used to be.
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-7}
       # Public URL for redirects + OG metadata.
-      PUBLIC_URL: ${PUBLIC_URL:-https://gratisgis.org}
+      PUBLIC_URL: ${PUBLIC_URL:-https://demo.gratisgis.org}
       # #159 Phase 2: WebSocket endpoints of the chromium sidecars.
       # Comma-separated; the render service picks one at random
       # for load balancing. Token gates access so only the API can
@@ -616,7 +616,7 @@ services:
       # has sent carried a link pointing at the recipient's own
       # machine. Derived from PORTAL_DOMAIN so there is one place to
       # set the portal's address.
-      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-demo.gratisgis.org}}
       # In-portal feedback (#146). Off unless set: enabling it opens a
       # public, unauthenticated POST endpoint and shows a feedback
       # button to every visitor, which is right for the demo and wrong
@@ -795,11 +795,11 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${S3_BUCKET:-gratisgis}
       MINIO_PUBLIC_BASE: https://${STORAGE_DOMAIN:-storage.gratisgis.org}
-      PUBLIC_URL: ${PUBLIC_URL:-https://gratisgis.org}
+      PUBLIC_URL: ${PUBLIC_URL:-https://demo.gratisgis.org}
       # Same image as portal-api, so it carries the same email-link
       # code path. Set here too rather than relying on the worker never
       # sending mail, which is true today and easy to break.
-      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-demo.gratisgis.org}}
       # worker.module.ts loads NotificationsService too, so the worker
       # needs the same switch and portal name as portal-api.
       NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
@@ -1080,7 +1080,7 @@ services:
         # Next.js inlines them into the client bundle. Setting these
         # only in `environment:` below would not reach the static
         # output that the standalone server serves.
-        # Defaults to "1" for the canonical gratisgis.org deploy so
+        # Defaults to "1" for the canonical demo.gratisgis.org deploy so
         # the open-source project section renders below the Hero. A
         # per-tenant fork can pass PROJECT_LANDING= in .env.prod (or
         # explicitly export PROJECT_LANDING=0) to suppress it.
@@ -1098,8 +1098,8 @@ services:
         # honest for an unscripted build.
         NEXT_PUBLIC_GG_VERSION: ${GG_VERSION:-}
         # Canonical, Open Graph and sitemap URLs. Without it a self-host
-        # on its own domain advertises gratisgis.org.
-        NEXT_PUBLIC_PORTAL_URL: ${PUBLIC_URL:-https://gratisgis.org}
+        # on its own domain advertises demo.gratisgis.org.
+        NEXT_PUBLIC_PORTAL_URL: ${PUBLIC_URL:-https://demo.gratisgis.org}
     restart: unless-stopped
     depends_on:
       portal-api:
@@ -1113,10 +1113,10 @@ services:
       # (no TLS hop, no Caddy round-trip).
       PORTAL_API_URL: http://portal-api:4000
       # Browser-side fetch target. Routed through Caddy under /api/.
-      NEXT_PUBLIC_API_URL: ${PUBLIC_URL:-https://gratisgis.org}
+      NEXT_PUBLIC_API_URL: ${PUBLIC_URL:-https://demo.gratisgis.org}
       # NextAuth: must match the public Keycloak issuer so iss claim
       # validates. NEXTAUTH_URL is the canonical public app URL.
-      NEXTAUTH_URL: ${PUBLIC_URL:-https://gratisgis.org}
+      NEXTAUTH_URL: ${PUBLIC_URL:-https://demo.gratisgis.org}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in .env.prod}
       # The web's auth.ts builds the issuer from KEYCLOAK_URL +
       # KEYCLOAK_REALM (it is not the same as the api's
@@ -1211,7 +1211,7 @@ services:
     environment:
       # Surfaced as {$PORTAL_DOMAIN} / {$AUTH_DOMAIN} in the Caddyfile so
       # we can reuse the same file in staging if we ever want.
-      PORTAL_DOMAIN: ${PORTAL_DOMAIN:-gratisgis.org}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN:-demo.gratisgis.org}
       AUTH_DOMAIN: ${AUTH_DOMAIN:-auth.gratisgis.org}
       STORAGE_DOMAIN: ${STORAGE_DOMAIN:-storage.gratisgis.org}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env.prod}

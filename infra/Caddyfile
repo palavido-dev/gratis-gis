@@ -1,4 +1,4 @@
-# Caddy config for the gratisgis.org production stack. Two virtual
+# Caddy config for the demo.gratisgis.org production stack. Two virtual
 # hosts:
 #
 #   - {$PORTAL_DOMAIN}      -> portal-web:3000
@@ -41,11 +41,12 @@
     # portal-api and become the logged client_ip.
 }
 
-# www.gratisgis.org always 301s to the apex. Most users don't type
+# www.{$PORTAL_DOMAIN} (www.demo.gratisgis.org on the demo) always 301s to the
+# portal host. Needs its own DNS record. Most users don't type
 # www. anymore, but anyone who does shouldn't get an empty/bare
 # response or a cert mismatch. Listing the hostname here makes
 # Caddy include it in the SAN when it asks Let's Encrypt for a
-# cert, so https://www.gratisgis.org also serves valid TLS.
+# cert, so https://www.demo.gratisgis.org also serves valid TLS.
 www.{$PORTAL_DOMAIN} {
     redir https://{$PORTAL_DOMAIN}{uri} 301
 }

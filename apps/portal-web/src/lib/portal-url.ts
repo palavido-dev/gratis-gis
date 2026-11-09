@@ -4,11 +4,11 @@
  * Canonical public URL for THIS portal deployment.  Used by SEO
  * helpers (sitemap, robots, openGraph, JSON-LD, canonical link
  * tags) so the same code path produces a correct absolute URL on
- * gratisgis.org, on a self-hosted instance at gis.example.com,
+ * demo.gratisgis.org, on a self-hosted instance at gis.example.com,
  * and in local dev at http://localhost:3000.
  *
  * Reads `NEXT_PUBLIC_PORTAL_URL` (no trailing slash) and falls
- * back to `https://gratisgis.org` for the canonical public preview.
+ * back to `https://demo.gratisgis.org` for the canonical public preview.
  * Self-hosters who care about SEO should set the env var to their
  * own origin; everyone else gets a sensible default that at least
  * keeps the sitemap shape correct.
@@ -21,7 +21,7 @@ export function getPortalUrl(): string {
   if (raw && raw.length > 0) {
     return raw.replace(/\/+$/, '');
   }
-  return 'https://gratisgis.org';
+  return 'https://demo.gratisgis.org';
 }
 
 /**
