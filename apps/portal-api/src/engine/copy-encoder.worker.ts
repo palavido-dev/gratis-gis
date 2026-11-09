@@ -84,7 +84,7 @@ function encodeRow(obs: ObservationLike): string {
   const validFromStr = toIsoString(obs.validFrom);
   const validToStr = obs.validTo === null ? '\\N' : escapeText(toIsoString(obs.validTo));
   const cellStr = obs.cell == null ? '\\N' : escapeText(obs.cell);
-  const attrsStr = obs.attrs === null ? '\\N' : escapeText(JSON.stringify(obs.attrs));
+  const attrsStr = obs.attrs === null ? '\\N' : escapeText(JSON.stringify(obs.attrs, dropNul));
   let geomStr: string;
   if (obs.geom == null) {
     geomStr = '\\N';
@@ -102,7 +102,7 @@ function encodeRow(obs: ObservationLike): string {
     }
     geomStr = ewkt;
   }
-  const sourceStr = escapeText(JSON.stringify(obs.source));
+  const sourceStr = escapeText(JSON.stringify(obs.source, dropNul));
   const parentsStr = `{${obs.parents.join(',')}}`;
   // Tab-separate, newline-terminate. Coordinates and SRID prefixes
   // never contain tab/newline/backslash so geomStr skips escapeText
@@ -143,6 +143,18 @@ function toIsoString(d: Date | string): string {
   return d.toISOString();
 }
 
+/**
+ * JSON.stringify replacer that drops U+0000 from string values. jsonb
+ * refuses the \u0000 escape, so one NUL in one attribute failed the
+ * whole COPY. Done on the values, not on the JSON text, so a literal
+ * backslash followed by "u0000" in real data is left alone.
+ */
+function dropNul(_key: string, value: unknown): unknown {
+  return typeof value === 'string' && value.indexOf('\u0000') !== -1
+    ? value.replaceAll('\u0000', '')
+    : value;
+}
+
 /** PostgreSQL TEXT-format COPY escaping. */
 function escapeText(s: string): string {
   // Fast path: most strings have none of these chars. Check before
@@ -152,11 +164,15 @@ function escapeText(s: string): string {
     s.indexOf('\\') === -1 &&
     s.indexOf('\t') === -1 &&
     s.indexOf('\n') === -1 &&
-    s.indexOf('\r') === -1
+    s.indexOf('\r') === -1 &&
+    s.indexOf('\u0000') === -1
   ) {
     return s;
   }
   return s
+    // Postgres cannot store U+0000 in text. DBF fields padded with
+    // NUL carry it; dropping it is the only way the row loads.
+    .replaceAll('\u0000', '')
     .replace(/\\/g, '\\\\')
     .replace(/\t/g, '\\t')
     .replace(/\n/g, '\\n')

@@ -144,6 +144,62 @@ d('CopyWriter on PostGIS', () => {
     await pool.query('DELETE FROM observation');
   });
 
+  it('rejects the next batch instead of hanging when Postgres refuses a row', async () => {
+    // cell is CHAR(15): a 16-character value fails the COPY on the
+    // server. Before the fix the stream was destroyed with no one
+    // listening, the next write() returned false, and writeBatch
+    // waited for a drain that never came. A large shapefile import
+    // sat at "Loaded 5,000 of ..." forever (#573).
+    const writer = new CopyWriter(DB_URL);
+    await writer.begin();
+    writer.beginCopy();
+    const t0 = new Date('2026-06-01T00:00:00Z');
+    const bad = { ...row('33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-ccccccccccc1', t0), cell: 'x'.repeat(16) };
+    await writer.writeBatch([bad]);
+    // Give the server time to answer the bad row.
+    await new Promise((r) => setTimeout(r, 300));
+    const big = Array.from({ length: 4000 }, (_, i) =>
+      row(
+        '44444444-4444-4444-4444-444444444444',
+        `dddddddd-dddd-dddd-dddd-${String(i).padStart(12, '0')}`,
+        t0,
+      ),
+    );
+    const outcome = await Promise.race([
+      (async () => {
+        for (let i = 0; i < 20; i += 1) await writer.writeBatch(big);
+        await writer.sealCopy();
+        return 'finished';
+      })().catch((err: unknown) => `rejected: ${(err as Error).message}`),
+      new Promise<string>((r) => setTimeout(() => r('hung'), 15_000)),
+    ]);
+    await writer.abort();
+    await writer.close();
+    expect(outcome).toMatch(/^rejected: .*(too long|character)/i);
+  });
+
+  it('stores text and attributes that contain NUL characters', async () => {
+    // DBF fields padded with NUL are common. Postgres refuses U+0000
+    // in text and in jsonb, so the encoder drops it.
+    const writer = new CopyWriter(DB_URL);
+    await writer.begin();
+    writer.beginCopy();
+    const t0 = new Date('2026-06-01T00:00:00Z');
+    const obs = {
+      ...row('55555555-5555-5555-5555-555555555555', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1', t0),
+      attrs: { name: 'Rua S\u0000ão\u0000\u0000', nested: { k: ['a\u0000b'] } },
+    };
+    await writer.writeBatch([obs]);
+    await writer.sealCopy();
+    await writer.commit();
+    await writer.close();
+    const { rows } = await pool.query<{ attrs: Record<string, unknown> }>(
+      'SELECT attrs FROM observation WHERE id = $1',
+      ['eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1'],
+    );
+    expect(rows[0]?.attrs).toEqual({ name: 'Rua São', nested: { k: ['ab'] } });
+  });
+
   it('keeps committed history and drops only this load’s duplicate creates', async () => {
     const entity = '11111111-1111-1111-1111-111111111111';
     const fresh = '22222222-2222-2222-2222-222222222222';

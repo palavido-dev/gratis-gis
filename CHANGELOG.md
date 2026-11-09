@@ -173,6 +173,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A bulk import no longer hangs at its first batch ("Loaded 5,000 of
+  ...") when Postgres refuses a row. The import now fails with the
+  database's error. Text and attribute values containing NUL
+  characters, common in shapefile DBF fields, now import with the NUL
+  removed instead of failing. (#573)
 - Stamping an import's source on a layer no longer rewrites the whole
   item document. It locks the row and changes only that layer's
   `source`, so a sync cursor bumped during the import can no longer go
