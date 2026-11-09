@@ -139,14 +139,26 @@ describe('generic item writes (failures b and d)', () => {
       ...row,
       ...args.data,
     }));
+    const client: Record<string, unknown> = {
+      ...prisma,
+      itemShare: { findMany: async () => [] },
+      item: { update },
+      // update() writes under the item row lock (lockItemRow), which
+      // reads the stored data and updated_at as epoch ms; the same
+      // query stub still answers isKeyReferencedElsewhere.
+      $queryRaw: jest.fn(async () => [
+        {
+          found: false,
+          data: row.data,
+          updated_at_ms: row.updatedAt.getTime(),
+        },
+      ]),
+    };
+    client.$transaction = async (fn: (tx: unknown) => unknown) => fn(client);
     Object.assign(svc, {
       get: async () => row,
       sharing: { canEdit: () => true },
-      prisma: {
-        ...prisma,
-        itemShare: { findMany: async () => [] },
-        item: { update },
-      },
+      prisma: client,
     });
     return { svc, update };
   }

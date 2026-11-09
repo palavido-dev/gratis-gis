@@ -155,7 +155,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // tilingStartedAt) so pre-heartbeat claims still reclaim.
       const failed = await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = ("data_json" - 'tilingAttempts' - 'tilingHeartbeatAt') || jsonb_build_object(
+        SET "updated_at" = NOW(),
+        "data_json" = ("data_json" - 'tilingAttempts' - 'tilingHeartbeatAt') || jsonb_build_object(
           'processingState', 'tiling-failed',
           'tilingError',
           'The tiling worker crashed repeatedly while building this pyramid (' || ${MAX_TILING_ATTEMPTS}::text || ' attempts). The layer still serves from its original file. Retry from the layer page, and check the worker logs if it keeps failing.'
@@ -170,7 +171,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       `;
       const rearmed = await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = ("data_json" - 'tilingHeartbeatAt') || jsonb_build_object(
+        SET "updated_at" = NOW(),
+        "data_json" = ("data_json" - 'tilingHeartbeatAt') || jsonb_build_object(
           'processingState', 'cog-ready',
           'tilingAttempts', COALESCE(("data_json"->>'tilingAttempts')::int, 0) + 1
         )
@@ -217,7 +219,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         FOR UPDATE SKIP LOCKED
       )
       UPDATE "item" i
-      SET "data_json" = i."data_json" || jsonb_build_object(
+      SET "updated_at" = NOW(),
+        "data_json" = i."data_json" || jsonb_build_object(
         'processingState', 'tiling',
         'tilingStartedAt', NOW()::text,
         'tilingHeartbeatAt', NOW()::text
@@ -240,7 +243,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     try {
       await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = "data_json" || jsonb_build_object(
+        SET "updated_at" = NOW(),
+        "data_json" = "data_json" || jsonb_build_object(
           'tilingHeartbeatAt', NOW()::text
         )
         WHERE id = ${itemId}::uuid
@@ -510,14 +514,16 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     if (claimedCogKey === undefined) {
       const n = await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = "data_json" || ${patchJson}::jsonb
+        SET "updated_at" = NOW(),
+        "data_json" = "data_json" || ${patchJson}::jsonb
         WHERE id = ${itemId}::uuid
       `;
       return n > 0;
     }
     const n = await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = ("data_json" - 'tilingHeartbeatAt') || ${patchJson}::jsonb
+      SET "updated_at" = NOW(),
+        "data_json" = ("data_json" - 'tilingHeartbeatAt') || ${patchJson}::jsonb
       WHERE id = ${itemId}::uuid
         AND "data_json"->>'processingState' = 'tiling'
         AND "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${claimedCogKey}
@@ -533,14 +539,16 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     if (claimedCogKey === undefined) {
       await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
+        SET "updated_at" = NOW(),
+        "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
         WHERE id = ${itemId}::uuid
       `;
       return;
     }
     await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
+      SET "updated_at" = NOW(),
+        "data_json" = "data_json" - 'tilingError' - 'tilingAttempts' - 'tilingHeartbeatAt'
       WHERE id = ${itemId}::uuid
         AND "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${claimedCogKey}
     `;
@@ -574,7 +582,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     // a fresh MAX_TILING_ATTEMPTS budget.
     await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" - 'tilingAttempts' - 'tilingHeartbeatAt'
+      SET "updated_at" = NOW(),
+        "data_json" = "data_json" - 'tilingAttempts' - 'tilingHeartbeatAt'
       WHERE id = ${itemId}::uuid
     `;
   }
