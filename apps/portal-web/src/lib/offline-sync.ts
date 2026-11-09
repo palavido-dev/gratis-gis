@@ -57,6 +57,18 @@
  *     still records a syncConflicts artifact on conflict. Inserts
  *     have no checkOnly on the API, so they go straight to POST.
  *
+ *   - **Conflict guard.** Updates and deletes send the row's
+ *     `baseObservationId` (the cached feature's `_observation_id` when
+ *     the edit was queued) on both the dry run and the real write, so
+ *     the server can answer 409 instead of last writer wins. A 409 on
+ *     an update whose `current` already holds the queued values is the
+ *     device's own earlier write whose response was lost
+ *     (shared-types `isOwnEditEcho`), and the row is done. After an
+ *     update lands, the same account's later queued rows of that
+ *     feature, and its cached copy if no newer token has arrived,
+ *     move to the new head (`rebaseFeatureHead`).
+ *     docs/sync-protocol.md.
+ *
  *   - **No conflict resolution UI here.** That belongs to the runtime
  *     (it has the FormRuntime, the user, and the original record's
  *     view of the world). This module surfaces failures via
@@ -91,6 +103,7 @@ import {
   listQueueAllOwners,
   listQueueByStatus,
   newUuid,
+  rebaseFeatureHead,
   updateQueueRecord,
   type PendingBlob,
   type QueueRecord,
@@ -98,6 +111,7 @@ import {
 import { uploadPendingAttachmentsInResponse } from './form-attachment-upload';
 import { parseApiErrorDetail } from './api-error';
 import {
+  isOwnEditEcho,
   isQueueRowClaimable,
   isQueueRowOwnedBy,
   queueChainHeads,
@@ -484,22 +498,36 @@ async function replayRecord(
     return;
   }
   if (r.op === 'update') {
+    const properties = await uploadPendingInProperties(r.properties);
     const patchBody: Record<string, unknown> = {
-      properties: await uploadPendingInProperties(r.properties),
+      properties,
       ...(r.geometry !== null ? { geometry: r.geometry } : {}),
+      ...(r.baseObservationId ? { baseObservationId: r.baseObservationId } : {}),
     };
-    await checkOnlyFeatureWrite(
+    const echo = { op: 'update' as const, geometry: r.geometry, properties };
+    const checked = await checkOnlyFeatureWrite(
       `${layerPath}/${r.globalId}`,
       'PATCH',
       patchBody,
       r.op,
+      echo,
     );
+    if (checked === 'echo') {
+      // Our own earlier write already landed; nothing to send.
+      await uploadPendingBlobsForFeature(r, currentUserId);
+      return;
+    }
     const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patchBody),
     });
+    if (await isEchoConflict(res, echo)) {
+      await uploadPendingBlobsForFeature(r, currentUserId);
+      return;
+    }
     await throwIfNotOk(res, 'feature', r.op);
+    await rebaseAfterUpdate(r, res);
     // An edit can carry new photos too: the collector opens a record
     // they captured earlier and adds the shot they could not get on
     // the first visit.
@@ -507,14 +535,23 @@ async function replayRecord(
     return;
   }
   if (r.op === 'delete') {
+    const deleteBody: Record<string, unknown> = r.baseObservationId
+      ? { baseObservationId: r.baseObservationId }
+      : {};
     await checkOnlyFeatureWrite(
       `${layerPath}/${r.globalId}`,
       'DELETE',
-      {},
+      deleteBody,
       r.op,
     );
     const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'DELETE',
+      ...(r.baseObservationId
+        ? {
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(deleteBody),
+          }
+        : {}),
     });
     // A 404 here is classified as done by replayOutcomeForStatus: the
     // feature is already gone server-side (perhaps because a prior
@@ -550,13 +587,52 @@ async function checkOnlyFeatureWrite(
   method: 'PATCH' | 'DELETE',
   body: Record<string, unknown>,
   op: 'update' | 'delete',
-): Promise<void> {
+  echo?: { op: 'update'; geometry: unknown; properties: Record<string, unknown> },
+): Promise<'ok' | 'echo'> {
   const res = await replayFetch(url, {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ ...body, checkOnly: true }),
   });
+  if (echo && (await isEchoConflict(res, echo))) return 'echo';
   await throwIfNotOk(res, 'feature', op);
+  return 'ok';
+}
+
+/**
+ * Whether `res` is a 409 whose `current` feature already holds the
+ * queued update: this device's own earlier write, whose response was
+ * lost. Reads a clone so a real conflict can still be reported.
+ */
+async function isEchoConflict(
+  res: Response,
+  edit: { op: 'update'; geometry: unknown; properties: Record<string, unknown> },
+): Promise<boolean> {
+  if (res.status !== 409) return false;
+  try {
+    const body = (await res.clone().json()) as {
+      current?: { geometry?: unknown; properties?: Record<string, unknown> } | null;
+    };
+    return isOwnEditEcho(edit, body.current ?? null);
+  } catch {
+    return false;
+  }
+}
+
+/** Move the feature's guard to the head this update just wrote. */
+async function rebaseAfterUpdate(r: QueueRecord, res: Response): Promise<void> {
+  try {
+    const body = (await res.clone().json()) as {
+      properties?: { _observation_id?: unknown };
+    };
+    const head = body.properties?._observation_id;
+    if (typeof head === 'string' && head) {
+      await rebaseFeatureHead(r, head);
+    }
+  } catch {
+    // A response without a body (older server) leaves the old base;
+    // the worst case is a later edit parked as a conflict for review.
+  }
 }
 
 /**

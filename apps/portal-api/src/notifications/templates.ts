@@ -388,6 +388,9 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
       example: 'Hey @bob can you check this?',
     },
   ],
+  backup_failed: [
+    { name: 'runId', label: 'Backup run ID' },
+  ],
 };
 
 /**

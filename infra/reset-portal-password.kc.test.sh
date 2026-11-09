@@ -33,6 +33,19 @@ for _ in $(seq 1 60); do
 done
 [[ "$ready" -eq 1 ]] || fail "keycloak did not become ready"
 
+# deploy.sh, restore-golden.sh, seed-test-users.sh and
+# reset-portal-password.sh pass the master password in KC_CLI_PASSWORD
+# so it is never on a command line. This image's kcadm must honor it.
+KC_CLI_PASSWORD=bootstrap-test-secret docker exec -e KC_CLI_PASSWORD "$NAME" \
+  /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://127.0.0.1:8080 --realm master --user admin >/dev/null 2>&1 \
+  || fail "kcadm did not read KC_CLI_PASSWORD"
+if KC_CLI_PASSWORD=wrong-secret docker exec -e KC_CLI_PASSWORD "$NAME" \
+  /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://127.0.0.1:8080 --realm master --user admin >/dev/null 2>&1; then
+  fail "kcadm accepted a wrong KC_CLI_PASSWORD"
+fi
+
 kcadm() {
   docker exec "$NAME" /opt/keycloak/bin/kcadm.sh "$@"
 }

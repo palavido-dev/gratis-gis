@@ -28,6 +28,7 @@
 
 import { createConnection, type Socket } from 'node:net';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
+import { hasLineBreak } from './email-address.js';
 
 export interface SmtpClientOptions {
   host: string;
@@ -61,6 +62,12 @@ export async function sendSmtpMail(
   opts: SmtpClientOptions,
   msg: SmtpMessage,
 ): Promise<void> {
+  // From and To are written into command lines and headers as they
+  // are. A CR or LF in either would start a new SMTP command or
+  // header, so refuse before a socket is opened.
+  if (hasLineBreak(msg.from) || hasLineBreak(msg.to)) {
+    throw new Error('Refusing to send: an address contains a line break.');
+  }
   const session = await openSession(opts);
   try {
     await runSession(session, opts, msg);
