@@ -587,6 +587,13 @@ jobs:
       - name: Validate NAS compose
         run: ./infra/check-nas-compose.sh
 
+      # Every variable the apps read must reach them through Compose,
+      # or be listed in infra/env-passthrough.allow with a reason.
+      - name: Env passthrough
+        run: |
+          python3 infra/check-env-passthrough.py --self-test
+          python3 infra/check-env-passthrough.py
+
   # Boots the pasted file against the published edge images. Catches
   # a Keycloak mount that never becomes healthy and a Silo process
   # that exits 127, which `compose config` cannot see.
