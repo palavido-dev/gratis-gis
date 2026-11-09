@@ -776,7 +776,7 @@ describe('AgoImportService.run', () => {
       token: 'secret-ago-token',
       report: reportFrom(items),
     });
-    const toCounty = seen.filter((u) => u.includes('server.example.com'));
+    const toCounty = seen.filter((u) => new URL(u).hostname === 'server.example.com');
     expect(toCounty.length).toBeGreaterThan(0);
     expect(toCounty.some((u) => u.includes('secret-ago-token'))).toBe(false);
   });
