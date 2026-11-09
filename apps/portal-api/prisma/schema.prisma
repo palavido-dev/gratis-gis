@@ -701,6 +701,11 @@ enum BackupStatus {
 model BackupConfig {
   id String @id @default(uuid()) @db.Uuid
 
+  /// Always true, unique: the table holds at most one row. Two
+  /// replicas booting on an empty table used to create two rows, and
+  /// saves then landed on one while reads returned the other.
+  singleton Boolean @unique @default(true)
+
   /// Where archives land. Absolute path; null = fall back to env.
   archiveDirectory String? @map("archive_directory")
 

@@ -23,6 +23,8 @@
  * the controls are disabled.  Picking + applying the theme from a
  * Custom Web App still works regardless.
  */
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import { useT } from '@/lib/i18n/locale-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark as BookmarkIcon,
@@ -43,6 +45,8 @@ interface Blueprint {
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initialBlueprint: Blueprint;
   seedKind: string | null;
   canEdit: boolean;
@@ -213,10 +217,13 @@ const GROUPS: GroupDef[] = [
 
 export function AppThemeDetail({
   itemId,
+  updatedAt,
   initialBlueprint,
   seedKind,
   canEdit,
 }: Props) {
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const [tokens, setTokens] = useState<Record<string, string>>(
     initialBlueprint.tokens ?? {},
   );
@@ -283,13 +290,13 @@ export function AppThemeDetail({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const res = await patchItem({
           data: { version: 1, swatch, tokens },
-        }),
-      });
+        });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} ${txt}`);
