@@ -36,6 +36,15 @@ const user: AuthUser = {
 };
 
 describe('diskDecision', () => {
+  it('counts bytes already held by other reservations', () => {
+    expect(
+      diskDecision({ requestedBytes: 30n, freeBytes: 100n, heldBytes: 80n }),
+    ).toEqual({ ok: false, reason: 'disk' });
+    expect(
+      diskDecision({ requestedBytes: 20n, freeBytes: 100n, heldBytes: 80n }),
+    ).toEqual({ ok: true });
+  });
+
   it('refuses only a request larger than the free disk', () => {
     expect(diskDecision({ requestedBytes: 10n, freeBytes: 100n })).toEqual({ ok: true });
     expect(diskDecision({ requestedBytes: 50n, freeBytes: 40n })).toEqual({
@@ -238,6 +247,7 @@ describe('storage reservation', () => {
       storageReservation: {
         findFirst: async () => null,
         create: async () => ({}),
+        aggregate: async () => ({ _sum: { bytes: null } }),
       },
     };
     const prisma = {
@@ -283,11 +293,12 @@ describe('staging disk', () => {
     expect(stagingDiskPath()).toBe(tmpdir());
   });
 
-  function reserveWith() {
+  function reserveWith(heldBytes: bigint | null = null) {
     const created: unknown[] = [];
     const tx = {
       $executeRaw: async () => undefined,
       storageReservation: {
+        aggregate: async () => ({ _sum: { bytes: heldBytes } }),
         findFirst: async () => null,
         create: async (row: unknown) => {
           created.push(row);
@@ -314,6 +325,20 @@ describe('staging disk', () => {
     const missing = reserveWith();
     await missing.svc.reserve('org-1', 1n << 62n, 'upload-1');
     expect(missing.created).toHaveLength(1);
+  });
+
+  it('counts bytes other imports already hold against the free space', async () => {
+    // Two imports that each fit on their own must not both pass when
+    // together they do not.
+    process.env.STAGING_DIR = tmpdir();
+    const { statfsSync } = await import('node:fs');
+    const st = statfsSync(tmpdir());
+    const free = BigInt(st.bsize) * BigInt(st.bavail);
+    const half = free / 2n + 1n;
+    await reserveWith(0n).svc.reserve('org-1', half, 'upload-a');
+    await expect(
+      reserveWith(half).svc.reserve('org-2', half, 'upload-b'),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('refuses a staging id that is not a UUID', async () => {
