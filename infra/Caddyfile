@@ -30,17 +30,15 @@
     # when iterating on cert issuance to avoid the LE rate limit.
     # No `auto_https off`; we want the default behaviour.
 
-    # Trust no upstream proxy for X-Forwarded-* by default. Caddy is the
-    # edge here (it binds :443 directly), so there is no legitimate
-    # upstream proxy whose forwarding headers we should believe. With no
-    # trusted proxies, Caddy treats an incoming X-Forwarded-For from a
-    # client as untrusted and its own appended entry (the true peer) is
-    # authoritative. This is defence-in-depth for the app, which now also
-    # reads the client IP from the rightmost XFF entry; before both, the
-    # feedback rate limiter keyed on a spoofable leftmost value.
-    servers {
-        trusted_proxies static private_ranges
-    }
+    # Trust no upstream proxy for X-Forwarded-*. Caddy is the edge here
+    # (it binds :443 directly), so there is no legitimate upstream proxy
+    # whose forwarding headers we should believe. That is Caddy's default,
+    # so there is no `trusted_proxies` setting. Do not add
+    # `trusted_proxies static private_ranges`: any container that
+    # hairpins to the public name, and IPv6 clients that docker-proxy
+    # presents as the bridge gateway, come from a private address, and
+    # their own X-Forwarded-For would then pass through to Keycloak and
+    # portal-api and become the logged client_ip.
 }
 
 # www.gratisgis.org always 301s to the apex. Most users don't type
@@ -234,10 +232,13 @@ www.{$PORTAL_DOMAIN} {
     # The gratis-gis realm stays fully reachable for end-user auth
     # via /realms/gratis-gis/*.
     #
-    # If you ever need the admin console / Admin REST surface while
-    # these blocks are live, reach Keycloak directly:
-    #   ssh -L 8081:localhost:8081 gratis  # forward the host port
-    #   open http://localhost:8081/admin/  # or run kcadm.sh inside the container
+    # If you need the Admin REST surface while these blocks are live,
+    # run kcadm.sh inside the container (Keycloak publishes no host port):
+    #   docker exec -it gratis-gis-prod-keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+    #     --server http://localhost:8080 --realm master --user admin
+    # For the browser console, tunnel to the container's address on the
+    # docker network (docker inspect gratis-gis-prod-keycloak), for example
+    #   ssh -L 8081:<container ip>:8080 <server>  then open http://localhost:8081/admin/
     @adminApi path /admin /admin/* /metrics
     @masterRealm path /realms/master /realms/master/*
     handle @adminApi {

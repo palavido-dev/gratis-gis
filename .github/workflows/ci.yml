@@ -199,6 +199,8 @@ jobs:
       - name: Recovery helpers
         run: |
           python3 -m unittest infra/test_nas_init.py
+          bash infra/script-net-firewall.test.sh
+          python3 -m unittest infra/test_prod_config.py
           bash scripts/backup-help.test.sh
           bash scripts/reset-portal-password.test.sh
           bash scripts/restore-maintenance.test.sh
