@@ -105,28 +105,45 @@ class PortalClient(
   /**
    * `GET /api/items/{id}/layers/{layerKey}/geojson`, as text. The
    * caller parses it; a layer can be tens of MB and the store keeps
-   * the raw feature JSON anyway.
+   * the raw feature JSON anyway. Pass `limit` (and then `cursor` and
+   * `at` from the previous page's `nextCursor` / `asOf`) for a keyset
+   * paged read, which a server with GRATIS_FEATURE_QUERY_PAGE=required
+   * insists on.
    */
-  suspend fun getLayerGeoJson(dataLayerId: String, layerKey: String, bbox: List<Double>? = null): String =
+  suspend fun getLayerGeoJson(
+    dataLayerId: String,
+    layerKey: String,
+    bbox: List<Double>? = null,
+    limit: Int? = null,
+    cursor: String? = null,
+    at: String? = null,
+  ): String =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/geojson") {
       if (bbox != null) parameter("bbox", bbox.joinToString(","))
+      if (limit != null) parameter("limit", limit)
+      if (cursor != null) parameter("cursor", cursor)
+      if (at != null) parameter("at", at)
     }.bodyAsText()
 
   /**
    * `GET /api/items/{id}/layers/{layerKey}/delta?since=N`. Observation
    * log since the given syncVersion cursor (inclusive lower bound is
    * exclusive on the server: changes with syncVersion > since). Used
-   * by OfflineDownloader for incremental refresh; pass `limit=1` after
-   * a full GeoJSON pull to seed the head cursor without applying rows.
+   * by OfflineDownloader for incremental refresh; pass `limit=1`
+   * before a full GeoJSON pull to read the head cursor without applying
+   * rows. `after` is the previous truncated page's `nextAfter`, sent
+   * with `since = nextSince` (docs/sync-protocol.md).
    */
   suspend fun getLayerDelta(
     dataLayerId: String,
     layerKey: String,
     since: Long,
     limit: Int? = null,
+    after: String? = null,
   ): LayerDeltaResponse =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/delta") {
       parameter("since", since)
+      if (after != null) parameter("after", after)
       if (limit != null) parameter("limit", limit)
     }.body()
 
