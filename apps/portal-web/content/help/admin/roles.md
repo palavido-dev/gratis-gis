@@ -1,7 +1,7 @@
 ---
 id: admin-roles
 title: Roles
-summary: How user roles work, who can do what, and how to assign or change a user's role.
+summary: The three roles, who can do what, and how to change a role or disable an account.
 category: admin
 order: 50
 complexity: basic
@@ -14,77 +14,74 @@ related:
   - sharing-an-item
 ---
 
-A **role** is a coarse permission level applied to a user across
-their entire org membership. Roles control what the user can do
-in general; per-item sharing controls what specific items they
-can read or edit.
+A **role** is a coarse permission level for a user across your
+organization. The role decides what a user can do in general.
+Sharing decides which items they can open or edit.
 
-## The four built-in roles
+## The three roles
 
-- **Viewer.** Can read shared items. Can't create new items or
- edit anyone's items.
-- **Data editor.** Same as Viewer, plus can edit features on
- layers that are shared to them with edit access. Common role
- for field crews and inspectors.
-- **Contributor.** Same as Data editor, plus can create new
- items (data layers, maps, forms, web apps). The standard
- "I publish stuff" role.
-- **Admin.** Full org control. Can manage users, change org
- settings, run housekeeping actions, configure backups and
- geocoders.
+- **Viewer.** Reads public items and the items shared with them.
+  Cannot create or share items.
+- **Contributor.** Everything a viewer can do, plus creating items
+  (data layers, maps, forms, web apps and the rest), editing their
+  own items, and sharing them.
+- **Admin.** Everything a contributor can do, plus editing any item
+  and the admin pages: users, branding, sign-in, notifications,
+  housekeeping, backups and the rest.
 
-Custom roles are not in v1; everyone falls into one of these
-four buckets.
+There are no custom roles. On the Users page, **Access** and the
+capability list in **Edit** show what one person can do, and an admin
+can grant or remove a single capability for that person.
 
-## Assigning a role
+## Change a role
 
-1. **Admin → Roles.**
-2. Find the user (search by name or email).
-3. Pick their role from the dropdown.
-4. Click **Save**.
+1. Open **Admin -> Users**.
+2. Find the user. Search matches name, email and username.
+3. Choose **Edit**, pick the role, and save.
 
-The change takes effect on the user's next page load; existing
-sessions continue at the old role until they refresh.
+The new role applies the next time the user signs in or their
+session refreshes.
 
-## A user signs in but doesn't appear
+To add someone, use **Invite user**. You pick the role there. The
+portal emails a link where they set their own password, so email
+must be set up first (Admin -> Notifications).
 
-Two cases:
+## Safety rules the portal enforces
 
-- **Provisioned by Keycloak, not yet seen by the portal.** A
- user can exist in Keycloak before the portal has any record
- of them; they're created in the portal's user table on
- first sign-in. Have them sign in once; they then appear in
- admin → roles.
-- **Missing the org claim on the JWT.** Some pre-schema-change
- Keycloak users may have an empty attribute set; their JWTs
- lack the `org` claim and every API call 401s. Fix by setting
- the org attribute via Keycloak admin (`PUT
- /admin/realms/.../users/{id}`).
+- **You cannot change your own role, disable yourself, or delete
+  yourself.** Another admin has to do it.
+- **The last active admin cannot be demoted, disabled or deleted.**
+  Promote someone else to admin first.
+- **The protected master account** cannot be changed from this page.
 
-The roles dashboard's "Pending users" tab shows users who've
-signed in but lack a role assignment; assigning one is the
-typical onboarding step.
+Keep at least two admins anyway. A second admin can recover the
+organization if the first one cannot sign in. Admin -> Getting
+started reminds you until you have one.
 
-## Disabling a user
+## Disable a user
 
-Use the **Disable** action in the user row. A disabled user's
-session is invalidated; they can't sign back in. Their items
-are kept; ownership doesn't transfer automatically. If you
-want to reassign ownership of orphaned items, the housekeeping
-dashboard has a bulk **Transfer ownership** action.
+Use **Disable** in the user's row, or turn off **Account active** in
+**Edit**. A disabled user cannot sign in, and their browser session
+ends when it next refreshes. Disabling also revokes the user's API
+keys and stops their scheduled scripts. Their items stay where they
+are, owned by them.
 
-To re-enable, set the role back from Disabled to anything else.
+**Enable** turns sign-in back on. Revoked API keys stay revoked; the
+user creates new ones.
 
-## Per-item access
+**Auto-disable on** (in **Edit**) disables an account on a date you
+pick, which suits contractors and temporary access. Admin ->
+Housekeeping lists accounts with an upcoming date.
 
-A user with role Viewer can still be granted edit access on a
-specific layer through custom per-item sharing. The role is the
-floor; per-item sharing adjusts the ceiling.
+## Delete a user
 
-## Notes
+**Delete** removes the account permanently. If the user owns items,
+the portal asks who should own them first, and moves them before it
+deletes the account.
 
-- **Admins can demote themselves.** There's no "you can't take
- admin away from yourself" check; if you're the only admin
- and you demote yourself to Contributor, you have to ask
- someone with backing-store access to fix it. Keep two admins
- per org for this reason.
+## A user signs in but does not appear
+
+A user created directly in Keycloak appears on the Users page after
+their first sign-in. If every request they make fails with "JWT is
+missing required org claim", their Keycloak account has no `org`
+attribute. Users invited from this page always get one.
