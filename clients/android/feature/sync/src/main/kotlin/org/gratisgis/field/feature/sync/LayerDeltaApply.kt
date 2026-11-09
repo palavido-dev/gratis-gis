@@ -12,11 +12,15 @@ import org.gratisgis.field.core.network.LayerDeltaChange
  * `applyDeltaChanges` in apps/portal-web/src/lib/offline-download.ts:
  * last write per entity wins within a page; `delete` removes the row;
  * create / update / derive / observe upsert a Feature keyed by
- * `entity` (= `_global_id`).
+ * `entity` (= `_global_id`), carrying the same extra properties a full
+ * read inlines (`_observation_id`, `_edited_*`, `_created_*`), so a
+ * refreshed row keeps its conflict token. Same rule as shared-types
+ * `deltaChangeProperties` (docs/sync-protocol.md).
  */
 object LayerDeltaApply {
-  /** Server max page size; field refresh asks for the max so a single
-   *  write rarely truncates mid-syncVersion. */
+  /** Server max page size. A truncated page names its last row in
+   *  `nextSince` / `nextAfter`, so a write batch larger than a page
+   *  still arrives whole. */
   const val DELTA_PAGE_LIMIT = 10_000
 
   data class ApplyResult(
@@ -40,6 +44,17 @@ object LayerDeltaApply {
       val props = buildJsonObject {
         change.properties?.forEach { (k, v) -> put(k, v) }
         put("_global_id", change.entity)
+        put("_observation_id", change.observationId)
+        change.authorSub?.let { put("_edited_by", it) }
+        change.txTime?.let { put("_edited_at", it) }
+        val createdBy = change.createdBy
+        if (createdBy != null) {
+          put("_created_by", createdBy)
+          change.createdAt?.let { put("_created_at", it) }
+        } else if (change.kind == "create") {
+          change.authorSub?.let { put("_created_by", it) }
+          change.txTime?.let { put("_created_at", it) }
+        }
       }
       val feature = buildJsonObject {
         put("type", "Feature")

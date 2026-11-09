@@ -89,6 +89,9 @@ an argument or result shape, needs an `ENGINE_VERSION` bump in
 | `queue.isOwnedBy` | `{ row, currentUserId }` | boolean |
 | `queue.chainHeads` | `{ rows, nowMs, options? }` | the rows to replay, as given |
 | `sync.outcome` | `{ status, op }` | `'done' \| 'retry' \| 'rejected'` |
+| `sync.isOwnEditEcho` | `{ edit, current }` | `boolean`: a 409 on a replayed update is the device's own lost-response write |
+| `sync.deltaNext` | `{ page, since }` | `DeltaStep`: the next `(since, after)` to request, or the cursor to store (docs/sync-protocol.md) |
+| `sync.deltaProperties` | `{ change, prior? }` | properties for the cached row a delta change upserts |
 | `message.sanitize` | `{ message }` | `OfflineMessageEnvelope \| null` |
 
 Type names refer to the exports of `@gratis-gis/form-schema` and

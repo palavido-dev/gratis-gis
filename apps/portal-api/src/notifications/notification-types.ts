@@ -157,6 +157,15 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     channels: ALL_CHANNELS,
     defaultByChannel: ALL_DEFAULT_ON,
   },
+  {
+    type: 'backup_failed',
+    category: 'account',
+    label: 'Backup did not finish',
+    description:
+      'An install backup failed. Sent to admins of the operator organization.',
+    channels: ALL_CHANNELS,
+    defaultByChannel: ALL_DEFAULT_ON,
+  },
 ];
 
 /** Lookup by NotificationType. */

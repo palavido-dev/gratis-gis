@@ -1094,6 +1094,7 @@ model Notification {
   /// Admin-side index: "show me everything we sent to user X" for
   /// the per-user notification log Phase 2 will surface.
   @@index([userId])
+  @@index([createdAt], map: "notification_created_at_idx")
   @@map("notification")
 }
 
