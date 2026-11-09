@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { stampScriptProvenance } from '../scripts/script-provenance.js';
 
 /**
  * Versioning for an Item's data blob. Callers take a snapshot
@@ -104,9 +105,32 @@ export class DataSnapshotService {
       userId,
       `pre-revert to snapshot ${snap.id}`,
     );
+    let restored = snap.data as Prisma.InputJsonValue;
+    const item = await this.prisma.item.findUnique({
+      where: { id: snap.itemId },
+      select: { type: true, ownerId: true, data: true },
+    });
+    if (item?.type === 'script') {
+      // A revert writes code just like a save does, so it goes through
+      // the same rules. Someone other than the owner who reverts becomes
+      // the author of the restored code, and cannot bring back an old
+      // schedule: the current one stays.
+      const current = (item.data ?? {}) as Record<string, unknown>;
+      const next = stampScriptProvenance({
+        ownerId: item.ownerId,
+        editorId: userId,
+        prevData: current,
+        nextData: snap.data,
+      });
+      if (userId !== item.ownerId) {
+        if (current.schedule === undefined) delete next.schedule;
+        else next.schedule = current.schedule;
+      }
+      restored = next as Prisma.InputJsonValue;
+    }
     await this.prisma.item.update({
       where: { id: snap.itemId },
-      data: { data: snap.data as Prisma.InputJsonValue },
+      data: { data: restored },
     });
     return { itemId: snap.itemId, revertedFrom: snap.id };
   }

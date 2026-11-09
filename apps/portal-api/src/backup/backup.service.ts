@@ -388,9 +388,25 @@ export class BackupService implements OnModuleInit {
    * place has to know that this table has at most one row.
    */
   private async ensureConfigRow() {
+    // The unique `singleton` column keeps this table at one row, so
+    // findFirst cannot pick between duplicates any more.
     const existing = await this.prisma.backupConfig.findFirst();
     if (existing) return existing;
-    return this.prisma.backupConfig.create({ data: {} });
+    try {
+      return await this.prisma.backupConfig.create({ data: {} });
+    } catch (e) {
+      // Both replicas create on the first boot against an empty table.
+      // The unique `singleton` column lets exactly one insert win; the
+      // loser reads the winner's row.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        const row = await this.prisma.backupConfig.findFirst();
+        if (row) return row;
+      }
+      throw e;
+    }
   }
 
   /**

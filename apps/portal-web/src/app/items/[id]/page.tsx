@@ -913,6 +913,7 @@ export default async function ItemDetailPage(props: Props) {
       {item.type === 'map' && isBuilderView ? (
         <MapEditor
           itemId={item.id}
+          updatedAt={item.updatedAt}
           itemTitle={item.title}
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
           canEdit={mapItemCanEdit}
@@ -1066,6 +1067,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <PickListEditor
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_PICK_LIST,
               ...((item.data ?? {}) as Partial<PickListData>),
@@ -1103,6 +1105,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <EditorDetail
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_EDITOR,
               ...((readEditorData(item) ?? {}) as Partial<EditorData>),
@@ -1118,6 +1121,7 @@ export default async function ItemDetailPage(props: Props) {
               admin gate every other detail editor uses. */}
           <ViewerDetail
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_VIEWER,
               ...((readViewerData(item) ?? {}) as Partial<ViewerData>),
@@ -1128,6 +1132,7 @@ export default async function ItemDetailPage(props: Props) {
       ) : isCustomAppItem(item) && isBuilderView ? (
         <CustomAppDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           itemTitle={item.title}
           initial={{
             ...DEFAULT_CUSTOM_APP,
@@ -1224,6 +1229,7 @@ export default async function ItemDetailPage(props: Props) {
           })()}
           <FormDesigner
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={
               item.data && typeof item.data === 'object' && 'questions' in (item.data as object)
                 ? ((item.data as unknown) as FormSchema)
@@ -1391,6 +1397,7 @@ export default async function ItemDetailPage(props: Props) {
                 : { version: 1, source: '' }) as ScriptData
             }
             canEdit={canManage}
+            canSchedule={me.id === item.ownerId}
           />
         </section>
       ) : item.type === 'geocoding_service' ? (
@@ -1442,6 +1449,7 @@ export default async function ItemDetailPage(props: Props) {
       ) : item.type === 'theme' ? (
         <AppThemeDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           initialBlueprint={
             (item.data && typeof item.data === 'object'
               ? item.data
@@ -1457,6 +1465,7 @@ export default async function ItemDetailPage(props: Props) {
       ) : item.type === 'print_template' && isBuilderView ? (
         <PrintTemplateDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           initialBlueprint={
             (item.data && typeof item.data === 'object'
               ? item.data

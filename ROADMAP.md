@@ -277,19 +277,17 @@ maintain.
 - [x] **`pg_partman` monthly partitioning of the `observation` table.**
       Landed 2026-05-08 (migration
       `20260508081000_partition_observation_table`). The infra
-      postgres image extends `postgis/postgis:16-3.4` with
-      `postgresql-16-partman`; the migration installs the extension,
+      postgres image extends `postgis/postgis` (now `17-3.5`) with
+      pg_partman; the migration installs the extension,
       renames the unpartitioned table out of the way, recreates
       `observation` with composite `(id, tx_time)` PK partitioned
       by range on `tx_time`, registers it with pg_partman (monthly
       interval, premake=24, retention=NULL), copies the existing
       rows into the appropriate month partitions, and drops the
       old table. Future-partition rollover and old-partition
-      pruning run via `partman.run_maintenance_proc()`; v1 doesn't
-      schedule that yet because the 24-month premake covers two
-      years of forward writes -- wire a daily cron via the
-      existing scheduled-tasks framework before the trailing edge
-      approaches.
+      pruning run through pg_partman's background worker, which the
+      compose files start with `pg_partman_bgw.interval=3600`
+      (hourly).
 - [ ] Verify Postgres page-level checksums are enabled on the prod
       cluster. The engine concentrates feature data into one table,
       so page checksums are now load-bearing for catastrophic-
