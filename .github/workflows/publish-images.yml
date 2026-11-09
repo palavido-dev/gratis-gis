@@ -50,7 +50,9 @@ jobs:
   gate:
     name: CI and Security passed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # A tag push waits up to an hour for CI and Security on its commit
+    # (infra/publish-gate.sh), so the job needs more than that.
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read
