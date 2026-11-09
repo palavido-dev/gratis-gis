@@ -178,6 +178,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Saving a large item no longer fails with 413 "request entity too
+  large". The API accepted JSON bodies up to Express's 100 KB default,
+  which a data layer with many related tables (around 80) crossed when
+  saving its schema. The limit is now 10 MB. (#679)
 - A bulk import no longer hangs at its first batch ("Loaded 5,000 of
   ...") when Postgres refuses a row. The import now fails with the
   database's error. Text and attribute values containing NUL
