@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ItemType } from '@prisma/client';
 
@@ -10,6 +10,13 @@ import { KeycloakSyncService } from './keycloak-sync.service.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { disableLocalAccount } from '../auth/account-disable.js';
+
+/**
+ * A run row still marked `running` after this long belongs to a
+ * process that died; it no longer blocks a new run.
+ */
+const STALE_RUN_MS = 6 * 60 * 60 * 1000;
 
 export type HousekeepingScheduleMode = 'off' | 'daily' | 'weekly';
 
@@ -254,13 +261,30 @@ export class HousekeepingScheduleService {
     startedBy: string | null;
   }): Promise<HousekeepingRunResult> {
     const cfg = await this.getConfig();
-    const run = await this.prisma.housekeepingRun.create({
-      data: {
-        trigger: args.trigger,
-        startedBy: args.startedBy,
-        status: 'running',
-      },
+    // One run at a time across replicas. The advisory lock serialises
+    // the check and the insert; the `running` row is what the next
+    // caller sees while this run works.
+    const run = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('housekeeping_run'))`;
+      const live = await tx.housekeepingRun.findFirst({
+        where: {
+          status: 'running',
+          startedAt: { gt: new Date(Date.now() - STALE_RUN_MS) },
+        },
+        select: { id: true },
+      });
+      if (live) return null;
+      return tx.housekeepingRun.create({
+        data: {
+          trigger: args.trigger,
+          startedBy: args.startedBy,
+          status: 'running',
+        },
+      });
     });
+    if (!run) {
+      throw new ConflictException('A housekeeping run is already in progress.');
+    }
     let itemsTrashed = 0;
     let usersDisabled = 0;
     let error: string | null = null;
@@ -472,8 +496,9 @@ export class HousekeepingScheduleService {
    * the past (#85/#86). Always runs in the housekeeping pass, even
    * when the quiet-user heuristic is off: the admin set a hard end
    * date per-user, and that contract should hold whether or not
-   * `autoDisableEnabled` is checked. Keycloak's `enabled=false` is
-   * idempotent so re-running the same user is harmless.
+   * `autoDisableEnabled` is checked. Each user is handled once: the
+   * pass stamps `disabled_at`, revokes the user's API keys, and skips
+   * rows that already carry `disabled_at`.
    *
    * auth-sync rejects the request with 401 the moment the timestamp
    * passes (see auth-sync.service.ts), so this cron is the second
@@ -481,9 +506,14 @@ export class HousekeepingScheduleService {
    * the SSO refresh-token loop from minting fresh JWTs.
    */
   private async autoDisableExpiredUsers(): Promise<number> {
+    // Users this pass (or an admin) already disabled carry disabledAt
+    // and are not picked again, so each user is disabled and emailed
+    // once.
     const candidates = await this.prisma.user.findMany({
       where: {
         orgRole: { not: 'admin' },
+        deletedAt: null,
+        disabledAt: null,
         autoDisableAt: { not: null, lte: new Date() },
       },
       select: { id: true, username: true, autoDisableAt: true },
@@ -502,16 +532,16 @@ export class HousekeepingScheduleService {
           );
           continue;
         }
-        await this.keycloak.updateUser(kcId, { enabled: false });
+        const wasEnabled = await this.disableInKeycloak(kcId);
+        await disableLocalAccount(this.prisma, u.id);
         count += 1;
-        // Fire user_disabled notification (#128). The cron's
-        // sweep-once-per-tick contract means we only get here when
-        // the row freshly crossed the threshold or the previous
-        // tick failed; the notify() path is idempotent on
-        // (userId, type, autoDisableAt) so a flap doesn't double-
-        // email. Fire-and-forget: a notify failure shouldn't
-        // unflip the Keycloak disable.
-        if (u.autoDisableAt) {
+        // Fire user_disabled notification (#128) once: the row now
+        // carries disabledAt, so the next run skips it. A user who was
+        // already disabled in Keycloak (by an admin, before this
+        // column existed) is marked locally but not emailed again.
+        // Fire-and-forget: a notify failure shouldn't unflip the
+        // Keycloak disable.
+        if (u.autoDisableAt && wasEnabled) {
           void this.notifications.notify(u.id, 'user_disabled', {
             autoDisableAt: u.autoDisableAt.toISOString(),
           });
@@ -548,6 +578,8 @@ export class HousekeepingScheduleService {
     const candidates = await this.prisma.user.findMany({
       where: {
         orgRole: { not: 'admin' },
+        deletedAt: null,
+        disabledAt: null,
         OR: [
           { lastSeenAt: { lt: cutoff } },
           { AND: [{ lastSeenAt: null }, { createdAt: { lt: cutoff } }] },
@@ -569,17 +601,19 @@ export class HousekeepingScheduleService {
           );
           continue;
         }
-        await this.keycloak.updateUser(kcId, { enabled: false });
+        const wasEnabled = await this.disableInKeycloak(kcId);
+        await disableLocalAccount(this.prisma, u.id, now);
         count += 1;
         // Quiet-user disable doesn't have a stored autoDisableAt
         // (the heuristic is the disable trigger). Use `now` as
         // the synthetic timestamp so the user sees a real "your
-        // account was disabled on <today>" message; the
-        // notification's idempotency key falls back to user_id +
-        // type if the autoDisableAt timestamp matches.
-        void this.notifications.notify(u.id, 'user_disabled', {
-          autoDisableAt: now.toISOString(),
-        });
+        // account was disabled on <today>" message. disabledAt keeps
+        // the next run from picking the user again.
+        if (wasEnabled) {
+          void this.notifications.notify(u.id, 'user_disabled', {
+            autoDisableAt: now.toISOString(),
+          });
+        }
       } catch (err) {
         this.log.warn(
           `auto-disable: could not disable ${u.username} (${u.id}): ${
@@ -589,6 +623,17 @@ export class HousekeepingScheduleService {
       }
     }
     return count;
+  }
+
+  /**
+   * Turn sign-in off in Keycloak. Returns whether the account was
+   * enabled before, so callers email only on a real change.
+   */
+  private async disableInKeycloak(kcId: string): Promise<boolean> {
+    const current = await this.keycloak.getUser(kcId);
+    if (current.enabled === false) return false;
+    await this.keycloak.updateUser(kcId, { enabled: false });
+    return true;
   }
 
   // ---------------------------------------------------------------

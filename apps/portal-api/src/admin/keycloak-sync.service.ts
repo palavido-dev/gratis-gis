@@ -12,6 +12,7 @@ import {
   KeycloakAdminService,
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
+import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 
 /**
  * Eager Keycloak -> Prisma user mirror.
@@ -168,6 +169,9 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     let pageCount = 0;
     while (realmUsersSeen < KeycloakSyncService.MAX_USERS_PER_RUN) {
       let page: KeycloakUserRep[];
+      // Taken before the request: anything changed locally after this
+      // moment is newer than what Keycloak is about to tell us.
+      const fetchedAt = new Date();
       try {
         page = await this.kc.listUsers({
           first,
@@ -197,11 +201,10 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
 
       for (const kcUser of page) {
         // Some users may legitimately be disabled (offboarding in
-        // progress); they should still mirror as a soft-delete-style
-        // dead row OR an enabled=false row. We keep them in the
-        // mirror so existing FKs / shares can resolve their display
-        // name, but treat `enabled === false` like a tombstone for
-        // picker purposes (filtered out via deletedAt below).
+        // progress). They stay in the mirror so existing FKs / shares
+        // can resolve their display name, and `enabled` is copied to
+        // the local `disabled_at` below so API keys and scheduled
+        // scripts follow a disable made in the Keycloak console.
         const orgSlug = readSingleAttr(kcUser, 'org');
         if (!orgSlug) {
           skippedNoOrgAttr++;
@@ -271,6 +274,19 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         // upsert may resolve to a different id than `kcUser.id`
         // when a seed row predates the realm.
         seenByOrg.get(orgId)?.add(kcUser.username.toLowerCase());
+
+        // Keycloak is the source of truth for `enabled`. Disabling
+        // revokes the user's keys; enabling clears the marker only.
+        if (kcUser.enabled === false && result.disabledAt === null) {
+          await disableLocalAccount(this.prisma, result.id);
+          this.authSync.invalidate(result.id);
+        } else if (kcUser.enabled === true && result.disabledAt !== null) {
+          // Only a disable older than this page. An admin may have
+          // disabled the user after Keycloak answered.
+          if (await enableLocalAccount(this.prisma, result.id, fetchedAt)) {
+            this.authSync.invalidate(result.id);
+          }
+        }
 
         // The upsert helper doesn't tell us whether it inserted or
         // updated. We approximate by comparing createdAt to now:

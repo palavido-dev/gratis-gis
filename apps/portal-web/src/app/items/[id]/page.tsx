@@ -1397,6 +1397,7 @@ export default async function ItemDetailPage(props: Props) {
                 : { version: 1, source: '' }) as ScriptData
             }
             canEdit={canManage}
+            canSchedule={me.id === item.ownerId}
           />
         </section>
       ) : item.type === 'geocoding_service' ? (
