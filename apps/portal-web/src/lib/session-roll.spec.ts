@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { NextRequest } from 'next/server';
-import { encode, type JWT } from 'next-auth/jwt';
+import { decode, encode, type JWT } from 'next-auth/jwt';
 import { resetRefreshStateForTests } from './auth';
 import {
   resolveRouteSession,
@@ -153,5 +153,34 @@ describe('tokenChanged', () => {
   it('ignores fields that are not persisted state', () => {
     expect(tokenChanged({ accessToken: 'a', iat: 1 }, { accessToken: 'a', iat: 2 })).toBe(false);
     expect(tokenChanged({ accessToken: 'a' }, { accessToken: 'b' })).toBe(true);
+  });
+});
+
+describe('older token sets never overwrite newer ones', () => {
+  it('writes the rotated set when a slow request only moved the activity stamp', async () => {
+    process.env.GRATIS_SESSION_IDLE_SECONDS = '3600';
+    keycloakAnswers('fresh-access', 'rotated-refresh');
+    // Request A saw the token at expiry and refreshed: r0 is spent.
+    await resolveRouteSession(
+      await requestWith({
+        accessToken: 'old-access',
+        accessTokenExpires: Date.now() - 1000,
+        refreshToken: 'r0',
+      }),
+    );
+    // Request B started earlier with the same r0 set, still inside its
+    // access lifetime, and only needs to move lastActive.
+    const slow = await resolveRouteSession(
+      await requestWith({
+        accessToken: 'old-access',
+        accessTokenExpires: Date.now() + 200_000,
+        refreshToken: 'r0',
+        lastActive: Date.now() - 10 * 60_000,
+      }),
+    );
+    expect(slow.cookies).toHaveLength(1);
+    const written = await decode({ token: slow.cookies[0]!.value, secret: SECRET });
+    expect(written?.refreshToken).toBe('rotated-refresh');
+    expect(written?.accessToken).toBe('fresh-access');
   });
 });

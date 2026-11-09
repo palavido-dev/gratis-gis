@@ -8,6 +8,7 @@ import {
   buildEndSessionUrl,
   logoutHintCookieOptions,
   safeLogoutRedirect,
+  sessionCookieClears,
 } from '@/lib/federated-logout';
 
 /**
@@ -30,7 +31,9 @@ import {
  *      from the step 1 cookie, deletes that cookie, and redirects to
  *      Keycloak's end-session endpoint with `id_token_hint`, so
  *      Keycloak ends the SSO session without a confirmation page and
- *      sends the browser to `post_logout_redirect_uri`.
+ *      sends the browser to `post_logout_redirect_uri`. It also expires
+ *      the session cookie again, in case a BFF response that was in
+ *      flight during step 2 wrote it back.
  *
  * Do not link to this route directly: a bare link skips step 2 and
  * leaves the NextAuth cookie alive, and skips the service worker and
@@ -90,5 +93,13 @@ export async function GET(req: NextRequest) {
     ...logoutHintCookieOptions(secureCookies()),
     maxAge: 0,
   });
+  // A BFF response that was in flight during signOut can have written
+  // the session cookie back. Expire it again here.
+  for (const c of sessionCookieClears(
+    req.cookies.getAll().map((x) => x.name),
+    secureCookies(),
+  )) {
+    res.cookies.set(c.name, c.value, c.options);
+  }
   return res;
 }

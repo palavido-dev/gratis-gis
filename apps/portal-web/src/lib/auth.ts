@@ -77,24 +77,65 @@ const inFlightRefreshes = new Map<string, Promise<JWT>>();
  * the cookie (the BFF, see session-roll.ts) persists them.
  */
 const RECENT_REFRESH_TTL_MS = 120_000;
-const recentRefreshes = new Map<string, { at: number; token: JWT }>();
+/** Entry: the token set a spent refresh token was traded for, and
+ *  when the entry may be forgotten. */
+const recentRefreshes = new Map<string, { until: number; token: JWT }>();
 
-function rememberRefresh(spent: string, token: JWT): void {
+function expiresAt(token: JWT): number {
+  return typeof token.accessTokenExpires === 'number' ? token.accessTokenExpires : 0;
+}
+
+function rememberRefresh(spent: JWT, spentRefreshToken: string, token: JWT): void {
   const now = Date.now();
   for (const [key, entry] of recentRefreshes) {
-    if (now - entry.at > RECENT_REFRESH_TTL_MS) recentRefreshes.delete(key);
+    if (now > entry.until) recentRefreshes.delete(key);
   }
-  recentRefreshes.set(spent, { at: now, token });
+  // Keep the entry for as long as the spent set's access token still
+  // works: until then a request carrying it does not refresh, and is
+  // the one that could write the spent set back over the new one.
+  recentRefreshes.set(spentRefreshToken, {
+    until: Math.max(now + RECENT_REFRESH_TTL_MS, expiresAt(spent) + 60_000),
+    token,
+  });
 }
 
 function recentRefreshFor(refreshToken: string): JWT | null {
   const entry = recentRefreshes.get(refreshToken);
   if (!entry) return null;
-  if (Date.now() - entry.at > RECENT_REFRESH_TTL_MS) {
+  if (Date.now() > entry.until) {
     recentRefreshes.delete(refreshToken);
     return null;
   }
   return entry.token;
+}
+
+/**
+ * The newest token set this process knows for the session `token`
+ * belongs to.
+ *
+ * A slow request that started before a refresh still holds the older
+ * set. If it then only moves the activity stamp, writing its cookie
+ * would put the spent refresh token back over the rotated one, and
+ * the session would fail at its next refresh. Following the chain of
+ * refreshes (and only ever moving to a set whose access token expires
+ * later) means a cookie written from here is never older than one
+ * already handed out.
+ */
+export function newestTokenSet(token: JWT): JWT {
+  let current = token;
+  for (let hops = 0; hops < 8; hops++) {
+    const rt = current.refreshToken;
+    if (typeof rt !== 'string') break;
+    const newer = recentRefreshFor(rt);
+    if (!newer || expiresAt(newer) <= expiresAt(current)) break;
+    current = newer;
+  }
+  if (current === token) return token;
+  const lastActive = Math.max(
+    typeof token.lastActive === 'number' ? token.lastActive : 0,
+    typeof current.lastActive === 'number' ? current.lastActive : 0,
+  );
+  return { ...token, ...current, ...(lastActive ? { lastActive } : {}) } as JWT;
 }
 
 /** Test hook: forget refresh state between cases. */
@@ -128,7 +169,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   if (inFlight) return inFlight;
   const pending = requestRefreshedToken(token, refreshToken)
     .then((next) => {
-      if (!next.error) rememberRefresh(refreshToken, next);
+      if (!next.error) rememberRefresh(token, refreshToken, next);
       return next;
     })
     .finally(() => {
@@ -247,6 +288,10 @@ export const authOptions: NextAuthOptions = {
           lastActive: Date.now(),
         } as JWT;
       }
+
+      // Never carry on from an older token set than this process has
+      // already handed out (see newestTokenSet).
+      token = newestTokenSet(token);
 
       const idle = sessionIdleSeconds();
       if (idle !== null && typeof token.lastActive === 'number') {

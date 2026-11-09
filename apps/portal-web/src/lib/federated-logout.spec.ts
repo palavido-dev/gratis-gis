@@ -66,3 +66,38 @@ describe('federatedSignOut order', () => {
     expect(signOut).toBeGreaterThan(post);
   });
 });
+
+describe('logout redirect step', () => {
+  // A BFF response in flight during signOut can write the session
+  // cookie back; the redirect step must expire it again.
+  it('expires every session cookie name and chunk', async () => {
+    process.env.NEXTAUTH_URL = 'https://portal.test';
+    process.env.NEXTAUTH_SECRET = 'x';
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('../app/api/auth/federated-logout/route');
+    const req = new NextRequest('https://portal.test/api/auth/federated-logout', {
+      headers: {
+        cookie:
+          '__Secure-next-auth.session-token.0=a; __Secure-next-auth.session-token.2=b; other=1',
+      },
+    });
+    const res = await GET(req);
+    const cleared = res.cookies
+      .getAll()
+      .filter((c) => c.value === '' && c.maxAge === 0)
+      .map((c) => c.name);
+    for (const name of [
+      '__Secure-next-auth.session-token',
+      '__Secure-next-auth.session-token.0',
+      '__Secure-next-auth.session-token.1',
+      '__Secure-next-auth.session-token.2',
+      'next-auth.session-token',
+      'next-auth.session-token.0',
+    ]) {
+      expect(cleared).toContain(name);
+    }
+    expect(cleared).not.toContain('other');
+    const secure = res.cookies.get('__Secure-next-auth.session-token.2');
+    expect(secure?.secure).toBe(true);
+  });
+});
