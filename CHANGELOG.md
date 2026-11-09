@@ -182,6 +182,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   large". The API accepted JSON bodies up to Express's 100 KB default,
   which a data layer with many related tables (around 80) crossed when
   saving its schema. The limit is now 10 MB. (#679)
+- Bulk imports that take longer than 30 seconds no longer fail. The
+  database role's 30 second statement limit applied to the single
+  COPY statement that loads the whole file, so large shapefiles and
+  geodatabases were cancelled partway through. The import transaction
+  now lifts that limit for itself only. (#573)
 - A bulk import no longer hangs at its first batch ("Loaded 5,000 of
   ...") when Postgres refuses a row. The import now fails with the
   database's error. Text and attribute values containing NUL
