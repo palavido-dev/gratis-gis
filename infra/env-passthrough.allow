@@ -131,6 +131,10 @@ SCRIPT_UID both code default
 # NAS service name.
 PRINT_PREVIEW_BASE_URL nas code default matches the NAS service name
 
+# The NAS bootstrap asks no organization name. Admins rename the
+# organization on the Branding page.
+DEFAULT_ORG_NAME nas NAS bootstrap asks no organization name
+
 # Forced by the code, not operator settings.
 GML_DOWNLOAD_SCHEMA both set to NO in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs
 GML_SKIP_RESOLVE_ELEMS both set to ALL in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs

@@ -144,7 +144,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     // bootstrap. Non-leaders rely on the leader's converged state
     // and, in the rare leader-handoff case, the next leader's own
     // boot wave will re-sync. See class doc above.
-    if (!this.leader.shouldRun()) {
+    if (!this.leader.holdsLock()) {
       this.logger.log(
         'Skipping Keycloak realm bootstrap on this replica: another process holds the cron-leader lock. ' +
           'The admin can still trigger a sync at any time via PUT /admin/notifications/smtp.',

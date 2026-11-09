@@ -55,13 +55,18 @@ name: gratis-gis
 
 services:
   bootstrap:
-    image: python:3.12-alpine
+    # Pinned by digest: this container generates every secret.
+    image: python:3.12-alpine@sha256:e064671ca452259bab50e8e2c7bd896e39e9a343bb06ca25234adf6fe18d0fc7
     container_name: gratis-gis-bootstrap
     restart: unless-stopped
     # So the first boot can see the NAS address on the host, while
     # this container still joins the compose network below and can
-    # reach Keycloak by name.
+    # reach Keycloak by name. It reads the host route table on every
+    # start (the address can change), so pid: host stays for the
+    # container's life. It runs only nas-init.py from this file.
     pid: host
+    security_opt:
+      - no-new-privileges:true
     environment:
       GRATIS_MODE: ${GRATIS_MODE:-lan}
       GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
@@ -200,6 +205,11 @@ __NAS_INIT_BODY__
 
   portal-api:
     image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 1536m
@@ -282,6 +292,11 @@ __NAS_INIT_BODY__
 
   portal-worker:
     image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 1536m
@@ -332,15 +347,23 @@ __NAS_INIT_BODY__
   # can answer 503 instead of queueing work nothing will run.
   pointcloud-worker:
     image: ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     mem_limit: 2560m
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ -f /boot/ready ] && [ -f /boot/env.pointcloud ]; do sleep 1; done
+        # Only what runner.py reads. PDAL and GDAL parse uploaded
+        # files here, so this process does not get Keycloak, NextAuth
+        # or credential-encryption secrets.
         set -a
-        . /boot/env
+        . /boot/env.pointcloud
         set +a
         if [ "$$ANALYSIS_TIERS" != "server-heavy" ]; then exec sleep infinity; fi
         echo "pointcloud-worker starting"
@@ -391,6 +414,11 @@ __NAS_INIT_BODY__
 
   portal-web:
     image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     pull_policy: always
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
@@ -427,21 +455,21 @@ __NAS_INIT_BODY__
       - gratis-net
 
   chromium:
-    image: ghcr.io/browserless/chromium:latest
+    image: ghcr.io/browserless/chromium:latest@sha256:bcad9a1c271ddb9d95f7de5981c68cb2fcc9fd1f07e8da07c4e5c9d1ef4fc099
     restart: unless-stopped
     mem_limit: 768m
+    # Chrome's namespace sandbox needs SYS_ADMIN.
     cap_add:
       - SYS_ADMIN
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ -f /boot/ready ] && [ -f /boot/env.chromium ]; do sleep 1; done
+        # Only the print token. Chrome renders user-authored map
+        # styles, so it does not get the database or storage secrets.
         set -a
-        . /boot/env
+        . /boot/env.chromium
         set +a
-        # /boot/env sets PORT for the API. Browserless would follow
-        # that and leave the websocket URL (port 3000) with nothing
-        # listening.
         export PORT=3000
         export TOKEN="$$CHROMIUM_TOKEN"
         if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi

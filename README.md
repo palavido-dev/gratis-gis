@@ -40,7 +40,7 @@ Commits, and how reviews work (the maintainer is the final reviewer).
 | Authorization | [Cedar](https://www.cedarpolicy.com/) |
 | Object storage | [MinIO](https://min.io/) |
 | Edge | [Caddy](https://caddyserver.com/) |
-| Tiles | [pg\_tileserv](https://github.com/CrunchyData/pg_tileserv) + PostGIS MVT |
+| Tiles | PostGIS MVT served by portal-api, which checks sharing on every tile |
 | Web | [Next.js](https://nextjs.org/) + [React](https://react.dev/) |
 | Maps | [MapLibre GL](https://maplibre.org/) + [Terra Draw](https://terradraw.io/) |
 | Tile bundles | [PMTiles](https://github.com/protomaps/PMTiles) |
