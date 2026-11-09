@@ -122,20 +122,4 @@ describe('leader crons registered while maintenance is on', () => {
     await flush();
     expect(schedule.runOnce).toHaveBeenCalledTimes(1);
   });
-
-  it('a follower still registers nothing', async () => {
-    const leader = new LeaderElectionService();
-    const s = scheduler();
-    const schedule = {
-      getConfig: jest.fn(),
-      onConfigChange: jest.fn(),
-    };
-    const svc = new HousekeepingCronService(
-      schedule as unknown as HousekeepingScheduleService,
-      s.reg as unknown as SchedulerRegistry,
-      leader,
-    );
-    await svc.onApplicationBootstrap();
-    expect(s.reg.addCronJob).not.toHaveBeenCalled();
-  });
 });

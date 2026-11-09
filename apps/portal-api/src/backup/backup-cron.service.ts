@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
@@ -28,17 +29,25 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * the leader-lock query on some boots and silently skipped cron
  * registration on the eventual leader. onApplicationBootstrap fires
  * after every module's onModuleInit chain has resolved, so
- * leader.shouldRun() has its final value. Mirrors the fix in
- * HousekeepingCronService and KeycloakAdminService.
+ * leader.shouldRun() has its final value for the boot-time reclaim.
+ * The schedule itself is registered on every replica and each tick
+ * checks leadership, because leadership can move at runtime.
  */
 @Injectable()
-export class BackupCronService implements OnApplicationBootstrap {
+export class BackupCronService
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly log = new Logger(BackupCronService.name);
   private static readonly JOB_NAME = 'backup-scheduled';
   /** One minute: a dead run is visible in the UI within a poll or
    *  two of the five-minute liveness threshold expiring. */
   private static readonly RECLAIM_INTERVAL_MS = 60_000;
   private reclaimTimer: ReturnType<typeof setInterval> | undefined;
+  /** Every replica re-reads backup_config this often. */
+  private static readonly CONFIG_POLL_MS = 60_000;
+  private configTimer: ReturnType<typeof setInterval> | undefined;
+  /** Schedule the current job was built from; null before the first apply. */
+  private appliedKey: string | null = null;
 
   constructor(
     private readonly backup: BackupService,
@@ -75,52 +84,58 @@ export class BackupCronService implements OnApplicationBootstrap {
     }, BackupCronService.RECLAIM_INTERVAL_MS);
     this.reclaimTimer.unref?.();
 
-    // Multi-replica safety: only the leader registers the cron.
-    // Backups write to the shared portal-api-backups volume, but the
-    // pg_dump process itself is a heavyweight operation we never
-    // want fanned out across replicas. The leader is the single
-    // writer; followers handle download/list traffic and never
-    // generate new archives.
-    // Register by leadership alone. shouldRun() is false while
-    // maintenance is on, and a leader that booted mid-restore (crash
-    // left the marker) would otherwise never register its schedule:
-    // clearing the marker without a restart would leave it off for
-    // good. Each run checks shouldRun() instead.
-    if (!this.leader.holdsLock()) {
-      this.log.log(
-        'Skipping backup cron registration on this replica (not the cron leader).',
-      );
-      this.backup.onConfigChange((next) => this.apply(next));
-      return;
-    }
+    // Every replica registers the schedule and gates each tick on
+    // leadership (runSafely). Registering only on the boot-time leader
+    // left no schedule at all once leadership moved (a lone restart of
+    // the leader, a dropped lock connection), and kept the ex-leader
+    // firing after a handoff.
+    //
     // Before scheduling anything, close out runs that a previous
     // process died in the middle of. Only runs whose liveness beat has
     // gone stale are touched, so a live backup can never be reclaimed.
     // Failure here must not stop the cron from registering: a missed
     // reclaim is a stale row, a missed registration is no backups at
     // all.
-    try {
-      // The reclaim writes, so it waits out maintenance; the periodic
-      // sweep picks up what it skips.
-      const reclaimed = this.leader.shouldRun()
-        ? await this.backup.reclaimStaleRuns()
-        : 0;
-      if (reclaimed > 0) {
-        this.log.warn(
-          `Reclaimed ${reclaimed} abandoned backup run(s) on startup. ` +
-            'Each was showing as "In progress" in the admin UI.',
+    if (this.leader.shouldRun()) {
+      try {
+        const reclaimed = await this.backup.reclaimStaleRuns();
+        if (reclaimed > 0) {
+          this.log.warn(
+            `Reclaimed ${reclaimed} abandoned backup run(s) on startup. ` +
+              'Each was showing as "In progress" in the admin UI.',
+          );
+        }
+      } catch (e) {
+        this.log.error(
+          `Stale-run reclaim failed: ${(e as Error).message}. ` +
+            'Continuing to cron registration.',
         );
       }
-    } catch (e) {
-      this.log.error(
-        `Stale-run reclaim failed: ${(e as Error).message}. ` +
-          'Continuing to cron registration.',
-      );
     }
 
     const cfg = await this.backup.getConfig();
     this.apply(cfg);
     this.backup.onConfigChange((next) => this.apply(next));
+    // A config save runs the listener only on the replica that served
+    // it. Every replica re-reads the row on a short poll so a save
+    // that landed on the other one still takes effect here.
+    this.configTimer = setInterval(() => {
+      void this.backup
+        .getConfig()
+        .then((next) => this.apply(next))
+        .catch((e: unknown) =>
+          this.log.warn(
+            `Backup config re-read failed: ${e instanceof Error ? e.message : e}`,
+          ),
+        );
+    }, BackupCronService.CONFIG_POLL_MS);
+    this.configTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.reclaimTimer) clearInterval(this.reclaimTimer);
+    if (this.configTimer) clearInterval(this.configTimer);
+    this.unregister();
   }
 
   /**
@@ -130,7 +145,11 @@ export class BackupCronService implements OnApplicationBootstrap {
    * them in the UI and save again without restarting the process.
    */
   private apply(cfg: BackupConfig) {
-    if (!this.leader.holdsLock()) return;
+    // Re-register only when the schedule changed, so the poll does not
+    // reset a job every minute.
+    const key = `${cfg.scheduleMode}|${cfg.effectiveCron ?? ''}`;
+    if (key === this.appliedKey) return;
+    this.appliedKey = key;
     this.unregister();
 
     if (cfg.scheduleMode === 'off') {
@@ -190,7 +209,7 @@ export class BackupCronService implements OnApplicationBootstrap {
    * the cron timer.
    */
   private async runSafely() {
-    // Per-run gate: leadership can move, and maintenance pauses runs.
+    // Leadership is checked per tick: it can move at runtime.
     if (!this.leader.shouldRun()) return;
     try {
       const res = await this.backup.runBackup('scheduled', null);
