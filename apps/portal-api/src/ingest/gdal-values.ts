@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * gdal-async hands Date, DateTime and Time fields back from
  * `feature.fields.toObject()` as plain objects, not strings:
