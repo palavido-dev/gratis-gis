@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppWindow,
@@ -81,6 +82,8 @@ import { discoverLayerMetadata, type LayerMetadata } from './layer-metadata';
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   /**
    * Item title shown in the BuilderShell top bar. Comes from the
    * parent detail page (`item.title`) so the builder doesn't need a
@@ -221,6 +224,7 @@ function boundaryFitFor(
 
 export function MapEditor({
   itemId,
+  updatedAt,
   itemTitle,
   initial,
   canEdit,
@@ -234,6 +238,7 @@ export function MapEditor({
   addItemId,
   addLayerKey,
 }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -1723,11 +1728,11 @@ export function MapEditor({
         ...(cam ? { ...map, ...cam } : map),
         drawings,
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         setError(await parseApiError(res, 'Save failed'));
         return;

@@ -16,6 +16,8 @@ import type { CatalogShape } from '../locales';
 
 export const de: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Jemand anderes hat dieses Element gespeichert, nachdem Sie es geöffnet haben. Ihre Änderungen wurden daher nicht gespeichert, sind aber noch sichtbar. Laden Sie die Seite neu, um die aktuelle Version zu sehen, und nehmen Sie Ihre Änderungen erneut vor.',
     save: 'Speichern',
     cancel: 'Abbrechen',
     delete: 'Löschen',
