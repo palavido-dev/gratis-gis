@@ -34,7 +34,7 @@ import type {
   WebAppData,
   WebAppTemplate,
 } from '@gratis-gis/shared-types';
-import { isItemType } from '@gratis-gis/shared-types';
+import { isItemType, isWebAppTemplate } from '@gratis-gis/shared-types';
 import {
   getItemHref,
   getItemTypeAccent,
@@ -341,17 +341,17 @@ export function ItemsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only hydrate
   }, []);
 
-  // Same mount-only hydrate for the template facet. Right now the
-  // only valid template is 'editor' (#258); future templates land
-  // here as the union widens. We keep the filter values lenient: an
-  // unknown template string just gets dropped instead of erroring.
+  // Same mount-only hydrate for the template facet. Validated
+  // against the full WebAppTemplate union, so a shared or reloaded
+  // ?template=viewer keeps its filter. An unknown template string is
+  // dropped instead of erroring.
   useEffect(() => {
     const raw = searchParams?.get('template');
     if (!raw) return;
     const parsed = raw
       .split(',')
       .map((s) => s.trim())
-      .filter((s): s is WebAppTemplate => s === 'editor');
+      .filter(isWebAppTemplate);
     if (parsed.length > 0) setTemplateFilter(new Set(parsed));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only hydrate
   }, []);

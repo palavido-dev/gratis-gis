@@ -64,11 +64,12 @@ KC() { docker exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 KCI() { docker exec -i "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 
 echo "=== Authenticating kcadm against the master realm (in-container) ==="
-if ! KC config credentials \
+# KC_CLI_PASSWORD keeps the master-realm password off the command line.
+export KC_CLI_PASSWORD="$ADMIN_PASS"
+if ! docker exec -e KC_CLI_PASSWORD "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh config credentials \
     --server http://localhost:8080 \
     --realm master \
-    --user "$ADMIN_USER" \
-    --password "$ADMIN_PASS" >/dev/null 2>&1; then
+    --user "$ADMIN_USER" >/dev/null 2>&1; then
   echo "FATAL: kcadm could not authenticate. Is the keycloak container ($KEYCLOAK_CONTAINER)" >&2
   echo "       running, and is KEYCLOAK_ADMIN_PASSWORD current in $ENV_FILE?" >&2
   exit 1

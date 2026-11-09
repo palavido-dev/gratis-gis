@@ -24,6 +24,7 @@ import type {
   PickListEntry,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_PICK_LIST } from '@gratis-gis/shared-types';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Detail-page editor for a `pick_list` item.
@@ -246,23 +247,23 @@ export function PickListEditor({ itemId, initial, canEdit, updatedAt }: Props) {
     setSaving(true);
     try {
       const res = await patchItem({
-          data: {
-            ...data,
-            entries: data.entries.map((e) => ({
-              code: e.code.trim(),
-              label: e.label.trim(),
-              ...(e.description?.trim()
-                ? { description: e.description.trim() }
-                : {}),
-            })),
-          },
-        });
+        data: {
+          ...data,
+          entries: data.entries.map((e) => ({
+            code: e.code.trim(),
+            label: e.label.trim(),
+            ...(e.description?.trim()
+              ? { description: e.description.trim() }
+              : {}),
+          })),
+        },
+      });
       if (isStaleItemSave(res)) {
         setError(t('common.itemChangedElsewhere'));
         return;
       }
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       setSaved(true);

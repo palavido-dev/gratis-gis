@@ -1734,7 +1734,7 @@ export function MapEditor({
         return;
       }
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       // Keep client state aligned with what was just persisted so a
@@ -1767,7 +1767,7 @@ export function MapEditor({
         body: JSON.stringify({ type: 'map', title, data: payload }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       const created = (await res.json()) as { id: string };

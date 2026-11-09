@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   groupId: string;
@@ -27,7 +28,7 @@ export function DeleteGroupButton({ groupId, groupTitle, retentionDays = 30 }: P
     setError(null);
     const res = await fetch(`/api/portal/groups/${groupId}`, { method: 'DELETE' });
     if (!res.ok) {
-      setError(`Delete failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Delete failed'));
       return;
     }
     setOpen(false);
