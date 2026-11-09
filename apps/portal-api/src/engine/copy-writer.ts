@@ -105,6 +105,15 @@ export class CopyWriter {
     // job row later called succeeded, or leave rows behind a job
     // the reaper marked failed. County imports pay the fsync.
     await this.client.query('BEGIN');
+    // The app role carries a 30s statement_timeout (migration
+    // 20260518150000) to bound runaway API queries. A bulk import is
+    // one COPY statement that runs as long as the whole file takes,
+    // so any import over 30s was cancelled mid-load: a 467,947-row
+    // shapefile stopped at its first batch (#573). Lift the limit for
+    // this transaction only. The import is bounded by its own cancel
+    // check and heartbeat, and SET LOCAL ends with the transaction,
+    // so the pooled connection goes back with the role default.
+    await this.client.query('SET LOCAL statement_timeout = 0');
   }
 
   /**

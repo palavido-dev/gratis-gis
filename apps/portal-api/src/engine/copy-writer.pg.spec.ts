@@ -144,6 +144,37 @@ d('CopyWriter on PostGIS', () => {
     await pool.query('DELETE FROM observation');
   });
 
+  it('loads past a role statement_timeout (#573)', async () => {
+    // Production gives the app role a 30s statement_timeout, and an
+    // import is one COPY statement for the whole file. Here the
+    // session limit is 1ms, so any COPY that is not exempt fails.
+    const url = new URL(DB_URL);
+    url.searchParams.set('options', '-c statement_timeout=1');
+    const writer = new CopyWriter(url.toString());
+    await writer.begin();
+    writer.beginCopy();
+    const t0 = new Date('2026-06-01T00:00:00Z');
+    for (let b = 0; b < 3; b += 1) {
+      await writer.writeBatch(
+        Array.from({ length: 10_000 }, (_, i) =>
+          row(
+            '66666666-6666-6666-6666-666666666666',
+            `ffffffff-ffff-ffff-ffff-${String(b * 10_000 + i).padStart(12, '0')}`,
+            t0,
+          ),
+        ),
+      );
+    }
+    await writer.sealCopy();
+    await writer.commit();
+    await writer.close();
+    expect(
+      await countWhere(pool, 'SELECT count(*) AS n FROM observation WHERE entity = $1', [
+        '66666666-6666-6666-6666-666666666666',
+      ]),
+    ).toBe(30_000);
+  });
+
   it('rejects the next batch instead of hanging when Postgres refuses a row', async () => {
     // cell is CHAR(15): a 16-character value fails the COPY on the
     // server. Before the fix the stream was destroyed with no one
