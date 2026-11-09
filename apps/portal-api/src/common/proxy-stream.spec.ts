@@ -158,6 +158,11 @@ describe('proxied response headers', () => {
     'application/xml',
     'text/xml',
     'application/vnd.ogc.se_xml+xml',
+    'application/pdf',
+    'multipart/x-mixed-replace; boundary=x',
+    'text/plain, text/html',
+    'application/json, text/html',
+    'application/x-unknown-thing',
   ])('forces attachment for %s', async (type) => {
     const h = await headersFor(type);
     expect(h['content-disposition']).toBe('attachment');
@@ -176,7 +181,14 @@ describe('proxied response headers', () => {
   });
 
   it('leaves JSON and tiles inline for fetch-based clients', async () => {
-    for (const type of ['application/json', 'application/x-protobuf', 'image/jpeg']) {
+    for (const type of [
+      'application/json',
+      'application/x-protobuf',
+      'application/vnd.mapbox-vector-tile',
+      'image/jpeg',
+      'image/png',
+      'text/plain; charset=utf-8',
+    ]) {
       const h = await headersFor(type);
       expect(h['content-disposition']).toBeUndefined();
     }
