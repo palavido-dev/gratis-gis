@@ -115,3 +115,20 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
     expect(written[0]).toMatchObject({ syncVersion: 5, featureCount: 9 });
   });
 });
+
+/**
+ * truncateLayer deleted a layer's whole observation scope with no
+ * tombstones and no syncVersion bump, so a delta client would keep
+ * every row the server no longer had. Nothing called it any more
+ * (replace imports go through CopyWriter.deleteScope and
+ * commitCopiedLayer), so it is gone rather than left for a future
+ * caller to wire back in.
+ */
+describe('DataLayerTablesService scope wipe', () => {
+  it('has no method that deletes a scope behind the sync cursor', () => {
+    expect(
+      (DataLayerTablesService.prototype as unknown as Record<string, unknown>)
+        .truncateLayer,
+    ).toBeUndefined();
+  });
+});

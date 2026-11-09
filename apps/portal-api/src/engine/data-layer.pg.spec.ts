@@ -1453,6 +1453,12 @@ d('observation-log read paths against real PostGIS', () => {
     const itemsStub = {
       get: async (_user: AuthUser, id: string) =>
         id === geocoderId ? geocoderItem : sourceItem,
+      // The owner reads every row: no geo limit, no own-rows scope.
+      featureReadScope: async () => ({
+        geoLimit: null,
+        rowScope: 'all' as const,
+        userId: 'owner',
+      }),
     };
 
     beforeAll(async () => {
@@ -2683,8 +2689,140 @@ d('observation-log read paths against real PostGIS', () => {
       expect(again.inserted).toBe(1);
       expect(again.deduplicated).toBe(0);
       expect(await createRowCount(scope, gid)).toBe(2);
+      // Both create rows used to join, listing the entity twice with
+      // two different `_created_at` values. Exactly one row, stamped
+      // with the latest create, on every read that joins creates.
+      const engine = makeEngine();
+      const list = await engine.listFeatures({ itemId, layerId });
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      const creates = await pool.query(
+        `SELECT tx_time FROM observation
+          WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'
+          ORDER BY valid_from DESC, tx_time DESC, id DESC`,
+        [scope, gid],
+      );
+      expect(new Date(mine[0]!.properties._created_at as string).getTime()).toBe(
+        (creates.rows[0].tx_time as Date).getTime(),
+      );
+      const bbox = await engine.listFeatures({
+        itemId,
+        layerId,
+        bbox: [HERE[0] - 1, HERE[1] - 1, HERE[0] + 1, HERE[1] + 1],
+      });
+      expect(bbox.features.filter((f) => f.id === gid)).toHaveLength(1);
+      const paged: string[] = [];
+      for await (const page of engine.iterateFeatures({ itemId, layerId })) {
+        for (const f of page) if (f.id === gid) paged.push(String(f.id));
+      }
+      expect(paged).toHaveLength(1);
+    });
+
+    it('own rows follow the latest create: a re-created id is not the old creator\'s', async () => {
+      const A = { sub: 'own-latest-a', displayName: 'A' };
+      const B = { sub: 'own-latest-b', displayName: 'B' };
+      const gid = uuidv7();
+      const engine = makeEngine();
+      const create = (principal: typeof A, name: string) =>
+        engine.writeFeaturesCreateIdempotent([
+          {
+            itemId,
+            layerId,
+            principal,
+            globalId: gid,
+            properties: { NAME: name },
+            geometry: { type: 'Point', coordinates: HERE },
+          },
+        ]);
+      await create(A, 'OwnLatest First');
+      await engine.writeFeatureDelete({ itemId, layerId, globalId: gid, principal: A });
+      await create(B, 'OwnLatest Second');
+
+      const near: [number, number, number, number] = [
+        HERE[0] - 1,
+        HERE[1] - 1,
+        HERE[0] + 1,
+        HERE[1] + 1,
+      ];
+      const sees = async (sub: string) => {
+        const ownRowsOnly = { userId: sub };
+        const list = await engine.listFeatures({ itemId, layerId, ownRowsOnly });
+        const page = await engine.pageFeatures({
+          itemId,
+          layerId,
+          limit: 1000,
+          entityIds: [gid],
+          ownRowsOnly,
+        });
+        const search = await engine.searchFeatures({
+          itemId,
+          layerId,
+          q: 'OwnLatest',
+          limit: 8,
+          ownRowsOnly,
+        });
+        const agg = await engine.aggregateFeatures({
+          itemId,
+          layerId,
+          aggs: [{ op: 'count', as: 'count' }],
+          ownRowsOnly,
+        });
+        const extent = await engine.filteredExtent({ itemId, layerId, ownRowsOnly });
+        return {
+          list: list.features.some((f) => f.id === gid),
+          page: page.features.some((f) => f.id === gid),
+          search: search.results.some((r) => r.id === gid),
+          count: Number(agg.groups[0]?.values.count ?? 0),
+          extent: extent !== null && near[0] <= HERE[0],
+        };
+      };
+      // Before: A matched on either create, so A could still read (and
+      // through the same predicate, edit) B's feature.
+      expect(await sees(A.sub)).toEqual({
+        list: false,
+        page: false,
+        search: false,
+        count: 0,
+        extent: false,
+      });
+      expect(await sees(B.sub)).toEqual({
+        list: true,
+        page: true,
+        search: true,
+        count: 1,
+        extent: true,
+      });
+
+    });
+
+    it('an entity whose create row is missing still lists', async () => {
+      const svc = makeService();
+      const gid = uuidv7();
+      const scope = dataLayerScope(itemId, layerId);
+      await svc.insertFeatures(
+        itemId,
+        layerId,
+        [{ globalId: gid, geometry: { type: 'Point', coordinates: HERE }, properties: { NAME: 'Orphan' } }],
+        user,
+      );
+      await makeEngine().writeFeatureUpdate({
+        itemId,
+        layerId,
+        globalId: gid,
+        principal: PRINCIPAL,
+        properties: { NAME: 'Orphan 2' },
+        geometry: { type: 'Point', coordinates: HERE },
+      });
+      // A replace import that raced an online edit can leave the head
+      // live with no create row; tiles and aggregates still show it.
+      await pool.query(
+        `DELETE FROM observation WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'`,
+        [scope, gid],
+      );
       const list = await makeEngine().listFeatures({ itemId, layerId });
-      expect(list.features.some((f) => f.id === gid)).toBe(true);
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.properties._created_by).toBe(PRINCIPAL.sub);
     });
   });
 

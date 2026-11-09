@@ -27,7 +27,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  type FeatureScopeFilter,
+} from '../items/sharing.service.js';
 import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import {
   ItemBboxRefreshService,
@@ -1268,7 +1271,10 @@ export class DataLayerFeaturesService {
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
     opts: {
-      ownRowsOnly?: boolean;
+      /** The caller's write scope from SharingService.featureScopeFor.
+       *  A feature outside it (another user's row under own-rows, or
+       *  a row outside the geo limit) reads as not found. */
+      shareScope?: FeatureScopeFilter;
       isTable?: boolean;
       baseObservationId?: string;
       checkOnly?: boolean;
@@ -1290,9 +1296,7 @@ export class DataLayerFeaturesService {
         itemId,
         layerId,
         entity: featureId,
-        ...(opts.ownRowsOnly === true
-          ? { ownRowsOnly: { userId: user.id } }
-          : {}),
+        ...(opts.shareScope ?? {}),
         ...(isTable ? { isTable: true } : {}),
       });
       if (current.features.length === 0) {
@@ -1408,6 +1412,7 @@ export class DataLayerFeaturesService {
         itemId,
         layerId,
         entity: featureId,
+        ...(opts.shareScope ?? {}),
         ...(isTable ? { isTable: true } : {}),
       });
       if ('conflict' in written && implicitBase && attempt < 2) {
@@ -1459,7 +1464,10 @@ export class DataLayerFeaturesService {
     featureId: string,
     user: AuthUser,
     opts: {
-      ownRowsOnly?: boolean;
+      /** Same contract as updateFeature's `shareScope`. */
+      shareScope?: FeatureScopeFilter;
+      /** Table sublayer: the geo limit has no geometry to clip. */
+      isTable?: boolean;
       baseObservationId?: string;
       checkOnly?: boolean;
     } = {},
@@ -1468,9 +1476,8 @@ export class DataLayerFeaturesService {
       itemId,
       layerId,
       entity: featureId,
-      ...(opts.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: user.id } }
-        : {}),
+      ...(opts.shareScope ?? {}),
+      ...(opts.isTable === true ? { isTable: true } : {}),
     });
     if (current.features.length === 0) {
       throw new NotFoundException('Feature not found');
@@ -1524,7 +1531,13 @@ export class DataLayerFeaturesService {
     );
     const written = committed.value;
     if ('conflict' in written) {
-      const now = await this.dataLayer.listFeatures({ itemId, layerId, entity: featureId });
+      const now = await this.dataLayer.listFeatures({
+        itemId,
+        layerId,
+        entity: featureId,
+        ...(opts.shareScope ?? {}),
+        ...(opts.isTable === true ? { isTable: true } : {}),
+      });
       throw await this.raiseFeatureConflict({
         itemId,
         layerId,
@@ -1715,7 +1728,9 @@ export class DataLayerFeaturesService {
     selectedIds?: string[];
     dryRun: boolean;
     user: AuthUser;
-    ownRowsOnly?: boolean;
+    /** The caller's write scope. Rows outside it are neither
+     *  counted, previewed nor written. */
+    shareScope?: FeatureScopeFilter;
     isTable?: boolean;
   }): Promise<{
     totalRows: number;
@@ -1775,15 +1790,13 @@ export class DataLayerFeaturesService {
 
     // Fetch the affected entities.  In 'selection' mode we limit
     // to selectedIds; otherwise we pull every entity in the
-    // sublayer.  ownRowsOnly + isTable mirror the regular update
-    // path so per-share row scoping is respected.
+    // sublayer.  The scope (own rows and geo limit) + isTable mirror
+    // the regular update path so share limits are respected.
     const features = await this.dataLayer.listFeatures({
       itemId: args.itemId,
       layerId: args.layerId,
       ...(selectionIds !== undefined ? { entityIds: selectionIds } : {}),
-      ...(args.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: args.user.id } }
-        : {}),
+      ...(args.shareScope ?? {}),
       ...(args.isTable === true ? { isTable: true } : {}),
     });
 

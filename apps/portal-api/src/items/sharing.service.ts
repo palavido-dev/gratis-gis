@@ -2,12 +2,78 @@
 import { Injectable } from '@nestjs/common';
 import type { Item, ItemShare } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import type { GeoJsonGeometry } from '@gratis-gis/engine';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import { CLOSED_GEO_LIMIT } from '../common/closed-geo-limit.js';
+import {
+  CLOSED_GEO_LIMIT,
+  isClosedGeoLimit,
+} from '../common/closed-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { buildEntityStore } from '../policy/entity-store.js';
+
+export type FeatureScopeAction = 'read' | 'edit';
+
+/** A caller's resolved scope on one data layer. */
+export interface FeatureScope {
+  /** GeoJSON clip in EPSG:4326, or null for no geographic limit. */
+  geoLimit: unknown | null;
+  /** 'own' limits the caller to rows they created. */
+  rowScope: 'all' | 'own';
+  /** The caller, for the own-rows predicate. */
+  userId: string;
+}
+
+/** The engine's filter options for a resolved scope. */
+export interface FeatureScopeFilter {
+  geoLimit?: GeoJsonGeometry;
+  ownRowsOnly?: { userId: string };
+}
+
+/**
+ * Turn a resolved scope into the `geoLimit` / `ownRowsOnly` options
+ * every engine read takes. Spread it into the options object so an
+ * unscoped caller adds no keys at all.
+ */
+export function featureScopeFilter(scope: FeatureScope): FeatureScopeFilter {
+  const out: FeatureScopeFilter = {};
+  if (scope.geoLimit) out.geoLimit = scope.geoLimit as GeoJsonGeometry;
+  if (scope.rowScope === 'own') out.ownRowsOnly = { userId: scope.userId };
+  return out;
+}
+
+/**
+ * SQL predicates for a resolved scope over a legacy per-item feature
+ * table (`fs_<id>`, columns `geom` and `created_by`). Values go into
+ * `params` as bound parameters; the returned strings reference them
+ * by position, so pass the same array to the query.
+ */
+export function legacyTableScopeConditions(
+  scope: FeatureScope,
+  params: unknown[],
+): string[] {
+  const out: string[] = [];
+  if (scope.geoLimit && isClosedGeoLimit(scope.geoLimit)) {
+    // A configured boundary that cannot be resolved: no rows.
+    out.push('false');
+  } else if (scope.geoLimit) {
+    params.push(JSON.stringify(scope.geoLimit));
+    out.push(
+      `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${params.length}::text), 4326))`,
+    );
+  }
+  if (scope.rowScope === 'own') {
+    params.push(scope.userId);
+    out.push(`created_by = $${params.length}::uuid`);
+  }
+  return out;
+}
+
+/** True when the scope narrows the caller in any way. */
+export function isScopeLimited(scope: FeatureScope): boolean {
+  return scope.geoLimit !== null || scope.rowScope === 'own';
+}
 
 /**
  * Single source of truth for item access decisions. The four
@@ -137,6 +203,7 @@ export class SharingService {
     user: AuthUser,
     item: Item,
     shares: ItemShare[] = [],
+    action: FeatureScopeAction = 'read',
   ): Promise<unknown | null> {
     if (item.ownerId === user.id) return null;
     if (user.orgRole === 'admin' && item.orgId === user.orgId) return null;
@@ -155,9 +222,15 @@ export class SharingService {
     // boundary, this path is unrestricted (matches pre-#80 semantics
     // exactly; the early-return-null lines this replaces are now
     // expressed as "tier path with no boundary => unrestricted").
+    // The public and org tiers grant read only, so on a write they
+    // are not an access path at all: only shares that grant edit
+    // decide the write clip. Counting the tier here used to make
+    // every edit share on an org or public layer unrestricted.
     let tierBoundaryId: string | null = null;
     let reachedViaTier = false;
-    if (item.access === 'public') {
+    if (action === 'edit') {
+      // No tier path on writes.
+    } else if (item.access === 'public') {
       reachedViaTier = true;
       tierBoundaryId =
         (item as Item & { publicGeoBoundaryId?: string | null })
@@ -172,7 +245,7 @@ export class SharingService {
       hasUnrestrictedPath = true;
     }
 
-    const matching = shares.filter((s) => this.shareMatches(user, s));
+    const matching = this.matchingShares(user, shares, action);
     if (!reachedViaTier && matching.length === 0) {
       // No reachable path at all; canRead has already gated the
       // request. Returning null is safe -- an empty predicate stack
@@ -237,6 +310,55 @@ export class SharingService {
     return { type: 'GeometryCollection', geometries: polygons };
   }
 
+  /**
+   * Shares that put `user` on this item for `action`. A read counts
+   * every live share that names the user or one of their groups. A
+   * write counts only the shares that grant edit (an `edit` or
+   * `admin` permission), so a broader view share cannot loosen the
+   * row scope or geo limit an edit share sets.
+   */
+  private matchingShares(
+    user: AuthUser,
+    shares: ItemShare[],
+    action: FeatureScopeAction,
+  ): ItemShare[] {
+    return shares.filter(
+      (s) =>
+        this.shareMatches(user, s) &&
+        (action === 'read' ||
+          s.permission === 'edit' ||
+          s.permission === 'admin'),
+    );
+  }
+
+  /**
+   * The one place a caller's feature scope on a data layer is
+   * resolved: the geo limit and the row scope for `action`, with the
+   * layer's editing policy applied. Every feature read and write
+   * path (features, tiles, aggregates, exports, OGC, attachments,
+   * derived layers, AI) takes its clip from here, so a share limit
+   * cannot be honoured on one route and skipped on the next.
+   */
+  async featureScopeFor(
+    user: AuthUser,
+    item: Item,
+    shares: ItemShare[] = [],
+    opts: {
+      action: FeatureScopeAction;
+      layerPolicy?: 'all-rows' | 'own-rows-only';
+    },
+  ): Promise<FeatureScope> {
+    const geoLimit = await this.geoLimitFor(user, item, shares, opts.action);
+    const rowScope = this.effectiveRowScope(
+      user,
+      item,
+      shares,
+      opts.layerPolicy ?? 'all-rows',
+      opts.action,
+    );
+    return { geoLimit, rowScope, userId: user.id };
+  }
+
   private shareMatches(user: AuthUser, share: ItemShare): boolean {
     // Expired shares grant nothing (#84). The cron sweep eventually
     // deletes them, but request-time enforcement here means even a
@@ -289,7 +411,7 @@ export class SharingService {
     item: Item,
     shares: ItemShare[] = [],
     layerPolicy: 'all-rows' | 'own-rows-only' = 'all-rows',
-    action: 'read' | 'edit' = 'read',
+    action: FeatureScopeAction = 'read',
   ): 'all' | 'own' {
     // Owner / admin / public / org-public all bypass row scoping
     // entirely. This matches the geoLimitFor exemptions and keeps
@@ -298,17 +420,23 @@ export class SharingService {
     // safety valve always wins.
     if (item.ownerId === user.id) return 'all';
     if (user.orgRole === 'admin' && item.orgId === user.orgId) return 'all';
-    if (item.access === 'public') return 'all';
-    if (item.access === 'org' && item.orgId === user.orgId) return 'all';
+    // The public and org tiers grant read only. On an edit the
+    // caller's rights come from an edit share, so the tier must not
+    // widen the edit scope: the layer policy and the share's
+    // editRowScope still apply on org and public layers.
+    if (action === 'read') {
+      if (item.access === 'public') return 'all';
+      if (item.access === 'org' && item.orgId === user.orgId) return 'all';
+    }
 
     // Layer-level baseline (#41). 'own-rows-only' tightens every
     // matching share regardless of its own rowScope; per-share
     // rowScope can never loosen the layer baseline. Applies to both
-    // read and edit -- a layer marked own-rows-only narrows every
+    // read and edit: a layer marked own-rows-only narrows every
     // grantee on both axes.
     if (layerPolicy === 'own-rows-only') return 'own';
 
-    const matching = shares.filter((s) => this.shareMatches(user, s));
+    const matching = this.matchingShares(user, shares, action);
     if (matching.length === 0) {
       // No matching share + non-public + non-org. Caller cannot see
       // the item at all; the visibility check upstream should have

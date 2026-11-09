@@ -64,7 +64,11 @@ import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  featureScopeFilter,
+  type FeatureScope,
+} from '../items/sharing.service.js';
 import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -1858,7 +1862,7 @@ export class DataLayerFeaturesController {
     @Param('layerId') layerId: string,
     @Body() body: CalculateFieldDto,
   ) {
-    const { rowScope, isTable } = await this.assertV3Layer(
+    const { scope, isTable } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -1874,7 +1878,7 @@ export class DataLayerFeaturesController {
       ...(body.selectedIds ? { selectedIds: body.selectedIds } : {}),
       dryRun: body.dryRun === true,
       user,
-      ownRowsOnly: rowScope === 'own',
+      shareScope: featureScopeFilter(scope),
       isTable,
     });
   }
@@ -1889,7 +1893,7 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
-    const { rowScope, isTable, geoLimit } = await this.assertV3Layer(
+    const { scope, isTable, geoLimit } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -1924,7 +1928,7 @@ export class DataLayerFeaturesController {
     if (body.geometry !== undefined) patch.geometry = body.geometry;
     if (body.properties !== undefined) patch.properties = body.properties;
     return this.v3.updateFeature(itemId, layerId, featureId, patch, user, {
-      ownRowsOnly: rowScope === 'own',
+      shareScope: featureScopeFilter(scope),
       isTable,
       ...(body.baseObservationId !== undefined
         ? { baseObservationId: body.baseObservationId }
@@ -1947,7 +1951,7 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
-    const { rowScope } = await this.assertV3Layer(
+    const { scope, isTable } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -1965,7 +1969,8 @@ export class DataLayerFeaturesController {
     if (body?.checkOnly === true) {
       // Dry run returns a JSON body (200); a real delete stays 204.
       return this.v3.deleteFeature(itemId, layerId, featureId, user, {
-        ownRowsOnly: rowScope === 'own',
+        shareScope: featureScopeFilter(scope),
+        isTable,
         checkOnly: true,
         ...(body.baseObservationId !== undefined
           ? { baseObservationId: body.baseObservationId }
@@ -1973,7 +1978,8 @@ export class DataLayerFeaturesController {
       });
     }
     await this.v3.deleteFeature(itemId, layerId, featureId, user, {
-      ownRowsOnly: rowScope === 'own',
+      shareScope: featureScopeFilter(scope),
+      isTable,
       ...(body?.baseObservationId !== undefined
         ? { baseObservationId: body.baseObservationId }
         : {}),
@@ -2075,6 +2081,9 @@ export class DataLayerFeaturesController {
   ): Promise<{
     geoLimit: unknown | null;
     rowScope: 'all' | 'own';
+    /** The resolved scope; `featureScopeFilter(scope)` is the
+     *  engine filter for it. */
+    scope: FeatureScope;
     /**
      * True when the resolved layer was provisioned without a `geom`
      * column (geometryType=null, the related-event-tracking pattern
@@ -2157,7 +2166,6 @@ export class DataLayerFeaturesController {
     // here (no restriction) inside SharingService.
     const withShares = item as typeof item & { shares?: ItemShare[] };
     const shares = withShares.shares ?? [];
-    const geoLimit = await this.sharing.geoLimitFor(user, item, shares);
     // Row-scope applies to BOTH reads and writes (#40). On reads it
     // narrows the SELECT; on writes it gates the per-row update /
     // delete to features the caller created. Owner / admin / public
@@ -2166,14 +2174,14 @@ export class DataLayerFeaturesController {
     // when set to 'own-rows-only'. #83: when the request is a write
     // (mode='write'), pull the share's editRowScope override; reads
     // use rowScope as before. Same composition rules either way.
-    const layerPolicy = layer.editingPolicy ?? 'all-rows';
-    const rowScope = this.sharing.effectiveRowScope(
-      user,
-      item,
-      shares,
-      layerPolicy,
-      mode === 'write' ? 'edit' : 'read',
-    );
+    // Both clips come from the one resolver every feature path uses.
+    // On a write only edit-granting shares count, and the org and
+    // public tiers (read-only grants) never widen the write scope.
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action: mode === 'write' ? 'edit' : 'read',
+      layerPolicy: layer.editingPolicy ?? 'all-rows',
+    });
+    const { geoLimit, rowScope } = scope;
     // Match tables.service's convention: null geometryType means
     // a table sublayer (no geom column was provisioned). undefined
     // shouldn't happen in well-formed v3 data but if it does we err
@@ -2182,7 +2190,7 @@ export class DataLayerFeaturesController {
     // missing its geometryType field would silently lose geometry
     // otherwise.
     const isTable = layer.geometryType === null;
-    return { geoLimit, rowScope, isTable, layer, item };
+    return { geoLimit, rowScope, scope, isTable, layer, item };
   }
 }
 
