@@ -22,6 +22,7 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  */
 
 interface JobRow {
+  params?: Record<string, unknown>;
   id: string;
   orgId: string;
   userId: string;
@@ -36,6 +37,7 @@ interface World {
   job: JobRow | null;
   updateManyCalls: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }>;
   executeRawCalls: Array<{ strings: readonly string[]; values: unknown[] }>;
+  importJobUpdates?: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }>;
 }
 
 function makePrisma(world: World): PrismaService {
@@ -43,15 +45,31 @@ function makePrisma(world: World): PrismaService {
     analysisJob: {
       findUnique: jest.fn(async () => world.job),
       updateMany: jest.fn(
-        async (args: { where: { state?: string }; data: Record<string, unknown> }) => {
+        async (args: {
+          where: { state?: string | { in: string[] } };
+          data: Record<string, unknown>;
+        }) => {
           world.updateManyCalls.push(
             args as { where: Record<string, unknown>; data: Record<string, unknown> },
           );
-          if (world.job && args.where.state === world.job.state) {
+          const st = args.where.state;
+          const matches =
+            typeof st === 'string'
+              ? st === world.job?.state
+              : !!world.job && !!st && st.in.includes(world.job.state);
+          if (world.job && matches) {
             Object.assign(world.job, args.data);
             return { count: 1 };
           }
           return { count: 0 };
+        },
+      ),
+    },
+    importJob: {
+      updateMany: jest.fn(
+        async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+          (world.importJobUpdates ??= []).push(args);
+          return { count: 1 };
         },
       ),
     },
@@ -141,6 +159,27 @@ describe('AnalysisService.cancelJob', () => {
     expect(world.executeRawCalls).toHaveLength(0);
   });
 
+  it('cancels a job whose result is waiting to be imported', async () => {
+    const world = freshWorld({ job: jobRow({ state: 'ingest' }) });
+    const out = (await makeService(world).cancelJob(user(), 'job-1')) as JobRow;
+    expect(out.state).toBe('cancelled');
+    expect(world.executeRawCalls).toHaveLength(1);
+  });
+
+  it('cancels a job in its import step, and the import with it', async () => {
+    const world = freshWorld({
+      job: jobRow({ state: 'importing', params: { importJobId: 'imp-1' } }),
+    });
+    const out = (await makeService(world).cancelJob(user(), 'job-1')) as JobRow;
+    expect(out.state).toBe('cancelled');
+    expect(world.importJobUpdates).toHaveLength(1);
+    expect(world.importJobUpdates![0]!.where).toEqual({
+      id: 'imp-1',
+      status: { in: ['queued', 'running'] },
+    });
+    expect(world.importJobUpdates![0]!.data).toMatchObject({ status: 'cancelled' });
+  });
+
   it('terminal job is a no-op (idempotent cancel)', async () => {
     const world = freshWorld({ job: jobRow({ state: 'done' }) });
     const svc = makeService(world);
@@ -206,6 +245,14 @@ function makeBridge(
       if (strings.join('?').includes("state = 'importing'")) return importingRows;
       return rows;
     }),
+    importJob: {
+      updateMany: jest.fn(
+        async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+          (world.importJobUpdates ??= []).push(args);
+          return { count: 1 };
+        },
+      ),
+    },
     $executeRaw: jest.fn(async (strings: readonly string[], ...values: unknown[]) => {
       world.executeRawCalls.push({ strings, values });
       return 1;

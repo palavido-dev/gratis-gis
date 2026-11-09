@@ -19,7 +19,10 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 import { assertGridBudget } from './grid-estimate.js';
-import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
+import {
+  cancelLinkedImport,
+  stampAnalysisTargetFailed,
+} from './analysis-target-stamp.js';
 import type { ZonalStatName } from './analysis.dto.js';
 
 const MAX_ZONAL_ZONES = 2000;
@@ -939,11 +942,33 @@ export class AnalysisService {
         job,
         'This analysis was cancelled before it started.',
       );
-    } else {
-      await this.prisma.analysisJob.updateMany({
-        where: { id: jobId, state: 'running' },
-        data: { state: 'cancel_requested' },
+      return this.prisma.analysisJob.findUnique({ where: { id: jobId } });
+    }
+    const runningFlip = await this.prisma.analysisJob.updateMany({
+      where: { id: jobId, state: 'running' },
+      data: { state: 'cancel_requested' },
+    });
+    if (runningFlip.count === 0) {
+      // Past the worker: the result is waiting to be imported
+      // ('ingest') or its import is queued or running ('importing').
+      // Nothing polls this row for a cancel request in either state, so
+      // cancel it outright, and cancel the import it handed off to.
+      const handoffFlip = await this.prisma.analysisJob.updateMany({
+        where: { id: jobId, state: { in: ['ingest', 'importing'] } },
+        data: { state: 'cancelled', finishedAt: new Date() },
       });
+      if (handoffFlip.count > 0) {
+        const importJobId = (job.params as { importJobId?: unknown } | null)
+          ?.importJobId;
+        if (typeof importJobId === 'string') {
+          await cancelLinkedImport(this.prisma, importJobId);
+        }
+        await stampAnalysisTargetFailed(
+          this.prisma,
+          job,
+          'This analysis was cancelled before its result was imported.',
+        );
+      }
     }
     return this.prisma.analysisJob.findUnique({ where: { id: jobId } });
   }
