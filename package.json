@@ -50,7 +50,7 @@
     "infra:reset": "docker compose -f infra/docker-compose.yml down -v && pnpm infra:up"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "^16.4.4",
+    "@next/eslint-plugin-next": "^16.4.5",
     "@types/node": "^26.6.6",
     "concurrently": "^10.0.6",
     "eslint": "^9.39.5",
