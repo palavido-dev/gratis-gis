@@ -16,6 +16,8 @@ import type { CatalogShape } from '../locales';
 
 export const fr: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Quelqu\'un d\'autre a enregistré cet élément après son ouverture, votre enregistrement n\'a donc pas été appliqué. Vos modifications restent affichées. Rechargez pour voir la dernière version, puis refaites vos modifications.',
     save: 'Enregistrer',
     cancel: 'Annuler',
     delete: 'Supprimer',
