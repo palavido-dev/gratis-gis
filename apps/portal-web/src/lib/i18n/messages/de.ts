@@ -3927,6 +3927,8 @@ export const de: Partial<CatalogShape> = {
     preview: 'Vorschau',
     defaultsFootnote:
       'Aus hier schaltet den Typ plattformweit für Nutzer ab, die sich nicht explizit angemeldet haben. Nutzer-Einstellungen haben Vorrang. Anpassen überschreibt den E-Mail-Text Ihrer Organisation; gespeicherte Vorlagen ersetzen Mustache-Platzhalter wie {{itemTitle}} und {{baseUrl}} aus dem Trigger-Payload.',
+    operatorOnlyNote:
+      'Mailserver, Versandwarteschlange, letzte Aktivität und die Standardeinstellungen gelten für die gesamte Installation, daher können nur Admins der Betreiberorganisation sie sehen oder ändern. Vorlagen und Vorschauen können Sie selbst bearbeiten.',
     previewHeading: 'Vorschau',
     subject: 'Betreff',
     html: 'HTML',

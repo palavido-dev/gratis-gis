@@ -6,6 +6,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Optional,
   Param,
   Post,
   Put,
@@ -29,6 +30,8 @@ import {
 } from '@prisma/client';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { AdminAuditService } from '../admin/admin-audit.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -131,10 +134,11 @@ interface RecentRow {
  * (used after the underlying issue is fixed, e.g. SMTP creds
  * corrected).
  *
- * Scope: this is org-wide today (no per-org filter on the query),
- * matching the rest of the admin pages. When multi-org tenancy
- * lands (#47), the queries grow an `orgId` filter and the page
- * becomes per-admin's-org.
+ * Scope: the queue, SMTP relay (also pushed to the shared Keycloak
+ * realm) and per-type defaults are install-wide, so those routes
+ * carry OperatorOrgGuard and only admins of the operator
+ * organization reach them. Templates are stored per organization
+ * and stay open to every org admin.
  */
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -148,9 +152,11 @@ export class NotificationsAdminController {
     private readonly templates: NotificationTemplateService,
     private readonly transport: EmailTransport,
     private readonly keycloak: KeycloakAdminService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   @Get('stats')
+  @UseGuards(OperatorOrgGuard)
   async stats(): Promise<StatsPayload> {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -240,6 +246,7 @@ export class NotificationsAdminController {
    * an admin can spot a wave of failures next to the successes.
    */
   @Get('recent')
+  @UseGuards(OperatorOrgGuard)
   async recent(): Promise<RecentRow[]> {
     const rows = await this.prisma.notification.findMany({
       orderBy: { createdAt: 'desc' },
@@ -283,6 +290,7 @@ export class NotificationsAdminController {
    * acting on the row a moment later.
    */
   @Post(':id/retry')
+  @UseGuards(OperatorOrgGuard)
   async retry(@Param('id') id: string): Promise<{ retried: boolean }> {
     const r = await this.prisma.notification.updateMany({
       where: { id, status: { in: ['failed', 'sending'] } },
@@ -303,6 +311,7 @@ export class NotificationsAdminController {
    *  only `hasPassword` so the form can show "stored" state without
    *  leaking secret material to the browser. */
   @Get('smtp')
+  @UseGuards(OperatorOrgGuard)
   async getSmtp(): Promise<SmtpStatePayload> {
     const cfg = await this.settings.getSmtpConfig();
     if (!cfg) {
@@ -339,6 +348,7 @@ export class NotificationsAdminController {
    * the admin's Save (the row is written either way).
    */
   @Put('smtp')
+  @UseGuards(OperatorOrgGuard)
   async saveSmtp(
     @CurrentUser() me: AuthUser,
     @Body() dto: SaveSmtpDto,
@@ -391,6 +401,21 @@ export class NotificationsAdminController {
           err instanceof Error ? err.message : String(err);
       }
     }
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'admin.smtp',
+      targetType: 'smtp',
+      targetId: 'install',
+      outcome: 'succeeded',
+      detail: {
+        host: dto.host,
+        port: dto.port,
+        enabled: dto.enabled,
+        passwordChanged: dto.password !== undefined,
+        realmSynced: realmSyncWarning === undefined,
+      },
+    });
     const state = await this.getSmtp();
     return realmSyncWarning ? { ...state, realmSyncWarning } : state;
   }
@@ -402,6 +427,7 @@ export class NotificationsAdminController {
    * the stored config.
    */
   @Post('smtp/test')
+  @UseGuards(OperatorOrgGuard)
   @HttpCode(200)
   async testSmtp(@Body() dto: TestSmtpDto): Promise<{ ok: boolean; error?: string }> {
     const builtCfg: SmtpConfig | null = await (async () => {
@@ -459,8 +485,21 @@ export class NotificationsAdminController {
   }
 
   @Put('defaults')
-  async putDefault(@Body() dto: PutDefaultDto): Promise<{ ok: true }> {
+  @UseGuards(OperatorOrgGuard)
+  async putDefault(
+    @CurrentUser() me: AuthUser,
+    @Body() dto: PutDefaultDto,
+  ): Promise<{ ok: true }> {
     await this.defaults.setOverride(dto.type, dto.channel, dto.enabled);
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.defaults',
+      targetType: 'notification_type',
+      targetId: `${dto.type}:${dto.channel}`,
+      outcome: 'succeeded',
+      detail: { enabled: dto.enabled },
+    });
     return { ok: true };
   }
 
@@ -585,6 +624,15 @@ export class NotificationsAdminController {
       bodyText: dto.bodyText,
       bodyHtml: dto.bodyHtml,
     });
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.template',
+      targetType: 'notification_template',
+      targetId: `${type}:${channel}`,
+      outcome: 'succeeded',
+      detail: { op: 'save' },
+    });
     return { ok: true };
   }
 
@@ -599,6 +647,15 @@ export class NotificationsAdminController {
     const type = parseType(typeRaw);
     const channel = parseChannel(channelRaw);
     await this.templates.clearOverride(me.orgId, type, channel);
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.template',
+      targetType: 'notification_template',
+      targetId: `${type}:${channel}`,
+      outcome: 'succeeded',
+      detail: { op: 'reset' },
+    });
   }
 
   /**
