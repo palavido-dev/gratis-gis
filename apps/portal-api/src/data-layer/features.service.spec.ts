@@ -938,6 +938,7 @@ describe('mvtTile forwards every option to the engine', () => {
       via: VIA,
       maxFeaturesPerTile: 250,
       zoomRange: { min: 0, max: 24 },
+      labelPoints: true,
     });
     expect(mvtTile.mock.calls[0]![0]).toEqual({
       itemId: ITEM_ID,
@@ -954,6 +955,7 @@ describe('mvtTile forwards every option to the engine', () => {
       // must reach the cache key); the zoom range is not, because it
       // is decided here before the engine is asked.
       maxFeaturesPerTile: 250,
+      labelPoints: true,
     });
   });
 

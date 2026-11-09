@@ -523,6 +523,9 @@ export const en = {
     maxFeaturesHint: 'The feature cap can only be lowered, up to {max}.',
     cacheHint:
       'Cache from 0 to {max} seconds. Tiles of a layer that is not public are always cached privately, in the viewer\'s browser only.',
+    labelPoints: 'Label each line and polygon once',
+    labelPointsHint:
+      'Adds one label point per line or polygon to the tiles, so a feature that crosses tile edges is not labelled once per tile. Maps then label from that point (except labels placed along lines).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {

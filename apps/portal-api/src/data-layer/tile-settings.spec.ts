@@ -307,3 +307,48 @@ describe('tileJsonBase', () => {
     expect(tileJsonBase()).toBe('http://localhost:3000');
   });
 });
+
+describe('label points setting', () => {
+  it('stores only true and refuses a non-boolean', () => {
+    expect(normalizeTileSettings({ labelPoints: true }, DECLARED, 'L')).toEqual({
+      labelPoints: true,
+    });
+    expect(normalizeTileSettings({ labelPoints: false }, DECLARED, 'L')).toBeUndefined();
+    expect(() =>
+      normalizeTileSettings({ labelPoints: 'yes' }, DECLARED, 'L'),
+    ).toThrow(BadRequestException);
+    expect(readTileSettings({ labelPoints: 'yes' })).toEqual({});
+    expect(readTileSettings({ labelPoints: true })).toEqual({ labelPoints: true });
+  });
+
+  it('is off by default and only applies to lines and polygons', () => {
+    expect(planTile({ declared: FIELDS, settings: {}, geometryType: 'polygon' }).labelPoints).toBeUndefined();
+    const on = { labelPoints: true } as const;
+    expect(planTile({ declared: FIELDS, settings: on, geometryType: 'polygon' }).labelPoints).toBe(true);
+    expect(planTile({ declared: FIELDS, settings: on, geometryType: 'MultiLineString' }).labelPoints).toBe(true);
+    expect(planTile({ declared: FIELDS, settings: on, geometryType: 'point' }).labelPoints).toBeUndefined();
+    expect(planTile({ declared: FIELDS, settings: on, geometryType: null }).labelPoints).toBeUndefined();
+  });
+
+  it('adds the labels layer to TileJSON only when on', () => {
+    const off = buildTileJson({ name: 'P', tileUrl: 'u', settings: {}, fields: [FIELDS[0]!] });
+    expect((off.vector_layers as unknown[]).length).toBe(1);
+    const on = buildTileJson({
+      name: 'P',
+      tileUrl: 'u',
+      settings: {},
+      fields: [FIELDS[0]!],
+      labelPoints: true,
+    });
+    expect(on.vector_layers).toEqual([
+      expect.objectContaining({
+        id: 'features',
+        fields: { _global_id: 'String', name: 'String', _label_point: 'Boolean' },
+      }),
+      expect.objectContaining({
+        id: 'labels',
+        fields: { _global_id: 'String', name: 'String' },
+      }),
+    ]);
+  });
+});

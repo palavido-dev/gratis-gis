@@ -123,6 +123,12 @@ function makeAuthed(opts: {
   const sharing = {
     geoLimitFor: jest.fn(async () => opts.geoLimit ?? null),
     effectiveRowScope: jest.fn(() => opts.rowScope ?? 'all'),
+    // assertV3Layer resolves the caller's scope through this one call.
+    featureScopeFor: jest.fn(async (user: { id: string }) => ({
+      geoLimit: opts.geoLimit ?? null,
+      rowScope: opts.rowScope ?? 'all',
+      userId: user.id,
+    })),
   };
   type Ctor = ConstructorParameters<typeof DataLayerFeaturesController>;
   const controller = new DataLayerFeaturesController(
@@ -359,5 +365,95 @@ describe('OGC tiles TileJSON', () => {
     expect(tileset.links.some((l) => l.rel === 'describedby' && l.href.endsWith('/tilejson.json'))).toBe(true);
     expect(tileset.vectorLayers[0]!.fields).toEqual([{ name: 'name', type: 'string' }]);
     expect(tileset.vectorLayers[0]!.minzoom).toBe(6);
+  });
+});
+
+describe('label points through the routes', () => {
+  const ON = { ...LAYER, tiles: { labelPoints: true } };
+
+  it('asks the engine for label points when the polygon layer turns them on', async () => {
+    const { controller, mvtTile } = makeAuthed({ getItem: async () => item(ON) });
+    await controller.tile(
+      req,
+      makeRes() as unknown as Response,
+      makeUser(),
+      ITEM_ID,
+      LAYER_ID,
+      '10',
+      '1',
+      '2',
+    );
+    const opts = (mvtTile.mock.calls[0] as unknown[])[5] as Record<string, unknown>;
+    expect(opts.labelPoints).toBe(true);
+  });
+
+  it('is off by default', async () => {
+    const { controller, mvtTile } = makeAuthed({});
+    await controller.tile(
+      req,
+      makeRes() as unknown as Response,
+      makeUser(),
+      ITEM_ID,
+      LAYER_ID,
+      '10',
+      '1',
+      '2',
+    );
+    const opts = (mvtTile.mock.calls[0] as unknown[])[5] as Record<string, unknown>;
+    expect('labelPoints' in opts).toBe(false);
+  });
+
+  it('lists the labels layer in TileJSON when on', async () => {
+    const { controller } = makeAuthed({ getItem: async () => item(ON) });
+    const res = makeRes();
+    await controller.tileJson(res as unknown as Response, makeUser(), ITEM_ID, LAYER_ID);
+    const layers = (res.body as { vector_layers: Array<{ id: string }> }).vector_layers;
+    expect(layers.map((l) => l.id)).toEqual(['features', 'labels']);
+  });
+
+  it('denies a private layer on the anonymous tile route before any tile is built', async () => {
+    // The label points ride inside the tile, so the tile route's gate
+    // is their gate: a private item is not found by the public query.
+    const findFirst = jest.fn().mockResolvedValue(null);
+    const mvtTile = jest.fn();
+    const controller = new PublicController(
+      { item: { findFirst } } as unknown as PrismaService,
+      { mvtTile } as never,
+      {} as never, // itemsService, not used by the tile routes
+    );
+    await expect(
+      controller.layerTile(
+        req,
+        makeRes() as unknown as Response,
+        ITEM_ID,
+        LAYER_ID,
+        '10',
+        '1',
+        '2',
+      ),
+    ).rejects.toThrow(NotFoundException);
+    expect(findFirst.mock.calls[0]![0].where).toMatchObject({ access: 'public' });
+    expect(mvtTile).not.toHaveBeenCalled();
+  });
+
+  it('denies a private layer on the authenticated tile route', async () => {
+    const { controller, mvtTile } = makeAuthed({
+      getItem: async () => {
+        throw new ForbiddenException('no');
+      },
+    });
+    await expect(
+      controller.tile(
+        req,
+        makeRes() as unknown as Response,
+        makeUser(),
+        ITEM_ID,
+        LAYER_ID,
+        '10',
+        '1',
+        '2',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+    expect(mvtTile).not.toHaveBeenCalled();
   });
 });

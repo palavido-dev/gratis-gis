@@ -595,6 +595,7 @@ export class DataLayerFeaturesController {
       via?: EngineVia;
       maxFeaturesPerTile?: number;
       zoomRange?: { min: number; max: number };
+      labelPoints?: boolean;
     } = {};
     if (isTable) opts.isTable = true;
     if (geoLimit) opts.geoLimit = geoLimit;
@@ -655,12 +656,14 @@ export class DataLayerFeaturesController {
       declared: declaredTileFields(layer.fields),
       settings: tileSettings,
       include: parseIncludeParam(includeRaw),
+      geometryType: layer.geometryType,
     });
     if (Array.isArray(layer.fields)) opts.fields = plan.fields;
     if (plan.maxFeaturesPerTile !== undefined) {
       opts.maxFeaturesPerTile = plan.maxFeaturesPerTile;
     }
     if (plan.zoomRange) opts.zoomRange = plan.zoomRange;
+    if (plan.labelPoints) opts.labelPoints = true;
     const cacheControl = tileCacheControl(tileSettings, 'private');
     let mvt: Buffer;
     let etag: string;
@@ -736,6 +739,7 @@ export class DataLayerFeaturesController {
     const plan = planTile({
       declared: declaredTileFields(layer.fields),
       settings,
+      geometryType: layer.geometryType,
     });
     const layers = (item.data as { layers?: unknown[] } | null)?.layers ?? [];
     const label = typeof layer.label === 'string' ? layer.label : layer.id;
@@ -752,6 +756,7 @@ export class DataLayerFeaturesController {
         ? null
         : storedLayerBounds(layer.bbox, (item as { bbox?: unknown }).bbox),
       attribution: layerAttribution(layer, item.data),
+      labelPoints: plan.labelPoints === true,
     });
     res.setHeader('Cache-Control', 'private, no-cache');
     res.json(doc);
@@ -2098,6 +2103,7 @@ export class DataLayerFeaturesController {
     layer: {
       id: string;
       label?: string;
+      geometryType?: string | null;
       fields?: Array<{ name: string; type?: string }>;
       parentFkColumn?: string;
       /** Raw stored tile settings; read with readTileSettings. */

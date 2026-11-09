@@ -281,7 +281,11 @@ export class OgcTilesController {
       throw new NotFoundException('Tileset not found.');
     }
     const settings = readTileSettings(row.tiles);
-    const plan = planTile({ declared: row.fieldSchema, settings });
+    const plan = planTile({
+      declared: row.fieldSchema,
+      settings,
+      geometryType: row.geometryType,
+    });
     const doc = buildTileJson({
       name: row.title,
       description: row.description,
@@ -295,6 +299,7 @@ export class OgcTilesController {
         ? null
         : storedLayerBounds(row.layerBbox, row.itemBbox),
       attribution: layerAttribution(row.rawLayer, row.itemData),
+      labelPoints: plan.labelPoints === true,
     });
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.json(doc);
@@ -351,7 +356,11 @@ export class OgcTilesController {
     // The layer's tile settings, as on every other tile route. An OGC
     // client sends no `include`, so it gets the owner's field choice.
     const tileSettings = readTileSettings(row.tiles);
-    const plan = planTile({ declared: row.fieldSchema, settings: tileSettings });
+    const plan = planTile({
+      declared: row.fieldSchema,
+      settings: tileSettings,
+      geometryType: row.geometryType,
+    });
     const cacheControl = tileCacheControl(tileSettings, 'public');
 
     let mvt: Buffer;
@@ -372,6 +381,7 @@ export class OgcTilesController {
             ? { maxFeaturesPerTile: plan.maxFeaturesPerTile }
             : {}),
           ...(plan.zoomRange ? { zoomRange: plan.zoomRange } : {}),
+          ...(plan.labelPoints ? { labelPoints: true } : {}),
         },
       ));
     } catch (e) {
