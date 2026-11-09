@@ -131,6 +131,7 @@ docs/marketing/
 !/scripts/restore-maintenance.test.sh
 !/scripts/check-prisma-drift.sh
 !/scripts/check-prisma-drift.test.sh
+!/scripts/script-net-firewall.test.sh
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable

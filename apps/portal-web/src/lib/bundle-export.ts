@@ -38,6 +38,7 @@
 
 import { ZipWriter } from './zip-writer';
 import { writeXlsx, type XlsxSheet } from './xlsx';
+import { parseApiError } from './api-error';
 
 export interface BundleExportOptions {
   /** Root data_layer item id. */
@@ -132,7 +133,7 @@ async function fetchLayerFeatures(
   );
   if (!res.ok) {
     throw new Error(
-      `Layer features fetch failed: ${res.status} ${await res.text()}`,
+      await parseApiError(res, 'Layer features fetch failed'),
     );
   }
   const body = (await res.json()) as

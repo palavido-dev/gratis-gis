@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import type { ItemType } from '@gratis-gis/shared-types';
 import { authOptions } from '@/lib/auth';
 import { getPortalUrl } from '@/lib/portal-url';
+import { serializeJsonLd } from '@/lib/json-ld';
 import { isSessionStale } from '@/lib/session-state';
 import { loadWhatsNewEntries } from '@/lib/whats-new';
 import { PublicLanding } from './public-landing';
@@ -95,7 +96,7 @@ export default async function HomePage(
         type="application/ld+json"
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(landingJsonLd()),
+          __html: serializeJsonLd(landingJsonLd()),
         }}
       />
       <PublicLanding

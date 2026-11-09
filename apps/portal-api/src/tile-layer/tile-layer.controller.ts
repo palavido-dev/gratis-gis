@@ -9,13 +9,11 @@ import {
   Post,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -26,6 +24,7 @@ import {
 import { StorageService } from '../storage/storage.service.js';
 import { CogTileService } from './cog-tiles.service.js';
 import { TileLayerService } from './tile-layer.service.js';
+import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
 
 /**
  * Content types the tile pipeline legitimately serves inline
@@ -113,7 +112,6 @@ export function parseTileCoords(
 @ApiTags('tile-layer')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class TileLayerController {
   constructor(
     private readonly tileLayer: TileLayerService,
@@ -317,7 +315,12 @@ export class TileLayerController {
     // blind caching keeps the range-request storm off the server
     // while bounding staleness; ETag + If-Range handle clean
     // revalidation past that.
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    //
+    // `private` for a signed-in caller: this route also serves items
+    // shared to that user, and `public` would let a shared proxy or
+    // CDN hand those bytes to the next caller. Anonymous callers only
+    // ever resolve public items, so they keep `public`.
+    res.setHeader('Cache-Control', byteProxyCacheControl(user, 3600));
 
     try {
       upstream.body.pipe(res);

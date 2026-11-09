@@ -11,14 +11,12 @@ import {
   Post,
   Res,
   ServiceUnavailableException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
@@ -40,7 +38,6 @@ import { StorageService } from '../storage/storage.service.js';
 @ApiTags('analysis')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class SamController {
   constructor(
     private readonly prisma: PrismaService,

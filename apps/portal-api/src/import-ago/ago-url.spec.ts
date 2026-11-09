@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { buildAgoAuthorizeUrl, normalizeAgoUrl } from './ago-url.js';
+import {
+  agoTokenMayGoTo,
+  agoTokenOrigins,
+  buildAgoAuthorizeUrl,
+  normalizeAgoUrl,
+} from './ago-url.js';
 
 describe('normalizeAgoUrl', () => {
   it('accepts bare host (no scheme)', () => {
@@ -131,5 +136,32 @@ describe('buildAgoAuthorizeUrl', () => {
     });
     const parsed = new URL(url);
     expect(parsed.searchParams.has('expiration')).toBe(false);
+  });
+});
+
+describe('agoTokenMayGoTo', () => {
+  const ago = 'https://palavido.maps.arcgis.com/sharing/rest';
+  const ent = 'https://gis.county.example/portal/sharing/rest';
+
+  it('allows the portal and ArcGIS Online hosted services', () => {
+    const origins = agoTokenOrigins(ago);
+    expect(agoTokenMayGoTo('https://palavido.maps.arcgis.com/x', ago, origins)).toBe(true);
+    expect(
+      agoTokenMayGoTo('https://services3.arcgis.com/abc/arcgis/rest/services/P/FeatureServer', ago, origins),
+    ).toBe(true);
+  });
+
+  it('refuses third-party servers and plain http', () => {
+    const origins = agoTokenOrigins(ago);
+    expect(agoTokenMayGoTo('https://gis.partner.example/arcgis/rest/services/X/MapServer', ago, origins)).toBe(false);
+    expect(agoTokenMayGoTo('http://services3.arcgis.com/x', ago, origins)).toBe(false);
+    expect(agoTokenMayGoTo('https://arcgis.com.evil.example/x', ago, origins)).toBe(false);
+  });
+
+  it('allows an Enterprise portal and its federated servers only', () => {
+    const origins = agoTokenOrigins(ent, ['https://gisserver.county.example/server']);
+    expect(agoTokenMayGoTo('https://gis.county.example/server/rest/services/A/FeatureServer', ent, origins)).toBe(true);
+    expect(agoTokenMayGoTo('https://gisserver.county.example/server/rest/services/B/MapServer', ent, origins)).toBe(true);
+    expect(agoTokenMayGoTo('https://services3.arcgis.com/x', ent, origins)).toBe(false);
   });
 });
