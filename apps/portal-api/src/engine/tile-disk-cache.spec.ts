@@ -291,8 +291,12 @@ describe('tile disk cache', () => {
     // Five 4 KiB blocks fit; each 2 KiB payload costs one block.
     const disk = new TileDiskCache({ dir, maxBytes: 5 * 4096, sweepIntervalMs: 0 });
     const payload = Buffer.alloc(2000, 1);
-    for (const m of ['a', 'b', 'c', 'd', 'e']) disk.write(m, payload);
-    await disk.flush();
+    // Writes run concurrently and enter the LRU order as they finish,
+    // so flush after each one to make `a` through `e` the order.
+    for (const m of ['a', 'b', 'c', 'd', 'e']) {
+      disk.write(m, payload);
+      await disk.flush();
+    }
     expect(disk.getStats().evictions).toBe(0);
     // Read `a` so `b` becomes the oldest.
     expect(await disk.read('a')).not.toBeNull();
@@ -326,8 +330,11 @@ describe('tile disk cache', () => {
       maxFiles: 10,
       sweepIntervalMs: 0,
     });
-    for (let i = 0; i < 12; i += 1) disk.write(`f${i}`, Buffer.alloc(1500, i));
-    await disk.flush();
+    // One at a time, so f0 is the oldest (see the test above).
+    for (let i = 0; i < 12; i += 1) {
+      disk.write(`f${i}`, Buffer.alloc(1500, i));
+      await disk.flush();
+    }
     const stats = disk.getStats();
     expect(stats.files).toBeLessThanOrEqual(10);
     expect(stats.evictions).toBeGreaterThan(0);
