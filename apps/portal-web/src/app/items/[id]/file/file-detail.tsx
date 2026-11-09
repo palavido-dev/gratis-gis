@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Download, FileText, ImageIcon, FileType2 } from 'lucide-react';
 import type { FileData } from '@gratis-gis/shared-types';
 import { CopyUrlButton } from './copy-url-button';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * File item detail body (#296). Two parts:
@@ -31,7 +32,7 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
             {data.fileName || '(unnamed file)'}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-            <span>{humanFileSize(data.sizeBytes)}</span>
+            <span>{formatBytes(data.sizeBytes)}</span>
             <span className="font-mono">{data.mimeType}</span>
             {data.uploadedAt ? (
               <span>uploaded {formatRelative(data.uploadedAt)}</span>
@@ -128,13 +129,6 @@ function pickPreviewKind(mime: string): PreviewKind {
   if (mime.startsWith('image/')) return 'image';
   if (mime === 'application/pdf') return 'pdf';
   return 'other';
-}
-
-function humanFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function formatRelative(iso: string): string {

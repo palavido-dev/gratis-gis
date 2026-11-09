@@ -7,6 +7,7 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import type { Group } from '@gratis-gis/shared-types';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useFormat } from '@/lib/i18n/format';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   group: Group;
@@ -41,7 +42,7 @@ export function TrashRow({ group, retentionDays }: Props) {
         method: 'POST',
       });
       if (!res.ok) {
-        setError(`Restore failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Restore failed'));
         return;
       }
       router.refresh();
@@ -58,7 +59,7 @@ export function TrashRow({ group, retentionDays }: Props) {
         method: 'DELETE',
       });
       if (!res.ok) {
-        setError(`Purge failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Purge failed'));
         return;
       }
       setConfirmPurge(false);

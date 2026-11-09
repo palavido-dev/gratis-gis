@@ -124,4 +124,21 @@ describe('gdal-open-guard (#234)', () => {
       else process.env['GDAL_ALLOWED_DRIVERS'] = prev;
     }
   });
+
+  it('stops the GML driver fetching remote schemas, even if the env tries to allow it', () => {
+    // A crafted WFS-shaped .gml names an internal URL in
+    // xsi:schemaLocation and GDAL dials it with libcurl, around safeFetch.
+    const prev = process.env['GML_DOWNLOAD_SCHEMA'];
+    const set = jest.fn();
+    try {
+      process.env['GML_DOWNLOAD_SCHEMA'] = 'YES';
+      applyGdalNetworkHardening({ config: { set } });
+      expect(process.env['GML_DOWNLOAD_SCHEMA']).toBe('NO');
+      expect(set).toHaveBeenCalledWith('GML_DOWNLOAD_SCHEMA', 'NO');
+      expect(set).toHaveBeenCalledWith('GML_SKIP_RESOLVE_ELEMS', 'ALL');
+    } finally {
+      if (prev === undefined) delete process.env['GML_DOWNLOAD_SCHEMA'];
+      else process.env['GML_DOWNLOAD_SCHEMA'] = prev;
+    }
+  });
 });
