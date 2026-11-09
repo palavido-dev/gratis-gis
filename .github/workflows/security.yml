@@ -58,9 +58,12 @@ jobs:
       - name: Install (no scripts, no build)
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # No continue-on-error: this step is the gate. With it, a High or
+      # Critical advisory left the job (and the Security check that
+      # Dependabot auto-merge waits on) green. The upload below still
+      # runs on failure.
       - name: Run pnpm audit (json)
         id: audit
-        continue-on-error: true
         run: |
           pnpm audit --audit-level=moderate --json > audit.json || true
           cat audit.json

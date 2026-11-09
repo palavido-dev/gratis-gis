@@ -7,6 +7,12 @@
  */
 import { test, expect } from '@playwright/test';
 
+// /dev/ux-fixture 404s in production, so those journeys only run
+// against a local `next dev` started with GRATIS_UX_FIXTURE=1. The
+// scheduled prod smoke sets E2E_BASE_URL to the demo and skips them.
+const fixtureAvailable =
+  !process.env.E2E_BASE_URL || process.env.E2E_UX_FIXTURE === '1';
+
 test('public landing stays public and sign-in continues into items', async ({
   page,
 }) => {
@@ -19,6 +25,7 @@ test('public landing stays public and sign-in continues into items', async ({
 });
 
 test('new item wizard leads with upload, map, and form', async ({ page }) => {
+  test.skip(!fixtureAvailable, 'needs a local portal-web with GRATIS_UX_FIXTURE=1');
   await page.goto('/dev/ux-fixture');
   await expect(page.getByRole('button', { name: 'Data layer' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Map' })).toBeVisible();
@@ -33,12 +40,14 @@ test('new item wizard leads with upload, map, and form', async ({ page }) => {
 });
 
 test('a type deep link still opens that item', async ({ page }) => {
+  test.skip(!fixtureAvailable, 'needs a local portal-web with GRATIS_UX_FIXTURE=1');
   await page.goto('/dev/ux-fixture?type=point_cloud');
   await expect(page.getByRole('button', { name: 'More item types' })).toHaveCount(0);
   await expect(page.getByText('Point cloud').first()).toBeVisible();
 });
 
 test('search scope and the notifications link are explicit', async ({ page }) => {
+  test.skip(!fixtureAvailable, 'needs a local portal-web with GRATIS_UX_FIXTURE=1');
   await page.goto('/dev/ux-fixture');
   const search = page.getByRole('searchbox', { name: 'Search items' });
   await expect(search).toHaveAttribute('placeholder', 'Search items only');
@@ -52,6 +61,7 @@ test('search scope and the notifications link are explicit', async ({ page }) =>
 });
 
 test('the wizard fits a phone width', async ({ page }) => {
+  test.skip(!fixtureAvailable, 'needs a local portal-web with GRATIS_UX_FIXTURE=1');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/dev/ux-fixture');
   const form = page.getByRole('button', { name: 'Form' });
