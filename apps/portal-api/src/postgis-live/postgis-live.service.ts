@@ -23,7 +23,7 @@ import {
   MAX_TEST_CONNECTION_TABLES,
   type PostgisTablePreview,
 } from './postgis-table-preview.js';
-import { assertPostgisHost } from './postgis-host.js';
+import { assertPostgisHost, isValidSrid } from './postgis-host.js';
 import { compileSafeWhere } from './postgis-where.js';
 
 export {
@@ -71,9 +71,15 @@ const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 @Injectable()
 export class PostgisLiveService_ {
   private readonly log = new Logger(PostgisLiveService_.name);
-  /** itemId -> pg Pool. Lazily created and reused across
-   *  requests; idle connections close after a short timeout. */
-  private readonly pools = new Map<string, Pool>();
+  /**
+   * itemId -> pg Pool, lazily created and reused across requests;
+   * idle connections close after a short timeout. One pool per service item, tagged with what it connects to and
+   * which stored credential it used. A pool whose tag no longer
+   * matches (host, port, database or role edited, or the password
+   * replaced) is ended and rebuilt, so an edit takes effect on the
+   * next request on every replica instead of after a restart.
+   */
+  private readonly pools = new Map<string, { key: string; pool: Pool }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -240,7 +246,12 @@ export class PostgisLiveService_ {
     // the geometry to 4326 on the SELECT side (so the wire format
     // stays WGS84 GeoJSON). Tables already in 4326 take the
     // unchanged fast path.
-    const srcSrid = layer.srid;
+    // The SRID is interpolated into the SQL below, so it must be a
+    // plain integer. Saves are checked too; this covers older rows.
+    const srcSrid: unknown = layer.srid;
+    if (!isValidSrid(srcSrid)) {
+      throw new BadRequestException('Layer srid must be a positive whole number');
+    }
     const needsReproject = srcSrid !== 4326;
     const where: string[] = [];
     const params: unknown[] = [];
@@ -424,8 +435,17 @@ export class PostgisLiveService_ {
   }
 
   private async getPool(itemId: string, data: PostgisLiveService): Promise<Pool> {
+    const stamp = await this.credentials.getCredentialMeta(itemId).catch(() => null);
+    const key = JSON.stringify([
+      data.host,
+      data.port,
+      data.database,
+      data.role,
+      stamp ? new Date(stamp.updatedAt).getTime() : null,
+    ]);
     const existing = this.pools.get(itemId);
-    if (existing) return existing;
+    if (existing && existing.key === key) return existing.pool;
+    if (existing) await this.tearDownPool(itemId);
     const cred = await this.credentials.getCredentialForProxy(itemId).catch(() => null);
     if (!cred || cred.kind !== 'basic') {
       throw new ForbiddenException(
@@ -447,20 +467,20 @@ export class PostgisLiveService_ {
       // next checkout will reopen the underlying connection.
       this.log.warn(`PG pool idle-client error: ${err.message}`);
     });
-    this.pools.set(itemId, pool);
+    this.pools.set(itemId, { key, pool });
     return pool;
   }
 
   /**
-   * Tear a pool down — called from item delete / update paths
-   * so a renamed-host or removed service item doesn't keep idle
-   * connections open. Best-effort; failures are swallowed.
+   * End a service item's pool. getPool calls it when the item's
+   * connection settings or stored password changed. Best-effort;
+   * failures are swallowed.
    */
   async tearDownPool(itemId: string): Promise<void> {
     const existing = this.pools.get(itemId);
     if (!existing) return;
     this.pools.delete(itemId);
-    await existing.end().catch(() => undefined);
+    await existing.pool.end().catch(() => undefined);
   }
 }
 

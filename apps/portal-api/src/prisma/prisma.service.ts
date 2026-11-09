@@ -1,7 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createRequire } from 'node:module';
+
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+
+/**
+ * Throw unless `ours` is the Pool class @prisma/adapter-pg checks
+ * against. The adapter treats its argument as a pool only when
+ * `instanceof pg.Pool` holds for ITS copy of pg; with two resolved
+ * copies it would read our Pool object as a config, silently connect
+ * with default settings and ignore DB_POOL_MAX. The adapter exposes no
+ * public flag for which branch it took, so this compares the classes
+ * the same way, before the adapter is built.
+ */
+export function assertAdapterUsesPool(
+  ours: unknown,
+  adapters: unknown = adapterPgPoolClass(),
+): void {
+  if (ours !== adapters) {
+    throw new Error(
+      '@prisma/adapter-pg resolves a different copy of `pg` than portal-api, so it would not use the configured pool. Deduplicate `pg` in the lockfile (pnpm dedupe).',
+    );
+  }
+}
+
+function adapterPgPoolClass(): unknown {
+  const fromAdapter = createRequire(require.resolve('@prisma/adapter-pg'));
+  return (fromAdapter('pg') as { Pool: unknown }).Pool;
+}
+
+/** Connection counts of the pool behind Prisma, for /metrics. */
+export interface DbPoolStats {
+  /** Open connections, idle or checked out. */
+  total: number;
+  /** Open connections not checked out. */
+  idle: number;
+  /** Queries waiting for a connection. */
+  waiting: number;
+  /** Configured ceiling (DB_POOL_MAX). */
+  max: number;
+}
 
 /**
  * Prisma 7 moved connection management out of schema.prisma and
@@ -18,6 +58,9 @@ import { PrismaClient } from '@prisma/client';
  */
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private readonly pgPool: Pool;
+  private readonly poolMax: number;
+
   constructor() {
     const url = process.env.DATABASE_URL;
     if (!url) {
@@ -41,9 +84,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // that plus Keycloak (which shares this Postgres) and the nightly
     // pg_dump stays inside 100. Override via DB_POOL_MAX per service.
     const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
+    // The pool is built here rather than inside the adapter so its
+    // counters can be read for /metrics. Same options the adapter used
+    // to pass to `new pg.Pool`, and `disposeExternalPool` keeps the old
+    // shutdown: $disconnect() still ends the pool.
+    assertAdapterUsesPool(Pool);
+    const pool = new Pool({ connectionString: url, max: poolMax });
     super({
-      adapter: new PrismaPg({ connectionString: url, max: poolMax }),
+      adapter: new PrismaPg(pool, { disposeExternalPool: true }),
     });
+    this.pgPool = pool;
+    this.poolMax = poolMax;
+  }
+
+  /** Counters only; reading them does not touch the database. */
+  poolStats(): DbPoolStats {
+    return {
+      total: this.pgPool.totalCount,
+      idle: this.pgPool.idleCount,
+      waiting: this.pgPool.waitingCount,
+      max: this.poolMax,
+    };
   }
 
   async onModuleInit() {

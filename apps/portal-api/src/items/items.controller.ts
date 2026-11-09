@@ -470,7 +470,7 @@ export class ItemsController {
 
   @Get(':id')
   async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const item = await this.items.get(user, id);
+    const item = await this.items.getForReader(user, id);
     // Stamp lastUsageAt on direct item-detail GET (#99). Covers
     // map opens, pick_list browses, dashboard views -- anything
     // that doesn't go through the proxy. Throttled per-process so

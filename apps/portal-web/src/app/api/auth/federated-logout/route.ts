@@ -2,6 +2,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { keycloakEndSessionBase } from '@/lib/auth';
+import { authCookieNaming } from '@/lib/auth-cookies';
+import {
+  LOGOUT_HINT_COOKIE,
+  buildEndSessionUrl,
+  logoutHintCookieOptions,
+  safeLogoutRedirect,
+  sessionCookieClears,
+} from '@/lib/federated-logout';
 
 /**
  * Federated logout. The piece plain NextAuth doesn't do.
@@ -9,93 +17,89 @@ import { keycloakEndSessionBase } from '@/lib/auth';
  * Problem: calling `/api/auth/signout` only drops the portal-side
  * session cookie. Keycloak's own SSO session stays alive, so the next
  * click on "Sign in with Keycloak" silent-auths the same user right
- * back in. The fix is OIDC RP-Initiated Logout:
+ * back in. The fix is OIDC RP-Initiated Logout, in three steps run by
+ * federatedSignOut() in components/user-menu.tsx:
  *
- *   1. We build a redirect to Keycloak's `end_session_endpoint`
- *      with the stored `id_token_hint` and a `post_logout_redirect_uri`
- *      pointing at the public landing page (`/`).
- *   2. We also clear the NextAuth session / CSRF cookies on the same
- *      response so the portal side is dropped in the same round-trip.
- *   3. The browser hits Keycloak; Keycloak clears its SSO session and
- *      redirects to `/`.
- *   4. The landing page renders the unauthenticated public view (with
- *      its own Sign in link). The next sign-in click goes through
- *      Keycloak's login form for real because there is no SSO session.
+ *   1. POST here while the NextAuth session cookie still exists. The
+ *      route copies the id token into a short-lived httpOnly cookie
+ *      scoped to this path (see lib/federated-logout.ts for why).
+ *   2. The client runs NextAuth's signOut({ redirect: false }), which
+ *      clears the session cookies with the exact attributes NextAuth
+ *      set them with. Clearing them from this route kept drifting
+ *      from those attributes, so that stays NextAuth's job.
+ *   3. The client navigates here (GET). The route reads the id token
+ *      from the step 1 cookie, deletes that cookie, and redirects to
+ *      Keycloak's end-session endpoint with `id_token_hint`, so
+ *      Keycloak ends the SSO session without a confirmation page and
+ *      sends the browser to `post_logout_redirect_uri`. It also expires
+ *      the session cookie again, in case a BFF response that was in
+ *      flight during step 2 wrote it back.
  *
- * Contract: this route does NOT clear the NextAuth session cookie.
- * Every caller must run NextAuth's client-side signOut({ redirect:
- * false }) FIRST and only then navigate here; the shared
- * federatedSignOut() helper in components/user-menu.tsx does both
- * (plus the service worker cache purge) and is the only sanctioned
- * way in. Do not link to this route directly: a bare link leaves
- * the NextAuth cookie alive, so the portal still treats the user
- * as signed in even though Keycloak's SSO session is gone.
+ * Do not link to this route directly: a bare link skips step 2 and
+ * leaves the NextAuth cookie alive, and skips the service worker and
+ * IndexedDB purge federatedSignOut() runs first.
  */
-export async function GET(req: NextRequest) {
-  // getToken's `secret` field is required; fall back to an empty
-  // string if the env is somehow missing so the call type-checks
-  // the worst case is a null token, which we handle gracefully below
-  // by relying on client_id alone for the Keycloak round-trip.
+function secureCookies(): boolean {
+  return authCookieNaming(process.env.NEXTAUTH_URL).useSecureCookies;
+}
+
+async function sessionIdToken(req: NextRequest): Promise<string | undefined> {
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET ?? '',
+    cookieName: authCookieNaming(process.env.NEXTAUTH_URL).sessionTokenName,
   });
-  const idToken = token?.idToken as string | undefined;
+  const idToken = token?.idToken;
+  return typeof idToken === 'string' && idToken ? idToken : undefined;
+}
 
-  const base = (
-    process.env.NEXTAUTH_URL ?? new URL(req.url).origin
-  ).replace(/\/$/, '');
+/** Step 1: stash the id token while the session cookie still exists. */
+export async function POST(req: NextRequest) {
+  const res = new NextResponse(null, { status: 204 });
+  const idToken = await sessionIdToken(req);
+  if (idToken) {
+    res.cookies.set(LOGOUT_HINT_COOKIE, idToken, logoutHintCookieOptions(secureCookies()));
+  }
+  return res;
+}
+
+/** Step 3: redirect through Keycloak's end-session endpoint. */
+export async function GET(req: NextRequest) {
+  const idToken =
+    req.cookies.get(LOGOUT_HINT_COOKIE)?.value || (await sessionIdToken(req));
+
+  const base = (process.env.NEXTAUTH_URL ?? new URL(req.url).origin).replace(
+    /\/$/,
+    '',
+  );
   // #249.17 Phase 1: callers can pass `?redirect=<path>` to override
   // the post-logout landing target. Used by the field PWA so signing
   // out from /field returns to /field rather than the landing page.
-  // The unauthenticated /field load then routes through the
-  // middleware -> /signin?callbackUrl=/field -> Keycloak login ->
-  // /field, which keeps a mobile field user "in the field sandbox"
-  // through a sign-out + sign-in cycle. Validation: only same-origin
-  // path-like values pass through to prevent open-redirect bugs;
-  // anything that includes a scheme or doesn't start with '/' falls
-  // back to the default landing page. Default behaviour preserved
-  // (`/`) when the param is absent so non-field sign-outs are
-  // unchanged.
-  const requested = new URL(req.url).searchParams.get('redirect');
-  const safeRedirect =
-    requested && requested.startsWith('/') && !requested.startsWith('//')
-      ? requested
-      : '/';
-  const postLogoutRedirectUri = `${base}${safeRedirect}`;
-
-  const endSession = new URL(keycloakEndSessionBase);
-  if (idToken) endSession.searchParams.set('id_token_hint', idToken);
-  endSession.searchParams.set(
-    'post_logout_redirect_uri',
-    postLogoutRedirectUri,
-  );
-  // `client_id` is required by Keycloak 19+ when no id_token_hint is
-  // available; set it unconditionally so first-load cases (missing
-  // id_token on the JWT for whatever reason) still complete the
-  // round-trip.
-  endSession.searchParams.set(
-    'client_id',
-    process.env.KEYCLOAK_CLIENT_ID_WEB ?? 'portal-web',
+  // Only same-origin paths pass, so this is not an open redirect.
+  const redirectPath = safeLogoutRedirect(
+    new URL(req.url).searchParams.get('redirect'),
   );
 
-  // The user-menu's Sign out button calls NextAuth's client-side
-  // signOut() FIRST (which clears the local session cookies via
-  // NextAuth's own runtime, matching the exact attributes it set
-  // them with), THEN navigates here. By the time we run, the
-  // local session is already gone -- this route just builds the
-  // Keycloak end-session redirect so the IDP-side SSO session is
-  // killed too. Without this hop the next "Sign in with
-  // Keycloak" click would silent-auth the same user back in.
-  //
-  // We previously tried to do BOTH the cookie clear AND the
-  // Keycloak redirect from this route. The cookie-clear half kept
-  // mismatching NextAuth's actual cookie names (depends on
-  // useSecureCookies + cookie name overrides + httpOnly flags
-  // that have to round-trip exactly), and Chrome's __Secure-/
-  // __Host- prefix rules added more landmines. Splitting the
-  // responsibilities means each step uses its proper API: signOut
-  // for cookies (NextAuth knows what it set), this route for the
-  // Keycloak hop only.
-  return NextResponse.redirect(endSession);
+  const res = NextResponse.redirect(
+    buildEndSessionUrl({
+      endSessionBase: keycloakEndSessionBase,
+      portalBase: base,
+      redirectPath,
+      clientId: process.env.KEYCLOAK_CLIENT_ID_WEB ?? 'portal-web',
+      idToken,
+    }),
+  );
+  res.cookies.set(LOGOUT_HINT_COOKIE, '', {
+    ...logoutHintCookieOptions(secureCookies()),
+    maxAge: 0,
+  });
+  // A BFF response that was in flight during signOut can have written
+  // the session cookie back. Expire it again here.
+  for (const c of sessionCookieClears(
+    req.cookies.getAll().map((x) => x.name),
+    secureCookies(),
+  )) {
+    res.cookies.set(c.name, c.value, c.options);
+  }
+  return res;
 }

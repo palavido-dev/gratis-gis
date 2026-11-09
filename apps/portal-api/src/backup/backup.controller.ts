@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -33,7 +34,10 @@ import { OperatorOrgGuard } from './operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { BackupService } from './backup.service.js';
-import { BackupRestoreService } from './backup-restore.service.js';
+import {
+  BackupRestoreService,
+  RestoreNotStartedError,
+} from './backup-restore.service.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
 import { EmailTransport } from '../notifications/email-transport.js';
 import {
@@ -298,6 +302,12 @@ export class BackupController {
       );
     }
 
+    // Refusals that need no maintenance window (a live backup, an
+    // archive whose schema does not match this portal) come first,
+    // so they never leave a failed-restore hold behind.
+    await this.restore.preflight(id);
+    const before = this.mode.snapshot();
+
     // Flip maintenance mode BEFORE we touch anything; the global
     // middleware then 503s unrelated requests that are in flight or
     // arriving during the restore window. Awaited so the shared flag
@@ -319,6 +329,12 @@ export class BackupController {
       return audit;
     } catch (err) {
       this.note(user, 'backup.restore', id, 'failed');
+      if (err instanceof RestoreNotStartedError) {
+        // Nothing was changed. Lift the maintenance this request
+        // raised, unless maintenance was already on before it.
+        if (!before.active) await this.mode.deactivate();
+        throw new ConflictException(err.message);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       await this.mode.activate(
         `Restore of backup ${id.slice(0, 8)} failed and left the portal in an inconsistent state. Maintenance stays on until an admin finishes or re-runs the restore. Last error: ${msg.slice(0, 300)}`,

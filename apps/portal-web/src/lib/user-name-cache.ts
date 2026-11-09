@@ -22,14 +22,24 @@
  * pattern in sharing-panel and the popup metadata footer for
  * resolving principals.
  *
- * Failure mode: a missing or errored fetch leaves the UUID
- * unresolved. The fallback in `getCachedUserName` returns a short
+ * Failure mode: an errored fetch leaves the UUID unresolved and
+ * retried on a later render; an id the server answered without a row
+ * is remembered as a miss and not asked for again. The fallback in `getCachedUserName` returns a short
  * "8c4f2..." form so the popup still says something the author can
  * recognise as "yes, that's a user id we just couldn't name".
  */
 
 const cache = new Map<string, string>();
+/**
+ * Ids the server answered without a row (another org, not a user, a
+ * deleted account). Remembered so every render that touches them does
+ * not queue another request that can never resolve them.
+ */
+const misses = new Set<string>();
 const inFlight = new Set<string>();
+/** portal-api returns at most this many users per `ids=` request
+ *  (users.controller.ts `take`). Larger batches are split. */
+const MAX_IDS_PER_REQUEST = 200;
 let pending: Set<string> | null = null;
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 const BATCH_DELAY_MS = 50;
@@ -40,8 +50,14 @@ function flush() {
     pending = null;
     return;
   }
-  const ids = Array.from(pending);
+  const all = Array.from(pending);
   pending = null;
+  for (let i = 0; i < all.length; i += MAX_IDS_PER_REQUEST) {
+    fetchBatch(all.slice(i, i + MAX_IDS_PER_REQUEST));
+  }
+}
+
+function fetchBatch(ids: string[]) {
   for (const id of ids) inFlight.add(id);
   void (async () => {
     try {
@@ -57,6 +73,7 @@ function flush() {
       for (const u of rows) {
         cache.set(u.id, u.fullName || u.username);
       }
+      for (const id of ids) if (!cache.has(id)) misses.add(id);
     } catch {
       /* non-fatal: UUID stays in fallback form until next attempt */
     } finally {
@@ -75,7 +92,7 @@ export function prefetchUserNames(uuids: Iterable<string>): void {
   let queuedAny = false;
   for (const raw of uuids) {
     if (typeof raw !== 'string' || raw.length === 0) continue;
-    if (cache.has(raw) || inFlight.has(raw)) continue;
+    if (cache.has(raw) || misses.has(raw) || inFlight.has(raw)) continue;
     if (!pending) pending = new Set();
     pending.add(raw);
     queuedAny = true;
@@ -103,4 +120,14 @@ export function getCachedUserName(uuid: string): string {
   // Best-effort fallback: 8-char prefix + ellipsis. Plain string
   // (no HTML) so the caller can decide how to escape.
   return uuid.length > 8 ? `${uuid.slice(0, 8)}...` : uuid;
+}
+
+/** Test hook: forget everything. */
+export function resetUserNameCacheForTests(): void {
+  cache.clear();
+  misses.clear();
+  inFlight.clear();
+  pending = null;
+  if (pendingTimer !== null) clearTimeout(pendingTimer);
+  pendingTimer = null;
 }

@@ -383,6 +383,7 @@ describe('PublicController GET /public/items mirror', () => {
     PublicController: new (
       prisma: unknown,
       v3: unknown,
+      itemsService: unknown,
     ) => {
       items: (
         res: unknown,
@@ -395,7 +396,7 @@ describe('PublicController GET /public/items mirror', () => {
   };
 
   function makePublic(prisma: FakePrisma) {
-    const controller = new PublicController(prisma as never, {} as never);
+    const controller = new PublicController(prisma as never, {} as never, {} as never);
     return { controller, res: { setHeader: jest.fn() } };
   }
 
