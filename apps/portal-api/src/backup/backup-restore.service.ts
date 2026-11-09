@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BackupService } from './backup.service.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
@@ -81,6 +82,7 @@ export class BackupRestoreService {
     private readonly cfg: ConfigService,
     private readonly backup: BackupService,
     private readonly mode: MaintenanceModeService,
+    private readonly tileCache: TileCacheService,
   ) {
     const endpoint = cfg.get<string>('MINIO_ENDPOINT', 'http://localhost:9000');
     const accessKeyId = cfg.get<string>('MINIO_ACCESS_KEY', 'gratisgis');
@@ -201,6 +203,17 @@ export class BackupRestoreService {
       //    restoreMinio failed mid-way; this order keeps prior
       //    objects until their replacements land.
       await this.restoreMinio(path.join(stageDir, 'minio'));
+
+      // 3b. pg_restore rewrote the observation log without firing the
+      //     NOTIFY the tile cache listens for. Drop this replica's
+      //     cached tiles and the disk tier's files so nothing from the
+      //     pre-restore data is served. Best effort: a failure here
+      //     must not turn a good restore into a failed one.
+      await this.tileCache.resetAfterRestore().catch((err: unknown) => {
+        this.log.warn(
+          `tile cache reset after restore failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
       // 4. Write the audit row on the restored DB. We know the
       //    schema is intact because pg_restore just rebuilt it.

@@ -1494,6 +1494,7 @@ services:
       # it off. The default cap is 1 GiB.
       TILE_CACHE_DIR: ${TILE_CACHE_DIR:-/var/cache/gg-tiles}
       TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
+      TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
     volumes:
       - boot:/boot:ro
       # Admin backup archives. Recreating the container keeps them.

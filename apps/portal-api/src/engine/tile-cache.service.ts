@@ -68,7 +68,8 @@ export { parseIntEnv };
  *     what makes them safe across a restart: writes that happened
  *     while this process was down, and that it therefore never heard
  *     about, change the version, so the old file is never looked up
- *     again and ages out through LRU eviction. Only tiles go to disk.
+ *     again and ages out through LRU eviction. Only tiles go to disk,
+ *     and not relate (via) tiles; see `mvtTile`.
  *     Aggregates and relate key sets stay in memory: they are small,
  *     cheap to keep there for their longer TTL, and an aggregate
  *     answer with `asOf` left at "now" depends on the clock as well as
@@ -211,11 +212,12 @@ export class TileCacheService implements OnModuleDestroy {
    * expires after the memory TTL, so a version is never trusted longer
    * than a memory entry would be.
    */
-  private readonly versionMemo = new Map<string, { version: string; expiresAt: number }>();
+  private readonly versionMemo = new Map<string, { version: string | null; expiresAt: number }>();
   private readonly versionInFlight = new Map<string, Promise<string | null>>();
   private versionProbesActive = 0;
-  private readonly versionProbeWaiters: Array<() => void> = [];
   private diskHits = 0;
+  /** Disk lookups skipped because every probe slot was busy. */
+  private diskSkippedBusy = 0;
 
   /** Dedicated LISTEN connection; null until the first compute. */
   private listener: PgClient | null = null;
@@ -242,11 +244,30 @@ export class TileCacheService implements OnModuleDestroy {
       'TILE_CACHE_DISK_MAX_BYTES',
       1024 * 1024 * 1024,
     );
+    const diskMaxFiles = parseIntEnv('TILE_CACHE_DISK_MAX_FILES', 100_000, {
+      min: 1,
+    });
+    // Disk tiles are named partly by the build (see
+    // setScopeVersionSource). A build with no identity (a local image
+    // built without GIT_SHA, where GG_VERSION is the Dockerfile's
+    // "dev") could change how tiles are drawn without changing the
+    // name, and serve old tiles after a rebuild. Refuse rather than
+    // guess: published images and deploy.sh both set GIT_SHA.
+    const buildKnown =
+      !!process.env.GIT_SHA?.trim() ||
+      !['', 'dev'].includes(process.env.GG_VERSION?.trim() ?? '');
+    if (diskDir && diskMaxBytes > 0 && !buildKnown) {
+      this.log.warn(
+        'TILE_CACHE_DIR is set but this build has no GIT_SHA or GG_VERSION; ' +
+          'the tile disk cache stays off so a rebuild cannot serve old tiles',
+      );
+    }
     this.disk =
-      diskDir && diskMaxBytes > 0
+      diskDir && diskMaxBytes > 0 && buildKnown
         ? new TileDiskCache({
             dir: diskDir,
             maxBytes: diskMaxBytes,
+            maxFiles: diskMaxFiles,
             log: {
               warn: (m) => this.log.warn(m),
               log: (m) => this.log.log(m),
@@ -308,7 +329,12 @@ export class TileCacheService implements OnModuleDestroy {
    * write overtakes (an invalidation of this prefix, or a clear, lands
    * while it runs) is neither memoized nor used: it may describe the
    * state before the write. Probes run at most four at a time so a cold
-   * start with many layers on screen cannot take over the pool.
+   * start with many layers on screen cannot take over the pool; when
+   * all four are busy the caller skips the disk and computes, rather
+   * than queueing behind a probe that may take longer than the tile.
+   * A failed probe (a statement timeout on a huge layer, a dropped
+   * connection) is remembered as "no version" for the TTL, so a layer
+   * that cannot be probed is not re-probed on every miss.
    */
   private scopeVersion(prefix: string): Promise<string | null> {
     const memo = this.versionMemo.get(prefix);
@@ -318,13 +344,22 @@ export class TileCacheService implements OnModuleDestroy {
     if (pending) return pending;
     const source = this.scopeVersionSource;
     if (!source) return Promise.resolve(null);
+    if (this.versionProbesActive >= 4) {
+      this.diskSkippedBusy += 1;
+      return Promise.resolve(null);
+    }
+    this.versionProbesActive += 1;
     const seqAtStart = this.invalidationSeq;
-    const probe = (async (): Promise<string | null> => {
-      if (this.versionProbesActive >= 4) {
-        await new Promise<void>((resolve) => this.versionProbeWaiters.push(resolve));
-      } else {
-        this.versionProbesActive += 1;
+    const remember = (version: string | null) => {
+      // Bounded like everything else here: one entry per scope seen
+      // within a TTL, oldest dropped past the cap.
+      if (this.versionMemo.size >= 10_000) {
+        const oldest = this.versionMemo.keys().next().value;
+        if (oldest !== undefined) this.versionMemo.delete(oldest);
       }
+      this.versionMemo.set(prefix, { version, expiresAt: Date.now() + this.ttlMs });
+    };
+    const probe = (async (): Promise<string | null> => {
       try {
         const version = await source(prefix.slice(0, -1));
         if (
@@ -333,23 +368,16 @@ export class TileCacheService implements OnModuleDestroy {
         ) {
           return null;
         }
-        // Bounded like everything else here: one entry per scope seen
-        // within a TTL, oldest dropped past the cap.
-        if (this.versionMemo.size >= 10_000) {
-          const oldest = this.versionMemo.keys().next().value;
-          if (oldest !== undefined) this.versionMemo.delete(oldest);
-        }
-        this.versionMemo.set(prefix, { version, expiresAt: Date.now() + this.ttlMs });
+        remember(version);
         return version;
       } catch (err) {
         this.log.warn(
-          `tile disk cache skipped: version probe failed (${err instanceof Error ? err.message : String(err)})`,
+          `tile disk cache skipped for ${this.ttlMs} ms: version probe failed (${err instanceof Error ? err.message : String(err)})`,
         );
+        remember(null);
         return null;
       } finally {
-        const next = this.versionProbeWaiters.shift();
-        if (next) next();
-        else this.versionProbesActive -= 1;
+        this.versionProbesActive -= 1;
       }
     })().finally(() => {
       this.versionInFlight.delete(prefix);
@@ -951,6 +979,17 @@ export class TileCacheService implements OnModuleDestroy {
     await this.disk?.close();
   }
 
+  /**
+   * Drop everything after an in-app backup restore, which rewrites the
+   * database without firing NOTIFY: memory, memoized versions, and the
+   * disk tier's files. Other replicas keep memory until their TTL, as
+   * they would for any write they did not hear about.
+   */
+  async resetAfterRestore(): Promise<void> {
+    this.clear();
+    await this.disk?.purge();
+  }
+
   /** The disk tier, for the spec. Null when it is off. */
   diskTier(): TileDiskCache | null {
     return this.disk;
@@ -971,6 +1010,7 @@ export class TileCacheService implements OnModuleDestroy {
       memoryHits: this.hits,
       misses: this.misses,
       diskHits: this.diskHits,
+      diskSkippedBusy: this.diskSkippedBusy,
       disk: this.disk ? this.disk.getStats() : null,
       evictions: this.evictions,
       coalesced: this.coalesced,
@@ -1174,6 +1214,9 @@ export interface TileCacheStats {
   misses: number;
   /** Memory misses answered from the disk tier. */
   diskHits: number;
+  /** Memory misses that skipped the disk because every version probe
+   *  slot was busy, and computed instead. */
+  diskSkippedBusy: number;
   /** Disk tier detail (bytes and files on disk, writes, evictions,
    *  corrupt files), or null when `TILE_CACHE_DIR` is unset. */
   disk: TileDiskStats | null;
@@ -1209,12 +1252,14 @@ export interface TileCacheStats {
 }
 
 /**
- * Strong ETag form: `"<sha1-16>"`. Derived from the cache key +
+ * Strong ETag form: `"<sha256-16>"`. Derived from the cache key +
  * a short hash of the buffer so two tiles that happen to share a
  * key (shouldn't, but defensive) still produce different ETags.
+ * SHA-256 rather than SHA-1: nothing here needs collision resistance,
+ * but it costs nothing and keeps the weak-hash scanner quiet.
  */
 function computeEtag(key: string, buf: Buffer): string {
-  const hash = createHash('sha1');
+  const hash = createHash('sha256');
   hash.update(key);
   hash.update(buf);
   return `"${hash.digest('base64url').slice(0, 16)}"`;

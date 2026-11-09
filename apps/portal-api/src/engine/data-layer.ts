@@ -965,6 +965,9 @@ export interface AggregateFeaturesResult {
  */
 export const TILE_BYTES_REVISION = 1;
 
+/** Statement timeout for `scopeDataVersion`, in milliseconds. */
+const SCOPE_VERSION_TIMEOUT_MS = 3_000;
+
 /**
  * Aggregate results live until the layer (or a via parent) is written,
  * which the tile cache's LISTEN connection reports; the TTL only bounds
@@ -1051,19 +1054,25 @@ export class DataLayerEngine {
    *     future-dated row coming into effect with no write at all.
    *
    * One indexed pass over the scope's rows, about 100 ms per 300k
-   * rows. The cache memoizes it per scope until the next write or the
+   * rows and 0.35 to 0.55 s per 1.4M, capped by a statement timeout. The cache memoizes it per scope until the next write or the
    * memory TTL, so it runs at most about once a minute per scope that
    * is being viewed, and only when memory missed.
    */
   async scopeDataVersion(scope: string): Promise<string> {
-    const rows = await this.prisma.$queryRaw<
-      Array<{ n: bigint; h: string; f: bigint }>
-    >`
-      SELECT count(*) AS n,
-             COALESCE(sum(hashtextextended(id::text, 0)), 0)::text AS h,
-             count(*) FILTER (WHERE valid_from > now()) AS f
-      FROM observation
-      WHERE scope = ${scope}`;
+    // Bounded well below the 30 s default: a probe that slow costs more
+    // than computing the tile, and a failure only skips the disk (the
+    // cache remembers it for the TTL rather than retrying every miss).
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SET LOCAL statement_timeout = ${SCOPE_VERSION_TIMEOUT_MS}`,
+      );
+      return tx.$queryRaw<Array<{ n: bigint; h: string; f: bigint }>>`
+        SELECT count(*) AS n,
+               COALESCE(sum(hashtextextended(id::text, 0)), 0)::text AS h,
+               count(*) FILTER (WHERE valid_from > now()) AS f
+        FROM observation
+        WHERE scope = ${scope}`;
+    });
     const row = rows[0];
     if (!row) return '0:0:0';
     return `${String(row.n)}:${row.h}:${String(row.f)}`;
@@ -4190,9 +4199,12 @@ export class DataLayerEngine {
       cacheKey,
       () => this.computeMvtTileBytes(args, scope),
       // persist: the disk tier, when configured, keeps this tile across
-      // restarts under the same key plus the data versions of `scope`
-      // and of `dependsOn`.
-      { dependsOn, persist: true },
+      // restarts under the same key plus the data version of `scope`.
+      // Never a relate tile: its parent key set comes from the memory
+      // cache with the aggregate TTL, so after a write nobody heard (a
+      // restore, a raw DELETE) it can be older than the parent version
+      // the file would be named by, and the disk would keep it forever.
+      { dependsOn, persist: !args.via },
     );
     return { mvt: result.buf, etag: result.etag };
   }

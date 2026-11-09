@@ -165,7 +165,8 @@ line. In TrueNAS, add them to the app's environment. Then restart.
   `HOUSEKEEPING_STALE_USER_DAYS` (180) change retention.
 - `BACKUP_RETENTION_COUNT` keeps that many backup archives.
 - `TILE_CACHE_DISK_MAX_BYTES` caps the map tile cache on disk (1 GiB
-  by default, in bytes). This stack keeps tiles in the `tile-cache`
+  by default, in bytes). `TILE_CACHE_DISK_MAX_FILES` caps the number
+  of files (100,000). This stack keeps tiles in the `tile-cache`
   volume, so maps load quickly after a restart or an update. Set it to
   `0` to keep tiles in memory only. Deleting the volume is safe; tiles
   are rebuilt as maps ask for them.

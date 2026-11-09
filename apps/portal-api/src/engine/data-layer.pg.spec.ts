@@ -2777,6 +2777,7 @@ d('observation-log read paths against real PostGIS', () => {
     const scope = dataLayerScope(itemId, layerId);
     let dir: string;
     const prevDir = process.env.TILE_CACHE_DIR;
+    const prevSha = process.env.GIT_SHA;
 
     beforeAll(async () => {
       const { mkdtemp } = await import('node:fs/promises');
@@ -2788,6 +2789,8 @@ d('observation-log read paths against real PostGIS', () => {
     afterAll(async () => {
       if (prevDir === undefined) delete process.env.TILE_CACHE_DIR;
       else process.env.TILE_CACHE_DIR = prevDir;
+      if (prevSha === undefined) delete process.env.GIT_SHA;
+      else process.env.GIT_SHA = prevSha;
       const { rm } = await import('node:fs/promises');
       await rm(dir, { recursive: true, force: true });
     });
@@ -2825,8 +2828,14 @@ d('observation-log read paths against real PostGIS', () => {
 
     it('serves a restarted process from disk, and recomputes after a write it never heard', async () => {
       process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
       const e = uuidv7();
       await seed(scope, e, 'create', { STATUS: 'Open' }, HERE);
+      // Tiles under 1 KiB are not persisted; forty more points make
+      // this one comfortably larger.
+      for (let i = 0; i < 40; i += 1) {
+        await seed(scope, uuidv7(), 'create', {}, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
       const { x, y } = tileFor(14, HERE[0], HERE[1]);
 
       const first = new TileCacheService();
@@ -2851,6 +2860,52 @@ d('observation-log read paths against real PostGIS', () => {
       expect(third.getStats().diskHits).toBe(0);
       expect(tileContains(after.mvt, e)).toBe(false);
       await third.onModuleDestroy();
+    });
+
+    it('never persists a relate (via) tile', async () => {
+      process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
+      const { readdir } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const countFiles = async () => {
+        let n = 0;
+        for (const shard of await readdir(dir).catch(() => [] as string[])) {
+          if (!/^[0-9a-f]{2}$/.test(shard)) continue;
+          n += (await readdir(join(dir, shard))).filter((f) => f.endsWith('.tile')).length;
+        }
+        return n;
+      };
+      const parentItemId = uuidv7();
+      const parentLayerId = 'layer-disk-parent';
+      const parentScope = dataLayerScope(parentItemId, parentLayerId);
+      await seed(parentScope, uuidv7(), 'create', { KEY: 'k' }, HERE);
+      const childItemId = uuidv7();
+      const childScope = dataLayerScope(childItemId, layerId);
+      for (let i = 0; i < 40; i += 1) {
+        await seed(childScope, uuidv7(), 'create', { SITE: 'k' }, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const cache = new TileCacheService();
+      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const before = await countFiles();
+      const plain = await engine.mvtTile({ itemId: childItemId, layerId, z: 14, x, y });
+      expect(plain.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      // The plain tile was written: the tier is on and the tile is big
+      // enough, so the next assertion means something.
+      expect(await countFiles()).toBe(before + 1);
+      const viaTile = await engine.mvtTile({
+        itemId: childItemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        via: { myField: 'SITE', parentField: 'KEY', parentItemId, parentLayerId },
+      });
+      expect(viaTile.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      expect(await countFiles()).toBe(before + 1);
+      await cache.onModuleDestroy();
     });
   });
 

@@ -31,17 +31,19 @@ import { crc32 } from 'node:zlib';
  * File format, little endian:
  *
  *   0  4  magic "GGTC"
- *   4  1  format version (1)
+ *   4  1  format version (2)
  *   5  3  reserved, zero
- *   8  4  material length in bytes
- *  12  4  payload length in bytes
- *  16  4  CRC-32 of material and payload
- *  20     material (UTF-8), then payload
+ *   8  4  payload length in bytes
+ *  12  4  CRC-32 of digest and payload
+ *  16 32  SHA-256 digest of the material
+ *  48     payload
  *
- * The material is stored and compared on read, so a hash collision or
- * a file copied in from elsewhere is a miss rather than a wrong tile.
- * The lengths and checksum catch a truncated or corrupt file, which is
- * deleted and treated as a miss.
+ * Only the digest of the material is stored, never the material
+ * itself: the material holds request-derived text (filters, a user id
+ * for row-scoped shares) that has no business on disk. The digest is
+ * compared on read, so a file renamed or copied in from elsewhere is a
+ * miss rather than a wrong tile. The length and checksum catch a
+ * truncated or corrupt file, which is deleted and treated as a miss.
  *
  * Writes go to a temp file in the same shard directory and are renamed
  * into place, so a reader sees either the old file or the new one and
@@ -51,8 +53,21 @@ import { crc32 } from 'node:zlib';
  * Eviction is least recently used. The in-memory index is a Map in LRU
  * order. A disk hit moves the file to the end and, at most once a
  * minute per file, touches its mtime, so the order survives a restart:
- * the startup scan rebuilds the index sorted by mtime. Over the cap,
- * the oldest files go until the total is 90% of the cap.
+ * the startup scan rebuilds the index sorted by mtime. Sizes are
+ * counted in whole 4 KiB blocks, which is what a file costs on the
+ * filesystem. Over the byte cap or the file cap, the oldest files go
+ * until both are at 90%. The file cap also bounds this index's heap
+ * (about 150 bytes per file).
+ *
+ * Payloads under `minPayloadBytes` (empty and near-empty tiles) are not
+ * written: they are cheap to recompute, and a crawler walking empty
+ * ocean would otherwise fill the cap with one block per tile.
+ *
+ * Replicas sharing one directory each keep their own index. The sweep
+ * reconciles 8 of the 256 shards per tick, so a full pass takes 32
+ * ticks (16 minutes at the default 30 s). Between passes each replica
+ * sees only its own writes, so two replicas can together hold up to
+ * about twice the cap for that long before their sweeps catch up.
  *
  * Every failure is a miss or a skipped write, never an exception into
  * the tile path. A directory that cannot be created or written turns
@@ -65,7 +80,11 @@ export interface TileDiskCacheOptions {
   maxConcurrentWrites?: number;
   /** Writes waiting for a slot; past this a write is dropped. Default 64. */
   maxQueuedWrites?: number;
-  /** One shard is rescanned per tick. Default 60 s. 0 turns it off. */
+  /** Hard limit on files. Default 100,000. */
+  maxFiles?: number;
+  /** Payloads smaller than this are not written. Default 1024. */
+  minPayloadBytes?: number;
+  /** Eight shards are rescanned per tick. Default 30 s. 0 turns it off. */
   sweepIntervalMs?: number;
   /** Minimum gap between mtime touches of one file. Default 60 s. */
   touchIntervalMs?: number;
@@ -82,6 +101,7 @@ export interface TileDiskStats {
   bytes: number;
   files: number;
   maxBytes: number;
+  maxFiles: number;
   /** True once the startup scan has indexed what was already there. */
   scanned: boolean;
   hits: number;
@@ -89,6 +109,8 @@ export interface TileDiskStats {
   writes: number;
   /** Writes skipped because the write queue was full. */
   writesDropped: number;
+  /** Writes skipped because the payload was under the minimum. */
+  writesSkippedSmall: number;
   evictions: number;
   /** Files that failed validation and were deleted. */
   corrupt: number;
@@ -97,8 +119,15 @@ export interface TileDiskStats {
 }
 
 const MAGIC = Buffer.from('GGTC', 'ascii');
-const FORMAT_VERSION = 1;
-const HEADER_BYTES = 20;
+const FORMAT_VERSION = 2;
+const DIGEST_BYTES = 32;
+const HEADER_BYTES = 16 + DIGEST_BYTES;
+const BLOCK_BYTES = 4096;
+const SHARDS_PER_SWEEP = 8;
+/** What a file of `n` bytes occupies on a typical filesystem. */
+export function blockBytes(n: number): number {
+  return Math.max(1, Math.ceil(n / BLOCK_BYTES)) * BLOCK_BYTES;
+}
 const FILE_RE = /^[0-9a-f]{64}\.tile$/;
 const SHARD_RE = /^[0-9a-f]{2}$/;
 const TEMP_SUFFIX = '.tmp';
@@ -109,33 +138,36 @@ interface IndexEntry {
   usedAt: number;
 }
 
-export function encodeTileFile(material: string, payload: Buffer): Buffer {
-  const mat = Buffer.from(material, 'utf8');
+/** SHA-256 of the material; the file name is its hex form. */
+export function materialDigest(material: string): Buffer {
+  return createHash('sha256').update(material).digest();
+}
+
+export function encodeTileFile(digest: Buffer, payload: Buffer): Buffer {
   const header = Buffer.alloc(HEADER_BYTES);
   MAGIC.copy(header, 0);
   header.writeUInt8(FORMAT_VERSION, 4);
-  header.writeUInt32LE(mat.length, 8);
-  header.writeUInt32LE(payload.length, 12);
-  header.writeUInt32LE(crc32(payload, crc32(mat)) >>> 0, 16);
-  return Buffer.concat([header, mat, payload]);
+  header.writeUInt32LE(payload.length, 8);
+  header.writeUInt32LE(crc32(payload, crc32(digest)) >>> 0, 12);
+  digest.copy(header, 16);
+  return Buffer.concat([header, payload]);
 }
 
 /**
  * The payload of `data` if it is a whole, intact tile file filed under
- * exactly `material`; null otherwise.
+ * exactly `digest`; null otherwise.
  */
-export function decodeTileFile(data: Buffer, material: string): Buffer | null {
+export function decodeTileFile(data: Buffer, digest: Buffer): Buffer | null {
   if (data.length < HEADER_BYTES) return null;
   if (!data.subarray(0, 4).equals(MAGIC)) return null;
   if (data.readUInt8(4) !== FORMAT_VERSION) return null;
-  const matLen = data.readUInt32LE(8);
-  const payLen = data.readUInt32LE(12);
-  if (HEADER_BYTES + matLen + payLen !== data.length) return null;
-  const mat = data.subarray(HEADER_BYTES, HEADER_BYTES + matLen);
-  if (!mat.equals(Buffer.from(material, 'utf8'))) return null;
-  const payload = data.subarray(HEADER_BYTES + matLen);
-  if ((crc32(payload, crc32(mat)) >>> 0) !== data.readUInt32LE(16)) return null;
-  // Copy out so the cached Buffer does not pin the header and material.
+  const payLen = data.readUInt32LE(8);
+  if (HEADER_BYTES + payLen !== data.length) return null;
+  const stored = data.subarray(16, HEADER_BYTES);
+  if (!stored.equals(digest)) return null;
+  const payload = data.subarray(HEADER_BYTES);
+  if ((crc32(payload, crc32(stored)) >>> 0) !== data.readUInt32LE(12)) return null;
+  // Copy out so the cached Buffer does not pin the header.
   return Buffer.from(payload);
 }
 
@@ -146,6 +178,8 @@ function errCode(err: unknown): string {
 export class TileDiskCache {
   readonly dir: string;
   readonly maxBytes: number;
+  readonly maxFiles: number;
+  private readonly minPayloadBytes: number;
   private readonly maxConcurrentWrites: number;
   private readonly maxQueuedWrites: number;
   private readonly sweepIntervalMs: number;
@@ -181,6 +215,7 @@ export class TileDiskCache {
   private misses = 0;
   private writes = 0;
   private writesDropped = 0;
+  private writesSkippedSmall = 0;
   private evictions = 0;
   private corrupt = 0;
   private errors = 0;
@@ -188,16 +223,18 @@ export class TileDiskCache {
   constructor(opts: TileDiskCacheOptions) {
     this.dir = opts.dir;
     this.maxBytes = opts.maxBytes;
+    this.maxFiles = Math.max(1, opts.maxFiles ?? 100_000);
+    this.minPayloadBytes = Math.max(0, opts.minPayloadBytes ?? 1024);
     this.maxConcurrentWrites = Math.max(1, opts.maxConcurrentWrites ?? 4);
     this.maxQueuedWrites = Math.max(0, opts.maxQueuedWrites ?? 64);
-    this.sweepIntervalMs = opts.sweepIntervalMs ?? 60_000;
+    this.sweepIntervalMs = opts.sweepIntervalMs ?? 30_000;
     this.touchIntervalMs = opts.touchIntervalMs ?? 60_000;
     this.staleTempMs = opts.staleTempMs ?? 60 * 60_000;
     this.log = opts.log ?? { warn: () => {}, log: () => {} };
   }
 
   static hashOf(material: string): string {
-    return createHash('sha256').update(material).digest('hex');
+    return materialDigest(material).toString('hex');
   }
 
   private pathOf(hash: string): string {
@@ -255,7 +292,8 @@ export class TileDiskCache {
       this.misses += 1;
       return null;
     }
-    const hash = TileDiskCache.hashOf(material);
+    const digest = materialDigest(material);
+    const hash = digest.toString('hex');
     const path = this.pathOf(hash);
     let data: Buffer;
     try {
@@ -266,7 +304,7 @@ export class TileDiskCache {
       this.misses += 1;
       return null;
     }
-    const payload = decodeTileFile(data, material);
+    const payload = decodeTileFile(data, digest);
     if (payload === null) {
       this.corrupt += 1;
       this.misses += 1;
@@ -275,7 +313,7 @@ export class TileDiskCache {
       return null;
     }
     this.hits += 1;
-    this.markUsed(hash, data.length, path);
+    this.markUsed(hash, blockBytes(data.length), path);
     return payload;
   }
 
@@ -287,11 +325,15 @@ export class TileDiskCache {
    */
   write(material: string, payload: Buffer): void {
     if (!this.enabled) return;
-    const size = HEADER_BYTES + Buffer.byteLength(material) + payload.length;
+    if (payload.length < this.minPayloadBytes) {
+      this.writesSkippedSmall += 1;
+      return;
+    }
     // A single file larger than the whole cap would evict everything
     // and then itself.
-    if (size > this.maxBytes) return;
-    const hash = TileDiskCache.hashOf(material);
+    if (blockBytes(HEADER_BYTES + payload.length) > this.maxBytes) return;
+    const digest = materialDigest(material);
+    const hash = digest.toString('hex');
     if (this.pendingHashes.has(hash)) return;
     if (
       this.activeWrites >= this.maxConcurrentWrites &&
@@ -303,7 +345,7 @@ export class TileDiskCache {
     this.pendingHashes.add(hash);
     const run = () => {
       this.activeWrites += 1;
-      void this.writeNow(hash, material, payload).finally(() => {
+      void this.writeNow(hash, digest, payload).finally(() => {
         this.activeWrites -= 1;
         this.pendingHashes.delete(hash);
         const next = this.writeQueue.shift();
@@ -317,7 +359,7 @@ export class TileDiskCache {
 
   private async writeNow(
     hash: string,
-    material: string,
+    digest: Buffer,
     payload: Buffer,
   ): Promise<void> {
     if (!(await this.start()) || this.closed) return;
@@ -328,7 +370,7 @@ export class TileDiskCache {
       shardDir,
       `.${hash}.${process.pid}.${randomBytes(4).toString('hex')}${TEMP_SUFFIX}`,
     );
-    const data = encodeTileFile(material, payload);
+    const data = encodeTileFile(digest, payload);
     try {
       if (!this.madeShards.has(shard)) {
         await mkdir(shardDir, { recursive: true });
@@ -351,7 +393,7 @@ export class TileDiskCache {
       return;
     }
     this.writes += 1;
-    this.markUsed(hash, data.length);
+    this.markUsed(hash, blockBytes(data.length));
     this.scheduleEvict();
   }
 
@@ -387,17 +429,22 @@ export class TileDiskCache {
     this.index.delete(hash);
   }
 
+  private overCap(): boolean {
+    return this.bytes > this.maxBytes || this.index.size > this.maxFiles;
+  }
+
   private scheduleEvict(): void {
-    if (this.bytes <= this.maxBytes || this.evicting) return;
+    if (!this.overCap() || this.evicting) return;
     this.evicting = this.evict().finally(() => {
       this.evicting = null;
     });
   }
 
-  /** Remove least recently used files until 90% of the cap. */
+  /** Remove least recently used files until 90% of both caps. */
   private async evict(): Promise<void> {
-    const target = Math.floor(this.maxBytes * 0.9);
-    while (this.bytes > target && !this.closed) {
+    const byteTarget = Math.floor(this.maxBytes * 0.9);
+    const fileTarget = Math.floor(this.maxFiles * 0.9);
+    while ((this.bytes > byteTarget || this.index.size > fileTarget) && !this.closed) {
       const oldest = this.index.keys().next();
       if (oldest.done) break;
       const hash = oldest.value;
@@ -424,7 +471,14 @@ export class TileDiskCache {
     const found: Array<{ hash: string; size: number; mtime: number }> = [];
     let shards: string[];
     try {
-      shards = (await readdir(this.dir)).filter((s) => SHARD_RE.test(s));
+      const names = await readdir(this.dir);
+      shards = names.filter((s) => SHARD_RE.test(s));
+      // A crash between writing and removing the startup probe leaves
+      // it in the root; clear old ones here.
+      await this.removeStaleTemps(
+        this.dir,
+        names.filter((n) => n.startsWith('.probe-') && n.endsWith(TEMP_SUFFIX)),
+      );
     } catch (err) {
       this.recordError('scan', err);
       this.scanned = true;
@@ -481,7 +535,7 @@ export class TileDiskCache {
               if (now - st.mtimeMs > this.staleTempMs) await unlink(path);
               return;
             }
-            out.push({ hash: name.slice(0, 64), size: st.size, mtime: st.mtimeMs });
+            out.push({ hash: name.slice(0, 64), size: blockBytes(st.size), mtime: st.mtimeMs });
           } catch {
             // Gone between readdir and stat: another replica evicted it.
           }
@@ -491,8 +545,21 @@ export class TileDiskCache {
     return out;
   }
 
+  private async removeStaleTemps(dir: string, names: string[]): Promise<void> {
+    const now = Date.now();
+    for (const name of names) {
+      const path = join(dir, name);
+      try {
+        const st = await stat(path);
+        if (now - st.mtimeMs > this.staleTempMs) await unlink(path);
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+
   /**
-   * Rescan one shard and reconcile the index with it: pick up files
+   * Rescan shards and reconcile the index with it: pick up files
    * another replica sharing the directory wrote, drop ones it evicted,
    * clear old temp files, and evict if over the cap. One shard per
    * tick keeps the cost flat however many files there are; the whole
@@ -502,17 +569,30 @@ export class TileDiskCache {
     if (this.sweeping) return this.sweeping;
     this.sweeping = (async () => {
       if (!this.enabled || !this.scanned) return;
-      const shard = this.nextShard.toString(16).padStart(2, '0');
-      this.nextShard = (this.nextShard + 1) % 256;
-      const files = await this.listShard(shard);
-      const onDisk = new Set(files.map((f) => f.hash));
-      for (const hash of [...this.index.keys()]) {
-        if (hash.startsWith(shard) && !onDisk.has(hash)) this.forget(hash);
-      }
-      for (const f of files) {
-        if (!this.index.has(f.hash)) {
-          this.index.set(f.hash, { size: f.size, usedAt: f.mtime });
-          this.bytes += f.size;
+      for (let i = 0; i < SHARDS_PER_SWEEP; i += 1) {
+        const shard = this.nextShard.toString(16).padStart(2, '0');
+        this.nextShard = (this.nextShard + 1) % 256;
+        if (this.nextShard === 0) {
+          try {
+            const names = await readdir(this.dir);
+            await this.removeStaleTemps(
+              this.dir,
+              names.filter((n) => n.startsWith('.probe-') && n.endsWith(TEMP_SUFFIX)),
+            );
+          } catch {
+            // The directory may be gone; the next write recreates it.
+          }
+        }
+        const files = await this.listShard(shard);
+        const onDisk = new Set(files.map((f) => f.hash));
+        for (const hash of [...this.index.keys()]) {
+          if (hash.startsWith(shard) && !onDisk.has(hash)) this.forget(hash);
+        }
+        for (const f of files) {
+          if (!this.index.has(f.hash)) {
+            this.index.set(f.hash, { size: f.size, usedAt: f.mtime });
+            this.bytes += f.size;
+          }
         }
       }
       this.scheduleEvict();
@@ -550,6 +630,35 @@ export class TileDiskCache {
     await this.evicting;
   }
 
+  /**
+   * Delete every tile file. For after an in-app restore, which rewrites
+   * the database without a NOTIFY. Correctness does not depend on it
+   * (files are named by data version), but a restore is the one event
+   * that can bring old versions back, and starting clean is cheap.
+   * Runs shard by shard; failures are logged once and ignored.
+   */
+  async purge(): Promise<void> {
+    if (!this.enabled || !(await this.start())) return;
+    await this.flush();
+    this.index = new Map();
+    this.bytes = 0;
+    for (let i = 0; i < 256; i += 1) {
+      const shardDir = join(this.dir, i.toString(16).padStart(2, '0'));
+      let names: string[];
+      try {
+        names = await readdir(shardDir);
+      } catch {
+        continue;
+      }
+      for (const name of names) {
+        if (!FILE_RE.test(name)) continue;
+        await unlink(join(shardDir, name)).catch((err: unknown) => {
+          if (errCode(err) !== 'ENOENT') this.recordError('purge', err);
+        });
+      }
+    }
+  }
+
   async close(): Promise<void> {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = null;
@@ -563,11 +672,13 @@ export class TileDiskCache {
       bytes: this.bytes,
       files: this.index.size,
       maxBytes: this.maxBytes,
+      maxFiles: this.maxFiles,
       scanned: this.scanned,
       hits: this.hits,
       misses: this.misses,
       writes: this.writes,
       writesDropped: this.writesDropped,
+      writesSkippedSmall: this.writesSkippedSmall,
       evictions: this.evictions,
       corrupt: this.corrupt,
       errors: this.errors,

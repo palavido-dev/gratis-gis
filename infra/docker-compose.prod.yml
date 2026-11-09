@@ -676,9 +676,12 @@ services:
       # Disk tier for the vector tile cache, so a restart does not
       # start every map cold. Off here unless set; to turn it on use
       # TILE_CACHE_DIR=/var/cache/gg-tiles (the volume below). Both
-      # replicas share it safely. Cap in bytes, default 1 GiB.
+      # replicas share it safely; together they can briefly hold up to
+      # about twice the cap. Caps: bytes (default 1 GiB) and files
+      # (default 100000).
       TILE_CACHE_DIR: ${TILE_CACHE_DIR:-}
       TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
+      TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging

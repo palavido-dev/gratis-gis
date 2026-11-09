@@ -223,8 +223,12 @@ tags on its own.
 - Tile disk cache: set `TILE_CACHE_DIR=/var/cache/gg-tiles` in
   `infra/.env.prod` to keep vector tiles on the `tile-cache` volume as
   well as in memory, so a restart or a deploy does not start every map
-  cold. `TILE_CACHE_DISK_MAX_BYTES` caps it (1 GiB by default). Both
-  API replicas share the volume. Each file is named by the layer's
+  cold. `TILE_CACHE_DISK_MAX_BYTES` (1 GiB) and
+  `TILE_CACHE_DISK_MAX_FILES` (100,000) cap it. Both API replicas
+  share the volume; each tracks only its own writes between sweeps,
+  so together they can hold up to about twice the cap for up to 16
+  minutes. Relate tiles and tiles under 1 KiB are not written. An
+  in-app restore clears it. Each file is named by the layer's
   data version, read from Postgres, so an edit, including one made
   while the API was down, is never answered with an old tile. Only
   tiles go to disk; dashboard aggregates stay in memory. Off when
