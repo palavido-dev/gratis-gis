@@ -178,6 +178,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A bulk import no longer hangs at its first batch ("Loaded 5,000 of
+  ...") when Postgres refuses a row. The import now fails with the
+  database's error. Text and attribute values containing NUL
+  characters, common in shapefile DBF fields, now import with the NUL
+  removed instead of failing. (#573)
 - Shapefile, GeoPackage and GeoJSON imports with a date column no
   longer fail every row ("is a date field but received an object") and
   import with no features. Time-only fields import as text, and a layer

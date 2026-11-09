@@ -59,6 +59,9 @@ export class CopyWriter {
   private pool: Pool;
   private client: PoolClient | null = null;
   private stream: Writable | null = null;
+  /** First error the COPY stream reported. Kept because a stream
+   *  emits 'error' once: a later write or wait would never hear it. */
+  private streamError: Error | null = null;
   private rowCount = 0;
   private encoder: Worker | null = null;
   private nextRequestId = 0;
@@ -192,6 +195,15 @@ export class CopyWriter {
       ].join(', ') +
       ') FROM STDIN WITH (FORMAT text)';
     this.stream = this.client.query(copyFrom(sql)) as unknown as Writable;
+    // Listen for the whole life of the stream. Postgres refusing a row
+    // (a value too long, bad geometry text) destroys the stream with an
+    // error, often while nothing is waiting on it. Without this the
+    // next write returned false and writeBatch waited for a drain that
+    // never came: an import sat at its first batch forever (#573).
+    this.streamError = null;
+    this.stream.on('error', (err: unknown) => {
+      this.streamError ??= err instanceof Error ? err : new Error(String(err));
+    });
     // The compiled image has copy-encoder.worker.js beside this file.
     // A test run from the TypeScript source does not, so it loads the
     // .ts file with the type stripper. The worker has no other imports.
@@ -267,27 +279,54 @@ export class CopyWriter {
         })),
       });
     });
-    this.rowCount += batch.length;
     const stream = this.stream;
+    this.throwIfBroken(stream);
+    this.rowCount += batch.length;
     const ok = stream.write(lines);
     if (!ok) {
       // The COPY stream's buffer is full -- wait for the consumer
       // (the pg socket) to drain before we let the caller queue
       // more. Without this, large bursts grow the in-process
-      // buffer unboundedly.
-      await new Promise<void>((resolve, reject) => {
-        const onDrain = () => {
-          stream.off('error', onError);
-          resolve();
-        };
-        const onError = (err: Error) => {
-          stream.off('drain', onDrain);
-          reject(err);
-        };
-        stream.once('drain', onDrain);
-        stream.once('error', onError);
-      });
+      // buffer unboundedly. A stream that errors or closes instead
+      // never drains, so those end the wait too.
+      await this.settle(stream, 'drain');
     }
+    this.throwIfBroken(stream);
+  }
+
+  /** Throw the stream's error, or a plain one if it closed without. */
+  private throwIfBroken(stream: Writable): void {
+    if (this.streamError) throw this.streamError;
+    if (stream.destroyed) {
+      throw new Error('The COPY stream closed before the import finished.');
+    }
+  }
+
+  /** Wait for `event`, or reject when the stream errors or closes. */
+  private settle(stream: Writable, event: 'drain' | 'finish'): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        stream.off(event, onEvent);
+        stream.off('error', onFail);
+        stream.off('close', onFail);
+      };
+      const onEvent = () => {
+        cleanup();
+        resolve();
+      };
+      const onFail = () => {
+        cleanup();
+        reject(
+          this.streamError ??
+            new Error('The COPY stream closed before the import finished.'),
+        );
+      };
+      stream.on(event, onEvent);
+      stream.on('error', onFail);
+      stream.on('close', onFail);
+      // It may already have failed before we started listening.
+      if (this.streamError || stream.destroyed) onFail();
+    });
   }
 
   /**
@@ -312,11 +351,10 @@ export class CopyWriter {
       throw new Error('CopyWriter.sealCopy called before start().');
     }
     const stream = this.stream;
-    await new Promise<void>((resolve, reject) => {
-      stream.on('finish', () => resolve());
-      stream.on('error', reject);
-      stream.end();
-    });
+    this.throwIfBroken(stream);
+    const finished = this.settle(stream, 'finish');
+    stream.end();
+    await finished;
     this.stream = null;
     if (this.encoder) {
       await this.encoder.terminate();
