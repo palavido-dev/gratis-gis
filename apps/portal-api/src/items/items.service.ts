@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { pickDefaultBasemap } from './default-basemap.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertPostgisHostOnSave } from '../postgis-live/postgis-host.js';
 import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
@@ -559,6 +559,11 @@ export class ItemsService {
     // (Prisma-only) precisely so this import is not a cycle.
     private readonly offlinePackages: OfflinePackageService,
     @Optional() private readonly audit?: AdminAuditService,
+    // Resolves a field-queue manifest's user into a principal so the
+    // schema-break notice reaches only people who can read the
+    // deployment. Optional so unit tests can omit it; without it only
+    // the deployment owner is notified.
+    @Optional() private readonly authSync?: AuthSyncService,
   ) {}
 
   private noteAudit(
@@ -2178,6 +2183,33 @@ export class ItemsService {
    * for v1 we tell the deployment owner so they can warn their
    * field crew themselves.
    */
+  /**
+   * The owner plus every manifest-reported user who can read the
+   * data_collection, judged by the same sharing rules as a read.
+   * Without the principal resolver only the owner is returned.
+   */
+  private async schemaBreakRecipients(
+    dataCollectionId: string,
+    ownerId: string,
+    reported: string[],
+  ): Promise<string[]> {
+    const out = new Set<string>([ownerId]);
+    const others = [...new Set(reported)].filter((id) => id !== ownerId);
+    if (others.length === 0 || !this.authSync) return [...out];
+    const item = await this.prisma.item.findUnique({
+      where: { id: dataCollectionId },
+      include: { shares: true },
+    });
+    if (!item) return [...out];
+    for (const userId of others) {
+      const principal = await this.authSync.principalForUserId(userId);
+      if (principal && this.sharing.canRead(principal, item, item.shares)) {
+        out.add(userId);
+      }
+    }
+    return [...out];
+  }
+
   private async notifyDataCollectionSchemaBreak(args: {
     dataLayerId: string;
     dataLayerTitle: string;
@@ -2288,8 +2320,16 @@ export class ItemsService {
             { dataCollectionId: dc.id },
           ])}::jsonb`}
         `);
-        const recipients = new Set<string>([dc.ownerId]);
-        for (const row of downloaders) recipients.add(row.user_id);
+        // A manifest is whatever the device posted, and any signed-in
+        // user can post one naming any data_collection id. Only
+        // people who can read the deployment hear about it, or the
+        // notice would hand item and layer titles to anyone who
+        // listed a known id (any org).
+        const recipients = await this.schemaBreakRecipients(
+          dc.id,
+          dc.ownerId,
+          downloaders.map((row) => row.user_id),
+        );
         for (const userId of recipients) {
           await this.notifications.notify(
             userId,

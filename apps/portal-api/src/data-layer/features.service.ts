@@ -905,6 +905,7 @@ export class DataLayerFeaturesService {
       layerId: string;
       removedEntityIds: readonly string[];
       authorSub: string;
+      replace?: boolean;
     },
   ) {
     return this.dataLayer.commitCopiedLayer(writer, args);
