@@ -22,6 +22,7 @@ import {
   renderIconSvg,
 } from './map-icons';
 import { useT } from '@/lib/i18n/locale-context';
+import { isRasterIconRef } from '@/lib/map-point-symbol';
 
 interface Props {
   value: MapLayerStyle;
@@ -311,27 +312,37 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                   value={value.point.iconSize ?? 1}
                   onChange={(n) => patch('point', { iconSize: n })}
                 />
-                <label className="flex cursor-pointer items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={value.point.iconTint !== false}
-                    onChange={(e) =>
-                      patch('point', { iconTint: e.target.checked })
-                    }
-                    className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
-                  />
-                  <span className="text-ink-1">{t('mapStyleEditor.tintWithFill')}</span>
-                </label>
-                {value.point.iconTint !== false ? (
-                  <Color
-                    label={t('mapLayerPanel.symbology.fill')}
-                    value={value.point.color}
-                    onChange={(c) => patch('point', { color: c })}
-                  />
-                ) : null}
+                {/* #686: PNG and JPEG icons cannot be tinted, so the
+                    tint controls give way to a short note. The saved
+                    iconTint value is left alone; picking an SVG icon
+                    again brings the controls back as they were. */}
+                {isRasterIconRef(value.point.iconName) ? null : (
+                  <>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={value.point.iconTint !== false}
+                        onChange={(e) =>
+                          patch('point', { iconTint: e.target.checked })
+                        }
+                        className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
+                      />
+                      <span className="text-ink-1">{t('mapStyleEditor.tintWithFill')}</span>
+                    </label>
+                    {value.point.iconTint !== false ? (
+                      <Color
+                        label={t('mapLayerPanel.symbology.fill')}
+                        value={value.point.color}
+                        onChange={(c) => patch('point', { color: c })}
+                      />
+                    ) : null}
+                  </>
+                )}
               </div>
               <p className="mt-2 text-2xs text-muted">
-                {t('mapStyleEditor.tintHint')}
+                {isRasterIconRef(value.point.iconName)
+                  ? t('mapStyleEditor.rasterNoTint')
+                  : t('mapStyleEditor.tintHint')}
               </p>
 
               {/* #146: background shape behind the icon. AGO /
@@ -390,12 +401,6 @@ export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
                     </div>
                   ) : null}
                 </div>
-                {(value.point.backgroundShape ?? 'none') ===
-                'rounded-square' ? (
-                  <p className="mt-2 text-2xs text-muted">
-                    {t('mapStyleEditor.roundedSquareHint')}
-                  </p>
-                ) : null}
               </div>
             </>
           ) : (
@@ -464,7 +469,7 @@ function SymbolBtn({
  * browse the whole library. Selecting an entry sets the layer's
  * iconName; an SVG preview renders each option at 24x24.
  */
-/** One uploaded SVG icon row, as the picker consumes it. Same
+/** One uploaded icon row (SVG, or PNG for raster uploads), as the picker consumes it. Same
  *  shape the api emits at /api/map-icons. */
 interface UploadedIcon {
   id: string;
@@ -592,11 +597,14 @@ function IconPicker({
             </option>
           ))}
         </select>
-        <label className="flex h-7 cursor-pointer items-center rounded border border-border bg-surface-1 px-2 text-2xs hover:bg-surface-2">
-          {t('mapStyleEditor.uploadSvg')}
+        <label
+          title={t('mapStyleEditor.uploadIconTitle')}
+          className="flex h-7 cursor-pointer items-center rounded border border-border bg-surface-1 px-2 text-2xs hover:bg-surface-2"
+        >
+          {t('mapStyleEditor.uploadIcon')}
           <input
             type="file"
-            accept="image/svg+xml,.svg"
+            accept="image/svg+xml,.svg,image/png,.png,image/jpeg,.jpg,.jpeg"
             onChange={handleUpload}
             className="sr-only"
             disabled={uploadingName !== null}

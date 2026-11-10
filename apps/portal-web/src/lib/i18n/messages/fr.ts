@@ -1188,16 +1188,17 @@ export const fr: Partial<CatalogShape> = {
     tintWithFill: 'Teinter avec la couleur de remplissage',
     tintHint:
       'Le teintage rend l\'icône comme un champ de distance signé pour que la couleur de remplissage s\'applique proprement à toute taille. Décochez pour garder la couleur d\'origine de l\'icône.',
+    rasterNoTint:
+      "Les icônes PNG et JPEG gardent leurs propres couleurs. Le teintage ne fonctionne qu'avec les icônes SVG.",
     background: 'Arrière-plan',
     shape: 'Forme',
     shapeNone: 'Aucune',
     shapeCircle: 'Cercle',
     shapeRoundedSquare: 'Carré arrondi',
-    roundedSquareHint:
-      'Le carré arrondi s\'affiche comme une pilule douce jusqu\'à l\'arrivée du moteur sprite-bake ; l\'apparence est proche mais les coins paraissent entièrement circulaires.',
     searchIcons: 'Rechercher des icônes...',
     categoryAll: 'toutes',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Image',
+    uploadIconTitle: 'Envoyer une icône SVG, PNG ou JPEG',
     uploading: 'Envoi de {name}...',
     uploadFailed: 'Échec de l\'envoi',
     yourUploads: 'Vos envois',

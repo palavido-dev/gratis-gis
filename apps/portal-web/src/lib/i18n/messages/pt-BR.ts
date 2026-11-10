@@ -1186,16 +1186,17 @@ export const ptBR: Partial<CatalogShape> = {
     tintWithFill: 'Tingir com a cor de preenchimento',
     tintHint:
       'O tingimento renderiza o ícone como um campo de distância assinado para que a cor de preenchimento se aplique limpa em qualquer tamanho. Desmarque se quiser manter a cor original do ícone.',
+    rasterNoTint:
+      'Ícones PNG e JPEG mantêm as próprias cores. O tingimento só funciona com ícones SVG.',
     background: 'Fundo',
     shape: 'Forma',
     shapeNone: 'Nenhuma',
     shapeCircle: 'Círculo',
     shapeRoundedSquare: 'Quadrado arredondado',
-    roundedSquareHint:
-      'O quadrado arredondado aparece como uma pílula suave até o renderizador sprite-bake chegar; a aparência é parecida, mas os cantos parecem totalmente circulares.',
     searchIcons: 'Buscar ícones...',
     categoryAll: 'todos',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Imagem',
+    uploadIconTitle: 'Envie um ícone SVG, PNG ou JPEG',
     uploading: 'Enviando {name}...',
     uploadFailed: 'Falha no envio',
     yourUploads: 'Seus envios',

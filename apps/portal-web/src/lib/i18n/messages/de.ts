@@ -1188,16 +1188,17 @@ export const de: Partial<CatalogShape> = {
     tintWithFill: 'Mit Füllfarbe einfärben',
     tintHint:
       'Einfärben rendert das Symbol als Signed-Distance-Feld, damit die Füllfarbe in jeder Größe sauber wirkt. Abwählen, wenn das Symbol seine Auslieferungsfarbe behalten soll.',
+    rasterNoTint:
+      'PNG- und JPEG-Symbole behalten ihre eigenen Farben. Einfärben funktioniert nur mit SVG-Symbolen.',
     background: 'Hintergrund',
     shape: 'Form',
     shapeNone: 'Keine',
     shapeCircle: 'Kreis',
     shapeRoundedSquare: 'Abgerundetes Quadrat',
-    roundedSquareHint:
-      'Abgerundetes Quadrat wird als weiche Pille gerendert, bis der Sprite-Bake-Renderer kommt; das Aussehen ist ähnlich, aber die Ecken wirken vollständig rund.',
     searchIcons: 'Symbole suchen...',
     categoryAll: 'alle',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Bild',
+    uploadIconTitle: 'SVG-, PNG- oder JPEG-Symbol hochladen',
     uploading: '{name} wird hochgeladen...',
     uploadFailed: 'Upload fehlgeschlagen',
     yourUploads: 'Ihre Uploads',

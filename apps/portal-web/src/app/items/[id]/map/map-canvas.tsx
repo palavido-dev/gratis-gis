@@ -111,6 +111,17 @@ import {
 } from './map-icons';
 import { svgToSdf } from './sdf';
 import {
+  drawRoundedSquareBackground,
+  rasterizeBitmapIcon,
+  rasterizeSvgIcon,
+} from './icon-raster';
+import {
+  ICON_IMAGE_PIXEL_RATIO,
+  backgroundImageId,
+  isRasterIconRef,
+  pointBackgroundLayout,
+} from '@/lib/map-point-symbol';
+import {
   dataLayerKeepKey,
   dataLayerSourceZoom,
   dataLayerVectorSource,
@@ -2137,37 +2148,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
 });
 
 /**
- * Load an SVG string onto a canvas and return the raw pixels. Used to
- * turn the bundled icon library into images MapLibre can register via
- * addImage(). We render at 2x physical pixels (96 × 96 pixels for a
- * 48 × 48 icon) so high-DPI displays stay crisp.
- */
-async function rasterizeSvg(svg: string, size: number): Promise<ImageData> {
-  const scale = 2;
-  const w = size * scale;
-  const h = size * scale;
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = (e) => reject(e);
-      i.src = url;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 2D unavailable');
-    ctx.drawImage(img, 0, 0, w, h);
-    return ctx.getImageData(0, 0, w, h);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/**
  * Per-map in-flight guard for loadAllIcons. MapLibre's `styledata`
  * event fires many times during a basemap load and each fire used
  * to spawn a concurrent loadAllIcons; with hasImage() returning
@@ -2236,9 +2216,9 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
         try {
           const svg = renderIconSvg(name);
           if (svg) {
-            const img = await rasterizeSvg(svg, 48);
+            const img = await rasterizeSvgIcon(svg);
             if (!m.hasImage(plainId)) {
-              m.addImage(plainId, img, { pixelRatio: 2 });
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
         } catch {
@@ -2249,9 +2229,12 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
         try {
           const svg = renderIconSvgForSdf(name);
           if (svg) {
-            const sdf = await svgToSdf(svg, 48);
+            const sdf = await svgToSdf(svg);
             if (!m.hasImage(sdfId)) {
-              m.addImage(sdfId, sdf, { pixelRatio: 2, sdf: true });
+              m.addImage(sdfId, sdf, {
+                pixelRatio: ICON_IMAGE_PIXEL_RATIO,
+                sdf: true,
+              });
             }
           }
         } catch {
@@ -2260,12 +2243,15 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
       }
     }),
   );
-  // User-uploaded SVG icons (#73). The picker stores
-  // `upload:<storageKey>` in the layer style; the renderer
-  // fetches the cleaned SVG from the per-org map-icons endpoint
-  // and rasterizes it through the same path as the bundled
-  // glyphs. Done after the bundled pass so a slow upload list
-  // doesn't delay the always-cached bundled icons.
+  // User-uploaded icons (#73, #686). The picker stores
+  // `upload:<storageKey>` in the layer style; the renderer fetches
+  // the stored file from the per-org map-icons list and rasterizes it
+  // into the same square box as the bundled glyphs. SVG uploads get a
+  // plain and an SDF variant. PNG uploads (JPEG is re-encoded to PNG
+  // on the server) get only the plain variant, because a photo or a
+  // colored logo cannot be tinted; the layer code falls back to the
+  // plain image for them. Done after the bundled pass so a slow
+  // upload list doesn't delay the always-cached bundled icons.
   try {
     const resp = await fetch('/api/portal/map-icons');
     if (!resp.ok) return;
@@ -2278,15 +2264,23 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
         const refName = `upload:${row.storageKey}`;
         const plainId = iconImageId(refName);
         const sdfId = iconSdfImageId(refName);
-        if (m.hasImage(plainId) && m.hasImage(sdfId)) return;
+        const raster = isRasterIconRef(refName);
+        if (m.hasImage(plainId) && (raster || m.hasImage(sdfId))) return;
         try {
-          const svgResp = await fetch(row.storageUrl, { cache: 'no-store' });
-          if (!svgResp.ok) return;
-          const svgText = await svgResp.text();
-          if (!m.hasImage(plainId)) {
-            const img = await rasterizeSvg(svgText, 48);
+          const fileResp = await fetch(row.storageUrl, { cache: 'no-store' });
+          if (!fileResp.ok) return;
+          if (raster) {
+            const img = await rasterizeBitmapIcon(await fileResp.blob());
             if (!m.hasImage(plainId)) {
-              m.addImage(plainId, img, { pixelRatio: 2 });
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
+            }
+            return;
+          }
+          const svgText = await fileResp.text();
+          if (!m.hasImage(plainId)) {
+            const img = await rasterizeSvgIcon(svgText);
+            if (!m.hasImage(plainId)) {
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
           if (!m.hasImage(sdfId)) {
@@ -2295,9 +2289,12 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
             // plain image when SDF isn't available. We still
             // generate one so iconTint works for icons that
             // were authored with currentColor strokes.
-            const sdf = await svgToSdf(svgText, 48);
+            const sdf = await svgToSdf(svgText);
             if (!m.hasImage(sdfId)) {
-              m.addImage(sdfId, sdf, { pixelRatio: 2, sdf: true });
+              m.addImage(sdfId, sdf, {
+                pixelRatio: ICON_IMAGE_PIXEL_RATIO,
+                sdf: true,
+              });
             }
           }
         } catch {
@@ -2545,6 +2542,9 @@ function overlayLayerIds(layerId: string): string[] {
     `gg:${layerId}-fill`,
     `gg:${layerId}-poly-line`,
     `gg:${layerId}-line`,
+    // #686: the marker background is part of the point, so a click
+    // on it selects the feature like a click on the icon does.
+    `gg:${layerId}-icon-bg`,
     `gg:${layerId}-icon-halo`,
     `gg:${layerId}-circle`,
     `gg:${layerId}-label`,
@@ -3670,35 +3670,46 @@ function syncOverlays(
     // even the plain image isn't registered yet, we fall through to
     // the circle renderer so the feature stays visible.
     const wantsIcon = s.point.symbol === 'icon' && !!s.point.iconName;
-    const tint = s.point.iconTint !== false; // default true
+    // #686: PNG and JPEG uploads have no SDF variant and cannot be
+    // tinted. MapLibre also cannot mix SDF and plain images in one
+    // symbol layer, so one raster icon anywhere in the layer (the
+    // layer icon or a category override) turns tinting off for the
+    // whole layer.
+    const rasterInLayer =
+      isRasterIconRef(s.point.iconName) ||
+      (layer.renderer.kind === 'unique-values' &&
+        layer.renderer.categories.some((c) => isRasterIconRef(c.iconName)));
+    const tint = s.point.iconTint !== false && !rasterInLayer; // default true
     const sdfId = wantsIcon ? iconSdfImageId(s.point.iconName) : '';
     const plainId = wantsIcon ? iconImageId(s.point.iconName) : '';
     const useSdf = tint && wantsIcon && m.hasImage(sdfId);
     const preferredId = useSdf ? sdfId : plainId;
     const iconReady = wantsIcon && m.hasImage(preferredId);
     if (iconReady) {
-      // #146: optional background shape behind the icon. Renders as
-      // a circle layer beneath the icon symbol so the icon reads
-      // clearly against busy basemaps (AGO / Google Maps "marker
-      // with icon" pattern). Skipped when backgroundShape is 'none'
-      // (the default) so existing layers don't change appearance.
-      // 'rounded-square' currently falls through to the circle path
-      // because MapLibre's GL renderer doesn't expose a true rounded-
-      // rect primitive; the underlying circle, sized generously,
-      // reads acceptably as a "soft pill" until we add a sprite-bake
-      // path that composes the icon + a real rounded-rect.
+      // #146: optional background shape behind the icon, the AGO /
+      // Google Maps "marker with icon" look. Skipped when
+      // backgroundShape is 'none' (the default) so existing layers
+      // don't change appearance.
+      //
+      // #686: the background and the icon are sized together from
+      // pointBackgroundLayout, and both are anchored on the point
+      // itself. Before this the icon kept its pin-style bottom anchor
+      // and its full 48 px box while the circle was 22 px across, so
+      // the icon stood above the circle and spilled past it.
       const bgShape = s.point.backgroundShape ?? 'none';
-      if (bgShape !== 'none') {
-        const bgFill = s.point.backgroundFill ?? '#ffffff';
-        const bgStroke = s.point.backgroundStrokeColor ?? '#111827';
-        const bgWidth = typeof s.point.backgroundStrokeWidth === 'number'
-          ? s.point.backgroundStrokeWidth
-          : 1.5;
-        // Size the background ~14px (lucide icon at iconSize=1 is
-        // 24px tall but renders to about 14-18px effective on the
-        // map). Scale with iconSize so a bigger icon gets a bigger
-        // background.
-        const bgRadius = 11 * s.point.iconSize;
+      const bgFill = s.point.backgroundFill ?? '#ffffff';
+      const bgStroke = s.point.backgroundStrokeColor ?? '#111827';
+      const bgWidth = typeof s.point.backgroundStrokeWidth === 'number'
+        ? s.point.backgroundStrokeWidth
+        : 1.5;
+      const bg = bgShape === 'none'
+        ? null
+        : pointBackgroundLayout(s.point.iconSize, bgShape, bgWidth);
+      const pointFilter = combineFilter(
+        ['==', ['geometry-type'], 'Point'],
+        layer.filter,
+      );
+      if (bg && bgShape === 'circle') {
         applyLayer({
           id: `gg:${layer.id}-icon-bg`,
           type: 'circle',
@@ -3706,23 +3717,57 @@ function syncOverlays(
           ...sourceLayerProp,
           minzoom,
           maxzoom,
-          filter: combineFilter(
-            ['==', ['geometry-type'], 'Point'],
-            layer.filter,
-          ),
+          filter: pointFilter,
           paint: {
             'circle-color': bgFill,
-            'circle-radius': zoomScaleNumber(bgRadius) as unknown as number,
+            'circle-radius': zoomScaleNumber(bg.circleRadius) as unknown as number,
             'circle-stroke-color': bgStroke,
             'circle-stroke-width': bgWidth,
             'circle-opacity': op,
             'circle-stroke-opacity': op,
           },
         });
+      } else if (bg && bgShape === 'rounded-square') {
+        // MapLibre has no rounded rectangle primitive, so the shape
+        // is baked into an image at its on-screen size and drawn as
+        // a centered symbol. The pixel ratio follows the screen so
+        // the edge stays sharp on a high-DPI display.
+        const bgImageId = backgroundImageId(bg.diameter, bgFill, bgStroke, bgWidth);
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const bgRatio = Math.min(4, Math.max(2, Math.ceil(dpr)));
+        if (!m.hasImage(bgImageId)) {
+          try {
+            m.addImage(
+              bgImageId,
+              drawRoundedSquareBackground(bg, bgFill, bgStroke, bgWidth, bgRatio),
+              { pixelRatio: bgRatio },
+            );
+          } catch {
+            /* non-fatal; the icon still draws without its background */
+          }
+        }
+        applyLayer({
+          id: `gg:${layer.id}-icon-bg`,
+          type: 'symbol',
+          source: sourceId,
+          ...sourceLayerProp,
+          minzoom,
+          maxzoom,
+          filter: pointFilter,
+          layout: {
+            'icon-image': bgImageId,
+            'icon-size': zoomScaleNumber(1) as unknown as number,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-anchor': 'center',
+          },
+          paint: { 'icon-opacity': op },
+        });
       }
       // Selection halo under the icon. Rendered as a separate circle
       // layer so it reads through whatever the symbol shows on top
       // works for both SDF and plain icon variants.
+      const haloRadius = bg ? bg.haloRadius : 14 * s.point.iconSize;
       applyLayer({
         id: `gg:${layer.id}-icon-halo`,
         type: 'circle',
@@ -3730,12 +3775,12 @@ function syncOverlays(
         ...sourceLayerProp,
         minzoom,
         maxzoom,
-        filter: combineFilter(['==', ['geometry-type'], 'Point'], layer.filter),
+        filter: pointFilter,
         paint: {
           'circle-color': 'rgba(37, 99, 235, 0.25)',
           'circle-radius': zoomScaleState(
             0,
-            14 * s.point.iconSize,
+            haloRadius,
             0,
           ) as unknown as number,
           'circle-stroke-color': SEL_ACCENT,
@@ -3750,7 +3795,7 @@ function syncOverlays(
         ...sourceLayerProp,
         minzoom,
         maxzoom,
-        filter: combineFilter(['==', ['geometry-type'], 'Point'], layer.filter),
+        filter: pointFilter,
         layout: {
           // #78: per-category icon override for unique-value
           // renderers. The helper builds a match expression on the
@@ -3764,12 +3809,16 @@ function syncOverlays(
           // Zoom-interpolated size. Feature-state expressions aren't
           // allowed in layout properties, so the halo circle above
           // carries selected/hover: this property only tracks zoom.
+          // With a background the icon shrinks to fit inside it.
           'icon-size': zoomScaleNumber(
-            s.point.iconSize,
+            bg ? bg.iconScale : s.point.iconSize,
           ) as unknown as number,
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
-          'icon-anchor': 'bottom',
+          // A bare icon keeps its pin-style bottom anchor so saved
+          // maps look the same. Inside a background it is centered
+          // on the point, like the shape under it.
+          'icon-anchor': bg ? 'center' : 'bottom',
         },
         paint: {
           'icon-opacity': op,

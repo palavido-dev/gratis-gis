@@ -1189,16 +1189,17 @@ export const es: Partial<CatalogShape> = {
     tintWithFill: 'Teñir con el color de relleno',
     tintHint:
       'El teñido renderiza el icono como un campo de distancia firmado para que el color de relleno se aplique limpiamente a cualquier tamaño. Desmarca si quieres que el icono conserve su color original.',
+    rasterNoTint:
+      'Los iconos PNG y JPEG conservan sus propios colores. El teñido solo funciona con iconos SVG.',
     background: 'Fondo',
     shape: 'Forma',
     shapeNone: 'Ninguna',
     shapeCircle: 'Círculo',
     shapeRoundedSquare: 'Cuadrado redondeado',
-    roundedSquareHint:
-      'El cuadrado redondeado se muestra como una pastilla suave hasta que llegue el renderizador sprite-bake; el aspecto es parecido pero las esquinas se ven totalmente circulares.',
     searchIcons: 'Buscar iconos...',
     categoryAll: 'todos',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Imagen',
+    uploadIconTitle: 'Sube un icono SVG, PNG o JPEG',
     uploading: 'Subiendo {name}...',
     uploadFailed: 'Error al subir',
     yourUploads: 'Tus subidas',

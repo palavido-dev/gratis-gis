@@ -557,11 +557,16 @@ export class StorageService implements OnModuleInit {
    * buffer to MinIO directly without a tmp-file round trip.
    * Returns the same `{ key, publicUrl }` shape so callers can
    * persist them on whatever item / row they belong to.
+   *
+   * `keySuffix` is appended after the UUID. Raster map icons use
+   * `.png` so a style that stores only the key can tell them apart
+   * from SVG icons, whose keys stay bare (#686).
    */
   async uploadBuffer(
     kind: AssetKind,
     body: Buffer,
     contentType = 'application/octet-stream',
+    keySuffix: '' | '.png' = '',
   ): Promise<{ key: string; publicUrl: string }> {
     if (!this.bootstrapped) {
       try {
@@ -573,7 +578,7 @@ export class StorageService implements OnModuleInit {
         );
       }
     }
-    const key = `${kind}/${randomUUID()}`;
+    const key = `${kind}/${randomUUID()}${keySuffix}`;
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
