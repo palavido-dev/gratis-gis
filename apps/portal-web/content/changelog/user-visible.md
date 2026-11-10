@@ -21,6 +21,14 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.4.0] - 2026-11-10
+
+## 2026-11-10 - Upload files of any size
+Imports go straight to storage in parts, so multi-gigabyte files upload from the browser. If the connection drops or the tab closes, pick the same file again and the upload picks up where it stopped. The only limit is the server's free disk space, and you are told up front if a file will not fit.
+
+## 2026-11-10 - Sharper point symbols, and image symbols
+Point icons now sit centered inside their circle or square background and stay sharp when you change their color. You can also use your own PNG or JPEG images as point symbols.
+
 ## [1.3.0] - 2026-11-09
 
 ## 2026-11-09 - KML and KMZ keep all their fields
