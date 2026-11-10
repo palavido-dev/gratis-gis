@@ -31,7 +31,7 @@ function landingJsonLd() {
     applicationSubCategory: 'Geographic Information System',
     operatingSystem: 'Web, Linux server',
     license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-    softwareVersion: '1.4.0',
+    softwareVersion: '1.4.1',
     offers: {
       '@type': 'Offer',
       price: '0',
