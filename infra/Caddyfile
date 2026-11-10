@@ -63,13 +63,14 @@ www.{$PORTAL_DOMAIN} {
         format json
     }
 
-    # Lift the request-body cap so large spatial-data uploads
-    # (county-scale parcel layers run 200-500 MB zipped) stream
-    # through Caddy. Caddy 2 default is unlimited but some deploy
-    # paths set a lower cap; explicit max_size makes the intent
-    # obvious. Multer at the api caps at 1 GB; this matches.
+    # Request-body cap for this site. The web app's import uploads go
+    # straight to storage in parts and never pass through here. This
+    # cap only matters for the older multipart POST /ingest/stage path.
+    # portal-api's sanity ceiling for that path is 50 GiB, and this is
+    # set a little above it so the multipart framing fits. Caddy reads
+    # "GB" as 10^9 bytes, so the unit here is GiB on purpose.
     request_body {
-        max_size 1GB
+        max_size 51GiB
     }
 
     # Send everything to the web app. Next.js's standalone server is

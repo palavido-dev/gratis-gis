@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { randomUUID } from 'node:crypto';
+import { hkdfSync, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadBucketCommand,
   ListObjectsV2Command,
   PutBucketCorsCommand,
   PutBucketPolicyCommand,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
@@ -397,6 +402,140 @@ export class StorageService implements OnModuleInit {
       contentType,
       maxBytes,
     };
+  }
+
+  /**
+   * Retry the bucket bootstrap when it was deferred at boot. Same rule
+   * as presignUpload: a slow MinIO at startup must not break the first
+   * upload after a restart.
+   */
+  private async ensureReady(): Promise<void> {
+    if (this.bootstrapped) return;
+    try {
+      await this.ensureBucket();
+      this.bootstrapped = true;
+    } catch (err) {
+      this.log.warn(
+        `Storage still not ready: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * A key for signing values that only this server should mint, such
+   * as resumable upload handles. Derived from the MinIO secret with
+   * HKDF under a per-purpose label, so the raw secret is never used
+   * directly and two purposes never share a key. Every install already
+   * sets MINIO_SECRET_KEY, so no new setting is needed.
+   */
+  deriveSigningKey(label: string): Buffer {
+    return Buffer.from(
+      hkdfSync('sha256', this.s3SecretAccessKey, 'gratis-gis', label, 32),
+    );
+  }
+
+  /** Start an S3 multipart upload and return its upload id. */
+  async createMultipartUpload(key: string): Promise<string> {
+    await this.ensureReady();
+    const res = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: 'application/octet-stream',
+      }),
+    );
+    if (!res.UploadId) {
+      throw new Error('Storage did not return an upload id.');
+    }
+    return res.UploadId;
+  }
+
+  /**
+   * Presigned PUT for one part. The length is signed into the URL, so
+   * the browser must send exactly that many bytes for this part.
+   * Signed for the browser-facing endpoint like presignUpload.
+   */
+  async presignUploadPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    contentLength: number,
+    expiresIn: number,
+  ): Promise<string> {
+    const cmd = new UploadPartCommand({
+      Bucket: this.bucket,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      ContentLength: contentLength,
+    });
+    return getSignedUrl(this.presignClient, cmd, { expiresIn });
+  }
+
+  /** Every part stored so far for one multipart upload, in order. */
+  async listUploadedParts(
+    key: string,
+    uploadId: string,
+  ): Promise<Array<{ partNumber: number; etag: string; size: number }>> {
+    const out: Array<{ partNumber: number; etag: string; size: number }> = [];
+    let marker: string | undefined;
+    for (;;) {
+      const res = await this.client.send(
+        new ListPartsCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          ...(marker ? { PartNumberMarker: marker } : {}),
+        }),
+      );
+      for (const p of res.Parts ?? []) {
+        if (typeof p.PartNumber !== 'number' || !p.ETag) continue;
+        out.push({ partNumber: p.PartNumber, etag: p.ETag, size: p.Size ?? 0 });
+      }
+      const next = res.NextPartNumberMarker;
+      if (!res.IsTruncated || next === undefined || String(next) === marker) break;
+      marker = String(next);
+    }
+    out.sort((a, b) => a.partNumber - b.partNumber);
+    return out;
+  }
+
+  /** Join the listed parts into one object. */
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: Array<{ partNumber: number; etag: string }>,
+  ): Promise<void> {
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+        },
+      }),
+    );
+  }
+
+  /**
+   * Drop an unfinished multipart upload and the parts stored for it.
+   * A missing upload counts as done, so a repeated abort is harmless.
+   */
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        }),
+      );
+    } catch (err) {
+      const name = (err as { name?: string } | undefined)?.name ?? '';
+      if (name === 'NoSuchUpload' || name === 'NotFound') return;
+      throw err;
+    }
   }
 
   /**

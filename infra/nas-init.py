@@ -519,8 +519,11 @@ def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
 
 {site} {{
 {tls_line}	encode gzip zstd
+	# Import uploads go straight to storage in parts. This cap is
+	# for the older multipart import path, a little above the
+	# API's 50 GiB ceiling. Caddy reads GB as 10^9, so use GiB.
 	request_body {{
-		max_size 1GB
+		max_size 51GiB
 	}}
 {LAN_SECURITY_HEADERS}
 
@@ -590,8 +593,11 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 
 {portal} {{
 	encode gzip zstd
+	# Import uploads go straight to storage in parts. This cap is
+	# for the older multipart import path, a little above the
+	# API's 50 GiB ceiling. Caddy reads GB as 10^9, so use GiB.
 	request_body {{
-		max_size 1GB
+		max_size 51GiB
 	}}
 	# portal-api's /metrics is scraped on the docker network only.
 	@metrics path /metrics /metrics/*

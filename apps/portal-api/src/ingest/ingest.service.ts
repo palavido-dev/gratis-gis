@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { containedPayloadFile, serverUploadName } from './ingest-disk-path.js';
+import { INGEST_MAX_UPLOAD_BYTES } from './ingest-upload-handle.js';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -74,13 +75,10 @@ import {
 export class IngestService {
   private readonly log = new Logger(IngestService.name);
 
-  /** Reasonable upload ceiling. Matches the multer config in the
-   *  controller. 1 GB covers a full county-scale parcel layer
-   *  (200-500 MB zipped is typical) without forcing the user to
-   *  subset first. Anything bigger should go through a future
-   *  direct-to-MinIO presigned-PUT path; right now everything
-   *  buffers through portal-api which is RAM-bound on the host. */
-  readonly maxBytes = 1024 * 1024 * 1024; // 1 GB
+  /** Sanity ceiling shared with the multer config and the resumable
+   *  upload (#573). Not a product limit: free disk on the server is
+   *  the real one, checked before an upload is accepted. */
+  readonly maxBytes = INGEST_MAX_UPLOAD_BYTES;
 
   async fileToGeoJson(
     buffer: Buffer,

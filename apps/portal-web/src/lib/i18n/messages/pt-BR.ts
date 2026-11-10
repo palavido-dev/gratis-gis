@@ -3064,6 +3064,14 @@ export const ptBR: Partial<CatalogShape> = {
     editOnlyFeatureService:
       'Editar só está disponível para camadas de serviço de feições. Origens remotas (ArcGIS REST, URL, inline) ficam somente leitura na matriz para não oferecer permissões sem efeito.',
   },
+  resumableUpload: {
+    resumingHeadline: 'Retomando o envio {pct}%',
+    networkError:
+      'A conexão caiu e o envio não pôde continuar. Escolha o mesmo arquivo de novo para retomar de onde parou.',
+    partFailed:
+      'O armazenamento recusou uma parte do arquivo. Escolha o mesmo arquivo de novo para retomar o envio de onde parou.',
+    failed: 'Falha no envio',
+  },
   layerDataPanel: {
     tablistAria: 'Visualizações de {label}',
     attributesTab: 'Atributos',

@@ -17,6 +17,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Large imports no longer stop at 1 GB or after 5 minutes. A 1.4 GB
+  GeoPackage froze at 67% because Caddy capped the request body at
+  1 GB and both Node servers dropped requests slower than 5 minutes.
+  The create wizard and Import features now send the file straight to
+  storage in parts. A dropped connection or a closed tab loses only
+  the parts in flight: pick the same file again and the upload resumes
+  where it stopped. Cancel removes the partial upload. There is no
+  fixed size limit beyond a 50 GB sanity ceiling. The server checks
+  its free disk before the upload starts and says how much is free
+  and how much is needed when the file will not fit. On the item page,
+  spatial files of 64 MB or more now take this path and import as a
+  background job. Refs #573
+- The older multipart `POST /ingest/stage` path stays for scripts. Its
+  1 GB cap is raised to the same 50 GB ceiling, portal-api no longer
+  ends a request after 5 minutes, and the Caddy body cap in the VPS
+  Caddyfile and the NAS compose is raised to match.
+  Upgrade note: NAS installs pick up the new Caddy cap when the
+  bootstrap container rewrites the Caddyfile on the next start.
 - Point icons with a circle or rounded square background now sit in
   the middle of the shape and fit inside it, with even padding, at any
   icon size. Before, the icon stood above the shape and was larger

@@ -24,9 +24,12 @@ import {
 } from 'lucide-react';
 import {
   UploadProgressPanel,
-  uploadWithProgress,
   type UploadBusy,
 } from '@/components/upload-progress-panel';
+import {
+  resumableUpload,
+  resumableUploadErrorText,
+} from '@/lib/resumable-upload';
 import { CreateSharedPickListDialog } from './create-shared-pick-list-dialog';
 import { TileSettingsSection } from './tile-settings-section';
 import { useT } from '@/lib/i18n/locale-context';
@@ -1800,13 +1803,14 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       window.removeEventListener('drop', swallow);
     };
   }, []);
-  // Live XHR ref so the user can cancel a long upload mid-flight. The
-  // ref is also how the abort path knows whether anything is actually
-  // in flight (handles double-clicks on Cancel gracefully).
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  // Live upload controller so the user can cancel a long upload
+  // mid-flight. Aborting it also drops the server-side upload. The
+  // ref is how the cancel path knows whether anything is in flight
+  // (handles double-clicks on Cancel gracefully).
+  const uploadAbortRef = useRef<AbortController | null>(null);
   function cancelUpload() {
-    xhrRef.current?.abort();
-    xhrRef.current = null;
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
     setBusy(null);
     setError(null);
   }
@@ -1816,27 +1820,28 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
     // Every spatial file, including GeoJSON, is staged on the server.
     // A browser-only GeoJSON parse used to write the schema and drop
     // the features, so the data layer existed but dashboards saw no
-    // rows. /ingest/stage parks the file under /tmp/gg-staging/<id>/
+    // rows. The upload ends in a staging under /tmp/gg-staging/<id>/
     // and returns a stagingId plus the schema preview. Create item
     // and Save schema then enqueue the feature import so a large
     // archive only travels the wire once. Stagings expire after an
     // hour; if the user idles longer the import fails and they
     // re-upload.
     //
-    // We use XMLHttpRequest instead of fetch() because fetch has no
-    // upload-progress hook. For a 200 MB+ shapefile zip the user would
-    // otherwise stare at a tiny "Uploading..." string for a minute
-    // and assume the dialog was hung. XHR's upload.onprogress lets
-    // us paint a real bar from 0 to 100, then flip the label to
-    // "Reading on the server..." once the upload finishes and the
-    // GDAL probe runs.
+    // #573: the file goes straight to storage in parts
+    // (lib/resumable-upload), so there is no proxy cap or request
+    // timeout, and picking the same file again after a dropped
+    // connection continues where it stopped. The bar fills as parts
+    // arrive, then flips to "Reading on the server" while GDAL
+    // probes the staged file.
+    const controller = new AbortController();
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = controller;
     try {
-      const out = await uploadWithProgress<{
+      const out = await resumableUpload<{
         stagingId: string;
         driver: string;
         layers: ProbedLayer[];
       }>(
-        '/api/portal/ingest/stage',
         file,
         (e) => {
           setBusy((prev) =>
@@ -1845,18 +1850,19 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
                   ...prev,
                   phase: e.phase,
                   bytesUploaded: e.bytesUploaded,
+                  resuming: e.resumed === true,
                 }
               : {
                   phase: e.phase,
                   fileName: file.name,
                   fileSize: file.size,
                   bytesUploaded: e.bytesUploaded,
+                  resuming: e.resumed === true,
                 },
           );
         },
-        xhrRef,
+        { signal: controller.signal },
       );
-      xhrRef.current = null;
       // Auto-attach every detected layer instead of dropping the user
       // into a "pick which layers" picker. The picker was confusing
       // ("I clicked Import, why do I have another button to click?")
@@ -1872,11 +1878,13 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       if ((err as Error).name === 'AbortError') {
         // No-op; cancelUpload already cleared state.
       } else {
-        setError((err as Error).message || t('layerBuilder.probeFailed'));
+        setError(resumableUploadErrorText(err, t) || t('layerBuilder.probeFailed'));
       }
     } finally {
-      setBusy(null);
-      xhrRef.current = null;
+      if (uploadAbortRef.current === controller) {
+        setBusy(null);
+        uploadAbortRef.current = null;
+      }
     }
   }
 

@@ -3075,6 +3075,14 @@ export const fr: Partial<CatalogShape> = {
     editOnlyFeatureService:
       "La modification n'est disponible que pour les couches de service d'entités. Les sources distantes (ArcGIS REST, URL, inline) restent en lecture seule dans la matrice pour éviter d'offrir des permissions sans effet.",
   },
+  resumableUpload: {
+    resumingHeadline: "Reprise de l'envoi {pct} %",
+    networkError:
+      "La connexion a été coupée et l'envoi n'a pas pu continuer. Choisissez à nouveau le même fichier pour reprendre là où il s'est arrêté.",
+    partFailed:
+      "Le stockage a refusé une partie du fichier. Choisissez à nouveau le même fichier pour reprendre l'envoi là où il s'est arrêté.",
+    failed: "Échec de l'envoi",
+  },
   layerDataPanel: {
     tablistAria: 'Vues de {label}',
     attributesTab: 'Attributs',
