@@ -11,10 +11,13 @@
 #   1b. Syncs the checkout to the release ref (see gg_resolve_ref).
 #   2. Builds the portal-api + portal-web images from source.
 #   3. Rolls the stack with `docker compose up -d --remove-orphans`.
-#      Containers whose image / config didn't change keep running. A
-#      service removed from the compose file (pg_tileserv) is stopped.
+#      Containers whose image / config didn't change keep running.
 #      Services behind a profile (scripts) are built and started only
 #      when COMPOSE_PROFILES in infra/.env.prod names that profile.
+#   3b. Removes containers whose service left the compose file
+#      (pg_tileserv), since --remove-orphans alone did not on Compose
+#      v5.3.1, and restarts Caddy if it still serves an older Caddyfile
+#      (see infra/lib-deploy.sh).
 #   4. Tails recent logs so you can see whether the boot was clean.
 #
 # Migrations: the portal-migrate one-shot service runs `prisma migrate
@@ -176,6 +179,15 @@ echo "=== Building images ==="
 
 echo "=== Bringing up stack ==="
 "${COMPOSE[@]}" up -d --remove-orphans
+
+# shellcheck source=infra/lib-deploy.sh
+. infra/lib-deploy.sh
+
+echo "=== Removing retired containers ==="
+gg_sweep_orphans gratis-gis-prod "${COMPOSE[@]}"
+
+echo "=== Checking Caddy config ==="
+gg_sync_caddyfile gratis-gis-prod-caddy infra/Caddyfile "${COMPOSE[@]}" || true
 
 echo "=== Status ==="
 "${COMPOSE[@]}" ps
