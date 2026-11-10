@@ -60,6 +60,7 @@
     "puppeteer-core": "^25.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "sharp": "^0.35.4",
     "tar-stream": "^3.2.2",
     "ws": "^8.22.1",
     "yjs": "^13.6.27"

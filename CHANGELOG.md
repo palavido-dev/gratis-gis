@@ -6,6 +6,29 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Map point symbols can now be PNG or JPEG images, not only SVG. Use
+  "+ Image" in the icon picker. The server checks that the file really
+  is a PNG or JPEG, caps uploads at 2 MB and 4096 x 4096 pixels, and
+  stores a cleaned PNG of at most 256 px on the long side with all
+  metadata removed. Image icons keep their own colors, so the tint
+  option is hidden for them. (#686)
+
+### Fixed
+
+- Point icons with a circle or rounded square background now sit in
+  the middle of the shape and fit inside it, with even padding, at any
+  icon size. Before, the icon stood above the shape and was larger
+  than it. The rounded square is now drawn as a real rounded square
+  instead of a circle. Clicking the background selects the point.
+  (#686)
+- Tinted point icons are sharp again at any color and on high-DPI
+  screens. The tint image spread each edge over several pixels, which
+  made recolored icons look blurry. (#686)
+- Uploaded SVG icons with a wide or tall shape keep their proportions
+  instead of being stretched into a square. (#686)
+
 ## [1.3.0] - 2026-11-09
 
 Minor release. Security hardening, a large set of audit fixes, and new

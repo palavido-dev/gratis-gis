@@ -1694,6 +1694,7 @@ export function FieldRuntime({
           '-fill',
           '-poly-line',
           '-line',
+          '-icon-bg',
           '-icon-halo',
           '-circle',
           '-label',

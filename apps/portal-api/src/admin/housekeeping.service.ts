@@ -60,6 +60,16 @@ function isSeededBasemap(data: unknown): boolean {
   return typeof key === 'string' && key.length > 0;
 }
 
+/**
+ * Storage keys embedded in JSON text, for the orphan sweep's reference
+ * scan. Postgres runs it with regexp_matches; the syntax is shared with
+ * JavaScript so the spec can exercise it. Raster map icons (#686)
+ * carry a `.png` suffix after the UUID, and a style references them by
+ * that full key, so the suffix is captured for map-icon only.
+ */
+export const STORAGE_KEY_REF_PATTERN =
+  '((?:feature-attachment|item-file|item-tile-layer|item-point-cloud)/[0-9a-fA-F-]{36}|map-icon/[0-9a-fA-F-]{36}(?:\\.png)?)';
+
 @Injectable()
 export class HousekeepingService {
   private readonly log = new Logger(HousekeepingService.name);
@@ -1277,8 +1287,7 @@ export class HousekeepingService {
 
     // One statement for all four JSON surfaces. The pattern matches
     // `<managed-prefix>/<uuid>` anywhere in the serialized JSON.
-    const pattern =
-      '((?:feature-attachment|item-file|item-tile-layer|item-point-cloud|map-icon)/[0-9a-fA-F-]{36})';
+    const pattern = STORAGE_KEY_REF_PATTERN;
     const rows = await this.prisma.$queryRaw<Array<{ k: string }>>`
       SELECT DISTINCT k FROM (
         SELECT (regexp_matches(i.data_json::text, ${pattern}, 'g'))[1] AS k

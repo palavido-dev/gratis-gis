@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { HousekeepingService } from './housekeeping.service.js';
+import {
+  HousekeepingService,
+  STORAGE_KEY_REF_PATTERN,
+} from './housekeeping.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { ConfigService } from '@nestjs/config';
 import type { DataLayerTablesService } from '../data-layer/tables.service.js';
@@ -214,5 +217,26 @@ describe('HousekeepingService orphaned uploads', () => {
     expect(purge.unavailable).toBe(true);
     expect(purge.deletedCount).toBe(0);
     expect(deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('STORAGE_KEY_REF_PATTERN', () => {
+  const uuid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const scan = (text: string) =>
+    [...text.matchAll(new RegExp(STORAGE_KEY_REF_PATTERN, 'g'))].map((m) => m[1]);
+
+  it('keeps the full key of a raster map icon (#686)', () => {
+    const json = JSON.stringify({ iconName: `upload:map-icon/${uuid}.png` });
+    expect(scan(json)).toEqual([`map-icon/${uuid}.png`]);
+  });
+
+  it('still matches a bare SVG map-icon key', () => {
+    const json = JSON.stringify({ iconName: `upload:map-icon/${uuid}` });
+    expect(scan(json)).toEqual([`map-icon/${uuid}`]);
+  });
+
+  it('adds no suffix to the other prefixes', () => {
+    const json = JSON.stringify({ a: `item-file/${uuid}.png`, b: `feature-attachment/${uuid}` });
+    expect(scan(json)).toEqual([`item-file/${uuid}`, `feature-attachment/${uuid}`]);
   });
 });

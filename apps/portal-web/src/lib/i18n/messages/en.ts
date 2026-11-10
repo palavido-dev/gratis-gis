@@ -1234,16 +1234,17 @@ export const en = {
     tintWithFill: 'Tint with fill color',
     tintHint:
       'Tinting renders the icon as a signed-distance field so the fill color applies cleanly at any size. Un-tick if you want the icon to stay in its shipped color.',
+    rasterNoTint:
+      'PNG and JPEG icons keep their own colors. Tinting works only with SVG icons.',
     background: 'Background',
     shape: 'Shape',
     shapeNone: 'None',
     shapeCircle: 'Circle',
     shapeRoundedSquare: 'Rounded square',
-    roundedSquareHint:
-      'Rounded square renders as a soft pill until the sprite-bake renderer ships; appearance is close but the corners read as fully circular.',
     searchIcons: 'Search icons...',
     categoryAll: 'all',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Image',
+    uploadIconTitle: 'Upload an SVG, PNG or JPEG icon',
     uploading: 'Uploading {name}...',
     uploadFailed: 'Upload failed',
     yourUploads: 'Your uploads',
