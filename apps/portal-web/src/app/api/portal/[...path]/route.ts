@@ -12,6 +12,7 @@ import { revalidatePath } from 'next/cache';
 import { resolveRouteSession, type CookieWrite } from '@/lib/session-roll';
 import { isSessionStale } from '@/lib/session-state';
 import { mintRequestId } from '@/lib/api-error';
+import { fetchFailureReason, longRunningFetch } from '@/lib/long-running-fetch';
 import {
   hasUnsafePathSegment,
   isCrossOriginMutation,
@@ -40,42 +41,17 @@ function warnStaleSession(method: string, suffix: string): void {
 }
 
 /**
- * Long-running upstream dispatcher for ingest, per-layer import,
- * and whole-layer export routes. Default undici fetch() caps the
- * response-headers wait at 30 s, which is plenty for an admin click
- * but nowhere near long enough for a county-scale parcel ingest
- * (GDAL parse + bulk insert) or a GeoParquet export of the same
- * layer (the api walks every feature before the first response
- * byte). We use a dedicated Agent so normal API calls keep their
- * tight defaults: only requests routed here get the loosened
- * budget.
+ * Long-running upstream calls (ingest, per-layer import, whole-layer
+ * export, backup restore) go through longRunningFetch, which has a
+ * 15 min budget instead of the 30 s default, so a county-scale parcel
+ * ingest or a GeoParquet export of the same layer can finish. Normal
+ * API calls keep the tight defaults and fail fast. See
+ * src/lib/long-running-fetch.ts for why it is undici's own fetch.
  *
- * Both the import AND the constructor are deferred to the first
- * matching hit. A static `import { Agent } from 'undici'` loads
- * undici's Agent module at evaluation time, and that module body
- * references `util.markAsUncloneable`, a Node 22+ builtin that
- * doesn't exist on the older Node our build container runs.
- * Next.js's "Collect page data" phase evaluates every route module,
- * so the build crashed even though we never instantiated the Agent.
- * Dynamic import keeps undici entirely out of build-time
- * evaluation.
+ * Matches v3 per-layer ingest, v2 ingest, the wizard probe path,
+ * the per-layer GeoParquet export, and admin backup restore (#233).
+ * Conservative: only widens for endpoints we know can take minutes.
  */
-let _longRunningAgent: unknown = null;
-async function getLongRunningAgent(): Promise<unknown> {
-  if (!_longRunningAgent) {
-    const { Agent } = await import('undici');
-    _longRunningAgent = new Agent({
-      headersTimeout: 15 * 60 * 1000,
-      bodyTimeout: 15 * 60 * 1000,
-      connectTimeout: 30 * 1000,
-    });
-  }
-  return _longRunningAgent;
-}
-
-/** Match v3 per-layer ingest, v2 ingest, the wizard probe path,
- *  the per-layer GeoParquet export, and admin backup restore (#233).
- *  Conservative: only widens for endpoints we know can take minutes. */
 function isLongRunningPath(suffix: string): boolean {
   return (
     /^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
@@ -523,7 +499,7 @@ async function forwardInner(
   // `duplex: 'half'` is required by undici/fetch when the request
   // body is a ReadableStream; without it Node throws "RequestInit:
   // duplex option is required when sending a body".
-  const init: RequestInit & { duplex?: 'half'; dispatcher?: unknown } = {
+  const init: RequestInit & { duplex?: 'half' } = {
     method: req.method,
     headers,
     cache: 'no-store',
@@ -540,19 +516,16 @@ async function forwardInner(
   // serialises behind the previous one's still-running query.
   init.signal = req.signal;
 
-  // Long-running ingest / export endpoints get a custom dispatcher
-  // with 15 min headers + body timeouts. Everything else falls
-  // through to the built-in 30 s defaults so a misbehaving upstream
-  // still fails fast.
-  if (isLongRunningPath(suffix)) {
-    init.dispatcher = await getLongRunningAgent();
-  }
-
+  // Long-running ingest / export endpoints get a 15 min budget.
+  // Everything else falls through to the built-in 30 s defaults so a
+  // misbehaving upstream still fails fast.
   let upstream: Response;
   try {
-    upstream = await fetch(target, init);
+    upstream = isLongRunningPath(suffix)
+      ? await longRunningFetch(target, init)
+      : await fetch(target, init);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = fetchFailureReason(err);
     // The browser gets a sentence and the id. The reason (a refused
     // connection, a DNS failure) stays in this log.
     console.error(
