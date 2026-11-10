@@ -6,6 +6,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-10
+
+Minor release. Imports of any size now upload straight to storage and
+can resume after a dropped connection, point symbols are fixed and can
+be PNG or JPEG images, and release images publish without a manual
+re-run. Nothing here is breaking.
+
 ### Added
 
 - Map point symbols can now be PNG or JPEG images, not only SVG. Use
@@ -17,6 +24,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Release images publish on their own again. Since 1.3.0's publish
+  gate, a release tag refused to publish while CI on its commit was
+  still running, which it always is right after the merge, so images
+  needed a manual re-run. A tag now waits up to an hour for CI and
+  Security to finish. Publish runs for the same commit also queue
+  instead of running side by side. (#684)
 - Large imports no longer stop at 1 GB or after 5 minutes. A 1.4 GB
   GeoPackage froze at 67% because Caddy capped the request body at
   1 GB and both Node servers dropped requests slower than 5 minutes.
@@ -4479,6 +4492,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.4.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.0
 [1.3.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.3.0
 [1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
 [1.1.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.1.0
