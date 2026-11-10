@@ -5,14 +5,12 @@ import { join } from 'node:path';
 import { diskStorage } from 'multer';
 
 import { attachDiskFileName, pinDiskUpload, serverUploadName } from './ingest-disk-path.js';
-
-/** 1 GB, matching IngestService.maxBytes. */
-const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+import { INGEST_MAX_UPLOAD_BYTES } from './ingest-upload-handle.js';
 
 /**
  * multer options that write an ingest upload straight to a per-request
  * temp directory on disk instead of buffering it in memory. Memory
- * storage held the whole file (up to 1 GB) in the API replica's heap
+ * storage held the whole file in the API replica's heap
  * for the duration of the request, so two concurrent county-scale
  * imports could exceed the box; disk storage bounds memory to nothing.
  *
@@ -44,5 +42,7 @@ export const INGEST_DISK_UPLOAD = {
       cb(null, name);
     },
   }),
-  limits: { fileSize: MAX_UPLOAD_BYTES },
+  // Sanity ceiling only. Free disk is the real limit, checked by the
+  // handlers before they parse.
+  limits: { fileSize: INGEST_MAX_UPLOAD_BYTES },
 };

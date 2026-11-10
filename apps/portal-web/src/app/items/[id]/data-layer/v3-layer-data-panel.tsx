@@ -29,6 +29,11 @@ import {
 } from '@/components/upload-progress-panel';
 import { useT } from '@/lib/i18n/locale-context';
 import { needsServerGdalStage } from '@/lib/server-gdal-stage';
+import { detectFormat } from '@/lib/spatial-import';
+import {
+  resumableUpload,
+  resumableUploadErrorText,
+} from '@/lib/resumable-upload';
 import { V3FeatureBrowser } from './v3-feature-browser';
 import { SyncConflictsPanel } from './sync-conflicts-panel';
 import { AddToMapButton } from '../add-to-map-button';
@@ -49,6 +54,13 @@ interface SourceLayerPick {
   mode: 'replace' | 'append';
   selected: string;
 }
+
+/**
+ * Files at least this big use the resumable staged upload even when
+ * the direct import could read them. Smaller files keep the direct
+ * path, which answers with the inserted row count right away.
+ */
+const RESUMABLE_MIN_BYTES = 64 * 1024 * 1024;
 
 // Analyze (#175) lazy-loads: the DuckDB-WASM chunk is multiple MB
 // and must cost nothing on detail pages where nobody analyzes.
@@ -188,6 +200,8 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   }
   const inputRef = useRef<HTMLInputElement | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  // #573: the resumable staged upload cancels through this instead.
+  const uploadAbortRef = useRef<AbortController | null>(null);
   // #248: remember which import mode the user chose when they opened
   // the file picker. The native <input type="file"> dialog can't carry
   // arbitrary state in its onChange event, so we stash the mode on a
@@ -199,6 +213,8 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   function cancelUpload() {
     xhrRef.current?.abort();
     xhrRef.current = null;
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
     setBusy(null);
     setMessage(null);
   }
@@ -235,9 +251,10 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   }
 
   /**
-   * File Geodatabase path: stage once (wizard dialect), auto-import
-   * when the archive has a single layer, otherwise ask which source
-   * layer to pull into this target. Falls back to direct multipart
+   * File Geodatabase and large-file path: stage once (wizard dialect)
+   * with the resumable upload, auto-import when the archive has a
+   * single layer, otherwise ask which source layer to pull into this
+   * target. Falls back to direct multipart
    * import when staging is forbidden (edit-share without publish).
    */
   async function handleStagedGdalImport(
@@ -256,24 +273,32 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
         },
       },
     });
+    // #573: straight to storage in parts, resumable after a drop.
+    const controller = new AbortController();
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = controller;
     try {
-      const out = await uploadWithProgress<{
+      const out = await resumableUpload<{
         stagingId: string;
         driver: string;
         layers: ProbedLayer[];
       }>(
-        '/api/portal/ingest/stage',
         file,
         (e) => {
           setBusy((prev) =>
             prev
-              ? { ...prev, phase: e.phase, bytesUploaded: e.bytesUploaded }
+              ? {
+                  ...prev,
+                  phase: e.phase,
+                  bytesUploaded: e.bytesUploaded,
+                  resuming: e.resumed === true,
+                }
               : null,
           );
         },
-        xhrRef,
+        { signal: controller.signal },
       );
-      xhrRef.current = null;
+      uploadAbortRef.current = null;
       if (!out.layers.length) {
         setMessage({
           kind: 'error',
@@ -315,10 +340,13 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
         await handleDirectImport(file, mode);
         return;
       }
-      setMessage({ kind: 'error', text: msg });
+      setMessage({
+        kind: 'error',
+        text: resumableUploadErrorText(err, t) || t('layerDataPanel.uploadFailed'),
+      });
     } finally {
       setBusy(null);
-      xhrRef.current = null;
+      if (uploadAbortRef.current === controller) uploadAbortRef.current = null;
     }
   }
 
@@ -404,7 +432,14 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   async function handleFile(file: File, mode: 'replace' | 'append') {
     setMessage(null);
     setSourcePick(null);
-    if (needsServerGdalStage(file.name)) {
+    // A large spatial file also takes the staged path, so it goes
+    // straight to storage and can resume. The direct path posts the
+    // whole file through the web proxy in one request (#573). CSV and
+    // other tabular files keep the direct path.
+    if (
+      needsServerGdalStage(file.name) ||
+      (detectFormat(file.name) !== 'unknown' && file.size >= RESUMABLE_MIN_BYTES)
+    ) {
       await handleStagedGdalImport(file, mode);
       return;
     }

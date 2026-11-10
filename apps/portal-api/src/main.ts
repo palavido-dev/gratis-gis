@@ -109,6 +109,14 @@ async function bootstrap() {
     SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));
   }
 
+  // Node 18+ drops any request that takes longer than 300 s to arrive
+  // (server.requestTimeout). A large import on the multipart
+  // `POST /ingest/stage` path can take far longer than that on a slow
+  // uplink, so the cap is turned off here. Caddy sits in front and
+  // headersTimeout still bounds a client that never sends its headers.
+  const httpServer = app.getHttpServer() as { requestTimeout?: number };
+  httpServer.requestTimeout = 0;
+
   const port = Number(process.env.PORT ?? 4000);
   await app.listen(port);
   // eslint-disable-next-line no-console

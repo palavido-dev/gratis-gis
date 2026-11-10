@@ -62,8 +62,9 @@ import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
  * unless an import job still queued or running reads from it. A
  * user who pauses on the Create item screen for over an hour will
  * have to re-upload, which we treat as an acceptable trade for
- * bounded disk usage. Stagings are also implicitly bounded by the
- * 1 GB per-file ceiling shared with the rest of the ingest stack.
+ * bounded disk usage. Stagings are also bounded by the free-disk
+ * check each upload passes and the 50 GB sanity ceiling shared with
+ * the rest of the ingest stack.
  */
 const STAGING_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -250,16 +251,30 @@ export class IngestStagingService implements OnModuleInit {
     stream: NodeJS.ReadableStream;
     originalName: string;
     ownerId: string;
+    /**
+     * Name to store the bytes under. Must be a `serverUploadName`
+     * result. The resumable import upload passes one so a staged file
+     * gets the same name the multipart path would have given it.
+     */
+    storedName?: string;
   }): Promise<{
     stagingId: string;
     filePath: string;
     originalName: string;
     sizeBytes: number;
   }> {
+    let chosen = safeFilename(input.originalName);
+    if (input.storedName !== undefined) {
+      const stored = payloadFileName(input.storedName);
+      if (!stored) {
+        throw new BadRequestException('Upload file was not accepted.');
+      }
+      chosen = stored;
+    }
     const stagingId = randomUUID();
     const dir = join(this.root, stagingId);
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    const fileName = notMetaFile(safeFilename(input.originalName));
+    const fileName = notMetaFile(chosen);
     const filePath = join(dir, fileName);
     try {
       await pipeline(input.stream, createWriteStream(filePath, { mode: 0o600 }));

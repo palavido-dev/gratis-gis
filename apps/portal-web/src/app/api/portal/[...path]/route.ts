@@ -82,6 +82,10 @@ function isLongRunningPath(suffix: string): boolean {
     /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
     /^items\/[^/]+\/ingest$/.test(suffix) ||
     suffix === 'ingest/probe' ||
+    suffix === 'ingest/stage' ||
+    // #573: copies the finished upload out of storage and probes it,
+    // which takes minutes for a multi-GB file.
+    suffix === 'ingest/upload/complete' ||
     // #233: pg_restore + full MinIO refill routinely exceeds undici's
     // 30s default; without this the BFF aborts mid-restore.
     /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix)

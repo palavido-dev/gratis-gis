@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  Body,
   Controller,
   ForbiddenException,
   NotFoundException,
@@ -15,6 +16,17 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import type { Prisma } from '@prisma/client';
 import type { Response } from 'express';
 
@@ -35,6 +47,7 @@ import { IngestService } from './ingest.service.js';
 import {
   IngestStagingService,
   isStagingId,
+  stagingDiskPath,
 } from './ingest-staging.service.js';
 import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
@@ -49,9 +62,33 @@ import {
   IngestBusyException,
   IngestDiskException,
 } from './ingest-slots.js';
+import { IngestUploadService, MAX_SIGN_BATCH } from './ingest-upload.service.js';
+import { INGEST_MAX_UPLOAD_BYTES } from './ingest-upload-handle.js';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { assertNotV3DataLayer } from '../features/v3-guard.js';
+
+/** Body of `POST /ingest/upload/start`. */
+export class StartIngestUploadDto {
+  @IsString() @MinLength(1) @MaxLength(255) fileName!: string;
+  @IsInt() @Min(1) @Max(INGEST_MAX_UPLOAD_BYTES) sizeBytes!: number;
+}
+
+/** Body of the upload calls that only name an upload. */
+export class IngestUploadHandleDto {
+  @IsString() @MinLength(1) @MaxLength(4096) handle!: string;
+}
+
+/** Body of `POST /ingest/upload/sign`. */
+export class SignIngestUploadPartsDto {
+  @IsString() @MinLength(1) @MaxLength(4096) handle!: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_SIGN_BATCH)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  partNumbers!: number[];
+}
 
 /**
  * Server-side ingest endpoint. Accepts a multipart upload of an
@@ -76,7 +113,56 @@ export class IngestController {
     private readonly dataLayerTables: DataLayerTablesService,
     private readonly staging: IngestStagingService,
     @Optional() private readonly quota?: ResourceQuotaService,
+    @Optional() private readonly uploads?: IngestUploadService,
   ) {}
+
+  private requireImportCapability(user: AuthUser): void {
+    if (hasCapability(user, 'can_publish_items')) return;
+    throw new ForbiddenException(
+      'Importing files requires the contributor or admin role.',
+    );
+  }
+
+  private uploadService(): IngestUploadService {
+    if (!this.uploads) {
+      throw new NotFoundException('Resumable uploads are not available.');
+    }
+    return this.uploads;
+  }
+
+  /**
+   * Shared end of `POST /ingest/stage` and `POST /ingest/upload/complete`:
+   * hold the disk for the staging, then probe it. A staging that
+   * cannot be held or probed is dropped.
+   */
+  private async reserveAndProbe(
+    user: AuthUser,
+    staged: { stagingId: string; filePath: string; sizeBytes: number },
+  ): Promise<{
+    stagingId: string;
+    driver: string;
+    layers: Awaited<ReturnType<IngestService['probeFileFromPath']>>['layers'];
+  }> {
+    try {
+      await this.quota?.reserve(user.orgId, BigInt(staged.sizeBytes), staged.stagingId);
+    } catch (err) {
+      await this.staging.dropStaging(staged.stagingId).catch(() => {});
+      throw err;
+    }
+    try {
+      const probe = await this.ingest.probeFileFromPath(staged.filePath);
+      return {
+        stagingId: staged.stagingId,
+        driver: probe.driver,
+        layers: probe.layers,
+      };
+    } catch (err) {
+      // Probe rejected: don't keep a staged file we can't ingest.
+      await this.staging.dropStaging(staged.stagingId).catch(() => {});
+      await this.quota?.releasePurpose(staged.stagingId);
+      throw err;
+    }
+  }
 
   /**
    * probe and stage exist to feed the create-item wizard, so they take
@@ -155,7 +241,7 @@ export class IngestController {
    *
    * Any signed-in user may call this; see assertCanImport for why it
    * is not behind the publish capability the way probe and stage are.
-   * Same 1 GB cap as the other ingest entry points. Driver / SRS info
+   * Same size ceiling as the other ingest entry points. Driver / SRS info
    * is returned alongside the GeoJSON so the client can surface a
    * "Reprojected from EPSG:X" note when the source was anything other
    * than WGS84.
@@ -238,28 +324,10 @@ export class IngestController {
           originalName: file.originalname,
           ownerId: user.id,
         });
-        try {
-          await this.quota?.reserve(user.orgId, BigInt(staged.sizeBytes), staged.stagingId);
-        } catch (err) {
-          await this.staging.dropStaging(staged.stagingId).catch(() => {});
-          throw err;
-        }
         await rm(contained.directory, { recursive: true, force: true }).catch(
           () => {},
         );
-        try {
-          const probe = await this.ingest.probeFileFromPath(staged.filePath);
-          return {
-            stagingId: staged.stagingId,
-            driver: probe.driver,
-            layers: probe.layers,
-          };
-        } catch (err) {
-          // Probe rejected: don't keep a staged file we can't ingest.
-          await this.staging.dropStaging(staged.stagingId).catch(() => {});
-          await this.quota?.releasePurpose(staged.stagingId);
-          throw err;
-        }
+        return await this.reserveAndProbe(user, staged);
       } finally {
         release?.();
         await rm(contained.directory, { recursive: true, force: true }).catch(
@@ -269,6 +337,75 @@ export class IngestController {
     } finally {
       await discardDiskUpload(req);
     }
+  }
+
+  /**
+   * Resumable import upload (#573), step 1. Checks the file name, the
+   * size, and free disk on the staging volume, then opens an S3
+   * multipart upload. The browser sends the parts straight to MinIO,
+   * so a large file never passes through Caddy, the web proxy, or a
+   * Node request timeout. Same capability as `POST /ingest/stage`.
+   */
+  @Post('ingest/upload/start')
+  async startUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: StartIngestUploadDto,
+  ) {
+    this.requireImportCapability(user);
+    return this.uploadService().start(user.id, body.fileName, body.sizeBytes);
+  }
+
+  /** Presigned part URLs, at most 100 per call. */
+  @Post('ingest/upload/sign')
+  async signUploadParts(
+    @CurrentUser() user: AuthUser,
+    @Body() body: SignIngestUploadPartsDto,
+  ) {
+    this.requireImportCapability(user);
+    return this.uploadService().signParts(user.id, body.handle, body.partNumbers);
+  }
+
+  /** Parts already stored, so a dropped upload can continue. */
+  @Post('ingest/upload/status')
+  async uploadStatus(
+    @CurrentUser() user: AuthUser,
+    @Body() body: IngestUploadHandleDto,
+  ) {
+    this.requireImportCapability(user);
+    return this.uploadService().status(user.id, body.handle);
+  }
+
+  /**
+   * Finish the upload, move it into staging, and probe it. Returns the
+   * same `{ stagingId, driver, layers }` as `POST /ingest/stage`.
+   */
+  @Post('ingest/upload/complete')
+  async completeUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: IngestUploadHandleDto,
+  ) {
+    this.requireImportCapability(user);
+    const uploads = this.uploadService();
+    const claims = uploads.claimsFor(user.id, body.handle);
+    let release: (() => void) | undefined;
+    try {
+      release = acquireIngestSlot(user.id);
+      await assertIngestDiskRoomAt(stagingDiskPath(), claims.size);
+      const staged = await uploads.completeToStaging(claims);
+      return await this.reserveAndProbe(user, staged);
+    } finally {
+      release?.();
+    }
+  }
+
+  /** Cancel: drop the upload and every part stored for it. */
+  @Post('ingest/upload/abort')
+  async abortUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: IngestUploadHandleDto,
+  ) {
+    this.requireImportCapability(user);
+    return this.uploadService().abort(user.id, body.handle);
   }
 
   @Post('items/:id/ingest')
