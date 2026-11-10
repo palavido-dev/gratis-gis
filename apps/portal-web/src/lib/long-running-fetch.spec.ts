@@ -12,6 +12,7 @@ import { fetchFailureReason, longRunningFetch } from './long-running-fetch';
  */
 let server: http.Server;
 let base: string;
+const DELAYS: Record<string, number> = { '/short': 50, '/slow': 5000 };
 const seen: Array<{ method: string | undefined; body: string }> = [];
 
 beforeAll(async () => {
@@ -20,7 +21,9 @@ beforeAll(async () => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       seen.push({ method: req.method, body });
-      const delay = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('delay') ?? 0);
+      // Fixed delays per path. A delay read from the request would be
+      // a timer length chosen by the caller.
+      const delay = DELAYS[req.url ?? ''] ?? 0;
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/x-ndjson' });
         res.write('{"n":1}\n');
@@ -39,7 +42,7 @@ afterAll(async () => {
 
 describe('longRunningFetch', () => {
   it('completes a real request (the 1.3.0 to 1.4.0 dispatcher failed here at once)', async () => {
-    const res = await longRunningFetch(`${base}/?delay=50`, { method: 'GET', cache: 'no-store' });
+    const res = await longRunningFetch(`${base}/short`, { method: 'GET', cache: 'no-store' });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('{"n":1}\n{"n":2}\n');
   });
@@ -66,7 +69,7 @@ describe('longRunningFetch', () => {
   });
 
   it('streams the response body chunk by chunk', async () => {
-    const res = await longRunningFetch(`${base}/?delay=0`, { method: 'GET' });
+    const res = await longRunningFetch(`${base}/`, { method: 'GET' });
     const reader = res.body!.getReader();
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toBe('{"n":1}\n');
@@ -75,7 +78,7 @@ describe('longRunningFetch', () => {
 
   it('honors an abort from the browser', async () => {
     const ac = new AbortController();
-    const p = longRunningFetch(`${base}/?delay=5000`, { method: 'GET', signal: ac.signal });
+    const p = longRunningFetch(`${base}/slow`, { method: 'GET', signal: ac.signal });
     setTimeout(() => ac.abort(), 20);
     await expect(p).rejects.toThrow();
   });
