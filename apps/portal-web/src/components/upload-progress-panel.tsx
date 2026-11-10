@@ -3,6 +3,7 @@
 
 import { FileUp, Loader2, XCircle } from 'lucide-react';
 import { formatBytes } from '@/lib/format-bytes';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Shared upload-progress UI + helper. Used wherever a sizeable file
@@ -31,6 +32,9 @@ export interface UploadBusy {
   fileName: string;
   fileSize: number;
   bytesUploaded: number;
+  /** True while a resumable upload continues an interrupted one. The
+   *  uploading headline then reads "Resuming upload". */
+  resuming?: boolean;
   /** Optional override for the panel copy. The defaults read like
    *  "Reading on the server" (probe / wizard); a caller doing a
    *  feature ingest can pass its own to read like "Importing
@@ -76,12 +80,15 @@ export function UploadProgressPanel({
       : busy.phase === 'reading'
         ? 100
         : 0;
+  const t = useT();
   const customCopy = busy.copy?.[busy.phase];
   const baseCopy = DEFAULT_COPY[busy.phase];
   const headline =
     customCopy?.headline ??
     (busy.phase === 'uploading'
-      ? `${baseCopy.headline} ${pct.toFixed(0)}%`
+      ? busy.resuming
+        ? t('resumableUpload.resumingHeadline', { pct: pct.toFixed(0) })
+        : `${baseCopy.headline} ${pct.toFixed(0)}%`
       : baseCopy.headline);
   const subhead = customCopy?.subhead ?? baseCopy.subhead;
   const showCancel = busy.phase !== 'parsing';

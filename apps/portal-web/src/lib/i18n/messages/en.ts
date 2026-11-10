@@ -3197,6 +3197,14 @@ export const en = {
     editOnlyFeatureService:
       "Edit is only available for feature-service layers. Remote sources (ArcGIS REST, URL, inline) stay read-only in the matrix to avoid offering permissions that can't take effect.",
   },
+  resumableUpload: {
+    resumingHeadline: 'Resuming upload {pct}%',
+    networkError:
+      'The connection dropped and the upload could not continue. Pick the same file again to resume where it stopped.',
+    partFailed:
+      'Storage refused part of the file. Pick the same file again to resume where it stopped.',
+    failed: 'Upload failed',
+  },
   layerDataPanel: {
     tablistAria: '{label} views',
     attributesTab: 'Attributes',

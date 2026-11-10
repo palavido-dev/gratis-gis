@@ -3066,6 +3066,14 @@ export const es: Partial<CatalogShape> = {
     editOnlyFeatureService:
       'Editar solo está disponible en capas de servicio de entidades. Los orígenes remotos (ArcGIS REST, URL, en línea) quedan de solo lectura en la matriz para no ofrecer permisos que no pueden aplicarse.',
   },
+  resumableUpload: {
+    resumingHeadline: 'Reanudando la carga {pct}%',
+    networkError:
+      'Se perdió la conexión y la carga no pudo continuar. Vuelva a elegir el mismo archivo para reanudarla donde se detuvo.',
+    partFailed:
+      'El almacenamiento rechazó una parte del archivo. Vuelva a elegir el mismo archivo para reanudar la carga donde se detuvo.',
+    failed: 'La carga falló',
+  },
   layerDataPanel: {
     tablistAria: 'Vistas de {label}',
     attributesTab: 'Atributos',

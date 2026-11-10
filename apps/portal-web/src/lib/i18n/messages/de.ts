@@ -3082,6 +3082,14 @@ export const de: Partial<CatalogShape> = {
     editOnlyFeatureService:
       'Bearbeiten ist nur für Feature-Service-Ebenen verfügbar. Remote-Quellen (ArcGIS REST, URL, inline) bleiben in der Matrix schreibgeschützt, damit keine wirkungslosen Berechtigungen angeboten werden.',
   },
+  resumableUpload: {
+    resumingHeadline: 'Upload wird fortgesetzt {pct}%',
+    networkError:
+      'Die Verbindung wurde unterbrochen und der Upload konnte nicht fortgesetzt werden. Wählen Sie dieselbe Datei erneut, um dort weiterzumachen, wo er aufgehört hat.',
+    partFailed:
+      'Der Speicher hat einen Teil der Datei abgelehnt. Wählen Sie dieselbe Datei erneut, um dort weiterzumachen, wo der Upload aufgehört hat.',
+    failed: 'Upload fehlgeschlagen',
+  },
   layerDataPanel: {
     tablistAria: 'Ansichten von {label}',
     attributesTab: 'Attribute',

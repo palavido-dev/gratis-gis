@@ -121,3 +121,22 @@ describe('StorageService.presignUpload size guard', () => {
     ).resolves.toMatchObject({ key: expect.stringMatching(/^item-file\//) });
   });
 });
+
+describe('StorageService.presignUploadPart', () => {
+  it('signs the part length, so a part PUT cannot carry more bytes', async () => {
+    const url = await service().presignUploadPart(
+      'ingest-upload/u/k',
+      'upload-1',
+      3,
+      16 * 1024 * 1024,
+      3600,
+    );
+    expect(signedHeaders(url)).toContain('content-length');
+    const params = new URL(url).searchParams;
+    expect(params.get('partNumber')).toBe('3');
+    expect(params.get('uploadId')).toBe('upload-1');
+    // A browser cannot add checksum headers, so none may be signed.
+    expect(signedHeaders(url).filter((h) => h.includes('checksum'))).toEqual([]);
+    expect([...params.keys()].filter((k) => k.toLowerCase().includes('checksum'))).toEqual([]);
+  });
+});

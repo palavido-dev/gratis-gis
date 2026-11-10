@@ -10,6 +10,8 @@ import { IngestController } from './ingest.controller.js';
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { ResourceQuotaModule } from '../admin/resource-quota.module.js';
+import { StorageModule } from '../storage/storage.module.js';
+import { IngestUploadService } from './ingest-upload.service.js';
 
 @Module({
   imports: [
@@ -19,8 +21,9 @@ import { ResourceQuotaModule } from '../admin/resource-quota.module.js';
     DataLayerFeaturesModule,
     DataLayerTablesModule,
     ResourceQuotaModule,
+    StorageModule,
   ],
-  providers: [IngestService, IngestStagingService],
+  providers: [IngestService, IngestStagingService, IngestUploadService],
   controllers: [IngestController],
   // Both IngestService (GDAL probe + stream) and IngestStagingService
   // (the /tmp/gg-staging/<id>/ store) are reused by ImportJobsModule
