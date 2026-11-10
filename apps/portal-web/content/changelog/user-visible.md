@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.4.1] - 2026-11-10
+
+## 2026-11-10 - File imports work again
+In 1.4.0, importing a file from the new item wizard failed with "The portal API could not be reached" right after the upload finished. Imports, exports and backup restores now go through again.
+
 ## [1.4.0] - 2026-11-10
 
 ## 2026-11-10 - Upload files of any size

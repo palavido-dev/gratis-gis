@@ -6,19 +6,26 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-10
+
+Patch release. File imports from the create wizard work again: in
+1.4.0 every upload failed with a 502 right after it finished. VPS
+deploys also pick up Caddyfile changes and clean up retired
+containers on their own. Nothing here is breaking.
+
 ### Fixed
 
 - Imports, exports and backup restores no longer fail at once with
-  "The portal API could not be reached. (502)". Since 1.3.0 every call
-  the web app gives a long time budget (finishing an upload, per-layer
-  import, GeoParquet export, backup restore) failed before it reached
-  the API: the web app handed a connection setting from the undici
-  package (now version 8) to the fetch built into Node 24 (undici 7),
-  and the two do not fit together. Those calls now use undici's own
-  fetch, so the pair always matches. The web app's log also gives the
-  underlying reason when a call to the API fails, not only
-  "fetch failed". Refs #573
-
+  "The portal API could not be reached. (502)". Every call the web
+  app gives a long time budget (finishing an upload, per-layer import,
+  GeoParquet export, backup restore, the wizard's file probe) failed
+  before it reached the API: the web app handed a connection setting
+  from the undici package (version 8) to the fetch built into Node 24
+  (undici 7), and the two do not fit together. In 1.4.0 that broke
+  every file upload in the create wizard, whatever its size. Those
+  calls now use undici's own fetch, so the pair always matches. The
+  web app's log also gives the underlying reason when a call to the
+  API fails, not only "fetch failed". Refs #573
 - VPS deploys now pick up a changed Caddyfile. Caddy mounts the single
   file `infra/Caddyfile`, and a git checkout replaces that file, so the
   running Caddy kept the old config until something restarted it. After
@@ -4517,6 +4524,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.4.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.1
 [1.4.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.0
 [1.3.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.3.0
 [1.2.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.2.0
