@@ -6,6 +6,20 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- VPS deploys now pick up a changed Caddyfile. Caddy mounts the single
+  file `infra/Caddyfile`, and a git checkout replaces that file, so the
+  running Caddy kept the old config until something restarted it. After
+  the 1.4.0 deploy the demo still capped uploads at 1 GB. `deploy.sh`
+  now compares the Caddyfile Caddy sees with the one on disk and
+  restarts Caddy when they differ.
+- VPS deploys remove containers whose service left the compose file.
+  On Docker Compose v5.3.1, `up -d --remove-orphans` only warned about
+  the retired pg_tileserv container and left it running. `deploy.sh`
+  now removes such containers itself. Profile services that are off
+  (scripts) and one-off `compose run` containers are left alone.
+
 ## [1.4.0] - 2026-11-10
 
 Minor release. Imports of any size now upload straight to storage and

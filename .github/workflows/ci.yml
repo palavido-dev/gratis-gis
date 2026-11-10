@@ -216,6 +216,7 @@ jobs:
           node infra/origin-preflight.test.mjs
           node infra/field-bundle/read-recovery.test.mjs
           bash infra/publish-gate.test.sh
+          bash infra/lib-deploy.test.sh
 
   recovery-integration:
     name: Keycloak reset and maintenance gate
