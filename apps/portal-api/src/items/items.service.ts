@@ -703,6 +703,14 @@ function preserveMapAnonDrawingFields(
   return merged;
 }
 
+/**
+ * Ceiling for the transaction that deletes a v3 data layer's rows on
+ * purge. Prisma's default is 5 s; a multi-million row layer needs
+ * minutes. Generous on purpose: the delete holds no lock other users
+ * wait on, and a purge that never finishes leaves rows behind for good.
+ */
+const PURGE_TX_TIMEOUT_MS = 60 * 60 * 1000;
+
 @Injectable()
 export class ItemsService {
   private readonly log = new Logger(ItemsService.name);
@@ -3149,10 +3157,23 @@ export class ItemsService {
         // Engine-pivot layout: features live in `observation` keyed
         // by scope. Wipe every scope under this item id in one
         // statement; pg_partman partition routing keeps it cheap.
-        await this.prisma.$executeRaw`
-          DELETE FROM observation
-          WHERE scope LIKE ${`data_layer:${itemId}:%`}
-        `;
+        //
+        // The app role carries a 30 s statement_timeout, and deleting
+        // a big layer takes longer: 2.5M polygons ran past it on the
+        // demo, so purge failed and the rows stayed behind for good,
+        // in the nightly trash sweep too (#573). Lift the limit for
+        // this one statement, inside its own transaction, the same
+        // way CopyWriter does for imports.
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRawUnsafe('SET LOCAL statement_timeout = 0');
+            await tx.$executeRaw`
+              DELETE FROM observation
+              WHERE scope LIKE ${`data_layer:${itemId}:%`}
+            `;
+          },
+          { maxWait: 10_000, timeout: PURGE_TX_TIMEOUT_MS },
+        );
       } else if (data?.storageType === 'postgis') {
         // v2 legacy: per-item table. Drop it so the storage shrinks
         // immediately (DROP TABLE returns disk faster than DELETE).

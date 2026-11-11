@@ -62,6 +62,9 @@ function isLongRunningPath(suffix: string): boolean {
     // #573: copies the finished upload out of storage and probes it,
     // which takes minutes for a multi-GB file.
     suffix === 'ingest/upload/complete' ||
+    // #573: purging a data layer deletes all of its rows, minutes for
+    // a layer with millions of features.
+    /^items\/[^/]+\/purge$/.test(suffix) ||
     // #233: pg_restore + full MinIO refill routinely exceeds undici's
     // 30s default; without this the BFF aborts mid-restore.
     /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix)

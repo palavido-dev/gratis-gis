@@ -6,6 +6,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Purging a large data layer no longer fails with "canceling statement
+  due to statement timeout". Deleting a layer's rows ran into the 30 s
+  limit the app's database role carries, so purge failed for layers of
+  a few million features and their rows stayed behind for good, in the
+  nightly trash sweep too. That one delete now lifts the limit for
+  itself, and the web app gives purge the same 15 minute budget as an
+  import. Refs #573
+
 ## [1.4.1] - 2026-11-10
 
 Patch release. File imports from the create wizard work again: in
