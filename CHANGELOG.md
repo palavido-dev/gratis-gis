@@ -6,15 +6,21 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-11
+
+Patch release. Purging a data layer works again for layers of any
+real size: on 1.4.1 even a 468,000 polygon layer failed to purge and
+left its rows behind. Nothing here is breaking.
+
 ### Fixed
 
 - Purging a large data layer no longer fails with "canceling statement
   due to statement timeout". Deleting a layer's rows ran into the 30 s
-  limit the app's database role carries, so purge failed for layers of
-  a few million features and their rows stayed behind for good, in the
-  nightly trash sweep too. That one delete now lifts the limit for
-  itself, and the web app gives purge the same 15 minute budget as an
-  import. Refs #573
+  limit the app's database role carries, so purge failed for any
+  sizable layer (a 468,000 polygon layer failed on the demo) and the
+  rows stayed behind for good, in the nightly trash sweep too. That
+  one delete now lifts the limit for itself, and the web app gives
+  purge the same 15 minute budget as an import. Refs #573
 
 ## [1.4.1] - 2026-11-10
 
@@ -4534,6 +4540,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.4.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.2
 [1.4.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.1
 [1.4.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.0
 [1.3.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.3.0
