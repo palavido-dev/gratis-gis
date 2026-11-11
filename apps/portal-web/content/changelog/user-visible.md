@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.4.2] - 2026-11-11
+
+## 2026-11-11 - Permanently deleting large layers works
+Permanently deleting a data layer from Recently deleted failed for large layers and left their data behind. It now finishes, however big the layer is.
+
 ## [1.4.1] - 2026-11-10
 
 ## 2026-11-10 - File imports work again
