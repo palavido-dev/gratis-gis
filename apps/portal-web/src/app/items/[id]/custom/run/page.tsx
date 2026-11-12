@@ -381,22 +381,14 @@ export default async function CustomAppRuntimePage(props: Props) {
   // BasemapGallery), every needed map item, and every theme item
   // (for the themePresetId resolution below) in parallel.
   //
-  // Anon list-query caveat: the BFF's anonymous-allowlist
-  // (publicRewriteForAnonymousGet) covers /api/items/:id but NOT
-  // /api/items?type=... list queries -- those 401 for anon visitors
-  // of a public-shared app. The basemap + theme list queries both
-  // .catch(() => []) so the page still renders, but the result is a
-  // theme fallback to the default tokens and an empty basemap
-  // gallery for anonymous viewers, which is wrong for a publicly
-  // shared app that intentionally picks a theme.
-  //
-  // For the theme case we patch the gap below by fetching the
-  // configured theme item directly by id (which IS in the anon
-  // allowlist). For basemaps we still rely on the list path; anon
-  // viewers see the map's own basemap rendered fine, they just
-  // can't pop the BasemapGallery to swap. Promoting basemap
-  // visibility for anon is a separate decision (we'd need an
-  // explicit "include in public list" gate per basemap).
+  // Anonymous viewers: fetchItemList sends both list queries to the
+  // public list (/api/public/items). That serves public basemaps and
+  // an empty array for every other type, so anonymous viewers get no
+  // theme items from the list. A theme saved by id (a UUID) is
+  // fetched directly below through the public per-id route, which
+  // works when that theme item is public. A theme saved by starter
+  // kind ('forest') resolves to the built-in starter tokens for them,
+  // even when an admin has customised that starter's theme item.
   // full=1 on both lists: the runtime renders basemaps from each
   // row's data payload and resolves theme tokens from the theme
   // item's data, and the list strips data_json by default now.
@@ -415,8 +407,8 @@ export default async function CustomAppRuntimePage(props: Props) {
 
   // Anon-safe per-id theme fetch. When the app's themePresetId is a
   // UUID (a saved theme item ref, as opposed to a built-in starter
-  // kind like 'forest') AND the list query came back empty (anon's
-  // 401 -> caught -> []), fetch that specific theme item directly.
+  // kind like 'forest') AND the list did not return it (anonymous
+  // viewers get an empty theme list), fetch that theme item directly.
   // The per-id path goes through the public/items/:id rewrite for
   // anonymous callers, so a publicly-shared app whose theme item is
   // also public renders with the right tokens instead of falling

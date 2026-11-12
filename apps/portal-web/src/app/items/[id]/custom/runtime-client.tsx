@@ -96,10 +96,6 @@ import {
   RecipeRunPanel,
   type HostLayerOption,
 } from './recipe-run-panel';
-import {
-  OsmOverlayLayer,
-  type OsmOverlayFeature,
-} from './osm-overlay-layer';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { mobilePlacements, type MobilePlacement } from '@/lib/mobile-canvas';
 import { customBasemapToData } from '@/lib/custom-basemap';
@@ -6524,6 +6520,19 @@ function ToolButtonRender({
   // Error from the last direct action (export-layer), shown on the
   // button's tooltip and under it.
   const [actionError, setActionError] = useState<string | null>(null);
+  // Map the tool panel is drawing an area on.  While set, that map's
+  // feature popups (and click select) are held off so placing a
+  // vertex over a feature does not open its popup.
+  const [aoiDrawMap, setAoiDrawMap] = useState<maplibregl.Map | null>(null);
+  const setSuppressed = ctx?.setPopupSuppressed;
+  const aoiMapWidgetId = aoiDrawMap
+    ? Object.entries(ctx?.maps ?? {}).find(([, m]) => m === aoiDrawMap)?.[0] ?? null
+    : null;
+  useEffect(() => {
+    if (!setSuppressed || !aoiMapWidgetId) return;
+    setSuppressed(aoiMapWidgetId, true);
+    return () => setSuppressed(aoiMapWidgetId, false);
+  }, [setSuppressed, aoiMapWidgetId]);
   // Active OSM overlay produced by the latest tool run, if any.
   // Reset on a fresh run; stays mounted on the host map until the
   // user dismisses it via the attribution chip's close button or
@@ -6732,6 +6741,7 @@ function ToolButtonRender({
               hostLayers={buildHostLayerOptions(ctx)}
               {...(bbox ? { hostBbox: bbox } : {})}
               getDrawMap={() => firstMapInstance(ctx)}
+              onDrawingChange={setAoiDrawMap}
               onClose={() => setRecipePanelOpen(false)}
               onResult={(result) => {
                 if (result.output.kind === 'selection') {
@@ -7140,6 +7150,16 @@ function firstMapInstance(
   return Object.values(ctx.maps).find((x) => x) ?? null;
 }
 
+/** One feature of an OSM tool-run result, as the runner returns it.
+ *  (It lived with the old standalone overlay component, which had
+ *  stopped being rendered once results became ordinary map layers.) */
+interface OsmOverlayFeature {
+  type: 'Feature';
+  id: string;
+  properties: Record<string, unknown>;
+  geometry: unknown;
+}
+
 /**
  * #141 wave B: build a MapLayer descriptor for an OSM tool-run
  * result.  The resulting layer uses the `geojson-inline` source
@@ -7198,9 +7218,8 @@ function buildOsmResultLayer(args: {
     ],
   };
   // Purple-ish accent so OSM results read as distinct from
-  // PostGIS-backed data layers.  Same color the standalone
-  // OsmOverlayLayer used so users who saw OSM results in wave A
-  // get a consistent visual identity.
+  // PostGIS-backed data layers.  Same color the wave A overlay used
+  // so OSM results keep a consistent visual identity.
   const OSM_COLOR = '#7c3aed';
   const style: MapLayer['style'] = {
     ...structuredClone(DEFAULT_LAYER_STYLE),

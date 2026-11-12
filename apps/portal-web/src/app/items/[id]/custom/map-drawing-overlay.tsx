@@ -203,11 +203,19 @@ export function MapDrawingOverlay({
     }
 
     function onDoubleClick(e: maplibregl.MapMouseEvent) {
-      // Browsers fire a click immediately before dblclick, so the
-      // last point has already been appended by the click handler.
-      // Drop the duplicate and finalize.
+      // Browsers fire two clicks before dblclick, so the last point
+      // has been appended twice by the click handler.  Drop the
+      // repeat before the minimum-point checks: with it, a click and
+      // a double-click passed as a three-point polygon of zero area.
       e.preventDefault();
-      const accumulated = pointsRef.current;
+      let accumulated = pointsRef.current;
+      const last = accumulated[accumulated.length - 1];
+      const prev = accumulated[accumulated.length - 2];
+      if (last && prev && last[0] === prev[0] && last[1] === prev[1]) {
+        accumulated = accumulated.slice(0, -1);
+        pointsRef.current = accumulated;
+        setPoints(accumulated);
+      }
       if (geometryType === 'polygon') {
         // Need at least three distinct points + closure.
         if (accumulated.length < 3) return;

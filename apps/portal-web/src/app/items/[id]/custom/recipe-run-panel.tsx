@@ -39,7 +39,7 @@
  * carry into the request payload silently.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Pencil, X } from 'lucide-react';
 import type * as maplibregl from 'maplibre-gl';
@@ -225,6 +225,10 @@ interface Props {
    *  always grabs the live instance at the moment the user clicks
    *  Draw -- the map may have re-mounted since the panel opened. */
   getDrawMap?: () => maplibregl.Map | null;
+  /** Told which map is being drawn on (null when drawing ends), so
+   *  the host can stop that map opening feature popups on every
+   *  vertex click. */
+  onDrawingChange?: (map: maplibregl.Map | null) => void;
   onClose: () => void;
   onResult: (result: RecipeRunResult) => void;
 }
@@ -238,6 +242,7 @@ export function RecipeRunPanel({
   hostLayers,
   hostBbox,
   getDrawMap,
+  onDrawingChange,
   onClose,
   onResult,
 }: Props) {
@@ -267,6 +272,14 @@ export function RecipeRunPanel({
     geometryType: DrawableGeometryType;
     mapInstance: maplibregl.Map;
   } | null>(null);
+
+  const drawMap = drawing?.mapInstance ?? null;
+  useEffect(() => {
+    onDrawingChange?.(drawMap);
+    return () => onDrawingChange?.(null);
+    // The host passes a fresh arrow each render; key on the map only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawMap]);
 
   function patch(name: string, next: unknown) {
     setValues((v) => ({ ...v, [name]: next }));
@@ -519,6 +532,65 @@ const OSM_COMMON_TAG_KEYS = [
 
 // ---- Per-parameter input rows --------------------------------------------
 
+/**
+ * Textarea for pasting an AOI as GeoJSON.
+ *
+ * It keeps its own text. It used to be controlled by the stored value,
+ * so any keystroke that left the JSON invalid was thrown away and the
+ * box could not be typed in, edited or cleared. Only text that parses
+ * to a GeoJSON object (something with a string `type`) is passed up;
+ * an empty box clears the value.
+ */
+function GeoJsonPasteBox({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (geojson: unknown) => void;
+}) {
+  const [text, setText] = useState(() =>
+    value === undefined ? '' : JSON.stringify(value),
+  );
+  // A value set from elsewhere (drawn on the map, current view)
+  // replaces the text, unless the text already says the same thing.
+  const lastSent = useRef<unknown>(value);
+  useEffect(() => {
+    if (value === lastSent.current) return;
+    lastSent.current = value;
+    setText(value === undefined ? '' : JSON.stringify(value));
+  }, [value]);
+  return (
+    <textarea
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        if (!raw.trim()) {
+          lastSent.current = undefined;
+          onChange(undefined);
+          return;
+        }
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (
+            parsed &&
+            typeof parsed === 'object' &&
+            typeof (parsed as { type?: unknown }).type === 'string'
+          ) {
+            lastSent.current = parsed;
+            onChange(parsed);
+          }
+        } catch {
+          /* still typing; keep the text and the last good value */
+        }
+      }}
+      rows={4}
+      placeholder='{"type":"Polygon","coordinates":[[[...]]]}'
+      className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 font-mono text-2xs"
+    />
+  );
+}
+
 function ParamInputRow({
   parameter,
   value,
@@ -612,7 +684,8 @@ function FeatureSourceInput({
 }: {
   parameter: FeatureSourceParameter;
   value: FeatureSourceValue | undefined;
-  onChange: (next: FeatureSourceValue) => void;
+  /** undefined clears the value (an emptied paste box). */
+  onChange: (next: FeatureSourceValue | undefined) => void;
   hostLayers: HostLayerOption[];
   hostBbox?: [number, number, number, number];
   onStartDraw?: (paramName: string, geometryType: DrawableGeometryType) => void;
@@ -714,22 +787,15 @@ function FeatureSourceInput({
           <summary className="cursor-pointer text-muted">
             Paste GeoJSON (advanced)
           </summary>
-          <textarea
-            value={inlineGeo ? JSON.stringify(inlineGeo) : ''}
-            onChange={(e) => {
-              const raw = e.target.value.trim();
-              if (!raw) return;
-              try {
-                const parsed = JSON.parse(raw);
-                onChange({ kind: 'inline-geojson', geojson: parsed });
-              } catch {
-                /* keep the textarea editable; the runner will reject
-                   invalid JSON when Run is clicked. */
-              }
-            }}
-            rows={4}
-            placeholder='{"type":"Polygon","coordinates":[[[...]]]}'
-            className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 font-mono text-2xs"
+          <GeoJsonPasteBox
+            value={inlineGeo}
+            onChange={(geojson) =>
+              onChange(
+                geojson === undefined
+                  ? undefined
+                  : { kind: 'inline-geojson', geojson },
+              )
+            }
           />
         </details>
       </div>
@@ -965,20 +1031,26 @@ function OsmFeatureInput({
   const allowFilters = parameter.binding.allowCustomTagFilters !== false;
   const allowedPresetIds = parameter.binding.allowedPresetIds;
   const presetIds = value?.presetIds ?? parameter.binding.defaultPresetIds ?? [];
-  const tagFilters = value?.tagFilters ?? parameter.binding.defaultTagFilters ?? [];
+  // Defaults apply only before the user has touched the value.  Once
+  // there is a value its own list wins, even when empty: falling back
+  // to the defaults there made the last default row impossible to
+  // remove, and the panel showed a filter the request did not send.
+  const tagFilters = value
+    ? (value.tagFilters ?? [])
+    : (parameter.binding.defaultTagFilters ?? []);
 
   function setPresets(next: string[]) {
     onChange({
       kind: 'osm-feature-input',
       presetIds: next,
-      ...(tagFilters.length > 0 ? { tagFilters } : {}),
+      tagFilters,
     });
   }
   function setTagFilters(next: OsmTagFilter[]) {
     onChange({
       kind: 'osm-feature-input',
       presetIds,
-      ...(next.length > 0 ? { tagFilters: next } : {}),
+      tagFilters: next,
     });
   }
 
