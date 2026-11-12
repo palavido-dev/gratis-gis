@@ -2016,6 +2016,9 @@ export const de: Partial<CatalogShape> = {
     viewBody: 'Öffnen Sie diese App und verwenden Sie sie so, wie ihre Leser sie sehen.',
     viewAction: 'App öffnen',
   },
+  groupDetail: {
+    rosterHidden: 'Nur Mitglieder dieser Gruppe können sehen, wer dazugehört.',
+  },
   groupItems: {
     title: 'Mit dieser Gruppe geteilt',
     empty:
@@ -5813,6 +5816,8 @@ export const de: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Dieser Dienst braucht ein Passwort, daher liest Prüfen die gespeicherte URL. Speichern Sie zuerst die neue URL und prüfen Sie dann erneut.",
     connection: "Verbindung",
     serviceEndpoint: "Dienst-Endpunkt",
     probe: "Prüfen",

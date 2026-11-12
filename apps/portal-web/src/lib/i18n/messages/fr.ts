@@ -2017,6 +2017,9 @@ export const fr: Partial<CatalogShape> = {
       'Ouvrez cette application et utilisez-la telle que ses lecteurs la voient.',
     viewAction: "Ouvrir l'application",
   },
+  groupDetail: {
+    rosterHidden: 'Seuls les membres de ce groupe peuvent voir qui en fait partie.',
+  },
   groupItems: {
     title: 'Partagé avec ce groupe',
     empty:
@@ -5804,6 +5807,8 @@ export const fr: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Ce service demande un mot de passe, donc Sonder lit l'URL enregistrée. Enregistrez d'abord la nouvelle URL, puis sondez à nouveau.",
     connection: "Connexion",
     serviceEndpoint: "Point de terminaison du service",
     probe: "Sonder",

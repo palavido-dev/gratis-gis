@@ -2006,6 +2006,9 @@ export const ptBR: Partial<CatalogShape> = {
     viewBody: 'Abra este aplicativo e use-o como seus leitores o veem.',
     viewAction: 'Abrir aplicativo',
   },
+  groupDetail: {
+    rosterHidden: 'Somente membros deste grupo podem ver quem faz parte dele.',
+  },
   groupItems: {
     title: 'Compartilhado com este grupo',
     empty:
@@ -5794,6 +5797,8 @@ export const ptBR: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Este serviço precisa de senha, então Sondar lê a URL salva. Salve a nova URL primeiro e sonde novamente.",
     connection: "Conexão",
     serviceEndpoint: "Endpoint do serviço",
     probe: "Sondar",

@@ -2012,6 +2012,9 @@ export const es: Partial<CatalogShape> = {
     viewBody: 'Abre esta aplicación y úsala tal como la ven sus lectores.',
     viewAction: 'Abrir aplicación',
   },
+  groupDetail: {
+    rosterHidden: 'Solo los miembros de este grupo pueden ver quién forma parte de él.',
+  },
   groupItems: {
     title: 'Compartido con este grupo',
     empty:
@@ -5795,6 +5798,8 @@ export const es: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Este servicio necesita una contraseña, así que Probar lee la URL guardada. Guarde primero la nueva URL y vuelva a probar.",
     connection: "Conexión",
     serviceEndpoint: "Endpoint del servicio",
     probe: "Probar",

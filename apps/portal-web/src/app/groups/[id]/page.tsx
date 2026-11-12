@@ -34,20 +34,33 @@ type MemberWithUser = GroupMember & { user: Pick<User, 'id' | 'username' | 'full
 export default async function GroupDetailPage(props: Props) {
   const params = await props.params;
   let group: Group;
-  let members: MemberWithUser[];
   try {
-    [group, members] = await Promise.all([
-      apiFetch<Group>(`/api/groups/${params.id}`),
-      apiFetch<MemberWithUser[]>(`/api/groups/${params.id}/members`),
-    ]);
+    group = await apiFetch<Group>(`/api/groups/${params.id}`);
   } catch (err) {
     if (err instanceof Error && err.message.includes('404')) notFound();
     throw err;
   }
+  // The roster has its own, narrower gate: anyone in the org can open
+  // an org or public group, but only members, the owner and org
+  // admins can see who is in it, and the API answers 404 to everyone
+  // else. Fetched apart from the group so that 404 hides the roster
+  // instead of turning the whole page into Not Found.
+  let members: MemberWithUser[] = [];
+  let rosterHidden = false;
+  try {
+    members = await apiFetch<MemberWithUser[]>(`/api/groups/${params.id}/members`);
+  } catch (err) {
+    if (!(err instanceof Error && err.message.includes('404'))) throw err;
+    rosterHidden = true;
+  }
 
   const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
   const locale = await getServerLocale();
+  // A member with group role admin may add and remove members (the
+  // API allows it), so the roster controls show for them too.
+  const isGroupAdmin = members.some((m) => m.userId === me.id && m.role === 'admin');
   const canManage = me.id === group.ownerId || me.orgRole === 'admin';
+  const canManageMembers = canManage || isGroupAdmin;
   // #76: items shared with this group. The list endpoint applies
   // visibleWhere on top of the group filter, so each caller sees
   // only the shared items they can themselves read. Fetched after
@@ -156,13 +169,19 @@ export default async function GroupDetailPage(props: Props) {
           <Users className="h-4 w-4" />
           Members
         </h2>
-        <MembersPanel
-          groupId={group.id}
-          initialMembers={members}
-          canManage={canManage}
-          currentUserId={me.id}
-          isOwner={isOwner}
-        />
+        {rosterHidden ? (
+          <p className="rounded-md border border-border bg-surface-1 px-4 py-3 text-sm text-muted">
+            {t('groupDetail.rosterHidden', undefined, locale)}
+          </p>
+        ) : (
+          <MembersPanel
+            groupId={group.id}
+            initialMembers={members}
+            canManage={canManageMembers}
+            currentUserId={me.id}
+            isOwner={isOwner}
+          />
+        )}
       </section>
 
       {/* #76: what this group grants access to. Sits below Members

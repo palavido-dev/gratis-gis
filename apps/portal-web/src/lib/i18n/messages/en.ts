@@ -2139,6 +2139,9 @@ export const en = {
     viewAction: 'Open app',
   },
   // #76: items shared with a group, on the group detail page.
+  groupDetail: {
+    rosterHidden: 'Only members of this group can see who is in it.',
+  },
   groupItems: {
     title: 'Shared with this group',
     empty: 'Nothing is shared with this group yet. Share an item to the group from its Share tab and it will show up here.',
@@ -5960,6 +5963,8 @@ export const en = {
    * save footer strings; leave upstream probe error payloads alone.
    */
   serviceEditors: {
+    probeSaveUrlFirst:
+      "This service needs a password, so Probe reads the saved URL. Save the new URL first, then probe again.",
     connection: 'Connection',
     serviceEndpoint: 'Service endpoint',
     probe: 'Probe',
