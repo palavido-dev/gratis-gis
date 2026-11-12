@@ -74,7 +74,14 @@ jobs:
           # Fail the step only on High or Critical findings.
           node -e "
             const a = JSON.parse(require('fs').readFileSync('audit.json','utf8'));
-            const v = (a.metadata && a.metadata.vulnerabilities) || {};
+            // A failed audit request (registry down, 5xx) prints an
+            // error object with no metadata. Counting that as zero
+            // advisories turned an outage into a green gate.
+            if (a.error || !a.metadata || !a.metadata.vulnerabilities) {
+              console.error('Failing: pnpm audit did not return a report.');
+              process.exit(1);
+            }
+            const v = a.metadata.vulnerabilities;
             const high = (v.high || 0) + (v.critical || 0);
             console.log('Vulns by severity:', JSON.stringify(v));
             if (high > 0) {

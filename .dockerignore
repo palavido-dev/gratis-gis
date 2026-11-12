@@ -33,6 +33,13 @@
 # depth against a future COPY widening.
 infra/.env.prod*
 infra/keycloak/import
+# A developer's local env files (the quickstart creates
+# apps/portal-api/.env and apps/portal-web/.env). `COPY apps` would
+# otherwise bake their secrets into the build stage, and pnpm deploy
+# into the runtime image, where ConfigModule reads them.
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Logs anywhere in the tree (** matches zero or more directories, so
 # this covers root-level logs too).
