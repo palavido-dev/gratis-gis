@@ -5327,15 +5327,16 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {activeValue !== undefined ? (
             <button
               type="button"
-              onClick={() =>
-                toggle({
-                  widgetId: widget.id,
-                  sourceId: source!.id,
-                  field: selectField!,
-                  value: activeValue,
-                  label: '',
-                })
-              }
+              // Toggle with the selection that is actually active.
+              // Rebuilding it from this chart's own source and field
+              // missed one published through selectionTarget (other
+              // source, other field), so the chip replaced the filter
+              // instead of clearing it.
+              onClick={() => {
+                if (selection && selection.widgetId === widget.id) {
+                  toggle(selection);
+                }
+              }}
               className="ml-1 rounded-full border border-[hsl(var(--app-accent))] px-1.5 align-middle text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
             >
               {t('customRuntime.chart.showingOnly')}{' '}
@@ -5929,7 +5930,13 @@ function ChartPlot({
             }}
             labelLine={false}
             cursor={cursor}
-            onClick={(_d, index) => pickAt(sliced, index)}
+            // The "Other" bucket is not a value any row has, so a
+            // click on it would publish a filter that matches
+            // nothing.  Only real slices pick.
+            onClick={(_d, index) => {
+              if (sliced !== rows && index >= MAX_SLICES) return;
+              pickAt(sliced, index);
+            }}
           >
             {sliced.map((r, i) => (
               <Recharts.Cell
