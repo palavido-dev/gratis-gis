@@ -83,7 +83,10 @@ export function tilePrefetchPolicy(
   // pmtiles:// and cog:// wrap an inner URL; judge that instead.
   const unwrapped = trimmed.replace(/^(pmtiles|cog):\/\//, '');
 
-  if (unwrapped.startsWith('/')) {
+  // `//host/...` (and `/\host`) is another origin, not a path on this
+  // portal: the browser resolves it to that host. Judge it by host.
+  const protocolRelative = /^[/\\][/\\]/.test(unwrapped);
+  if (unwrapped.startsWith('/') && !protocolRelative) {
     return {
       verdict: 'allowed',
       host: 'self',
@@ -93,7 +96,9 @@ export function tilePrefetchPolicy(
 
   let host: string;
   try {
-    host = new URL(unwrapped).hostname.toLowerCase();
+    host = new URL(
+      protocolRelative ? `https://${unwrapped.slice(2)}` : unwrapped,
+    ).hostname.toLowerCase();
   } catch {
     // Not a URL we can reason about. Refuse rather than guess.
     return {

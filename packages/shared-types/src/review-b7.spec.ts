@@ -2,6 +2,9 @@
 import { stampBlueprint } from './app-templates';
 import { applyAppTheme, applyAppThemeTokens } from './app-themes';
 import type { CustomAppData } from './custom-app';
+import { tilePrefetchPolicy as classifyTilePrefetch } from './tile-prefetch-policy';
+import { isServiceData } from './service';
+import { defaultThumbnailDesign, renderThumbnailSvg } from './thumbnail';
 
 describe('stampBlueprint', () => {
   it('re-points a source that follows a map, and re-mints widgets inside tabs', () => {
@@ -44,5 +47,33 @@ describe('app theme tokens', () => {
   it('does not resolve an inherited name as a preset', () => {
     const el = { style: { setProperty: () => undefined } };
     expect(() => applyAppTheme(el as never, 'constructor')).not.toThrow();
+  });
+});
+
+
+describe('review fixes: prefetch, service guard, thumbnails', () => {
+  it('judges a protocol-relative template by its host', () => {
+    const v = classifyTilePrefetch('//a.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(v.host).not.toBe('self');
+    expect(classifyTilePrefetch('/api/tiles/{z}/{x}/{y}.pbf').host).toBe('self');
+  });
+
+  it('accepts a PostGIS live service', () => {
+    expect(isServiceData({ version: 1, protocol: 'postgis_live' })).toBe(true);
+  });
+
+  it('renders a thumbnail from a design with non-string fields', () => {
+    expect(() =>
+      renderThumbnailSvg({
+        title: 'T',
+        typeLabel: 'Map',
+        design: { background: 1, sidebar: null, sidebarLabelOverride: 5, logo: {} } as never,
+        type: 'map',
+      }),
+    ).not.toThrow();
+  });
+
+  it('gives scripts their own palette', () => {
+    expect(defaultThumbnailDesign('script' as never).sidebar).not.toBe('#475569');
   });
 });
