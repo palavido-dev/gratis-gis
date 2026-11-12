@@ -44,22 +44,27 @@ permissions:
   contents: read
   packages: write
 
-# One group per commit, whatever triggered the run. A release tag and
-# main share a commit, and once the tag waits for CI both publish
-# runs start together. Side by side they pushed the same images at
-# once, and on v1.3.0 GitHub never created script-runner in either.
-# Queued, the second run starts after the first finishes.
+# One group per commit and kind of publish: the edge publish
+# (workflow_run, or a manual run on main) and the release tag publish
+# (tag push, or a manual run on a tag). GitHub keeps one pending run
+# per group and cancels the older pending one, so with a single group
+# a later workflow_run on the same commit silently cancelled a queued
+# tag run, and :vX.Y.Z and :latest were never pushed. The two kinds
+# still must not push side by side (on v1.3.0 GitHub then never
+# created script-runner), so the gate makes the newer run wait for the
+# older one (infra/publish-gate.sh).
 concurrency:
-  group: publish-images-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: publish-images-${{ github.event.workflow_run.head_sha || github.sha }}-${{ startsWith(github.ref, 'refs/tags/') && 'tag' || 'edge' }}
   cancel-in-progress: false
 
 jobs:
   gate:
     name: CI and Security passed
     runs-on: ubuntu-latest
-    # A tag push waits up to an hour for CI and Security on its commit
-    # (infra/publish-gate.sh), so the job needs more than that.
-    timeout-minutes: 70
+    # A tag push waits up to an hour for CI and Security on its commit,
+    # and any run may wait up to three hours for an older publish run
+    # on the same commit (infra/publish-gate.sh).
+    timeout-minutes: 250
     permissions:
       contents: read
       # write: a tag push re-runs a cancelled CI or Security run on its

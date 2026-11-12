@@ -18,7 +18,9 @@
 # a tag push or manual run that should not publish exits 1. A tag
 # push or manual run waits up to GATE_WAIT_SECONDS (default 3600) for
 # CI and Security on its commit to finish, polling every
-# GATE_POLL_SECONDS (default 30). If the newest run on the commit was
+# GATE_POLL_SECONDS (default 30). With GITHUB_RUN_ID set, it then
+# waits up to PUBLISH_WAIT_SECONDS (default 10800) for older publish
+# runs on the same commit to finish. If the newest run on the commit was
 # cancelled, a tag push or manual run asks GitHub to re-run it once
 # and keeps waiting (see the note above the loop).
 #
@@ -103,6 +105,30 @@ for wf in ci.yml security.yml; do
     *) [ "$EVENT" = workflow_run ] && skip "$wf is still running on $sha; its completion starts this workflow again." || refuse "$wf is still running on $sha after waiting. Try again when it finishes." ;;
   esac
 done
+# A release tag and the edge publish of the same commit are in
+# separate concurrency groups (publish-images.yml says why). They
+# must still not push at once: side by side on v1.3.0 GitHub never
+# created script-runner. So the newer run waits here until every
+# older publish run on this commit has finished. Ordering by run id
+# means two runs never wait on each other.
+busy_wait="${PUBLISH_WAIT_SECONDS:-10800}"
+older_busy() {
+  gh api "repos/$repo/actions/workflows/publish-images.yml/runs?head_sha=$sha&per_page=50" \
+    --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .status != \"completed\")] | length"
+}
+if [ -n "${GITHUB_RUN_ID:-}" ]; then
+  busy="$(older_busy)"
+  while [ "$busy" != 0 ] && [ "$busy_wait" -gt 0 ]; do
+    echo "An older publish run on $sha is still going; checking again in ${poll}s (${busy_wait}s left)."
+    sleep "$poll"
+    busy_wait=$((busy_wait - poll))
+    busy="$(older_busy)"
+  done
+  if [ "$busy" != 0 ]; then
+    [ "$EVENT" = workflow_run ] && skip "An older publish run on $sha is still going." \
+      || refuse "An older publish run on $sha is still going after waiting. Re-run this one when it finishes."
+  fi
+fi
 {
   echo "publish=true"
   echo "sha=$sha"
