@@ -27,6 +27,22 @@ describe('postgisHostBlockReason', () => {
   });
 });
 
+describe('postgisHostBlockReason with other IPv6 spellings', () => {
+  it.each([
+    '0:0:0:0:0:0:0:1',
+    '[0:0:0:0:0:0:0:1]',
+    '::ffff:7f00:1',
+    '[::ffff:a9fe:a9fe]',
+    '::ffff:127.0.0.1',
+  ])('refuses %s', (host) => {
+    expect(postgisHostBlockReason(host)).toBe('blocked-address');
+  });
+
+  it('still allows a LAN address written as v4-mapped hex', () => {
+    expect(postgisHostBlockReason('::ffff:c0a8:0105')).toBeNull();
+  });
+});
+
 describe('assertPostgisHost', () => {
   it('refuses a name when any DNS answer is link-local', async () => {
     await expect(

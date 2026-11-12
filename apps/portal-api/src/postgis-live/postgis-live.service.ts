@@ -96,7 +96,10 @@ export class PostgisLiveService_ {
    * again on demand from the detail page to refresh.
    */
   async probe(user: AuthUser, serviceItemId: string): Promise<PostgisLiveLayerSnapshot[]> {
-    const item = await this.loadService(user, serviceItemId);
+    // Editors only. A probe lists every geometry table in the schema
+    // with its columns, including tables the owner chose not to
+    // publish, so a viewer of the item must not reach it.
+    const item = await this.loadService(user, serviceItemId, { edit: true });
     const data = item.data as unknown as PostgisLiveService;
     const pool = await this.getPool(serviceItemId, data);
     const client = await pool.connect();
@@ -126,21 +129,37 @@ export class PostgisLiveService_ {
          ORDER BY f_table_name, f_geometry_column`,
         [schema],
       );
+      // Every table's columns in one query rather than one per table.
+      const allColumns = await client.query<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+      }>(
+        `SELECT table_name, column_name, data_type
+         FROM information_schema.columns
+         WHERE table_schema = $1
+         ORDER BY table_name, ordinal_position`,
+        [schema],
+      );
+      const columnsByTable = new Map<string, Array<{ column_name: string; data_type: string }>>();
+      for (const c of allColumns.rows) {
+        const list = columnsByTable.get(c.table_name) ?? [];
+        list.push(c);
+        columnsByTable.set(c.table_name, list);
+      }
       const layers: PostgisLiveLayerSnapshot[] = [];
       for (const row of geomRows.rows) {
         const tableName = `${row.f_table_schema}.${row.f_table_name}`;
-        const columns = await client.query<{ column_name: string; data_type: string }>(
-          `SELECT column_name, data_type
-           FROM information_schema.columns
-           WHERE table_schema = $1 AND table_name = $2
-             AND column_name <> $3
-           ORDER BY ordinal_position`,
-          [row.f_table_schema, row.f_table_name, row.f_geometry_column],
-        );
-        // Try a quick ST_Extent on a tiny sample to seed the
-        // bbox. Skip for large tables (where ST_Extent over the
-        // full row count would be expensive); the detail page
-        // can run a deeper refresh on demand.
+        const columns = {
+          rows: (columnsByTable.get(row.f_table_name) ?? []).filter(
+            (c) => c.column_name !== row.f_geometry_column,
+          ),
+        };
+        // Seed the bbox from the planner's statistics. The old
+        // TABLESAMPLE BERNOULLI (1) still read every page of every
+        // table; ST_EstimatedExtent reads none. A table never
+        // analyzed has no estimate and gets no bbox here; the detail
+        // page can refresh it later.
         let bbox: [number, number, number, number] | undefined;
         try {
           const ext = await client.query<{
@@ -152,10 +171,9 @@ export class PostgisLiveService_ {
             `SELECT ST_XMin(b) AS minx, ST_YMin(b) AS miny,
                     ST_XMax(b) AS maxx, ST_YMax(b) AS maxy
              FROM (
-               SELECT ST_Extent(${quoteIdent(row.f_geometry_column)})::box2d AS b
-               FROM ${quoteIdent(row.f_table_schema)}.${quoteIdent(row.f_table_name)}
-               TABLESAMPLE BERNOULLI (1)
+               SELECT ST_EstimatedExtent($1, $2, $3)::box2d AS b
              ) e`,
+            [row.f_table_schema, row.f_table_name, row.f_geometry_column],
           );
           const r = ext.rows[0];
           if (
@@ -297,10 +315,17 @@ export class PostgisLiveService_ {
       }
     }
     const limit = Math.min(args.limit ?? MAX_FEATURES_PER_REQUEST, MAX_FEATURES_PER_REQUEST);
-    const attributeCols = layer.columns
+    // Postgres allows 100 arguments per function call, two per column,
+    // so one json_build_object failed on any table with more than 50
+    // columns. Build jsonb in groups and concatenate them.
+    const pairs = layer.columns
       .filter((c) => IDENTIFIER_RE.test(c.name))
-      .map((c) => `'${c.name}', ${quoteIdent(c.name)}`)
-      .join(', ');
+      .map((c) => `'${c.name}', ${quoteIdent(c.name)}`);
+    const groups: string[] = [];
+    for (let i = 0; i < pairs.length; i += 50) {
+      groups.push(`jsonb_build_object(${pairs.slice(i, i + 50).join(', ')})`);
+    }
+    const propertiesSql = groups.length > 0 ? groups.join(' || ') : "'{}'::jsonb";
     const geomExpr = needsReproject
       ? `ST_Transform(${quoteIdent(geomCol)}, 4326)`
       : quoteIdent(geomCol);
@@ -308,7 +333,7 @@ export class PostgisLiveService_ {
       `SELECT json_build_object(
          'type', 'Feature',
          'geometry', ST_AsGeoJSON(${geomExpr})::json,
-         'properties', json_build_object(${attributeCols || "'_', NULL"})
+         'properties', ${propertiesSql}
        ) AS feature
        FROM ${quoteIdent(schema)}.${quoteIdent(table)}` +
       (where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '') +
@@ -412,7 +437,11 @@ export class PostgisLiveService_ {
 
   // ---- helpers ---------------------------------------------------------
 
-  private async loadService(user: AuthUser, serviceItemId: string) {
+  private async loadService(
+    user: AuthUser,
+    serviceItemId: string,
+    opts: { edit?: boolean } = {},
+  ) {
     const item = await this.prisma.item.findFirst({
       where: {
         id: serviceItemId,
@@ -430,6 +459,9 @@ export class PostgisLiveService_ {
     });
     if (!this.sharing.canRead(user, item, shares)) {
       throw new NotFoundException('Service item not found');
+    }
+    if (opts.edit && !this.sharing.canEdit(user, item, shares)) {
+      throw new ForbiddenException('Only editors of this service can probe its database');
     }
     return item;
   }
@@ -603,7 +635,10 @@ function compileFilterClause(
   allowed: Set<string>,
   paramOffset: number,
 ): { sql: string; params: unknown[] } | null {
-  if (!clause.field || !IDENTIFIER_RE.test(clause.field)) return null;
+  if (!clause || typeof clause !== 'object') {
+    throw new BadRequestException('Each filter clause must be an object');
+  }
+  if (typeof clause.field !== 'string' || !IDENTIFIER_RE.test(clause.field)) return null;
   if (!allowed.has(clause.field)) {
     throw new BadRequestException(
       `Filter field "${clause.field}" is not a known column on this layer`,
@@ -618,7 +653,11 @@ function compileFilterClause(
       return { sql: `${col} IS NOT NULL`, params };
     case '==':
     case '!=': {
-      params.push(clause.value);
+      const v: unknown = clause.value;
+      if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        throw new BadRequestException('A filter value must be text, a number or true/false');
+      }
+      params.push(v);
       const ph = `$${paramOffset + params.length}`;
       const sqlOp = clause.op === '==' ? '=' : '<>';
       return { sql: `${col} ${sqlOp} ${ph}`, params };
@@ -638,6 +677,9 @@ function compileFilterClause(
       return { sql: `(${col})::numeric ${clause.op} ${ph}::numeric`, params };
     }
     case 'contains': {
+      if (typeof clause.value !== 'string') {
+        throw new BadRequestException('A "contains" filter needs a text value');
+      }
       // ILIKE with %-escaped value; client-supplied %s + _s are
       // escaped so the user can't broaden the match accidentally.
       const escaped = clause.value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
