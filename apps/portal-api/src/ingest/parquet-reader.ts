@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import { CollectBudget } from './collect-limits.js';
 
 /**
  * GeoParquet reader built on DuckDB (@duckdb/node-api).
@@ -628,11 +629,13 @@ export async function collectParquetFromPath(
   sourceSrs: string | null;
 }> {
   const features: unknown[] = [];
+  const budget = new CollectBudget();
   const meta = await streamParquetFromPath(
     filePath,
     sourceLayer,
     async (batch) => {
       for (const row of batch) {
+        await budget.take();
         features.push({
           type: 'Feature',
           geometry: row.geometry,

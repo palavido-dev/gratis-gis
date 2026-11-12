@@ -699,6 +699,13 @@ export class DerivedLayersService {
         outputSchema: [],
       };
     }
+    // Same step limit as save: preview runs the same SQL, so a longer
+    // pipeline here was a way to send thousands of CTE steps.
+    if (args.pipeline.length > MAX_PIPELINE_STEPS) {
+      throw new BadRequestException(
+        `derived_layer.pipeline must not exceed ${MAX_PIPELINE_STEPS} steps`,
+      );
+    }
     const stop = Math.min(args.upTo, args.pipeline.length - 1);
     const sliced = args.pipeline.slice(0, stop + 1);
     const previewLimit = Math.max(1, Math.min(args.limit, 50));

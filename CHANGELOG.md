@@ -45,6 +45,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   lookahead, lookbehind or backreferences is refused when saved. URL
   cleanup, county matching in CSV imports and the SVG icon cleaner no
   longer slow down sharply on long or crafted input.
+- One request can no longer exhaust the API's memory or hold its
+  database. Opening a file in the browser (Import into editor) now
+  accepts files up to 100 MB and 250,000 features, and the API yields
+  to other requests while it reads. Large KML text, crafted PMTiles
+  archives, and very large edits that end in a sync conflict are all
+  bounded. Derived-layer previews obey the same 10 step limit as saved
+  recipes, and a fishnet refuses to build more than a million cells
+  wherever it runs.
+- Server-rendered pages pass the visitor's address to the API, so the
+  per-address rate limit counts each visitor separately instead of
+  all of them together.
 
 ### Fixed
 

@@ -6,6 +6,7 @@ import { diskStorage } from 'multer';
 
 import { attachDiskFileName, pinDiskUpload, serverUploadName } from './ingest-disk-path.js';
 import { INGEST_MAX_UPLOAD_BYTES } from './ingest-upload-handle.js';
+import { COLLECT_MAX_UPLOAD_BYTES } from './collect-limits.js';
 
 /**
  * multer options that write an ingest upload straight to a per-request
@@ -45,4 +46,13 @@ export const INGEST_DISK_UPLOAD = {
   // Sanity ceiling only. Free disk is the real limit, checked by the
   // handlers before they parse.
   limits: { fileSize: INGEST_MAX_UPLOAD_BYTES },
+};
+
+/**
+ * Same storage, smaller ceiling, for the routes that read the whole
+ * file into memory and return it (collect-limits.ts).
+ */
+export const INGEST_COLLECT_UPLOAD = {
+  ...INGEST_DISK_UPLOAD,
+  limits: { fileSize: COLLECT_MAX_UPLOAD_BYTES },
 };
