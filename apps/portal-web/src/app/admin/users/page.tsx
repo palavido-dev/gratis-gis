@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, Shield } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
 import { t } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
 import { AdminUsersView } from './admin-users-view';
@@ -81,7 +82,11 @@ export default async function AdminUsersPage() {
   }
   if (meta.configured) {
     try {
-      users = await apiFetch<AdminUserRow[]>('/api/admin/users?max=200');
+      users = await fetchAllAdminUsers((first, max) =>
+        apiFetch<AdminUserRow[]>(
+          `/api/admin/users?${adminUsersPageQuery(first, max)}`,
+        ),
+      );
     } catch (err) {
       // Surface the failure instead of silently returning an empty
       // table: an empty result indistinguishable from "no users yet"

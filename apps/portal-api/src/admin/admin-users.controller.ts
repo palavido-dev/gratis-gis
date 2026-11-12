@@ -158,11 +158,37 @@ export class AdminUsersController {
     @Query('first') first?: string,
     @Query('max') max?: string,
   ): Promise<AdminUserRep[]> {
-    const opts: { search?: string; first?: number; max?: number } = {};
-    if (q) opts.search = q;
-    if (first !== undefined) opts.first = Number(first);
-    if (max !== undefined) opts.max = Number(max);
-    const kcUsers = await this.kc.listUsers(opts);
+    // `first` and `max` count users of the caller's org, not realm
+    // rows. The realm can hold several orgs, so Keycloak is paged here
+    // until `max` of them are found; filtering one realm page after
+    // the fact hid every user past it.
+    const skip = parseListParam(first, 'first', 0, 0, 1_000_000);
+    const want = parseListParam(max, 'max', 100, 1, 1000);
+    const PAGE = 200;
+    const out: AdminUserRep[] = [];
+    let inOrg = 0;
+    for (let kcFirst = 0; out.length < want; kcFirst += PAGE) {
+      const opts: { search?: string; first: number; max: number } = {
+        first: kcFirst,
+        max: PAGE,
+      };
+      if (q) opts.search = q;
+      const kcUsers = await this.kc.listUsers(opts);
+      for (const u of await this.inOrgRows(me, kcUsers)) {
+        if (inOrg++ < skip) continue;
+        out.push(u);
+        if (out.length >= want) break;
+      }
+      if (kcUsers.length < PAGE) break;
+    }
+    return out;
+  }
+
+  /** One Keycloak page joined with the local rows, caller's org only. */
+  private async inOrgRows(
+    me: AuthUser,
+    kcUsers: KeycloakUserRep[],
+  ): Promise<AdminUserRep[]> {
     // Pull lastSeenAt + autoDisableAt in one query for the
     // usernames we just got back, rather than N+1 per user. We
     // join by USERNAME, not id: seeded users carry a different
@@ -1095,6 +1121,26 @@ export class AdminUsersController {
  * from another org, and unscoped service accounts, stay out of the
  * response.
  */
+
+/**
+ * A paging parameter of the user list. Missing means the default;
+ * anything but a whole number in range is a 400 (Number('x') used to
+ * reach Keycloak as "NaN" and come back as a 502).
+ */
+export function parseListParam(
+  raw: string | undefined,
+  name: string,
+  fallback: number,
+  min: number,
+  maxValue: number,
+): number {
+  if (raw === undefined || raw === '') return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new BadRequestException(`${name} must be a whole number.`);
+  }
+  return Math.min(Math.max(Number(raw), min), maxValue);
+}
+
 function inCallerOrg(
   me: AuthUser,
   kcUser: KeycloakUserRep,

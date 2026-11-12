@@ -545,13 +545,37 @@ describe('AdminUsersController org-scoped reads', () => {
 
     const rows = await controller.list(caller, 'ada', '0', '50');
 
-    expect(kc.listUsers).toHaveBeenCalledWith({ search: 'ada', first: 0, max: 50 });
+    expect(kc.listUsers).toHaveBeenCalledWith({ search: 'ada', first: 0, max: 200 });
     expect(rows.map((u) => u.username)).toEqual(['mine', 'invitee']);
     expect(rows.find((u) => u.username === 'other')).toBeUndefined();
     expect(rows.find((u) => u.username === 'service-account')).toBeUndefined();
     expect(rows[0]?.lastSeenAt).toBe('2026-03-01T00:00:00.000Z');
     expect(rows[0]?.isProtected).toBe(false);
     expect(prisma.user.findMany).toHaveBeenCalled();
+  });
+
+  it('pages Keycloak until it has max users of the caller org', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme', username: 'me-admin' });
+    // Realm page one is all another org; the caller's users start on
+    // page two. One realm page used to be all the list ever saw.
+    const others = Array.from({ length: 200 }, (_, i) => kcUser(`kc-o${i}`, `o${i}`, 'beta'));
+    const mine = Array.from({ length: 5 }, (_, i) => kcUser(`kc-m${i}`, `m${i}`, 'acme'));
+    const { controller, kc } = makeController({ caller, targets: [], adminCount: 1 });
+    kc.listUsers.mockImplementation(async (opts?: { first?: number }) =>
+      (opts?.first ?? 0) === 0 ? others : mine,
+    );
+    const rows = await controller.list(caller, undefined, '1', '3');
+    expect(rows.map((u) => u.username)).toEqual(['m1', 'm2', 'm3']);
+    expect(kc.listUsers).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a paging parameter that is not a whole number', async () => {
+    const caller = makeAuthUser();
+    const { controller, kc } = makeController({ caller, targets: [], adminCount: 1 });
+    await expect(controller.list(caller, undefined, 'x', undefined)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(kc.listUsers).not.toHaveBeenCalled();
   });
 
   it('keeps a local user in the caller org when the Keycloak org attribute is missing', async () => {

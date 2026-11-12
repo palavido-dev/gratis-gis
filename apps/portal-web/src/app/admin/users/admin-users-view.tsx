@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
 
 /**
  * Admin-side users table.
@@ -164,9 +165,13 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
 
   async function refresh() {
     try {
-      const res = await fetch('/api/portal/admin/users?max=200');
-      if (!res.ok) return;
-      const rows = (await res.json()) as AdminUserRow[];
+      const rows = await fetchAllAdminUsers(async (first, max) => {
+        const res = await fetch(
+          `/api/portal/admin/users?${adminUsersPageQuery(first, max)}`,
+        );
+        if (!res.ok) throw new Error(String(res.status));
+        return (await res.json()) as AdminUserRow[];
+      });
       setUsers(rows);
     } catch {
       /* non-fatal: the list stays as-is */
