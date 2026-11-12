@@ -38,7 +38,7 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { assertSafeOutboundUrl, safeFetch } from '../common/net-guards.js';
 import { ItemsService } from '../items/items.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
-import { StorageService } from '../storage/storage.service.js';
+import { FEATURE_ATTACHMENT_MAX_BYTES, StorageService } from '../storage/storage.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 // ----------------------------------------------------------------
@@ -138,6 +138,13 @@ export interface HostedFsImportResult {
   /** True when pagination stopped because the feature hard cap was hit. */
   truncated?: boolean;
 }
+
+/** Most bytes read from one AGO JSON reply (a page of up to 2000
+ *  features is the largest). safeFetch's own default is 1 GiB. */
+const AGO_JSON_MAX_BYTES = 256 * 1024 * 1024;
+/** How long one AGO call may take, body included. Without it a
+ *  server that answers and then stalls holds the import forever. */
+const AGO_FETCH_TIMEOUT_MS = 120_000;
 
 /** Default hard cap for interactive "Copy to data layer" jobs.
  *  Matches the OSM save-as-layer ceiling; admin AGO import stays uncapped. */
@@ -243,7 +250,7 @@ export class AgoHostedFsImportService {
         `${cleanUrl}/${stub.id}?f=json`,
         args.token,
       );
-      const sublayer = this.layerToSublayer(layer, warnings);
+      const sublayer = uniqueSublayerId(this.layerToSublayer(layer, warnings), sublayers, stub.id);
       sublayers.push(sublayer);
       perLayer.push({
         stubId: stub.id,
@@ -267,6 +274,7 @@ export class AgoHostedFsImportService {
     });
 
     // 4. paginated feature copy
+    const idMaps = new Map<number, Map<string, string>>();
     let featuresInserted = 0;
     for (const layer of perLayer) {
       try {
@@ -276,6 +284,7 @@ export class AgoHostedFsImportService {
           serviceUrl: cleanUrl,
           layer,
           ...(args.token !== undefined ? { token: args.token } : {}),
+          ...idMapFor(idMaps, layer, args.copyAttachments),
         });
         featuresInserted += inserted;
       } catch (e) {
@@ -299,6 +308,7 @@ export class AgoHostedFsImportService {
             serviceUrl: cleanUrl,
             layer,
             ...(args.token !== undefined ? { token: args.token } : {}),
+            idMap: idMaps.get(layer.stubId) ?? new Map(),
           });
         } catch (e) {
           warnings.push(
@@ -393,7 +403,7 @@ export class AgoHostedFsImportService {
         `${cleanUrl}/${stub.id}?f=json`,
         args.token,
       );
-      const sublayer = this.layerToSublayer(layer, warnings);
+      const sublayer = uniqueSublayerId(this.layerToSublayer(layer, warnings), sublayers, stub.id);
       sublayers.push(sublayer);
       perLayer.push({
         stubId: stub.id,
@@ -415,6 +425,7 @@ export class AgoHostedFsImportService {
       data: data as unknown as Prisma.InputJsonValue,
     });
 
+    const idMaps = new Map<number, Map<string, string>>();
     let featuresInserted = 0;
     let truncated = false;
     let remaining = maxFeatures;
@@ -434,6 +445,7 @@ export class AgoHostedFsImportService {
           layer,
           maxFeatures: remaining,
           ...(args.token !== undefined ? { token: args.token } : {}),
+          ...idMapFor(idMaps, layer, args.copyAttachments),
         });
         featuresInserted += inserted;
         remaining -= inserted;
@@ -463,6 +475,7 @@ export class AgoHostedFsImportService {
             serviceUrl: cleanUrl,
             layer,
             ...(args.token !== undefined ? { token: args.token } : {}),
+            idMap: idMaps.get(layer.stubId) ?? new Map(),
           });
         } catch (e) {
           warnings.push(
@@ -571,10 +584,20 @@ export class AgoHostedFsImportService {
     token?: string;
     /** Stop after this many features (interactive copy hard cap). */
     maxFeatures?: number;
+    /** When given, filled with AGO object id -> portal feature id, so
+     *  attachments can be linked to the rows they belong to. */
+    idMap?: Map<string, string>;
   }): Promise<number> {
     let offset = 0;
     let total = 0;
     const budget = args.maxFeatures;
+    // ArcGIS sends date values as numbers, milliseconds since the
+    // epoch in UTC. The portal's date fields only take ISO text (an
+    // epoch is refused on purpose), so every batch holding a date was
+    // rejected and the layer stopped part way.
+    const dateFields = new Set(
+      (args.layer.sublayer.fields ?? []).filter((f) => f.type === 'date').map((f) => f.name),
+    );
     while (true) {
       if (budget !== undefined && total >= budget) break;
       const pageSize =
@@ -608,15 +631,24 @@ export class AgoHostedFsImportService {
       // Insert in batches via the v3 features service.
       for (let i = 0; i < rows.length; i += this.INSERT_BATCH) {
         const batch = rows.slice(i, i + this.INSERT_BATCH);
-        await this.features.insertFeatures(
+        const result = await this.features.insertFeatures(
           args.itemId,
           args.layer.sublayer.id,
           batch.map((r) => ({
             geometry: r.geometry ?? null,
-            properties: this.normalizeProps(r.properties),
+            properties: this.normalizeProps(r.properties, dateFields),
           })),
           args.user,
         );
+        if (args.idMap) {
+          batch.forEach((r, j) => {
+            const oid = r.properties?.[args.layer.objectIdField] ?? r.id;
+            const globalId = result.globalIds[j];
+            if (oid !== undefined && oid !== null && globalId) {
+              args.idMap!.set(String(oid), globalId);
+            }
+          });
+        }
         total += batch.length;
       }
 
@@ -651,6 +683,8 @@ export class AgoHostedFsImportService {
       objectIdField: string;
     };
     token?: string;
+    /** AGO object id -> portal feature id, from copyLayerFeatures. */
+    idMap: ReadonlyMap<string, string>;
   }): Promise<number> {
     // Fetch all OBJECTIDs.
     const idsUrl = new URL(
@@ -666,16 +700,13 @@ export class AgoHostedFsImportService {
     const objectIds = idsResp.objectIds ?? [];
     if (objectIds.length === 0) return 0;
 
-    // We need a way to map AGO objectId -> portal entity id. The
-    // entity ids were assigned by the engine on insert. We persisted
-    // each row's OBJECTID in attrs (since we passed properties
-    // through), so a quick lookup by attrs->>objectIdField works.
-    // For v1 we use the OBJECTID as the agoFeatureId in
-    // attachmentSourceRef so a later re-pull can match without a
-    // db lookup at attach time.
-
     let copied = 0;
     for (const oid of objectIds) {
+      // The portal feature this AGO row became, recorded while the
+      // features were copied. The old lookup queried observation
+      // columns that do not exist, so no attachment was ever copied.
+      const featureEntityId = args.idMap.get(String(oid));
+      if (!featureEntityId) continue;
       const infoUrl = new URL(
         `${args.serviceUrl}/${args.layer.stubId}/${oid}/attachments`,
       );
@@ -687,23 +718,6 @@ export class AgoHostedFsImportService {
       const attachments = info.attachmentInfos ?? [];
       if (attachments.length === 0) continue;
 
-      // Resolve the portal feature id by querying for the row that
-      // has attrs->>objectIdField == oid. The observation table
-      // carries one row per (entity, valid_from). For attachment
-      // linkage we want the latest version's entity id.
-      const portalRow = await this.prisma.$queryRaw<
-        Array<{ entity_id: string }>
-      >`
-        SELECT entity_id::text AS entity_id
-        FROM observation
-        WHERE item_id = ${args.itemId}::uuid
-          AND layer_id = ${args.layer.sublayer.id}
-          AND attrs ->> ${args.layer.objectIdField} = ${String(oid)}
-          AND valid_to IS NULL
-        LIMIT 1`;
-      const featureEntityId = portalRow[0]?.entity_id;
-      if (!featureEntityId) continue;
-
       for (const att of attachments) {
         const attUrl = new URL(
           `${args.serviceUrl}/${args.layer.stubId}/${oid}/attachments/${att.id}`,
@@ -712,21 +726,24 @@ export class AgoHostedFsImportService {
         try {
           // safeFetch: attachment URLs derive from the report's
           // service URL, same trust level as everything else here.
-          const res = await safeFetch(attUrl.toString());
-          if (!res.ok || !res.body) continue;
-          const ab = await res.arrayBuffer();
-          const buf = Buffer.from(ab);
-          // Stream to MinIO via storage service. We use a tmp local
-          // file path so storage.uploadLocalFile reuses the existing
-          // PUT helper.
-          const tmp = `/tmp/ago-attach-${Date.now()}-${att.id}`;
-          await (await import('node:fs/promises')).writeFile(tmp, buf);
-          const upload = await this.storage.uploadLocalFile(
+          // Capped at the portal's own attachment limit and timed, so
+          // one huge or stalled attachment cannot pin the heap or the
+          // job.
+          const res = await safeFetch(
+            attUrl.toString(),
+            { signal: AbortSignal.timeout(AGO_FETCH_TIMEOUT_MS) },
+            { maxBytes: FEATURE_ATTACHMENT_MAX_BYTES },
+          );
+          if (!res.ok || !res.body) {
+            await res.body?.cancel().catch(() => undefined);
+            continue;
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          const upload = await this.storage.uploadBuffer(
             'feature-attachment',
-            tmp,
+            buf,
             att.contentType,
           );
-          await (await import('node:fs/promises')).unlink(tmp).catch(() => {});
 
           await this.prisma.featureAttachment.create({
             data: {
@@ -735,7 +752,7 @@ export class AgoHostedFsImportService {
               featureId: featureEntityId,
               fileName: att.name,
               mime: att.contentType,
-              sizeBytes: att.size,
+              sizeBytes: buf.length,
               storageKey: upload.key,
               storageUrl: upload.publicUrl,
               createdBy: args.user.id,
@@ -755,9 +772,10 @@ export class AgoHostedFsImportService {
    *  observations. */
   private normalizeProps(
     props: Record<string, unknown>,
+    dateFields: ReadonlySet<string> = new Set(),
   ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(props)) {
+    for (const [k, v] of Object.entries(props ?? {})) {
       if (
         k === 'OBJECTID' ||
         k === 'GlobalID' ||
@@ -769,6 +787,11 @@ export class AgoHostedFsImportService {
         // mapping back to AGO. Stuff it under a __agoObjectId key
         // so it doesn't collide with anything the user defined.
         if (k === 'OBJECTID') out.__agoObjectId = v;
+        continue;
+      }
+      if (dateFields.has(k) && typeof v === 'number' && Number.isFinite(v)) {
+        const d = new Date(v);
+        out[k] = Number.isNaN(d.getTime()) ? null : d.toISOString();
         continue;
       }
       out[k] = v;
@@ -790,10 +813,25 @@ export class AgoHostedFsImportService {
     // safeFetch, not fetch: every URL funneled through here derives
     // from the user-supplied dry-run report (ago-client.ts routes
     // its own traffic through the same guard).
-    const res = await safeFetch(fetchUrl);
+    let res: Response;
+    try {
+      res = await safeFetch(
+        fetchUrl,
+        { signal: AbortSignal.timeout(AGO_FETCH_TIMEOUT_MS) },
+        { maxBytes: AGO_JSON_MAX_BYTES },
+      );
+    } catch (err) {
+      // Some safeFetch errors quote the URL (too many redirects, bad
+      // URL), token included.
+      throw new Error(redactToken(err instanceof Error ? err.message : String(err)));
+    }
     if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      // Name the URL without its query: callers put `token=` there,
+      // and this message ends up in import warnings and the stored
+      // job report.
       throw new Error(
-        `AGO request failed (HTTP ${res.status}) for ${url}`,
+        `AGO request failed (HTTP ${res.status}) for ${withoutQuery(url)}`,
       );
     }
     const body = (await res.json()) as T & {
@@ -847,6 +885,51 @@ function agoFieldTypeToPortal(t: string): FeatureFieldType {
     default:
       return 'string';
   }
+}
+
+/** The id map for a layer whose attachments will be copied, or
+ *  nothing, so a large layer without attachments keeps no map. */
+function idMapFor(
+  maps: Map<number, Map<string, string>>,
+  layer: { stubId: number; hasAttachments: boolean },
+  copyAttachments: boolean | undefined,
+): { idMap?: Map<string, string> } {
+  if (!copyAttachments || !layer.hasAttachments) return {};
+  const map = new Map<string, string>();
+  maps.set(layer.stubId, map);
+  return { idMap: map };
+}
+
+/** Hide the value of any `token=` query parameter in a message. */
+export function redactToken(message: string): string {
+  return message.replace(/([?&]token=)[^&\s#]*/gi, '$1[redacted]');
+}
+
+function withoutQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return url.split('?')[0] ?? '';
+  }
+}
+
+/**
+ * Two AGO layers can sanitize to the same id (names in a non-Latin
+ * script all become `layer`; `Parcels (2020)` and `Parcels 2020` match).
+ * Both then wrote into one portal sublayer. Add the AGO layer id on a
+ * clash so each keeps its own.
+ */
+function uniqueSublayerId(
+  sublayer: DataLayerSublayer,
+  taken: readonly DataLayerSublayer[],
+  agoLayerId: number,
+): DataLayerSublayer {
+  const used = new Set(taken.map((l) => l.id));
+  if (!used.has(sublayer.id)) return sublayer;
+  let id = `${sublayer.id.slice(0, 50)}_${agoLayerId}`;
+  for (let n = 2; used.has(id); n++) id = `${sublayer.id.slice(0, 50)}_${agoLayerId}_${n}`;
+  return { ...sublayer, id, name: id };
 }
 
 function sanitizeSublayerId(raw: string): string {

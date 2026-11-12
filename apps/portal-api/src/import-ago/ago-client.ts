@@ -40,6 +40,15 @@ import type {
   AgoUserContentResponse,
 } from './ago-types.js';
 
+/** Most bytes read from one AGO JSON reply. Item metadata and data
+ *  envelopes (a web map, a survey) are well under this. */
+const AGO_JSON_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Most items one content walk collects. A portal (or a server posing
+ *  as one) that keeps answering with a `nextStart` would otherwise keep
+ *  the walk, and the dry run's list, growing until the process died. */
+export const AGO_WALK_MAX_ITEMS = 50_000;
+
 /**
  * Thrown when the AGO server returns an error envelope or an
  * HTTP failure. Carries the AGO error code + message so the
@@ -174,27 +183,38 @@ export class AgoClient {
     onItem: (item: AgoItem, folder: { id: string | null; title: string }) => void | Promise<void>;
   }): Promise<{ total: number; folders: number }> {
     let total = 0;
+    const count = async (
+      item: AgoItem,
+      folder: { id: string | null; title: string },
+    ): Promise<void> => {
+      if (total >= AGO_WALK_MAX_ITEMS) {
+        throw new AgoApiError(
+          0,
+          undefined,
+          `The account has more than ${AGO_WALK_MAX_ITEMS} items; that is more than one import can take.`,
+        );
+      }
+      await args.onItem(item, folder);
+      total += 1;
+    };
 
     // Root listing first. The root page also tells us which
     // folders to walk, so we have to fetch it before recursing
     // (no separate "list folders" endpoint).
     const root = await this.listUserContent({ username: args.username });
     const rootFolder = { id: null as string | null, title: '(root)' };
-    for (const item of root.items ?? []) {
-      await args.onItem(item, rootFolder);
-      total += 1;
-    }
-    // Continue paginating root if there are more pages.
+    for (const item of root.items ?? []) await count(item, rootFolder);
+    // Continue paginating root if there are more pages. Stop when
+    // nextStart does not move forward, or the walk would never end.
     let nextStart = root.nextStart ?? -1;
-    while (nextStart > 0) {
+    let lastStart = 1;
+    while (nextStart > lastStart) {
+      lastStart = nextStart;
       const page = await this.listUserContent({
         username: args.username,
         start: nextStart,
       });
-      for (const item of page.items ?? []) {
-        await args.onItem(item, rootFolder);
-        total += 1;
-      }
+      for (const item of page.items ?? []) await count(item, rootFolder);
       nextStart = page.nextStart ?? -1;
     }
 
@@ -213,12 +233,9 @@ export class AgoClient {
           folderId: folder.id,
           start,
         });
-        for (const item of page.items ?? []) {
-          await args.onItem(item, folderRef);
-          total += 1;
-        }
+        for (const item of page.items ?? []) await count(item, folderRef);
         const next = page.nextStart;
-        start = typeof next === 'number' && next > 0 ? next : undefined;
+        start = typeof next === 'number' && next > start ? next : undefined;
       }
     }
 
@@ -260,16 +277,30 @@ export class AgoClient {
   ): Promise<T> {
     const url = this.buildUrl(path, params);
     let res: Response;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // One timeout for the whole call, body included. The old timer was
+    // cleared once headers arrived, so a server that answered and then
+    // dripped held the request forever. The byte cap replaces
+    // safeFetch's 1 GiB default.
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let body: T & AgoErrorEnvelope;
     try {
-      res = await safeFetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-      });
+      res = await safeFetch(
+        url,
+        {
+          method: 'GET',
+          signal,
+          headers: { Accept: 'application/json' },
+        },
+        { maxBytes: AGO_JSON_MAX_BYTES },
+      );
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new AgoApiError(res.status, undefined, `AGO HTTP ${res.status} on ${path}`);
+      }
+      body = (await res.json()) as T & AgoErrorEnvelope;
     } catch (e) {
-      if ((e as Error).name === 'AbortError') {
+      if (e instanceof AgoApiError) throw e;
+      if (signal.aborted) {
         throw new AgoApiError(
           0,
           undefined,
@@ -281,18 +312,7 @@ export class AgoClient {
         undefined,
         `AGO network error: ${(e as Error).message}`,
       );
-    } finally {
-      clearTimeout(timer);
     }
-
-    if (!res.ok) {
-      throw new AgoApiError(
-        res.status,
-        undefined,
-        `AGO HTTP ${res.status} on ${path}`,
-      );
-    }
-    const body = (await res.json()) as T & AgoErrorEnvelope;
     // AGO returns 200 OK with an error envelope on failure. Detect
     // and surface it as a typed exception.
     if (
