@@ -103,3 +103,11 @@ describe('gridCostModel', () => {
     expect(m.ceilingSec).toBe(12_960);
   });
 });
+
+describe('assertGridBudget with an unreadable extent', () => {
+  it('refuses instead of passing NaN through', () => {
+    expect(() =>
+      assertGridBudget({ bounds: ['0', '0', '0', '10_000_000', '10_000_000', '0'] as never }, 0.25, 1),
+    ).toThrow(/extent is not valid/);
+  });
+});

@@ -492,6 +492,15 @@ def test_zonal_cell_cap():
     assert runner.zonal_too_large(4000, 4000) is False
 
 
+def test_plan_grid_chunks_refuses_before_building():
+    try:
+        runner.plan_grid_chunks(0, 0, 1e7, 1e7, 0.25, 4_000_000, 16)
+    except RuntimeError as err:
+        assert "gridding passes" in str(err)
+    else:
+        raise AssertionError("expected a refusal")
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -511,4 +520,5 @@ if __name__ == "__main__":
     test_reads_do_not_leave_a_transaction_open()
     test_mercator_ground_scale()
     test_zonal_cell_cap()
+    test_plan_grid_chunks_refuses_before_building()
     print("test_runner_units: all assertions passed")

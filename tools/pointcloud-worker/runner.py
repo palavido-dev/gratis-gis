@@ -1066,6 +1066,15 @@ def plan_grid_chunks(
         )
     nx = math.ceil(cells_x / edge)
     ny = math.ceil(cells_y / edge)
+    # Refuse before building the list: bounds come from item data, and
+    # a huge extent planned millions of dicts and OOM-killed the worker
+    # before the GRID_MAX_CHUNKS check below the call ever ran.
+    if nx * ny > GRID_MAX_CHUNKS:
+        raise RuntimeError(
+            f"This build would need {nx * ny} gridding passes, over "
+            f"this server's limit of {GRID_MAX_CHUNKS}. Pick a coarser "
+            "resolution or raise GRID_MAX_CHUNKS."
+        )
     buf = buffer_cells * resolution
     chunks: list[dict] = []
     for iy in range(ny):
