@@ -32,6 +32,10 @@ import {
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import {
+  buildSelectionFilter,
+  MAX_SELECTION_FILTER_CLAUSES,
+} from '@/lib/selection-filter';
 import { formatDateTime, useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
@@ -1246,36 +1250,36 @@ export function AttributeTable({
   function selectionToFilter() {
     if (!activeLayer || activeSelection.size === 0) return;
     // #318: selection keys are heterogeneous (UUID for v3 promoteId,
-    // numeric idx otherwise). Resolve to numeric indexes here so
-    // pickIdField + the property-extraction loop below stay simple.
+    // numeric idx otherwise). Resolve to numeric indexes here; keys
+    // that are not on the loaded page resolve to -1 and are counted
+    // as missing rather than silently dropped.
     const idxSet = new Set<number>();
     for (const key of activeSelection) {
       const i = indexForKey(key);
       if (i >= 0) idxSet.add(i);
     }
-    if (idxSet.size === 0) return;
-    // Strategy: if the features carry a stable id field, convert to a
-    // single `in` clause. Otherwise fall back to a boolean-OR of per-
-    // feature primary-key guesses. If no usable id field is
-    // discoverable, we bail with a visible error rather than silently
-    // filtering nothing.
-    const idField = pickIdField(activeFields, activeFeatures, idxSet);
-    if (!idField) return;
-    const values = [...idxSet]
-      .map((i) => {
-        const v = (activeFeatures[i]?.properties ?? {}) as Record<string, unknown>;
-        return v[idField];
-      })
-      .filter((v) => v !== null && v !== undefined)
-      .map((v) => String(v));
-    if (values.length === 0) return;
-    // A single multi-clause filter with OR'd == clauses keeps it
-    // compatible with the existing filter editor.
-    const filter: MapLayerFilter = {
-      combinator: 'any',
-      clauses: values.map((v) => ({ field: idField, op: '==' as const, value: v })),
-    };
-    onPatchLayer(activeLayer.id, { filter });
+    // Refuse with a message rather than write a filter that matches
+    // other rows, or one the server will reject (see
+    // buildSelectionFilter).
+    const result = buildSelectionFilter(
+      activeFields,
+      activeFeatures,
+      idxSet,
+      activeSelection.size,
+    );
+    if (!result.ok) {
+      toast.error(
+        result.reason === 'too-many'
+          ? t('mapAttributeTable.useAsFilterTooMany', {
+              max: MAX_SELECTION_FILTER_CLAUSES,
+            })
+          : result.reason === 'not-loaded'
+            ? t('mapAttributeTable.useAsFilterNotLoaded')
+            : t('mapAttributeTable.useAsFilterNoId'),
+      );
+      return;
+    }
+    onPatchLayer(activeLayer.id, { filter: result.filter });
   }
 
   if (!open) return null;
@@ -3143,43 +3147,3 @@ function bboxOfFeatures(
   return featuresBbox(features);
 }
 
-/**
- * Heuristic pick for a stable id field. Prefers fields literally named
- * `id`, `fid`, `objectid`, then the first field whose values are
- * unique across the selected feature subset.
- */
-/**
- * pickIdField receives a numeric index Set (resolved upstream from
- * the heterogeneous selection keys). Kept as Set<number> on purpose:
- * the caller projects from Set<number | string> down to indexes via
- * `indexForKey()` before calling in.
- */
-function pickIdField(
-  fields: string[],
-  features: GeoJSON.Feature[],
-  selection: Set<number>,
-): string | null {
-  const common = ['id', 'fid', 'objectid', 'OBJECTID', 'FID', 'ID'];
-  for (const c of common) {
-    if (fields.includes(c)) return c;
-  }
-  for (const f of fields) {
-    const seen = new Set<string>();
-    let unique = true;
-    for (const i of selection) {
-      const v = ((features[i]?.properties ?? {}) as Record<string, unknown>)[f];
-      if (v === null || v === undefined) {
-        unique = false;
-        break;
-      }
-      const key = String(v);
-      if (seen.has(key)) {
-        unique = false;
-        break;
-      }
-      seen.add(key);
-    }
-    if (unique) return f;
-  }
-  return null;
-}

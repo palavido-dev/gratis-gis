@@ -57,6 +57,10 @@ export function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
       )
         ? (l.fields as Array<Record<string, unknown>>)
             .map((f) => {
+              // Stored data is only checked to be an object, so a field
+              // entry can be null or a primitive. Give it an empty name so
+              // the filter below drops it instead of throwing.
+              if (!f || typeof f !== 'object') return { name: '', type: 'string' as const };
               const name = typeof f.name === 'string' ? f.name : '';
               const type: FeatureFieldType =
                 f.type === 'number' ||

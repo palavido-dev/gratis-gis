@@ -2,7 +2,7 @@
 import { EventEmitter } from 'node:events';
 import type { Response as ExpressResponse } from 'express';
 
-import { streamFeatureCollection } from './feature-stream.js';
+import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 
 function fakeRes() {
   const ee = new EventEmitter() as EventEmitter & Record<string, unknown>;
@@ -106,5 +106,40 @@ describe('streamFeatureCollection', () => {
     expect(state.body).toBe(
       JSON.stringify({ type: 'FeatureCollection', features }),
     );
+  });
+});
+
+describe('onceDrain', () => {
+  it('rejects at once when the client is already gone', async () => {
+    // No further 'drain' or 'close' comes after a disconnect, so
+    // waiting for one would hang the handler forever.
+    const res = Object.assign(new EventEmitter(), { destroyed: true });
+    await expect(onceDrain(res as unknown as ExpressResponse)).rejects.toThrow(
+      'client closed',
+    );
+  });
+
+  it('stops the walk and releases the iterator when the client is gone', async () => {
+    const { res } = fakeRes();
+    let returned = false;
+    let pulled = 0;
+    const batches: AsyncIterable<unknown[]> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            pulled += 1;
+            if (pulled === 2) (res as unknown as { destroyed: boolean }).destroyed = true;
+            return { done: false, value: [{ n: pulled }] };
+          },
+          return: async () => {
+            returned = true;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+    await streamFeatureCollection(res, batches);
+    expect(pulled).toBe(2);
+    expect(returned).toBe(true);
   });
 });

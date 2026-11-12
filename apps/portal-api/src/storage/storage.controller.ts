@@ -34,6 +34,7 @@ import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import type { AssetKind } from './storage.service.js';
 import { StorageService } from './storage.service.js';
 import { recordUploadGrant } from './key-ownership.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
 // deliberately absent (its upload path sanitizes server-side and
@@ -307,6 +308,14 @@ export class StorageController {
     // downloads like any other active type.  Unknown or missing
     // types default to attachment.
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    // Tear down the S3 read stream when the client disconnects (or the
+    // response finishes) so its socket returns to the pool instead of
+    // draining to the end. `pipe` does not destroy the source on a
+    // destination close, and range-read viewers abort constantly.
+    // destroy() is idempotent, so firing on a normal finish is safe.
+    // Registered before any header is set, so a throw below cannot
+    // leave the stream open until the SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     const servedType = (upstream.contentType ?? '')
       .split(';')[0]!
       .trim()
@@ -323,17 +332,10 @@ export class StorageController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      `${inlineSafe ? 'inline' : 'attachment'}; filename="${filename.replace(/["\\\r\n]/g, '')}"`,
+      contentDisposition(inlineSafe ? 'inline' : 'attachment', filename),
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
-
-    // Tear down the S3 read stream when the client disconnects (or the
-    // response finishes) so its socket returns to the pool instead of
-    // draining to the end. `pipe` does not destroy the source on a
-    // destination close, and range-read viewers abort constantly.
-    // destroy() is idempotent, so firing on a normal finish is safe.
-    res.on('close', () => upstream.body.destroy());
     upstream.body.pipe(res);
   }
 }

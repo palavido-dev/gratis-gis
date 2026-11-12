@@ -202,8 +202,13 @@ export class DataLayerTablesService {
     for (const layer of data.layers) {
       const layerId = (layer as { id?: unknown }).id;
       if (typeof layerId !== 'string' || layerId === '') continue;
-      counts.set(layerId, await this.countLiveEntities(itemId, layerId));
+      // A failed count is left out, so the layer keeps its last known
+      // featureCount. Writing 0 would tell the QGIS plugin a huge
+      // layer is empty and safe to download whole.
+      const count = await this.readLiveCount(itemId, layerId);
+      if (count !== null) counts.set(layerId, count);
     }
+    if (counts.size === 0) return false;
     // Then write only featureCount, against the row as it is now and
     // under the same row lock commitLayerSync takes. Writing back the
     // `data` read above would put a stale syncVersion back if an edit
@@ -243,6 +248,14 @@ export class DataLayerTablesService {
     itemId: string,
     layerId: string,
   ): Promise<number> {
+    return (await this.readLiveCount(itemId, layerId)) ?? 0;
+  }
+
+  /** Live entity count, or null when the count query failed. */
+  private async readLiveCount(
+    itemId: string,
+    layerId: string,
+  ): Promise<number | null> {
     const scope = `data_layer:${itemId}:${layerId}`;
     try {
       const rows = await this.prisma.$queryRawUnsafe<
@@ -265,7 +278,7 @@ export class DataLayerTablesService {
           err instanceof Error ? err.message : err
         }`,
       );
-      return 0;
+      return null;
     }
   }
 }

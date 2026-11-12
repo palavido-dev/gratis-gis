@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { EventEmitter } from 'node:events';
 import { ForbiddenException } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { DataLayerFeaturesController } from './features.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { writeGeoParquetExport } from './geoparquet-export.js';
+
+// The export itself needs DuckDB; these specs only drive the handler.
+jest.mock('./geoparquet-export.js', () => ({
+  writeGeoParquetExport: jest.fn(),
+}));
+const writeExport = writeGeoParquetExport as jest.MockedFunction<
+  typeof writeGeoParquetExport
+>;
 
 /**
  * Download-tier gate coverage for the GeoParquet export (#174).
@@ -72,7 +82,7 @@ function makeController(opts: { canDownload: boolean }) {
       userId: u.id,
     })),
   };
-  const iterateFeatures = jest.fn(async function* () {
+  const iterateFeatures = jest.fn(async function* (): AsyncGenerator<unknown[], void> {
     yield [];
   });
   const v3 = { iterateFeatures };
@@ -144,3 +154,255 @@ describe('DataLayerFeaturesController.geoparquet download gate', () => {
     listFeatures.mockRestore();
   });
 });
+
+describe('DataLayerFeaturesController.csv error handling', () => {
+  function streamRes() {
+    const state = { body: '', ended: false, destroyed: false, headers: 0 };
+    const res = {
+      destroyed: false,
+      setHeader: jest.fn(() => {
+        state.headers += 1;
+      }),
+      write: jest.fn((chunk: string) => {
+        state.body += chunk;
+        return true;
+      }),
+      end: jest.fn(() => {
+        state.ended = true;
+      }),
+      destroy: jest.fn(() => {
+        state.destroyed = true;
+      }),
+    };
+    return { res: res as unknown as Response, state };
+  }
+
+  it('fails as a real error, with no headers sent, when the first page fails', async () => {
+    const { controller, iterateFeatures } = makeController({ canDownload: true });
+    // eslint-disable-next-line require-yield
+    iterateFeatures.mockImplementation(async function* () {
+      throw new Error('statement timeout');
+    });
+    const { res, state } = streamRes();
+    await expect(
+      controller.csv(res, makeUser(), ITEM_ID, LAYER_ID),
+    ).rejects.toThrow('statement timeout');
+    expect(state.headers).toBe(0);
+    expect(state.body).toBe('');
+  });
+
+  it('aborts the transfer instead of ending it cleanly on a mid-stream error', async () => {
+    // A CSV has no closing marker: a normal end would look like a
+    // complete file that silently stops part way.
+    const { controller, iterateFeatures } = makeController({ canDownload: true });
+    iterateFeatures.mockImplementation(async function* () {
+      yield [{ id: 'a', properties: { name: 'one' }, geometry: null }];
+      throw new Error('statement timeout');
+    });
+    const { res, state } = streamRes();
+    await controller.csv(res, makeUser(), ITEM_ID, LAYER_ID);
+    expect(state.body).toContain('one');
+    expect(state.destroyed).toBe(true);
+    expect(state.ended).toBe(false);
+  });
+});
+
+describe('DataLayerFeaturesController.geoparquet limits', () => {
+  afterEach(() => writeExport.mockReset());
+
+  it('answers 429 once the export slots are full, and frees a slot when one ends', async () => {
+    const { controller } = makeController({ canDownload: true });
+    const release: Array<() => void> = [];
+    writeExport.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          release.push(() => reject(new Error('stopped')));
+        }),
+    );
+    const res = () =>
+      ({ setHeader: jest.fn(), req: undefined }) as unknown as Response;
+    const a = controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID);
+    const b = controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID);
+    // Let both reach the export before the third asks.
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(
+      controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID),
+    ).rejects.toMatchObject({ status: 429 });
+    release.forEach((fn) => fn());
+    await expect(a).rejects.toThrow('stopped');
+    await expect(b).rejects.toThrow('stopped');
+    // Both slots are free again.
+    writeExport.mockRejectedValue(new Error('again'));
+    await expect(
+      controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID),
+    ).rejects.toThrow('again');
+  });
+
+  it('stops pulling rows once the client has gone', async () => {
+    const { controller, iterateFeatures } = makeController({ canDownload: true });
+    let pulled = 0;
+    iterateFeatures.mockImplementation(async function* () {
+      for (;;) {
+        pulled += 1;
+        yield [];
+      }
+    });
+    const req = new EventEmitter();
+    const r = { setHeader: jest.fn(), req, writableEnded: false } as unknown as Response;
+    writeExport.mockImplementation(async ({ batches }) => {
+      for await (const _b of batches) {
+        if (pulled === 3) req.emit('close');
+      }
+      return { path: '/nonexistent', rows: 0 };
+    });
+    await expect(
+      controller.geoparquet(r, makeUser(), ITEM_ID, LAYER_ID),
+    ).rejects.toThrow('client closed');
+    expect(pulled).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('DataLayerFeaturesController.append notifications', () => {
+  it('notifies only for rows the request actually inserted', async () => {
+    // A retried batch with one new row used to notify for every row.
+    const base = makeController({ canDownload: true });
+    const notify = jest.fn(async () => undefined);
+    const prisma = {
+      item: {
+        findUnique: jest.fn(async () => ({
+          id: 'editor-1',
+          title: 'Editor',
+          ownerId: 'owner',
+          type: 'editor',
+          data: {},
+        })),
+      },
+      user: { findUnique: jest.fn(async () => ({ fullName: 'Field User' })) },
+    };
+    const v3 = {
+      insertFeatures: jest.fn(async () => ({
+        inserted: 1,
+        deduplicated: 2,
+        globalIds: ['g-0', 'g-1', 'g-2'],
+        insertedIndices: [1],
+      })),
+    };
+    const C = DataLayerFeaturesController as unknown as new (
+      ...args: unknown[]
+    ) => DataLayerFeaturesController;
+    const controller = new C(
+      base.items,
+      base.sharing,
+      v3,
+      prisma,
+      { assertAllows: jest.fn(async () => undefined) },
+      { notify },
+    );
+    const out = await controller.append(
+      makeUser(),
+      ITEM_ID,
+      LAYER_ID,
+      {
+        features: [
+          { globalId: 'g-0', properties: { name: 'a' } },
+          { globalId: 'g-1', properties: { name: 'b' } },
+          { globalId: 'g-2', properties: { name: 'c' } },
+        ],
+      } as never,
+      'editor-1',
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      'owner',
+      'editor_feature_created',
+      expect.objectContaining({ featureId: 'g-1' }),
+    );
+    // The reply shape is unchanged.
+    expect(out).toEqual({
+      inserted: 1,
+      deduplicated: 2,
+      globalIds: ['g-0', 'g-1', 'g-2'],
+    });
+  });
+});
+
+describe('where fields are checked on every filtered read', () => {
+  const where = JSON.stringify({
+    combinator: 'all',
+    clauses: [{ field: 'renamed', op: '==', value: 'x' }],
+  });
+
+  it('features-page answers 400 for a field not on the layer', async () => {
+    const { controller } = makeController({ canDownload: true });
+    await expect(
+      controller.featuresPage(
+        makeUser(), ITEM_ID, LAYER_ID,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        where,
+      ),
+    ).rejects.toThrow('"renamed" is not a field on this layer.');
+  });
+
+  it('filtered-extent answers 400 for a field not on the layer', async () => {
+    const { controller } = makeController({ canDownload: true });
+    await expect(
+      controller.filteredExtent(makeUser(), ITEM_ID, LAYER_ID, where),
+    ).rejects.toThrow('"renamed" is not a field on this layer.');
+  });
+});
+
+describe('DataLayerFeaturesController geo-limit write check', () => {
+  it('checks the whole batch in one query and reports malformed geometry as a 422 row', async () => {
+    const base = makeController({ canDownload: true });
+    base.sharing.featureScopeFor.mockImplementation(async (u: { id: string }) => ({
+      geoLimit: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
+      rowScope: 'all' as const,
+      userId: u.id,
+    }) as never);
+    // The database says the second candidate is outside.
+    const queryRaw = jest.fn(async () => [{ ord: 2 }]);
+    const insertFeatures = jest.fn();
+    const C = DataLayerFeaturesController as unknown as new (
+      ...args: unknown[]
+    ) => DataLayerFeaturesController;
+    const controller = new C(
+      base.items,
+      base.sharing,
+      { insertFeatures },
+      { $queryRaw: queryRaw },
+      {},
+      {},
+    );
+    const err = await controller
+      .append(makeUser(), ITEM_ID, LAYER_ID, {
+        features: [
+          { geometry: { type: 'Point', coordinates: [0.5, 0.5] } },
+          { geometry: { type: 'Point', coordinates: [5, 5] } },
+          { geometry: { type: 'Nonsense' } },
+          { properties: { name: 'no geometry' } },
+        ],
+      } as never)
+      .catch((e: unknown) => e);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect((err as { getStatus(): number }).getStatus()).toBe(422);
+    expect((err as { getResponse(): { offendingIndices: number[] } }).getResponse().offendingIndices)
+      .toEqual([1, 2]);
+    expect(insertFeatures).not.toHaveBeenCalled();
+  });
+});
+
+describe('time filter bounds', () => {
+  it('answers 400 for a bound that is not a date', async () => {
+    const { controller } = makeController({ canDownload: true });
+    const res = { setHeader: jest.fn() } as unknown as Response;
+    await expect(
+      controller.listFeatures(
+        makeUser(), ITEM_ID, LAYER_ID, res,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        'name', 'yesterday',
+      ),
+    ).rejects.toThrow(/timeFrom and timeTo must be dates/);
+  });
+});
+

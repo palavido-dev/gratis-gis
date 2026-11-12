@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { parseIntEnv } from '../common/env.js';
 import type { DataLayerLayerShape } from './tables.service.js';
 import { readV3Layers } from './read-v3-layers.js';
 
@@ -120,6 +121,17 @@ export interface SearchIndexBuildResult extends SearchIndexReconcileResult {
   orphansDropped: string[];
   durationMs: number;
 }
+
+/**
+ * Statement timeout for one index build. The app role's 30 s default
+ * cancels a build on a layer of about a million rows, and the file
+ * header quotes 30 to 60 s per field there. Ten minutes by default;
+ * 0 means no limit.
+ */
+const INDEX_BUILD_TIMEOUT_MS = parseIntEnv(
+  'SEARCH_INDEX_BUILD_TIMEOUT_MS',
+  10 * 60 * 1000,
+);
 
 @Injectable()
 export class DataLayerSearchIndexService {
@@ -338,7 +350,35 @@ export class DataLayerSearchIndexService {
         out.kept.push(name);
         continue;
       }
-      await this.prisma.$executeRawUnsafe(d.sql);
+      try {
+        // SET LOCAL needs its own transaction; it ends with it. The
+        // transaction's own timeout must outlast the statement's.
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRawUnsafe(
+              `SET LOCAL statement_timeout = ${INDEX_BUILD_TIMEOUT_MS}`,
+            );
+            await tx.$executeRawUnsafe(d.sql);
+          },
+          {
+            maxWait: 10_000,
+            timeout:
+              INDEX_BUILD_TIMEOUT_MS > 0
+                ? INDEX_BUILD_TIMEOUT_MS + 10_000
+                : 24 * 60 * 60 * 1000,
+          },
+        );
+      } catch (err) {
+        // One slow or failed build must not abort the whole pass and
+        // leave every later layer without its indexes. Report it with
+        // the other skipped fields and carry on.
+        const reason = `index build failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        this.log.warn(`search-index: ${name} for ${scope}: ${reason}`);
+        out.skippedFields.push({ scope, field: d.field, reason });
+        continue;
+      }
       out.created.push(name);
       this.log.log(
         `search-index: built ${name} on (attrs->>'${d.field}') for ${scope}`,
@@ -384,7 +424,19 @@ export class DataLayerSearchIndexService {
       out.indexedLayers += layers.filter((l) =>
         (l.fields ?? []).some((f) => f.searchable === true),
       ).length;
-      const r = await this.reconcileItem(item.id, layers);
+      let r: SearchIndexReconcileResult;
+      try {
+        r = await this.reconcileItem(item.id, layers);
+      } catch (err) {
+        // Keep going: one item's failure must not leave every later
+        // item in the org unreconciled.
+        const reason = `reconcile failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        this.log.warn(`search-index: item ${item.id}: ${reason}`);
+        out.skippedFields.push({ scope: `data_layer:${item.id}`, field: '', reason });
+        continue;
+      }
       out.created.push(...r.created);
       out.kept.push(...r.kept);
       out.dropped.push(...r.dropped);

@@ -83,9 +83,23 @@ export async function writeGeoParquetExport(
   // first non-colliding candidate. The geo metadata's
   // primary_column follows whatever name wins, so readers (ours
   // included) still resolve the geometry column correctly.
-  const taken = new Set(args.fields.map((f) => f.name));
+  //
+  // DuckDB identifiers are case-insensitive even when quoted, so
+  // "Name" and "name" (or "Geometry" next to our "geometry") are the
+  // same column to it and CREATE TABLE fails. Compare lowercased, and
+  // give a later field that collides a numbered column name instead.
+  // Values are still read from the feature under the field's own name.
+  const taken = new Set<string>();
+  const columns = args.fields.map((field) => {
+    let column = field.name;
+    for (let n = 2; taken.has(column.toLowerCase()); n++) {
+      column = `${field.name}_${n}`;
+    }
+    taken.add(column.toLowerCase());
+    return { field, column };
+  });
   const geometryColumn = pickFreeName(['geometry', '_geometry', '__geometry'], taken);
-  taken.add(geometryColumn);
+  taken.add(geometryColumn.toLowerCase());
   const stagingGeoJsonColumn = pickFreeName(
     ['__geojson', '__geojson_1', '__geojson_2'],
     taken,
@@ -95,8 +109,8 @@ export async function writeGeoParquetExport(
 
   return withSpatialConnection(
     async (connection) => {
-      const columnDefs = args.fields.map(
-        (f) => `${quoteIdent(f.name)} ${duckdbColumnType(f.type)}`,
+      const columnDefs = columns.map(
+        ({ field, column }) => `${quoteIdent(column)} ${duckdbColumnType(field.type)}`,
       );
       if (args.includeGeometry) {
         // GeoJSON text, converted to GEOMETRY in the COPY SELECT.
@@ -143,7 +157,7 @@ export async function writeGeoParquetExport(
       // writer layout. ST_GeomFromGeoJSON propagates NULL, so
       // geometry-less rows survive as NULL geometry (verified by
       // the export spec).
-      const selectCols = args.fields.map((f) => quoteIdent(f.name));
+      const selectCols = columns.map(({ column }) => quoteIdent(column));
       if (args.includeGeometry) {
         selectCols.push(
           `ST_GeomFromGeoJSON(${quoteIdent(stagingGeoJsonColumn)}) AS ${quoteIdent(geometryColumn)}`,
@@ -165,7 +179,7 @@ export async function writeGeoParquetExport(
  *  ever changes. */
 function pickFreeName(candidates: string[], taken: ReadonlySet<string>): string {
   for (const c of candidates) {
-    if (!taken.has(c)) return c;
+    if (!taken.has(c.toLowerCase())) return c;
   }
   throw new Error(
     `Could not pick a free column name from [${candidates.join(', ')}]`,

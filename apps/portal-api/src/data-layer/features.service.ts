@@ -179,6 +179,21 @@ interface LayerSchemaMemo {
  * stale copy into `attrs` and shadow the live values next time.
  * Applied to every property bag about to be persisted on an update.
  */
+/**
+ * Read the `at` query value as a Date. An unparseable value used to
+ * reach the engine as an Invalid Date and answer 500, or (on the
+ * CSV export) a header-only file that read as "empty at that time".
+ */
+export function parseAsOf(at: string): Date {
+  const d = new Date(at);
+  if (!Number.isFinite(d.getTime())) {
+    throw new BadRequestException(
+      'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+    );
+  }
+  return d;
+}
+
 function stripUnderscoreKeys(
   props: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -515,6 +530,7 @@ export class DataLayerFeaturesService {
    *   responses view renders that id as a person's name. `submitted_at`
    *   is NOT overwritten: capture time is client-authoritative (offline
    *   is the only place that knows it) and is only filled when absent.
+   *   On a patch `submitted_by` is dropped, so the stored value stays.
    *
    * - Undeclared keys are logged once per distinct set per layer. The
    *   validator preserves them (rejecting would break the form runtime,
@@ -558,6 +574,15 @@ export class DataLayerFeaturesService {
         if (declaresSubmittedAt && isBlankStamp(properties.submitted_at)) {
           properties.submitted_at = new Date().toISOString();
         }
+      }
+      // On a patch the submitter never changes. The merge in
+      // updateFeature keeps the stored value when the key is absent,
+      // so dropping it here stops an editor from naming someone else
+      // as the submitter.
+      if (mode === 'patch' && declaresSubmittedBy && 'submitted_by' in properties) {
+        const { submitted_by: _ignored, ...rest } = properties;
+        void _ignored;
+        properties = rest;
       }
       const result = validateFeatureProperties(fields, properties, {
         mode,
@@ -614,10 +639,17 @@ export class DataLayerFeaturesService {
       limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: DataLayerFeatureOut[] }> {
+    // The engine casts entity to uuid, so a sequential id such as "4"
+    // from a source without stable ids would be a 500, not a 400.
+    if (opts.entity !== undefined && !isUuid(opts.entity)) {
+      throw new BadRequestException(
+        'That selection does not match a saved feature. Reselect the feature on the map and try again.',
+      );
+    }
     const result = await this.dataLayer.listFeatures({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -667,7 +699,7 @@ export class DataLayerFeaturesService {
     yield* this.dataLayer.iterateFeatures({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -717,7 +749,7 @@ export class DataLayerFeaturesService {
     return this.dataLayer.readFeaturePage({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -773,9 +805,16 @@ export class DataLayerFeaturesService {
     inputs: DataLayerFeatureInsert[],
     user: AuthUser,
     _opts: { isTable?: boolean } = {},
-  ): Promise<{ inserted: number; deduplicated: number; globalIds: string[] }> {
+  ): Promise<{
+    inserted: number;
+    deduplicated: number;
+    globalIds: string[];
+    /** Request indices of the rows actually written (not deduplicated),
+     *  for callers that act per new feature. Not part of the HTTP reply. */
+    insertedIndices: number[];
+  }> {
     if (inputs.length === 0) {
-      return { inserted: 0, deduplicated: 0, globalIds: [] };
+      return { inserted: 0, deduplicated: 0, globalIds: [], insertedIndices: [] };
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
@@ -834,6 +873,7 @@ export class DataLayerFeaturesService {
       inserted,
       deduplicated,
       globalIds: written.map((w) => w.globalId),
+      insertedIndices: written.flatMap((w, i) => (w.deduplicated ? [] : [i])),
     };
   }
 
@@ -1798,6 +1838,10 @@ export class DataLayerFeaturesService {
       ...(selectionIds !== undefined ? { entityIds: selectionIds } : {}),
       ...(args.shareScope ?? {}),
       ...(args.isTable === true ? { isTable: true } : {}),
+      // Enforce the cap in SQL. Without a limit the engine default of
+      // 100,000 full features (geometry included) was loaded before
+      // the cap below was checked, enough to exhaust a replica.
+      limit: MAX_CALC_FIELD_ROWS + 1,
     });
 
     const total = features.features.length;
@@ -1911,14 +1955,19 @@ export class DataLayerFeaturesService {
       sub: args.user.id,
       displayName: args.user.username ?? '',
     };
+    // One lookup table instead of a scan of every feature per update,
+    // which was quadratic (about 10^8 comparisons at the row cap) on
+    // the event loop.
+    const headById = new Map<string, unknown>();
+    for (const f of features.features) {
+      headById.set(String(f.id), f.properties._observation_id);
+    }
     const missingHead = updates.filter((u) => {
-      const head = features.features.find((f) => String(f.id) === u.id)
-        ?.properties._observation_id;
+      const head = headById.get(u.id);
       return typeof head !== 'string';
     });
     const fenced = updates.flatMap((u) => {
-      const head = features.features.find((f) => String(f.id) === u.id)
-        ?.properties._observation_id;
+      const head = headById.get(u.id);
       if (typeof head !== 'string') return [];
       return [{
         itemId: args.itemId,
@@ -2025,6 +2074,12 @@ export class DataLayerFeaturesService {
     // good. Read before, that write is sent again next time, which is
     // harmless because applying a change is idempotent.
     const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+    // Nothing changed since the client's cursor. The delta query has
+    // no index on the stamped version and reads the whole scope, so
+    // a device polling an idle large layer paid a full scan per poll.
+    if (opts.after === undefined && since >= syncVersion) {
+      return { syncVersion, since, changes: [], truncated: false };
+    }
     const changes = await this.dataLayer.listDeltaSince({
       itemId,
       layerId,

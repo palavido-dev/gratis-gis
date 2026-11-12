@@ -25,6 +25,7 @@ import { StorageService } from '../storage/storage.service.js';
 import { CogTileService } from './cog-tiles.service.js';
 import { TileLayerService } from './tile-layer.service.js';
 import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 /**
  * Content types the tile pipeline legitimately serves inline
@@ -270,6 +271,10 @@ export class TileLayerController {
       format,
     );
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    // Destroy the S3 read if anything below throws before the pipe
+    // (the download-name lookup, a header). Otherwise the stream would
+    // hold its socket until the SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     res.status(upstream.statusCode);
     if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);
     if (upstream.contentLength !== undefined) {
@@ -295,10 +300,7 @@ export class TileLayerController {
         itemId,
         format,
       );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${name.replace(/["\\\r\n]/g, '')}"`,
-      );
+      res.setHeader('Content-Disposition', contentDisposition('attachment', name));
     } else if (!INLINE_SAFE_TILE_TYPES.has(servedType)) {
       res.setHeader('Content-Disposition', 'attachment');
     }

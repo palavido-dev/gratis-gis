@@ -7,6 +7,8 @@ import {
   ForbiddenException,
   Get,
   Headers,
+  HttpException,
+  HttpStatus,
   InternalServerErrorException,
   NotFoundException,
   Param,
@@ -27,6 +29,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsObject,
   IsOptional,
   IsString,
@@ -43,6 +46,7 @@ import {
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
 import { requestAbortSignal } from '../common/request-signal.js';
+import { parseIntEnv } from '../common/env.js';
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 import {
   parseAggregateQuery,
@@ -59,7 +63,7 @@ import {
   type FeatureRecord,
   type MapLayerFilter,
 } from '@gratis-gis/shared-types';
-import type { GeoJsonGeometry } from '@gratis-gis/engine';
+import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -105,11 +109,13 @@ class AppendFeatureDto {
   @IsOptional() @IsObject() properties?: Record<string, unknown>;
 }
 
-class CalculateFieldDto {
+export class CalculateFieldDto {
   @IsString() expression!: string;
   @IsString() outputName!: string;
-  @IsString() outputType!: 'number' | 'string' | 'boolean';
-  @IsString() scope!: 'all' | 'selection';
+  // Only these values. Any other scope (a typo such as "selected")
+  // used to skip the selection branch and recalculate the whole layer.
+  @IsIn(['number', 'string', 'boolean']) outputType!: 'number' | 'string' | 'boolean';
+  @IsIn(['all', 'selection']) scope!: 'all' | 'selection';
   @IsOptional() @IsArray() @IsString({ each: true }) selectedIds?: string[];
   @IsOptional() dryRun?: boolean;
 }
@@ -163,6 +169,30 @@ class DeleteFeatureBodyDto {
  */
 const FEATURE_ID_SHAPE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * GeoParquet exports running at once in this process. Each one opens
+ * its own DuckDB (up to 512 MB of native memory) and a staging file,
+ * so a handful in parallel could exhaust a replica that also serves
+ * tiles. Callers past the limit get a 429 and can retry.
+ */
+const GEOPARQUET_EXPORT_SLOTS = parseIntEnv('GEOPARQUET_EXPORT_CONCURRENCY', 2, {
+  min: 1,
+});
+let geoParquetExportsRunning = 0;
+
+/** Stop pulling batches once the client has gone, so the walk and the
+ *  DuckDB build do not run on for nobody. Breaking out of the loop
+ *  also closes the source iterator and its DB cursor. */
+async function* untilAborted<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<T> {
+  for await (const batch of source) {
+    if (signal?.aborted) throw new Error('client closed');
+    yield batch;
+  }
+}
 
 function assertFeatureIdShape(featureId: string): void {
   if (!FEATURE_ID_SHAPE.test(featureId)) {
@@ -459,7 +489,7 @@ export class DataLayerFeaturesController {
     // treated as "no clip" so a deleted boundary cannot silently
     // expand or shrink the result set in unexpected ways.
     if (q.clip) {
-      const geom = await this.resolveBoundaryGeometry(q.clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, q.clip);
       if (geom) opts.boundaryClip = geom;
     }
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
@@ -510,6 +540,15 @@ export class DataLayerFeaturesController {
           ? q.timeTo
           : undefined;
       const haveBound = safeFrom !== undefined || safeTo !== undefined;
+      // The bounds are cast to timestamptz in SQL; one that is not a
+      // date was a 500 for the whole read.
+      for (const bound of [safeFrom, safeTo]) {
+        if (bound !== undefined && !Number.isFinite(new Date(bound).getTime())) {
+          throw new BadRequestException(
+            'timeFrom and timeTo must be dates, e.g. 2026-08-01 or 2026-08-01T00:00:00Z.',
+          );
+        }
+      }
       if (haveBound) {
         if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(q.timeField)) {
           // Silently drop. Same rationale as the parentFk path:
@@ -581,7 +620,9 @@ export class DataLayerFeaturesController {
       z < 0 ||
       z > 24 ||
       x < 0 ||
-      y < 0
+      y < 0 ||
+      x >= 2 ** z ||
+      y >= 2 ** z
     ) {
       throw new BadRequestException('Invalid tile coordinates.');
     }
@@ -620,16 +661,8 @@ export class DataLayerFeaturesController {
     // Both partition the tile cache, via optsFingerprint. That is the
     // point: two predicates must never share a slot.
     const where = parseWhere(whereRaw);
-    if (where) {
-      for (const c of where.clauses) {
-        if (!schemaHasField(layer, c.field)) {
-          throw new BadRequestException(
-            `"${c.field}" is not a field on this layer.`,
-          );
-        }
-      }
-      opts.where = where;
-    }
+    assertWhereFields(layer, where);
+    if (where) opts.where = where;
     const via = await this.resolveVia(user, parseVia(viaRaw));
     if (via) opts.via = via;
     // #40: the tile has to honour row-scope like /features does. This
@@ -639,7 +672,7 @@ export class DataLayerFeaturesController {
     // map while /features dutifully withheld it.
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     // #147: project the layer's declared fields into the tile so
@@ -859,6 +892,9 @@ export class DataLayerFeaturesController {
     // being changed to fix, so failing to parse one must not
     // reintroduce it by a different route.
     const parsedWhere = parseWhere(where);
+    // Same field check as the tile and aggregate routes: a renamed
+    // field must be a 400 here too, not a silent zero-row page.
+    assertWhereFields(layer, parsedWhere);
     if (parsedWhere) opts.where = parsedWhere;
     if (isTable) opts.isTable = true;
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
@@ -896,7 +932,7 @@ export class DataLayerFeaturesController {
     }
     if (geoLimit) opts.geoLimit = geoLimit;
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     return this.v3.pageFeatures(itemId, layerId, opts);
@@ -982,7 +1018,7 @@ export class DataLayerFeaturesController {
     if (geoLimit) opts.geoLimit = geoLimit;
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     let result: Awaited<ReturnType<typeof this.v3.aggregateFeatures>>;
@@ -1088,7 +1124,7 @@ export class DataLayerFeaturesController {
     }
     if (geoLimit) opts.geoLimit = geoLimit;
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     return this.v3.searchFeatures(itemId, layerId, opts);
@@ -1139,7 +1175,7 @@ export class DataLayerFeaturesController {
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (geoLimit) opts.geoLimit = geoLimit;
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     const bbox = await this.v3.selectionExtent(itemId, layerId, opts);
@@ -1165,7 +1201,7 @@ export class DataLayerFeaturesController {
     @Query('at') at?: string,
     @Query('clip') clip?: string,
   ): Promise<{ bbox: [number, number, number, number] | null }> {
-    const { geoLimit, rowScope } = await this.assertV3Layer(
+    const { geoLimit, rowScope, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -1180,6 +1216,7 @@ export class DataLayerFeaturesController {
       asOf?: Date;
     } = {};
     const parsedWhere = parseWhere(where);
+    assertWhereFields(layer, parsedWhere);
     if (parsedWhere) opts.where = parsedWhere;
     const via = await this.resolveVia(user, parseVia(viaRaw));
     if (via) opts.via = via;
@@ -1197,7 +1234,7 @@ export class DataLayerFeaturesController {
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (geoLimit) opts.geoLimit = geoLimit;
     if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+      const geom = await this.resolveBoundaryGeometry(user, itemId, clip);
       if (geom) opts.boundaryClip = geom;
     }
     const bbox = await this.v3.filteredExtent(itemId, layerId, opts);
@@ -1362,6 +1399,14 @@ export class DataLayerFeaturesController {
       'point';
     const plan = csvColumnPlan(fields, csvOpts, isPoint);
 
+    // Pull the first page BEFORE any header is sent, as
+    // streamFeatureCollection does, so a bad `at`, a bad filter or a
+    // failed first read is a real error response and not a 200 with
+    // only a header row (which reads as "the layer was empty").
+    const batches = this.v3.iterateFeatures(itemId, layerId, iterOpts);
+    const iterator = batches[Symbol.asyncIterator]();
+    let step = await iterator.next();
+
     const filenameStem = layerId.replace(/[^\w.-]+/g, '_');
     res.setHeader('content-type', 'text/csv; charset=utf-8');
     res.setHeader(
@@ -1373,17 +1418,13 @@ export class DataLayerFeaturesController {
     // layer is exported rather than the first 100k rows. The old path
     // buffered listFeatures (capped, in-memory) and silently truncated:
     // a CSV that looked complete but was missing most of a large layer.
-    // Headers are already sent, so a mid-stream error cannot become an
-    // HTTP error; the CRLF-joined body is identical to featuresToCsv.
+    // The CRLF-joined body is identical to featuresToCsv.
     try {
       res.write(csvHeaderRow(plan));
-      for await (const batch of this.v3.iterateFeatures(
-        itemId,
-        layerId,
-        iterOpts,
-      )) {
+      while (!step.done) {
+        if (res.destroyed) throw new Error('client closed');
         let chunk = '';
-        for (const feat of batch as FeatureRecord[]) {
+        for (const feat of step.value as FeatureRecord[]) {
           chunk += '\r\n' + csvFeatureRow(feat, plan);
         }
         // Honour socket backpressure. The DB cursor will always
@@ -1394,14 +1435,21 @@ export class DataLayerFeaturesController {
         if (chunk && !res.write(chunk)) {
           await onceDrain(res);
         }
+        step = await iterator.next();
       }
       res.end();
     } catch {
-      // Best-effort: the response has already started, so there is no
-      // clean way to signal an error to the client beyond ending the
-      // stream. The paged read is snapshot-pinned so a partial file is
-      // at least internally consistent up to where it stopped.
-      res.end();
+      // Headers are already out, so the error cannot become an HTTP
+      // status. A CSV has no closing marker, so ending the body
+      // normally would hand the user a clean-looking file that stops
+      // part way. Destroying the socket makes the download fail
+      // visibly instead.
+      res.destroy();
+      try {
+        await iterator.return?.(undefined);
+      } catch {
+        /* best effort */
+      }
     }
   }
 
@@ -1486,17 +1534,31 @@ export class DataLayerFeaturesController {
 
     const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
 
+    if (geoParquetExportsRunning >= GEOPARQUET_EXPORT_SLOTS) {
+      res.setHeader('Retry-After', '30');
+      throw new HttpException(
+        'Other exports are running on the server right now. Try again in a minute.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    geoParquetExportsRunning += 1;
+    const signal = res.req ? requestAbortSignal(res.req, res) : undefined;
+
     // mkdtemp: atomic + 0700, same rationale as the ingest temp
     // dirs (CodeQL js/insecure-temporary-file).
-    const workDir = await mkdtemp(join(tmpdir(), 'gg-export-'));
+    let workDir: string | undefined;
     try {
+      workDir = await mkdtemp(join(tmpdir(), 'gg-export-'));
       let result: { path: string; rows: number };
       try {
         result = await writeGeoParquetExport({
           workDir,
           fields,
           includeGeometry: !isTable,
-          batches: this.v3.iterateFeatures(itemId, layerId, iterOpts),
+          batches: untilAborted(
+            this.v3.iterateFeatures(itemId, layerId, iterOpts),
+            signal,
+          ),
         });
       } catch (err) {
         // Same mapping IngestService applies on the import side: a
@@ -1526,10 +1588,13 @@ export class DataLayerFeaturesController {
         // finally below still removes the temp dir.
       }
     } finally {
-      await rm(workDir, { recursive: true, force: true }).catch(() => {
-        // Best-effort cleanup; a leaked temp dir is not worth
-        // failing the response over.
-      });
+      geoParquetExportsRunning -= 1;
+      if (workDir) {
+        await rm(workDir, { recursive: true, force: true }).catch(() => {
+          // Best-effort cleanup; a leaked temp dir is not worth
+          // failing the response over.
+        });
+      }
     }
   }
 
@@ -1544,18 +1609,33 @@ export class DataLayerFeaturesController {
    * config never blocks the map from rendering.
    */
   private async resolveBoundaryGeometry(
+    user: AuthUser,
+    layerItemId: string,
     boundaryItemId: string,
   ): Promise<unknown | null> {
-    if (!boundaryItemId) return null;
+    // A non-UUID id would make Prisma throw (a 500); it can never match.
+    if (!boundaryItemId || !isUuid(boundaryItemId)) return null;
     const row = await this.prisma.item.findFirst({
       where: {
         id: boundaryItemId,
         type: 'geo_boundary',
         deletedAt: null,
       },
-      select: { data: true },
+      include: { shares: true },
     });
     if (!row) return null;
+    // The clip skips the caller's own access to the boundary on
+    // purpose (a map author picks it for the layer). It must still
+    // belong with the layer: in the layer's org, or readable by the
+    // caller. Otherwise any id from another org works as a geometry
+    // oracle: fill a layer with a point grid and see which survive.
+    if (!this.sharing.canRead(user, row, row.shares)) {
+      const layerItem = await this.prisma.item.findUnique({
+        where: { id: layerItemId },
+        select: { orgId: true },
+      });
+      if (!layerItem || layerItem.orgId !== row.orgId) return null;
+    }
     const geom = (row.data as { geometry?: unknown } | null)?.geometry;
     if (!geom || typeof geom !== 'object') return null;
     return geom;
@@ -1583,27 +1663,38 @@ export class DataLayerFeaturesController {
     // null geometries pass (a write with no geom can't violate a
     // spatial limit -- editors of attribute-only fields hit this).
     const candidates: Array<{ index: number; geom: unknown }> = [];
+    const offending: number[] = [];
     for (let i = 0; i < geoms.length; i++) {
       const g = geoms[i];
-      if (g && typeof g === 'object') candidates.push({ index: i, geom: g });
+      if (!g || typeof g !== 'object') continue;
+      // A malformed geometry would make ST_GeomFromGeoJSON raise and
+      // fail the whole request with a 500. Report it as outside the
+      // limit instead, with its index like any other offending row.
+      if (looksLikeGeoJsonGeometry(g)) candidates.push({ index: i, geom: g });
+      else offending.push(i);
     }
-    if (candidates.length === 0) return;
-    const limitJson = JSON.stringify(geoLimit);
-    const offending: number[] = [];
-    // One round-trip per candidate. Bulk batch sizes in normal
-    // traffic stay small (a field-app sync flush is on the order
-    // of dozens, not thousands). If we ever need thousand-row
-    // imports to gate fast, fold this into a single unnest+ANY
-    // query; for v1 the loop keeps the error-reporting trivial.
-    for (const { index, geom } of candidates) {
-      const rows = await this.prisma.$queryRaw<Array<{ ok: boolean }>>`
-        SELECT ST_Intersects(
-          ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geom)}::text), 4326),
-          ST_SetSRID(ST_GeomFromGeoJSON(${limitJson}::text), 4326)
-        ) AS ok
+    if (candidates.length > 0) {
+      // One round trip for the whole batch. One query per feature
+      // meant 5,000 sequential queries for a large offline flush, each
+      // re-parsing the limit polygon.
+      const limitJson = JSON.stringify(geoLimit);
+      const rows = await this.prisma.$queryRaw<Array<{ ord: number }>>`
+        WITH lim AS (
+          SELECT ST_SetSRID(ST_GeomFromGeoJSON(${limitJson}::text), 4326) AS g
+        )
+        SELECT c.ord::int AS ord
+        FROM unnest(${candidates.map((c) => JSON.stringify(c.geom))}::text[])
+          WITH ORDINALITY AS c(geom, ord), lim
+        WHERE ST_Intersects(
+          ST_SetSRID(ST_GeomFromGeoJSON(c.geom), 4326),
+          lim.g
+        ) IS NOT TRUE
       `;
-      const ok = rows[0]?.ok === true;
-      if (!ok) offending.push(index);
+      for (const r of rows) {
+        const c = candidates[Number(r.ord) - 1];
+        if (c) offending.push(c.index);
+      }
+      offending.sort((a, b) => a - b);
     }
     if (offending.length > 0) {
       throw new UnprocessableEntityException({
@@ -1663,13 +1754,21 @@ export class DataLayerFeaturesController {
         op: 'create',
       });
     }
-    const result = await this.v3.insertFeatures(
+    const { insertedIndices, ...result } = await this.v3.insertFeatures(
       itemId,
       layerId,
       body.features,
       user,
       { isTable },
     );
+    // Notify only for rows this request actually wrote. A retried
+    // batch carries rows that already exist; notifying for the whole
+    // body sent the owner one email per feature again on every retry.
+    const created: AppendFeatureDto[] = insertedIndices.map((i) => {
+      const f = body.features[i]!;
+      const id = result.globalIds[i] ?? f.globalId;
+      return id !== undefined ? { ...f, globalId: id } : f;
+    });
     // Fire editor_feature_created when this insert came through an
     // editor (#128). Notifies the editor item's owner so authors who
     // build a data-collection editor get told when submissions land,
@@ -1682,7 +1781,7 @@ export class DataLayerFeaturesController {
         editorId,
         dataLayerId: itemId,
         layerKey: layerId,
-        features: body.features,
+        features: created,
         creator: user,
       });
     }
@@ -1702,7 +1801,7 @@ export class DataLayerFeaturesController {
         dataCollectionId,
         dataLayerId: itemId,
         layerKey: layerId,
-        features: body.features,
+        features: created,
         creator: user,
       });
     }
@@ -2231,6 +2330,41 @@ function exportFilenameStem(
  * codepath; takes the minimal layer shape the assertV3Layer helper
  * surfaces.
  */
+const GEOJSON_GEOMETRY_TYPES = new Set([
+  'Point',
+  'MultiPoint',
+  'LineString',
+  'MultiLineString',
+  'Polygon',
+  'MultiPolygon',
+]);
+
+/** Shape check before a geometry reaches ST_GeomFromGeoJSON. */
+function looksLikeGeoJsonGeometry(g: unknown): boolean {
+  if (!g || typeof g !== 'object') return false;
+  const o = g as { type?: unknown; coordinates?: unknown; geometries?: unknown };
+  if (o.type === 'GeometryCollection') {
+    return Array.isArray(o.geometries) && o.geometries.every(looksLikeGeoJsonGeometry);
+  }
+  return (
+    typeof o.type === 'string' &&
+    GEOJSON_GEOMETRY_TYPES.has(o.type) &&
+    Array.isArray(o.coordinates)
+  );
+}
+
+/** Every field a `where` filter names must be on the layer. */
+function assertWhereFields(
+  layer: { fields?: Array<{ name: string }> },
+  where: MapLayerFilter | null | undefined,
+): void {
+  for (const c of where?.clauses ?? []) {
+    if (!schemaHasField(layer, c.field)) {
+      throw new BadRequestException(`"${c.field}" is not a field on this layer.`);
+    }
+  }
+}
+
 function schemaHasField(
   layer: { fields?: Array<{ name: string }> } | undefined,
   fieldName: string,

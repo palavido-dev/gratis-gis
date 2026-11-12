@@ -211,6 +211,34 @@ describe('writeGeoParquetExport', () => {
     expect(probe.layers[0]!.geometryType).toBe('point');
   });
 
+  it('exports fields whose names differ only by case, and a "Geometry" field', async () => {
+    // DuckDB treats quoted identifiers case-insensitively, so these
+    // used to fail CREATE TABLE and the export answered 500.
+    const out = await writeGeoParquetExport({
+      workDir,
+      fields: [field('Name', 'string'), field('name', 'string'), field('Geometry', 'string')],
+      includeGeometry: true,
+      batches: pagesOf([
+        [
+          {
+            geometry: { type: 'Point', coordinates: [1, 2] },
+            properties: { Name: 'upper', name: 'lower', Geometry: 'text' },
+          },
+        ],
+      ]),
+    });
+    expect(out.rows).toBe(1);
+    const geo = await readGeoMetadata(out.path);
+    expect(geo!.primary_column).toBe('_geometry');
+    const row = await withSpatialConnection(async (connection) => {
+      const reader = await connection.runAndReadAll(
+        `SELECT "Name", "name_2", "Geometry" FROM read_parquet('${escapeSqlLiteral(out.path)}')`,
+      );
+      return reader.getRows()[0];
+    });
+    expect(row).toEqual(['upper', 'lower', 'text']);
+  });
+
   it('writes plain parquet (no geo metadata) for table-mode layers', async () => {
     const out = await writeGeoParquetExport({
       workDir,

@@ -18,26 +18,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import { featureWriteLocksSql } from './feature-locks.js';
+
 import {
   type GeoJsonGeometry,
   type Observation,
   type ObservationKind,
-  type ReadFeature,
-  type ReadQuery,
   cellForGeometry,
   uuidv7,
   validateObservation,
 } from '@gratis-gis/engine';
 
-/** Hard cap on rows per INSERT statement.
- *
- *  PostgreSQL's per-statement parameter cap is around 32,000. Each
- *  observation row binds 13 parameters, so a 500-row batch uses 6,500
- *  parameters per statement, comfortably under the cap. The 500
- *  number matches the v3 service's existing batch size so single-
- *  shapefile ingest runs land in roughly the same wall-clock as
- *  before once the rewire completes.
- */
 // Multi-row INSERT chunk size for writeMany. Each observation row
 // uses 13 placeholders (id, tx_time, valid_from, valid_to, scope,
 // entity, kind, attrs, geom, cell, author_sub, source, parents),
@@ -53,22 +44,6 @@ import {
 const WRITE_BATCH_SIZE = 2000;
 
 import { PrismaService } from '../prisma/prisma.service.js';
-
-interface ObservationRow {
-  id: string;
-  tx_time: Date;
-  valid_from: Date;
-  valid_to: Date | null;
-  scope: string;
-  entity: string;
-  kind: ObservationKind;
-  attrs: Record<string, unknown> | null;
-  geom_geojson: GeoJsonGeometry | null;
-  cell: string | null;
-  author_sub: string;
-  source: { kind: string; details?: Record<string, unknown> };
-  parents: string[];
-}
 
 @Injectable()
 export class EngineService {
@@ -143,13 +118,11 @@ export class EngineService {
   ): Promise<{ written: Observation } | { conflict: true; headId: string | null }> {
     const obs = this.complete(input);
     const run = async (tx: Prisma.TransactionClient) => {
-      const lockKey = `${obs.scope}|${obs.entity}`;
-      // See writeFeaturesCreateIdempotent for why this is $executeRaw:
-      // the void result of pg_advisory_xact_lock cannot be
-      // deserialised by the driver adapter.
-      await tx.$executeRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-      `;
+      // The same bucketed key the batch writers take, so a guarded
+      // single write and a batch touching the same entity still wait
+      // for each other. $executeRaw: the void result of
+      // pg_advisory_xact_lock cannot be deserialised by the adapter.
+      await tx.$executeRaw(featureWriteLocksSql([obs.scope], [obs.entity]));
       const head = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id
         FROM observation
@@ -299,9 +272,8 @@ export class EngineService {
    * the wire as text-format COPY lines that the server applies
    * with no per-row SQL parsing. Geometries are encoded as EWKT
    * (`SRID=4326;POINT (...)`) so PostGIS skips ST_GeomFromGeoJSON
-   * entirely. Inside one transaction the COPY also runs with
-   * SET LOCAL synchronous_commit=off, trading per-batch fsync
-   * for higher throughput on a re-runnable bulk import.
+   * entirely. synchronous_commit stays on (see CopyWriter.begin):
+   * a load the job row calls succeeded must survive a power loss.
    *
    * Empirically 5-10x faster than writeMany on a county-scale
    * parcel ingest (1.4M polygons, 19 attribute fields). Use for
@@ -339,72 +311,4 @@ export class EngineService {
     this.notifyWritten(filled);
     return filled;
   }
-
-  /**
-   * Read the current truth (or the truth at `asOf`) for entities in
-   * a scope. Returns one GeoJSON feature per entity. Tombstones
-   * (`kind = 'delete'`) are filtered out so deleted entities do not
-   * appear in the result.
-   *
-   * Phase 1 is intentionally minimal: no attribute filters, no
-   * geometry filters. Those land with the lens runtime in Phase 3.
-   */
-  async read(query: ReadQuery): Promise<ReadFeature[]> {
-    const asOf = query.asOf ?? new Date();
-    const limit = query.limit ?? 1000;
-
-    const entityFilter =
-      query.entity !== undefined
-        ? Prisma.sql`AND entity = ${query.entity}::uuid`
-        : Prisma.empty;
-
-    const rows = await this.prisma.$queryRaw<ObservationRow[]>`
-      WITH currents AS (
-        SELECT DISTINCT ON (entity)
-          id,
-          tx_time,
-          valid_from,
-          valid_to,
-          scope,
-          entity,
-          kind,
-          attrs,
-          ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
-          cell,
-          author_sub,
-          source,
-          parents
-        FROM observation
-        WHERE scope = ${query.scope}
-          AND valid_from <= ${asOf}::timestamptz
-          ${entityFilter}
-        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
-      )
-      SELECT *
-      FROM currents
-      WHERE kind <> 'delete'
-      LIMIT ${limit}
-    `;
-
-    return rows.map(rowToFeature);
-  }
-}
-
-function rowToFeature(row: ObservationRow): ReadFeature {
-  return {
-    type: 'Feature',
-    id: row.entity,
-    geometry: row.geom_geojson,
-    properties: {
-      ...(row.attrs ?? {}),
-      __engine: {
-        observationId: row.id,
-        validFrom: row.valid_from.toISOString(),
-        validTo: row.valid_to !== null ? row.valid_to.toISOString() : null,
-        txTime: row.tx_time.toISOString(),
-        kind: row.kind,
-        authorSub: row.author_sub,
-      },
-    },
-  };
 }

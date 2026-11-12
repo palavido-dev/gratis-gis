@@ -32,10 +32,11 @@ import { Client as PgClient, Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import type { Item } from '@prisma/client';
-import { uuidv7 } from '@gratis-gis/engine';
+import { uuidv7, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { DataLayerEngine, dataLayerScope } from './data-layer.js';
 import { EngineService } from './engine.service.js';
+import { FEATURE_WRITE_LOCK_BUCKETS, featureWriteLocksSql } from './feature-locks.js';
 import { TileCacheService } from './tile-cache.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
@@ -1290,6 +1291,311 @@ d('observation-log read paths against real PostGIS', () => {
   // legitimately contain zero live features and still have data behind
   // it. A client that stopped on an empty page would silently truncate,
   // which is the exact class of bug the un-paged endpoint had.
+  describe('scenario 13: a limited listFeatures skips tombstones before the limit', () => {
+    // The limit used to apply before tombstones were dropped, so more
+    // than 10 deleted entities early in uuid order made a limited read
+    // short or empty. A replace import (old ids sort first) hit it on
+    // every layer with more than 10 old features.
+    const itemId = uuidv7();
+    const layerId = 'layer-tomb';
+    const scope = dataLayerScope(itemId, layerId);
+    const ids = Array.from({ length: 20 }, () => uuidv7()).sort();
+    const gone = ids.slice(0, 12);
+    const live = ids.slice(12);
+
+    beforeAll(async () => {
+      for (const id of ids) {
+        await seed(scope, id, 'create', { NAME: id.slice(0, 8) }, HERE);
+      }
+      for (const id of gone) await seed(scope, id, 'delete', null, null);
+    });
+
+    it.each([1, 3, 8, 50])('limit %d returns live rows, not an empty or short page', async (limit) => {
+      const engine = makeEngine();
+      const out = await engine.listFeatures({ itemId, layerId, limit });
+      expect(out.features.map((f) => f.id)).toEqual(live.slice(0, limit));
+    });
+
+    it('the own-rows variant does the same', async () => {
+      const engine = makeEngine();
+      const out = await engine.listFeatures({
+        itemId,
+        layerId,
+        limit: 2,
+        ownRowsOnly: { userId: PRINCIPAL.sub },
+      });
+      expect(out.features.map((f) => f.id)).toEqual(live.slice(0, 2));
+    });
+  });
+
+  describe('scenario 14: replace tombstones reach restricted delta clients', () => {
+    // A replace import deletes the scope's old rows and then writes
+    // bare tombstones. listDeltaSince decided visibility for a
+    // restricted caller from those (now gone) earlier rows, so a
+    // device with a geo limit or own-rows scope never got the deletes.
+    const itemId = uuidv7();
+    const layerId = 'layer-replace';
+    const scope = dataLayerScope(itemId, layerId);
+    const oldEntity = uuidv7();
+    const ordinaryGone = uuidv7();
+    const CLIP: GeoJsonGeometry = {
+      type: 'Polygon',
+      coordinates: [[[-80, 38.8], [-79.8, 38.8], [-79.8, 39], [-80, 39], [-80, 38.8]]],
+    };
+
+    beforeAll(async () => {
+      const write = async (
+        entity: string,
+        details: Record<string, unknown>,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope,
+          entity,
+          kind: 'delete',
+          validFrom: ts,
+          validTo: null,
+          txTime: ts,
+          attrs: null,
+          geom: null,
+          author: PRINCIPAL,
+          source: { kind: 'data_layer:write', details },
+          parents: [],
+        });
+      };
+      // What commitCopiedLayer leaves behind for a replaced entity.
+      await write(oldEntity, { syncVersion: 2, replaced: true });
+      // An ordinary tombstone with no history is still never sent.
+      await write(ordinaryGone, { syncVersion: 2 });
+    });
+
+    it('sends it to an own-rows caller', async () => {
+      const out = await makeEngine().listDeltaSince({
+        itemId,
+        layerId,
+        since: 1,
+        ownRowsOnly: { userId: 'someone-else' },
+      });
+      expect(out.map((c) => [c.entity, c.kind, c.properties])).toEqual([
+        [oldEntity, 'delete', null],
+      ]);
+    });
+
+    it('sends it to a geo-limited caller', async () => {
+      const out = await makeEngine().listDeltaSince({
+        itemId,
+        layerId,
+        since: 1,
+        geoLimit: CLIP,
+      });
+      expect(out.map((c) => [c.entity, c.kind])).toEqual([[oldEntity, 'delete']]);
+    });
+  });
+
+  describe('scenario 15: online batch writes take bucketed advisory locks', () => {
+    it('holds at most one lock per bucket for a 10,000-entity batch', async () => {
+      // One lock per entity filled the shared lock table ("out of
+      // shared memory") for the largest online batches.
+      const scope = dataLayerScope(uuidv7(), 'layer-locks');
+      const entities = Array.from({ length: 10_000 }, () => uuidv7());
+      const held = await client.$transaction(async (tx) => {
+        await tx.$executeRaw(
+          featureWriteLocksSql(entities.map(() => scope), entities),
+        );
+        const rows = await tx.$queryRaw<Array<{ n: bigint }>>`
+          SELECT count(*)::bigint AS n FROM pg_locks
+          WHERE locktype = 'advisory' AND pid = pg_backend_pid()
+        `;
+        return Number(rows[0]!.n);
+      });
+      expect(held).toBeGreaterThan(0);
+      expect(held).toBeLessThanOrEqual(FEATURE_WRITE_LOCK_BUCKETS);
+    });
+  });
+
+  describe('scenario 16: pageFeatures sorts the layer, not the first page', () => {
+    // The sort was a JS pass over the first limit+1 rows in entity
+    // order, and `_created_at` sorted nothing.
+    const itemId = uuidv7();
+    const layerId = 'layer-sort';
+    const scope = dataLayerScope(itemId, layerId);
+    const ids = Array.from({ length: 6 }, () => uuidv7()).sort();
+    // The largest acres sit on the LAST entities in uuid order.
+    const acres = [1, 2, 3, 4, 50, 60];
+
+    beforeAll(async () => {
+      for (let i = 0; i < ids.length; i++) {
+        await seed(scope, ids[i]!, 'create', { acres: acres[i] }, HERE);
+      }
+      // A string in a numeric column must not break the order.
+      await seed(scope, uuidv7(), 'create', { acres: 'unknown' }, HERE);
+    });
+
+    it('a truncated page sorted by a number column returns the true top rows', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 2,
+        sort: 'acres',
+        dir: 'desc',
+      });
+      expect(out.truncated).toBe(true);
+      expect(out.features.map((f) => f.properties.acres)).toEqual([60, 50]);
+    });
+
+    it('sorts by creation time', async () => {
+      const asc = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 3,
+        sort: '_created_at',
+        dir: 'asc',
+      });
+      expect(asc.features.map((f) => f.id)).toEqual(ids.slice(0, 3));
+      const desc = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 1,
+        sort: '_created_at',
+        dir: 'desc',
+      });
+      expect(desc.features[0]!.properties.acres).toBe('unknown');
+    });
+  });
+
+  describe('scenario 17: a bad date value does not fail the time filter', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-time';
+    const scope = dataLayerScope(itemId, layerId);
+    const good = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, good, 'create', { seen: '2024-05-02' }, HERE);
+      // Each of these used to fail the whole read with a cast error.
+      for (const bad of ['0000-00-00', '2024-02-30', '2024-05-01 approx']) {
+        await seed(scope, uuidv7(), 'create', { seen: bad }, HERE);
+      }
+    });
+
+    it('skips rows whose value is not a real date', async () => {
+      const out = await makeEngine().listFeatures({
+        itemId,
+        layerId,
+        timeFilter: { column: 'seen', from: '2024-01-01', to: '2024-12-31' },
+      });
+      expect(out.features.map((f) => f.id)).toEqual([good]);
+    });
+  });
+
+  describe('scenario 18: a declared field named like a tile column', () => {
+    // `geom`, `_global_id` and `_label_point` collided with the tile
+    // query's own columns, and every tile of the layer failed.
+    const itemId = uuidv7();
+    const layerId = 'layer-geomfield';
+    const scope = dataLayerScope(itemId, layerId);
+    const entity = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, entity, 'create', { geom: 'POINT(1 2)', name: 'n' }, HERE);
+    });
+
+    it.each([false, true])('still renders the tile (labels %s)', async (labelPoints) => {
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        fields: [
+          { name: 'geom', type: 'string' },
+          { name: '_global_id', type: 'string' },
+          { name: '_label_point', type: 'string' },
+          { name: 'name', type: 'string' },
+          { name: 'name', type: 'string' },
+        ],
+        ...(labelPoints ? { labelPoints: true } : {}),
+      });
+      expect(tileContains(mvt, entity)).toBe(true);
+    });
+  });
+
+  describe('scenario 19: free-text search matches values, not column names', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-q';
+    const scope = dataLayerScope(itemId, layerId);
+    const entity = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, entity, 'create', { status: 'open', owner: 'Smith' }, HERE);
+    });
+
+    it('the table search ignores key names', async () => {
+      const engine = makeEngine();
+      expect((await engine.pageFeatures({ itemId, layerId, limit: 10, q: 'status' })).count).toBe(0);
+      expect((await engine.pageFeatures({ itemId, layerId, limit: 10, q: 'smi' })).count).toBe(1);
+    });
+
+    it('the search bar without configured fields ignores key names', async () => {
+      const engine = makeEngine();
+      expect((await engine.searchFeatures({ itemId, layerId, q: 'owner', limit: 10 })).results).toEqual([]);
+      expect(
+        (await engine.searchFeatures({ itemId, layerId, q: 'open', limit: 10 })).results.map((r) => r.id),
+      ).toEqual([entity]);
+    });
+  });
+
+  describe('scenario 20: guarded batch updates with mixed, duplicate and cross-layer rows', () => {
+    const itemId = uuidv7();
+    const create = async (layerId: string, globalId?: string) =>
+      makeEngine().writeFeatureCreate({
+        itemId,
+        layerId,
+        ...(globalId ? { globalId } : {}),
+        geometry: { type: 'Point', coordinates: HERE },
+        properties: { STATUS: 'Open' },
+        principal: PRINCIPAL,
+      });
+
+    it('writes rows without an expected head instead of failing the batch', async () => {
+      const a = await create('layer-mix');
+      const b = await create('layer-mix');
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-mix', globalId: a.globalId, properties: { STATUS: 'A' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+        { itemId, layerId: 'layer-mix', globalId: b.globalId, properties: { STATUS: 'B' }, principal: PRINCIPAL },
+      ]);
+      expect(out.applied.map((r) => r.globalId).sort()).toEqual([a.globalId, b.globalId].sort());
+      expect(out.conflicts).toEqual([]);
+    });
+
+    it('reports a second row for the same entity as a conflict', async () => {
+      const a = await create('layer-dup');
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-dup', globalId: a.globalId, properties: { STATUS: '1' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+        { itemId, layerId: 'layer-dup', globalId: a.globalId, properties: { STATUS: '2' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+      ]);
+      expect(out.applied).toHaveLength(1);
+      expect(out.conflicts).toEqual([
+        { globalId: a.globalId, headObservationId: out.applied[0]!.observationId },
+      ]);
+    });
+
+    it('keeps the results of one entity id in two layers apart', async () => {
+      const shared = uuidv7();
+      const one = await create('layer-x1', shared);
+      await create('layer-x2', shared);
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-x1', globalId: shared, properties: { STATUS: 'ok' }, principal: PRINCIPAL, expectedHeadObservationId: one.observationId },
+        // Stale on purpose: layer-x2's head is not layer-x1's create.
+        { itemId, layerId: 'layer-x2', globalId: shared, properties: { STATUS: 'no' }, principal: PRINCIPAL, expectedHeadObservationId: one.observationId },
+      ]);
+      expect(out.applied).toHaveLength(1);
+      expect(out.conflicts).toHaveLength(1);
+      const x2 = await makeEngine().listFeatures({ itemId, layerId: 'layer-x2', entity: shared });
+      expect(out.conflicts[0]!.headObservationId).toBe(x2.features[0]!.properties._observation_id);
+    });
+  });
+
   describe('scenario 6: readFeaturePage across tombstones', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';
@@ -2582,12 +2888,14 @@ d('observation-log read paths against real PostGIS', () => {
         inserted: 1,
         deduplicated: 0,
         globalIds: [gid],
+        insertedIndices: [0],
       });
       const retry = await svc.insertFeatures(itemId, layerId, [feature], user);
       expect(retry).toEqual({
         inserted: 0,
         deduplicated: 1,
         globalIds: [gid],
+        insertedIndices: [],
       });
       expect(
         await createRowCount(dataLayerScope(itemId, layerId), gid),
@@ -2627,9 +2935,11 @@ d('observation-log read paths against real PostGIS', () => {
         // transaction open. B must queue on the advisory lock, and
         // after A commits its probe must see A's row.
         await clientA.query('BEGIN');
+        // The entity's bucket key, as featureWriteLocksSql builds it.
         await clientA.query(
-          `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-          [`${scope}|${gid}`],
+          `SELECT pg_advisory_xact_lock(hashtextextended(
+             'feature-write|' || $1 || '|' || (hashtextextended($2, 0) & $3::bigint)::text, 0))`,
+          [scope, gid, FEATURE_WRITE_LOCK_BUCKETS - 1],
         );
         await clientA.query(
           `INSERT INTO observation (

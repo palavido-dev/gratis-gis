@@ -373,6 +373,9 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     const out = await service.calculateField(calcArgs());
 
     expect(listFeatures.mock.calls[0]![0]).not.toHaveProperty('entityIds');
+    // The row cap is enforced in SQL, not after loading the engine's
+    // default 100,000 rows.
+    expect(listFeatures.mock.calls[0]![0]).toMatchObject({ limit: 10_001 });
     const written = writeFeaturesUpdate.mock.calls[0]![0] as Array<{
       globalId: string;
     }>;
@@ -529,6 +532,23 @@ describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
     const written = writeFeatureUpdate.mock.calls[0]![0] as { properties: Record<string, unknown> };
     expect(written.properties).toEqual({ value: 5 });
     expect(Object.keys(written.properties).some((k) => k.startsWith('_'))).toBe(false);
+  });
+
+  it('ignores a submitted_by in the patch, so the submitter cannot be changed', async () => {
+    const { service, writeFeatureUpdate } = makeService([
+      ...SCHEMA,
+      { name: 'submitted_by', type: 'string', label: 'Submitted by', nullable: true },
+    ]);
+    await service.updateFeature(
+      ITEM_ID,
+      LAYER_ID,
+      E1,
+      { properties: { note: 'hi', submitted_by: 'someone-else' } },
+      makeUser(),
+    );
+    const written = writeFeatureUpdate.mock.calls[0]![0] as { properties: Record<string, unknown> };
+    expect(written.properties.submitted_by).toBeUndefined();
+    expect(written.properties.note).toBe('hi');
   });
 
   it('a required field cleared explicitly is still refused', async () => {
@@ -1209,5 +1229,20 @@ describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => 
       expect(findUnique).toHaveBeenCalledTimes(2);
       expect(findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('DataLayerFeaturesService.listDelta idle poll', () => {
+  it('answers a client already at the layer syncVersion without querying the log', async () => {
+    // The delta query reads the whole scope; an idle poll must not.
+    const { service, engine } = makeService();
+    const listDeltaSince = jest.fn(async () => []);
+    (engine as unknown as { listDeltaSince: typeof listDeltaSince }).listDeltaSince =
+      listDeltaSince;
+    const out = await service.listDelta(ITEM_ID, LAYER_ID, 0);
+    expect(out).toEqual({ syncVersion: 0, since: 0, changes: [], truncated: false });
+    expect(listDeltaSince).not.toHaveBeenCalled();
+    await service.listDelta(ITEM_ID, LAYER_ID, -1);
+    expect(listDeltaSince).toHaveBeenCalledTimes(1);
   });
 });
