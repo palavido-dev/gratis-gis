@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createHash } from 'node:crypto';
 
 /**
  * Geocoder search indexes are partial trigram indexes on the shared,
@@ -15,6 +16,20 @@ export const GEOCODER_INDEXES_PER_ORG = 12;
 
 export function geocoderIndexPrefix(itemId: string): string {
   return `${GEOCODER_INDEX_PREFIX}_${itemId.replace(/-/g, '').slice(0, 16)}_`;
+}
+
+/**
+ * Name of one search index: `idx_geo_<itemIdHex>_<hash>_<field>`. The
+ * hash covers the layer scope and the full field name. Without it a
+ * geocoder re-pointed at another layer with the same field name found
+ * its old index by name and kept it, so the new layer had none, and two
+ * long field names that share their first characters shared one index.
+ * Stays under Postgres's 63-character identifier limit.
+ */
+export function geocoderIndexName(itemId: string, scope: string, fieldName: string): string {
+  const hash = createHash('sha256').update(`${scope}\0${fieldName}`).digest('hex').slice(0, 8);
+  const safeName = fieldName.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 28);
+  return `${geocoderIndexPrefix(itemId)}${hash}_${safeName}`;
 }
 
 interface RawClient {

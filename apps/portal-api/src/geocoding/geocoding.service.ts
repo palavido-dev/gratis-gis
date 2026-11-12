@@ -21,6 +21,7 @@ import {
   GEOCODER_INDEXES_PER_ORG,
   GEOCODER_INDEX_NAME,
   dropGeocoderIndexes,
+  geocoderIndexName,
   geocoderIndexPrefix,
 } from './geocoder-indexes.js';
 import {
@@ -29,6 +30,31 @@ import {
   safeFetch,
   UnsafeOutboundUrlError,
 } from '../common/net-guards.js';
+
+/** Longest one geocoder index build may run. */
+const GEOCODER_INDEX_BUILD_TIMEOUT_MS = 15 * 60 * 1000;
+
+/** Most bytes read from an upstream GeocodeServer reply (metadata or a
+ *  candidate list). safeFetch's own default is 1 GiB. */
+const UPSTREAM_MAX_BYTES = 4 * 1024 * 1024;
+/** How long one upstream call may take, body included. */
+const UPSTREAM_TIMEOUT_MS = 15_000;
+
+/** Item data is only shape-checked on save, so a number setting can
+ *  hold a string. A NaN reached SQL as `LIMIT NaN` and every search on
+ *  the geocoder was a 500. Use the default instead. */
+function finiteOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/** Service root without query or fragment. A URL pasted from the
+ *  browser (`.../GeocodeServer?f=pjson`) kept its query, and `?f=json`
+ *  or `/findAddressCandidates` was then appended after it. */
+function geocodeServerBase(parsed: URL): string {
+  let path = parsed.pathname;
+  while (path.endsWith('/')) path = path.slice(0, -1);
+  return `${parsed.origin}${path}`;
+}
 
 /**
  * Runtime engine for the geocoding_service item type (#74).
@@ -167,13 +193,14 @@ export class GeocodingService {
     const validatedFields = this.validateSearchFields(source, sublayerId, config);
 
     // Clamp candidate limit to the server max.
-    const requestedLimit = opts.limit ?? config.candidateLimit ?? GeocodingService.DEFAULT_CANDIDATES;
+    const requestedLimit =
+      opts.limit ?? finiteOr(config.candidateLimit, GeocodingService.DEFAULT_CANDIDATES);
     const limit = Math.max(
       1,
       Math.min(GeocodingService.MAX_CANDIDATES, Math.floor(requestedLimit)),
     );
 
-    const minScore = Math.max(0, Math.min(1, config.minScore ?? 0.1));
+    const minScore = Math.max(0, Math.min(1, finiteOr(config.minScore, 0.1)));
 
     // Spatial constraint. Caller-supplied bbox overrides the
     // configured filter (the picker UI can shrink the constraint
@@ -187,7 +214,7 @@ export class GeocodingService {
     // index-friendly `%>` prefilter below is what keeps the
     // candidate set small on indexed layers.
     const fieldExpressions = validatedFields.map((f) => {
-      const weight = Math.max(1, Math.min(10, f.weight ?? 1));
+      const weight = Math.max(1, Math.min(10, finiteOr(f.weight, 1)));
       // pg_trgm.word_similarity(query, target) measures how well
       // the query matches the closest WORD in the target. This is
       // what autocomplete users expect: typing "Carlson" should
@@ -284,19 +311,14 @@ export class GeocodingService {
       score: number;
     }
 
-    // Lower the per-query word_similarity_threshold so the %>
-    // operator returns broader candidates; we then apply minScore
-    // on the computed similarity score in the outer query. Default
-    // pg_trgm threshold is 0.6 which is too strict for autocomplete
-    // typos. set_limit is per-transaction so this doesn't affect
-    // other queries; we run search inside an implicit transaction
-    // via $queryRaw.
-    //
-    // Effective minimum candidate similarity is the larger of
-    // pg_trgm threshold + the row's minScore filter further down.
-    // We pick 0.1 here as a lenient floor so the index hands back
-    // enough rows to rank.
-    await this.prisma.$executeRaw`SELECT set_limit(0.1)`;
+    // Lower word_similarity_threshold, the setting `%>` reads (the
+    // default 0.6 is too strict for autocomplete typos), so the index
+    // hands back broader candidates; minScore is applied to the
+    // computed score further down. set_config(..., true) is the
+    // SET LOCAL form, so it lives only for this transaction and the
+    // query below runs on the same connection. set_limit() changed
+    // the other setting (similarity_threshold, for `%`), per session,
+    // on whichever pooled connection it got.
 
     // Candidate-then-collapse-then-filter (the same staging the
     // engine's read paths use):
@@ -316,7 +338,9 @@ export class GeocodingService {
     //     deleted outright, kept geocoding under its OLD value: the
     //     old version matched the prefilter and won the DISTINCT ON
     //     because the true latest was filtered out of the window.
-    const rows = await this.prisma.$queryRaw<CandidateRow[]>`
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('pg_trgm.word_similarity_threshold', '0.1', true)`;
+      return tx.$queryRaw<CandidateRow[]>`
       WITH candidates AS (
         SELECT DISTINCT entity
         FROM observation
@@ -368,12 +392,15 @@ export class GeocodingService {
       ORDER BY score DESC
       LIMIT ${limit}
     `;
+    // Prisma's 5 s default would end a search the 30 s statement
+    // timeout still allows.
+    }, { timeout: 35_000 });
 
     // 4) Compose the wire shape: label string + restricted
     // attributes per the geocoder's resultFields setting.
     const resultFieldNames =
-      config.resultFields && config.resultFields.length > 0
-        ? config.resultFields
+      Array.isArray(config.resultFields) && config.resultFields.length > 0
+        ? config.resultFields.filter((n): n is string => typeof n === 'string')
         : validatedFields.map((f) => f.name);
 
     return rows
@@ -450,7 +477,7 @@ export class GeocodingService {
    * a partial index still scans the whole table. That is why only
    * org admins can rebuild and why each org's count is capped.
    *
-   * Indexes are named `idx_geo_<itemIdHex>_<safeFieldName>` so the
+   * Indexes are named `idx_geo_<itemIdHex>_<hash>_<safeFieldName>` so the
    * cleanup pass can identify and drop the ones this geocoder
    * owns without false positives.
    */
@@ -520,16 +547,12 @@ export class GeocodingService {
       config,
     );
 
-    // Compute desired index names. Strip non-hex / underscore from
-    // both itemId and field name so the relation name stays inside
-    // Postgres's 63-character identifier limit and parses as a
-    // plain identifier without quoting.
+    // Compute desired index names (see geocoderIndexName). The name
+    // stays a plain identifier inside Postgres's 63-character limit.
     const itemIdHex = itemId.replace(/-/g, '').slice(0, 16);
     const desiredByField = new Map<string, string>();
     for (const f of validatedFields) {
-      const safeName = f.name.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 30);
-      const indexName = `${GeocodingService.INDEX_NAME_PREFIX}_${itemIdHex}_${safeName}`;
-      desiredByField.set(f.name, indexName);
+      desiredByField.set(f.name, geocoderIndexName(itemId, scope, f.name));
     }
     const desiredIndexNames = new Set(desiredByField.values());
 
@@ -642,11 +665,25 @@ export class GeocodingService {
       // pg_trgm.gin_trgm_ops is the trigram opclass that supports
       // both similarity() and word_similarity() index lookups via
       // the %, %>, and <% operators.
-      await this.prisma.$executeRawUnsafe(
-        `CREATE INDEX IF NOT EXISTS "${indexName}"
-         ON observation
-         USING gin ((attrs->>'${fieldName}') gin_trgm_ops)
-         WHERE scope = '${scope.replace(/'/g, "''")}'`,
+      //
+      // The app role's 30 s statement_timeout cancelled this on large
+      // layers (the build takes 30 to 60 s at 1M rows, see above), so
+      // the index could never be made. Lift it for this one statement,
+      // the way CopyWriter and the item purge do. lock_timeout makes
+      // the build give up rather than wait behind a long writer, since
+      // every write that arrives meanwhile would queue behind it.
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRawUnsafe('SET LOCAL statement_timeout = 0');
+          await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '10s'");
+          await tx.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "${indexName}"
+             ON observation
+             USING gin ((attrs->>'${fieldName}') gin_trgm_ops)
+             WHERE scope = '${scope.replace(/'/g, "''")}'`,
+          );
+        },
+        { maxWait: 10_000, timeout: GEOCODER_INDEX_BUILD_TIMEOUT_MS },
       );
       created.push(indexName);
     }
@@ -732,7 +769,7 @@ export class GeocodingService {
         'URL must point at an ArcGIS GeocodeServer (path ends in /GeocodeServer).',
       );
     }
-    const base = parsed.toString().replace(/(?<!\/)\/+$/, '');
+    const base = geocodeServerBase(parsed);
     const metaUrl = `${base}?f=json`;
     // DNS-rebinding defense in addition to the hostname check above.
     let safeMetaUrl: URL;
@@ -747,15 +784,15 @@ export class GeocodingService {
     // safeFetch, not fetch: re-validate every redirect hop so a
     // validated host that 302s to an internal address is refused too
     // (the assert above only covers the first URL).
-    const res = await safeFetch(safeMetaUrl.toString(), {
-      headers: { 'user-agent': 'GratisGIS/geocoder-probe' },
-    });
-    if (!res.ok) {
-      throw new BadRequestException(
-        `GeocodeServer returned HTTP ${res.status}. Check the URL and that the server is reachable.`,
-      );
-    }
-    const meta = (await res.json()) as {
+    // A small byte cap and one timeout that stays armed through the
+    // body read: any signed-in user can point this at their own server,
+    // which could otherwise send a 1 GiB body or drip one forever.
+    const meta = (await this.fetchUpstreamJson(
+      safeMetaUrl.toString(),
+      'GratisGIS/geocoder-probe',
+      (status) =>
+        `GeocodeServer returned HTTP ${status}. Check the URL and that the server is reachable.`,
+    )) as {
       serviceDescription?: unknown;
       mapName?: unknown;
       copyrightText?: unknown;
@@ -817,6 +854,53 @@ export class GeocodingService {
    *   - Future caching. We can cache hot queries here without
    *     surface changes to consumers.
    */
+  /**
+   * GET an upstream GeocodeServer JSON reply with a byte cap and a
+   * timeout that covers the body too. Every failure is a 400 so a bad
+   * upstream never reads as a portal fault.
+   */
+  private async fetchUpstreamJson(
+    url: string,
+    userAgent: string,
+    statusMessage: (status: number) => string,
+  ): Promise<unknown> {
+    const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await safeFetch(
+        url,
+        { headers: { 'user-agent': userAgent }, signal },
+        { maxBytes: UPSTREAM_MAX_BYTES },
+      );
+    } catch (err) {
+      if (err instanceof UnsafeOutboundUrlError) {
+        throw new BadRequestException(err.message);
+      }
+      this.log.warn(
+        `Upstream geocoder fetch failed for ${new URL(url).origin}: ${err instanceof Error ? err.message : err}`,
+      );
+      throw new BadRequestException(
+        `Upstream geocoder unreachable: ${err instanceof Error ? err.message : 'network error'}`,
+      );
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new BadRequestException(statusMessage(res.status));
+    }
+    try {
+      return await res.json();
+    } catch (err) {
+      if (err instanceof UnsafeOutboundUrlError) {
+        throw new BadRequestException(err.message);
+      }
+      throw new BadRequestException(
+        signal.aborted
+          ? 'Upstream geocoder took too long to answer.'
+          : 'Upstream geocoder did not answer with JSON.',
+      );
+    }
+  }
+
   private async searchExternalArcgis(
     config: GeocodingServiceData,
     text: string,
@@ -827,7 +911,12 @@ export class GeocodingService {
         'External geocoder has no upstream URL configured.',
       );
     }
-    const base = config.externalUrl.replace(/(?<!\/)\/+$/, '');
+    let base: string;
+    try {
+      base = geocodeServerBase(new URL(config.externalUrl));
+    } catch {
+      throw new BadRequestException('External geocoder URL is not a valid URL.');
+    }
     const params = new URLSearchParams();
     // Most modern locators support `SingleLine`. If a locator
     // only has multi-line fields (no singleLineAddressField), the
@@ -839,7 +928,7 @@ export class GeocodingService {
     params.set('outFields', '*');
     params.set('outSR', '4326');
     const requestedLimit =
-      opts.limit ?? config.candidateLimit ?? GeocodingService.DEFAULT_CANDIDATES;
+      opts.limit ?? finiteOr(config.candidateLimit, GeocodingService.DEFAULT_CANDIDATES);
     const maxLocations = Math.max(
       1,
       Math.min(GeocodingService.MAX_CANDIDATES, Math.floor(requestedLimit)),
@@ -863,32 +952,15 @@ export class GeocodingService {
       );
     }
     const url = `${base}/findAddressCandidates?${params.toString()}`;
-    let res: Response;
-    try {
-      // safeFetch, not fetch: externalUrl was validated at probe
-      // time, but item.data is editable afterwards, so the runtime
-      // query path needs the same SSRF guard the admin probe path
-      // runs.
-      res = await safeFetch(url, {
-        headers: { 'user-agent': 'GratisGIS/geocoder' },
-      });
-    } catch (err) {
-      if (err instanceof UnsafeOutboundUrlError) {
-        throw new BadRequestException(err.message);
-      }
-      this.log.warn(
-        `External geocoder fetch failed for ${url}: ${err instanceof Error ? err.message : err}`,
-      );
-      throw new BadRequestException(
-        `Upstream geocoder unreachable: ${err instanceof Error ? err.message : 'network error'}`,
-      );
-    }
-    if (!res.ok) {
-      throw new BadRequestException(
-        `Upstream geocoder returned HTTP ${res.status}.`,
-      );
-    }
-    const body = (await res.json()) as {
+    // safeFetch (inside fetchUpstreamJson), not fetch: externalUrl was
+    // validated at probe time, but item.data is editable afterwards,
+    // so the runtime query path needs the same SSRF guard the admin
+    // probe path runs.
+    const body = (await this.fetchUpstreamJson(
+      url,
+      'GratisGIS/geocoder',
+      (status) => `Upstream geocoder returned HTTP ${status}.`,
+    )) as {
       candidates?: Array<{
         address?: unknown;
         score?: unknown;
@@ -903,7 +975,7 @@ export class GeocodingService {
       );
     }
     const rawCandidates = Array.isArray(body.candidates) ? body.candidates : [];
-    const minScore = Math.max(0, Math.min(100, (config.minScore ?? 0.1) * 100));
+    const minScore = Math.max(0, Math.min(100, finiteOr(config.minScore, 0.1) * 100));
     return rawCandidates
       .map((c): GeocodingCandidate | null => {
         const lng = c.location?.x;
@@ -1099,7 +1171,8 @@ export class GeocodingService {
       filter &&
       typeof filter === 'object' &&
       Array.isArray(filter.wsen) &&
-      filter.wsen.length === 4
+      filter.wsen.length === 4 &&
+      filter.wsen.every((n) => typeof n === 'number' && Number.isFinite(n))
     ) {
       return filter.wsen;
     }
@@ -1117,7 +1190,8 @@ export class GeocodingService {
     fields: Array<{ name: string }>,
     attrs: Record<string, unknown>,
   ): string {
-    const template = config.labelTemplate?.trim();
+    const template =
+      typeof config.labelTemplate === 'string' ? config.labelTemplate.trim() : undefined;
     if (template && template.length > 0) {
       return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_full, name: string) => {
         const v = attrs[name];
