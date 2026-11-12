@@ -107,6 +107,11 @@ GRID_MAX_CHUNKS = int(_env_num("GRID_MAX_CHUNKS", 512))
 # too; the worker re-checks because jobs could be inserted by
 # future paths that forget.
 VIEWSHED_MAX_CELLS = 12000 * 12000
+# Zonal stats reads the whole band into this process (float64 values,
+# an Int32 zone mask and the masked copies: about 30 bytes a cell), in
+# a container capped at 2.5 GB. Refuse above this instead of being
+# OOM-killed and leaving the job "running" until the sweep.
+ZONAL_MAX_CELLS = 40_000_000
 
 # Disk safety for the point cloud merge (#203). A merge downloads
 # every source tile into scratch AND untwine builds a large out-of-
@@ -783,6 +788,10 @@ def finish_job(conn, job_id: str, error: str | None, claim_token: str | None = N
         changed = cur.rowcount
     conn.commit()
     return changed == 1
+
+
+def zonal_too_large(width: int, height: int) -> bool:
+    return width * height > ZONAL_MAX_CELLS
 
 
 def mercator_units_per_meter(lat_deg: float) -> float:
@@ -1985,6 +1994,12 @@ def do_zonal_stats(conn, s3, job):
         if band_i < 1 or band_i > ds.RasterCount:
             raise RuntimeError(
                 f"Band {band_i} is not on this raster (it has {ds.RasterCount})."
+            )
+        if zonal_too_large(ds.RasterXSize, ds.RasterYSize):
+            raise RuntimeError(
+                "This raster is too large for zonal statistics on this server "
+                f"({ds.RasterXSize} x {ds.RasterYSize} cells). Use a smaller "
+                "or coarser raster."
             )
         band = ds.GetRasterBand(band_i)
         values = band.ReadAsArray().astype("float64")

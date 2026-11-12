@@ -486,6 +486,11 @@ def test_mercator_ground_scale():
     assert runner.mercator_units_per_meter(0) == 1.0
 
 
+def test_zonal_cell_cap():
+    assert runner.zonal_too_large(10000, 10000) is True
+    assert runner.zonal_too_large(4000, 4000) is False
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -504,4 +509,5 @@ if __name__ == "__main__":
     test_source_keys_are_pinned_to_the_layer_prefix()
     test_reads_do_not_leave_a_transaction_open()
     test_mercator_ground_scale()
+    test_zonal_cell_cap()
     print("test_runner_units: all assertions passed")
