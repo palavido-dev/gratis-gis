@@ -2013,7 +2013,7 @@ async function fieldRuntimeNavigate(request) {
  */
 async function networkFirstWithCache(request, cacheName, cap) {
   const cache = await caches.open(cacheName);
-  let cacheable = true;
+  let cacheable;
   try {
     cacheable = !new URL(request.url).searchParams.has('cursor');
   } catch {
