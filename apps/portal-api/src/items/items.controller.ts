@@ -124,7 +124,7 @@ class UpdateItemDto {
   @IsOptional() @IsString() @MaxLength(500) license?: string | null;
   // #80: tier-level geo limits. UUID of a geo_boundary item, or null
   // to clear. The read path treats a missing / wrong-typed target
-  // as "no clip" so a broken ref cannot widen access; this DTO does
+  // as a closed clip so a broken ref cannot widen access; this DTO does
   // not validate the target is actually a geo_boundary -- the read-
   // time dereference is the source of truth.
   @IsOptional() @IsUUID('loose') publicGeoBoundaryId?: string | null;
@@ -225,7 +225,7 @@ class ShareDto {
    * exclusive with `geoLimit`. Caller is responsible for ensuring
    * the referenced item is a `geo_boundary` and visible to the
    * grantee; the sharing service does not validate at write time
-   * but a missing / wrong-typed target is treated as "no clip" at
+   * but a missing / wrong-typed target closes this share's path at
    * read time so a deleted boundary cannot silently expand access.
    */
   @IsOptional() @IsUUID('loose') geoBoundaryId?: string | null;

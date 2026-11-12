@@ -3351,11 +3351,10 @@ export class ItemsService {
    * fully removed in one statement.
    *
    * item_share.geoBoundaryId is NOT nulled here. A dangling boundary
-   * already resolves to "no clip" in SharingService, so rewriting the
-   * column changes no behaviour and destroys the only evidence that
-   * the share was ever scoped. Housekeeping reports those instead, so
-   * an admin can repoint the share rather than discover later that it
-   * quietly went org-wide.
+   * closes its share in SharingService, while a null boundary means
+   * "no clip", so nulling the column would widen the share to the
+   * whole layer. Housekeeping reports those instead, so an admin can
+   * repoint the share.
    */
   private async spliceFromLandingFeatured(deletedItemId: string): Promise<void> {
     await this.prisma.$executeRaw`
