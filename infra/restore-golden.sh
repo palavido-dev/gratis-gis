@@ -869,22 +869,27 @@ if [[ -n "$FEEDBACK_CARRY" && -s "$FEEDBACK_CARRY" ]]; then
 
   if [[ -z "$FB_READY" ]]; then
     echo "WARN: feedback table never appeared; carried rows left at $FEEDBACK_CARRY on the host." >&2
-  # TRUNCATE first so rows baked into golden do not collide with the
-  # carried set on the primary key. The carried set is authoritative:
-  # it was read from the live table, so it is a superset of golden's.
+  # The carried set is authoritative: it was read from the live table,
+  # so it is a superset of golden's. It replaces golden's rows.
   #
   # user_id / handled_by_id reference the `user` table, which the
   # restore just replaced. A reporter whose account no longer exists
   # in golden would break the FK, so those columns are nulled for any
   # id that did not survive. The report is what matters; attribution
-  # is a nicety, and the schema already models it as optional for
-  # exactly this reason.
+  # is a nicety, and the schema already models it as optional.
+  #
+  # Staging table, repaired before the insert, all in one transaction
+  # (-1). Before, TRUNCATE committed on its own and the COPY then
+  # failed on the FK (it is checked before the repair could run), so
+  # one orphan row wiped every stored report.
   elif docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
-       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
+       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 -1 \
+       -c "CREATE TEMP TABLE gg_feedback_carry (LIKE feedback INCLUDING DEFAULTS) ON COMMIT DROP" \
+       -c "\\copy gg_feedback_carry FROM STDIN" \
+       -c "UPDATE gg_feedback_carry SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
+       -c "UPDATE gg_feedback_carry SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
        -c "TRUNCATE feedback" \
-       -c "\\copy feedback FROM STDIN" \
-       -c "UPDATE feedback SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
-       -c "UPDATE feedback SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
+       -c "INSERT INTO feedback SELECT * FROM gg_feedback_carry" \
        < "$FEEDBACK_CARRY"; then
     echo "Feedback restored ($(wc -l < "$FEEDBACK_CARRY") row(s))."
     rm -f "$FEEDBACK_CARRY"
