@@ -13,6 +13,10 @@ export function diskDecision(input: {
   freeBytes: bigint | null;
   heldBytes?: bigint;
 }): { ok: true } | { ok: false; reason: 'disk' } {
+  // Nothing to place: a zero-byte reservation (an analysis import that
+  // does not know its size) was refused whenever other holds exceeded
+  // the free space, although it needs no room of its own.
+  if (input.requestedBytes <= 0n) return { ok: true };
   const held = input.heldBytes ?? 0n;
   if (input.freeBytes !== null && input.requestedBytes + held > input.freeBytes) {
     return { ok: false, reason: 'disk' };

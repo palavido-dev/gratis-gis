@@ -204,7 +204,8 @@ function geomToEwkt(g: unknown): string {
   // into the COPY geom column and aborted the entire import.
   if (t === 'GeometryCollection') {
     const geoms = obj.geometries;
-    if (!Array.isArray(geoms) || geoms.length === 0) return '';
+    if (!Array.isArray(geoms)) return '';
+    if (geoms.length === 0) return `${SRID_PREFIX}GEOMETRYCOLLECTION EMPTY`;
     let inner = '';
     for (let i = 0; i < geoms.length; i += 1) {
       const memberEwkt = geomToEwkt(geoms[i]);
@@ -216,6 +217,13 @@ function geomToEwkt(g: unknown): string {
   }
   const c = obj.coordinates;
   if (c === undefined) return '';
+  // An empty geometry (GDAL writes `"coordinates": []`) is valid data.
+  // `POLYGON()` is not valid EWKT and failed the whole COPY, so it is
+  // written as the EMPTY form instead.
+  if (Array.isArray(c) && c.length === 0) {
+    const name = WKT_TYPE_NAMES[t];
+    return name ? `${SRID_PREFIX}${name} EMPTY` : '';
+  }
   const hasZ = detectZ(c);
   const dimTag = hasZ ? ' Z' : '';
   switch (t) {
@@ -235,6 +243,15 @@ function geomToEwkt(g: unknown): string {
       return '';
   }
 }
+
+const WKT_TYPE_NAMES: Record<string, string> = {
+  Point: 'POINT',
+  LineString: 'LINESTRING',
+  Polygon: 'POLYGON',
+  MultiPoint: 'MULTIPOINT',
+  MultiLineString: 'MULTILINESTRING',
+  MultiPolygon: 'MULTIPOLYGON',
+};
 
 function detectZ(c: unknown): boolean {
   if (!Array.isArray(c) || c.length === 0) return false;

@@ -132,7 +132,9 @@ describe('topNGenerator.toSql', () => {
       0,
     );
     expect(fragment.sql).toMatch(/properties \?/);
-    expect(fragment.sql).toMatch(/~ '\^-\?\[0-9\]/);
+    expect(fragment.sql).toMatch(/~ '\^-\?\(\[0-9\]/);
+    // Same rule as buffer: scientific notation and leading dots count.
+    expect(fragment.sql).toContain('[eE][+-]?[0-9]+');
     expect(fragment.sql).toMatch(/double precision/);
   });
 

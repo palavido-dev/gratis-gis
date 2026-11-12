@@ -83,7 +83,8 @@ export async function assertPostgisHost(
     throw new BadRequestException('That host could not be resolved.');
   }
   for (const answer of answers) {
-    if (isBlockedAddress(answer.address.toLowerCase())) {
+    const address = answer.address.toLowerCase();
+    if (isBlockedAddress(unwrapIp(address) ?? address)) {
       throw new BadRequestException(REFUSAL);
     }
   }
@@ -131,8 +132,32 @@ function readHost(data: unknown): string | null {
 function unwrapIp(host: string): string | null {
   let value = host;
   if (value.startsWith('[') && value.endsWith(']')) value = value.slice(1, -1);
-  if (isIpv4(value) || value.includes(':')) return value;
+  if (isIpv4(value)) return value;
+  if (value.includes(':')) return canonicalIpv6(value);
   return null;
+}
+
+/**
+ * The one spelling URL gives an IPv6 literal, so `0:0:0:0:0:0:0:1`
+ * reads as `::1`, and a v4-mapped address in hex (`::ffff:7f00:1`)
+ * comes back as its dotted IPv4 form. Without this the classifier
+ * only knew a few spellings and the rest passed.
+ */
+function canonicalIpv6(value: string): string {
+  const zoneless = value.split('%')[0] ?? value;
+  let canonical: string;
+  try {
+    canonical = new URL(`http://[${zoneless}]/`).hostname.slice(1, -1).toLowerCase();
+  } catch {
+    return value;
+  }
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical);
+  if (mapped) {
+    const hi = parseInt(mapped[1]!, 16);
+    const lo = parseInt(mapped[2]!, 16);
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
+  return canonical;
 }
 
 function isIpv4(host: string): boolean {

@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolValidateContext } from './types.js';
+import { NUMERIC_TEXT_REGEX_LITERAL, numericTextSql } from './numeric-text.js';
 
 export interface TopNParams {
   field: string;
@@ -107,8 +108,8 @@ export const topNGenerator: ToolGenerator<TopNParams> = {
       SELECT global_id, geom, properties
       FROM ${inputAlias}
       WHERE properties ? ${fieldPh}
-        AND (properties->>${fieldPh}) ~ '^-?[0-9]+(\\.[0-9]+)?$'
-      ORDER BY (NULLIF(properties->>${fieldPh}, ''))::double precision ${dir} NULLS LAST
+        AND (properties->>${fieldPh}) ~ ${NUMERIC_TEXT_REGEX_LITERAL}
+      ORDER BY ${numericTextSql(`(properties->>${fieldPh})`)} ${dir} NULLS LAST
       LIMIT ${limitPh}
     `;
     return { sql, params: [params.field, params.n] };

@@ -7,6 +7,7 @@ import type {
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolValidateContext } from './types.js';
+import { numericTextSql } from './numeric-text.js';
 
 export interface AggregateParams {
   groupBy: string[];
@@ -205,12 +206,14 @@ export const aggregateGenerator: ToolGenerator<AggregateParams> = {
 
     // Build the property pairs for jsonb_build_object.  Groups come
     // first (with their original column names), then aggregations.
+    // Keys are cast to text: the function takes VARIADIC "any", so an
+    // untyped key parameter fails to plan under the pg driver.
     const pairs: string[] = [];
     for (const g of params.groupBy) {
       const key = pushParam(g);
       // properties->>'g' grouped + selected.
       const colSafe = g.replace(/'/g, "''");
-      pairs.push(`${key}, properties->>'${colSafe}'`);
+      pairs.push(`${key}::text, properties->>'${colSafe}'`);
     }
     for (const a of params.aggs) {
       const key = pushParam(a.outputName);
@@ -221,16 +224,16 @@ export const aggregateGenerator: ToolGenerator<AggregateParams> = {
           expr = 'COUNT(*)';
           break;
         case 'sum':
-          expr = `SUM(NULLIF(properties->>'${fieldSafe}', '')::double precision)`;
+          expr = `SUM(${numericTextSql(`(properties->>'${fieldSafe}')`)})`;
           break;
         case 'avg':
-          expr = `AVG(NULLIF(properties->>'${fieldSafe}', '')::double precision)`;
+          expr = `AVG(${numericTextSql(`(properties->>'${fieldSafe}')`)})`;
           break;
         case 'min':
-          expr = `MIN(NULLIF(properties->>'${fieldSafe}', '')::double precision)`;
+          expr = `MIN(${numericTextSql(`(properties->>'${fieldSafe}')`)})`;
           break;
         case 'max':
-          expr = `MAX(NULLIF(properties->>'${fieldSafe}', '')::double precision)`;
+          expr = `MAX(${numericTextSql(`(properties->>'${fieldSafe}')`)})`;
           break;
         case 'first':
           // Deterministic "any value from the group": the one
@@ -238,7 +241,7 @@ export const aggregateGenerator: ToolGenerator<AggregateParams> = {
           expr = `(ARRAY_AGG(properties->>'${fieldSafe}' ORDER BY global_id))[1]`;
           break;
       }
-      pairs.push(`${key}, ${expr}`);
+      pairs.push(`${key}::text, ${expr}`);
     }
 
     const groupByClause =

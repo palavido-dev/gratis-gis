@@ -117,6 +117,11 @@ describe('growCachedCaps', () => {
     expect(params.cachedMaxMeters).toBe(100_000);
   });
 
+  it('does not rewrite a cap already at the ceiling for an oversized value', () => {
+    const r = recipe([fieldStep('radius_m', 'kilometers', 100_000)]);
+    expect(growCachedCaps(r, [{ radius_m: 1000 }])).toBeNull();
+  });
+
   it('ignores null, missing, and non-numeric values', () => {
     const r = recipe([fieldStep('radius_m', 'meters', 100)]);
     expect(
@@ -305,6 +310,19 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
       [{ where?: { orgId?: string } } | undefined]
     >;
     expect(callArgs[0]?.[0]?.where?.orgId).toBe('org-tenant-A');
+  });
+
+  it('matches the source id in the query instead of loading every recipe', async () => {
+    const { prisma, findMany } = makeFakePrisma({ dependents: [] });
+    const svc = new DerivedLayerCacheRefreshService(prisma);
+    await svc.notifySourceWrite('src-1', null, [{ radius_m: 250 }]);
+    const callArgs = findMany.mock.calls as unknown as Array<
+      [{ where?: { data?: unknown } } | undefined]
+    >;
+    expect(callArgs[0]?.[0]?.where?.data).toEqual({
+      path: ['source', 'itemId'],
+      equals: 'src-1',
+    });
   });
 
   it('returns silently when the source has been deleted', async () => {

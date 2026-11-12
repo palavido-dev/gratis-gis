@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createHash } from 'node:crypto';
 import {
   Body,
   Controller,
@@ -18,7 +19,6 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { PointCloudService } from './point-cloud.service.js';
 import { mergeCostModel } from './merge-estimate.js';
-import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
 
 /**
  * HTTP surface for point_cloud items (#179).
@@ -123,9 +123,13 @@ export class PointCloudController {
    * proxy exactly: forward the Range header to MinIO via the SDK,
    * mirror status + Content-Range back, stream the body.
    *
-   * Cache headers match the tile-layer proxy reasoning: a re-
-   * upload produces a new storageKey, and the ETag (MinIO's, keyed
-   * to the object) invalidates stale node reads after replacement.
+   * Caching: the URL stays the same when the file is replaced (a
+   * re-upload or an add-sources rebuild), so the response must not be
+   * `immutable`, or a browser mixes cached ranges of the old file with
+   * fresh ranges of the new one. Every read revalidates instead, and
+   * the ETag is derived from the storage key, which does change, so a
+   * revalidation of an unchanged file is a 304 that never reaches
+   * MinIO.
    */
   /**
    * Both paths serve identical bytes. The `.copc.laz`-suffixed one
@@ -146,6 +150,16 @@ export class PointCloudController {
     @Res() res: Response,
   ): Promise<void> {
     const storageKey = await this.pointCloud.resolveStorageKey(user, itemId);
+    const etag = `"pc-${createHash('sha256').update(storageKey).digest('hex').slice(0, 24)}"`;
+    const cacheControl = `${user ? 'private' : 'public'}, no-cache`;
+    const ifNoneMatch = req.headers['if-none-match'];
+    if (typeof ifNoneMatch === 'string' && ifNoneMatch.split(',').some((t) => t.trim() === etag)) {
+      res.status(304);
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', cacheControl);
+      res.end();
+      return;
+    }
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
     res.status(upstream.statusCode);
     if (upstream.contentRange) {
@@ -163,14 +177,10 @@ export class PointCloudController {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'attachment');
-    if (upstream.etag) res.setHeader('ETag', upstream.etag);
+    res.setHeader('ETag', etag);
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
-    // `private` for a signed-in caller, whose item may not be public;
-    // see byteProxyCacheControl.
-    res.setHeader(
-      'Cache-Control',
-      byteProxyCacheControl(user, 86400, { immutable: true }),
-    );
+    // `private` for a signed-in caller, whose item may not be public.
+    res.setHeader('Cache-Control', cacheControl);
 
     try {
       upstream.body.pipe(res);

@@ -88,11 +88,8 @@ export interface PolicyCheckResult {
 }
 
 /**
- * Cedar-policy-backed authorization. v1 wires the engine in as
- * the evaluator; the call sites that gate item access
- * (SharingService.canRead etc.) still own the decision today
- * and migrate onto PolicyService.check in a Phase A.2 commit
- * once the policy text + entity-store layout is settled.
+ * Cedar-policy-backed authorization. SharingService's checks
+ * (canRead and the rest) delegate their decision to this service.
  *
  * The current implementation is intentionally narrow:
  * `check()` evaluates a fixed baseline policy

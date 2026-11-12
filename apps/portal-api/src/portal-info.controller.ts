@@ -11,6 +11,7 @@ import { textEnv } from './common/env.js';
 import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { isScriptsEnabled } from './scripts/scripts-config.js';
+import { absoluteBase } from './public/ogc/url.js';
 
 /**
  * Portal discovery endpoint. Returns the minimum a fresh client
@@ -20,8 +21,7 @@ import { isScriptsEnabled } from './scripts/scripts-config.js';
  *
  * Unauthenticated by design: clients have to hit this BEFORE they
  * can sign in, so requiring a token here would be circular. The
- * response is also fully cacheable; nothing here varies per-user
- * or per-session.
+ * response does not vary per user or per session.
  *
  * Per-client OIDC client IDs are deliberately NOT returned. Each
  * client knows its own client_id by virtue of being that client.
@@ -83,23 +83,18 @@ export class PortalInfoController {
   }
 
   /**
-   * The API base URL clients should use for subsequent calls.
-   * Honors X-Forwarded-* so portals behind a reverse proxy advertise
-   * the right hostname. Always ends in /api (no trailing slash) to
-   * match how the rest of the portal is mounted.
+   * The API base URL clients should use for subsequent calls. Always
+   * ends in /api (no trailing slash) to match how the rest of the
+   * portal is mounted. PORTAL_BASE_URL wins over the forwarded
+   * headers, as for every other absolute link (absoluteBase): a
+   * request that reached the API without the proxy rewriting them
+   * could otherwise plant its own host in the discovery document
+   * QGIS and the mobile apps bootstrap from.
    */
   private resolveApiBase(req: Request): string {
     const explicit = process.env.PORTAL_API_BASE_URL;
     if (explicit) return explicit.replace(/\/$/, '');
-    const proto =
-      (req.headers['x-forwarded-proto'] as string | undefined) ??
-      req.protocol ??
-      'http';
-    const host =
-      (req.headers['x-forwarded-host'] as string | undefined) ??
-      req.headers.host ??
-      'localhost';
-    return `${proto}://${host}/api`;
+    return `${absoluteBase(req)}/api`;
   }
 
   /**

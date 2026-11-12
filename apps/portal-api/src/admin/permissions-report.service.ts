@@ -68,6 +68,10 @@ export function permissionsToCsv(rows: PermissionRow[]): string {
   return `${lines.join('\n')}\n`;
 }
 
+/** Items fetched per query, and the most one report covers. */
+const REPORT_PAGE_SIZE = 2000;
+const MAX_REPORT_ITEMS = 100_000;
+
 @Injectable()
 export class PermissionsReportService {
   constructor(private readonly prisma: PrismaService) {}
@@ -76,8 +80,29 @@ export class PermissionsReportService {
     kind: 'current-snapshot';
     generatedAt: string;
     rows: PermissionRow[];
+    /** True when the org has more items than one report covers. */
+    truncated: boolean;
   }> {
-    const items = await this.prisma.item.findMany({
+    // Paged by (title, id). A single take of 5000 dropped every item
+    // after it, with nothing in the JSON or the CSV to say so, from an
+    // export used for access audits.
+    const items: Awaited<ReturnType<typeof this.itemPage>> = [];
+    let truncated = false;
+    for (;;) {
+      const last = items[items.length - 1];
+      const page = await this.itemPage(orgId, last?.id);
+      items.push(...page);
+      if (page.length < REPORT_PAGE_SIZE) break;
+      if (items.length >= MAX_REPORT_ITEMS) {
+        truncated = true;
+        break;
+      }
+    }
+    return this.buildReport(orgId, items, truncated);
+  }
+
+  private itemPage(orgId: string, afterId: string | undefined) {
+    return this.prisma.item.findMany({
       where: { orgId, deletedAt: null },
       select: {
         id: true,
@@ -95,8 +120,16 @@ export class PermissionsReportService {
         },
       },
       orderBy: [{ title: 'asc' }, { id: 'asc' }],
-      take: 5000,
+      take: REPORT_PAGE_SIZE,
+      ...(afterId ? { cursor: { id: afterId }, skip: 1 } : {}),
     });
+  }
+
+  private async buildReport(
+    orgId: string,
+    items: Awaited<ReturnType<PermissionsReportService['itemPage']>>,
+    truncated: boolean,
+  ) {
     const userIds = new Set<string>();
     const groupIds = new Set<string>();
     for (const item of items) {
@@ -160,14 +193,28 @@ export class PermissionsReportService {
       }
     }
     return {
-      kind: 'current-snapshot',
+      kind: 'current-snapshot' as const,
       generatedAt: new Date().toISOString(),
       rows,
+      truncated,
     };
   }
 
   async csv(orgId: string): Promise<string> {
     const report = await this.report(orgId);
-    return permissionsToCsv(report.rows);
+    const csv = permissionsToCsv(report.rows);
+    if (!report.truncated) return csv;
+    // Say so in the file itself; the CSV has no other channel.
+    return (
+      csv +
+      [
+        'truncated',
+        '',
+        `Report stops after ${MAX_REPORT_ITEMS} items; this org has more.`,
+      ]
+        .map(csvCell)
+        .join(',') +
+      '\n'
+    );
   }
 }

@@ -443,6 +443,14 @@ export class AuthSyncService {
         'This account is deleted. Contact your organization admin.',
       );
     }
+    // A disabled account's access token is still valid offline until
+    // it expires. The API key path already refuses disabled_at; the
+    // JWT path let a just-offboarded user keep working for minutes.
+    if (existing !== null && (existing.disabledAt ?? null) !== null) {
+      throw new UnauthorizedException(
+        'This account is disabled. Contact your organization admin.',
+      );
+    }
     // fullName only counts as changed when the token carries a name:
     // Prisma skips undefined fields, so the old upsert also left
     // fullName untouched for tokens without a `name` claim.
@@ -728,11 +736,19 @@ export class AuthSyncService {
     });
     const ownerId = admin?.id ?? fallbackOwnerId;
 
+    // seedKind puts each basemap under the partial unique index on
+    // (org_id, type, seed_kind) that the other starters use, and
+    // skipDuplicates turns a second replica's identical insert into a
+    // no-op. The in-flight map only coalesced callers in one process,
+    // so a new org's first sign-in burst across two replicas used to
+    // get every basemap twice.
     await this.prisma.item.createMany({
+      skipDuplicates: true,
       data: missing.map((seed) => ({
         orgId,
         ownerId,
         type: 'basemap' as const,
+        seedKind: `basemap:${seed.seededKey}`,
         title: seed.title,
         description: seed.description,
         tags: ['built-in'],

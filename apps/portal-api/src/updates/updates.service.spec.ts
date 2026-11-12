@@ -78,4 +78,18 @@ describe('UpdatesService', () => {
     expect(report.updateAvailable).toBe(false);
     expect(report.current.version).toBe('v1.1.0-2-gabc1234');
   });
+
+  it('retries a failed check after minutes, not after six hours', async () => {
+    process.env.UPDATE_CHECK = 'on';
+    process.env.GG_CHANNEL = 'latest';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const svc = new UpdatesService();
+    await svc.status();
+    await svc.status();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(1_000_000 + 10 * 60 * 1000);
+    await svc.status();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
 });

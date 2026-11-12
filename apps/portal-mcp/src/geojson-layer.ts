@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { PortalHttpError } from './safety.js';
 /**
  * Helpers for create_data_layer_from_geojson (#161 Phase 2).
  *
@@ -231,7 +232,13 @@ export async function appendInBatches(
       res = await post(batch);
     } catch (err) {
       out.failedBatch = i + 1;
-      out.error = err instanceof Error ? err.message : String(err);
+      // The caller wraps this in the untrusted envelope.
+      out.error =
+        err instanceof PortalHttpError
+          ? `${err.message}: ${err.body}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
       return out;
     }
     const body = (res && typeof res === 'object' ? res : {}) as {
