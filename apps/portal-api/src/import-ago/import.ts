@@ -18,10 +18,9 @@
  *     `WebMapJsonImportService` (which already converts the
  *     WebMap JSON envelope and links matching service items).
  *
- *   - Files (Image / PDF / CSV / Document Link / ...) ->
- *     portal `file` item carrying the AGO download URL. v1
- *     does NOT re-host file contents; the URL stays attached
- *     to AGO. Later phases can add re-hosting via MinIO.
+ *   - Files (Image / PDF / CSV / ...) -> portal `file` item. The
+ *     bytes are downloaded from the source portal and re-hosted in
+ *     portal storage. Document Links have no bytes and are skipped.
  *
  * Out of v1 scope: Web Mapping Applications, Dashboards, Forms,
  * StoryMap, Experience Builder. These items have AGO-runtime-
@@ -31,11 +30,9 @@
  * underlying maps + layers. They surface in the dry-run as
  * "skip with reason" so the operator knows what was left behind.
  *
- * The importer runs synchronously inside the HTTP request. For
- * a small AGO account (test orgs, hobby portals) the whole
- * import completes in seconds. The shape stays usable inside a
- * future ImportJob row for large orgs where async + restart-
- * safe is required.
+ * The wizard runs the importer as a background job (jobs.service.ts)
+ * that writes progress to an ago_import_job row. POST /run still
+ * runs it inside the request for API callers.
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -51,8 +48,8 @@ import { WebMapJsonImportService } from '../items/web-map-json-import.service.js
 import { AgoApiError, AgoClient } from './ago-client.js';
 import { agoTokenMayGoTo, agoTokenOrigins } from './ago-url.js';
 import { agoAccessToPortal, type DryRunItem, type DryRunReport } from './dry-run.js';
-import { AgoHostedFsImportService } from './hosted-fs.js';
-import { sortByImportOrder } from './type-mapping.js';
+import { AgoHostedFsImportService, redactToken } from './hosted-fs.js';
+import { classifyAgoType, sortByImportOrder } from './type-mapping.js';
 
 /**
  * One row in the import report. ``status`` is always set;
@@ -106,6 +103,21 @@ export interface ImportedFolder {
   /** Number of items the importer placed in this folder. May be
    *  zero if every item in the AGO folder was skipped or failed. */
   childCount: number;
+}
+
+/**
+ * Thrown by run() when its onProgress callback threw (the job runner
+ * uses that to cancel). Carries the error the callback threw and the
+ * report of what was done before the stop.
+ */
+export class ImportStoppedError extends Error {
+  constructor(
+    readonly reason: unknown,
+    readonly partialReport: ImportReport,
+  ) {
+    super(reason instanceof Error ? reason.message : String(reason));
+    this.name = 'ImportStoppedError';
+  }
 }
 
 @Injectable()
@@ -240,6 +252,10 @@ export class AgoImportService {
     };
 
     const results: ImportResult[] = [];
+    // Set when onProgress throws (the job runner's cancel). The loop
+    // stops, but the folder post-pass and the report still run, so a
+    // cancelled job leaves filled folders and a list of what it made.
+    let stopped: { error: unknown } | null = null;
     for (let i = 0; i < ordered.length; i += 1) {
       const item = ordered[i]!;
       const result = await this.importOne(
@@ -279,14 +295,19 @@ export class AgoImportService {
       // cancellation); we let the error propagate to the run()
       // caller without wrapping it as a per-item failure.
       const nextItem = ordered[i + 1];
-      await args.onProgress?.({
-        result,
-        done: i + 1,
-        total: ordered.length,
-        currentItem: nextItem
-          ? `${nextItem.title} (${nextItem.agoType})`
-          : '',
-      });
+      try {
+        await args.onProgress?.({
+          result,
+          done: i + 1,
+          total: ordered.length,
+          currentItem: nextItem
+            ? `${nextItem.title} (${nextItem.agoType})`
+            : '',
+        });
+      } catch (e) {
+        stopped = { error: e };
+        break;
+      }
     }
 
     // Skipped items from the report (willImport=false) are
@@ -331,7 +352,7 @@ export class AgoImportService {
     }
 
     const completedAt = new Date();
-    return {
+    const report: ImportReport = {
       total: args.report.items.length,
       created: results.filter((r) => r.status === 'created').length,
       failed: results.filter((r) => r.status === 'failed').length,
@@ -342,6 +363,8 @@ export class AgoImportService {
       completedAt: completedAt.toISOString(),
       durationMs: completedAt.getTime() - startedAt.getTime(),
     };
+    if (stopped) throw new ImportStoppedError(stopped.error, report);
+    return report;
   }
 
   /**
@@ -390,12 +413,16 @@ export class AgoImportService {
         );
       case 'map':
         return this.importMap(user, client, row, agoUrlToPortalDataLayer);
-      case 'file':
-        return this.importFile(
-          user,
-          row,
-          tokenFor(inferPortalBaseFromRow(row)),
-        );
+      case 'file': {
+        // Download from the portal being imported. File items carry
+        // no service URL, so guessing the host from the row sent every
+        // Enterprise file to www.arcgis.com (and dropped a /portal
+        // path prefix when there was a URL).
+        const portalBase = tokenScope
+          ? trimTrailingSlashes(tokenScope.portalUrl)
+          : inferPortalBaseFromRow(row);
+        return this.importFile(user, row, tokenFor(portalBase), portalBase);
+      }
       default:
         // The dry-run + type-mapping should have caught
         // unsupported types and marked them willImport=false
@@ -522,6 +549,19 @@ export class AgoImportService {
     // the item with an empty layer list (the warning steers the
     // operator to the re-probe path).
     const probeWarnings: string[] = [];
+    // The mapping says which service types have a layer list worth
+    // probing (a Vector Tile Service has none).
+    if (!classifyAgoType(row.agoType).needsServiceProbe) {
+      return {
+        agoId: row.agoId,
+        agoType: row.agoType,
+        agoTitle: row.title,
+        status: 'created',
+        portalItemId: created.id,
+        portalItemType: 'service',
+        warnings: [],
+      };
+    }
     const probe = await probeAgoService(url, token);
     if (probe.ok) {
       const layers = probe.layers;
@@ -644,6 +684,7 @@ export class AgoImportService {
     user: AuthUser,
     row: DryRunItem,
     token: string,
+    portalBase: string,
   ): Promise<ImportResult> {
     if (row.agoType === 'Document Link') {
       // No bytes to re-host. Surface in results so the operator
@@ -660,7 +701,7 @@ export class AgoImportService {
       };
     }
     try {
-      const upload = await this.fetchAndUploadAgoFile(row, token);
+      const upload = await this.fetchAndUploadAgoFile(row, token, portalBase);
       const data = {
         ...DEFAULT_FILE,
         storageKey: upload.storageKey,
@@ -710,6 +751,7 @@ export class AgoImportService {
   private async fetchAndUploadAgoFile(
     row: DryRunItem,
     token: string,
+    portalBase: string,
   ): Promise<{
     storageKey: string;
     storageUrl: string;
@@ -717,35 +759,31 @@ export class AgoImportService {
     mimeType: string;
     sizeBytes: number;
   }> {
-    // Resolve the AGO portal base from the row's metadata. v1 of
-    // the importer doesn't carry a portalUrl per row, so we
-    // reconstruct it from the serviceUrl (if any) or default to
-    // AGO public cloud's /sharing/rest path. The /content/items/
-    // <id>/data endpoint is the canonical download URL on every
-    // ArcGIS portal.
-    const portalBase = inferPortalBaseFromRow(row);
     const downloadUrl = token
       ? `${portalBase}/content/items/${row.agoId}/data?token=${encodeURIComponent(token)}`
       : `${portalBase}/content/items/${row.agoId}/data`;
     // safeFetch, not fetch: the base comes off the user-supplied
     // dry-run report, so this download must pass the same SSRF
-    // guard the AgoClient routes all its traffic through.
-    const res = await safeFetch(downloadUrl);
-    if (!res.ok) {
+    // guard the AgoClient routes all its traffic through. The
+    // timeout covers the body too, so a server that stalls cannot
+    // hold the job (and its heartbeat) forever.
+    const res = await safeFetch(
+      downloadUrl,
+      { signal: AbortSignal.timeout(AGO_FILE_TIMEOUT_MS) },
+      { maxBytes: AGO_FILE_MAX_BYTES },
+    );
+    if (!res.ok || !res.body) {
+      await res.body?.cancel().catch(() => undefined);
       throw new Error(
         `AGO returned HTTP ${res.status} on /items/${row.agoId}/data`,
       );
     }
-    // Stream to a tmp file so we don't blow up the api heap on
-    // multi-hundred-MB CSVs or shapefile bundles.
-    const { writeFile, unlink } = await import('node:fs/promises');
+    const { createWriteStream } = await import('node:fs');
+    const { readFile, stat, unlink } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    const ab = await res.arrayBuffer();
-    const buf = Buffer.from(ab);
-    if (buf.length === 0) {
-      throw new Error('AGO returned an empty body; no bytes to re-host.');
-    }
+    const { Readable } = await import('node:stream');
+    const { pipeline } = await import('node:stream/promises');
     const fileName =
       filenameFromContentDisposition(res.headers.get('content-disposition')) ??
       `${sanitizeForFilename(row.title)}${defaultExtensionFor(row.agoType)}`;
@@ -759,8 +797,24 @@ export class AgoImportService {
       tmpdir(),
       `ago-file-${Date.now()}-${sanitizeForFilename(row.agoId)}`,
     );
-    await writeFile(tmp, buf);
     try {
+      // Stream to the tmp file. Reading the whole body into a buffer
+      // first held up to 1 GiB per file in the API heap.
+      await pipeline(
+        Readable.fromWeb(res.body as import('node:stream/web').ReadableStream),
+        createWriteStream(tmp),
+      );
+      const sizeBytes = (await stat(tmp)).size;
+      if (sizeBytes === 0) {
+        throw new Error('AGO returned an empty body; no bytes to re-host.');
+      }
+      // ArcGIS answers an expired token or an item it will not serve
+      // with a success status and a JSON error body. Saving that as the
+      // file reported the item as migrated while its bytes were lost.
+      if (sizeBytes <= AGO_ERROR_ENVELOPE_MAX_BYTES) {
+        const envelope = agoErrorEnvelope(await readFile(tmp, 'utf8'));
+        if (envelope) throw new Error(envelope);
+      }
       const upload = await this.storage.uploadLocalFile(
         'item-file',
         tmp,
@@ -771,7 +825,7 @@ export class AgoImportService {
         storageUrl: upload.publicUrl,
         fileName,
         mimeType,
-        sizeBytes: buf.length,
+        sizeBytes,
       };
     } finally {
       await unlink(tmp).catch(() => {});
@@ -809,6 +863,48 @@ function inferServiceProtocol(
   }
 }
 
+/** Largest file re-hosted from AGO. The same ceiling safeFetch had by
+ *  default; the bytes now stream to disk instead of the heap. */
+const AGO_FILE_MAX_BYTES = 1024 * 1024 * 1024;
+/** How long one file download may take, body included. */
+const AGO_FILE_TIMEOUT_MS = 30 * 60 * 1000;
+/** How long the service auto-probe may take, and how much it reads. */
+const AGO_PROBE_TIMEOUT_MS = 30_000;
+const AGO_PROBE_MAX_BYTES = 16 * 1024 * 1024;
+/** An ArcGIS error body is small; only files up to this size are
+ *  checked for one. */
+const AGO_ERROR_ENVELOPE_MAX_BYTES = 64 * 1024;
+
+/**
+ * If `text` is an ArcGIS error envelope (`{"error": {"code", "message"}}`),
+ * the message to report; otherwise null. ArcGIS returns these with a
+ * success status (Esri's own client, @esri/arcgis-rest-request, checks
+ * every JSON reply for one for that reason).
+ */
+export function agoErrorEnvelope(text: string): string | null {
+  const head = text.trimStart();
+  if (!head.startsWith('{')) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(head);
+  } catch {
+    return null;
+  }
+  const err = (body as { error?: unknown } | null)?.error;
+  if (!err || typeof err !== 'object') return null;
+  const { code, message } = err as { code?: unknown; message?: unknown };
+  if (typeof code !== 'number' && typeof message !== 'string') return null;
+  return `AGO returned error ${typeof code === 'number' ? code : '?'}: ${
+    typeof message === 'string' ? message : 'unknown'
+  }`;
+}
+
+function trimTrailingSlashes(url: string): string {
+  let out = url.trim();
+  while (out.endsWith('/')) out = out.slice(0, -1);
+  return out;
+}
+
 function failed(row: DryRunItem, error: string): ImportResult {
   return {
     agoId: row.agoId,
@@ -821,11 +917,13 @@ function failed(row: DryRunItem, error: string): ImportResult {
 }
 
 function errorMessage(e: unknown): string {
+  // Messages land in the stored job report, which every org admin can
+  // read. A safeFetch error can quote the request URL, token and all.
   if (e instanceof AgoApiError) {
-    return `AGO ${e.status}${e.code ? ` (code ${e.code})` : ''}: ${e.message}`;
+    return redactToken(`AGO ${e.status}${e.code ? ` (code ${e.code})` : ''}: ${e.message}`);
   }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  if (e instanceof Error) return redactToken(e.message);
+  return redactToken(String(e));
 }
 
 /**
@@ -839,6 +937,16 @@ function errorMessage(e: unknown): string {
  * Exposed so tests can pin the normalization behaviour.
  */
 export function normalizeAgoServiceUrl(raw: string): string {
+  return agoServiceRoot(raw).toLowerCase();
+}
+
+/**
+ * The service root with its case kept: no query, no trailing layer
+ * id, no trailing slash. ArcGIS folder and service names are
+ * case-sensitive, so this, not the lowercased map key above, is what
+ * gets requested.
+ */
+export function agoServiceRoot(raw: string): string {
   let s = raw.trim();
   if (!s) return '';
   // Strip token + query string -- different tokens shouldn't
@@ -848,8 +956,8 @@ export function normalizeAgoServiceUrl(raw: string): string {
   // Strip a trailing sublayer-id segment (.../FeatureServer/0).
   s = s.replace(/\/(\d+)\/*$/, '');
   // Strip trailing slashes.
-  s = s.replace(/(?<!\/)\/+$/, '');
-  return s.toLowerCase();
+  while (s.endsWith('/')) s = s.slice(0, -1);
+  return s;
 }
 
 /**
@@ -895,8 +1003,17 @@ function filenameFromContentDisposition(
   if (!header) return null;
   // RFC 5987 filename* is also valid; AGO uses the plain filename
   // form in practice. Accept either with the same regex.
-  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
-  return m && m[1] ? decodeURIComponent(m[1].trim()) : null;
+  const m = /filename(\*?)=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  if (!m || !m[2]) return null;
+  const value = m[2].trim();
+  // Only the RFC 5987 `filename*=` form is percent-encoded. Decoding
+  // a plain `filename="50% done.pdf"` threw and failed the import.
+  if (m[1] !== '*') return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
@@ -960,12 +1077,19 @@ async function probeAgoService(
   | { ok: false; reason: string }
 > {
   // Strip any trailing sublayer id / query so we hit the service
-  // root rather than a per-layer endpoint. The normalize helper
-  // already exists for the WebMap remap path; reusing it keeps
-  // the URL shape consistent.
-  const root = normalizeAgoServiceUrl(serviceUrl);
+  // root rather than a per-layer endpoint. Case is kept: the
+  // lowercased map key requested `.../parcels/featureserver`, which
+  // ArcGIS does not serve for `.../Parcels/FeatureServer`.
+  const root = agoServiceRoot(serviceUrl);
   if (!root) return { ok: false, reason: 'service URL was empty' };
-  const u = new URL(root);
+  let u: URL;
+  try {
+    u = new URL(root);
+  } catch {
+    // Parsed inside the guard so a bad URL is a warning on an item
+    // that was already created, not a failed row with an orphan.
+    return { ok: false, reason: 'service URL is not a valid URL' };
+  }
   u.searchParams.set('f', 'json');
   if (token) u.searchParams.set('token', token);
   let res: Response;
@@ -973,7 +1097,11 @@ async function probeAgoService(
     // safeFetch, not fetch: the service URL comes off the user-
     // supplied dry-run report. A blocked URL surfaces as the same
     // per-item warning a network error does.
-    res = await safeFetch(u.toString());
+    res = await safeFetch(
+      u.toString(),
+      { signal: AbortSignal.timeout(AGO_PROBE_TIMEOUT_MS) },
+      { maxBytes: AGO_PROBE_MAX_BYTES },
+    );
   } catch (e) {
     return { ok: false, reason: `network error: ${errorMessage(e)}` };
   }
@@ -983,7 +1111,10 @@ async function probeAgoService(
   let body: unknown;
   try {
     body = await res.json();
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.name === 'TimeoutError') {
+      return { ok: false, reason: 'service root took too long to answer' };
+    }
     return { ok: false, reason: 'service root did not return JSON' };
   }
   // AGO returns 200 with an error envelope on auth failure.

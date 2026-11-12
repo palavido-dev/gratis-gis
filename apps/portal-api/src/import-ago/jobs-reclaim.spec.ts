@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { AgoImportJobsService } from './jobs.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { AgoImportService } from './import.js';
+import { ImportStoppedError, type AgoImportService } from './import.js';
 import type { LeaderElectionService } from '../cron/leader-election.service.js';
 
 /**
@@ -44,8 +44,11 @@ describe('AgoImportJobsService.recoverStaleRunning', () => {
 
     // Terminal update carries the status guard so a job that finished
     // between the select and the update is not clobbered.
-    expect(updateMany).toHaveBeenCalledTimes(1);
-    const arg = updateMany.mock.calls[0]![0] as {
+    const runningCalls = updateMany.mock.calls.filter(
+      (c) => (c[0] as { where: { status: string } }).where.status === 'running',
+    );
+    expect(runningCalls).toHaveLength(1);
+    const arg = runningCalls[0]![0] as {
       where: { id: { in: string[] }; status: string };
       data: { status: string; currentItem: null; errorMessage: string };
     };
@@ -60,7 +63,77 @@ describe('AgoImportJobsService.recoverStaleRunning', () => {
     const { svc, findMany, updateMany } = build();
     findMany.mockResolvedValue([]);
     await svc.recoverStaleRunning(1);
-    expect(updateMany).not.toHaveBeenCalled();
+    const runningCalls = updateMany.mock.calls.filter(
+      (c) => (c[0] as { where: { status: string } }).where.status === 'running',
+    );
+    expect(runningCalls).toHaveLength(0);
+  });
+
+  it('fails a job still queued past the window: no runner will ever pick it up', async () => {
+    const { svc, updateMany } = build();
+    await svc.recoverStaleRunning(1);
+    const queued = updateMany.mock.calls.find(
+      (c) => (c[0] as { where: { status: string } }).where.status === 'queued',
+    );
+    expect(queued).toBeDefined();
+    const arg = queued![0] as { where: { createdAt: { lt: Date } }; data: { status: string } };
+    expect(arg.where.createdAt.lt).toBeInstanceOf(Date);
+    expect(arg.data.status).toBe('failed');
+  });
+});
+
+describe('AgoImportJobsService runner', () => {
+  const report = {
+    items: [{ willImport: true }, { willImport: true }, { willImport: false }],
+  } as unknown as import('./dry-run.js').DryRunReport;
+
+  function runner(run: (args: { onProgress?: (s: unknown) => Promise<void> }) => Promise<unknown>) {
+    const updates: Array<Record<string, unknown>> = [];
+    let status = 'queued';
+    const prisma = {
+      agoImportJob: {
+        findUnique: jest.fn(async () => ({ id: 'j1', status })),
+        update: jest.fn(async (a: { data: Record<string, unknown> }) => {
+          updates.push(a.data);
+          if (typeof a.data.status === 'string') status = a.data.status;
+          return {};
+        }),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+    } as unknown as PrismaService;
+    const importer = { run: jest.fn(run) } as unknown as AgoImportService;
+    const svc = new AgoImportJobsService(prisma, importer, {
+      shouldRun: () => true,
+    } as unknown as LeaderElectionService);
+    const go = () =>
+      (svc as unknown as { runJob(id: string, input: unknown): Promise<void> }).runJob('j1', {
+        user: {},
+        portalUrl: 'p',
+        token: 't',
+        report,
+      });
+    return { go, updates, setStatus: (s: string) => (status = s) };
+  }
+
+  it('counts done as the importable rows, not every row of the report', async () => {
+    const t = runner(async () => ({ total: 3, created: 2, failed: 0, skipped: 1 }));
+    await t.go();
+    expect(t.updates.at(-1)).toMatchObject({ status: 'succeeded', done: 2 });
+  });
+
+  it('stores the partial report when the job is cancelled', async () => {
+    const partial = { total: 3, created: 1, results: [] };
+    const t = runner(async (args) => {
+      t.setStatus('cancelled');
+      try {
+        await args.onProgress?.({ done: 1, currentItem: '' });
+      } catch (e) {
+        throw new ImportStoppedError(e, partial as never);
+      }
+      return partial;
+    });
+    await t.go();
+    expect(t.updates.at(-1)).toMatchObject({ report: partial });
   });
 });
 
