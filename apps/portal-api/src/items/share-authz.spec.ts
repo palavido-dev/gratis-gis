@@ -52,7 +52,11 @@ function service(opts: {
     get: jest.fn(async () => item),
     sharing: { canAdmin: () => opts.canAdmin ?? true, canEdit: () => true },
     prisma: {
-      itemShare: { upsert, findMany: jest.fn(async () => []) },
+      itemShare: {
+        upsert,
+        findMany: jest.fn(async () => []),
+        findUnique: jest.fn(async () => ({ itemId: 'item-1' })),
+      },
       user: {
         findFirst: jest.fn(async ({ where }: { where: { id: string; orgId?: string } }) =>
           match(users, where),
@@ -110,6 +114,24 @@ describe('ItemsService sharing gates', () => {
         orgGeoBoundaryId: '00000000-0000-0000-0000-000000000001',
       } as never),
     ).rejects.toThrow('Only the owner or an org admin');
+  });
+
+  it('keeps the stored permission when an update omits it', async () => {
+    const { svc, upsert } = service({
+      users: [{ id: 'u-2', orgId: ORG, deletedAt: null, orgRole: 'contributor' }],
+    });
+    await svc
+      .share(user('contributor'), 'item-1', {
+        principalType: 'user',
+        principalId: 'u-2',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+      } as never)
+      .catch(() => undefined);
+    const args = (upsert.mock.calls[0] as unknown as [
+      { update: Record<string, unknown>; create: Record<string, unknown> },
+    ])[0];
+    expect(args.update).not.toHaveProperty('permission');
+    expect(args.create.permission).toBe('view');
   });
 
   it('refuses a user principal from another org', async () => {

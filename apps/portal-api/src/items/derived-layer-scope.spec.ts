@@ -215,3 +215,25 @@ describe('derived layers honour the reader scope on their inputs', () => {
     expect(rows[0]!.bbox).toEqual([]);
   });
 });
+
+describe('derived redaction on a list page', () => {
+  it('reads a shared input once for the whole page', async () => {
+    const { svc } = service({
+      [SOURCE]: dataLayer(SOURCE, [viewShare({ geoLimit: POLY })]),
+    });
+    const prisma = (svc as unknown as {
+      prisma: { item: { findUnique: jest.Mock; findMany: jest.Mock } };
+    }).prisma;
+    const rows = [
+      { id: 'd1', type: 'derived_layer', bbox: [0, 0, 1, 1], data: derivedItem().data },
+      { id: 'd2', type: 'derived_layer', bbox: [0, 0, 1, 1], data: derivedItem().data },
+    ];
+    const out = (await (svc as unknown as {
+      redactLimitedDerivedRows: (u: unknown, r: unknown[]) => Promise<unknown[]>;
+    }).redactLimitedDerivedRows(reader, rows)) as Array<{ data: { bbox?: unknown } }>;
+    expect(prisma.item.findUnique).toHaveBeenCalledTimes(1);
+    // Full rows carry their recipe, so no recipe re-read either.
+    expect(prisma.item.findMany).not.toHaveBeenCalled();
+    expect(out).toHaveLength(2);
+  });
+});

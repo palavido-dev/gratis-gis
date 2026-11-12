@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape, UuidPathPipe } from '../common/uuid-shape.js';
 import {
   BadRequestException,
   Body,
@@ -82,7 +83,6 @@ import {
 } from '../public/public-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
-import { isUuidShape, UuidPathPipe } from '../common/uuid-shape.js';
 
 class CreateItemDto {
   @IsEnum(ITEM_TYPES) type!: ItemType;
@@ -487,7 +487,9 @@ export class ItemsController {
     // system reads correctly don't bump the counter.
     // The write goes through LastUsageStamp, not prisma.item.update,
     // so it cannot drag `updatedAt` along with it. See that file.
-    this.lastUsage.stamp(id);
+    // Keyed on the row's own id: the path spelling can vary (letter
+    // case), and each spelling would otherwise get its own window.
+    this.lastUsage.stamp(item.id);
     const boundaryId = (item as { publicGeoBoundaryId?: string | null })
       .publicGeoBoundaryId;
     const canFix =

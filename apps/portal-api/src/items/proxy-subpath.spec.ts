@@ -120,3 +120,29 @@ describe('composeUpstreamUrl', () => {
     expect(() => composeUpstreamUrl('not a url', '0', null)).toThrow(ProxyPathError);
   });
 });
+
+describe('proxy sub-path review fixes', () => {
+  it('refuses an encoded slash in a segment', () => {
+    expect(isUnsafeProxySegment('..%2f..%2fadmin')).toBe(true);
+    expect(isUnsafeProxySegment('a%2Fb')).toBe(true);
+    expect(() => extractSubPath('/api/items/x/proxy/..%2f..%2fOther/MapServer')).toThrow(
+      ProxyPathError,
+    );
+  });
+
+  it('puts the sub-path in the path when the stored URL has a query', () => {
+    expect(
+      composeUpstreamUrl(
+        'https://h/arcgis/rest/services/X/MapServer?foo=1',
+        '0/query?f=json&where=1%3D1',
+        null,
+      ),
+    ).toBe('https://h/arcgis/rest/services/X/MapServer/0/query?foo=1&f=json&where=1%3D1');
+  });
+
+  it('keeps a stored query on a bare request', () => {
+    expect(
+      composeUpstreamUrl('https://h/arcgis/rest/services/X/MapServer/?foo=1', '', null),
+    ).toBe('https://h/arcgis/rest/services/X/MapServer?foo=1');
+  });
+});
