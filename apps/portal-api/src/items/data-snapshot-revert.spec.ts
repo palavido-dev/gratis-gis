@@ -53,4 +53,24 @@ describe('DataSnapshotService.revert', () => {
     expect(args.data.data.layers[0]!.syncVersion).toBe(812);
     expect(args.data.bbox).toEqual([0, 0, 1, 1]);
   });
+
+  it('leaves the stored extent of a map alone and asks for a recompute', async () => {
+    const prisma = makePrisma('map');
+    prisma.itemDataSnapshot.findUnique.mockResolvedValueOnce({
+      id: 'snap-1',
+      itemId: 'item-1',
+      data: { layers: [{ kind: 'data-layer', itemId: 'layer-1' }] },
+    } as never);
+    const refreshItemBbox = jest.fn();
+    const svc = new DataSnapshotService(
+      prisma as never,
+      { refreshItemBbox } as never,
+    );
+    await svc.revert('snap-1', 'user-1');
+    const args = (prisma.item.update.mock.calls as unknown as Array<
+      [{ data: Record<string, unknown> }]
+    >)[0]![0];
+    expect('bbox' in args.data).toBe(false);
+    expect(refreshItemBbox).toHaveBeenCalledWith('item-1');
+  });
 });

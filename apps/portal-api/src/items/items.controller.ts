@@ -124,7 +124,7 @@ class UpdateItemDto {
   @IsOptional() @IsString() @MaxLength(500) license?: string | null;
   // #80: tier-level geo limits. UUID of a geo_boundary item, or null
   // to clear. The read path treats a missing / wrong-typed target
-  // as "no clip" so a broken ref cannot widen access; this DTO does
+  // as a closed clip so a broken ref cannot widen access; this DTO does
   // not validate the target is actually a geo_boundary -- the read-
   // time dereference is the source of truth.
   @IsOptional() @IsUUID('loose') publicGeoBoundaryId?: string | null;
@@ -225,7 +225,7 @@ class ShareDto {
    * exclusive with `geoLimit`. Caller is responsible for ensuring
    * the referenced item is a `geo_boundary` and visible to the
    * grantee; the sharing service does not validate at write time
-   * but a missing / wrong-typed target is treated as "no clip" at
+   * but a missing / wrong-typed target closes this share's path at
    * read time so a deleted boundary cannot silently expand access.
    */
   @IsOptional() @IsUUID('loose') geoBoundaryId?: string | null;
@@ -628,17 +628,7 @@ export class ItemsController {
       // guard's rejection lands in the catch below, so a blocked
       // URL degrades the same way a broken one does: the SVG just
       // renders without that layer.
-      const res = await safeFetch(href, {
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) return null;
-      const contentType =
-        res.headers.get('content-type') ?? 'application/octet-stream';
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > 5 * 1024 * 1024) return null;
-      const media = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
-      if (!RASTER_MEDIA.has(media)) return null;
-      return `data:${media};base64,${buf.toString('base64')}`;
+      return await remoteRasterDataUrl(href);
     } catch {
       return null;
     }
@@ -1126,6 +1116,34 @@ const RASTER_MEDIA = new Set([
   'image/webp',
   'image/gif',
 ]);
+
+/** Largest remote image the thumbnail SVG will inline. */
+const MAX_THUMBNAIL_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Fetch a remote image and return it as a raster data URL, or null.
+ * The size cap goes to safeFetch so it stops reading at 5 MB. Before,
+ * the body was read in full (up to safeFetch's 1 GiB default) and
+ * only then checked, on a route anyone can call.
+ */
+export async function remoteRasterDataUrl(
+  href: string,
+  fetcher: typeof safeFetch = safeFetch,
+): Promise<string | null> {
+  const res = await fetcher(
+    href,
+    { signal: AbortSignal.timeout(10_000) },
+    { maxBytes: MAX_THUMBNAIL_IMAGE_BYTES },
+  );
+  if (!res.ok) return null;
+  const contentType =
+    res.headers.get('content-type') ?? 'application/octet-stream';
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_THUMBNAIL_IMAGE_BYTES) return null;
+  const media = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (!RASTER_MEDIA.has(media)) return null;
+  return `data:${media};base64,${buf.toString('base64')}`;
+}
 
 /** Keep a caller-supplied data URL only when it is a raster image.
  *  SVG and HTML data URLs are dropped: this response is an SVG

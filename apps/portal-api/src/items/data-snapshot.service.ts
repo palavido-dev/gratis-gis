@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { itemBbox } from './item-bbox.js';
+import { bboxWriteForData, hasDerivedExtent } from './item-bbox.js';
+import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
 import { carryLayerSyncVersionsFrom, withLockedItem } from './item-data-lock.js';
 import { stampScriptProvenance } from '../scripts/script-provenance.js';
 
@@ -23,7 +24,11 @@ import { stampScriptProvenance } from '../scripts/script-provenance.js';
  */
 @Injectable()
 export class DataSnapshotService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so unit tests can omit it.
+    @Optional() private readonly bboxRefresh?: ItemBboxRefreshService,
+  ) {}
 
   private get ttlDays(): number {
     const raw = Number(process.env.ITEM_SNAPSHOT_TTL_DAYS);
@@ -111,7 +116,8 @@ export class DataSnapshotService {
     // writes a data layer. A layer's syncVersion is the delta cursor
     // field clients hold, so it keeps its current value: putting the
     // snapshot's older value back would make those clients skip every
-    // edit made since. The cached extent follows the restored data.
+    // edit made since.
+    let revertedType: string | null = null;
     await withLockedItem(this.prisma, snap.itemId, async (tx, locked) => {
       if (!locked) throw new NotFoundException('Item not found');
       const row = await tx.item.findUnique({
@@ -119,6 +125,7 @@ export class DataSnapshotService {
         select: { type: true, ownerId: true },
       });
       if (!row) throw new NotFoundException('Item not found');
+      revertedType = row.type;
       let restored = snap.data as Prisma.InputJsonValue;
       if (row.type === 'data_layer') {
         restored = carryLayerSyncVersionsFrom(locked.data, restored);
@@ -143,9 +150,14 @@ export class DataSnapshotService {
       }
       await tx.item.update({
         where: { id: snap.itemId },
-        data: { data: restored, bbox: itemBbox(row.type, restored) ?? [] },
+        data: { data: restored, ...bboxWriteForData(row.type, restored) },
       });
     });
+    // Same as a data save: a layer's or map's extent is not in the
+    // blob, so recompute it rather than blanking it.
+    if (revertedType !== null && hasDerivedExtent(revertedType)) {
+      this.bboxRefresh?.refreshItemBbox(snap.itemId);
+    }
     return { itemId: snap.itemId, revertedFrom: snap.id };
   }
 

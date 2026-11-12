@@ -2771,6 +2771,7 @@ export const de: Partial<CatalogShape> = {
       'Jeder im Internet kann die {count} ausgewählten Elemente ohne Anmeldung sehen. Verwenden Sie dies für teilbare Karten- / Viewer-Links. Von der Auswahl referenzierte Elemente (Layer, Grundkarten usw.) müssen ebenfalls öffentlich sein; Sie werden nach Abschluss zur Kaskadierung aufgefordert.',
     geographicScope: 'Geografischer Geltungsbereich',
     noBoundaryItems: 'Noch keine Grenzelemente in dieser Organisation',
+    keepScope: 'Aktuellen Geltungsbereich jedes Elements beibehalten',
     noScope: 'Kein Geltungsbereich (uneingeschränkt)',
     geoScopeHint:
       'Wenn gesetzt, sehen Betrachter, die über {via} auf diese Elemente zugreifen, nur Features innerhalb der Grenze. Wird auf API-Ebene durchgesetzt.',

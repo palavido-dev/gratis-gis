@@ -239,10 +239,10 @@ export class HousekeepingService {
    *     picks pointed at two of them.
    *   - item_share.geoBoundaryId. Deliberately not a foreign key (the
    *     boundary and its item share one table, so Postgres cannot
-   *     enforce a partial FK on type), and SharingService resolves a
-   *     missing target to "no clip". A share that was scoped to one
-   *     county silently becomes org-wide. That is the one entry here
-   *     with a security consequence, so it carries a note.
+   *     enforce a partial FK on type). SharingService treats a missing
+   *     target as closed, so a share that was scoped to one county
+   *     stops granting any rows. It is listed so the owner can fix
+   *     the share instead of wondering why the grantees see nothing.
    *
    * Deliberately NOT covered: analysis_job and import_job provenance
    * columns (a finished job pointing at a deleted output is ordinary
@@ -294,7 +294,7 @@ export class HousekeepingService {
         title: entry.title,
         scope: 'settings',
         href: `/items/${itemId}`,
-        note: 'A share whose boundary is gone falls back to no clip, so the grant is wider than it was set up to be.',
+        note: 'A share whose boundary is gone grants no rows until it is pointed at a live boundary.',
         refs: entry.refs,
       });
     }
@@ -1508,7 +1508,19 @@ export class HousekeepingService {
       if (it.type === 'data_layer') {
         const layers = readV3Layers(it.data);
         if (layers !== null) {
-          next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          try {
+            next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          } catch (err) {
+            this.log.warn(
+              `recompute-extents: extent query failed for ${it.id}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+            // The extent query failed. Keep the stored bbox rather
+            // than blanking it; maps that reference this layer read
+            // the stored value from the row instead.
+            continue;
+          }
           // Same maintenance pass keeps per-layer featureCount
           // honest; this is also the backfill for items created
           // before the field was maintained (the QGIS plugin's

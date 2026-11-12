@@ -2755,6 +2755,7 @@ export const es: Partial<CatalogShape> = {
       'Cualquiera en internet podrá ver los {count} elementos seleccionados sin iniciar sesión. Úsalo para enlaces compartibles de mapas / visores. Los elementos referenciados por la selección (capas, mapas base, etc.) también deben ser públicos; se te pedirá aplicarlo en cascada al terminar.',
     geographicScope: 'Ámbito geográfico',
     noBoundaryItems: 'Aún no hay elementos de límite en esta organización',
+    keepScope: 'Mantener el ámbito actual de cada elemento',
     noScope: 'Sin ámbito (sin restricciones)',
     geoScopeHint:
       'Cuando está definido, quienes acceden a estos elementos a través de {via} solo ven las entidades dentro del límite. Se aplica en la capa de la API.',

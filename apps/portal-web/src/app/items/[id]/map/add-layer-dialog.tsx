@@ -48,6 +48,7 @@ import {
   type ShownApiError,
 } from '@/lib/api-error';
 import { clientUuid } from '@/lib/uuid';
+import { dataLayerSublayers } from '@/lib/data-layer-sublayers';
 
 interface Props {
   open: boolean;
@@ -745,19 +746,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     if (item.type !== 'arcgis_service') {
       // v3 data_layers carry one or more sublayers (each mapped to
       // its own PostGIS table). The lite-mode list response attaches
-      // `_layers: [{id, label, geometryType}]` so we can fan out
-      // without a hydrate round-trip. v1/v2 single-table data_layers
-      // (and any other non-arcgis kind) have no _layers and continue
-      // to add as a single MapLayer pointing at the legacy item-level
-      // /geojson endpoint.
-      const lite = item as Item & {
-        _layers?: Array<{
-          id: string;
-          label: string;
-          geometryType: string | null;
-        }>;
-      };
-      const sublayers = lite._layers ?? [];
+      // `_layers: [{id, label, geometryType}]`; folder contents return
+      // the full row instead, so the helper reads `data.layers` then.
+      // Either way we fan out without a hydrate round-trip. v1/v2
+      // single-table data_layers (and any other non-arcgis kind) have
+      // no sublayers and continue to add as a single MapLayer pointing
+      // at the legacy item-level /geojson endpoint.
+      const sublayers =
+        item.type === 'data_layer' ? dataLayerSublayers(item) : [];
       if (item.type === 'data_layer' && sublayers.length > 1) {
         // Same UX as arcgis_service: defer to the picker so the user
         // can opt out of sublayers and pick group vs flat. The id

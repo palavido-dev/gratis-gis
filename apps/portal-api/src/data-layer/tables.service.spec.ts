@@ -132,3 +132,27 @@ describe('DataLayerTablesService scope wipe', () => {
     ).toBeUndefined();
   });
 });
+
+// A failed extent query used to read as "no features", and callers
+// then wrote `bbox = []` over a good stored extent.
+describe('DataLayerTablesService.aggregateBbox', () => {
+  const layers = [{ id: 'L1', geometryType: 'Point' }] as never;
+
+  it('throws when the extent query fails', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockRejectedValue(new Error('timeout')),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(svc.aggregateBbox('item-1', layers)).rejects.toThrow('timeout');
+  });
+
+  it('returns null for a layer that has no features', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValue([{ minx: null, miny: null, maxx: null, maxy: null }]),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(svc.aggregateBbox('item-1', layers)).resolves.toBeNull();
+  });
+});

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { itemBbox } from './item-bbox.js';
+import { bboxWriteForData, itemBbox } from './item-bbox.js';
 
 /**
  * The cached-extent rules, per item type.
@@ -46,5 +46,31 @@ describe('itemBbox per-type sources', () => {
   it('types without a spatial footprint still answer null', () => {
     expect(itemBbox('folder', { bbox: BBOX })).toBeNull();
     expect(itemBbox('form', { bbox: BBOX })).toBeNull();
+  });
+});
+
+// A v3 data layer or a map carries no extent in its blob, so writing
+// itemBbox's null as [] on every save blanked a good stored extent.
+describe('bboxWriteForData', () => {
+  it('leaves the column alone for a v3 data layer blob', () => {
+    expect(
+      bboxWriteForData('data_layer', { version: 3, layers: [{ id: 'L1' }] }),
+    ).toEqual({});
+  });
+
+  it('leaves the column alone for a map blob', () => {
+    expect(
+      bboxWriteForData('map', { layers: [{ kind: 'data-layer', itemId: 'x' }] }),
+    ).toEqual({});
+  });
+
+  it('still writes an extent the blob does carry', () => {
+    expect(bboxWriteForData('data_layer', { bbox: [0, 0, 1, 1] })).toEqual({
+      bbox: [0, 0, 1, 1],
+    });
+  });
+
+  it('clears the column for a type whose extent lives in the blob', () => {
+    expect(bboxWriteForData('geo_boundary', {})).toEqual({ bbox: [] });
   });
 });

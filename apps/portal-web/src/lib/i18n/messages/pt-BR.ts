@@ -2752,6 +2752,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Qualquer pessoa na internet poderá ver os {count} itens selecionados sem fazer login. Use isto para links compartilháveis de mapas / visualizadores. Os itens referenciados pela seleção (camadas, mapas base, etc.) também precisam ser públicos; você será solicitado a aplicar em cascata ao concluir.',
     geographicScope: 'Escopo geográfico',
     noBoundaryItems: 'Ainda não há itens de limite nesta organização',
+    keepScope: 'Manter o escopo atual de cada item',
     noScope: 'Sem escopo (irrestrito)',
     geoScopeHint:
       'Quando definido, quem acessa estes itens via {via} vê apenas as feições dentro do limite. Aplicado na camada da API.',
