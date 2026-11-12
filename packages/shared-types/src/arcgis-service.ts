@@ -39,10 +39,10 @@ export interface ArcgisServiceLayerSnapshot {
  * optional per-layer overrides the author can set without round-
  * tripping upstream (display-label rename, default-hidden flag).
  *
- * selectedLayerIds is the canonical ordered list of layers this item
- * owns. Consumers (web-map add-layer dialog, dependency scanners,
- * schema inspectors) should respect this list rather than the raw
- * probed `layers` array.
+ * selectedLayerIds is the set of layers this item owns. Consumers
+ * (web-map add-layer dialog, dependency scanners, schema inspectors)
+ * should respect it rather than the raw probed `layers` array; the
+ * order shown is the probed order.
  *
  * Items created before this shape landed have neither field; callers
  * should treat "no selectedLayerIds" as "all probed layers selected"

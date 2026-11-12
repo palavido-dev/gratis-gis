@@ -221,7 +221,7 @@ export interface DataLayerDataV2 {
 export type LayerGeometryType = 'point' | 'line' | 'polygon' | null;
 
 export interface DataLayerSublayer {
-  /** Stable within the item. Used in table name + API paths. */
+  /** Stable within the item. Used in API paths and observation scopes. */
   id: string;
   /** Display name: what appears in the legend and layer list. */
   label: string;

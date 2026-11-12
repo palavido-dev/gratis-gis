@@ -305,7 +305,8 @@ export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
  * doesn't break older saved apps.
  */
 export function resolveAppTheme(id: AppThemePresetId | undefined): AppThemeTokens {
-  if (id && APP_THEMES[id]) return APP_THEMES[id];
+  // Own keys only: `constructor` is inherited from Object.prototype.
+  if (id && Object.prototype.hasOwnProperty.call(APP_THEMES, id)) return APP_THEMES[id];
   return APP_THEMES.default;
 }
 
@@ -352,7 +353,10 @@ export function applyAppThemeTokens(
   tokens: AppThemeTokens['tokens'] | Record<string, unknown>,
 ): void {
   for (const [key, value] of Object.entries(tokens)) {
-    if (typeof value === 'string') {
+    // Custom properties only. Theme items are free-form JSON, and a
+    // key such as `display` or `background-image` would otherwise set
+    // a real CSS property on every viewer's app root.
+    if (typeof value === 'string' && key.startsWith('--app-')) {
       el.style.setProperty(key, value);
     }
   }
