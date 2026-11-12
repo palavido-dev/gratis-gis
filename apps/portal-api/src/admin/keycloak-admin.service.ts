@@ -833,6 +833,12 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
    * representation back. Users, credentials, and other clients are
    * left as they are. A missing client is ignored so a realm that
    * does not ship the plugin still boots.
+   *
+   * The service account normally has no manage-clients role, and it
+   * should not get one only for this: deploy.sh and restore-golden.sh
+   * make the same change with the master admin. A 403 therefore means
+   * "not this process's job" and is skipped with one log line, not
+   * reported as a failure on every boot.
    */
   async ensureQgisRedirects(): Promise<void> {
     if (!this.isConfigured()) return;
@@ -845,6 +851,15 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       this.adminUrl(`/clients?clientId=qgis-plugin`),
       { headers },
     );
+    const notAllowed = (status: number): boolean => {
+      if (status !== 403) return false;
+      this.logger.log(
+        'Not checking the qgis-plugin redirect URIs: the admin service account ' +
+          'cannot manage clients. deploy.sh reconciles them with the master admin.',
+      );
+      return true;
+    };
+    if (notAllowed(listRes.status)) return;
     if (!listRes.ok) {
       throw new Error(`qgis-plugin lookup failed: ${listRes.status}`);
     }
@@ -852,6 +867,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     if (clients.length === 0) return;
     const id = clients[0]!.id;
     const getRes = await fetch(this.adminUrl(`/clients/${id}`), { headers });
+    if (notAllowed(getRes.status)) return;
     if (!getRes.ok) {
       throw new Error(`qgis-plugin read failed: ${getRes.status}`);
     }
@@ -865,6 +881,10 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       headers,
       body: JSON.stringify(client),
     });
+    if (notAllowed(putRes.status)) {
+      await putRes.body?.cancel();
+      return;
+    }
     if (!putRes.ok) {
       const text = await putRes.text();
       throw new Error(`qgis-plugin update failed: ${putRes.status} :: ${text}`);

@@ -251,3 +251,66 @@ describe('KeycloakAdminService.listServiceAccountUsernames', () => {
     );
   });
 });
+
+describe('KeycloakAdminService.ensureQgisRedirects', () => {
+  const realFetch = globalThis.fetch;
+  let svc: KeycloakAdminService;
+  let calls: Array<{ url: string; method: string }>;
+
+  beforeEach(() => {
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = 'portal-api-admin';
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = 'secret';
+    svc = new KeycloakAdminService(
+      {} as SystemSettingsService,
+      {} as LeaderElectionService,
+    );
+    (svc as unknown as { tokenCache: unknown }).tokenCache = {
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    };
+    calls = [];
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function serve(putStatus: number, listStatus = 200): void {
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ url, method });
+      if (url.includes('/clients?clientId=qgis-plugin')) {
+        return new Response(JSON.stringify([{ id: 'q1' }]), { status: listStatus });
+      }
+      if (method === 'PUT') {
+        return new Response(putStatus === 204 ? null : '{}', { status: putStatus });
+      }
+      return new Response(
+        JSON.stringify({ redirectUris: ['http://127.0.0.1*'] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+  }
+
+  it('writes the tightened list when the account may manage clients', async () => {
+    serve(204);
+    await svc.ensureQgisRedirects();
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1);
+  });
+
+  it('skips without throwing when Keycloak answers 403 to the update', async () => {
+    serve(403);
+    await expect(svc.ensureQgisRedirects()).resolves.toBeUndefined();
+  });
+
+  it('skips without throwing when the account cannot even list clients', async () => {
+    serve(204, 403);
+    await expect(svc.ensureQgisRedirects()).resolves.toBeUndefined();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('still reports other failures', async () => {
+    serve(500);
+    await expect(svc.ensureQgisRedirects()).rejects.toThrow(/500/);
+  });
+});

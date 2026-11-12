@@ -346,6 +346,42 @@ json.dump(client, sys.stdout)
     rm -f /tmp/gg-field-app-update.json
   fi
 
+  # --- qgis-plugin: loopback redirect needs a port separator ---
+  # Realms imported before the fix allow `http://127.0.0.1*`, which
+  # also matches a host such as 127.0.0.1.example. portal-api used to
+  # tighten this at startup, but its service account has no
+  # manage-clients role (and should not get one just for this), so on
+  # the demo it logged a 403 on every boot. The master admin does it
+  # here instead. Same rule as apps/portal-api/src/admin/qgis-redirects.ts:
+  # drop the open loopback patterns, keep any other custom URI, add
+  # the custom scheme and http://127.0.0.1:*. Idempotent.
+  GG_QGIS_CID="$(kc_client_id qgis-plugin)"
+  if [[ -n "$GG_QGIS_CID" ]]; then
+    if KC get "clients/$GG_QGIS_CID" -r gratis-gis --fields redirectUris 2>/dev/null \
+        | python3 -c '
+import json, sys
+open_loopback = {"http://127.0.0.1*", "https://127.0.0.1*", "http://localhost*", "https://localhost*"}
+cur = json.load(sys.stdin).get("redirectUris") or []
+nxt = [u for u in cur if u not in open_loopback]
+for u in ("gratisgis-qgis://auth-callback", "http://127.0.0.1:*"):
+    if u not in nxt:
+        nxt.append(u)
+if nxt == cur:
+    sys.exit(3)
+json.dump({"redirectUris": nxt}, sys.stdout)
+' > /tmp/gg-qgis-update.json; then
+      docker cp /tmp/gg-qgis-update.json "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-update.json"
+      if KC update "clients/$GG_QGIS_CID" -r gratis-gis -f /tmp/gg-qgis-update.json; then
+        echo "qgis-plugin redirect list reconciled."
+      else
+        echo "WARN: qgis-plugin client update failed; check kcadm output above." >&2
+      fi
+    else
+      echo "qgis-plugin redirect list already tight (or could not be read)."
+    fi
+    rm -f /tmp/gg-qgis-update.json
+  fi
+
   # --- realm: offline session idle timeout ---
   # 30 days is Keycloak's default; the Android field client's sign-in
   # lifetime is exactly this value, so it is pinned rather than
