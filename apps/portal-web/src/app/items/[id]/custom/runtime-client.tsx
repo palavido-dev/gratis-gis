@@ -2363,7 +2363,7 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
       const safe =
         layer.title
           .replace(/[^A-Za-z0-9._-]+/g, '_')
-          .replace(/^_+|_+$/g, '')
+          .replace(/^_+|(?<!_)_+$/g, '')
           .slice(0, 80) || 'layer';
       // GeoJSON.Feature['id'] is string | number | undefined; the
       // exporter's ExportFeature uses an optional `id?: string` with
@@ -4217,7 +4217,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
 
 function sanitizeExportFilename(raw: string): string {
   const s = raw.trim().replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
-  return (s.slice(0, 60) || 'export').replace(/^_+|_+$/g, '');
+  return (s.slice(0, 60) || 'export').replace(/^_+|(?<!_)_+$/g, '');
 }
 
 // ---- Splash Screen widget (#111) ------------------------------------------

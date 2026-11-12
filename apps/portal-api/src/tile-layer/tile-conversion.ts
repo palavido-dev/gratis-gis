@@ -1076,7 +1076,7 @@ function toSafeNumber(value: bigint, what: string): number {
 function sanitizeFileName(name: string): string {
   const fileOnly = basename(name);
   let base = fileOnly.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
-  base = base.replace(/^\.+/, '_').replace(/\.+$/, '_');
+  base = base.replace(/^\.+/, '_').replace(/(?<!\.)\.+$/, '_');
   return base.length > 0 && base !== '_' ? base : 'upload.bin';
 }
 

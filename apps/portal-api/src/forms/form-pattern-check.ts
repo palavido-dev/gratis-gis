@@ -2,6 +2,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { RegExpValidator } from '@eslint-community/regexpp';
 
+import { compileLinearPattern } from './linear-pattern.js';
+
 /** Longest format pattern a form may carry. */
 export const MAX_FORM_PATTERN_LENGTH = 2_000;
 
@@ -30,7 +32,7 @@ export function assertFormPatternsCompile(data: unknown): void {
   walk(questions, bad);
   if (bad.length > 0) {
     throw new BadRequestException(
-      `These questions have a format pattern that is not a valid regular expression: ${bad.join(', ')}.`,
+      `These questions have a format pattern that is not a valid regular expression, or uses lookahead, lookbehind or backreferences, which are not supported: ${bad.join(', ')}.`,
     );
   }
 }
@@ -47,7 +49,14 @@ function walk(questions: unknown[], bad: string[]): void {
     };
     if ((q.type === 'text' || q.type === 'regex') && typeof q.pattern === 'string' && q.pattern) {
       const flags = q.type === 'regex' && typeof q.flags === 'string' ? q.flags : '';
-      if (q.pattern.length > MAX_FORM_PATTERN_LENGTH || !patternParses(q.pattern, flags)) {
+      if (
+        q.pattern.length > MAX_FORM_PATTERN_LENGTH ||
+        !patternParses(q.pattern, flags) ||
+        // The server checks answers with a linear-time engine, which
+        // has no lookaround or backreferences. A pattern it cannot run
+        // would silently stop checking anything.
+        compileLinearPattern(q.pattern, flags) === null
+      ) {
         bad.push(typeof q.id === 'string' ? q.id : '(unnamed)');
       }
     }

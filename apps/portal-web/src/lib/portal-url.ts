@@ -19,7 +19,7 @@
 export function getPortalUrl(): string {
   const raw = process.env.NEXT_PUBLIC_PORTAL_URL?.trim();
   if (raw && raw.length > 0) {
-    return raw.replace(/\/+$/, '');
+    return raw.replace(/(?<!\/)\/+$/, '');
   }
   return 'https://demo.gratisgis.org';
 }

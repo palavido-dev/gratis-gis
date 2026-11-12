@@ -218,7 +218,7 @@ export class AdminBasemapProbeController {
   private async probeArcgisMapServer(
     parsed: URL,
   ): Promise<BasemapProbeResult> {
-    const base = parsed.toString().replace(/\/+$/, '');
+    const base = parsed.toString().replace(/(?<!\/)\/+$/, '');
     const metaUrl = `${base}?f=json`;
     const res = await fetchWithTimeout(metaUrl, 10_000);
     if (!res.ok) {

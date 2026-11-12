@@ -788,7 +788,7 @@ function sanitizeFieldName(name: string): string {
   const cleaned = name
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_+|(?<!_)_+$/g, '')
     .replace(/^(\d)/, 'f_$1');
   return cleaned.length > 0 ? cleaned : 'field';
 }

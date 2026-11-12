@@ -387,5 +387,5 @@ const LIVE_STATES = ['running', 'cancel_requested'] as const;
 function executorUrl(): string {
   return (
     process.env.SCRIPT_EXECUTOR_URL ?? 'http://script-executor:4100'
-  ).replace(/\/+$/, '');
+  ).replace(/(?<!\/)\/+$/, '');
 }

@@ -289,7 +289,7 @@ function renderBody(
 function portalBaseUrl(): string {
   const raw = process.env.PORTAL_BASE_URL?.trim();
   return (raw && raw.length > 0 ? raw : 'http://localhost:3000').replace(
-    /\/+$/,
+    /(?<!\/)\/+$/,
     '',
   );
 }

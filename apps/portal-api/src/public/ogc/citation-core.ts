@@ -44,7 +44,7 @@ export function citationParts(
     author,
     year,
     issued: row.createdAt.toISOString().slice(0, 10),
-    url: `${base.replace(/\/+$/, '')}/items/${row.id}`,
+    url: `${base.replace(/(?<!\/)\/+$/, '')}/items/${row.id}`,
     abstract: (row.description && row.description.trim()) || row.title,
     license: row.license,
     keywords: row.tags ?? [],

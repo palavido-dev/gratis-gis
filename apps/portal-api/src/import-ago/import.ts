@@ -848,7 +848,7 @@ export function normalizeAgoServiceUrl(raw: string): string {
   // Strip a trailing sublayer-id segment (.../FeatureServer/0).
   s = s.replace(/\/(\d+)\/*$/, '');
   // Strip trailing slashes.
-  s = s.replace(/\/+$/, '');
+  s = s.replace(/(?<!\/)\/+$/, '');
   return s.toLowerCase();
 }
 
@@ -908,7 +908,7 @@ function filenameFromContentDisposition(
  */
 function sanitizeForFilename(raw: string): string {
   let s = raw.replace(/[^\w.-]+/g, '_');
-  s = s.replace(/^\.+/, '_').replace(/\.+$/, '_');
+  s = s.replace(/^\.+/, '_').replace(/(?<!\.)\.+$/, '_');
   return s.length > 0 && s !== '_' ? s.slice(0, 80) : 'file';
 }
 

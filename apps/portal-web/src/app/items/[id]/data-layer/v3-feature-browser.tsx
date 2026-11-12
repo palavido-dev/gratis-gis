@@ -1022,7 +1022,7 @@ function BundleExportModal({
  *  limits with a 200-char layer name. */
 function sanitizeFilename(raw: string): string {
   const s = raw.trim().replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
-  return (s.slice(0, 60) || 'layer').replace(/^_+|_+$/g, '');
+  return (s.slice(0, 60) || 'layer').replace(/^_+|(?<!_)_+$/g, '');
 }
 
 // ---------------------------------------------------------------------------
