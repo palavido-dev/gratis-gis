@@ -60,6 +60,7 @@ import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
+  countUnsyncedEdits,
   enqueueEdit,
   getCachedFeature,
   getDeployment,
@@ -1130,10 +1131,7 @@ export function FieldRuntime({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  // Auto-sync when isOnline flips from false -> true. Captured via a
-  // ref so we don't fire on the initial mount when isOnline starts
-  // true and there's nothing queued (the queue read is cheap but
-  // pointless).
+  // Auto-sync when isOnline flips from false -> true.
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
@@ -1141,6 +1139,25 @@ export function FieldRuntime({
     }
     wasOnlineRef.current = isOnline;
   }, [isOnline, runSync]);
+
+  // And once when the runtime opens with signal and edits are already
+  // waiting: queued in an earlier session, then the PWA was closed or
+  // evicted. The flip above never fires for a boot that is already
+  // online, and on iOS and Firefox there is no Background Sync to
+  // cover it. Gated on a cheap count so an empty queue does not
+  // trigger a sync and a refresh of every layer.
+  const bootSyncDoneRef = useRef(false);
+  useEffect(() => {
+    if (bootSyncDoneRef.current || !isOnline || !currentUserId) return;
+    bootSyncDoneRef.current = true;
+    void countUnsyncedEdits(currentUserId)
+      .then((n) => {
+        if (n > 0 && mountedRef.current) void runSync('auto');
+      })
+      .catch(() => {
+        /* no IndexedDB: nothing could have been queued */
+      });
+  }, [isOnline, currentUserId, runSync]);
 
   // Slice 6 (persistence floor; see docs/field-offline-areas.md):
   // surface whether the browser will keep our IndexedDB across
@@ -2908,8 +2925,14 @@ export function FieldRuntime({
           }}
           onSubmitted={() => {
             const submittedLayer = formModal.layer;
+            const submittedId = formModal.featureId;
             clearPendingMarker();
-            setFormModal(null);
+            // Close only the form that was submitted. A slow save can
+            // finish after the collector has moved on to another form,
+            // and that one must stay open.
+            setFormModal((cur) =>
+              cur && cur.featureId === submittedId ? null : cur,
+            );
             // Refresh the MapLayer(s) backed by the data_layer that
             // just received a write so the new / updated feature
             // appears immediately. setData(url) on the existing
@@ -4191,11 +4214,16 @@ function FormModal({
   // whole form on the first keystroke would be a real cost on a
   // low-end handset.
   const dirtyRef = useRef(false);
+  // True while handleSubmit is saving; see requestCancel.
+  const submittingRef = useRef(false);
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
   }, []);
 
   const requestCancel = useCallback(() => {
+    // While a save is in flight, Cancel cannot stop it: the request
+    // still lands. Ignore it rather than pretend the entry was dropped.
+    if (submittingRef.current) return;
     if (!dirtyRef.current) {
       onClose();
       return;
@@ -4289,6 +4317,16 @@ function FormModal({
   }, [modal]);
 
   async function handleSubmit(response: FormResponse) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await submitResponse(response);
+    } finally {
+      submittingRef.current = false;
+    }
+  }
+
+  async function submitResponse(response: FormResponse) {
     setError(null);
     // GPS fix metadata stamping (#225 item 3). For add-mode features
     // only -- on edit, the existing fix was the one that mattered.
@@ -4677,7 +4715,10 @@ function FormModal({
                       : null;
                   if (!coords) return t('fieldRuntime.notSet');
                   const [lon, lat] = coords;
-                  return `${lat.toFixed(6)}°N  ${lon.toFixed(6)}°W`;
+                  // Hemisphere from the sign, on the absolute value; a
+                  // fixed N and W printed Berlin as west and California
+                  // as a double negative.
+                  return `${Math.abs(lat).toFixed(6)}°${lat < 0 ? 'S' : 'N'}  ${Math.abs(lon).toFixed(6)}°${lon < 0 ? 'W' : 'E'}`;
                 })()}
               </p>
             </div>
