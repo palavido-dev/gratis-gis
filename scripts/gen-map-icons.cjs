@@ -305,13 +305,16 @@ const CATEGORY_ORDER = [
 ];
 
 /** Read a lucide-react icon source file, following alias
- *  re-exports of the form `export { default } from './foo.js'`
- *  (lucide deprecates + re-aliases icon names frequently). */
+ *  re-exports of the form `export { default } from './foo.mjs'`
+ *  (lucide deprecates + re-aliases icon names frequently).
+ *  lucide-react 1.x ships `.mjs`; older releases shipped `.js`. */
 function readIconSource(name) {
-  const p = path.join(ICON_DIR, `${name}.js`);
-  if (!fs.existsSync(p)) return null;
+  const p = ['mjs', 'js']
+    .map((ext) => path.join(ICON_DIR, `${name}.${ext}`))
+    .find((f) => fs.existsSync(f));
+  if (!p) return null;
   const src = fs.readFileSync(p, 'utf8');
-  const alias = src.match(/export\s*\{\s*default\s*\}\s*from\s*['"]\.\/(.+?)\.js['"]/);
+  const alias = src.match(/export\s*\{\s*default\s*\}\s*from\s*['"]\.\/(.+?)\.m?js['"]/);
   if (alias) return readIconSource(alias[1]);
   return src;
 }
@@ -326,6 +329,14 @@ function readIconSource(name) {
  *
  *  We grab everything inside the createLucideIcon array. */
 function extractIconNode(src) {
+  // lucide-react 1.x: `const __iconData = { name, size, node: [...] };`
+  // Older: `createLucideIcon("Name", [...]);`
+  const data = src.match(/__iconData\s*=\s*(\{[\s\S]*?\n\});/);
+  if (data) {
+    // eslint-disable-next-line no-eval
+    const obj = eval(`(${data[1]})`);
+    return Array.isArray(obj && obj.node) ? obj.node : null;
+  }
   const m = src.match(/createLucideIcon\([^,]+,\s*(\[[\s\S]*?\])\s*\)\s*;/);
   if (!m) return null;
   // The array uses bare object keys; JSON.parse can't handle that
@@ -483,6 +494,12 @@ const outFile = path.join(
   'map',
   'map-icons.ts',
 );
+if (missing > 0) {
+  // Writing a partial registry would silently drop map symbols and
+  // tool icons. Leave the committed file alone and fail loudly.
+  console.error(`${missing} icon(s) missing; ${outFile} was not written.`);
+  process.exit(1);
+}
 fs.writeFileSync(outFile, out.join('\n'));
 console.log(
   `wrote ${outFile} (${
