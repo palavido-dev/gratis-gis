@@ -12,8 +12,11 @@
 //   https://developers.arcgis.com/web-map-specification/
 // is large (sliders, time-aware layers, raster functions, popup
 // expressions). v1 implements the subset that round-trips cleanly:
-//   - operationalLayers (FeatureLayer pointing at a FeatureService URL)
-//   - baseMap (one or more BaseMapLayers with tileUrl)
+//   - operationalLayers (FeatureLayer pointing at a FeatureService URL
+//     on import; on export they point at this portal's GeoJSON and
+//     vector tile routes, which only another GratisGIS portal reads)
+//   - baseMap (one or more BaseMapLayers with tileUrl; exported with a
+//     spec templateUrl as well, so Esri clients can show the basemap)
 //   - initialState.viewpoint (center + scale)
 //   - version + authoringApp + authoringAppVersion
 //
@@ -194,6 +197,9 @@ export function lensesToWebMapJson(
           id: ctx.basemap.id,
           title: ctx.basemap.title,
           url: ctx.basemap.tileUrl,
+          // The WebMap spec reads a WebTiledLayer from templateUrl with
+          // Esri placeholders; `url` stays for GratisGIS round trips.
+          templateUrl: toEsriTemplate(ctx.basemap.tileUrl),
           layerType: 'WebTiledLayer',
           ...(ctx.basemap.attribution !== undefined && {
             copyright: ctx.basemap.attribution,
@@ -357,7 +363,31 @@ export function webMapJsonToLenses(json: EsriWebMap): {
       ? lensViewFromViewpoint(json.initialState.viewpoint)
       : undefined;
   const lenses: Array<Omit<Lens, 'id'>> = [];
-  for (const layer of json.operationalLayers ?? []) {
+  const layers: unknown[] = Array.isArray(json.operationalLayers) ? json.operationalLayers : [];
+  if (json.operationalLayers !== undefined && !Array.isArray(json.operationalLayers)) {
+    warnings.push('operationalLayers is not a list; no layers were imported.');
+  }
+  for (const raw of layers) {
+    // The document is untrusted JSON. The controller relies on this
+    // loop for structure, so a non-string url or title is refused
+    // here instead of reaching code that calls string methods on it.
+    if (!raw || typeof raw !== 'object') {
+      warnings.push('A layer entry is not an object; skipped.');
+      continue;
+    }
+    const layer = raw as EsriOperationalLayer;
+    if (layer.url !== undefined && (typeof layer.url !== 'string' || layer.url.trim() === '')) {
+      warnings.push('A layer has a url that is not a string; skipped.');
+      continue;
+    }
+    if (layer.title !== undefined && typeof layer.title !== 'string') {
+      delete (layer as { title?: unknown }).title;
+    }
+    const def = layer.layerDefinition?.definitionExpression;
+    if (def !== undefined && def !== null && typeof def !== 'string') {
+      warnings.push(`Layer "${layer.title ?? layer.id}" has a filter that is not text; filter dropped.`);
+      delete (layer.layerDefinition as { definitionExpression?: unknown }).definitionExpression;
+    }
     if (
       layer.layerType !== 'ArcGISFeatureLayer' &&
       layer.layerType !== 'VectorTileLayer'
@@ -445,10 +475,10 @@ function viewportFromLensView(view: LensView): EsriInitialState {
       },
     };
   }
-  // Fall back to a center-and-scale viewpoint. AGO maps a MapLibre
-  // zoom z to scale 591657550.5 / 2^z; not exact but the right
-  // order of magnitude for a starting camera.
-  const scale = 591657550.5 / Math.pow(2, view.zoom);
+  // Fall back to a center-and-scale viewpoint. 591657550.5 / 2^L is
+  // the scale of Esri level L on 256 px tiles; MapLibre zoom z uses
+  // 512 px tiles, so it matches level z + 1.
+  const scale = 591657550.5 / Math.pow(2, view.zoom + 1);
   return {
     viewpoint: {
       targetGeometry: bboxToEsriEnvelope([
@@ -461,6 +491,16 @@ function viewportFromLensView(view: LensView): EsriInitialState {
       ...(view.bearing !== undefined && { rotation: view.bearing }),
     },
   };
+}
+
+/** XYZ template to the WebMap spec's WebTiledLayer placeholders. */
+export function toEsriTemplate(url: string): string {
+  return url.replace(/\{z\}/g, '{level}').replace(/\{x\}/g, '{col}').replace(/\{y\}/g, '{row}');
+}
+
+/** The reverse of toEsriTemplate. */
+export function fromEsriTemplate(url: string): string {
+  return url.replace(/\{level\}/g, '{z}').replace(/\{col\}/g, '{x}').replace(/\{row\}/g, '{y}');
 }
 
 function lensViewFromViewpoint(
@@ -488,10 +528,16 @@ function lensViewFromViewpoint(
     (xmin + xmax) / 2,
     (ymin + ymax) / 2,
   ];
+  // Scale to MapLibre zoom (one less than the Esri level, see the
+  // export side). A viewpoint with only an extent used to open at
+  // zoom 0, the whole world; fit the extent's width instead.
+  const width = Math.abs(xmax - xmin);
   const zoom =
     typeof vp.scale === 'number' && vp.scale > 0
-      ? Math.log2(591657550.5 / vp.scale)
-      : 0;
+      ? Math.log2(591657550.5 / vp.scale) - 1
+      : width > 0
+        ? Math.min(22, Math.max(0, Math.log2(360 / width)))
+        : 0;
   // Defensive clamp: if some unusual spatial reference slips
   // through (a state plane projection, an Alaska polar
   // projection) we still want to deliver a map that opens.

@@ -382,6 +382,13 @@ bring_app_back_up() {
 }
 trap bring_app_back_up EXIT
 
+# The helper image for the volume steps is pulled now, while nothing
+# is stopped. The nightly image prune removes it (no container uses
+# it), and a failed pull after the databases were replaced left the
+# demo half restored.
+docker image inspect alpine:3.20 >/dev/null 2>&1 || docker pull -q alpine:3.20 >/dev/null \
+  || { echo "FATAL: could not pull alpine:3.20; nothing was stopped." >&2; exit 1; }
+
 echo "=== Stopping app services ==="
 echo "    ${APP_SERVICES[*]}"
 dc stop "${APP_SERVICES[@]}"
