@@ -4,7 +4,9 @@
 import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useT } from '@/lib/i18n/locale-context';
 import {
+  allWidgetsDeep,
   containerFlowsInRow,
+  defaultFollowMap,
   findWidgetWithParent,
   insertionIndex,
   isFlowContainer,
@@ -97,6 +99,7 @@ import {
   newSourceId,
 } from '@gratis-gis/shared-types';
 import type { AppThemePresetId, AssetRef } from '@gratis-gis/shared-types';
+import { resolveAssetRefSync } from '@gratis-gis/shared-types';
 import { AssetPicker } from '@/components/asset-picker';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas } from '../map/map-canvas';
@@ -307,7 +310,8 @@ export function CustomAppDetail({
   const widgetMapIdsKey = useMemo(() => {
     const pairs: string[] = [];
     for (const p of app.pages) {
-      for (const w of p.widgets) {
+      // Deep: a Map inside a container or tab has its own override too.
+      for (const w of allWidgetsDeep(p.widgets)) {
         if (w.kind === 'map' && w.config.kind === 'map' && w.config.mapId) {
           pairs.push(`${w.id}:${w.config.mapId}`);
         }
@@ -324,7 +328,7 @@ export function CustomAppDetail({
         const uniqueMapIds = new Set<string>();
         if (app.mapId) uniqueMapIds.add(app.mapId);
         for (const p of app.pages) {
-          for (const w of p.widgets) {
+          for (const w of allWidgetsDeep(p.widgets)) {
             if (
               w.kind === 'map' &&
               w.config.kind === 'map' &&
@@ -371,7 +375,7 @@ export function CustomAppDetail({
         // Per-widget override map.
         const widgetMap: Record<string, MapData> = {};
         for (const p of app.pages) {
-          for (const w of p.widgets) {
+          for (const w of allWidgetsDeep(p.widgets)) {
             if (
               w.kind === 'map' &&
               w.config.kind === 'map' &&
@@ -404,9 +408,16 @@ export function CustomAppDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.mapId, widgetMapIdsKey]);
 
+  // The app object most recently rendered.  Save compares it with
+  // the one it sent: an edit made while the request was in flight
+  // replaces `app`, and that edit has not been saved.
+  const latestAppRef = useRef(app);
+  latestAppRef.current = app;
+
   const onSave = useCallback(async () => {
     setSaving(true);
     setError(null);
+    const sent = app;
     try {
       const data: WebAppData = {
         version: 1,
@@ -422,7 +433,10 @@ export function CustomAppDetail({
         const txt = await res.text().catch(() => '');
         throw new Error(`save failed: ${res.status} ${txt}`);
       }
-      setDirty(false);
+      // Only what was sent is saved.  Leave the app dirty when it
+      // changed during the request, so Save stays enabled for those
+      // later edits.
+      if (latestAppRef.current === sent) setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -514,9 +528,7 @@ export function CustomAppDetail({
           // dashboard means.
           const mapWidget =
             cur.blueprint === 'dashboard'
-              ? cur.pages
-                  .flatMap((pg) => pg.widgets ?? [])
-                  .find((w) => w.kind === 'map')
+              ? defaultFollowMap(cur.pages, activePageIdx)
               : undefined;
           const added: AppDataSource[] = fresh.map((c) => ({
             id: newSourceId(),
@@ -536,7 +548,7 @@ export function CustomAppDetail({
         /* The Layers panel's own add control remains; a failed
            discovery just means the author adds by hand as before. */
       });
-  }, []);
+  }, [activePageIdx]);
 
   // #22: build the picker option list from themeItems (server-
   // loaded) with a fall-through to the in-process starter list so
@@ -970,19 +982,14 @@ export function CustomAppDetail({
   // uses to draw the Map widget.
   const previewStatesByMapWidget = useMemo<Record<string, MapData>>(() => {
     const out: Record<string, MapData> = {};
-    const walk = (list: CustomWidget[]) => {
-      for (const w of list) {
-        if (w.kind === 'map') {
-          const md = widgetMapData[w.id] ?? previewMapData;
-          if (md) out[w.id] = md;
-        }
-        // Containers nest, and a map inside a tab is still a map the
-        // legend beside it can follow.
-        const kids = (w as { children?: CustomWidget[] }).children;
-        if (Array.isArray(kids)) walk(kids);
+    // Containers nest, and a map inside a tab is still a map the
+    // legend beside it can follow.
+    for (const w of allWidgetsDeep(activePage?.widgets ?? [])) {
+      if (w.kind === 'map') {
+        const md = widgetMapData[w.id] ?? previewMapData;
+        if (md) out[w.id] = md;
       }
-    };
-    walk(activePage?.widgets ?? []);
+    }
     return out;
   }, [activePage?.widgets, widgetMapData, previewMapData]);
   // #22 WYSIWYG: deep-find the selected widget so clicking a tool
@@ -1189,7 +1196,10 @@ export function CustomAppDetail({
           if (pickingMap?.scope === 'widget') {
             // Per-widget override path: write to widget.config.mapId.
             const wid = pickingMap.widgetId;
-            const widget = activePage.widgets.find((w) => w.id === wid);
+            // Deep lookup: a Map inside a container or tab is not in
+            // the page-level array, and a miss here dropped the pick
+            // while the map's layers were still adopted below.
+            const widget = findWidgetWithParent(activePage.widgets, wid)?.widget;
             if (widget && widget.kind === 'map') {
               updateWidget(wid, {
                 config: {
@@ -2112,6 +2122,11 @@ function Canvas({
   // sibling slots that sticky/dock containers live in.
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [gesture, setGesture] = useState<ActiveGesture | null>(null);
+  // True only once the pointer has moved past the drag threshold.
+  // Map previews freeze (unmount their MapLibre instance) during a
+  // drag; keying that on `gesture` froze and reloaded every map on a
+  // plain click that only selects a card.
+  const [dragging, setDragging] = useState(false);
   // #53 WYSIWYG: drag-from-palette drop-target indicator.  When
   // a palette tile is hovered over a container's footprint, we
   // light up that container with an outline so the user knows
@@ -2371,6 +2386,7 @@ function Canvas({
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
       if (!pastDragThreshold(dx, dy)) return;
+      setDragging(true);
       // #96: track hovered container for drop-target highlight on
       // every move kind.  The mouseup handler reads the cursor's
       // final position; this just keeps the visual indicator in
@@ -2645,6 +2661,7 @@ function Canvas({
         // page-level grid move; onMove already applied it.
       }
       setDropTargetId(null);
+      setDragging(false);
       setGesture(null);
     }
     window.addEventListener('mousemove', onMove);
@@ -2697,7 +2714,7 @@ function Canvas({
       selected={w.id === selectedId}
       canEdit={canEdit}
       gesturing={Boolean(gesture && gesture.widgetId === w.id)}
-      anyGesture={gesture !== null}
+      anyGesture={dragging}
       isDropTarget={w.id === dropTargetId}
       // #363: prefer the widget's own map override if one is
       // resolved, else fall through to the app default.
@@ -3109,12 +3126,12 @@ function WidgetCard({
             frozen={anyGesture}
           />
         </div>
-      ) : widget.config.kind === 'image' && widget.config.url ? (
-        // Live preview for the Image widget when a URL is set. No
+      ) : widget.config.kind === 'image' && imageWidgetSrc(widget.config) ? (
+        // Live preview for the Image widget when a source is set. No
         // sandboxing concerns -- it's a read-only <img>.
         <div className="relative flex flex-1 overflow-hidden bg-surface-2/40">
           <img
-            src={widget.config.url}
+            src={imageWidgetSrc(widget.config) ?? undefined}
             alt={widget.config.alt ?? ''}
             className="pointer-events-none h-full w-full"
             style={{ objectFit: widget.config.objectFit ?? 'contain' }}
@@ -3333,7 +3350,7 @@ function widgetPlaceholderText(
     case 'basemap-gallery':
       return 'Tiles of available basemaps';
     case 'image':
-      return 'Paste an image URL in the right rail';
+      return 'Pick an image in the right rail';
     case 'button':
       return 'Configure label + link in the right rail';
     case 'tool':
@@ -3404,7 +3421,7 @@ function summarizeWidget(w: CustomWidget): string {
     case 'filter':
       return w.config.field ? `by ${w.config.field}` : '(pick a field)';
     case 'image':
-      return w.config.url ? 'image set' : 'no url';
+      return imageWidgetSrc(w.config) ? 'image set' : 'no image';
     case 'button':
       return w.config.label || 'no label';
     case 'tool':
@@ -3866,8 +3883,12 @@ function AppProperties({
                   key={src.id}
                   source={src}
                   siblings={sources.filter((o) => o.id !== src.id)}
-                  mapWidgets={(page.widgets ?? []).filter(
-                    (w) => w.kind === 'map',
+                  // Sources are app-level, so list maps on every page
+                  // (and inside containers), named by page.
+                  mapOptions={app.pages.flatMap((pg) =>
+                    allWidgetsDeep(pg.widgets ?? [])
+                      .filter((w) => w.kind === 'map')
+                      .map((w) => ({ id: w.id, pageTitle: pg.title })),
                   )}
                   canEdit={canEdit}
                   onChange={(patch) => {
@@ -3902,7 +3923,7 @@ function AppProperties({
                 // what they meant. Any other app leaves it unset.
                 const mapWidget =
                   app.blueprint === 'dashboard'
-                    ? (page.widgets ?? []).find((w) => w.kind === 'map')
+                    ? defaultFollowMap(app.pages, app.pages.indexOf(page))
                     : undefined;
                 const next: AppDataSource = {
                   id: newSourceId(),
@@ -3937,14 +3958,14 @@ function AppProperties({
 function SourceRow({
   source,
   siblings,
-  mapWidgets,
+  mapOptions,
   canEdit,
   onChange,
   onRemove,
 }: {
   source: AppDataSource;
   siblings: AppDataSource[];
-  mapWidgets: CustomWidget[];
+  mapOptions: Array<{ id: string; pageTitle: string }>;
   canEdit: boolean;
   onChange: (patch: SourcePatch) => void;
   onRemove: () => void;
@@ -4003,11 +4024,21 @@ function SourceRow({
           className="min-w-0 flex-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
         >
           <option value="">every record</option>
-          {mapWidgets.map((w) => (
-            <option key={w.id} value={w.id}>
-              only what is on Map · {w.id.slice(2, 10)}
+          {mapOptions.map((m) => (
+            <option key={m.id} value={m.id}>
+              only what is on Map · {m.pageTitle} · {m.id.slice(2, 10)}
             </option>
           ))}
+          {/* A followed map that is gone: show it rather than let the
+              browser fall back to "every record" while the stored
+              value still narrows the layer. */}
+          {source.followMapWidgetId &&
+          !source.via &&
+          !mapOptions.some((m) => m.id === source.followMapWidgetId) ? (
+            <option value={source.followMapWidgetId}>
+              only what is on a removed map (pick another)
+            </option>
+          ) : null}
           {siblings.length > 0 ? (
             <option value="@via">only rows linked to another layer</option>
           ) : null}
@@ -9074,6 +9105,16 @@ function autoBindMapWidgetId(
       mapWidgetId,
     } as CustomWidget['config'],
   };
+}
+
+/**
+ * Where an Image widget's picture comes from, resolved the way the
+ * runtime does it: the picked asset first, the legacy `url` second.
+ * The picker stores `asset` and clears `url`, so testing `url` alone
+ * left the canvas showing a placeholder for every picked image.
+ */
+function imageWidgetSrc(cfg: { asset?: AssetRef | null; url?: string }): string | null {
+  return resolveAssetRefSync(cfg.asset ?? null) ?? cfg.url ?? null;
 }
 
 function clampCol(col: number): number {

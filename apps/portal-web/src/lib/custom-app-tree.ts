@@ -197,3 +197,44 @@ export function moveWidgetInTree(
   }
   return insertWidgetAt(withoutSource, targetParentId, targetIndex, widgetToInsert);
 }
+
+/**
+ * Every widget in a list, including the children of containers and
+ * of each tab, depth first. Widgets nest through `config.widgets`
+ * (containers) and `config.tabs[].widgets` (tabs); there is no
+ * `children` property, so a walk over one found nothing nested.
+ */
+export function allWidgetsDeep(widgets: CustomWidget[]): CustomWidget[] {
+  const out: CustomWidget[] = [];
+  const walk = (list: CustomWidget[]) => {
+    for (const w of list) {
+      out.push(w);
+      const cfg = w.config;
+      if ('widgets' in cfg && Array.isArray(cfg.widgets)) walk(cfg.widgets);
+      if (cfg.kind === 'tabs' && Array.isArray(cfg.tabs)) {
+        for (const t of cfg.tabs) walk(t.widgets);
+      }
+    }
+  };
+  walk(widgets);
+  return out;
+}
+
+/**
+ * The map widget a new data source follows by default on a
+ * dashboard: the first map on the page the author is on, else the
+ * first map on any page. Both ways of adding a source use this, so a
+ * source added from a map pick and one added by hand land on the
+ * same map.
+ */
+export function defaultFollowMap(
+  pages: Array<{ widgets?: CustomWidget[] }>,
+  activePageIdx: number,
+): CustomWidget | undefined {
+  const isMap = (w: CustomWidget) => w.kind === 'map';
+  const active = pages[activePageIdx];
+  return (
+    (active ? allWidgetsDeep(active.widgets ?? []).find(isMap) : undefined) ??
+    pages.flatMap((p) => allWidgetsDeep(p.widgets ?? [])).find(isMap)
+  );
+}

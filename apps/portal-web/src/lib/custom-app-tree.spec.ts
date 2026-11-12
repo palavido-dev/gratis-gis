@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { ContainerWidgetConfig, CustomWidget } from '@gratis-gis/shared-types';
 import {
+  allWidgetsDeep,
   containerFlowsInRow,
+  defaultFollowMap,
   insertionIndex,
   moveWidgetInTree,
   pastDragThreshold,
@@ -92,5 +94,31 @@ describe('containerFlowsInRow', () => {
     expect(containerFlowsInRow(cfg({ position: 'sticky-top' }))).toBe(true);
     expect(containerFlowsInRow(cfg({ position: 'inline' }))).toBe(false);
     expect(containerFlowsInRow(cfg({ position: 'inline', layout: 'row' }))).toBe(true);
+  });
+});
+
+describe('allWidgetsDeep', () => {
+  it('reaches maps inside containers and tabs', () => {
+    const map = (id: string) =>
+      ({ id, kind: 'map', layout: L, config: { kind: 'map' } }) as CustomWidget;
+    const tabs = {
+      id: 't',
+      kind: 'tabs',
+      layout: L,
+      config: { kind: 'tabs', tabs: [{ id: 'x', title: 'X', widgets: [map('m2')] }] },
+    } as unknown as CustomWidget;
+    const ids = allWidgetsDeep([map('m0'), dock('d', [map('m1'), tabs])]).map((w) => w.id);
+    expect(ids).toEqual(['m0', 'd', 'm1', 't', 'm2']);
+  });
+});
+
+describe('defaultFollowMap', () => {
+  const map = (id: string) =>
+    ({ id, kind: 'map', layout: L, config: { kind: 'map' } }) as CustomWidget;
+  it('prefers the active page, then any page', () => {
+    const pages = [{ widgets: [map('p1')] }, { widgets: [dock('d', [map('p2')])] }, { widgets: [] }];
+    expect(defaultFollowMap(pages, 1)?.id).toBe('p2');
+    expect(defaultFollowMap(pages, 2)?.id).toBe('p1');
+    expect(defaultFollowMap([{ widgets: [] }], 0)).toBeUndefined();
   });
 });
