@@ -53,6 +53,7 @@ import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import {
   searchLayers,
+  searchV3Layers,
   type SearchResult as MapSearchResult,
 } from '../map/search-sources';
 import { FormRuntime } from '@/components/form-runtime';
@@ -2324,6 +2325,7 @@ export function FieldRuntime({
                   mapRef={mapRef}
                   canvasRef={canvasRef}
                   layers={mapData.layers ?? []}
+                  isOnline={isOnline}
                   autoFocus
                   onClose={() => setSearchExpanded(false)}
                 />
@@ -6128,9 +6130,12 @@ function FieldAddressSearch({
   mapRef,
   canvasRef,
   layers,
+  isOnline = true,
   autoFocus,
   onClose,
 }: {
+  /** Online, v3 layers are searched on the server; see below. */
+  isOnline?: boolean;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   // #249.12: passing the canvas handle lets a feature pick reuse the
   // same fly-and-highlight animation the desktop SearchBar fires, so a
@@ -6164,7 +6169,16 @@ function FieldAddressSearch({
       bbox: [number, number, number, number] | null;
     }>
   >([]);
-  const [featureResults, setFeatureResults] = useState<MapSearchResult[]>([]);
+  const [localFeatureResults, setLocalFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const [serverFeatureResults, setServerFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const featureResults = useMemo(
+    () => [...localFeatureResults, ...serverFeatureResults],
+    [localFeatureResults, serverFeatureResults],
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -6197,18 +6211,16 @@ function FieldAddressSearch({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  // #249.12: layer-attribute search runs synchronously off the map's
-  // current source data on every keystroke. Cheap (one pass through
-  // up to MAX_ATTRIBUTE_HITS_PER_LAYER features per layer), no
-  // network. Snapshot featuresByLayer from MapLibre via
-  // querySourceFeatures: for the GeoJSON sources field-runtime uses
-  // (URL-backed online, geojson-inline offline) this returns every
-  // feature in the source. Re-runs whenever the query, layer list,
-  // or layer ids change.
+  // #249.12: layer-attribute search over the map's loaded source
+  // data, on every keystroke. This covers GeoJSON sources: the inline
+  // copies used offline and legacy single-table layers. Online, v3
+  // data layers are vector tiles, which querySourceFeatures cannot
+  // read without a source layer and which never hold every feature
+  // anyway; the effect after this one searches those on the server.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 1 || !layers || layers.length === 0) {
-      setFeatureResults([]);
+      setLocalFeatureResults([]);
       return;
     }
     const map = mapRef.current;
@@ -6232,8 +6244,36 @@ function FieldAddressSearch({
         }
       }
     }
-    setFeatureResults(searchLayers(q, layers, featuresByLayer));
+    setLocalFeatureResults(searchLayers(q, layers, featuresByLayer));
   }, [query, layers, mapRef]);
+
+  // Online: search v3 data layers on the server, as the desktop search
+  // bar does, debounced so a large layer is not queried per keystroke.
+  // Offline the inline copies above already cover them.
+  useEffect(() => {
+    const q = query.trim();
+    const v3Layers = (layers ?? []).filter(
+      (l) => l.source.kind === 'data-layer' && l.search?.enabled,
+    );
+    if (!isOnline || q.length < 2 || v3Layers.length === 0) {
+      setServerFeatureResults([]);
+      return;
+    }
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      searchV3Layers(q, v3Layers, controller.signal)
+        .then((rows) => {
+          if (!controller.signal.aborted) setServerFeatureResults(rows);
+        })
+        .catch(() => {
+          /* aborted or offline mid-request; places still show */
+        });
+    }, 300);
+    return () => {
+      controller.abort();
+      clearTimeout(handle);
+    };
+  }, [query, layers, isOnline]);
 
   // Debounced geocode. Match the desktop SearchBar's 250 ms delay
   // and 3-character minimum so we don't hammer Nominatim.
@@ -6375,7 +6415,8 @@ function FieldAddressSearch({
               // re-expand starts clean.
               setQuery('');
               setPlaceResults([]);
-              setFeatureResults([]);
+              setLocalFeatureResults([]);
+              setServerFeatureResults([]);
               setOpen(false);
               onClose?.();
             }}
