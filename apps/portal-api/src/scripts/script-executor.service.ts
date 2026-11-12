@@ -434,7 +434,10 @@ export class ScriptExecutorService {
           );
           return null;
         }
-        const buf = Buffer.alloc(Math.min(info.size, cap));
+        // Sized by the file, which the checks above bound by the cap and
+        // by the fixed hard cap, never by the caller's number itself.
+        if (info.size > NOTEBOOK_HARD_CAP_BYTES) return null;
+        const buf = Buffer.alloc(info.size);
         const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
         return buf.subarray(0, bytesRead).toString('utf8');
       } finally {
