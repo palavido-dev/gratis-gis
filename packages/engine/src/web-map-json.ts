@@ -503,6 +503,30 @@ export function fromEsriTemplate(url: string): string {
   return url.replace(/\{level\}/g, '{z}').replace(/\{col\}/g, '{x}').replace(/\{row\}/g, '{y}');
 }
 
+/** A value for a LIKE literal: quotes doubled, %, _ and \\ escaped. */
+function likeLiteral(v: unknown): string {
+  return String(v).replace(/[\\%_]/g, (c) => `\\${c}`).replace(/'/g, "''");
+}
+
+/**
+ * The literal text of a LIKE body, or null when it holds a wildcard
+ * that is not escaped (an authored pattern).
+ */
+function likeValue(body: string, escaped: boolean): string | null {
+  let out = '';
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!;
+    if (escaped && c === '\\' && i + 1 < body.length) {
+      out += body[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '%' || c === '_') return null;
+    out += c;
+  }
+  return out;
+}
+
 function lensViewFromViewpoint(
   vp: NonNullable<EsriInitialState['viewpoint']>,
 ): LensView | undefined {
@@ -633,9 +657,9 @@ function esriDefinitionFromAttrFilter(lens: Lens): string | null {
       if (!Array.isArray(f.value) || f.value.length === 0) return null;
       return `${field} IN (${f.value.map((v) => formatValue(v)).join(', ')})`;
     case 'contains':
-      return `${field} LIKE '%${String(f.value).replace(/'/g, "''")}%'`;
+      return `${field} LIKE '%${likeLiteral(f.value)}%' ESCAPE '\\'`;
     case 'startsWith':
-      return `${field} LIKE '${String(f.value).replace(/'/g, "''")}%'`;
+      return `${field} LIKE '${likeLiteral(f.value)}%' ESCAPE '\\'`;
     case 'isNull':
       return `${field} IS NULL`;
     case 'isNotNull':
@@ -806,25 +830,35 @@ function attrFilterFromEsriDefinition(
     }
   }
 
-  // field LIKE 'pattern'. We only ever emit two pattern shapes:
-  // '%value%' for contains and 'value%' for startsWith, where any
-  // interior % came from the value itself, so stripping exactly the
-  // sentinel wildcards reconstructs the original value (a contains
-  // of "50%" emits '%50%%' and parses back to "50%"). Patterns that
-  // fit neither shape (leading-%-only, interior-wildcard authored
-  // expressions) have no LensAttrFilter equivalent and fall through
-  // to the warning.
+  // field LIKE 'pattern' [ESCAPE '\']. We only ever emit two shapes:
+  // '%value%' for contains and 'value%' for startsWith, with any % or
+  // _ in the value escaped. After stripping the sentinel wildcards, a
+  // remainder that still holds an unescaped % or _ is an authored
+  // interior wildcard (`'%Main%St%'`, `'A_1%'`), which a Lens filter
+  // cannot express: it falls through to the warning instead of
+  // importing as a literal.
   const likeMatch = trimmed.match(
-    new RegExp(`^${FIELD_FRAGMENT}\\s+LIKE\\s+'((?:[^']|'')*)'$`, 'i'),
+    new RegExp(
+      `^${FIELD_FRAGMENT}\\s+LIKE\\s+'((?:[^']|'')*)'(\\s+ESCAPE\\s+'\\\\')?$`,
+      'i',
+    ),
   );
   if (likeMatch) {
     const field = fieldFromMatch(likeMatch[1], likeMatch[2]);
     const pattern = (likeMatch[3] as string).replace(/''/g, "'");
+    const escaped = likeMatch[4] !== undefined;
+    let body: string | null = null;
+    let op: 'contains' | 'startsWith' | null = null;
     if (pattern.length >= 2 && pattern.startsWith('%') && pattern.endsWith('%')) {
-      return { field, op: 'contains', value: pattern.slice(1, -1) };
+      body = pattern.slice(1, -1);
+      op = 'contains';
+    } else if (pattern.endsWith('%')) {
+      body = pattern.slice(0, -1);
+      op = 'startsWith';
     }
-    if (pattern.endsWith('%')) {
-      return { field, op: 'startsWith', value: pattern.slice(0, -1) };
+    if (body !== null && op !== null) {
+      const value = likeValue(body, escaped);
+      if (value !== null) return { field, op, value };
     }
   }
 

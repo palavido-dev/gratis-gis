@@ -24,7 +24,8 @@
 #
 # Brief downtime: dependent services are stopped during capture to
 # guarantee Postgres + MinIO are consistent with each other. Plan on
-# 30 - 60 seconds.
+# several minutes on a demo-sized store: the MinIO volume is tarred
+# while the services are down.
 #
 # Usage:
 #   sudo ./infra/snapshot-golden.sh

@@ -28,7 +28,8 @@
 # `PORTAL_PUBLIC_TESTING` is truthy. Without that gate, a stray cron
 # trigger on a normal-use deploy would silently destroy real data.
 #
-# Brief downtime: ~30 - 60 seconds. The script stops app services,
+# Downtime: about 20 minutes on the demo (the observation GIN index
+# rebuild alone is 15 to 20). The script stops app services,
 # wipes the live DBs and the live MinIO volume, restores from the
 # snapshot, and restarts services. Caddy stays up the entire time,
 # so users see a brief 502 (which Caddy returns as its own polite

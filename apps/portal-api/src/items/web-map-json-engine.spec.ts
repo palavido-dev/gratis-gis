@@ -66,3 +66,29 @@ describe('cellForGeometry (engine)', () => {
     expect(cellForGeometry({ type: 'Point', coordinates: [10, 20] } as never)).toMatch(/^[0-9a-f]+$/);
   });
 });
+
+describe('LIKE filters (engine)', () => {
+  const layer = (expr: string) =>
+    webMapJsonToLenses({
+      version: '2.32',
+      operationalLayers: [
+        {
+          layerType: 'ArcGISFeatureLayer',
+          url: 'https://x.example/FeatureServer/0',
+          layerDefinition: { definitionExpression: expr },
+        },
+      ],
+    } as never);
+
+  it('warns on an authored interior wildcard instead of importing a literal', () => {
+    const out = layer("NAME LIKE '%Main%St%'");
+    expect(out.lenses[0]?.query.attrFilter).toBeUndefined();
+    expect(out.warnings.join(' ')).toMatch(/not recognised/);
+    expect(layer("CODE LIKE 'A_1%'").lenses[0]?.query.attrFilter).toBeUndefined();
+  });
+
+  it('round-trips a value that contains % and _', () => {
+    const out = layer("NAME LIKE '%50\\%\\_x%' ESCAPE '\\'");
+    expect(out.lenses[0]?.query.attrFilter).toEqual({ field: 'NAME', op: 'contains', value: '50%_x' });
+  });
+});
