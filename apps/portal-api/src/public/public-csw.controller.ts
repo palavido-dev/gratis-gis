@@ -203,11 +203,13 @@ function clamp(n: number, lo: number, hi: number): number {
 
 /** First string value per key, with keys lower-cased. */
 export function lowerCaseQuery(query: Record<string, unknown>): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = {};
+  // A Map, then fromEntries: a query key such as __proto__ becomes a
+  // plain own property instead of touching the object's prototype.
+  const out = new Map<string, string>();
   for (const [key, value] of Object.entries(query)) {
     const k = key.toLowerCase();
-    if (out[k] !== undefined) continue;
-    if (typeof value === 'string') out[k] = value;
+    if (out.has(k)) continue;
+    if (typeof value === 'string') out.set(k, value);
   }
-  return out;
+  return Object.fromEntries(out);
 }

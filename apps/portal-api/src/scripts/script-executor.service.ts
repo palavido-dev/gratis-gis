@@ -425,13 +425,16 @@ export class ScriptExecutorService {
         // A FIFO, device or directory is not a notebook. Checked on
         // the open descriptor, so it is the same file that is read.
         if (!info.isFile()) return null;
-        if (info.size > maxBytes) {
+        // The controller already clamps the cap; clamp again here so the
+        // buffer below can never be sized by a caller's number alone.
+        const cap = Math.min(Math.max(0, maxBytes), NOTEBOOK_HARD_CAP_BYTES);
+        if (info.size > cap) {
           this.log.warn(
-            `Executed notebook is ${info.size} bytes, over the ${maxBytes} limit; keeping the log only.`,
+            `Executed notebook is ${info.size} bytes, over the ${cap} limit; keeping the log only.`,
           );
           return null;
         }
-        const buf = Buffer.alloc(Math.min(info.size, maxBytes));
+        const buf = Buffer.alloc(Math.min(info.size, cap));
         const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
         return buf.subarray(0, bytesRead).toString('utf8');
       } finally {
@@ -541,6 +544,8 @@ function scriptUser(): { uid: number; gid: number } | null {
 
 /** Longest the executor waits to read a run's notebook. */
 const NOTEBOOK_READ_TIMEOUT_MS = 10_000;
+/** Same upper bound the executor controller clamps to. */
+const NOTEBOOK_HARD_CAP_BYTES = 32 * 1024 * 1024;
 
 /** `p`, or `fallback` if it has not settled within `ms`. */
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
