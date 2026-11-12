@@ -114,6 +114,7 @@ import {
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { BasemapPreview } from '@/components/basemap-preview';
+import { PRINT_SNAPSHOT_PREFIX, storePrintSnapshot } from '@/lib/print-snapshot';
 import {
   resolveRefreshSeconds,
   useAutoRefresh,
@@ -3754,6 +3755,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
       // sessionStorage keyed by a one-shot token because URL-
       // encoded data URLs blow past most browser URL length caps
       // for anything past a tiny tile.
+      let snapshotLost = false;
       if (liveMapForPrint && typeof window !== 'undefined') {
         try {
           const canvas = liveMapForPrint.getCanvas();
@@ -3772,9 +3774,20 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
             heightPx: canvas.height,
             capturedAt: Date.now(),
           };
-          const token = `print-snap-${selected.id}-${Date.now()}`;
-          window.sessionStorage.setItem(token, JSON.stringify(payload));
-          params.set('snap', token);
+          const token = `${PRINT_SNAPSHOT_PREFIX}${selected.id}-${Date.now()}`;
+          if (
+            storePrintSnapshot(
+              window.sessionStorage,
+              token,
+              JSON.stringify(payload),
+            )
+          ) {
+            params.set('snap', token);
+          } else {
+            // Say so: the print tab will show a placeholder map, and
+            // a console warning alone left the user guessing.
+            snapshotLost = true;
+          }
         } catch (snapErr) {
           // Snapshot failed (cross-origin tile, drawing buffer
           // cleared, etc.).  Print page falls back to the
@@ -3807,6 +3820,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
         { url, templateTitle: selected.title, createdAt: Date.now() },
         ...cur,
       ]);
+      if (snapshotLost) setRenderError(t('customRuntime.errors.printSnapshotTooLarge'));
     } catch (err) {
       setRenderError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3950,8 +3964,13 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                 <a
                   key={i}
                   href={r.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  // Opened like the first print, without noopener: a
+                  // noopener tab gets empty sessionStorage and cannot
+                  // read the map snapshot.  Same-origin page.
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.open(r.url, '_blank');
+                  }}
                   className="block truncate rounded px-1 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:underline"
                 >
                   {r.templateTitle} · {fmt.dateTime(r.createdAt)}
@@ -8951,6 +8970,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'create-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
+  const ctx = useContext(CustomMapsContext);
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
     sourceId: cfg.sourceId,
@@ -8986,6 +9006,22 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     schema.geometryType !== 'none';
   const isPointLayer =
     schema.geometryType === 'point' || schema.geometryType === 'Point';
+  // Only single-point placement exists.  For a line or polygon layer
+  // the widget used to take one click anyway and save a Point into
+  // the layer (the server does not check the geometry family), so
+  // those layers are refused until sketching exists.
+  const unsupportedGeometry = needsGeometry && !isPointLayer;
+  const waitingForClick =
+    phase.kind === 'placing' && needsGeometry && isPointLayer && !phase.point;
+
+  // While waiting for the placement click, the map must not also
+  // open the popup of whatever feature is under the cursor.
+  const setSuppressed = ctx?.setPopupSuppressed;
+  useEffect(() => {
+    if (!setSuppressed || !cfg.mapWidgetId || !waitingForClick) return;
+    setSuppressed(cfg.mapWidgetId, true);
+    return () => setSuppressed(cfg.mapWidgetId, false);
+  }, [setSuppressed, cfg.mapWidgetId, waitingForClick]);
 
   // Click-to-place handler.  Only attached during the placing phase
   // for a point-geometry target whose location hasn't been picked
@@ -8993,7 +9029,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   // is now waiting for a click.
   useEffect(() => {
     if (phase.kind !== 'placing') return;
-    if (!needsGeometry) return;
+    if (!needsGeometry || !isPointLayer) return;
     if (phase.point) return;
     if (!mut?.mapInstance) return;
     const map = mut.mapInstance;
@@ -9011,10 +9047,10 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       map.off('click', onClick);
       map.getCanvas().style.cursor = '';
     };
-  }, [phase, needsGeometry, mut?.mapInstance]);
+  }, [phase, needsGeometry, isPointLayer, mut?.mapInstance]);
 
   async function submit(values: Record<string, unknown>) {
-    if (phase.kind !== 'placing') return;
+    if (phase.kind !== 'placing' || unsupportedGeometry) return;
     const target = phase.target;
     setBusy({ state: 'submitting' });
     try {
@@ -9044,6 +9080,9 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         const text = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
       }
+      // Refetch the layer's tiles so the new feature shows at once,
+      // as the Edit and Delete widgets do after their writes.
+      ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
       setBusy({ state: 'idle' });
       setPhase({ kind: 'closed' });
     } catch (e) {
@@ -9140,16 +9179,17 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
               <p>
                 Adding to <strong>{phase.target.title}</strong>.
               </p>
-              <p>
-                <strong>{t('customRuntime.common.step1')}</strong> {t('customRuntime.features.placeOnMap', { geometryType: schema.geometryType?.toLowerCase() ?? '' })}
-              </p>
-              {!isPointLayer ? (
+              {unsupportedGeometry ? (
                 <p className="text-[hsl(var(--app-muted))]">
-                  (Note: only single-point placement is supported in
-                  this first cut; multi-vertex sketching for lines /
-                  polygons is queued as a follow-up.)
+                  {t('customRuntime.features.sketchUnsupported', {
+                    geometryType: schema.geometryType?.toLowerCase() ?? '',
+                  })}
                 </p>
-              ) : null}
+              ) : (
+                <p>
+                  <strong>{t('customRuntime.common.step1')}</strong> {t('customRuntime.features.placeOnMap', { geometryType: schema.geometryType?.toLowerCase() ?? '' })}
+                </p>
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"
