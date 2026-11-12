@@ -439,6 +439,53 @@ def test_source_keys_are_pinned_to_the_layer_prefix():
         assert raised, bad
 
 
+class _ReadConn:
+    """Connection double for a single read: counts commits."""
+
+    def __init__(self, row):
+        self.row = row
+        self.commits = 0
+
+    def cursor(self):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                pass
+
+            def fetchone(self):
+                return conn.row
+
+        return Cursor()
+
+    def commit(self):
+        self.commits += 1
+
+
+def test_reads_do_not_leave_a_transaction_open():
+    conn = _ReadConn(({"storageKey": "k"},))
+    assert runner.item_data(conn, "item") == {"storageKey": "k"}
+    assert conn.commits == 1
+    conn = _ReadConn((1,))
+    assert runner.owns_job(conn, "job", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is True
+    assert conn.commits == 1
+
+
+def test_mercator_ground_scale():
+    import math
+    # At 39 N one ground meter is about 1.287 mercator units.
+    assert abs(runner.mercator_units_per_meter(39) - 1 / math.cos(math.radians(39))) < 1e-12
+    y = 6378137.0 * math.log(math.tan(math.pi / 4 + math.radians(39) / 2))
+    assert abs(runner.mercator_y_to_lat(y) - 39) < 1e-9
+    assert runner.mercator_units_per_meter(0) == 1.0
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -455,4 +502,6 @@ if __name__ == "__main__":
     test_failed_job_stamps_its_husk_item()
     test_cancelled_job_stamps_its_husk_item()
     test_source_keys_are_pinned_to_the_layer_prefix()
+    test_reads_do_not_leave_a_transaction_open()
+    test_mercator_ground_scale()
     print("test_runner_units: all assertions passed")

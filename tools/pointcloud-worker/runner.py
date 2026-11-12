@@ -469,7 +469,10 @@ def owns_job(conn, job_id: str, token: str | None = None) -> bool:
             """,
             (job_id, token),
         )
-        return cur.fetchone() is not None
+        owned = cur.fetchone() is not None
+    # Same as item_data: do not leave the read transaction open.
+    conn.commit()
+    return owned
 
 
 def require_lease(conn, job_id: str) -> str:
@@ -782,6 +785,17 @@ def finish_job(conn, job_id: str, error: str | None, claim_token: str | None = N
     return changed == 1
 
 
+def mercator_units_per_meter(lat_deg: float) -> float:
+    """Web mercator raster units per ground meter at a latitude."""
+    c = math.cos(math.radians(max(-85.0, min(85.0, lat_deg))))
+    return 1.0 / c
+
+
+def mercator_y_to_lat(y: float) -> float:
+    """Latitude in degrees of a web mercator y."""
+    return math.degrees(math.atan(math.sinh(y / 6378137.0)))
+
+
 def item_data(conn, item_id: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(
@@ -789,6 +803,12 @@ def item_data(conn, item_id: str) -> dict:
             (item_id,),
         )
         row = cur.fetchone()
+    # End the read transaction. Left open, the main connection sat idle
+    # in transaction through the whole first download (beats use their
+    # own connection), and Postgres's idle_in_transaction timeout (5
+    # minutes on the VPS) killed it, failing every large job after the
+    # download. Not autocommit: present_lease needs a transaction.
+    conn.commit()
     if row is None:
         raise RuntimeError("Source item no longer exists.")
     return row[0] or {}
@@ -1537,7 +1557,11 @@ def do_viewshed(conn, s3, job) -> None:
         y_min = y_max + gt[5] * raster_h
         ds = None
 
-        radius_px = max_dist / res
+        # Web mercator units are 1/cos(lat) ground meters. The look
+        # distance is in ground meters, so in raster units it is longer;
+        # passed as is, a 1600 m viewshed at 39 N reached about 1243 m.
+        map_dist = max_dist * mercator_units_per_meter(lat)
+        radius_px = map_dist / res
         if (2 * radius_px) ** 2 > VIEWSHED_MAX_CELLS:
             raise RuntimeError(
                 "That distance is too far for this server at this "
@@ -1550,11 +1574,11 @@ def do_viewshed(conn, s3, job) -> None:
 
         # Window = observer +- distance, clipped to the raster. The
         # small margin keeps the observer's own cell interior.
-        margin = max_dist * 0.02 + res * 2
-        w_ulx = max(x_min, ox - max_dist - margin)
-        w_uly = min(y_max, oy + max_dist + margin)
-        w_lrx = min(x_max, ox + max_dist + margin)
-        w_lry = max(y_min, oy - max_dist - margin)
+        margin = map_dist * 0.02 + res * 2
+        w_ulx = max(x_min, ox - map_dist - margin)
+        w_uly = min(y_max, oy + map_dist + margin)
+        w_lrx = min(x_max, ox + map_dist + margin)
+        w_lry = max(y_min, oy - map_dist - margin)
         crop = work / "crop.tif"
         run(
             [
@@ -1590,7 +1614,7 @@ def do_viewshed(conn, s3, job) -> None:
                 "-oz",
                 str(height_m),
                 "-md",
-                str(max_dist),
+                str(map_dist),
                 str(crop),
                 str(vis),
             ],
@@ -2136,8 +2160,15 @@ def do_steepness(conn, s3, job) -> None:
 
         gdal.UseExceptions()
         ds = gdal.Open(str(src))
-        res = abs(ds.GetGeoTransform()[1])
+        gt = ds.GetGeoTransform()
+        res = abs(gt[1])
+        center_y = gt[3] + gt[5] * ds.RasterYSize / 2
         ds = None
+        # The DEM is web mercator (do_elevation always writes
+        # GoogleMapsCompatible), whose horizontal unit is cos(lat)
+        # ground meters. Without -s every slope came out flatter
+        # (a true 30 degrees read as 24 at 39 N).
+        scale = 1.0 / mercator_units_per_meter(mercator_y_to_lat(center_y))
 
         slope = work / "slope.tif"
         run(
@@ -2147,6 +2178,8 @@ def do_steepness(conn, s3, job) -> None:
                 str(src),
                 str(slope),
                 "-compute_edges",
+                "-s",
+                f"{scale:.9f}",
             ],
             work,
             conn,
