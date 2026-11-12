@@ -1376,7 +1376,11 @@ export class ItemsService {
     const data = rawData as {
       layers?: Array<Record<string, unknown>>;
     };
-    const layers = Array.isArray(data.layers) ? data.layers : [];
+    // Entries that are not objects are dropped: a malformed blob
+    // must not make the map unreadable for every viewer.
+    const layers = (Array.isArray(data.layers) ? data.layers : []).filter(
+      (l): l is Record<string, unknown> => !!l && typeof l === 'object',
+    );
     // Fetch each backing data_layer / arcgis_service item and
     // its shares in one round-trip. Only layers that use an item id
     // are relevant; url / inline sources have no separate gatekeeping.
@@ -1440,8 +1444,9 @@ export class ItemsService {
         // Anonymous readers match no entry, so a custom-access layer
         // is hidden from them, as it is from a signed-in reader who
         // is not on its list.
-        const entry = (access.entries ?? []).find((e) => {
-          if (!viewer) return false;
+        const entries = Array.isArray(access.entries) ? access.entries : [];
+        const entry = entries.find((e) => {
+          if (!viewer || !e || typeof e !== 'object') return false;
           if (e.principalType === 'user') return e.principalId === viewer.id;
           if (e.principalType === 'group') {
             return viewer.groupIds.includes(e.principalId);
