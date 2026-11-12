@@ -7,7 +7,11 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module.js';
 import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
 import { requestIdMiddleware } from './common/public-error.js';
-import { bodyReadDeadline, configureBodyParsers } from './common/body-limits.js';
+import {
+  bodyReadDeadline,
+  configureBodyParsers,
+  rejectRepeatedQueryKeys,
+} from './common/body-limits.js';
 import { installMetrics } from './metrics/install-metrics.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
@@ -41,6 +45,9 @@ async function bootstrap() {
   // off below for multipart imports; this keeps every other route
   // bounded. Registered first so it runs before the body parsers.
   app.use(bodyReadDeadline());
+  // Anonymous routes are typed for one string per key; a repeated key
+  // arrives as an array and used to throw a 500.
+  app.use('/api/public', rejectRepeatedQueryKeys);
   // JSON bodies up to 10 MB instead of Express's 100 KB (#679).
   configureBodyParsers(app);
   // Every response carries an id the UI can show when a call fails,

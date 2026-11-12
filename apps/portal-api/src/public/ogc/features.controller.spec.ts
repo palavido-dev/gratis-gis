@@ -59,11 +59,40 @@ function makeController(featureCount: number) {
       features: makeFeatures(Math.min(featureCount, opts.limit ?? Infinity)),
     }),
   );
+  // Keyset reader: ids are uuid-shaped and sorted, `after` resumes
+  // strictly past one, nextCursor is null only at the end.
+  const all = Array.from({ length: featureCount }, (_, i) => ({
+    type: 'Feature',
+    id: uuidAt(i),
+    geometry: { type: 'Point', coordinates: [-80.1, 39.2] },
+    properties: {},
+  }));
+  const readFeaturePage = jest.fn(
+    async (
+      _itemId: string,
+      _layerId: string,
+      _opts: unknown,
+      page: { after: string | null; pageSize: number },
+    ) => {
+      const start = page.after === null ? 0 : all.findIndex((f) => f.id === page.after) + 1;
+      const features = all.slice(start, start + page.pageSize);
+      const more = start + page.pageSize < all.length;
+      return {
+        features,
+        nextCursor: more ? features[features.length - 1]!.id : null,
+        asOf: new Date('2026-06-01T00:00:00Z'),
+      };
+    },
+  );
   const controller = new OgcFeaturesController(
     prisma as unknown as PrismaService,
-    { listFeatures } as unknown as DataLayerFeaturesService,
+    { listFeatures, readFeaturePage } as unknown as DataLayerFeaturesService,
   );
-  return { controller, listFeatures };
+  return { controller, listFeatures, readFeaturePage };
+}
+
+function uuidAt(i: number): string {
+  return `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
 }
 
 function makeReq(query: Record<string, string> = {}): Request {
@@ -88,105 +117,109 @@ function linkByRel(
   return res.links.find((l) => l.rel === rel);
 }
 
-describe('OgcFeaturesController.items paging', () => {
+describe('OgcFeaturesController.items offset paging', () => {
+  // Offset paging is kept for small offsets only; the first page and
+  // every next link use the keyset cursor (below).
   it('probes one row past the window and emits the next link when it exists', async () => {
     const { controller, listFeatures } = makeController(10);
 
-    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '0');
+    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '3');
 
     // The engine fetch asked for offset + limit + 1 (the probe row).
     expect(listFeatures).toHaveBeenCalledWith(
       ITEM_ID,
       LAYER_ID,
-      expect.objectContaining({ limit: 4 }),
+      expect.objectContaining({ limit: 7 }),
     );
-    // The probe row is not part of the response window.
     expect(res.features).toHaveLength(3);
     expect(res.numberReturned).toBe(3);
     expect(res.features.map((f) => (f as { id?: string }).id)).toEqual([
-      'id-0',
-      'id-1',
-      'id-2',
+      'id-3',
+      'id-4',
+      'id-5',
     ]);
-    const next = linkByRel(res, 'next');
-    expect(next).toBeDefined();
-    const nextUrl = new URL(next!.href!);
-    expect(nextUrl.searchParams.get('offset')).toBe('3');
+    const nextUrl = new URL(linkByRel(res, 'next')!.href!);
+    expect(nextUrl.searchParams.get('offset')).toBe('6');
     expect(nextUrl.searchParams.get('limit')).toBe('3');
   });
 
   it('omits the next link on the final page', async () => {
-    // 5 rows total, window offset=3 limit=3 -> rows 3..4 and no more.
     const { controller } = makeController(5);
-
     const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '3');
-
     expect(res.features).toHaveLength(2);
-    expect(res.numberReturned).toBe(2);
     expect(linkRels(res)).not.toContain('next');
-    // Middle pages carry prev back toward the start.
     const prev = linkByRel(res, 'prev');
-    expect(prev).toBeDefined();
     expect(new URL(prev!.href!).searchParams.get('offset')).toBe('0');
   });
 
   it('omits the next link when the collection ends exactly at the window edge', async () => {
-    // 3 rows, limit 3: the probe row does not exist, so this IS the
-    // last page even though it is completely full.
-    const { controller } = makeController(3);
-
-    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '0');
-
+    const { controller } = makeController(6);
+    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '3');
     expect(res.features).toHaveLength(3);
     expect(linkRels(res)).not.toContain('next');
   });
 
+  it('refuses a large offset instead of buffering everything before it', async () => {
+    const { controller, listFeatures } = makeController(10);
+    await expect(
+      controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '10000', '100000'),
+    ).rejects.toThrow(/offset beyond/);
+    expect(listFeatures).not.toHaveBeenCalled();
+  });
+});
+
+describe('OgcFeaturesController.items keyset paging', () => {
   it('never reports numberMatched (unknowable without a count query)', async () => {
     const { controller } = makeController(10);
-
-    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3', '0');
-
+    const res = await controller.items(makeReq(), ITEM_ID, undefined, undefined, undefined, '3');
     expect(res).not.toHaveProperty('numberMatched');
     expect(res.numberReturned).toBe(3);
   });
 
-  it('walks a whole collection through next links without duplication or early stop', async () => {
-    // End-to-end paging walk over 7 rows at limit 3: pages of 3, 3,
-    // 1, with next links on the first two pages only.
-    const { controller } = makeController(7);
-
+  it('reads one page per request and walks the whole collection through next links', async () => {
+    const { controller, readFeaturePage, listFeatures } = makeController(7);
     const seen: string[] = [];
-    let offset = '0';
+    let cursor: string | undefined;
     for (let page = 0; page < 10; page++) {
       const res = await controller.items(
-        makeReq(),
+        makeReq(cursor ? { cursor } : {}),
         ITEM_ID,
         undefined,
         undefined,
         undefined,
         '3',
-        offset,
+        undefined,
+        undefined,
+        cursor,
       );
-      // The fake returns ids positionally from the start of the
-      // layer, mirroring the engine's stable entity ordering; the
-      // slice below reflects the offset window.
-      for (const f of res.features as Array<{ id?: string }>) {
-        seen.push(String(f.id));
-      }
+      for (const f of res.features as Array<{ id?: string }>) seen.push(String(f.id));
       const next = linkByRel(res, 'next');
       if (!next) break;
-      offset = new URL(next.href!).searchParams.get('offset')!;
+      const url = new URL(next.href!);
+      expect(url.searchParams.get('offset')).toBeNull();
+      cursor = url.searchParams.get('cursor')!;
     }
+    expect(seen).toEqual([0, 1, 2, 3, 4, 5, 6].map(uuidAt));
+    // Each page asked for exactly one page; nothing re-read.
+    expect(readFeaturePage.mock.calls.map((c) => c[3].pageSize)).toEqual([3, 3, 3]);
+    expect(listFeatures).not.toHaveBeenCalled();
+  });
 
-    expect(seen).toEqual([
-      'id-0',
-      'id-1',
-      'id-2',
-      'id-3',
-      'id-4',
-      'id-5',
-      'id-6',
-    ]);
+  it('refuses a cursor it did not issue', async () => {
+    const { controller } = makeController(3);
+    await expect(
+      controller.items(
+        makeReq({ cursor: 'nope' }),
+        ITEM_ID,
+        undefined,
+        undefined,
+        undefined,
+        '3',
+        undefined,
+        undefined,
+        'nope',
+      ),
+    ).rejects.toThrow(/cursor is not valid/);
   });
 });
 

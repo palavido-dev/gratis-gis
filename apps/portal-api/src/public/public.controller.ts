@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { absoluteBase } from './ogc/url.js';
 import { isUuidShape } from '../common/uuid-shape.js';
 import {
   BadRequestException,
@@ -156,18 +157,9 @@ export class PublicController {
       );
     }
 
-    // Best-effort self URL for the catalog so clients can deref.
-    // We honour X-Forwarded-* because portals are typically behind
-    // a reverse proxy.
-    const proto =
-      (req.headers['x-forwarded-proto'] as string | undefined) ??
-      req.protocol ??
-      'http';
-    const host =
-      (req.headers['x-forwarded-host'] as string | undefined) ??
-      req.headers.host ??
-      'localhost';
-    const portalBase = `${proto}://${host}`;
+    // Self URLs come from PORTAL_BASE_URL like every OGC document;
+    // the request headers are only a dev fallback (see ogc/url.ts).
+    const portalBase = absoluteBase(req);
 
     const items = await this.prisma.item.findMany({
       where: {
@@ -462,8 +454,22 @@ export class PublicController {
         opts.bbox = [w, s, e, n];
       }
     }
-    if (at) opts.at = at;
-    if (entity) opts.entity = entity;
+    if (at) {
+      // Same check as the features-page mirror: an unparseable value
+      // became new Date(NaN) in the engine and a 500.
+      if (!Number.isFinite(new Date(at).getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.at = at;
+    }
+    if (entity) {
+      if (!isUuidShape(entity)) {
+        throw new BadRequestException('entity must be a feature id (uuid).');
+      }
+      opts.entity = entity;
+    }
 
     const paging = parsePagingParams(limit, cursor);
     if (paging !== null) {
@@ -1226,57 +1232,35 @@ export class PublicController {
    * an admin didn't mean to publish.
    */
   private async publicItemsFor(orgId: string, featuredIds: string[]) {
-    const rows = await this.prisma.item.findMany({
-      where: {
-        orgId,
-        access: 'public',
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        type: true,
-        thumbnailUrl: true,
-        // Designer-baked thumbnail JSON. Rows without a static
-        // thumbnailUrl run through synthesizeThumbnailUrl below
-        // to get the /thumbnail.svg cache-busted URL so the
-        // landing tile shows the same baked card the authed
-        // items list shows.
-        thumbnailDesign: true,
-        updatedAt: true,
-        tags: true,
-        // Open-data license URL when the item carries one. Used
-        // by the landing's Schema.org Dataset JSON-LD (Google Rich
-        // Results flags Datasets without a license as a missing
-        // recommended field, and aggregators like data.gov filter
-        // their crawls to license-bearing rows).
-        license: true,
-        // Read so the landing tile can route a templated web_app
-        // (editor / viewer / custom) straight to its runtime URL;
-        // getItemHref needs the `template` discriminator. Only that
-        // field is returned (landingItemData): the full blob carries
-        // map drawings' anonymous author tokens, data layer sync
-        // conflicts and layers a public map hides from viewers.
-        data: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const all = rows.map((r) =>
-      synthesizeThumbnailUrl({ ...r, data: landingItemData(r.data) }),
-    );
-    if (featuredIds.length === 0) return all;
+    const where = { orgId, access: 'public' as const, deletedAt: null };
+    const select = {
+      id: true,
+      title: true,
+      description: true,
+      type: true,
+      thumbnailUrl: true,
+      // Designer-baked thumbnail JSON. Rows without a static
+      // thumbnailUrl run through synthesizeThumbnailUrl below
+      // to get the /thumbnail.svg cache-busted URL so the
+      // landing tile shows the same baked card the authed
+      // items list shows.
+      thumbnailDesign: true,
+      updatedAt: true,
+      tags: true,
+      // Open-data license URL when the item carries one. Used
+      // by the landing's Schema.org Dataset JSON-LD (Google Rich
+      // Results flags Datasets without a license as a missing
+      // recommended field, and aggregators like data.gov filter
+      // their crawls to license-bearing rows).
+      license: true,
+    } as const;
 
     // Featured = strict filter when it resolves to anything: when the
     // admin curates a list, the landing shows ONLY those items, in
     // the admin's chosen order. Items no longer public (or moved to
-    // trash) drop out silently. If the admin wants the full public
-    // catalog they leave the featured list empty, which falls through
-    // to the "all public items, newest first" branch above.
-    const byId = new Map(all.map((i) => [i.id, i]));
-    const featured = featuredIds
-      .map((id) => byId.get(id))
-      .filter((i): i is NonNullable<typeof i> => !!i);
+    // trash) drop out silently. The filter runs in SQL, so a curated
+    // landing reads only its own rows.
+    //
     // Safety net: if EVERY featured id is stale (none resolve to a
     // live public item) but public items DO exist, fall back to the
     // full catalog rather than rendering a blank "nothing shared
@@ -1285,8 +1269,48 @@ export class PublicController {
     // otherwise silently hide real public content. Featuring is a
     // presentation preference; it must never suppress the catalog
     // entirely when the underlying items are gone.
-    if (featured.length === 0) return all;
-    return featured;
+    let rows: Array<{ id: string; type: string } & Record<string, unknown>> = [];
+    const validFeatured = featuredIds.filter((id) => isUuidShape(id));
+    if (validFeatured.length > 0) {
+      const found = await this.prisma.item.findMany({
+        where: { ...where, id: { in: validFeatured } },
+        select,
+      });
+      const byId = new Map(found.map((r) => [r.id, r]));
+      rows = validFeatured
+        .map((id) => byId.get(id))
+        .filter((r): r is NonNullable<typeof r> => !!r);
+    }
+    if (rows.length === 0) {
+      rows = await this.prisma.item.findMany({
+        where,
+        select,
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    // A landing tile routes a templated web_app straight to its
+    // runtime URL, which needs only the `template` field of its data.
+    // Read just that field for just those rows: loading every public
+    // item's whole blob on each anonymous home page view was the cost,
+    // and the blob also carries things a visitor must not see.
+    const webAppIds = rows.filter((r) => r.type === 'web_app').map((r) => r.id);
+    const templates = new Map<string, string>();
+    if (webAppIds.length > 0) {
+      const t = await this.prisma.$queryRaw<Array<{ id: string; template: string | null }>>`
+        SELECT id, data_json->>'template' AS template
+        FROM "item"
+        WHERE id = ANY(${webAppIds}::uuid[])`;
+      for (const r of t) if (typeof r.template === 'string') templates.set(r.id, r.template);
+    }
+    return rows.map((r) =>
+      synthesizeThumbnailUrl({
+        ...(r as typeof r & { updatedAt: Date; thumbnailUrl: string | null }),
+        data: landingItemData(
+          templates.has(r.id) ? { template: templates.get(r.id) } : null,
+        ),
+      }),
+    );
   }
 }
 

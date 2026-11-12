@@ -68,3 +68,27 @@ export function bodyReadDeadline(ms: number = BODY_READ_TIMEOUT_MS) {
     next();
   };
 }
+
+/**
+ * Refuse a repeated query key on the anonymous surface. Express turns
+ * `?bbox=1&bbox=2` into an array, and handlers typed for a string
+ * call `.split` / `.trim` on it and throw (500). No public route takes
+ * a repeated key; lists are comma separated.
+ */
+export function rejectRepeatedQueryKeys(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  const query = req.query as Record<string, unknown>;
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value !== 'string') {
+      res.status(400).json({
+        statusCode: 400,
+        message: `Query parameter "${key}" must be given once, as a plain value.`,
+      });
+      return;
+    }
+  }
+  next();
+}

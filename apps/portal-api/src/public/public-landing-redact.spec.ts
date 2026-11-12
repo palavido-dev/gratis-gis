@@ -68,6 +68,8 @@ describe('PublicController.landing item data', () => {
         })),
       },
       item: { findMany: jest.fn(async () => rows) },
+      // Only the template field of web_app rows is read.
+      $queryRaw: jest.fn(async () => [{ id: 'app-1', template: 'viewer' }]),
     };
     const controller = new PublicController(
       prisma as unknown as PrismaService,
@@ -82,5 +84,41 @@ describe('PublicController.landing item data', () => {
     const byId = new Map(out.items.map((i) => [i.id, i.data]));
     expect(byId.get('app-1')).toEqual({ template: 'viewer' });
     expect(byId.get('map-1')).toBeNull();
+    // The whole blob is never selected.
+    const args = (prisma.item.findMany.mock.calls[0] as unknown as [
+      { select: Record<string, unknown> },
+    ])[0];
+    expect(args.select).not.toHaveProperty('data');
+  });
+
+  it('reads only the featured rows when a featured list is set', async () => {
+    const featured = '00000000-0000-4000-8000-0000000000f1';
+    const findMany = jest.fn(async () => [{ ...rows[1]!, id: featured }]);
+    const prisma = {
+      organization: {
+        findUnique: jest.fn(async () => ({
+          id: 'org-1',
+          slug: 'org',
+          name: 'Org',
+          landingTitle: null,
+          landingSubtitle: null,
+          landingHeroImageUrl: null,
+          landingShowPublicItems: true,
+          landingFeaturedItemIds: [featured],
+        })),
+      },
+      item: { findMany },
+      $queryRaw: jest.fn(async () => []),
+    };
+    const controller = new PublicController(
+      prisma as unknown as PrismaService,
+      {} as never,
+      {} as never,
+    );
+    const out = await controller.landing('org');
+    expect(out.items.map((i) => i.id)).toEqual([featured]);
+    expect(findMany).toHaveBeenCalledTimes(1);
+    const where = (findMany.mock.calls[0] as unknown as [{ where: { id?: unknown } }])[0].where;
+    expect(where.id).toEqual({ in: [featured] });
   });
 });

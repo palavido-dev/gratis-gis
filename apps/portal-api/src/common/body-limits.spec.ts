@@ -9,6 +9,7 @@ import {
   EXECUTOR_JSON_BODY_LIMIT,
   bodyReadDeadline,
   configureBodyParsers,
+  rejectRepeatedQueryKeys,
 } from './body-limits.js';
 
 @Controller('echo')
@@ -139,5 +140,31 @@ describe('bodyReadDeadline', () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe('rejectRepeatedQueryKeys', () => {
+  function run(query: Record<string, unknown>) {
+    const res = {
+      code: 0,
+      status(c: number) {
+        this.code = c;
+        return this;
+      },
+      json: jest.fn(),
+    };
+    const next = jest.fn();
+    rejectRepeatedQueryKeys({ query } as never, res as never, next);
+    return { res, next };
+  }
+
+  it('passes single values through', () => {
+    expect(run({ bbox: '1,2,3,4', q: 'x' }).next).toHaveBeenCalled();
+  });
+
+  it('answers a repeated key with 400 instead of letting a handler throw', () => {
+    const { res, next } = run({ bbox: ['1', '2'] });
+    expect(next).not.toHaveBeenCalled();
+    expect(res.code).toBe(400);
   });
 });

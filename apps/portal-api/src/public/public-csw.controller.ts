@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Controller, Get, Header, Query, Req } from '@nestjs/common';
+import { absoluteBase } from './ogc/url.js';
+import { Controller, Get, Header, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -41,13 +42,16 @@ export class PublicCswController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get()
   @Header('content-type', 'application/xml; charset=utf-8')
-  async dispatch(
-    @Req() req: Request,
-    @Query('service') service?: string,
-    @Query('request') request?: string,
-    @Query('startposition') startPosition?: string,
-    @Query('maxrecords') maxRecords?: string,
-  ): Promise<string> {
+  async dispatch(@Req() req: Request): Promise<string> {
+    // CSW KVP parameter names are case-insensitive (CSW 2.0.2 and OWS
+    // Common), and clients send SERVICE, REQUEST, startPosition,
+    // maxRecords. Express keys are case-sensitive, so read them from a
+    // lower-cased copy; otherwise standard paging never advanced.
+    const q = lowerCaseQuery(req.query as Record<string, unknown>);
+    const service = q.service;
+    const request = q.request;
+    const startPosition = q.startposition;
+    const maxRecords = q.maxrecords;
     const base = absoluteBase(req);
     if (!service || service.toUpperCase() !== 'CSW') {
       return ows('MissingParameterValue', 'service', 'service must be CSW');
@@ -149,14 +153,14 @@ function getCapabilities(base: string): string {
     <ows:Operation name="GetCapabilities">
       <ows:DCP>
         <ows:HTTP>
-          <ows:Get xlink:href="${endpoint}"/>
+          <ows:Get xlink:href="${esc(endpoint)}"/>
         </ows:HTTP>
       </ows:DCP>
     </ows:Operation>
     <ows:Operation name="GetRecords">
       <ows:DCP>
         <ows:HTTP>
-          <ows:Get xlink:href="${endpoint}"/>
+          <ows:Get xlink:href="${esc(endpoint)}"/>
         </ows:HTTP>
       </ows:DCP>
       <ows:Parameter name="typeNames">
@@ -197,14 +201,13 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
-function absoluteBase(req: Request): string {
-  const proto =
-    (req.headers['x-forwarded-proto'] as string | undefined) ??
-    req.protocol ??
-    'http';
-  const host =
-    (req.headers['x-forwarded-host'] as string | undefined) ??
-    req.headers.host ??
-    'localhost';
-  return `${proto}://${host}`;
+/** First string value per key, with keys lower-cased. */
+export function lowerCaseQuery(query: Record<string, unknown>): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(query)) {
+    const k = key.toLowerCase();
+    if (out[k] !== undefined) continue;
+    if (typeof value === 'string') out[k] = value;
+  }
+  return out;
 }

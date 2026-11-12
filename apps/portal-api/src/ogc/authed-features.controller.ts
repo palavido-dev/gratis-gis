@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../common/uuid-shape.js';
 import {
   Controller,
   Get,
@@ -45,6 +46,7 @@ const ITEMS_QUERY_PARAMS = [
   'limit',
   'offset',
   'sortby',
+  'cursor',
 ] as const;
 const FEATURE_QUERY_PARAMS = ['crs'] as const;
 import { absoluteBase } from '../public/ogc/url.js';
@@ -196,6 +198,7 @@ export class AuthedOgcFeaturesController {
     @Query('limit') limitParam?: string,
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
+    @Query('cursor') cursorParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const resolved = await this.resolveCollection(user, id);
@@ -203,7 +206,7 @@ export class AuthedOgcFeaturesController {
     return buildItemsResponse({
       query: {
         bboxParam, bboxCrsParam, crsParam,
-        limitParam, offsetParam, sortbyParam,
+        limitParam, offsetParam, sortbyParam, cursorParam,
       },
       itemsUrl: `${base}/api/ogc/collections/${id}/items`,
       collectionUrl: `${base}/api/ogc/collections/${id}`,
@@ -212,6 +215,13 @@ export class AuthedOgcFeaturesController {
           ...opts,
           ...resolved.clips,
         }),
+      readPage: ({ pageSize, after, ...opts }) =>
+        this.v3.readFeaturePage(
+          resolved.row.itemId,
+          resolved.row.layerId,
+          { ...opts, ...resolved.clips },
+          { pageSize, after },
+        ),
     });
   }
 
@@ -225,6 +235,9 @@ export class AuthedOgcFeaturesController {
     @Query('crs') crsParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
+    // Feature ids are entity uuids. Anything else reached a ::uuid
+    // cast in the engine and came back as a 500.
+    if (!isUuidShape(featureId)) throw new NotFoundException('Feature not found.');
     const resolved = await this.resolveCollection(user, id);
     const crs = parseCrs(crsParam);
     // The clips apply to single-feature reads too, or a caller who

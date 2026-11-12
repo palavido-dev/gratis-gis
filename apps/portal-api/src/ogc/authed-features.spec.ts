@@ -61,6 +61,7 @@ interface Fakes {
   effectiveRowScope: jest.Mock;
   visibleWhere: jest.Mock;
   listFeatures: jest.Mock;
+  readFeaturePage: jest.Mock;
   findMany: jest.Mock;
 }
 
@@ -71,6 +72,11 @@ function makeController(overrides: Partial<Fakes> = {}) {
     effectiveRowScope: jest.fn(() => 'all'),
     visibleWhere: jest.fn(() => ({ tag: 'visible-where-predicate' })),
     listFeatures: jest.fn(async () => ({ features: [] })),
+    readFeaturePage: jest.fn(async () => ({
+      features: [],
+      nextCursor: null,
+      asOf: new Date(),
+    })),
     findMany: jest.fn(async () => []),
     ...overrides,
   };
@@ -100,7 +106,10 @@ function makeController(overrides: Partial<Fakes> = {}) {
       }),
       visibleWhere: fakes.visibleWhere,
     } as never,
-    { listFeatures: fakes.listFeatures } as never,
+    {
+      listFeatures: fakes.listFeatures,
+      readFeaturePage: fakes.readFeaturePage,
+    } as never,
   );
   return { controller, fakes };
 }
@@ -153,7 +162,7 @@ describe('clips reach the engine', () => {
       geoLimitFor: jest.fn(async () => clip),
     });
     await controller.items(USER, req, ITEM_ID);
-    const opts = fakes.listFeatures.mock.calls[0]![2];
+    const opts = fakes.readFeaturePage.mock.calls[0]![2];
     expect(opts.geoLimit).toBe(clip);
   });
 
@@ -162,7 +171,7 @@ describe('clips reach the engine', () => {
       effectiveRowScope: jest.fn(() => 'own'),
     });
     await controller.items(USER, req, ITEM_ID);
-    const opts = fakes.listFeatures.mock.calls[0]![2];
+    const opts = fakes.readFeaturePage.mock.calls[0]![2];
     expect(opts.ownRowsOnly).toEqual({ userId: USER.id });
   });
 
@@ -173,13 +182,13 @@ describe('clips reach the engine', () => {
     const { controller, fakes } = makeController({
       geoLimitFor: jest.fn(async () => clip),
       listFeatures: jest.fn(async () => ({
-        features: [{ id: 'f-1', geometry: null }],
+        features: [{ id: 'f0000000-0000-4000-8000-000000000001', geometry: null }],
       })),
     });
-    await controller.feature(USER, req, ITEM_ID, 'f-1');
+    await controller.feature(USER, req, ITEM_ID, 'f0000000-0000-4000-8000-000000000001');
     const opts = fakes.listFeatures.mock.calls[0]![2];
     expect(opts.geoLimit).toBe(clip);
-    expect(opts.entity).toBe('f-1');
+    expect(opts.entity).toBe('f0000000-0000-4000-8000-000000000001');
   });
 
   it('the row scope consults the layer editing policy', async () => {
@@ -197,8 +206,18 @@ describe('clips reach the engine', () => {
   it('a table sublayer reads as a table', async () => {
     const { controller, fakes } = makeController();
     await controller.items(USER, req, `${ITEM_ID}__summary`);
-    const opts = fakes.listFeatures.mock.calls[0]![2];
+    const opts = fakes.readFeaturePage.mock.calls[0]![2];
     expect(opts.isTable).toBe(true);
+  });
+});
+
+describe('feature id shape', () => {
+  it('answers a non-uuid feature id with 404 before the engine', async () => {
+    const { controller, fakes } = makeController();
+    await expect(controller.feature(USER, req, ITEM_ID, 'abc')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(fakes.listFeatures).not.toHaveBeenCalled();
   });
 });
 
@@ -206,13 +225,13 @@ describe('collection shape', () => {
   it('a bare item id resolves the first layer', async () => {
     const { controller, fakes } = makeController();
     await controller.items(USER, req, ITEM_ID);
-    expect(fakes.listFeatures.mock.calls[0]![1]).toBe('parcels');
+    expect(fakes.readFeaturePage.mock.calls[0]![1]).toBe('parcels');
   });
 
   it('an explicit layer key resolves that layer', async () => {
     const { controller, fakes } = makeController();
     await controller.items(USER, req, `${ITEM_ID}__summary`);
-    expect(fakes.listFeatures.mock.calls[0]![1]).toBe('summary');
+    expect(fakes.readFeaturePage.mock.calls[0]![1]).toBe('summary');
   });
 
   it('an unknown layer key is a 404', async () => {

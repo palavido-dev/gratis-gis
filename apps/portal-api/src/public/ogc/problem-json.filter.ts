@@ -90,12 +90,25 @@ export class OgcProblemJsonFilter extends BaseExceptionFilter {
         title = statusTitle(status);
       }
     } else {
-      detail = exception instanceof Error ? exception.message : String(exception);
-      this.log.error(
-        `Unhandled exception on ${req.method} ${url}: ${detail}`,
-      );
+      // An unexpected error's message is internal: a Prisma raw query
+      // error carries its SQL and Postgres message, a connection
+      // error names the database host. This surface is anonymous, so
+      // it gets the same answer the portal surface gives: a fixed
+      // detail and a request id. The stack goes to the log.
+      const requestId = requestIdOf(req);
+      const path = url.split('?')[0];
+      const stack =
+        exception instanceof Error
+          ? (exception.stack ?? exception.message)
+          : String(exception);
+      this.log.error(`requestId=${requestId} ${req.method} ${path} ${stack}`);
+      detail = `Internal server error (request id ${requestId})`;
     }
 
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     const slug = slugForOgcError(status, detail);
     res
       .status(status)
@@ -105,8 +118,8 @@ export class OgcProblemJsonFilter extends BaseExceptionFilter {
         title,
         status,
         detail,
-      instance: url,
-    });
+        instance: url.split('?')[0],
+      });
   }
 
   /**
