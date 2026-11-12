@@ -3489,6 +3489,10 @@ function maybePortal(node: ReactNode, target: Element | null): ReactNode {
   return target ? createPortal(node, target) : node;
 }
 
+/** ODbL credit for OSM-derived results that carry no attribution
+ *  string of their own. */
+const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
+
 /** Live MapLibre previews the basemap gallery mounts at most. */
 const MAX_LIVE_BASEMAP_PREVIEWS = 8;
 
@@ -6630,11 +6634,10 @@ function ToolButtonRender({
   // re-runs the tool.
   const [osmOverlay, setOsmOverlay] = useState<{
     id: string;
-    /** MapLayer id pushed into every map's state by
-     *  pushOsmResultLayerToAllMaps. Used by the chip's dismiss
-     *  button to clean up both the layer entry AND the chip in
-     *  one click. */
-    layerId: string;
+    /** MapLayer ids pushed into every map's state for this result.
+     *  Used by the chip's dismiss button to clean up the layers AND
+     *  the chip in one click. */
+    layerIds: string[];
     features: OsmOverlayFeature[];
     attribution: string;
     featureCount: number;
@@ -6854,6 +6857,22 @@ function ToolButtonRender({
                     toolTitle: tool?.title ?? t('customRuntime.osm.defaultTitle'),
                     output: result.output,
                   });
+                  // These layers are OSM-derived too, and ODbL needs
+                  // the credit on any view that shows them, so the
+                  // same attribution chip is mounted for them.
+                  setOsmOverlay({
+                    id: `tool-${toolId}`,
+                    layerIds: [
+                      `osm-relational-anchor/${toolId}`,
+                      `osm-relational-supporting/${toolId}`,
+                      `osm-relational-buffers/${toolId}`,
+                      `osm-relational-bearings/${toolId}`,
+                    ],
+                    features: result.output.anchor.features as OsmOverlayFeature[],
+                    attribution: OSM_ATTRIBUTION,
+                    featureCount: result.output.anchor.features.length,
+                    truncated: false,
+                  });
                 } else if (result.output.kind === 'osm-features-overlay') {
                   // #141 wave B: push the result as a real MapLayer
                   // into every Map widget's state so the LayerList,
@@ -6862,6 +6881,11 @@ function ToolButtonRender({
                   // The attribution chip stays mounted alongside for
                   // the ODbL credit + Save-as-layer + result count;
                   // it no longer drives the rendering itself.
+                  // An empty run removes the previous run's layer, so
+                  // "No matches" is not shown above old results.
+                  if (ctx && result.output.features.length === 0) {
+                    removeLayerFromAllMaps(ctx, `osm-result/${toolId}`);
+                  }
                   if (ctx && result.output.features.length > 0) {
                     const newLayer = buildOsmResultLayer({
                       toolId,
@@ -6882,7 +6906,7 @@ function ToolButtonRender({
                     // inside the host MapData so dismiss can clean
                     // both up in one shot.
                     id: `tool-${toolId}`,
-                    layerId: `osm-result/${toolId}`,
+                    layerIds: [`osm-result/${toolId}`],
                     features: result.output.features as OsmOverlayFeature[],
                     attribution: result.output.attribution,
                     featureCount: result.output.featureCount,
@@ -6937,7 +6961,7 @@ function ToolButtonRender({
             // doesn't have to also delete it from the LayerList.
             // A LayerList delete still works for the manual path;
             // this is just the chip's one-click cleanup.
-            removeLayerFromAllMaps(ctx, osmOverlay.layerId);
+            for (const id of osmOverlay.layerIds) removeLayerFromAllMaps(ctx, id);
             setOsmOverlay(null);
           }}
         />
@@ -8332,7 +8356,13 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
       canvas.style.cursor = prev;
       clearMagicPreview(map);
     };
-  }, [map, active, cfg.mapWidgetId, ctx]);
+    // Only the map and the on/off state.  Everything else is read
+    // through refs.  The whole context used to be a dependency, and it
+    // changes on any map update (a layer toggle, a selection), which
+    // ran the cleanup: the pending preview vanished and a result still
+    // in flight was dropped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, active]);
 
   // Drop any pending preview when the tool turns off.
   useEffect(() => {
@@ -8548,8 +8578,12 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
   useEffect(() => {
     return () => {
       if (!map) return;
+      // The halo layer too: MapLibre refuses to remove a source a
+      // layer still uses, so leaving the halo kept the source alive
+      // and the next locate only ran setData, never re-adding the dot.
       try {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
+        if (map.getLayer(`${layerId}-halo`)) map.removeLayer(`${layerId}-halo`);
         if (map.getSource(sourceId)) map.removeSource(sourceId);
       } catch {
         /* map already torn down */
@@ -10004,6 +10038,13 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 
   function onSliderChange(newValue: number) {
+    // Far right is "now".  When the step does not divide the range,
+    // the last position lands short of maxDate (yesterday for a year
+    // in weekly steps), so it used to publish a past date instead.
+    if (newValue >= sliderMax) {
+      setAt(null);
+      return;
+    }
     const offsetDays = newValue * stepDays;
     const d = new Date(minMs);
     d.setDate(d.getDate() + offsetDays);
@@ -10087,7 +10128,13 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
           {playableCfg ? (
             <button
               type="button"
-              onClick={() => setPlaying((p) => !p)}
+              onClick={() => {
+                // Starting from the far right (live) restarts from
+                // the beginning; with endBehavior 'pause' the first
+                // tick otherwise saw the end and stopped at once.
+                if (!playing && sliderValue >= sliderMax) onSliderChange(0);
+                setPlaying((p) => !p);
+              }}
               className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               aria-label={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}
               title={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}
