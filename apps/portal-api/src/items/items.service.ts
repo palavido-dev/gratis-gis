@@ -39,7 +39,8 @@ import {
   type FeatureScope,
 } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
-import { itemBbox } from './item-bbox.js';
+import { bboxWriteForData, hasDerivedExtent, itemBbox } from './item-bbox.js';
+import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
 import {
   carryLayerSyncVersionsFrom,
   lockItemRow,
@@ -776,6 +777,10 @@ export class ItemsService {
     // deployment. Optional so unit tests can omit it; without it only
     // the deployment owner is notified.
     @Optional() private readonly authSync?: AuthSyncService,
+    // Recomputes the stored extent of a layer, map or editor after a
+    // data save, since that extent is not in the blob. Optional so
+    // unit tests can omit it.
+    @Optional() private readonly bboxRefresh?: ItemBboxRefreshService,
   ) {}
 
   private noteAudit(
@@ -2588,11 +2593,9 @@ export class ItemsService {
       }
     }
 
-    // Recompute the cached extent when the data blob changes; leave
-    // it untouched on metadata-only edits so we don't churn the
-    // index for no reason.
-    const nextBbox =
-      nextData !== undefined ? itemBbox(item.type, nextData) : null;
+    // The cached extent is rewritten from the data blob only when the
+    // blob changes (bboxWriteForData below); metadata-only edits leave
+    // it untouched so we don't churn the index for no reason.
     // A data_layer's per-layer syncVersion belongs to the server. The
     // client sends back whatever it last read, so writing its `data` as
     // is could move the cursor backwards and make sync clients skip
@@ -2647,7 +2650,7 @@ export class ItemsService {
           ...(input.orgGeoBoundaryId !== undefined && {
             orgGeoBoundaryId: input.orgGeoBoundaryId,
           }),
-          ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
+          ...(nextData !== undefined && bboxWriteForData(item.type, nextData)),
         },
       });
     // The precondition and the stale-read check run against the row
@@ -2674,6 +2677,12 @@ export class ItemsService {
       }
       return writeItem(tx);
     });
+    // A layer's or map's extent is not in its blob, so the save above
+    // left the stored bbox alone. Recompute it in the background in
+    // case the change moved it (a sublayer or a map layer removed).
+    if (nextData !== undefined && hasDerivedExtent(item.type)) {
+      this.bboxRefresh?.refreshItemBbox(id);
+    }
     if (input.access !== undefined && input.access !== item.access) {
       this.noteAudit(user, 'item.access', id, 'succeeded', {
         from: item.access,

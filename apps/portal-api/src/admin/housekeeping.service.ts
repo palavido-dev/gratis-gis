@@ -1508,7 +1508,19 @@ export class HousekeepingService {
       if (it.type === 'data_layer') {
         const layers = readV3Layers(it.data);
         if (layers !== null) {
-          next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          try {
+            next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          } catch (err) {
+            this.log.warn(
+              `recompute-extents: extent query failed for ${it.id}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+            // The extent query failed. Keep the stored bbox rather
+            // than blanking it; maps that reference this layer read
+            // the stored value from the row instead.
+            continue;
+          }
           // Same maintenance pass keeps per-layer featureCount
           // honest; this is also the backfill for items created
           // before the field was maintained (the QGIS plugin's

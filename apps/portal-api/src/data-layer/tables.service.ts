@@ -67,6 +67,11 @@ export class DataLayerTablesService {
    * extent: the caller stores that as `bbox = []` so the area
    * filter correctly excludes the item from "what's in this area?"
    * results until features land.
+   *
+   * A failed query throws instead of counting as "no features".
+   * Returning null on a timeout or a dropped connection made callers
+   * overwrite a good stored extent with `[]`, and the next write
+   * then reran the same full scan because nothing was stored.
    */
   async aggregateBbox(
     itemId: string,
@@ -80,52 +85,44 @@ export class DataLayerTablesService {
     for (const layer of layers) {
       if (layer.geometryType === null) continue;
       const scope = `data_layer:${itemId}:${layer.id}`;
-      try {
-        // Phase 2.4: aggregate over the engine's current-truth
-        // projection (latest observation per entity, not deleted)
-        // instead of the legacy fs_ table. After Phase 2.2 stopped
-        // populating fs_ tables, the old query returned stale data.
-        const rows = await this.prisma.$queryRawUnsafe<
-          Array<{
-            minx: number | null;
-            miny: number | null;
-            maxx: number | null;
-            maxy: number | null;
-          }>
-        >(
-          `SELECT
-             ST_XMin(ST_Extent(geom))::float8 AS minx,
-             ST_YMin(ST_Extent(geom))::float8 AS miny,
-             ST_XMax(ST_Extent(geom))::float8 AS maxx,
-             ST_YMax(ST_Extent(geom))::float8 AS maxy
-           FROM (
-             SELECT DISTINCT ON (entity) entity, geom, kind
-             FROM observation
-             WHERE scope = $1
-             ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
-           ) latest
-           WHERE kind <> 'delete' AND geom IS NOT NULL`,
-          scope,
-        );
-        const r = rows[0];
-        if (
-          r?.minx != null &&
-          r.miny != null &&
-          r.maxx != null &&
-          r.maxy != null
-        ) {
-          w = Math.min(w, r.minx);
-          s = Math.min(s, r.miny);
-          e = Math.max(e, r.maxx);
-          n = Math.max(n, r.maxy);
-          any = true;
-        }
-      } catch (err) {
-        this.log.debug(
-          `aggregateBbox: could not read scope ${scope}: ${
-            err instanceof Error ? err.message : err
-          }`,
-        );
+      // Phase 2.4: aggregate over the engine's current-truth
+      // projection (latest observation per entity, not deleted)
+      // instead of the legacy fs_ table. After Phase 2.2 stopped
+      // populating fs_ tables, the old query returned stale data.
+      const rows = await this.prisma.$queryRawUnsafe<
+        Array<{
+          minx: number | null;
+          miny: number | null;
+          maxx: number | null;
+          maxy: number | null;
+        }>
+      >(
+        `SELECT
+           ST_XMin(ST_Extent(geom))::float8 AS minx,
+           ST_YMin(ST_Extent(geom))::float8 AS miny,
+           ST_XMax(ST_Extent(geom))::float8 AS maxx,
+           ST_YMax(ST_Extent(geom))::float8 AS maxy
+         FROM (
+           SELECT DISTINCT ON (entity) entity, geom, kind
+           FROM observation
+           WHERE scope = $1
+           ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+         ) latest
+         WHERE kind <> 'delete' AND geom IS NOT NULL`,
+        scope,
+      );
+      const r = rows[0];
+      if (
+        r?.minx != null &&
+        r.miny != null &&
+        r.maxx != null &&
+        r.maxy != null
+      ) {
+        w = Math.min(w, r.minx);
+        s = Math.min(s, r.miny);
+        e = Math.max(e, r.maxx);
+        n = Math.max(n, r.maxy);
+        any = true;
       }
     }
     return any ? [w, s, e, n] : null;
