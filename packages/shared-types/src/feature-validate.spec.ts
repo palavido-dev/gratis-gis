@@ -325,3 +325,29 @@ describe('describeViolations', () => {
     expect(describeViolations(many)).toBe('m0 m1 m2 m3 m4 (and 2 more.)');
   });
 });
+
+describe('review fixes: numbers, dates and required lists', () => {
+  const fields = [
+    { name: 'n', type: 'number' },
+    { name: 'd', type: 'date' },
+    { name: 'tags', type: 'multi_select', nullable: false },
+  ] as never;
+
+  it('refuses hex, exponent and unsafe integer text for a number', () => {
+    for (const v of ['0x10', '0b11', '1e3', '12345678901234567890']) {
+      expect(validateFeatureProperties(fields, { n: v, tags: ['a'] }).ok).toBe(false);
+    }
+    expect(validateFeatureProperties(fields, { n: '12.5', tags: ['a'] }).value.n).toBe(12.5);
+  });
+
+  it('stores a non-ISO date in ISO form', () => {
+    const r = validateFeatureProperties(fields, { d: 'March 7, 2021 12:00:00 UTC', tags: ['a'] });
+    expect(r.value.d).toBe('2021-03-07T12:00:00.000Z');
+    expect(validateFeatureProperties(fields, { d: '2021-03-07', tags: ['a'] }).value.d).toBe('2021-03-07');
+  });
+
+  it('refuses an empty selection for a required list', () => {
+    expect(validateFeatureProperties(fields, { tags: [] }).ok).toBe(false);
+    expect(validateFeatureProperties(fields, { tags: ',' }).ok).toBe(false);
+  });
+});

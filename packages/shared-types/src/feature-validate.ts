@@ -217,8 +217,14 @@ function coerceValue(field: FeatureField, raw: unknown): CoerceOk | CoerceFail {
         return { ok: true, value: raw };
       }
       if (typeof raw === 'string') {
-        const n = Number(raw.trim());
-        if (raw.trim() !== '' && Number.isFinite(n)) {
+        // Plain decimal text only, and it must survive the conversion:
+        // Number() also reads "0x10" and "1e3", and silently rounds an
+        // integer past 2^53, which broke "never silently drop a value".
+        const t = raw.trim();
+        const n = Number(t);
+        const decimal = /^[+-]?(\d+\.?\d*|\.\d+)$/.test(t);
+        const exactInt = !/^[+-]?\d+$/.test(t) || Number.isSafeInteger(n);
+        if (decimal && Number.isFinite(n) && exactInt) {
           return { ok: true, value: n };
         }
         return {
@@ -270,7 +276,13 @@ function coerceValue(field: FeatureField, raw: unknown): CoerceOk | CoerceFail {
             message: `${label} is a date field; "${raw}" is not a date we can read.`,
           };
         }
-        return { ok: true, value: raw };
+        // Dates persist as ISO-8601 text, which filters and time bins
+        // compare as text. An ISO value is kept as written; anything
+        // else Date.parse reads ("3/7/2021") is stored in ISO form.
+        if (/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(raw.trim())) {
+          return { ok: true, value: raw.trim() };
+        }
+        return { ok: true, value: new Date(raw).toISOString() };
       }
       return {
         ok: false,
@@ -477,6 +489,20 @@ export function validateFeatureProperties(
     const coerced = coerceValue(field, raw);
     if (!coerced.ok) {
       violations.push({ field: field.name, code: coerced.code, message: coerced.message });
+      continue;
+    }
+    // A required list must hold something. `[]` is not "empty" above
+    // (an optional list keeps it), and "," only becomes [] here.
+    if (
+      field.nullable === false &&
+      Array.isArray(coerced.value) &&
+      coerced.value.length === 0
+    ) {
+      violations.push({
+        field: field.name,
+        code: 'required',
+        message: `${field.label?.trim() ? field.label : field.name} is required.`,
+      });
       continue;
     }
     value[field.name] = coerced.value;

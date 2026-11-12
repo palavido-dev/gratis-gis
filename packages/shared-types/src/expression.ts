@@ -6,7 +6,7 @@
  * Grammar (informally, with left-associative binary ops):
  *
  *   expr        := orExpr
- *   orExpr      := andExpr ( ('OR' | '||' (logical, not concat)) andExpr )*
+ *   orExpr      := andExpr ( 'OR' andExpr )*
  *   andExpr     := notExpr ( 'AND' notExpr )*
  *   notExpr     := 'NOT' notExpr
  *                | compareExpr
@@ -197,15 +197,18 @@ export function toSqlSafeFieldName(raw: string, used?: Set<string>): string {
     if (!base || (base.charCodeAt(0) >= 48 && base.charCodeAt(0) <= 57)) {
       base = `f_${base || 'field'}`;
     }
+    // A reserved word gets the prefix here. Checked after the safety
+    // test it never ran: a reserved name already fails that test and
+    // became plain "field".
+    if (RESERVED_SQL_SAFE_FIELD_NAMES.has(base.toLowerCase())) {
+      base = `f_${base}`;
+    }
     if (base.length > MAX_SQL_SAFE_FIELD_NAME_LENGTH) {
       base = base.slice(0, MAX_SQL_SAFE_FIELD_NAME_LENGTH);
     }
     if (!isSqlSafeFieldName(base)) {
       base = 'field';
     }
-  }
-  if (RESERVED_SQL_SAFE_FIELD_NAMES.has(base.toLowerCase())) {
-    base = `f_${base}`;
   }
   if (!used) return base;
   let candidate = base;
@@ -796,9 +799,12 @@ export function compileExpression(
           case '+':
           case '-':
           case '*':
+            return `(${l} ${e.op} ${r})`;
           case '/':
           case '%':
-            return `(${l} ${e.op} ${r})`;
+            // A zero divisor gives null, as the JS evaluator does. A bare
+            // divide raised in Postgres and failed the whole read.
+            return `(${l} ${e.op} NULLIF(${r}, 0))`;
         }
         // exhaustive switch above
         return '';
