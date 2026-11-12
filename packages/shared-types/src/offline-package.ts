@@ -126,7 +126,13 @@ export const OFFLINE_PACKAGE_DEFAULT_MAX_ZOOM = 14;
  * what is acceptable, rather than each holding its own opinion.
  */
 export function validateOfflineArea(area: OfflineArea): string | null {
-  if (!area.name.trim()) return 'Give the area a name.';
+  // Item saves do not check offlineAreas, so a stored area can be any
+  // shape. A missing name used to throw here and stop the refresh
+  // sweep for every deployment.
+  if (typeof area.name !== 'string' || !area.name.trim()) return 'Give the area a name.';
+  if (!Array.isArray(area.bbox) || area.bbox.length !== 4) {
+    return 'The area extent is not a valid set of coordinates.';
+  }
   const [w, s, e, n] = area.bbox;
   if (![w, s, e, n].every((v) => typeof v === 'number' && Number.isFinite(v))) {
     return 'The area extent is not a valid set of coordinates.';

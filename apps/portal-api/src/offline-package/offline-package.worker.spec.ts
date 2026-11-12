@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+jest.mock('./basemap-source.js', () => ({
+  isReachable: jest.fn(async () => true),
+  resolveBasemapSource: jest.fn(async () => 'https://tiles.example/planet.pmtiles'),
+}));
+
 import {
+  OfflinePackageWorker,
   parseRegionTiles,
   readAreas,
   redactUrls,
@@ -106,5 +112,72 @@ describe('readAreas', () => {
       ],
     });
     expect(areas.map((a) => a.id)).toEqual(['a1']);
+  });
+});
+
+describe('automatic refresh sweep', () => {
+  const day = 86_400_000;
+  const area = (over: Record<string, unknown> = {}) => ({
+    id: 'a1',
+    name: 'Town',
+    bbox: [0, 0, 0.1, 0.1],
+    minZoom: 0,
+    maxZoom: 12,
+    refreshDays: 1,
+    ...over,
+  });
+
+  function worker(items: unknown[], rows: unknown[]) {
+    const enqueue = jest.fn(async () => ({}));
+    const prisma = {
+      item: { findMany: jest.fn(async () => items) },
+      offlinePackage: { findMany: jest.fn(async () => rows) },
+    };
+    const packages = { itemsWithPackages: jest.fn(async () => ['i1', 'i2']), enqueue };
+    const w = new OfflinePackageWorker(prisma as never, {} as never, packages as never);
+    const sweep = () => (w as unknown as { queueDueRefreshes(): Promise<void> }).queueDueRefreshes();
+    return { sweep, enqueue };
+  }
+
+  const ready = (itemId: string, ageDays: number) => ({
+    itemId,
+    areaId: 'a1',
+    status: 'ready',
+    finishedAt: new Date(Date.now() - ageDays * day),
+    createdAt: new Date(Date.now() - ageDays * day - 1000),
+  });
+
+  it('does not requeue an area whose automatic rebuild failed after the ready package', async () => {
+    const { sweep, enqueue } = worker(
+      [{ id: 'i1', orgId: 'o', ownerId: 'u', data: { offlineAreas: [area()] } }],
+      [
+        { itemId: 'i1', areaId: 'a1', status: 'failed', finishedAt: new Date(), createdAt: new Date(Date.now() - 60_000) },
+        ready('i1', 3),
+      ],
+    );
+    await sweep();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('still refreshes an aged area with no newer failure', async () => {
+    const { sweep, enqueue } = worker(
+      [{ id: 'i1', orgId: 'o', ownerId: 'u', data: { offlineAreas: [area()] } }],
+      [ready('i1', 3)],
+    );
+    await sweep();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('a malformed area on one item does not stop the sweep for the next', async () => {
+    const { sweep, enqueue } = worker(
+      [
+        { id: 'i1', orgId: 'o', ownerId: 'u', data: { offlineAreas: [area({ name: undefined })] } },
+        { id: 'i2', orgId: 'o', ownerId: 'u', data: { offlineAreas: [area()] } },
+      ],
+      [ready('i1', 3), ready('i2', 3)],
+    );
+    await sweep();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect((enqueue.mock.calls[0] as unknown as [{ itemId: string }])[0].itemId).toBe('i2');
   });
 });
