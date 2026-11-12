@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -120,6 +120,17 @@ export class SystemSettingsService {
     };
     let encryptedSecret: string | null = existing?.encryptedSecret ?? null;
     let encryptedSecretIv: string | null = existing?.encryptedSecretIv ?? null;
+    // The stored password only goes with the server it was entered
+    // for. Otherwise an admin could point it at a host they run and
+    // read it off the AUTH exchange without ever seeing it.
+    if (
+      input.password === undefined &&
+      encryptedSecret !== null &&
+      existing &&
+      !sameSmtpTarget(existing.value as Partial<SmtpConfig>, input)
+    ) {
+      throw new BadRequestException(SMTP_PASSWORD_AGAIN);
+    }
     if (input.password !== undefined) {
       if (input.password.length === 0) {
         encryptedSecret = null;
@@ -192,6 +203,29 @@ export class SystemSettingsService {
       hasPassword: pass.length > 0,
     };
   }
+}
+
+export const SMTP_PASSWORD_AGAIN =
+  'Enter the SMTP password again when you change the server, port or user name.';
+
+/**
+ * Whether two SMTP configs point the password at the same place: the
+ * same host, port and user name. The stored password may be reused
+ * only then.
+ */
+export function sameSmtpTarget(
+  a: Partial<Pick<SmtpConfig, 'host' | 'port' | 'user'>> | null | undefined,
+  b: Partial<Pick<SmtpConfig, 'host' | 'port' | 'user'>>,
+): boolean {
+  if (!a) return false;
+  const host = (v: unknown) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+  const user = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  return (
+    host(a.host) !== '' &&
+    host(a.host) === host(b.host) &&
+    Number(a.port) === Number(b.port) &&
+    user(a.user) === user(b.user)
+  );
 }
 
 function parseSmtpRow(
