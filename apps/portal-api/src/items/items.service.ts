@@ -43,6 +43,7 @@ import { bboxWriteForData, hasDerivedExtent, itemBbox } from './item-bbox.js';
 import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
 import {
   carryLayerSyncVersionsFrom,
+  carryMapDrawingsFrom,
   lockItemRow,
   withLockedItem,
 } from './item-data-lock.js';
@@ -695,56 +696,6 @@ function sanitizeAttributionInData(data: unknown, depth = 0): unknown {
     next[key] = cleaned;
   }
   return changed ? next : data;
-}
-
-/**
- * Keep anonymous markup ownership across a full map Save.
- * Clients never round-trip `anonymousAuthorToken` (API strips it);
- * reattach the previous token when the same drawing id comes back
- * without one. Also keep `allowAnonymousDrawings` if the client
- * omitted the key entirely.
- */
-function preserveMapAnonDrawingFields(
-  prev: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...incoming };
-  if (
-    typeof prev.allowAnonymousDrawings === 'boolean' &&
-    typeof merged.allowAnonymousDrawings !== 'boolean'
-  ) {
-    merged.allowAnonymousDrawings = prev.allowAnonymousDrawings;
-  }
-  const prevDrawings = Array.isArray(prev.drawings) ? prev.drawings : null;
-  const nextDrawings = Array.isArray(merged.drawings) ? merged.drawings : null;
-  if (!prevDrawings || !nextDrawings) return merged;
-  const prevById = new Map<string, Record<string, unknown>>();
-  for (const raw of prevDrawings) {
-    if (!raw || typeof raw !== 'object') continue;
-    const row = raw as Record<string, unknown>;
-    if (typeof row.id === 'string') prevById.set(row.id, row);
-  }
-  let changed = false;
-  const restored = nextDrawings.map((raw) => {
-    if (!raw || typeof raw !== 'object') return raw;
-    const row = raw as Record<string, unknown>;
-    if (typeof row.id !== 'string') return raw;
-    if (
-      typeof row.anonymousAuthorToken === 'string' &&
-      row.anonymousAuthorToken.length > 0
-    ) {
-      return raw;
-    }
-    const prior = prevById.get(row.id);
-    const priorToken = prior?.anonymousAuthorToken;
-    if (typeof priorToken !== 'string' || priorToken.length === 0) {
-      return raw;
-    }
-    changed = true;
-    return { ...row, anonymousAuthorToken: priorToken };
-  });
-  if (changed) merged.drawings = restored;
-  return merged;
 }
 
 /**
@@ -2521,19 +2472,6 @@ export class ItemsService {
       assertFormPatternsCompile(nextData);
     }
 
-    // #154 / R3-anonymous-markup: map Save sends the full MapData
-    // from the browser, which never sees anonymousAuthorToken
-    // (stripped from drawings API responses). Without this merge a
-    // routine Save would wipe ownership tokens and leave only the
-    // weaker authorDisplay fallback. Also preserve
-    // allowAnonymousDrawings when the client omitted it.
-    if (input.data !== undefined && item.type === 'map') {
-      nextData = preserveMapAnonDrawingFields(
-        (item.data ?? {}) as Record<string, unknown>,
-        (nextData ?? {}) as Record<string, unknown>,
-      ) as Prisma.InputJsonValue;
-    }
-
     // Round-trip footgun normalizer: any bare-MinIO URL pointing at
     // a private-prefix object (`item-file`, `item-tile-layer`,
     // `feature-attachment`) inside data_json gets rewritten to the
@@ -2674,6 +2612,12 @@ export class ItemsService {
       }
       if (item.type === 'data_layer' && nextData !== undefined) {
         nextData = carryLayerSyncVersionsFrom(locked.data, nextData);
+      }
+      // #154: markup belongs to the drawings routes. A map Save keeps
+      // the stored sets (and their anonymous ownership tokens, which
+      // the browser never sees) instead of the browser's copy.
+      if (item.type === 'map' && nextData !== undefined) {
+        nextData = carryMapDrawingsFrom(locked.data, nextData);
       }
       return writeItem(tx);
     });

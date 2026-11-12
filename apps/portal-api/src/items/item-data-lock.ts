@@ -94,3 +94,26 @@ export function carryLayerSyncVersionsFrom(
   );
   return { ...(next as object), layers } as Prisma.InputJsonValue;
 }
+
+/**
+ * A map's markup (`drawings`) and its `allowAnonymousDrawings` flag
+ * have their own write routes, which take the row lock. A map Save
+ * sends the whole MapData from the browser, whose copy of the markup
+ * can be stale, so writing it as is would drop sets other people
+ * added since the editor loaded the map, or bring back ones they
+ * deleted. Both keys always keep the stored value.
+ */
+export function carryMapDrawingsFrom(
+  currentData: unknown,
+  next: Prisma.InputJsonValue,
+): Prisma.InputJsonValue {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return next;
+  const current = (currentData ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...(next as Record<string, unknown>) };
+  for (const key of ['drawings', 'allowAnonymousDrawings']) {
+    if (current[key] === undefined) delete out[key];
+    else out[key] = current[key];
+  }
+  return out as Prisma.InputJsonValue;
+}
+
