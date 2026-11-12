@@ -500,7 +500,7 @@ def build_realm(values: dict[str, str]) -> dict:
 # security policy from portal-web.
 LAN_SECURITY_HEADERS = """\theader {
 \t\tX-Content-Type-Options nosniff
-\t\tX-Frame-Options DENY
+\t\tX-Frame-Options SAMEORIGIN
 \t\tReferrer-Policy strict-origin-when-cross-origin
 \t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
 \t\t-Server
@@ -632,7 +632,7 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	}}
 	header {{
 		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
+		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
 		-Server

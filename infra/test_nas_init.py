@@ -43,7 +43,7 @@ class NasInitTests(unittest.TestCase):
     def test_lan_caddy_has_security_headers_and_no_hsts(self):
         caddy = self.mod.caddy_lan("8080", "")
         self.assertIn("X-Content-Type-Options nosniff", caddy)
-        self.assertIn("X-Frame-Options DENY", caddy)
+        self.assertIn("X-Frame-Options SAMEORIGIN", caddy)
         self.assertNotIn("Strict-Transport-Security", caddy)
         self.assertIn("auto_https off", caddy)
         self.assertIn("/auth/realms/master", caddy)

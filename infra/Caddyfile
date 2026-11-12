@@ -9,11 +9,11 @@
 #                              also hit /api/* paths under the same
 #                              hostname, which Next.js forwards via
 #                              its server actions / route handlers.
-#                              ...except: NestJS sets a global /api
-#                              prefix and lives on its own port, so
-#                              we also route /api/* to portal-api:4000
-#                              directly. portal-web does NOT proxy
-#                              browser-side calls.
+#                              NestJS sets a global /api prefix and
+#                              lives on its own port, so /api/* goes
+#                              to portal-api:4000 directly, except
+#                              /api/portal/* and the other routes the
+#                              portal-web BFF serves (see below).
 #   - {$AUTH_DOMAIN}        -> keycloak:8080
 #                              Keycloak handles its own routing under
 #                              /realms, /admin, /resources, etc.
@@ -189,8 +189,11 @@ www.{$PORTAL_DOMAIN} {
     @nextStatic path /_next/static/*
     header @nextStatic Cache-Control "public, max-age=31536000, immutable"
 
-    # Light security headers. CSP is intentionally absent; Next + Map
-    # tile loads make a strict CSP a separate project.
+    # Light security headers. The page CSP is sent by portal-web
+    # itself (apps/portal-web/src/lib/content-security-policy.mjs), so
+    # keep the two in step. Its frame-ancestors is 'self', and browsers
+    # that know frame-ancestors ignore X-Frame-Options, so the edge
+    # says SAMEORIGIN to match rather than a DENY nothing enforced.
     #
     # HSTS: Caddy does NOT automatically add Strict-Transport-Security
     # in v2 despite a stale community-help thread that says it does;
@@ -201,7 +204,7 @@ www.{$PORTAL_DOMAIN} {
     # been stable long enough.
     header {
         X-Content-Type-Options nosniff
-        X-Frame-Options DENY
+        X-Frame-Options SAMEORIGIN
         Referrer-Policy strict-origin-when-cross-origin
         Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
         # Permissions-Policy: deny access to APIs the portal doesn't
