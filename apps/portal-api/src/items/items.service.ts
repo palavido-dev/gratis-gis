@@ -1239,12 +1239,12 @@ export class ItemsService {
    * surface or restore someone else's deleted content. Owner-only
    * matches what users expect from a "my recycle bin" metaphor.
    */
-  listTrash(user: AuthUser) {
+  async listTrash(user: AuthUser) {
     const where: Prisma.ItemWhereInput =
       user.orgRole === 'admin'
         ? { orgId: user.orgId, deletedAt: { not: null } }
         : { ownerId: user.id, deletedAt: { not: null } };
-    return this.prisma.item.findMany({
+    const rows = await this.prisma.item.findMany({
       where,
       orderBy: { deletedAt: 'desc' },
       // Same lean owner projection as the live list and the detail
@@ -1265,6 +1265,9 @@ export class ItemsService {
         },
       },
     });
+    // An org admin's trash shows other people's items: redact like
+    // every other list.
+    return rows.map((r) => this.redactRow(user, r));
   }
 
   async get(user: AuthUser, id: string, opts: { includeTrashed?: boolean } = {}) {
@@ -4215,7 +4218,9 @@ export class ItemsService {
         (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
         (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
     );
-    return rows;
+    // Same redaction as list() and get(): a folder is just another way
+    // to reach these rows and must not show more than either does.
+    return rows.map((r) => this.redactRow(user, r));
   }
 
   /**
