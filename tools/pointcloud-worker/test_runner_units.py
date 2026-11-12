@@ -128,10 +128,11 @@ def test_reclaim_abandoned_scratch():
             (scratch / "job-dead").mkdir()
             (scratch / "copc-dead2").mkdir()
             (scratch / "mosaic-dead3").mkdir()
+            (scratch / "colorize-dead4").mkdir()
             (scratch / "unrelated").mkdir()
             removed = runner.reclaim_abandoned_scratch(Conn())
             left = sorted(p.name for p in scratch.iterdir())
-            assert removed == 3, removed
+            assert removed == 4, removed
             assert left == ["job-alive", "unrelated"], left
         finally:
             runner.SCRATCH = old
@@ -439,6 +440,196 @@ def test_source_keys_are_pinned_to_the_layer_prefix():
         assert raised, bad
 
 
+class _ReadConn:
+    """Connection double for a single read: counts commits."""
+
+    def __init__(self, row):
+        self.row = row
+        self.commits = 0
+
+    def cursor(self):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                pass
+
+            def fetchone(self):
+                return conn.row
+
+        return Cursor()
+
+    def commit(self):
+        self.commits += 1
+
+
+def test_reads_do_not_leave_a_transaction_open():
+    conn = _ReadConn(({"storageKey": "k"},))
+    assert runner.item_data(conn, "item") == {"storageKey": "k"}
+    assert conn.commits == 1
+    conn = _ReadConn((1,))
+    assert runner.owns_job(conn, "job", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is True
+    assert conn.commits == 1
+
+
+def test_mercator_ground_scale():
+    import math
+    # At 39 N one ground meter is about 1.287 mercator units.
+    assert abs(runner.mercator_units_per_meter(39) - 1 / math.cos(math.radians(39))) < 1e-12
+    y = 6378137.0 * math.log(math.tan(math.pi / 4 + math.radians(39) / 2))
+    assert abs(runner.mercator_y_to_lat(y) - 39) < 1e-9
+    assert runner.mercator_units_per_meter(0) == 1.0
+
+
+def test_zonal_cell_cap():
+    assert runner.zonal_too_large(10000, 10000) is True
+    assert runner.zonal_too_large(4000, 4000) is False
+
+
+def test_plan_grid_chunks_refuses_before_building():
+    try:
+        runner.plan_grid_chunks(0, 0, 1e7, 1e7, 0.25, 4_000_000, 16)
+    except RuntimeError as err:
+        assert "gridding passes" in str(err)
+    else:
+        raise AssertionError("expected a refusal")
+
+
+def test_tool_beat_stops_on_lost_lease_and_closed_connection():
+    sys.modules["psycopg2"].Error = RuntimeError
+
+    class C:
+        closed = 0
+        rolled = 0
+
+        def rollback(self):
+            self.rolled += 1
+
+    orig = runner.set_progress
+    try:
+        runner.set_progress = lambda *a: (_ for _ in ()).throw(runner.JobLost())
+        try:
+            runner.tool_beat(C(), "j", None)
+        except runner.JobLost:
+            pass
+        else:
+            raise AssertionError("JobLost must stop the tool")
+
+        runner.set_progress = lambda *a: (_ for _ in ()).throw(ValueError("blip"))
+        c = C()
+        runner.tool_beat(c, "j", None)  # a blip on a live connection is survived
+        assert c.rolled == 1
+        c.closed = 1
+        try:
+            runner.tool_beat(c, "j", None)
+        except RuntimeError as err:
+            assert "database connection" in str(err)
+        else:
+            raise AssertionError("a closed connection must stop the tool")
+    finally:
+        runner.set_progress = orig
+
+
+def test_failure_stamp_keeps_a_handler_message():
+    calls = []
+
+    class C:
+        def rollback(self):
+            pass
+
+    orig_get, orig_merge = runner.item_data, runner.merge_item_data
+    try:
+        runner.merge_item_data = lambda conn, item, patch: calls.append(patch)
+        runner.item_data = lambda conn, item: {
+            "processingState": "failed",
+            "processingError": "This cloud has no color to borrow.",
+        }
+        runner.stamp_target_failed(C(), {"kind": "hillshade", "target_item_id": "t"}, "raw gdal error")
+        assert calls == [], calls
+        runner.item_data = lambda conn, item: {"processingState": "running"}
+        runner.stamp_target_failed(C(), {"kind": "hillshade", "target_item_id": "t"}, "raw gdal error")
+        assert calls and calls[0]["processingError"] == "raw gdal error"
+    finally:
+        runner.item_data, runner.merge_item_data = orig_get, orig_merge
+
+
+def test_non_metric_crs_is_refused():
+    utm = (
+        'PROJCS["WGS 84 / UTM zone 11N",GEOGCS["WGS 84",DATUM["WGS_1984",'
+        'SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],'
+        'UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],'
+        'PARAMETER["scale_factor",0.9996],UNIT["metre",1]]'
+    )
+    assert runner.non_metric_crs_reason(utm) is None
+    assert runner.non_metric_crs_reason("") is None
+    ftus = utm.replace('UNIT["metre",1]', 'UNIT["US survey foot",0.304800609601219]')
+    assert "US survey foot" in runner.non_metric_crs_reason(ftus)
+    vert_ft = (
+        'COMPD_CS["x",' + utm + ',VERT_CS["NAVD88",VERT_DATUM["NAVD88",2005],'
+        'UNIT["foot",0.3048]]]'
+    )
+    assert "foot" in runner.non_metric_crs_reason(vert_ft)
+    geo = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257]],UNIT["degree",0.0174532925199433]]'
+    assert "geographic" in runner.non_metric_crs_reason(geo)
+    wkt2 = (
+        'PROJCRS["NAD83 / California zone 6 (ftUS)",BASEGEOGCRS["NAD83",'
+        'ELLIPSOID["GRS 1980",6378137,298.257222101,LENGTHUNIT["metre",1]],'
+        'ANGLEUNIT["degree",0.0174532925199433]],CONVERSION["x",'
+        'PARAMETER["Scale",1,SCALEUNIT["unity",1]]],'
+        'CS[Cartesian,2],LENGTHUNIT["US survey foot",0.304800609601219]]'
+    )
+    assert "US survey foot" in runner.non_metric_crs_reason(wkt2)
+    try:
+        runner.metric_cloud_bounds(
+            {"bounds": [0, 0, 0, 1, 1, 1], "crsWkt": ftus}, None, None, "j"
+        )
+    except RuntimeError as err:
+        assert "meters" in str(err)
+    else:
+        raise AssertionError("a cloud in feet must be refused")
+    assert runner.metric_cloud_bounds(
+        {"bounds": [0, 0, 0, 1, 1, 1], "crsWkt": utm}, None, None, "j"
+    ) == [0, 0, 0, 1, 1, 1]
+
+
+def test_grid_vrt_spans_the_planned_extent():
+    import tempfile as _tf
+    from pathlib import Path as _P
+
+    calls = []
+    orig = (runner.run, runner.run_long, runner.plan_grid_chunks)
+    chunks = [
+        {"core": (0.0, 0.0, 10.0, 10.0), "buffered": (0.0, 0.0, 10.0, 10.0)},
+        {"core": (10.0, 0.0, 20.0, 10.0), "buffered": (10.0, 0.0, 20.0, 10.0)},
+    ]
+    try:
+        runner.plan_grid_chunks = lambda *a, **k: chunks
+        state = {"n": 0}
+
+        def fake_long(cmd, *a, **k):
+            state["n"] += 1
+            if state["n"] == 2:
+                raise RuntimeError(runner._EMPTY_CHUNK_MARKERS[0])
+
+        runner.run_long = fake_long
+        runner.run = lambda cmd, *a, **k: calls.append(cmd)
+        with _tf.TemporaryDirectory() as d:
+            runner.grid_chunked(
+                _P(d) / "c.laz", _P(d), "dtm", 1.0, [0, 0, 0, 20, 10, 5],
+                True, "idw", None, "j", 0, 10,
+            )
+        vrt = [c for c in calls if c[0] == "gdalbuildvrt"][0]
+        assert vrt[1:6] == ["-te", "0.0", "0.0", "20.0", "10.0"], vrt
+    finally:
+        runner.run, runner.run_long, runner.plan_grid_chunks = orig
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -455,4 +646,12 @@ if __name__ == "__main__":
     test_failed_job_stamps_its_husk_item()
     test_cancelled_job_stamps_its_husk_item()
     test_source_keys_are_pinned_to_the_layer_prefix()
+    test_reads_do_not_leave_a_transaction_open()
+    test_mercator_ground_scale()
+    test_zonal_cell_cap()
+    test_plan_grid_chunks_refuses_before_building()
+    test_tool_beat_stops_on_lost_lease_and_closed_connection()
+    test_failure_stamp_keeps_a_handler_message()
+    test_non_metric_crs_is_refused()
+    test_grid_vrt_spans_the_planned_extent()
     print("test_runner_units: all assertions passed")

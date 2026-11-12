@@ -1244,12 +1244,12 @@ export type Response = Record<string, unknown>;
  * for tests / designer validation).
  */
 export function evaluate(expr: Expression | undefined, response: Response): unknown {
-  if (!expr) return null;
+  if (!expr || typeof expr !== 'object') return null;
   switch (expr.op) {
     case 'eq':
-      return resolve(expr.left, response) === resolve(expr.right, response);
+      return looseEqual(resolve(expr.left, response), resolve(expr.right, response));
     case 'neq':
-      return resolve(expr.left, response) !== resolve(expr.right, response);
+      return !looseEqual(resolve(expr.left, response), resolve(expr.right, response));
     case 'gt':
       return cmp(expr.left, expr.right, response) > 0;
     case 'gte':
@@ -1259,9 +1259,13 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
     case 'lte':
       return cmp(expr.left, expr.right, response) <= 0;
     case 'and':
-      return expr.operands.every((e) => Boolean(evaluate(e, response)));
+      return (Array.isArray(expr.operands) ? expr.operands : []).every((e) =>
+        Boolean(evaluate(e, response)),
+      );
     case 'or':
-      return expr.operands.some((e) => Boolean(evaluate(e, response)));
+      return (Array.isArray(expr.operands) ? expr.operands : []).some((e) =>
+        Boolean(evaluate(e, response)),
+      );
     case 'not':
       return !evaluate(expr.operand, response);
     case 'in': {
@@ -1318,7 +1322,7 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
       return null;
     }
     case 'concat':
-      return expr.operands
+      return (Array.isArray(expr.operands) ? expr.operands : [])
         .map((o) => {
           const v = resolve(o, response);
           return v === null || v === undefined ? '' : String(v);
@@ -1332,10 +1336,15 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
 }
 
 function resolve(operand: Operand, response: Response): unknown {
+  // Saved forms are not shape-checked, and a missing or non-object
+  // operand used to throw (a 500 on submit, a crash in render). It
+  // reads as no value instead.
+  if (!operand || typeof operand !== 'object') return null;
   if ('value' in operand) return operand.value;
   if ('ref' in operand) return response[operand.ref] ?? null;
+  if (!('call' in operand)) return null;
   // builtin call
-  return callBuiltin(operand.call, operand.args ?? [], response);
+  return callBuiltin(operand.call, Array.isArray(operand.args) ? operand.args : [], response);
 }
 
 function numericResolve(operand: Operand, response: Response): number | null {
@@ -1348,13 +1357,97 @@ function numericResolve(operand: Operand, response: Response): number | null {
   return null;
 }
 
+/**
+ * The lower-case scheme of an absolute URL, or null when `value` is
+ * not one: a scheme, a colon, no whitespace, and for a `scheme://`
+ * form a non-empty host.
+ */
+function urlScheme(value: string): string | null {
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):(\S+)$/.exec(value.trim());
+  if (!m) return null;
+  const rest = m[2]!;
+  if (rest.startsWith('//')) {
+    const host = rest.slice(2).split(/[/?#]/, 1)[0] ?? '';
+    const bare = host.replace(/^[^@]*@/, '').replace(/:\d*$/, '');
+    if (bare === '') return null;
+  }
+  return m[1]!.toLowerCase();
+}
+
+/** An attachment answer: captured inline (`dataUrl`) or uploaded (`url`). */
+function hasMediaSource(v: object): boolean {
+  return (
+    typeof (v as { dataUrl?: unknown }).dataUrl === 'string' ||
+    typeof (v as { url?: unknown }).url === 'string'
+  );
+}
+
+/**
+ * The designer stores numeric-looking literals as numbers ("2" -> 2,
+ * "true" -> true), while select and text answers are strings. Strict
+ * equality therefore never matched `rating eq 2` for choice "2". A
+ * number or boolean against a string compares by value.
+ */
+function asNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function looseEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a === 'number' && typeof b === 'string') return asNumber(b) === a;
+  if (typeof b === 'number' && typeof a === 'string') return asNumber(a) === b;
+  if (typeof a === 'boolean' && typeof b === 'string') return String(a) === b;
+  if (typeof b === 'boolean' && typeof a === 'string') return String(b) === a;
+  return false;
+}
+
 function cmp(left: Operand, right: Operand, response: Response): number {
   const a = resolve(left, response);
   const b = resolve(right, response);
   if (typeof a === 'number' && typeof b === 'number') return a - b;
+  // One side a number: compare numerically when the other side reads
+  // as one ("100" gt 18 was false as text).
+  if (typeof a === 'number' || typeof b === 'number') {
+    const na = asNumber(a);
+    const nb = asNumber(b);
+    if (na !== null && nb !== null) return na - nb;
+  }
   // String compare for everything else (dates compare correctly as
   // ISO strings).
   return String(a ?? '').localeCompare(String(b ?? ''));
+}
+
+/**
+ * The moment `today` and `now` mean, and the respondent's offset from
+ * UTC in minutes. Unset, they read this process's clock and time zone,
+ * which is right in the browser or on the phone while the respondent
+ * fills the form. The server re-validates at upload time, possibly
+ * days later and in UTC, so it sets the capture time and offset with
+ * withEvaluationClock; otherwise a valid "not before today" answer
+ * failed there.
+ */
+export interface EvaluationClock {
+  now: Date;
+  /** Minutes east of UTC (the negation of getTimezoneOffset()). */
+  utcOffsetMinutes?: number;
+}
+
+let evaluationClock: EvaluationClock | null = null;
+
+/** Run `fn` with `today` and `now` pinned to `clock`. Synchronous. */
+export function withEvaluationClock<T>(clock: EvaluationClock | null, fn: () => T): T {
+  const previous = evaluationClock;
+  evaluationClock = clock;
+  try {
+    return fn();
+  } finally {
+    evaluationClock = previous;
+  }
 }
 
 function callBuiltin(
@@ -1364,14 +1457,22 @@ function callBuiltin(
 ): unknown {
   switch (name) {
     case 'today': {
-      const d = new Date();
+      const clock = evaluationClock;
+      if (clock && typeof clock.utcOffsetMinutes === 'number') {
+        const d = new Date(clock.now.getTime() + clock.utcOffsetMinutes * 60_000);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      const d = clock ? clock.now : new Date();
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
     }
     case 'now':
-      return new Date().toISOString();
+      return (evaluationClock ? evaluationClock.now : new Date()).toISOString();
     case 'len': {
       const v = args[0] ? resolve(args[0], response) : null;
       if (typeof v === 'string') return v.length;
@@ -1517,35 +1618,6 @@ export function findQuestion(
   return undefined;
 }
 
-/**
- * Compatible question types per data_layer column type. The Field
- * runtime uses this to filter the palette when binding to an
- * existing layer column. Returns the empty set if the column type
- * is unknown to us.
- */
-export function compatibleQuestionTypes(
-  columnType: string,
-): readonly QuestionType[] {
-  const t = columnType.toLowerCase();
-  if (/text|varchar|char/.test(t)) return ['text', 'multiline', 'select-one'];
-  if (/int|smallint|bigint/.test(t)) return ['integer', 'rating', 'slider', 'select-one'];
-  if (/numeric|float|double|real|decimal/.test(t)) {
-    return ['number', 'slider'];
-  }
-  if (/bool/.test(t)) return ['boolean'];
-  if (t.includes('date') && t.includes('time')) return ['datetime'];
-  if (t.includes('time')) return ['time'];
-  if (t.includes('date')) return ['date'];
-  if (/geometry|geography|point/.test(t)) {
-    if (/point/.test(t)) return ['geopoint'];
-    if (/line/.test(t)) return ['geotrace'];
-    if (/polygon/.test(t)) return ['geoshape'];
-    return ['geopoint', 'geotrace', 'geoshape'];
-  }
-  if (/json/.test(t)) return ['select-many', 'multiline'];
-  return [];
-}
-
 // ---------------------------------------------------------------------------
 // Validator
 // ---------------------------------------------------------------------------
@@ -1667,13 +1739,24 @@ function validateQuestionList(
         continue;
       }
       // Non-repeat group: children write at the current level's
-      // keys (#288), so recurse with the same context and path.
+      // keys (#288), so recurse with the same context and path. A
+      // hidden group hides its children (the renderer skips it), so
+      // they are not checked: a required question inside it blocked
+      // the submit with an error about a field nobody could see.
+      if (!isVisible(q, response)) continue;
       validateQuestionList(q.children, response, pathPrefix, errors);
       continue;
     }
     if (!isVisible(q, response)) continue;
 
     const value = response[q.id];
+    // An unticked acknowledge box is no answer, the same as an
+    // untouched one. Before, ticking then unticking blocked the form
+    // while never touching it let it through.
+    const empty =
+      q.type === 'acknowledge'
+        ? !(value && typeof value === 'object' && (value as { acknowledged?: unknown }).acknowledged === true)
+        : isEmpty(value);
     // A question nothing can answer cannot be required. Enforcing it
     // does not protect the data, it just refuses the submission
     // forever: there is no control on screen to satisfy the rule with,
@@ -1681,7 +1764,7 @@ function validateQuestionList(
     // exist. Everything else about the question still validates.
     if (
       isRequired(q, response) &&
-      isEmpty(value) &&
+      empty &&
       !isUncapturable(q.type)
     ) {
       errors.push({
@@ -1696,7 +1779,7 @@ function validateQuestionList(
       !(q.type === 'matrix-single' && q.perRowRequired) &&
       !(q.type === 'matrix-multi' && q.perRowMinSelected) &&
       !(q.type === 'matrix-rating' && q.perRowRequired);
-    if (isEmpty(value) && skipIfEmpty) continue;
+    if (empty && skipIfEmpty) continue;
 
     const typeError = validateType(q, value);
     if (typeError) {
@@ -1830,14 +1913,13 @@ function validateType(q: Question, value: unknown): string | null {
       if (q.maxLength && value.length > q.maxLength) {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
-      let parsed: URL | null = null;
-      try {
-        parsed = new URL(value);
-      } catch {
-        return 'Enter a valid URL.';
-      }
+      // A pure check, not `new URL`: URL is a platform global that the
+      // field engine's QuickJS host does not have, so every value
+      // failed on the phone while the web and the server accepted it.
+      const scheme = urlScheme(value);
+      if (scheme === null) return 'Enter a valid URL.';
       if (q.allowedProtocols && q.allowedProtocols.length > 0) {
-        const proto = parsed.protocol.replace(/:$/, '');
+        const proto = scheme;
         if (!q.allowedProtocols.includes(proto)) {
           return `URL must use ${q.allowedProtocols.join(' or ')}.`;
         }
@@ -1882,9 +1964,20 @@ function validateType(q: Question, value: unknown): string | null {
       return null;
     case 'select-one':
       if (typeof value !== 'string') return 'Pick one option.';
+      // Membership only for inline choices; a pick list is resolved
+      // at runtime and is not in the schema.
+      if (!q.pickListId && Array.isArray(q.choices) && q.choices.length > 0) {
+        if (!q.choices.some((c) => c.value === value)) return 'Pick one of the options.';
+      }
       return null;
     case 'select-many': {
       if (!Array.isArray(value)) return 'Pick from the options.';
+      if (!q.pickListId && Array.isArray(q.choices) && q.choices.length > 0) {
+        const allowed = new Set(q.choices.map((c) => c.value));
+        if (value.some((v) => typeof v !== 'string' || !allowed.has(v))) {
+          return 'Pick from the options.';
+        }
+      }
       if (q.minSelected !== undefined && value.length < q.minSelected) {
         return `Pick at least ${q.minSelected}.`;
       }
@@ -2021,16 +2114,36 @@ function validateType(q: Question, value: unknown): string | null {
       return null;
     }
     case 'date':
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return 'Expected a date (YYYY-MM-DD).';
+      }
+      return null;
     case 'time':
+      if (typeof value !== 'string' || !/^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) {
+        return 'Expected a time (HH:MM).';
+      }
+      return null;
     case 'datetime':
-      if (typeof value !== 'string') return 'Expected a valid value.';
+      if (
+        typeof value !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ||
+        Number.isNaN(Date.parse(value))
+      ) {
+        return 'Expected a date and time.';
+      }
       return null;
     case 'name': {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return 'Expected a name object.';
       }
       const map = value as Record<string, unknown>;
-      const reqd = q.requiredComponents ?? (q.required ? ['first', 'last'] : []);
+      // Default to the shown components only: a hidden Last name was
+      // demanded with no input on screen. A rule-based `required` is
+      // checked by the caller; only a plain `true` implies parts here.
+      const shown = (q.components ?? ['first', 'last']).filter(
+        (c) => c === 'first' || c === 'last',
+      );
+      const reqd = q.requiredComponents ?? (q.required === true ? shown : []);
       for (const c of reqd) {
         const v = map[c];
         if (typeof v !== 'string' || v.trim() === '') {
@@ -2081,10 +2194,12 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} ${kindLabel}s allowed.`;
       }
       for (const v of value) {
+        // An uploaded entry carries `url` (and the storage key), not
+        // `dataUrl`; accept either, as the signature branch does.
         if (
           typeof v !== 'object' ||
           v === null ||
-          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string' ||
+          !hasMediaSource(v) ||
           typeof (v as { mimeType?: unknown }).mimeType !== 'string'
         ) {
           return `${kindLabel} entry has an unexpected shape.`;
@@ -2109,7 +2224,7 @@ function validateType(q: Question, value: unknown): string | null {
           typeof v !== 'object' ||
           v === null ||
           typeof (v as { name?: unknown }).name !== 'string' ||
-          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string'
+          !hasMediaSource(v)
         ) {
           return 'File entry has an unexpected shape.';
         }
@@ -2199,11 +2314,36 @@ function validateType(q: Question, value: unknown): string | null {
       }
       return 'Expected a signature image.';
     }
-    case 'geopoint':
+    case 'geopoint': {
+      const p = value as { lat?: unknown; lng?: unknown };
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        typeof p.lat !== 'number' ||
+        typeof p.lng !== 'number' ||
+        !Number.isFinite(p.lat) ||
+        !Number.isFinite(p.lng) ||
+        Math.abs(p.lat) > 90 ||
+        Math.abs(p.lng) > 180
+      ) {
+        return 'Expected a location.';
+      }
+      return null;
+    }
+    case 'rating': {
+      const max = q.max ?? 5;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > max) {
+        return `Expected a rating from 1 to ${max}.`;
+      }
+      return null;
+    }
+    case 'slider':
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < q.min || value > q.max) {
+        return `Expected a number from ${q.min} to ${q.max}.`;
+      }
+      return null;
     case 'geotrace':
     case 'geoshape':
-    case 'rating':
-    case 'slider':
     case 'calculated':
       return null;
     case 'pick-feature': {
@@ -2301,28 +2441,72 @@ function validateType(q: Question, value: unknown): string | null {
  * Returns the mutated response (callers can rely on identity
  * equality when nothing changed).
  */
+/**
+ * `skipClock` leaves every expression that reads the clock alone (the
+ * server keeps the value the client captured).
+ */
 export function applyCalculations(
   form: FormSchema,
   response: Response,
+  opts: { skipClock?: boolean } = {},
 ): Response {
-  let next = response;
-  let changed = false;
-  for (const q of walkQuestions(form)) {
-    // Pull the expression from either source: the required field on
-    // the `calculated` type, or the optional QuestionBase one. We
-    // prefer the type-specific field when it exists so v3-import or
-    // legacy data round-trips cleanly.
-    const expr =
-      q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
-    if (!expr) continue;
-    const computed = evaluate(expr, response);
-    if (next[q.id] !== computed) {
-      if (!changed) {
-        next = { ...response };
-        changed = true;
+  return calculateLevel(form.questions, response, opts.skipClock === true);
+}
+
+/** An expression that reads the clock (`today`, `now`). */
+function readsClock(expr: Expression): boolean {
+  return /"call":"(today|now)"/.test(JSON.stringify(expr));
+}
+
+/**
+ * One level of the response: top level, or one repeat instance.
+ * Repeat children are computed inside each instance, with the
+ * instance as their context (as validate reads them); the old flat
+ * walk computed them at the top level, where the result was dropped.
+ * Expressions see `next`, so a calculation that depends on another
+ * one earlier in the form reads the fresh value.
+ */
+function calculateLevel(
+  questions: readonly Question[],
+  level: Response,
+  skipClock: boolean,
+): Response {
+  let next = level;
+  const put = (id: string, value: unknown) => {
+    if (next[id] === value) return;
+    if (next === level) next = { ...level };
+    next[id] = value;
+  };
+  for (const q of questions) {
+    if (q.type === 'group') {
+      if (q.repeat) {
+        const instances = next[q.id];
+        if (!Array.isArray(instances)) continue;
+        let arr: unknown[] = instances;
+        instances.forEach((inst, i) => {
+          if (!inst || typeof inst !== 'object' || Array.isArray(inst)) return;
+          const out = calculateLevel(q.children, inst as Response, skipClock);
+          if (out !== inst) {
+            if (arr === instances) arr = [...instances];
+            arr[i] = out;
+          }
+        });
+        put(q.id, arr);
+        continue;
       }
-      next[q.id] = computed;
+      const out = calculateLevel(q.children, next, skipClock);
+      if (out !== next) next = out;
+      continue;
     }
+    const expr = q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
+    if (!expr) continue;
+    // A clock value is taken once. Recomputing now() on every pass
+    // changed the response each time, and the web runtime re-rendered
+    // without end; the stored value should be the capture time anyway.
+    const current = next[q.id];
+    if (readsClock(expr) && skipClock) continue;
+    if (readsClock(expr) && current !== undefined && current !== null && current !== '') continue;
+    put(q.id, evaluate(expr, next));
   }
   return next;
 }
@@ -2366,7 +2550,9 @@ export function pruneHidden(form: FormSchema, response: Response): Response {
           continue;
         }
         // Non-repeat group: children write to top-level (#288),
-        // so recurse and let them be picked up individually.
+        // so recurse and let them be picked up individually. A hidden
+        // group drops its children's answers, like validate skips them.
+        if (!isVisible(q, response)) continue;
         walk(q.children);
         continue;
       }

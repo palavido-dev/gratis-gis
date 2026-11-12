@@ -93,6 +93,9 @@ import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { safeFetch } from '../common/net-guards.js';
 
+/** Ceiling for the /info and generateToken replies, both small JSON. */
+const ARCGIS_AUTH_MAX_BYTES = 1024 * 1024;
+
 /** Per-process key for the password digests. Nothing outside this
  *  process can recompute a digest. */
 const DIGEST_KEY = randomBytes(32);
@@ -232,11 +235,17 @@ async function mintToken(
     // tokenUrl is derived from the user-provided serviceUrl via the
     // /info?f=json discovery step; route through safeFetch so an
     // attacker can't redirect token exchange to an internal host.
-    res = await safeFetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
+    res = await safeFetch(
+      tokenUrl,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      },
+      // A token reply is a few hundred bytes. The host is chosen by
+      // the item's author, so do not buffer up to the 1 GiB default.
+      { maxBytes: ARCGIS_AUTH_MAX_BYTES },
+    );
   } catch (err) {
     throw new Error(
       `Could not reach token endpoint: ${

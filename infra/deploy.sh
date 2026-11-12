@@ -158,6 +158,11 @@ echo "=== Materializing Keycloak realm import ==="
 . infra/lib-env.sh
 gg_load_env_file infra/.env.prod
 gg_require_prod_env
+# The env file of an older install still carries the GG_VERSION that
+# bootstrap.sh wrote at setup time, and loading it just replaced the
+# stamp computed above. The stamp from git wins.
+GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
+export GG_VERSION
 # Derived AUTH_URL the realm template uses for the realm-level
 # frontendUrl. Keep this separate from PUBLIC_URL: the realm has to
 # advertise itself as the AUTH subdomain (otherwise discovery
@@ -346,6 +351,42 @@ json.dump(client, sys.stdout)
     rm -f /tmp/gg-field-app-update.json
   fi
 
+  # --- qgis-plugin: loopback redirect needs a port separator ---
+  # Realms imported before the fix allow `http://127.0.0.1*`, which
+  # also matches a host such as 127.0.0.1.example. portal-api used to
+  # tighten this at startup, but its service account has no
+  # manage-clients role (and should not get one just for this), so on
+  # the demo it logged a 403 on every boot. The master admin does it
+  # here instead. Same rule as apps/portal-api/src/admin/qgis-redirects.ts:
+  # drop the open loopback patterns, keep any other custom URI, add
+  # the custom scheme and http://127.0.0.1:*. Idempotent.
+  GG_QGIS_CID="$(kc_client_id qgis-plugin)"
+  if [[ -n "$GG_QGIS_CID" ]]; then
+    if KC get "clients/$GG_QGIS_CID" -r gratis-gis --fields redirectUris 2>/dev/null \
+        | python3 -c '
+import json, sys
+open_loopback = {"http://127.0.0.1*", "https://127.0.0.1*", "http://localhost*", "https://localhost*"}
+cur = json.load(sys.stdin).get("redirectUris") or []
+nxt = [u for u in cur if u not in open_loopback]
+for u in ("gratisgis-qgis://auth-callback", "http://127.0.0.1:*"):
+    if u not in nxt:
+        nxt.append(u)
+if nxt == cur:
+    sys.exit(3)
+json.dump({"redirectUris": nxt}, sys.stdout)
+' > /tmp/gg-qgis-update.json; then
+      docker cp /tmp/gg-qgis-update.json "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-update.json"
+      if KC update "clients/$GG_QGIS_CID" -r gratis-gis -f /tmp/gg-qgis-update.json; then
+        echo "qgis-plugin redirect list reconciled."
+      else
+        echo "WARN: qgis-plugin client update failed; check kcadm output above." >&2
+      fi
+    else
+      echo "qgis-plugin redirect list already tight (or could not be read)."
+    fi
+    rm -f /tmp/gg-qgis-update.json
+  fi
+
   # --- realm: offline session idle timeout ---
   # 30 days is Keycloak's default; the Android field client's sign-in
   # lifetime is exactly this value, so it is pinned rather than
@@ -418,26 +459,35 @@ if rows:
   # refresh-token survives restarts and weeks offline. Keycloak gates
   # that on the user holding the offline_access realm role; without
   # it the PKCE code exchange returns "Offline tokens not allowed for
-  # the user or client". Grant to everyone, a page at a time so a
-  # realm with more than one page of users is covered; add-roles is
-  # idempotent.
-  echo "Granting offline_access to every realm user..."
-  GG_KC_OFFSET=0
-  while :; do
-    GG_KC_PAGE="$(KC get users -r gratis-gis --fields username \
-        --offset "$GG_KC_OFFSET" --limit 100 2>/dev/null \
-      | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
-        2>/dev/null || true)"
-    [[ -n "$GG_KC_PAGE" ]] || break
-    while read -r username; do
-      if [[ -z "$username" ]]; then continue; fi
-      KC add-roles -r gratis-gis --uusername "$username" \
-          --rolename offline_access >/dev/null 2>&1 \
-        && echo "  + $username" \
-        || echo "  = $username (already had role)"
-    done <<< "$GG_KC_PAGE"
-    GG_KC_OFFSET=$((GG_KC_OFFSET + 100))
-  done
+  # the user or client". Users who hold the default role already have
+  # it through the step above, so only users with neither the default
+  # role nor a direct grant get one. Granting to everyone started one
+  # kcadm JVM per user on every deploy, under the shared stack lock.
+  # add-roles fails when the role is already present, so its exit
+  # status is not used to tell the two cases apart.
+  kc_usernames() {
+    local path="$1" offset=0 page
+    while :; do
+      page="$(KC get "$path" -r gratis-gis --offset "$offset" --limit 100 2>/dev/null \
+        | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
+          2>/dev/null || true)"
+      [[ -n "$page" ]] || break
+      printf '%s\n' "$page"
+      offset=$((offset + 100))
+    done
+  }
+  echo "Granting offline_access to realm users who lack it..."
+  GG_KC_COVERED="$( { kc_usernames roles/offline_access/users
+    [[ -n "$GG_DEFAULT_ROLE" ]] && kc_usernames "roles/$GG_DEFAULT_ROLE/users"; } | sort -u)"
+  GG_KC_ALL="$(kc_usernames users | sort -u)"
+  GG_KC_MISSING="$(comm -23 <(printf '%s\n' "$GG_KC_ALL") <(printf '%s\n' "$GG_KC_COVERED"))"
+  while read -r username; do
+    if [[ -z "$username" ]]; then continue; fi
+    KC add-roles -r gratis-gis --uusername "$username" \
+        --rolename offline_access >/dev/null 2>&1 \
+      && echo "  + $username" \
+      || echo "WARN: could not grant offline_access to $username" >&2
+  done <<< "$GG_KC_MISSING"
   echo "Offline-access reconciliation done."
 
   # --- portal-api-admin: portal-admin identity for snapshot tooling ---

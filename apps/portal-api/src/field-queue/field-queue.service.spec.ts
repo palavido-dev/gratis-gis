@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { sanitizeManifest, type ManifestEntry } from './field-queue.service.js';
+import {
+  FieldQueueService,
+  MAX_DEVICES_PER_USER,
+  sanitizeManifest,
+  type ManifestEntry,
+} from './field-queue.service.js';
 
 /**
  * The manifest is client-posted metadata about a device's offline
@@ -137,5 +142,43 @@ describe('sanitizeManifest', () => {
     const out = sanitizeManifest(many);
     expect(out).toHaveLength(100);
     expect(out[0]!.queuedRecords).toHaveLength(500);
+  });
+});
+
+describe('field queue manifest bounds', () => {
+  it('caps records across entries and cuts long strings', () => {
+    const entry = {
+      dataCollectionId: 'x'.repeat(10_000),
+      cachedAt: null,
+      queuedRecords: Array.from({ length: 500 }, (_, i) => ({
+        id: `r${i}`.padEnd(5000, 'y'),
+        op: 'insert',
+        layerId: 'l',
+        queuedAt: '',
+        status: 'pending',
+      })),
+    };
+    const out = sanitizeManifest(Array.from({ length: 10 }, () => entry) as never);
+    const total = out.reduce((n, e) => n + e.queuedRecords.length, 0);
+    expect(total).toBe(2000);
+    expect(out[0]!.dataCollectionId.length).toBe(128);
+    expect(out[0]!.queuedRecords[0]!.id.length).toBe(128);
+  });
+
+  it('drops the oldest device once a user has the maximum', async () => {
+    const deleteMany = jest.fn(async () => ({ count: 1 }));
+    const prisma = {
+      fieldQueueManifest: {
+        findUnique: jest.fn(async () => null),
+        findMany: jest.fn(async () =>
+          Array.from({ length: MAX_DEVICES_PER_USER }, (_, i) => ({ id: `d${i}` })),
+        ),
+        deleteMany,
+        upsert: jest.fn(async () => ({})),
+      },
+    };
+    const svc = new FieldQueueService(prisma as never);
+    await svc.upsertManifest({ userId: 'u', deviceFingerprint: 'new', manifest: [] } as never);
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: { in: [`d${MAX_DEVICES_PER_USER - 1}`] } } });
   });
 });

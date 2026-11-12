@@ -157,8 +157,13 @@ export class HousekeepingController {
    * handful of monthly partitions and stops being useful for
    * "which dataset is eating disk?". This drills down to
    * data_layer:itemId:layerId.
+   *
+   * The scope list is install-wide (top 50 over the whole observation
+   * table), so it is an operator view like its two neighbours. An
+   * admin of another org saw other orgs' layer ids and row counts.
    */
   @Get('largest-data-layers')
+  @UseGuards(OperatorOrgGuard)
   largestDataLayers(@CurrentUser() user: AuthUser) {
     return this.housekeeping.largestDataLayers(user.orgId);
   }
@@ -233,18 +238,27 @@ export class HousekeepingController {
   @Post('run')
   @UseGuards(OperatorOrgGuard)
   async runNow(@CurrentUser() user: AuthUser) {
-    void this.audit?.record({
-      orgId: user.orgId,
-      actorUserId: user.id,
-      action: 'housekeeping.run',
-      targetType: 'housekeeping',
-      targetId: 'schedule',
-      outcome: 'succeeded',
-    });
-    return this.schedule.runOnce({
-      trigger: 'manual',
-      startedBy: user.id,
-    });
+    // Audited after the run with its real outcome. Recording
+    // "succeeded" up front logged refused (409) and failed runs as
+    // successes.
+    let outcome: 'succeeded' | 'failed' = 'failed';
+    try {
+      const result = await this.schedule.runOnce({
+        trigger: 'manual',
+        startedBy: user.id,
+      });
+      outcome = result.status === 'succeeded' ? 'succeeded' : 'failed';
+      return result;
+    } finally {
+      void this.audit?.record({
+        orgId: user.orgId,
+        actorUserId: user.id,
+        action: 'housekeeping.run',
+        targetType: 'housekeeping',
+        targetId: 'schedule',
+        outcome,
+      });
+    }
   }
 
   /**

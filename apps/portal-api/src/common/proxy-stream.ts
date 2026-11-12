@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 import type { Response as ExpressResponse } from 'express';
 
 /**
@@ -112,15 +113,15 @@ export function applyProxyResponseHeaders(
  * hard byte ceiling and real backpressure, instead of buffering the
  * entire body in memory with `arrayBuffer()`.
  *
- * Content-length is deliberately NOT forwarded: Node's fetch
- * transparently decompresses gzip / br, so the upstream's byte count
- * describes the compressed payload while the bytes we emit are
- * decompressed. Letting the transfer be chunked from what we
- * actually write avoids the truncation-mid-document bug a forwarded,
- * wrong content-length caused.
+ * safeFetch dials with node:http, which does not decode a body.
+ * It asks for identity encoding, but an upstream may still send gzip
+ * (pre-gzipped vector tiles in a bucket do). The bytes are relayed
+ * as they arrive, so Content-Encoding is forwarded with them and the
+ * browser decodes. Content-length is not forwarded; the transfer is
+ * chunked from what we actually write.
  *
- * If the client disconnects mid-stream we cancel the upstream reader
- * so its socket returns to the pool rather than idling until timeout,
+ * If the client disconnects, at any point, we cancel the upstream
+ * reader so its socket is released rather than idling until timeout,
  * which is the abort-churn failure mode that pans/zooms over tiles
  * would otherwise cause.
  */
@@ -132,6 +133,8 @@ export async function streamUpstreamToResponse(
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_PROXY_BYTES;
   res.status(upstream.status);
   applyProxyResponseHeaders(res, upstream.headers.get('content-type'));
+  const encoding = upstream.headers.get('content-encoding');
+  if (encoding) res.setHeader('content-encoding', encoding);
 
   const body = upstream.body;
   if (!body) {
@@ -140,6 +143,13 @@ export async function streamUpstreamToResponse(
   }
 
   const reader = body.getReader();
+  // A write after the client left returns false and fires no drain
+  // or close, so the loop below would wait forever. Cancel the
+  // reader as soon as the client goes, whatever we are waiting on.
+  const onClientClose = () => {
+    if (!res.writableFinished) reader.cancel().catch(() => undefined);
+  };
+  res.once('close', onClientClose);
   let total = 0;
   try {
     for (;;) {
@@ -154,6 +164,10 @@ export async function streamUpstreamToResponse(
         // aborted transfer rather than us OOM-ing to satisfy it.
         await reader.cancel();
         res.destroy();
+        return;
+      }
+      if (res.destroyed) {
+        await reader.cancel();
         return;
       }
       const chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
@@ -187,6 +201,8 @@ export async function streamUpstreamToResponse(
     }
     if (!res.headersSent) res.status(502).end();
     else res.destroy();
+  } finally {
+    res.off('close', onClientClose);
   }
 }
 
@@ -227,7 +243,20 @@ export async function readUpstreamText(
     }
     throw err;
   }
-  return Buffer.concat(
+  const raw = Buffer.concat(
     chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)),
-  ).toString('utf8');
+  );
+  // safeFetch does not decode, and an upstream may gzip anyway.
+  // Decoded size is capped like the wire size.
+  const encoding = (upstream.headers.get('content-encoding') ?? '').trim().toLowerCase();
+  const opts = { maxOutputLength: maxBytes };
+  try {
+    if (encoding === 'gzip' || encoding === 'x-gzip') return gunzipSync(raw, opts).toString('utf8');
+    if (encoding === 'deflate') return inflateSync(raw, opts).toString('utf8');
+    if (encoding === 'br') return brotliDecompressSync(raw, opts).toString('utf8');
+  } catch (err) {
+    if (err instanceof RangeError) throw new UpstreamBodyTooLargeError(maxBytes);
+    throw err;
+  }
+  return raw.toString('utf8');
 }

@@ -248,7 +248,10 @@ export class FeaturesController {
       throw new BadRequestException('Body must be a GeoJSON FeatureCollection with a features array');
     }
 
-    const inputs: InsertFeatureInput[] = body.features.map((f: unknown) => {
+    const inputs: InsertFeatureInput[] = body.features.map((f: unknown, i: number) => {
+      if (!f || typeof f !== 'object' || Array.isArray(f)) {
+        throw new BadRequestException(`features[${i}] is not a GeoJSON Feature object`);
+      }
       const feat = f as { type?: string; geometry?: unknown; properties?: Record<string, unknown>; id?: string };
       const input: InsertFeatureInput = { properties: feat.properties ?? {} };
       if (typeof feat.id === 'string') input.globalId = feat.id;
@@ -351,8 +354,9 @@ export class FeaturesController {
     const child = await this.requireReadAccess(user, childItemId);
     // The parent must be visible to the caller, and the children are
     // clipped to the caller's scope on the child layer.
+    const fk = relationshipFk(parent, childItemId, fkColumn);
     const parentScope = await this.scopeFor(user, parent, 'read');
-    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    await this.features.getFeature(id, fid, undefined, parentScope);
     const childScope = await this.scopeFor(user, child, 'read');
 
     const opts: Parameters<typeof this.features.getRelatedFeatures>[3] = {
@@ -365,7 +369,7 @@ export class FeaturesController {
     const feats = await this.features.getRelatedFeatures(
       childItemId,
       fid,
-      fkColumn ?? 'parent_global_id',
+      fk,
       opts,
     );
     return { type: 'FeatureCollection', features: feats };
@@ -394,8 +398,11 @@ export class FeaturesController {
   ) {
     const parent = await this.requireReadAccess(user, id);
     const child = await this.requireEditAccess(user, childItemId);
+    const fk = relationshipFk(parent, childItemId, body.fkColumn);
+    // The parent feature must exist (and be visible), whether or not
+    // the caller is scope-limited.
     const parentScope = await this.scopeFor(user, parent, 'read');
-    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    await this.features.getFeature(id, fid, undefined, parentScope);
     const childScope = await this.scopeFor(user, child, 'edit');
     if (childScope) {
       await this.features.assertGeometriesInsideLimit(childScope, [body.geometry]);
@@ -404,13 +411,21 @@ export class FeaturesController {
     const input: Parameters<typeof this.features.createRelatedFeature>[3] = {
       properties: body.properties ?? {},
     };
-    if (body.globalId) input.globalId = body.globalId;
+    if (body.globalId !== undefined) {
+      if (
+        typeof body.globalId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.globalId)
+      ) {
+        throw new BadRequestException('globalId must be a UUID');
+      }
+      input.globalId = body.globalId;
+    }
     if (body.geometry !== undefined) input.geometry = body.geometry;
 
     const result = await this.features.createRelatedFeature(
       childItemId,
       fid,
-      body.fkColumn ?? 'parent_global_id',
+      fk,
       input,
       user,
     );
@@ -485,4 +500,30 @@ export class FeaturesController {
       console.warn('syncItemMeta failed for %s: %s', itemId, msg);
     }
   }
+}
+
+/**
+ * The FK column of the registered relationship from `parent` to the
+ * child layer. The routes used to take any column name from the
+ * caller, so a child row could point at a layer that is not its
+ * parent, and names like `properties` or `created_by` reached SQL.
+ */
+function relationshipFk(
+  parent: { data: unknown },
+  childItemId: string,
+  requested: string | undefined,
+): string {
+  const rels = (parent.data as { relationships?: unknown } | null)?.relationships;
+  const rel = Array.isArray(rels)
+    ? (rels as Array<{ relatedItemId?: unknown; fkColumn?: unknown }>).find(
+        (r) => r?.relatedItemId === childItemId,
+      )
+    : undefined;
+  if (!rel || typeof rel.fkColumn !== 'string') {
+    throw new BadRequestException('These layers have no registered relationship');
+  }
+  if (requested !== undefined && requested !== rel.fkColumn) {
+    throw new BadRequestException(`fkColumn must be "${rel.fkColumn}" for this relationship`);
+  }
+  return rel.fkColumn;
 }

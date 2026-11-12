@@ -120,7 +120,7 @@ export interface MapData {
    * render time against the org's basemap items (items with
    * type='basemap'). Empty string is a sentinel meaning "use the org
    * default"; the server fills it in on create, the viewer falls back
-   * to the org's `seededKey='positron'` seed if the referenced item
+   * to the org's `seededKey='osm'` seed if the referenced item
    * has been deleted.
    */
   basemap: string;
@@ -681,10 +681,9 @@ export type MapLayerSource =
        *  probe step writes this in the wizard; authors don't type
        *  raw SQL. */
       tableName: string;
-      /** Optional WHERE clause appended to every SELECT. Server-
-       *  side validation refuses statement terminators and `;` so
-       *  this can't smuggle in a second statement. Empty / unset
-       *  means no filter. */
+      /** Optional WHERE clause. The server parses it and compiles it
+       *  to bound parameters (postgis-live/postgis-where.ts); it is
+       *  never spliced in as raw SQL. Empty / unset means no filter. */
       whereClause?: string;
     }
   /**
@@ -1060,7 +1059,7 @@ export interface MapLayerLabels {
 /**
  * Freshly-created map with the defaults we want every new map to carry.
  * `basemap` is an empty-string sentinel; the server-side create path
- * (items.service) resolves it to the org's `seededKey='positron'`
+ * (items.service) resolves it to the org's `seededKey='osm'`
  * basemap item so every new map opens with a usable default.
  */
 export const DEFAULT_MAP: MapData = {

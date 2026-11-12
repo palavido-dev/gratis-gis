@@ -231,7 +231,7 @@ export class HousekeepingService {
         this.countStaleItems(orgId),
         this.countStaleUsers(orgId),
         this.prisma.item.count({ where: { orgId, deletedAt: null } }),
-        this.prisma.user.count({ where: { orgId } }),
+        this.prisma.user.count({ where: { orgId, deletedAt: null } }),
         this.countExpiringShares(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
         this.countExpiringUsers(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
         this.danglingReferences(orgId),
@@ -866,8 +866,11 @@ export class HousekeepingService {
     const items =
       itemIds.length > 0
         ? await this.prisma.item.findMany({
-            where: { id: { in: itemIds }, orgId },
-            select: { id: true, title: true, type: true, data: true },
+            // No org filter here: a live item of another org must not
+            // be shown as a "(deleted item)" orphan. It is labelled
+            // below without its title.
+            where: { id: { in: itemIds } },
+            select: { id: true, orgId: true, title: true, type: true, data: true },
           })
         : [];
     const itemById = new Map(items.map((i) => [i.id, i]));
@@ -879,6 +882,7 @@ export class HousekeepingService {
     // because that's what shows up in the legend and layer list.
     const labelByItemAndLayer = new Map<string, Map<string, string>>();
     for (const it of items) {
+      if (it.orgId !== orgId) continue;
       const layers = readSublayerLabels(it.data);
       if (layers) labelByItemAndLayer.set(it.id, layers);
     }
@@ -918,7 +922,11 @@ export class HousekeepingService {
       out.push({
         itemId: parsed.itemId,
         layerId: parsed.layerId,
-        itemTitle: item ? item.title : '(deleted item)',
+        itemTitle: !item
+          ? '(deleted item)'
+          : item.orgId === orgId
+            ? item.title
+            : '(another organization)',
         itemType: item ? item.type : null,
         layerTitle,
         orphan,
@@ -1609,7 +1617,7 @@ export class HousekeepingService {
         // Aggregate from referenced items' freshly-recomputed bboxes.
         const refs = collectMapItemRefs(it.data);
         if (refs.length > 0) {
-          next = await this.aggregateFromReferenced(refs, freshById);
+          next = await this.aggregateFromReferenced(refs, freshById, orgId);
         }
         if (!next) next = itemBbox(it.type, it.data);
       } else if (it.type === 'arcgis_service') {
@@ -1725,6 +1733,7 @@ export class HousekeepingService {
   private async aggregateFromReferenced(
     refs: string[],
     freshById: Map<string, [number, number, number, number] | null>,
+    orgId: string,
   ): Promise<[number, number, number, number] | null> {
     let w = Infinity;
     let s = Infinity;
@@ -1747,7 +1756,9 @@ export class HousekeepingService {
     }
     if (missing.length > 0) {
       const rows = await this.prisma.item.findMany({
-        where: { id: { in: missing }, deletedAt: null },
+        // Same org only: a map must not pick up (and so reveal) the
+        // extent of an item in another org by naming its id.
+        where: { id: { in: missing }, orgId, deletedAt: null },
         select: { bbox: true },
       });
       for (const row of rows) {
@@ -1941,7 +1952,11 @@ function collectArcgisLayerIds(layersData: unknown): number[] {
  *  ids the layers reference (data_layer source.itemId, plus
  *  arcgis-rest source.sourceItemId when set). Other source kinds
  *  contribute no portal-stored bbox. */
-function collectMapItemRefs(data: unknown): string[] {
+// Map data is a free object. A non-UUID id would make Prisma reject
+// the whole lookup on the uuid column and stop the recompute pass.
+const MAP_REF_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function collectMapItemRefs(data: unknown): string[] {
   if (!data || typeof data !== 'object') return [];
   const layers = (data as { layers?: unknown }).layers;
   if (!Array.isArray(layers)) return [];
@@ -1953,10 +1968,10 @@ function collectMapItemRefs(data: unknown): string[] {
     const kind = (src as { kind?: unknown }).kind;
     if (kind === 'data-layer') {
       const id = (src as { itemId?: unknown }).itemId;
-      if (typeof id === 'string') out.add(id);
+      if (typeof id === 'string' && MAP_REF_UUID.test(id)) out.add(id);
     } else if (kind === 'arcgis-rest') {
       const id = (src as { sourceItemId?: unknown }).sourceItemId;
-      if (typeof id === 'string') out.add(id);
+      if (typeof id === 'string' && MAP_REF_UUID.test(id)) out.add(id);
     }
   }
   return Array.from(out);

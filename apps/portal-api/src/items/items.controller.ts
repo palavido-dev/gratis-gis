@@ -625,8 +625,10 @@ export class ItemsController {
   private async toDataUrl(
     href: string | null | undefined,
   ): Promise<string | null | undefined> {
-    // href is falsy here (null / undefined / empty string).
-    if (!href) return null;
+    // href is falsy here (null / undefined / empty string). The design
+    // blob is unchecked JSON, so a non-string is treated as absent
+    // rather than throwing a 500 on a public route.
+    if (!href || typeof href !== 'string') return null;
     if (href.startsWith('data:')) return rasterDataUrl(href);
     try {
       // safeFetch, not fetch: the URL comes straight out of user-

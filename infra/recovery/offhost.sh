@@ -73,9 +73,14 @@ if (( 8#$perm & 8#222 )); then
   write_status failed permissions false false 'destination is still writable'
   recovery_die 'destination is still writable'
 fi
-if ! ln "$tmp" "$target" 2>/dev/null; then
-  write_status failed copy false false 'destination already has this bundle; refusing to overwrite'
-  recovery_die 'destination already has this bundle; refusing to overwrite'
+if ! ln_err="$(ln "$tmp" "$target" 2>&1)"; then
+  if [[ -e "$target" ]]; then
+    write_status failed copy false false 'destination already has this bundle; refusing to overwrite'
+    recovery_die 'destination already has this bundle; refusing to overwrite'
+  fi
+  # Not a collision: most often a file system without hard links.
+  write_status failed copy false false "could not link the copy into place: ${ln_err}"
+  recovery_die "could not link the copy into place: ${ln_err}"
 fi
 rm -f "$tmp"
 trap - EXIT

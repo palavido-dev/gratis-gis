@@ -6,6 +6,7 @@ import {
   type Lens,
   type LensAttrFilter,
   type LensView,
+  fromEsriTemplate,
   webMapJsonToLenses,
 } from '@gratis-gis/engine';
 import {
@@ -284,7 +285,14 @@ export class WebMapJsonImportService {
     user: AuthUser,
     webMap: EsriWebMap,
   ): Promise<string> {
-    const tileUrl = webMap.baseMap?.baseMapLayers?.[0]?.url;
+    // A spec WebTiledLayer carries its template in templateUrl with
+    // {level}/{col}/{row}; GratisGIS exports also keep `url`.
+    const first = webMap.baseMap?.baseMapLayers?.[0];
+    const template = first?.['templateUrl'];
+    const tileUrl =
+      typeof template === 'string' && template.length > 0
+        ? fromEsriTemplate(template)
+        : first?.url;
     if (typeof tileUrl !== 'string' || tileUrl.length === 0) return '';
     const candidates = await this.prisma.item.findMany({
       where: { orgId: user.orgId, type: 'basemap', deletedAt: null },

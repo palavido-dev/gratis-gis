@@ -165,29 +165,19 @@ its realm and Postgres become ready for connections.
 
 ### 3a. About Nominatim
 
-Nominatim is the self-hosted geocoder. It defaults to importing
-the **entire planet** OSM extract on first boot: an ~80 GB download
-that builds a 1.1-1.3 TB database over one to three days. You almost certainly
-don't want this for development.
-
-Two options:
-
-**Option A: skip Nominatim entirely.** Comment out the `nominatim`
-service in `infra/docker-compose.yml`, or just don't touch it and
-let it spin (the rest of the stack starts fine while it imports
-in the background; you only lose address geocoding).
-
-**Option B: use a small extract.** Create an `infra/.env` file
-(gitignored) with a tiny region:
+Nominatim is the self-hosted geocoder. In the dev stack it defaults
+to the Monaco extract, which imports in a few minutes. For a real
+region, create an `infra/.env` file (gitignored), for example:
 
 ```bash
-NOMINATIM_PBF_URL=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
-NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/europe/monaco-updates/
-NOMINATIM_SHM_SIZE=1gb
+NOMINATIM_PBF_URL=https://download.geofabrik.de/north-america-latest.osm.pbf
+NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/north-america-updates/
+NOMINATIM_SHM_SIZE=8gb
 ```
 
-Monaco imports in a few minutes. Replace with your country / state
-of interest later.
+The full planet is an ~80 GB download that builds a 1.1-1.3 TB
+database over one to three days. You almost certainly don't want
+that for development.
 
 See [infra/NOMINATIM.md](../infra/NOMINATIM.md) for the full
 sizing matrix.

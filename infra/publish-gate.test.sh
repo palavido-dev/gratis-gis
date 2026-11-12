@@ -17,7 +17,8 @@ mkdir -p "$work/bin"
 # "completed failure", or "missing".
 cat > "$work/bin/gh" <<'GH'
 #!/usr/bin/env bash
-url="$2"
+url=""
+for a in "$@"; do case "$a" in repos/*) url="$a" ;; esac; done
 case "$url" in
   */commits/main) echo "$FAKE_TIP" ;;
   */workflows/ci.yml/runs*)
@@ -32,6 +33,24 @@ case "$url" in
     fi
     ;;
   */workflows/security.yml/runs*) echo "$FAKE_SEC" ;;
+  */workflows/publish-images.yml/runs*)
+    # FAKE_OLDER: how many older publish runs are still going; with
+    # FAKE_OLDER_AFTER, they finish after that many checks.
+    m=0; [ -f "$HOME/older-calls" ] && m="$(cat "$HOME/older-calls")"
+    echo $((m + 1)) > "$HOME/older-calls"
+    if [ -n "${FAKE_OLDER_AFTER:-}" ] && [ "$m" -ge "$FAKE_OLDER_AFTER" ]; then
+      echo 0
+    else
+      echo "${FAKE_OLDER:-0}"
+    fi
+    ;;
+  */actions/runs/*/rerun)
+    # A re-run that succeeds: with FAKE_CI_AFTER set, the next runs
+    # query answers "completed success".
+    echo "$url" >> "$HOME/reruns"
+    [ -z "${FAKE_RERUN_FAILS:-}" ] || exit 1
+    echo "${FAKE_CI_AFTER:-0}" > "$HOME/ci-calls"
+    ;;
   *) echo "unexpected gh call: $*" >&2; exit 2 ;;
 esac
 GH
@@ -47,7 +66,7 @@ run() {
   shift 3
   local out="$work/out" code=0
   : > "$out"
-  rm -f "$work/ci-calls"
+  rm -f "$work/ci-calls" "$work/reruns" "$work/older-calls"
   env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work" \
     GITHUB_REPOSITORY=palavido-dev/gratis-gis GITHUB_OUTPUT="$out" \
     FAKE_TIP="$SHA" FAKE_CI="completed success" FAKE_SEC="completed success" \
@@ -97,6 +116,30 @@ run "release tag gives up when CI is still running after the wait" 1 false EVENT
 run "release tag that waits and then sees red CI is refused" 1 false EVENT=push \
   GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
   FAKE_CI="completed failure" GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+run "release tag re-runs a CI run that a later merge cancelled" 0 true EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="completed cancelled 4242" FAKE_CI_AFTER=1 GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+grep -q 'actions/runs/4242/rerun' "$work/reruns" 2>/dev/null \
+  || { echo "FAIL cancelled run was not re-run"; fails=$((fails + 1)); }
+run "release tag re-runs a cancelled run only once" 1 false EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="completed cancelled 4242" GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+[ "$(wc -l < "$work/reruns")" -eq 1 ] \
+  || { echo "FAIL cancelled run was re-run more than once"; fails=$((fails + 1)); }
+run "release tag is refused when the re-run request fails" 1 false EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  FAKE_CI="completed cancelled 4242" FAKE_RERUN_FAILS=1 GATE_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+run "cancelled CI on main tip does not publish edge" 0 false EVENT=workflow_run \
+  FAKE_CI="completed cancelled 4242"
+[ ! -e "$work/reruns" ] || { echo "FAIL workflow_run re-ran a run"; fails=$((fails + 1)); }
+run "tag waits for an older publish run on the same commit" 0 true EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  GITHUB_RUN_ID=50 FAKE_OLDER=1 FAKE_OLDER_AFTER=2 PUBLISH_WAIT_SECONDS=60 GATE_POLL_SECONDS=0
+run "tag is refused while an older publish run never finishes" 1 false EVENT=push \
+  GITHUB_REF=refs/tags/v1.2.3 GITHUB_REF_NAME=v1.2.3 GITHUB_REF_TYPE=tag GITHUB_SHA="$SHA" \
+  GITHUB_RUN_ID=50 FAKE_OLDER=1 PUBLISH_WAIT_SECONDS=0
+run "edge skips while an older publish run never finishes" 0 false EVENT=workflow_run \
+  GITHUB_RUN_ID=50 FAKE_OLDER=1 PUBLISH_WAIT_SECONDS=0
 run "branch push is refused" 1 false EVENT=push \
   GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main GITHUB_REF_TYPE=branch GITHUB_SHA="$SHA"
 

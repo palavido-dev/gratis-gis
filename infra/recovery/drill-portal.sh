@@ -216,7 +216,6 @@ JS
 STARTED_AT="$(date +%s)"
 printf 'portal-drill: starting gg-recovery-portal\n'
 up
-export PATH="/home/ubuntu/.nvm/versions/node/v24.9.0/bin:$PATH"
 export DATABASE_URL='postgresql://gratisgis:portal-drill-pg@127.0.0.1:55435/gratisgis?schema=public'
 if ! ( cd "$ROOT/apps/portal-api" && pnpm exec prisma migrate deploy >/dev/null ); then
   recovery_die 'prisma migrate deploy failed'

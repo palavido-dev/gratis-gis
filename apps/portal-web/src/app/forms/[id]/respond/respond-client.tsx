@@ -136,6 +136,9 @@ export function RespondClient({ form, formId, formItemTitle, userId = null }: Pr
                 schemaVersion: row.schemaVersion,
                 response: row.response,
                 capturedAt: row.capturedAt,
+                ...(typeof row.utcOffsetMinutes === 'number'
+                  ? { utcOffsetMinutes: row.utcOffsetMinutes }
+                  : {}),
               }),
             },
           );

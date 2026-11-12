@@ -902,3 +902,52 @@ describe('AdminUsersController DELETE keeps both sides consistent', () => {
     });
   });
 });
+
+describe('AdminUsersController.access org gate', () => {
+  it('does not return the name and email of another org user who never signed in', async () => {
+    const caller = makeAuthUser();
+    const { controller } = makeController({
+      caller,
+      targets: [
+        {
+          id: 'kc-other',
+          kc: {
+            id: 'kc-other',
+            username: 'other',
+            email: 'other@example.test',
+            attributes: { org: ['org-2'] },
+          } as unknown as KeycloakUserRep,
+          local: null,
+        },
+      ],
+      adminCount: 1,
+    });
+    await expect(controller.access(caller, 'kc-other')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
+
+describe('AdminUsersController.remove for a user already gone from Keycloak', () => {
+  function ghostSetup(orgId: string) {
+    const caller = makeAuthUser();
+    const { controller, prisma } = makeController({ caller, targets: [], adminCount: 2 });
+    prisma.user.findUnique.mockImplementation((async (args: { where: { id?: string; username?: string } }) =>
+      args.where.id === 'ghost'
+        ? { id: 'ghost', orgId, isProtected: false, username: 'ghost', orgRole: 'viewer' }
+        : null) as never);
+    return { caller, controller, prisma };
+  }
+
+  it('cleans up the local row of this org', async () => {
+    const { caller, controller, prisma } = ghostSetup('org-1');
+    await controller.remove(caller, 'ghost');
+    expect(prisma.user.delete).toHaveBeenCalled();
+  });
+
+  it('still refuses a local row of another org', async () => {
+    const { caller, controller, prisma } = ghostSetup('org-2');
+    await expect(controller.remove(caller, 'ghost')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+});

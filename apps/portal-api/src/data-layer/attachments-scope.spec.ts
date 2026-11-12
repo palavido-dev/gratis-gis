@@ -26,7 +26,7 @@ function row(featureId: string, id: string) {
     fileName: `${id}.jpg`,
     mime: 'image/jpeg',
     sizeBytes: 1,
-    storageUrl: `https://x.test/${id}`,
+    storageKey: `feature-attachment/${id}`,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     createdBy: 'u',
   };
@@ -69,6 +69,8 @@ describe('attachment scope', () => {
     expect(engine.listFeatures).toHaveBeenCalledWith(
       expect.objectContaining({ geoLimit: CLIP, entityIds: [VISIBLE, HIDDEN] }),
     );
+    // The link is built from the stored key, not a client-sent URL.
+    expect(JSON.stringify(groups)).toContain('/api/portal/storage/private/feature-attachment/a');
   });
 
   it('explicit featureIds outside the scope are dropped', async () => {

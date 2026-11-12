@@ -38,10 +38,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "FATAL: $ENV_FILE missing." >&2
   exit 1
 fi
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Parsed, not sourced, like deploy.sh: sourcing ran the file as shell,
+# so a compose `$$` became the PID and `$2a` broke `set -u`.
+# shellcheck source=infra/lib-env.sh
+. "$(dirname "$ENV_FILE")/lib-env.sh"
+gg_load_env_file "$ENV_FILE"
 
 REALM="${KEYCLOAK_REALM:-gratis-gis}"
 KEYCLOAK_CONTAINER="${KEYCLOAK_CONTAINER:-gratis-gis-prod-keycloak}"
@@ -137,7 +138,7 @@ print(json.dumps({
   'emailVerified': False,
   'enabled': True,
   'attributes': {
-    'org': ['${PORTAL_ORG_SLUG:-${DEFAULT_ORG_SLUG:-gratis-gis}}'],
+    'org': ['${DEFAULT_ORG_SLUG:-gratis-gis}'],
     'org_role': ['$org_role'],
   },
 }))

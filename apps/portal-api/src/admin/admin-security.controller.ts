@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -21,6 +22,7 @@ import { AdminGuard } from './admin.guard.js';
 import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { assertAlias, assertPublicHttps } from './oidc-url.js';
+import { isAdminTierLocked } from './admin-tier-lock.js';
 
 class CreateOidcDto {
   @IsString() @MinLength(1) @MaxLength(40) alias!: string;
@@ -67,6 +69,7 @@ export class AdminSecurityController {
 
   @Post('oidc')
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateOidcDto) {
+    assertNotLocked();
     const domain = dto.domain?.trim().toLowerCase() || null;
     if (domain && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
       throw new BadRequestException('Enter a domain such as example.org.');
@@ -95,6 +98,7 @@ export class AdminSecurityController {
 
   @Delete('oidc/:alias')
   async remove(@CurrentUser() user: AuthUser, @Param('alias') alias: string) {
+    assertNotLocked();
     const target = assertAlias(alias);
     await this.keycloak.deleteIdentityProvider(target);
     void this.audit?.record({
@@ -111,6 +115,7 @@ export class AdminSecurityController {
 
   @Put('mfa')
   async mfa(@CurrentUser() user: AuthUser, @Body() dto: MfaDto) {
+    assertNotLocked();
     await this.keycloak.setMfaRequired(dto.required);
     void this.audit?.record({
       orgId: user.orgId,
@@ -122,5 +127,18 @@ export class AdminSecurityController {
       detail: { required: dto.required },
     });
     return { mfaRequired: dto.required };
+  }
+}
+
+/**
+ * In public-testing mode the admin login is shared. A sign-in
+ * provider added through it could mint accounts that survive a reset
+ * of that password, and these settings are realm-wide.
+ */
+function assertNotLocked(): void {
+  if (isAdminTierLocked()) {
+    throw new ForbiddenException(
+      'This portal is in public-testing mode; sign-in settings cannot be changed.',
+    );
   }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import { AdminCapabilitiesController } from './admin-capabilities.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -9,11 +9,16 @@ import { CAPABILITY_KEYS, ENFORCED_CAPABILITY_KEYS } from '../auth/capabilities.
  * Only capabilities some route checks may be overridden; the rest
  * would be a switch that does nothing.
  */
-function build() {
+function build(isProtected = false) {
   const upsert = jest.fn(async () => ({}));
   const prisma = {
     user: {
-      findUnique: jest.fn(async () => ({ id: 'u-1', orgId: 'org-1', orgRole: 'contributor' })),
+      findUnique: jest.fn(async () => ({
+        id: 'u-1',
+        orgId: 'org-1',
+        orgRole: 'contributor',
+        isProtected,
+      })),
     },
     userCapabilityOverride: { upsert, findMany: jest.fn(async () => []) },
   };
@@ -48,5 +53,16 @@ describe('AdminCapabilitiesController', () => {
     const enforced = out.rows.filter((r) => r.enforced).map((r) => r.capability);
     expect(enforced.sort()).toEqual([...ENFORCED_CAPABILITY_KEYS].sort());
     expect(out.rows).toHaveLength(CAPABILITY_KEYS.length);
+  });
+
+  it('refuses to change the protected account for another admin', async () => {
+    const { ctrl, upsert } = build(true);
+    await expect(
+      ctrl.upsert('kc-1', { capability: 'can_publish_items', enabled: false } as never, actor),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(ctrl.remove('kc-1', 'can_publish_items', actor)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(upsert).not.toHaveBeenCalled();
   });
 });

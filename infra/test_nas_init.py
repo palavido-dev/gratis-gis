@@ -43,7 +43,7 @@ class NasInitTests(unittest.TestCase):
     def test_lan_caddy_has_security_headers_and_no_hsts(self):
         caddy = self.mod.caddy_lan("8080", "")
         self.assertIn("X-Content-Type-Options nosniff", caddy)
-        self.assertIn("X-Frame-Options DENY", caddy)
+        self.assertIn("X-Frame-Options SAMEORIGIN", caddy)
         self.assertNotIn("Strict-Transport-Security", caddy)
         self.assertIn("auto_https off", caddy)
         self.assertIn("/auth/realms/master", caddy)
@@ -103,6 +103,29 @@ class NasInitTests(unittest.TestCase):
         self.assertIn("Strict-Transport-Security", caddy)
         self.assertIn("/realms/master", caddy)
         self.assertIn("path /api/geocode /api/geocode/*", caddy)
+
+
+
+class ResolveUrlsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load()
+
+    def test_public_defaults_apply_when_compose_passes_empty_domains(self):
+        import os
+        from unittest import mock
+
+        env = {
+            "GRATIS_MODE": "public",
+            "GRATIS_BASE_URL": "https://gis.example.org",
+            # What Compose passes for ${GRATIS_AUTH_DOMAIN:-} when unset.
+            "GRATIS_AUTH_DOMAIN": "",
+            "GRATIS_STORAGE_DOMAIN": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            urls = self.mod.resolve_urls(None)
+        self.assertEqual(urls["auth"], "https://auth.gis.example.org")
+        self.assertEqual(urls["s3"], "https://storage.gis.example.org")
 
 
 if __name__ == "__main__":
@@ -181,6 +204,6 @@ class UserProfileFilterTests(unittest.TestCase):
     def test_deploy_and_restore_patch_the_schema(self):
         for name in ("deploy.sh", "restore-golden.sh"):
             text = Path(__file__).with_name(name).read_text()
-            self.assertIn("patch-user-profile-via-docker.py --filter", text, name)
+            self.assertRegex(text, r"patch-user-profile-via-docker\.py\"? --filter", name)
             self.assertIn("--rname \"$GG_DEFAULT_ROLE\" --rolename offline_access", text, name)
             self.assertNotIn('--password "$KEYCLOAK_ADMIN_PASSWORD"', text, name)

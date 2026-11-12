@@ -82,6 +82,8 @@ services:
       GRATIS_COMPOSE_REV: *GRATIS_COMPOSE_REV
       UPDATE_CHECK: ${UPDATE_CHECK:-on}
       BOOT_DIR: /boot
+      CHROMIUM_ENV_DIR: /svc/chromium
+      POINTCLOUD_ENV_DIR: /svc/pointcloud
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -90,6 +92,8 @@ __NAS_INIT_BODY__
         END_NAS_INIT
     volumes:
       - boot:/boot
+      - chromium-env:/svc/chromium
+      - pointcloud-env:/svc/pointcloud
     healthcheck:
       test: ["CMD-SHELL", "test -f /boot/ready"]
       interval: 5s
@@ -367,12 +371,13 @@ __NAS_INIT_BODY__
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ] && [ -f /boot/env.pointcloud ]; do sleep 1; done
+        until [ -f /svc/env.pointcloud ]; do sleep 1; done
         # Only what runner.py reads. PDAL and GDAL parse uploaded
         # files here, so this process does not get Keycloak, NextAuth
-        # or credential-encryption secrets.
+        # or credential-encryption secrets, and the boot volume that
+        # holds them is not mounted here.
         set -a
-        . /boot/env.pointcloud
+        . /svc/env.pointcloud
         set +a
         if [ "$$ANALYSIS_TIERS" != "server-heavy" ]; then exec sleep infinity; fi
         echo "pointcloud-worker starting"
@@ -386,7 +391,7 @@ __NAS_INIT_BODY__
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
     volumes:
-      - boot:/boot:ro
+      - pointcloud-env:/svc:ro
       - pointcloud-scratch:/scratch
     depends_on:
       portal-api:
@@ -473,11 +478,12 @@ __NAS_INIT_BODY__
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ] && [ -f /boot/env.chromium ]; do sleep 1; done
+        until [ -f /svc/env.chromium ]; do sleep 1; done
         # Only the print token. Chrome renders user-authored map
-        # styles, so it does not get the database or storage secrets.
+        # styles, so it does not get the database or storage secrets,
+        # and the boot volume that holds them is not mounted here.
         set -a
-        . /boot/env.chromium
+        . /svc/env.chromium
         set +a
         export PORT=3000
         export TOKEN="$$CHROMIUM_TOKEN"
@@ -486,7 +492,7 @@ __NAS_INIT_BODY__
         echo "Chromium start script was not found. Printing will not work." >&2
         exec sleep infinity
     volumes:
-      - boot:/boot:ro
+      - chromium-env:/svc:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/3000'"]
       interval: 10s
@@ -534,6 +540,9 @@ __NAS_INIT_BODY__
 
 volumes:
   boot:
+  # One reduced env file each (see nas-init.py SERVICE_ENV_DIRS).
+  chromium-env:
+  pointcloud-env:
   pgdata:
   miniodata:
   caddy-data:

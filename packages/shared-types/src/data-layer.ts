@@ -221,7 +221,7 @@ export interface DataLayerDataV2 {
 export type LayerGeometryType = 'point' | 'line' | 'polygon' | null;
 
 export interface DataLayerSublayer {
-  /** Stable within the item. Used in table name + API paths. */
+  /** Stable within the item. Used in API paths and observation scopes. */
   id: string;
   /** Display name: what appears in the legend and layer list. */
   label: string;
@@ -346,7 +346,7 @@ export const DEFAULT_DATA_LAYER_V3: DataLayerDataV3 = {
  * Public record returned by the per-feature attachment list/register
  * endpoints and by the layer-wide bulk list. Bytes live in object
  * storage; this is metadata only. `storageKey` is intentionally
- * omitted from the public shape — clients download via
+ * omitted from the public shape; clients download via
  * `GET .../attachments/:attId/download` (or the private-asset proxy
  * for browser `<img>` tags) rather than reconstructing a key from
  * `storageUrl`.

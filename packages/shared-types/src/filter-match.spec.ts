@@ -172,3 +172,25 @@ describe('matchesFilter: degenerate clauses', () => {
     expect(matchesFilter({ a: 1 }, filter)).toBe(true);
   });
 });
+
+describe('matchesFilter agrees with the map and SQL', () => {
+  it('skips an incomplete clause instead of matching every row under any', () => {
+    const f = {
+      combinator: 'any' as const,
+      clauses: [
+        { field: '', op: '==' as const, value: '' },
+        { field: 'status', op: '==' as const, value: 'open' },
+      ],
+    };
+    expect(matchesFilter({ status: 'closed' }, f)).toBe(false);
+    expect(matchesFilter({ status: 'open' }, f)).toBe(true);
+  });
+
+  it('contains ignores case, and is-null covers JSON null', () => {
+    const c = { combinator: 'all' as const, clauses: [{ field: 'name', op: 'contains' as const, value: 'park' }] };
+    expect(matchesFilter({ name: 'Central Park' }, c)).toBe(true);
+    const n = { combinator: 'all' as const, clauses: [{ field: 'status', op: 'is-null' as const, value: '' }] };
+    expect(matchesFilter({ status: null }, n)).toBe(true);
+    expect(matchesFilter({}, n)).toBe(true);
+  });
+});

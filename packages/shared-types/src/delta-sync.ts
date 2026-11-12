@@ -71,7 +71,11 @@ export function nextDeltaStep(page: DeltaPageLike, since: number): DeltaStep {
       kind: 'next',
       since: page.nextSince,
       after: page.nextAfter,
-      safeCursor: Math.max(since, page.nextSince - 1),
+      // Not max(since, ...): on a continuation page `since` is the
+      // version the walk is in the middle of, and storing it would
+      // skip the rest of that version for good. nextSince only grows,
+      // so nextSince - 1 never moves the cursor backwards.
+      safeCursor: page.nextSince - 1,
     };
   }
   // A server without the composite cursor. Re-reading the last

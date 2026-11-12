@@ -78,9 +78,6 @@ python3 -m venv "$WORK/venv"
 export PATH="$WORK/venv/bin:$PATH"
 
 NODE="${NODE:-node}"
-if [[ -x /home/ubuntu/.nvm/versions/node/v24.9.0/bin/node ]]; then
-  NODE=/home/ubuntu/.nvm/versions/node/v24.9.0/bin/node
-fi
 
 up() {
   docker compose -p gg-recovery-drill -f "$COMPOSE" up -d
@@ -259,7 +256,6 @@ if (payload.preferred_username !== process.argv[3]) process.exit(1);
 JS
   rm -f "$WORK/${name}.token"
   printf 'sign-in-ok %s\n' "$name"
-  printf 'sign-in-ok %s\n' "$name" >>/tmp/gg-recovery-marks
 }
 
 verify() {
@@ -400,7 +396,6 @@ for svc in minio keycloak portal-api; do
   [[ "$state" == "running" ]] || recovery_die "capture failure left ${svc} ${state}"
 done
 printf 'capture-failure-resumed\n'
-printf 'before-capture\n' >>/tmp/gg-recovery-marks
 mkdir -p "$WORK/out"
 "$HERE/capture.sh" \
   --confirm-project gg-recovery-drill \
@@ -412,7 +407,6 @@ mkdir -p "$WORK/out"
   --maintenance-file "$WORK/capture-maint" \
   --out "$WORK/out" \
   --status-file "$WORK/capture-status.json"
-printf 'capture-sealed\n' >>/tmp/gg-recovery-marks
 python3 - "$WORK/capture-status.json" <<'PY'
 import json, sys
 doc = json.load(open(sys.argv[1]))
@@ -553,7 +547,6 @@ for _ in $(seq 1 60); do
 done
 curl -sf http://127.0.0.1:18080/realms/field >/dev/null || recovery_die 'realm did not return after restore'
 verify
-printf 'verify-returned\n' >>/tmp/gg-recovery-marks
 RESTORE_DONE="$(date +%s)"
 python3 - "$WORK/restore-status.json" <<'PY'
 import json, sys
@@ -563,7 +556,9 @@ assert doc["phase"] == "restored"
 PY
 
 # A truncated bundle must fail.
-dd if=/dev/zero of="$WORK/out/latest.tar.enc" bs=32 count=1 conv=notrunc status=none
+# Drop the last byte: this tests a real truncation (the last record
+# and its tag), not only the magic header that zeroing the start hit.
+truncate -s -1 "$WORK/out/latest.tar.enc"
 set +e
 "$HERE/restore.sh" \
   --confirm-project gg-recovery-drill \

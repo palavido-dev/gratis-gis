@@ -136,13 +136,14 @@ export function applySelectionToLayers<
   if (clauses.length === 0) return layers;
   let hit = false;
   const next = layers.map((l) => {
+    let out = l;
     if (l.id === targetLayerId) {
       hit = true;
       // Keep any filter the author already set: a selection narrows
       // what is on screen, it never widens it.
       const existing = l.filter?.clauses ?? [];
-      return {
-        ...l,
+      out = {
+        ...out,
         filter: {
           combinator: 'all' as const,
           clauses: [...existing, ...clauses],
@@ -150,17 +151,17 @@ export function applySelectionToLayers<
       };
     }
     // A layer can be both, in principle. Order does not matter: the
-    // two narrowings compose, and `else if` here would silently drop
-    // one of them.
-    if (related.has(l.id) && l.source?.via) {
+    // two narrowings compose, so both are applied to the same layer
+    // (an early return in the branch above dropped this one).
+    if (related.has(l.id) && out.source?.via) {
       hit = true;
-      const existing = l.source.via.parentWhere?.clauses ?? [];
-      return {
-        ...l,
+      const existing = out.source.via.parentWhere?.clauses ?? [];
+      out = {
+        ...out,
         source: {
-          ...l.source,
+          ...out.source,
           via: {
-            ...l.source.via,
+            ...out.source.via,
             parentWhere: {
               combinator: 'all' as const,
               clauses: [...existing, ...clauses],
@@ -169,7 +170,7 @@ export function applySelectionToLayers<
         },
       };
     }
-    return l;
+    return out;
   });
   return hit ? next : layers;
 }
@@ -242,10 +243,15 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
   const out: SourceScope = { spatial: Boolean(bbox) };
   if (bbox) out.bbox = bbox;
   if (clauses.length > 0) {
-    // The author's clauses are ANDed with the reader's selection
-    // regardless of the author's own combinator: a reader's click
-    // narrows what the author published, it never widens it.
-    out.where = { combinator: 'all', clauses };
+    // With no selection the author's filter goes through as written,
+    // combinator included: flattening it to `all` turned an author's
+    // "A or B" into "A and B" from the first render. With a selection,
+    // the author's clauses are ANDed with it: a reader's click narrows
+    // what the author published, it never widens it.
+    out.where =
+      !selecting && source?.where
+        ? { combinator: source.where.combinator, clauses }
+        : { combinator: 'all', clauses };
   }
 
   // A relate needs BOTH a declaration and a parent that resolved. A
@@ -263,7 +269,13 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
       parentLayerId: parent.layer.layerKey,
       ...(parentBbox ? { parentBbox } : {}),
       ...(parentClauses.length > 0
-        ? { parentWhere: { combinator: 'all' as const, clauses: parentClauses } }
+        ? {
+            parentWhere: {
+              combinator:
+                !parentSelecting && parent.where ? parent.where.combinator : ('all' as const),
+              clauses: parentClauses,
+            },
+          }
         : {}),
     };
     if (parentSelecting && !selecting) out.note = parentSelecting.label;

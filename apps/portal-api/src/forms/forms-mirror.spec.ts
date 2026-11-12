@@ -138,7 +138,8 @@ describe('form mirror repair re-registers photos after the presign grant expires
       featureAttachment: {
         create: jest.fn(async (a: unknown) => {
           created.push(a);
-          return { id: 'a1', createdAt: new Date(0) };
+          const data = (a as { data: { storageKey: string } }).data;
+          return { id: 'a1', createdAt: new Date(0), storageKey: data.storageKey };
         }),
       },
     };

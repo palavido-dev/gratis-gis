@@ -935,11 +935,18 @@ export class TileCacheService implements OnModuleDestroy {
       if (msg.channel !== OBSERVATION_WRITTEN_CHANNEL) return;
       this.onObservationWritten(msg.payload ?? '');
     });
+    let done = false;
     const restart = (why: string) => {
+      if (done) return;
+      done = true;
       if (this.listener === client) this.listener = null;
       client.removeAllListeners();
       void client.end().catch(() => {});
       if (this.listenerStopped) return;
+      // Stay "starting" until the retry fires. Clearing the flag here
+      // let the next tile miss open a second client beside the retry
+      // timer's, and the loser stayed connected for good.
+      this.listenerStarting = true;
       this.log.warn(
         `tile invalidation listener ${why}; retrying in ${this.listenerRetryMs}ms`,
       );
@@ -955,6 +962,15 @@ export class TileCacheService implements OnModuleDestroy {
       .connect()
       .then(() => client.query(`LISTEN ${OBSERVATION_WRITTEN_CHANNEL}`))
       .then(() => {
+        if (done || this.listenerStopped || this.listener) {
+          // Shut down, already restarted, or another client won.
+          if (!done) {
+            done = true;
+            client.removeAllListeners();
+            void client.end().catch(() => {});
+          }
+          return;
+        }
         this.listener = client;
         this.listenerStarting = false;
         this.listenerRetryMs = 1_000;

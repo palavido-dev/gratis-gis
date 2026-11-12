@@ -37,7 +37,9 @@ describe('nextDeltaStep', () => {
     });
   });
 
-  it('never moves the safe cursor below where the walk started', () => {
+  it('on a continuation page inside one version, keeps that version unfinished', () => {
+    // The walk is in the middle of version 7 (since = 7 came from the
+    // previous page). Storing 7 would skip the rest of it.
     const page = {
       syncVersion: 9,
       changes: [change({ syncVersion: 7 })],
@@ -45,7 +47,7 @@ describe('nextDeltaStep', () => {
       nextSince: 7,
       nextAfter: 'x',
     };
-    expect(nextDeltaStep(page, 7)).toMatchObject({ kind: 'next', safeCursor: 7 });
+    expect(nextDeltaStep(page, 7)).toMatchObject({ kind: 'next', safeCursor: 6 });
   });
 
   it('on an older server, re-reads the last version from its start', () => {

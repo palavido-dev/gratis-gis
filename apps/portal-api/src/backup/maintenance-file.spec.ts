@@ -16,4 +16,13 @@ describe('recovery maintenance file', () => {
     rmSync(dir, { recursive: true });
     expect(recoveryMaintenanceFileActive(file)).toBe(false);
   });
+
+  it('fails closed when the path cannot be checked', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gg-maint-'));
+    const notDir = join(dir, 'plain-file');
+    writeFileSync(notDir, 'x');
+    // ENOTDIR: existsSync said "no hold" here.
+    expect(recoveryMaintenanceFileActive(join(notDir, 'maintenance'))).toBe(true);
+    rmSync(dir, { recursive: true });
+  });
 });
