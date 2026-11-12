@@ -39,7 +39,9 @@ function timePart(o: GdalDateish): string {
   const m = isInt(o.minute) ? o.minute : 0;
   const s = isInt(o.second) ? o.second : 0;
   const whole = Math.trunc(s);
-  const ms = Math.round((s - whole) * 1000);
+  // .9995 and up rounds to 1000, which printed as ".1000" and read
+  // back as .100. Clamp: the lost half millisecond does not matter.
+  const ms = Math.min(999, Math.round((s - whole) * 1000));
   const frac = ms > 0 ? `.${pad(ms, 3)}` : '';
   return `${pad(h)}:${pad(m)}:${pad(whole)}${frac}`;
 }
@@ -68,6 +70,11 @@ function isDateish(v: unknown): v is GdalDateish {
  * that is not a GDAL date-like object passes through untouched.
  */
 export function normalizeGdalValue(v: unknown): unknown {
+  // GDAL list fields (IntegerList, RealList, StringList) come back as
+  // arrays. They are typed as text (see gdalTypeToSimple), and a text
+  // field refuses a list, so the import stopped at the first row.
+  // JSON keeps every element and its type.
+  if (Array.isArray(v)) return JSON.stringify(v);
   if (!isDateish(v)) return v;
   const hasDate = isInt(v.year) && isInt(v.month) && isInt(v.day);
   if (hasDate) {
@@ -102,6 +109,9 @@ export function normalizeGdalProps(raw: Record<string, unknown>): Record<string,
  */
 export function gdalTypeToSimple(t: string): 'string' | 'number' | 'boolean' | 'date' {
   const u = t.toLowerCase();
+  // List types hold several values per row. gdal-async names them
+  // `integer[]`, `real[]`, `string[]`; GDAL itself `IntegerList` etc.
+  if (u.endsWith('[]') || u.endsWith('list')) return 'string';
   if (u.includes('int') || u.includes('real') || u.includes('double')) {
     return 'number';
   }

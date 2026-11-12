@@ -514,6 +514,40 @@ describe('CommentsService', () => {
       );
       expect(out.body).toBe('fixed');
     });
+
+    it("keeps the author's name when an item editor edits someone else's comment", async () => {
+      const prisma = makePrisma();
+      // The caller owns the item, so they may edit any comment on it.
+      prisma.item.findFirst.mockResolvedValue(makeItem({ ownerId: 'editor-1' }));
+      prisma.commentThread.findUnique.mockResolvedValue({ id: 'thread-1', itemId: 'item-1' });
+      prisma.comment.findUnique.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'author-1',
+        createdAt: new Date(0),
+      });
+      prisma.comment.update.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'author-1',
+        body: 'typo fixed',
+        createdAt: new Date(0),
+        editedAt: new Date(),
+      });
+      prisma.user.findUnique.mockImplementation(async (a: { where: { id: string } }) =>
+        a.where.id === 'author-1'
+          ? { fullName: 'Alice Author', username: 'alice' }
+          : { fullName: 'Ed Editor', username: 'ed' },
+      );
+      const out = await makeService(prisma).editComment(
+        makeUser({ id: 'editor-1', username: 'ed' }),
+        'item-1',
+        'thread-1',
+        'c-1',
+        { body: 'typo fixed' },
+      );
+      expect(out.authorDisplay).toBe('Alice Author');
+    });
   });
 
   describe('mentions', () => {

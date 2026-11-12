@@ -26,6 +26,9 @@ import {
   formatSize,
   INGEST_MAX_UPLOAD_BYTES,
   INGEST_UPLOAD_PREFIX,
+  MAX_OPEN_UPLOADS_PER_USER,
+  declaredSizeOfKey,
+  uploadObjectKey,
   partCountFor,
   partLength,
   requiredFreeBytes,
@@ -135,6 +138,29 @@ export class IngestUploadService {
       );
     }
 
+    // Uploads already started but not finished hold no reservation
+    // until they complete, so each new one used to pass the same
+    // free-space check. Count them: one user may keep only a few open,
+    // and their declared sizes are added to this one's below.
+    let openKeys: string[] = [];
+    try {
+      openKeys = await this.storage.listMultipartUploadsUnder(INGEST_UPLOAD_PREFIX);
+    } catch (err) {
+      // A store that will not list open uploads still gets the
+      // per-upload free-space check below; do not refuse every upload.
+      this.log.warn(
+        `Could not list open import uploads: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+    const mine = openKeys.filter((k) => k.startsWith(`${INGEST_UPLOAD_PREFIX}${userId}/`));
+    if (mine.length >= MAX_OPEN_UPLOADS_PER_USER) {
+      throw new HttpException(
+        `You already have ${mine.length} uploads in progress. Finish or cancel one, then try again.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const openBytes = openKeys.reduce((sum, k) => sum + declaredSizeOfKey(k), 0);
+
     let free: number;
     try {
       free = await this.freeStagingBytes();
@@ -144,21 +170,23 @@ export class IngestUploadService {
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
-    const needed = requiredFreeBytes(sizeBytes);
+    const needed = requiredFreeBytes(sizeBytes + openBytes);
     if (!Number.isFinite(free) || free < needed) {
       throw new HttpException(
         `Not enough free disk space on the server for this file. ${formatSize(
           Math.max(0, free),
         )} is free and ${formatSize(
           needed,
-        )} is needed (twice the file size, plus room to unpack it). Free some space and try again.`,
+        )} is needed (twice the file size${
+          openBytes > 0 ? ' and the uploads already in progress' : ''
+        }, plus room to unpack it). Free some space and try again.`,
         HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
 
     const partSize = choosePartSize(sizeBytes);
     const partCount = partCountFor(sizeBytes, partSize);
-    const key = `${INGEST_UPLOAD_PREFIX}${userId}/${randomUUID()}`;
+    const key = uploadObjectKey(userId, sizeBytes, randomUUID());
     const uploadId = await this.storage.createMultipartUpload(key);
     const exp = Date.now() + UPLOAD_HANDLE_TTL_MS;
     const claims: UploadClaims = {

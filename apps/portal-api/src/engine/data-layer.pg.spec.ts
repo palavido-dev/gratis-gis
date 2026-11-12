@@ -1796,6 +1796,13 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.map((c) => c.featureId)).toEqual([renamed]);
       expect(out[0]!.label).toBe('Oak Avenue');
     });
+
+    it('finds a typo whose word similarity is under the pg_trgm default', async () => {
+      // word_similarity('Avneu', 'Oak Avenue') is about 0.33: above the
+      // geocoder's minScore 0.2, below the 0.6 default `%>` uses.
+      const out = await geocoder().search({} as AuthUser, geocoderId, 'Avneu');
+      expect(out.map((c) => c.featureId)).toEqual([renamed]);
+    });
   });
 
   describe('scenario 8: aggregates answer from live rows only (#29 f/u)', () => {

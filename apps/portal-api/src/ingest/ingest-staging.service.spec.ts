@@ -55,6 +55,23 @@ describe('IngestStagingService stored names', () => {
     expect(got.originalName).toBe('contours.geojson');
   });
 
+  it('keeps the probe layer counts for the import jobs that follow', async () => {
+    const staged = await staging.stage({
+      buffer: Buffer.from('{"type":"FeatureCollection","features":[]}'),
+      originalName: 'counts.json',
+      ownerId: OWNER,
+    });
+    await staging.recordLayerCounts(staged.stagingId, OWNER, [
+      { name: 'parcels', featureCount: 1200 },
+      { name: '__proto__', featureCount: 3 },
+    ]);
+    const got = await staging.getStaging(staged.stagingId, OWNER);
+    expect(got.layerCounts?.get('parcels')).toBe(1200);
+    expect(got.layerCounts?.get('__proto__')).toBe(3);
+    // An upload that happens to be named like the counts file keeps its bytes.
+    expect(readFileSync(got.filePath, 'utf8')).toContain('FeatureCollection');
+  });
+
   it('reads back a buffer staging', async () => {
     const staged = await staging.stage({
       buffer: Buffer.from('a,b\n1,2\n'),

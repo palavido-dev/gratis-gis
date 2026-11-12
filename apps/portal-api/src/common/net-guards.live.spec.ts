@@ -109,6 +109,30 @@ describe('pinned HTTP dial', () => {
     }
   });
 
+  it('a signal that fires after the headers also ends the body read', async () => {
+    // Callers pass one timeout that must cover the body too, not just
+    // the wait for headers: an upstream can answer 200 and then drip.
+    const server = createHttpServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.write('{"a":');
+      /* then stall */
+    });
+    const port = await listen(server);
+    const signal = AbortSignal.timeout(300);
+    try {
+      const res = await pinnedRequest(
+        new URL(`http://tiles.example:${port}/drip`),
+        { signal },
+        '127.0.0.1',
+      );
+      expect(res.status).toBe(200);
+      await expect(res.json()).rejects.toThrow();
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
   it('rejects a body over the size cap', async () => {
     const server = createHttpServer((_req, res) => {
       res.writeHead(200, { 'content-length': '40' });

@@ -37,6 +37,21 @@ describe('normalizeGdalValue', () => {
     ).toBe('2021-03-04T01:02:03.250Z');
   });
 
+  it('never writes a four digit fraction for .9995 seconds and up', () => {
+    expect(
+      normalizeGdalValue({ year: 2020, month: 1, day: 1, hour: 10, minute: 0, second: 0.9996, timezone: 100 }),
+    ).toBe('2020-01-01T10:00:00.999Z');
+  });
+
+  it('writes a list field as JSON text', () => {
+    expect(normalizeGdalValue(['a', 'b'])).toBe('["a","b"]');
+    expect(normalizeGdalValue([1, 2])).toBe('[1,2]');
+    expect(gdalTypeToSimple('integer[]')).toBe('string');
+    expect(gdalTypeToSimple('real[]')).toBe('string');
+    expect(gdalTypeToSimple('integer64[]')).toBe('string');
+    expect(gdalTypeToSimple('IntegerList')).toBe('string');
+  });
+
   it('turns a Time object into HH:MM:SS', () => {
     expect(normalizeGdalValue({ hour: 7, minute: 5, second: 9 })).toBe('07:05:09');
   });
@@ -109,7 +124,9 @@ describe('IngestService with GDAL date fields', () => {
   const buffer = Buffer.from(JSON.stringify(collection), 'utf8');
 
   it('classifies the layer by the first row that has a geometry', async () => {
-    const probe = await new IngestService().probeFile(buffer, 'setores.geojson');
+    const ingest = new IngestService();
+    const tmp = await ingest.materializeBufferToTemp(buffer, 'setores.geojson');
+    const probe = await ingest.probeFileFromPath(tmp.filePath).finally(() => tmp.cleanup());
     const layer = probe.layers[0]!;
     expect(layer.geometryType).toBe('polygon');
     const types = Object.fromEntries(layer.fields.map((f) => [f.name, f.type]));
@@ -118,7 +135,7 @@ describe('IngestService with GDAL date fields', () => {
   });
 
   it('emits date values as strings the validator accepts', async () => {
-    const out = await new IngestService().fileLayerToGeoJson(buffer, 'setores.geojson', undefined);
+    const out = await new IngestService().fileToGeoJson(buffer, 'setores.geojson');
     const props = (out.geojson.features as Array<{ properties: Record<string, unknown> }>).map(
       (f) => f.properties,
     );

@@ -18,7 +18,12 @@ jest.mock('node:dns/promises', () => ({
   lookup: jest.fn(async () => ({ address: '151.101.1.1', family: 4 })),
 }));
 
-import { AgoImportService, normalizeAgoServiceUrl } from './import.js';
+import {
+  AgoImportService,
+  ImportStoppedError,
+  agoErrorEnvelope,
+  normalizeAgoServiceUrl,
+} from './import.js';
 import type { DryRunReport } from './dry-run.js';
 import { classifyAndRow } from './dry-run.js';
 import type { AgoItem } from './ago-types.js';
@@ -846,5 +851,185 @@ describe('normalizeAgoServiceUrl', () => {
   it('returns empty for empty input', () => {
     expect(normalizeAgoServiceUrl('')).toBe('');
     expect(normalizeAgoServiceUrl('   ')).toBe('');
+  });
+});
+
+describe('AgoImportService file and probe fixes', () => {
+  function urlOf(input: unknown): string {
+    return typeof input === 'string' ? input : (input as { toString(): string }).toString();
+  }
+
+  async function runWith(
+    items: AgoItem[],
+    fetchImpl: (url: string) => Response | Promise<Response>,
+    portalUrl = PORTAL_URL,
+  ) {
+    const seen: string[] = [];
+    globalThis.fetch = jest.fn(async (input: unknown) => {
+      const url = urlOf(input);
+      seen.push(url);
+      return fetchImpl(url);
+    }) as unknown as typeof fetch;
+    const fakeItems = makeFakeItems();
+    const importer = new AgoImportService(
+      fakeItems,
+      makeFakeWebMapImport(),
+      makeFakeHostedFs(),
+      makeFakeStorage(),
+    );
+    const report = await importer.run({
+      user: USER,
+      portalUrl,
+      token: 'tok',
+      report: reportFrom(items),
+    });
+    return { report, seen, fakeItems };
+  }
+
+  it('downloads Enterprise file items from that portal, path prefix included', async () => {
+    const portal = 'https://gis.example.gov/portal/sharing/rest';
+    const { report, seen } = await runWith(
+      [sample({ id: 'file-1', type: 'PDF', title: 'Spec.pdf' })],
+      (url) =>
+        url.includes('/content/items/file-1/data')
+          ? new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+          : new Response('{}', { status: 200 }),
+      portal,
+    );
+    expect(report.created).toBe(1);
+    expect(seen.some((u) => u.startsWith(`${portal}/content/items/file-1/data`))).toBe(true);
+    expect(seen.some((u) => new URL(u).hostname === 'www.arcgis.com')).toBe(false);
+  });
+
+  it('fails a file whose download is an ArcGIS error body instead of saving it', async () => {
+    const { report } = await runWith(
+      [sample({ id: 'file-1', type: 'PDF', title: 'Spec.pdf' })],
+      (url) =>
+        url.includes('/content/items/file-1/data')
+          ? new Response(JSON.stringify({ error: { code: 498, message: 'Invalid token.' } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          : new Response('{}', { status: 200 }),
+    );
+    expect(report.created).toBe(0);
+    expect(report.results[0]!.status).toBe('failed');
+    expect(report.results[0]!.error).toContain('Invalid token');
+  });
+
+  it('keeps a literal percent sign in a plain filename', async () => {
+    const { report, fakeItems } = await runWith(
+      [sample({ id: 'file-1', type: 'PDF', title: 'Half' })],
+      (url) =>
+        url.includes('/content/items/file-1/data')
+          ? new Response(new Uint8Array([1]), {
+              status: 200,
+              headers: { 'Content-Disposition': 'attachment; filename="50% complete.pdf"' },
+            })
+          : new Response('{}', { status: 200 }),
+    );
+    expect(report.created).toBe(1);
+    const created = (fakeItems as any).__created as Array<{ data: { fileName: string } }>;
+    expect(created[0]!.data.fileName).toBe('50% complete.pdf');
+  });
+
+  it('probes a service with the case of its URL kept', async () => {
+    const { seen } = await runWith(
+      [
+        sample({
+          id: 'svc-1',
+          type: 'Map Service',
+          title: 'Parcels',
+          url: 'https://server.example.com/arcgis/rest/services/AbC/Parcels/MapServer/0',
+        }),
+      ],
+      () => new Response(JSON.stringify({ layers: [] }), { status: 200 }),
+    );
+    expect(
+      seen.some((u) => u.startsWith('https://server.example.com/arcgis/rest/services/AbC/Parcels/MapServer?')),
+    ).toBe(true);
+  });
+
+  it('keeps the token out of a stored error', async () => {
+    const { report } = await runWith(
+      [sample({ id: 'file-1', type: 'PDF', title: 'Spec.pdf' })],
+      (url) => {
+        throw new Error(`could not reach ${url}`);
+      },
+    );
+    expect(report.results[0]!.status).toBe('failed');
+    expect(report.results[0]!.error).not.toMatch(/token=tok/);
+  });
+});
+
+describe('agoErrorEnvelope', () => {
+  it('reads an ArcGIS error body and ignores other JSON', () => {
+    expect(agoErrorEnvelope('{"error":{"code":403,"message":"No access"}}')).toBe(
+      'AGO returned error 403: No access',
+    );
+    expect(agoErrorEnvelope('{"type":"FeatureCollection","features":[]}')).toBeNull();
+    expect(agoErrorEnvelope('%PDF-1.7')).toBeNull();
+  });
+});
+
+describe('AgoImportService.run when stopped part way', () => {
+  it('fills the folders it made and hands back what it created', async () => {
+    const items = [
+      { ...sample({ id: 'f1', type: 'PDF', title: 'One' }), ownerFolder: 'fold' },
+      { ...sample({ id: 'f2', type: 'PDF', title: 'Two' }), ownerFolder: 'fold' },
+    ];
+    globalThis.fetch = jest.fn(async () => new Response(new Uint8Array([1]), { status: 200 })) as unknown as typeof fetch;
+    const report = reportFrom(items as AgoItem[]);
+    report.items.forEach((r) => (r.ownerFolder = 'fold'));
+    report.folders = [{ id: 'fold', title: 'Field' }] as DryRunReport['folders'];
+    const fakeItems = makeFakeItems();
+    const importer = new AgoImportService(fakeItems, makeFakeWebMapImport(), makeFakeHostedFs(), makeFakeStorage());
+    const err = await importer
+      .run({
+        user: USER,
+        portalUrl: PORTAL_URL,
+        token: 'tok',
+        report,
+        onProgress: async () => {
+          throw new Error('cancelled');
+        },
+      })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ImportStoppedError);
+    const stopped = err as ImportStoppedError;
+    expect(stopped.partialReport.created).toBe(1);
+    const updated = (fakeItems as any).__updated as Array<{ data: { childItemIds: string[] } }>;
+    expect(updated.at(-1)!.data.childItemIds).toHaveLength(1);
+  });
+});
+
+describe('AgoImportService service probe', () => {
+  it('does not probe a type the mapping marks as having no layer list', async () => {
+    const seen: string[] = [];
+    globalThis.fetch = jest.fn(async (input: unknown) => {
+      seen.push(String(input));
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const importer = new AgoImportService(
+      makeFakeItems(),
+      makeFakeWebMapImport(),
+      makeFakeHostedFs(),
+      makeFakeStorage(),
+    );
+    const report = await importer.run({
+      user: USER,
+      portalUrl: PORTAL_URL,
+      token: 'tok',
+      report: reportFrom([
+        sample({
+          id: 'vt',
+          type: 'Vector Tile Service',
+          title: 'Basemap',
+          url: 'https://server.example.com/arcgis/rest/services/B/VectorTileServer',
+        }),
+      ]),
+    });
+    expect(report.created).toBe(1);
+    expect(seen.some((u) => u.includes('VectorTileServer'))).toBe(false);
   });
 });

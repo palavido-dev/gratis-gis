@@ -26,8 +26,32 @@ export const MIN_PART_BYTES = 16 * MIB;
 /** Spare bytes required on top of twice the file size. */
 export const UPLOAD_DISK_MARGIN_BYTES = 512 * MIB;
 
-/** How long a handle stays valid. MinIO drops stale uploads after 24h by default. */
-export const UPLOAD_HANDLE_TTL_MS = 48 * 60 * 60 * 1000;
+/** How long a handle stays valid: MinIO drops unfinished uploads
+ *  after 24h by default, so a longer handle promised the client a day
+ *  its parts would not have. */
+export const UPLOAD_HANDLE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Unfinished uploads one user may have open at once. */
+export const MAX_OPEN_UPLOADS_PER_USER = 3;
+
+/**
+ * Object key for a new upload. The declared size is part of the key so
+ * that the bytes every open upload will need can be read back from a
+ * plain listing of open uploads, with no table to keep in step.
+ */
+export function uploadObjectKey(userId: string, sizeBytes: number, id: string): string {
+  return `${INGEST_UPLOAD_PREFIX}${userId}/${sizeBytes}b-${id}`;
+}
+
+/** Declared size in an upload key, or 0 for a key without one. */
+export function declaredSizeOfKey(key: string): number {
+  const last = key.slice(key.lastIndexOf('/') + 1);
+  // `<digits>b-` so an older key, a bare UUID whose first group may
+  // be all digits, is never read as a size.
+  const m = /^(\d{1,16})b-/.exec(last);
+  const n = m ? Number(m[1]) : 0;
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
 
 /** Object key prefix for in-flight import uploads. Private: not in the public-read policy. */
 export const INGEST_UPLOAD_PREFIX = 'ingest-upload/';

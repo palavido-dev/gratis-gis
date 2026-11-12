@@ -189,10 +189,10 @@ describe('IngestService KML ExtendedData', () => {
       ['Area', 'number'],
       ['Ativo', 'boolean'],
     ]);
-    const out = await ingest.fileLayerToGeoJsonFromPath(path, 'F1');
-    const props = (out.geojson.features as Array<{ properties: Record<string, unknown> }>).map(
-      (f) => f.properties,
-    );
+    const props: Array<Record<string, unknown>> = [];
+    await ingest.streamLayerFromPath(path, 'F1', async (batch) => {
+      for (const f of batch) props.push(f.properties);
+    });
     expect(props).toEqual([
       { Name: 'A', Description: '', Bairro: 'São José', Area: 12.5, Ativo: true },
       { Name: 'B', Description: '', Bairro: 'Praça', Area: null, Ativo: null },

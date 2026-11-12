@@ -3,10 +3,10 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { statfs } from 'node:fs/promises';
 
 /**
- * How many ingest parses may hold a temp file at once, per process.
- * Two 1 GB uploads are the ceiling the NAS API disk and the VPS
- * worker can absorb without a third one queueing on top of them.
- * One per user stops a single account from taking both slots.
+ * How many ingest parses may run at once, per process. These slots
+ * bound parsing, not receiving: uploads still arriving are admitted
+ * (and counted against free disk) in disk-upload.ts. One per user
+ * stops a single account from taking both slots.
  */
 const MAX_GLOBAL = 2;
 const MAX_PER_USER = 1;

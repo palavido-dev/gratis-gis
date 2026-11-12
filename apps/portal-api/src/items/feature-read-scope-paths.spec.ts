@@ -180,16 +180,14 @@ describe('internal geocoder', () => {
     const items = itemsWith(dataLayer(shares), { geo: geocoder });
     const calls: Prisma.Sql[] = [];
     const svc = Object.create(GeocodingService.prototype) as GeocodingService;
-    Object.assign(svc, {
-      items,
-      prisma: {
-        $executeRaw: async () => 0,
-        $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-          calls.push(Prisma.sql(strings, ...values));
-          return [];
-        },
+    const prisma = {
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push(Prisma.sql(strings, ...values));
+        return [];
       },
-    });
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
+    };
+    Object.assign(svc, { items, prisma });
     return { svc, calls };
   }
 

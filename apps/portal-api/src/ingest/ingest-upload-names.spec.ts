@@ -16,7 +16,10 @@ const OWNER = 'user-1';
  * GDAL itself is not installed in every test environment.
  */
 function stemNamingGdal() {
-  return {
+  const gdal = {
+    async openAsync(path: string) {
+      return gdal.open(path);
+    },
     open(path: string) {
       const base = basename(path);
       const name = base.slice(0, base.lastIndexOf('.'));
@@ -28,13 +31,14 @@ function stemNamingGdal() {
             name,
             geomType: 3,
             fields: { count: () => 0 },
-            features: { count: () => 1 },
+            features: { count: () => 1, countAsync: async () => 1 },
           }),
         },
         close() {},
       };
     },
   };
+  return gdal;
 }
 
 describe('staged upload layer names', () => {

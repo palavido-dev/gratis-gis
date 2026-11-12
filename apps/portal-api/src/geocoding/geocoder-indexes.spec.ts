@@ -5,7 +5,9 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { GeocodingService } from './geocoding.service.js';
 import {
   GEOCODER_INDEXES_PER_ORG,
+  GEOCODER_INDEX_NAME,
   dropGeocoderIndexes,
+  geocoderIndexName,
   geocoderIndexPrefix,
 } from './geocoder-indexes.js';
 
@@ -22,7 +24,7 @@ function user(orgRole: 'contributor' | 'admin'): AuthUser {
   return { id: 'u1', orgId: ORG, orgRole } as unknown as AuthUser;
 }
 
-function makeService(opts: { otherOrgIndexes: number }) {
+function makeService(opts: { otherOrgIndexes: number; existing?: string[]; sublayer?: string }) {
   const ddl: string[] = [];
   const geocoder = {
     id: GEO,
@@ -30,20 +32,25 @@ function makeService(opts: { otherOrgIndexes: number }) {
     type: 'geocoding_service',
     data: { version: 1, sourceLayerId: 'src', searchFields: [{ name: 'name' }] },
   };
+  const prisma: Record<string, unknown> = {
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('LIKE ANY')) return [{ n: BigInt(opts.otherOrgIndexes) }];
+      if (sql.includes('COUNT(*)')) return [{ count: 0n }];
+      if (sql.includes('FROM pg_indexes')) {
+        return (opts.existing ?? []).map((indexname) => ({ indexname }));
+      }
+      return [];
+    }),
+    $executeRawUnsafe: jest.fn(async (q: string) => {
+      ddl.push(q);
+      return 0;
+    }),
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma)),
+    item: { findMany: async () => [{ id: 'other-geocoder' }] },
+  };
   const svc = new GeocodingService(
-    {
-      $queryRaw: jest.fn(async (strings: TemplateStringsArray) => {
-        const sql = strings.join('?');
-        if (sql.includes('LIKE ANY')) return [{ n: BigInt(opts.otherOrgIndexes) }];
-        if (sql.includes('COUNT(*)')) return [{ count: 0n }];
-        return [];
-      }),
-      $executeRawUnsafe: jest.fn(async (q: string) => {
-        ddl.push(q);
-        return 0;
-      }),
-      item: { findMany: async () => [{ id: 'other-geocoder' }] },
-    } as never,
+    prisma as never,
     {
       get: async (_u: unknown, id: string) =>
         id === GEO ? geocoder : { id: 'src', type: 'data_layer', data: {} },
@@ -54,7 +61,7 @@ function makeService(opts: { otherOrgIndexes: number }) {
     resolveSublayerId: () => string;
     validateSearchFields: () => Array<{ name: string }>;
   };
-  internals.resolveSublayerId = () => 'L1';
+  internals.resolveSublayerId = () => opts.sublayer ?? 'L1';
   internals.validateSearchFields = () => [{ name: 'name' }];
   return { svc, ddl };
 }
@@ -73,6 +80,35 @@ describe('geocoder index rebuild', () => {
     const out = await svc.rebuildIndexes(user('admin'), GEO);
     expect(out.created).toHaveLength(1);
     expect(ddl.some((q) => q.includes('CREATE INDEX'))).toBe(true);
+  });
+
+  it('lifts the statement timeout for the build only, inside its transaction', async () => {
+    const { svc, ddl } = makeService({ otherOrgIndexes: 0 });
+    await svc.rebuildIndexes(user('admin'), GEO);
+    const build = ddl.findIndex((q) => q.includes('CREATE INDEX'));
+    expect(ddl.slice(0, build)).toContain('SET LOCAL statement_timeout = 0');
+  });
+
+  it('rebuilds when the geocoder is pointed at another layer with the same field', async () => {
+    const oldName = geocoderIndexName(GEO, 'data_layer:src:L1', 'name');
+    const { svc, ddl } = makeService({
+      otherOrgIndexes: 0,
+      existing: [oldName],
+      sublayer: 'L2',
+    });
+    const out = await svc.rebuildIndexes(user('admin'), GEO);
+    expect(out.kept).toEqual([]);
+    expect(out.dropped).toEqual([oldName]);
+    expect(out.created).toEqual([geocoderIndexName(GEO, 'data_layer:src:L2', 'name')]);
+    expect(ddl.some((q) => q.includes("scope = 'data_layer:src:L2'"))).toBe(true);
+  });
+
+  it('gives two long fields with the same start their own index names', () => {
+    const a = geocoderIndexName(GEO, 's', `${'x'.repeat(40)}_a`);
+    const b = geocoderIndexName(GEO, 's', `${'x'.repeat(40)}_b`);
+    expect(a).not.toBe(b);
+    expect(a.length).toBeLessThanOrEqual(63);
+    expect(a).toMatch(GEOCODER_INDEX_NAME);
   });
 
   it('refuses past the per-org cap without touching the table', async () => {

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
+  ADDRESS_GEOCODE_LIMITS,
   featuresFromAddresses,
   planAddressGeocode,
   type AddressColumnPlan,
@@ -21,12 +22,15 @@ import {
 import {
   detectCsvColumnPairFromPrefix,
   detectCsvCoordinates,
+  readDelimitedRowsFromFile,
+  readDelimitedSample,
+  sniffDelimiter,
 } from './csv-smart-detect.js';
 import {
-  detectUsGeomatch,
   featuresFromGeomatch,
   planUsGeomatch,
   type GeomatchPlan,
+  type GeomatchResult,
 } from './csv-geomatch.js';
 import {
   geocodeOne,
@@ -258,8 +262,10 @@ export class IngestService {
     this.assertGdalOpen(openPath, originalName, buffer);
 
     try {
-      const ds = gdal.open(openPath);
-      this.assertGdalDriver(ds);
+      // openVector, not gdal.open: it finds lat / lng columns in a CSV
+      // too large for the in-memory detector. Plain GDAL gave such a
+      // file no geometry, so every row was skipped below.
+      const ds = await this.openVector(gdal, openPath, filePath);
       try {
         const layers = ds.layers;
         const layerCount = layers.count();
@@ -268,6 +274,7 @@ export class IngestService {
             'GDAL opened the file but found no vector layers inside.',
           );
         }
+        let skippedNoGeometry = 0;
         // Flatten every layer into one FeatureCollection for v1. A
         // future pass can let the user pick which layer they want.
         const combined: unknown[] = [];
@@ -337,7 +344,10 @@ export class IngestService {
             const extra = kml?.valuesAt(featureIndex);
             featureIndex += 1;
             const geomJson = featureGeomJson(feature, xform);
-            if (!geomJson) continue;
+            if (!geomJson) {
+              skippedNoGeometry += 1;
+              continue;
+            }
             await budget.take();
             const props = remapPropsToSafeNames(
               { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
@@ -351,6 +361,14 @@ export class IngestService {
           }
         }
 
+        if (combined.length === 0 && skippedNoGeometry > 0) {
+          // Said plainly instead of answering an empty collection,
+          // which the editors showed as a successful import of nothing.
+          throw new BadRequestException(
+            `None of the ${skippedNoGeometry} rows in this file has a location. ` +
+              'Add coordinate columns (latitude and longitude) or import it as a table.',
+          );
+        }
         return {
           geojson: { type: 'FeatureCollection', features: combined },
           fields: [...fieldMap.values()],
@@ -376,48 +394,8 @@ export class IngestService {
    * A GDB archive typically has many layers; shapefile zips can too
    * (one per .shp inside the zip). KML/KMZ often has a single layer
    * but sometimes multiple. GeoJSON is always one layer.
-   */
-  async probeFile(
-    buffer: Buffer,
-    originalName: string,
-  ): Promise<{
-    driver: string;
-    layers: Array<{
-      name: string;
-      geometryType: 'point' | 'line' | 'polygon' | null;
-      fields: Array<{
-        name: string;
-        type: 'string' | 'number' | 'boolean' | 'date';
-      }>;
-      featureCount: number;
-    }>;
-  }> {
-    if (!buffer.length) {
-      throw new BadRequestException('Uploaded file is empty.');
-    }
-    if (buffer.length > this.maxBytes) {
-      throw new BadRequestException(
-        `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
-      );
-    }
-    // mkdtemp: atomic + 0700, vs mkdir-after-join which races.
-    const dirPath = await mkdtemp(join(tmpdir(), 'gg-probe-'));
-    const filePath = join(dirPath, safeFilename(originalName));
-    await writeFile(filePath, buffer);
-    try {
-      return await this.probeFileFromPath(filePath);
-    } finally {
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
-    }
-  }
-
-  /**
-   * Path variant of probeFile. Used by the staged-upload path: the
-   * file already lives on disk under /tmp/gg-staging/<id>/, so we
-   * skip the buffer-write step entirely. The cleanup of the staging
-   * dir is the staging service's problem, not this method's.
+   *
+   * Reads a file already on disk. The caller owns and removes it.
    */
   async probeFileFromPath(filePath: string): Promise<{
     driver: string;
@@ -444,6 +422,12 @@ export class IngestService {
     const geomatch = await this.tryUsGeomatchPlan(filePath);
     if (geomatch) {
       const built = featuresFromGeomatch(geomatch);
+      // Count over the whole file, not the planning prefix, so the
+      // wizard shows the size the import will have.
+      let matched = 0;
+      for await (const chunk of this.geomatchFeaturesFromFile(geomatch)) {
+        matched += chunk.geojson.features.length;
+      }
       return {
         driver: 'csv-geomatch',
         layers: [
@@ -451,7 +435,7 @@ export class IngestService {
             name: geomatch.layerName,
             geometryType: 'polygon',
             fields: built.fields,
-            featureCount: built.matched,
+            featureCount: matched,
           },
         ],
       };
@@ -521,11 +505,8 @@ export class IngestService {
             !featureTableAllowlist.has(layer.name)
           ) {
             // Skip GPKG aux tables (NGA style, gpkg internals,
-            // rtree spatial indexes, etc.) that aren't registered
-            // as features in gpkg_contents. The data_layer wizard
-            // is for SPATIAL data; non-feature tables belong in
-            // a separate "related tables" surface that doesn't
-            // exist yet.
+            // rtree spatial indexes, etc.): gpkg_contents does not
+            // list them as feature or user attribute tables.
             continue;
           }
           const fields: Array<{
@@ -571,7 +552,9 @@ export class IngestService {
             name: layer.name,
             geometryType,
             fields,
-            featureCount: layer.features.count(),
+            // Counting scans the whole file for GeoJSON, CSV and KML;
+            // off the event loop for the same reason as the open.
+            featureCount: await layer.features.countAsync(),
           });
         }
         if (out.length === 0) {
@@ -580,173 +563,6 @@ export class IngestService {
           );
         }
         return { driver, layers: out };
-      } finally {
-        ds.close();
-      }
-    } catch (err) {
-      if (err instanceof BadRequestException || err instanceof PayloadTooLargeException) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new BadRequestException(`GDAL could not read that file: ${msg}`);
-    }
-  }
-
-  /**
-   * Extract features from a single named layer inside an uploaded
-   * archive. If `sourceLayer` is omitted and the file has exactly one
-   * layer, that single layer is used. Used by the v3 per-layer import
-   * endpoint so authors can target, say, one table inside a GDB.
-   */
-  async fileLayerToGeoJson(
-    buffer: Buffer,
-    originalName: string,
-    sourceLayer: string | undefined,
-  ): Promise<{
-    geojson: { type: 'FeatureCollection'; features: unknown[] };
-    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
-    driver: string;
-    layerName: string;
-    /** Canonical auth-name:code string for the source SRS, if the
-     *  layer declared one. See fileToGeoJson for rationale. */
-    sourceSrs: string | null;
-  }> {
-    if (!buffer.length) {
-      throw new BadRequestException('Uploaded file is empty.');
-    }
-    if (buffer.length > this.maxBytes) {
-      throw new BadRequestException(
-        `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
-      );
-    }
-    // mkdtemp: atomic + 0700, vs mkdir-after-join which races.
-    const dirPath = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
-    const filePath = join(dirPath, safeFilename(originalName));
-    await writeFile(filePath, buffer);
-    try {
-      return await this.fileLayerToGeoJsonFromPath(filePath, sourceLayer);
-    } finally {
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
-    }
-  }
-
-  /**
-   * Path variant of fileLayerToGeoJson. Used by the staged-upload
-   * path: the file is already on disk under the staging dir, so we
-   * skip the buffer-write step. Cleanup of the staging dir is the
-   * staging service's problem; callers must NOT delete `filePath` --
-   * a single staging is consumed by N per-layer ingests.
-   */
-  async fileLayerToGeoJsonFromPath(
-    filePath: string,
-    sourceLayer: string | undefined,
-  ): Promise<{
-    geojson: { type: 'FeatureCollection'; features: unknown[] };
-    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
-    driver: string;
-    layerName: string;
-    sourceSrs: string | null;
-  }> {
-    // GeoParquet branch: collect through the DuckDB reader. The
-    // buffer variant (fileLayerToGeoJson) lands here via its temp
-    // write, same as the GDAL path.
-    if (isParquetPath(filePath)) {
-      try {
-        return await collectParquetFromPath(filePath, sourceLayer);
-      } catch (err) {
-        throw mapParquetError(err);
-      }
-    }
-    const gdal = await this.loadGdal();
-    const openPath = await this.resolveGdalOpenPath(filePath);
-    this.assertGdalOpen(openPath, basename(filePath));
-    try {
-      const ds = gdal.open(openPath);
-      this.assertGdalDriver(ds);
-      try {
-        const layers = ds.layers;
-        const count = layers.count();
-        if (count === 0) {
-          throw new BadRequestException(
-            'GDAL opened the file but found no vector layers inside.',
-          );
-        }
-        // Resolve which layer to read.
-        let targetIdx = -1;
-        if (sourceLayer) {
-          for (let i = 0; i < count; i += 1) {
-            if (layers.get(i).name === sourceLayer) {
-              targetIdx = i;
-              break;
-            }
-          }
-          if (targetIdx === -1) {
-            throw new BadRequestException(
-              `File has no layer named "${sourceLayer}".`,
-            );
-          }
-        } else if (count === 1) {
-          targetIdx = 0;
-        } else {
-          throw new BadRequestException(
-            `File has ${count} layers. Specify which one via the "sourceLayer" query parameter.`,
-          );
-        }
-
-        const layer = layers.get(targetIdx);
-        const fields: Array<{
-          name: string;
-          type: 'string' | 'number' | 'boolean' | 'date';
-        }> = [];
-        const usedFieldNames = new Set<string>();
-        const fieldRename = new Map<string, string>();
-        const defCount = layer.fields.count();
-        for (let f = 0; f < defCount; f += 1) {
-          const def = layer.fields.get(f);
-          fields.push({
-            name: registerSafeFieldName(def.name, usedFieldNames, fieldRename),
-            type: gdalTypeToSimple(def.type),
-          });
-        }
-        const kml = kmlAugmentFor(await this.kmlExtendedFor(ds, filePath), targetIdx, layer);
-        for (const extra of kml?.fields ?? []) {
-          fields.push({
-            name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
-            type: extra.type,
-          });
-        }
-        const target4326 = gdal.SpatialReference.fromEPSG(4326);
-        const xform = buildTransform(gdal, layer.srs, target4326);
-        const features: unknown[] = [];
-        const budget = new CollectBudget();
-        let featureIndex = 0;
-        for (
-          let feature = layer.features.first();
-          feature;
-          feature = layer.features.next()
-        ) {
-          const extra = kml?.valuesAt(featureIndex);
-          featureIndex += 1;
-          const geomJson = featureGeomJson(feature, xform);
-          if (!geomJson) continue;
-          await budget.take();
-          const props = remapPropsToSafeNames(
-            { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
-            fieldRename,
-          );
-          features.push({
-            type: 'Feature',
-            geometry: geomJson,
-            properties: props,
-          });
-        }
-        return {
-          geojson: { type: 'FeatureCollection', features },
-          fields,
-          driver: ds.driver.description,
-          layerName: layer.name,
-          sourceSrs: srsAuthCode(layer.srs),
-        };
       } finally {
         ds.close();
       }
@@ -790,7 +606,7 @@ export class IngestService {
   }
 
   /**
-   * Streaming variant of fileLayerToGeoJsonFromPath. Walks features
+   * Streaming read of one layer. Walks features
    * in order, invoking `onBatch` every `batchSize` features so the
    * caller can insert rows incrementally instead of buffering the
    * whole layer in JS memory.
@@ -1103,6 +919,9 @@ export class IngestService {
         // the attribute table as well. They are the user's data and
         // they asked for a faithful import; dropping them would also
         // make a re-export lossy.
+        // Sync on purpose: Driver.openAsync in gdal-async 3.12 drops
+        // the open options, and the CSV driver reads only the header
+        // on open, so this does not hold the event loop.
         const csvDs = gdal.drivers.get('CSV').open(openPath, 'r', [
           `X_POSSIBLE_NAMES=${pair.lngColumn}`,
           `Y_POSSIBLE_NAMES=${pair.latColumn}`,
@@ -1112,7 +931,10 @@ export class IngestService {
         return csvDs;
       }
     }
-    const ds = gdal.open(openPath);
+    // openAsync runs in GDAL's worker threads. The sync open parsed a
+    // whole GeoJSON (or KML, GML) on the API event loop, which then
+    // answered no other request for the length of the scan.
+    const ds = await gdal.openAsync(openPath);
     this.assertGdalDriver(ds);
     return ds;
   }
@@ -1257,11 +1079,18 @@ export class IngestService {
       const lastBreak = text.lastIndexOf('\n');
       text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
     }
-    const detected = detectUsGeomatch(text);
-    if (detected.kind !== 'matched') {
-      this.log.debug(
-        `No US geomatch in ${originalName}: ${detected.reason}`,
-      );
+    const plan = planUsGeomatch(text);
+    if (plan.kind === 'none') {
+      this.log.debug(`No US geomatch in ${originalName}: ${plan.reason}`);
+      return null;
+    }
+    // Plan from the prefix, then join every row of the buffer. The
+    // plan holds at most 5,000 rows of the first 1 MiB, and those were
+    // all that was returned.
+    const all = readDelimitedSample(buffer.toString('utf8'), Number.MAX_SAFE_INTEGER);
+    const detected = featuresFromGeomatch('error' in all ? plan : { ...plan, rows: all.rows });
+    if (detected.matched === 0) {
+      this.log.debug(`No US geomatch in ${originalName}: no row matched`);
       return null;
     }
     this.log.log(
@@ -1280,8 +1109,10 @@ export class IngestService {
   private async tryUsGeomatchPlan(
     filePath: string,
     layerLabel?: string,
-  ): Promise<(GeomatchPlan & { layerName: string }) | null> {
+  ): Promise<FileGeomatchPlan | null> {
     if (!looksLikeTabularText(filePath)) return null;
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) return null;
     const text = await this.readDelimitedPrefix(filePath);
     if (text === null) return null;
     const plan = planUsGeomatch(text);
@@ -1291,17 +1122,38 @@ export class IngestService {
       );
       return null;
     }
+    const source = { sourcePath: safePath, delimiter: sniffDelimiter(text) };
     if (layerLabel) {
-      return { ...plan, layerName: uploadLayerStem(layerLabel) };
+      return { ...plan, ...source, layerName: uploadLayerStem(layerLabel) };
     }
     const dot = basename(filePath).lastIndexOf('.');
     const layerName =
       dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
-    return { ...plan, layerName };
+    return { ...plan, ...source, layerName };
   }
 
+  /**
+   * Join every row of the file to its boundary, a chunk at a time.
+   * The plan is made from the first 1 MiB (at most 5,000 rows); the
+   * import used to stop there and report success.
+   */
+  private async *geomatchFeaturesFromFile(
+    plan: FileGeomatchPlan,
+  ): AsyncGenerator<GeomatchResult> {
+    for await (const chunk of readDelimitedRowsFromFile(
+      plan.sourcePath,
+      IngestService.GEOMATCH_CHUNK_ROWS,
+      plan.delimiter,
+    )) {
+      if (chunk.rows.length === 0) continue;
+      yield featuresFromGeomatch({ ...plan, rows: chunk.rows });
+    }
+  }
+
+  private static readonly GEOMATCH_CHUNK_ROWS = 2_000;
+
   private async streamUsGeomatchLayer(
-    plan: GeomatchPlan & { layerName: string },
+    plan: FileGeomatchPlan,
     onBatch: (
       batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
       progress: { processed: number; total: number },
@@ -1314,32 +1166,39 @@ export class IngestService {
     sourceSrs: string;
     total: number;
   }> {
-    const built = featuresFromGeomatch(plan);
-    if (built.matched === 0) {
+    const fields = featuresFromGeomatch(plan).fields;
+    // Two passes over the file: one to count, so the progress total
+    // is right from the first event, one to emit.
+    let total = 0;
+    for await (const chunk of this.geomatchFeaturesFromFile(plan)) {
+      total += chunk.geojson.features.length;
+    }
+    if (total === 0) {
       throw new BadRequestException(
         'No rows matched a US boundary name for geomatch.',
       );
     }
-    const total = built.geojson.features.length;
     let processed = 0;
     let batch: Array<{ geometry: unknown; properties: Record<string, unknown> }> =
       [];
-    for (const feature of built.geojson.features) {
-      processed += 1;
-      batch.push({
-        geometry: feature.geometry,
-        properties: feature.properties,
-      });
-      if (batch.length >= batchSize) {
-        await onBatch(batch, { processed, total });
-        batch = [];
+    for await (const chunk of this.geomatchFeaturesFromFile(plan)) {
+      for (const feature of chunk.geojson.features) {
+        processed += 1;
+        batch.push({
+          geometry: feature.geometry,
+          properties: feature.properties,
+        });
+        if (batch.length >= batchSize) {
+          await onBatch(batch, { processed, total });
+          batch = [];
+        }
       }
     }
     if (batch.length > 0) {
       await onBatch(batch, { processed, total });
     }
     return {
-      fields: built.fields,
+      fields,
       driver: 'csv-geomatch',
       layerName: plan.layerName,
       sourceSrs: 'EPSG:4326',
@@ -1367,6 +1226,12 @@ export class IngestService {
       );
       return null;
     }
+    if (exceedsAddressRowCap(text, await this.fileSize(filePath))) {
+      this.log.log(
+        `${basename(filePath)} has more than ${ADDRESS_GEOCODE_LIMITS.MAX_ROWS} address rows; importing it as a table instead.`,
+      );
+      return null;
+    }
     const base = localNominatimBase();
     if (!base) {
       this.log.warn(
@@ -1387,6 +1252,13 @@ export class IngestService {
     const layerName =
       dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
     return { ...plan, layerName };
+  }
+
+  private async fileSize(filePath: string): Promise<number> {
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) return 0;
+    const { stat } = await import('node:fs/promises');
+    return (await stat(safePath).catch(() => null))?.size ?? 0;
   }
 
   private async readDelimitedPrefix(filePath: string): Promise<string | null> {
@@ -1428,6 +1300,7 @@ export class IngestService {
     }
     const plan = planAddressGeocode(text);
     if (plan.kind !== 'address') return null;
+    if (exceedsAddressRowCap(text, buffer.length)) return null;
     const base = localNominatimBase();
     if (!base || !(await nominatimAnswers(fetch, base))) return null;
     const looked = await this.lookupAddressPlan(plan, originalName);
@@ -1688,6 +1561,25 @@ export class IngestService {
  * shaped text content. Non-CSV files skip the smart-detect pass
  * and fall straight through to GDAL where they belong.
  */
+/** A geomatch plan plus where to read the full file from. */
+type FileGeomatchPlan = GeomatchPlan & {
+  layerName: string;
+  sourcePath: string;
+  delimiter: string;
+};
+
+/**
+ * True when an address file has more rows than the address geocoder
+ * takes (ADDRESS_GEOCODE_LIMITS.MAX_ROWS), judged from its first 1 MiB
+ * and its size. Such a file goes to the table import with every row,
+ * instead of being cut to the first 200 geocoded points with no word.
+ */
+export function exceedsAddressRowCap(prefix: string, sizeBytes: number): boolean {
+  if (sizeBytes > Buffer.byteLength(prefix, 'utf8') + 1) return true;
+  const sample = readDelimitedSample(prefix, ADDRESS_GEOCODE_LIMITS.MAX_ROWS + 1);
+  return !('error' in sample) && sample.rows.length > ADDRESS_GEOCODE_LIMITS.MAX_ROWS;
+}
+
 function looksLikeTabularText(name: string): boolean {
   const lower = name.toLowerCase();
   return (

@@ -13,6 +13,7 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
   AgoImportService,
+  ImportStoppedError,
   type ImportReport,
 } from './import.js';
 import type { DryRunReport } from './dry-run.js';
@@ -166,6 +167,22 @@ export class AgoImportJobsService
       },
       select: { id: true },
     });
+    // A row still queued this long never got a runner: the process
+    // died between the insert and the runner, or the runner's first
+    // query threw. The token lives only in that process's memory, so
+    // nothing can ever run it. Fail it so the wizard stops polling.
+    const neverStarted = await this.prisma.agoImportJob.updateMany({
+      where: { status: 'queued', createdAt: { lt: cutoff } },
+      data: {
+        status: 'failed',
+        finishedAt: new Date(),
+        currentItem: null,
+        errorMessage: NEVER_STARTED_MESSAGE,
+      },
+    });
+    if (neverStarted.count > 0) {
+      this.log.warn(`Failed ${neverStarted.count} AGO import job(s) that never started.`);
+    }
     if (stale.length === 0) return;
     const result = await this.prisma.agoImportJob.updateMany({
       where: { id: { in: stale.map((s) => s.id) }, status: 'running' },
@@ -219,6 +236,19 @@ export class AgoImportJobsService
             e instanceof Error ? e.message : e
           }`,
         );
+        // Do not leave the row queued or running for the wizard to
+        // poll forever. Best effort: the sweep catches it otherwise.
+        void this.prisma.agoImportJob
+          .updateMany({
+            where: { id: row.id, status: { in: ['queued', 'running'] } },
+            data: {
+              status: 'failed',
+              finishedAt: new Date(),
+              currentItem: null,
+              errorMessage: NEVER_STARTED_MESSAGE,
+            },
+          })
+          .catch(() => undefined);
       });
     });
 
@@ -347,19 +377,30 @@ export class AgoImportJobsService
         data: {
           status: 'succeeded',
           finishedAt: new Date(),
-          done: report.total,
+          // `total` counts only the rows that will import; the
+          // report's total also counts skipped rows, which showed as
+          // "57 of 40".
+          done: countWillImport(input.report),
           report: report as unknown as Prisma.InputJsonValue,
           currentItem: null,
         },
       });
-    } catch (e) {
+    } catch (thrown) {
+      // run() finishes its folder post-pass and report before passing
+      // on an error from onProgress, so a stop still records what
+      // was created.
+      const partial = thrown instanceof ImportStoppedError ? thrown.partialReport : null;
+      const e = thrown instanceof ImportStoppedError ? thrown.reason : thrown;
+      const reportData = partial
+        ? { report: partial as unknown as Prisma.InputJsonValue }
+        : {};
       if (e instanceof JobCancelledError) {
         // Cancellation was already persisted by `cancel()`. Just
         // make sure finishedAt + currentItem are set so the UI
         // doesn't show "in progress" forever.
         await this.prisma.agoImportJob.update({
           where: { id: jobId },
-          data: { finishedAt: new Date(), currentItem: null },
+          data: { finishedAt: new Date(), currentItem: null, ...reportData },
         });
         return;
       }
@@ -375,6 +416,7 @@ export class AgoImportJobsService
           finishedAt: new Date(),
           errorMessage:
             e instanceof Error ? e.message : 'Unknown runner error',
+          ...reportData,
         },
       });
     } finally {
@@ -384,6 +426,9 @@ export class AgoImportJobsService
     }
   }
 }
+
+const NEVER_STARTED_MESSAGE =
+  'The import never started (the server was interrupted). Start the import again to retry.';
 
 class JobCancelledError extends Error {
   constructor() {

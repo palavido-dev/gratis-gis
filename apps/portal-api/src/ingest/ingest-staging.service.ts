@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { sweepStaleIngestTempDirs } from './disk-upload.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   copyFile,
@@ -25,7 +26,7 @@ import { createWriteStream, existsSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { realpathSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
 
@@ -134,6 +135,17 @@ export class IngestStagingService implements OnModuleInit {
     await this.cleanupStaleSync().catch(() => {
       // Already logged inside; swallow so a bad disk doesn't block boot.
     });
+    // Per-request upload dirs live in this container's own temp dir,
+    // so every process sweeps its own (not just the leader).
+    const sweep = (): void => {
+      void sweepStaleIngestTempDirs(INGEST_TEMP_MAX_AGE_MS)
+        .then((n) => {
+          if (n > 0) this.log.log(`Removed ${n} stale ingest upload dir(s).`);
+        })
+        .catch(() => undefined);
+    };
+    sweep();
+    setInterval(sweep, 60 * 60 * 1000).unref();
   }
 
   /**
@@ -316,7 +328,14 @@ export class IngestStagingService implements OnModuleInit {
   async getStaging(
     stagingId: string,
     callerUserId: string,
-  ): Promise<{ filePath: string; originalName: string; sizeBytes: number }> {
+  ): Promise<{
+    filePath: string;
+    originalName: string;
+    sizeBytes: number;
+    /** Feature count per source layer, from the probe that ran when
+     *  the file was staged (see recordLayerCounts). */
+    layerCounts?: Map<string, number>;
+  }> {
     // Only a UUID minted by stage() is a staging id, and the resolved
     // directory must sit directly inside the staging root.
     if (!isStagingId(stagingId)) {
@@ -373,11 +392,37 @@ export class IngestStagingService implements OnModuleInit {
         'Staging file is missing. Re-upload to retry.',
       );
     }
+    const layerCounts = await readLayerCounts(join(dirReal, COUNTS_FILE));
     return {
       filePath,
       originalName: meta.originalName,
       sizeBytes: meta.sizeBytes,
+      ...(layerCounts ? { layerCounts } : {}),
     };
+  }
+
+  /**
+   * Keep the per-layer feature counts the staging probe found. Each
+   * import job needs its layer's count for the progress bar, and
+   * reprobing the file for it ran a full synchronous GDAL scan on the
+   * API event loop once per queued layer. Best effort.
+   */
+  async recordLayerCounts(
+    stagingId: string,
+    callerUserId: string,
+    layers: ReadonlyArray<{ name: string; featureCount: number }>,
+  ): Promise<void> {
+    try {
+      const { filePath } = await this.getStaging(stagingId, callerUserId);
+      const pairs = layers
+        .filter((l) => typeof l.name === 'string' && Number.isFinite(l.featureCount))
+        .map((l) => [l.name, l.featureCount] as const);
+      await writeFile(join(dirname(filePath), COUNTS_FILE), JSON.stringify(pairs), {
+        mode: 0o600,
+      });
+    } catch {
+      /* the job then just starts without a total */
+    }
   }
 
   /**
@@ -503,6 +548,32 @@ export class IngestStagingService implements OnModuleInit {
 
 /** Exported for the spec. */
 export const STAGING_SWEEP_KEEPS_JOB_STATES = ['queued', 'running'] as const;
+
+/** An upload dir untouched this long belongs to no live request. */
+const INGEST_TEMP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/** Per-layer feature counts next to meta.json, as [name, count] pairs.
+ *  The leading dot keeps it apart from any stored upload name, which
+ *  never starts with a dot. */
+const COUNTS_FILE = '.layer-counts.json';
+
+async function readLayerCounts(path: string): Promise<Map<string, number> | null> {
+  const raw = await readFile(path, 'utf8').catch(() => null);
+  if (!raw) return null;
+  try {
+    const pairs = JSON.parse(raw) as unknown;
+    if (!Array.isArray(pairs)) return null;
+    const out = new Map<string, number>();
+    for (const p of pairs) {
+      if (Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'number') {
+        out.set(p[0], p[1]);
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
 
 interface StagingMeta {
   ownerId: string;

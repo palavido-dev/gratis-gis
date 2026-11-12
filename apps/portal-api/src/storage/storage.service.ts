@@ -8,6 +8,7 @@ import {
   CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  ListMultipartUploadsCommand,
   ListObjectsV2Command,
   PutBucketCorsCommand,
   PutBucketPolicyCommand,
@@ -522,6 +523,31 @@ export class StorageService implements OnModuleInit {
    * Drop an unfinished multipart upload and the parts stored for it.
    * A missing upload counts as done, so a repeated abort is harmless.
    */
+  /** Keys of multipart uploads started under `prefix` and not yet
+   *  completed or aborted. */
+  async listMultipartUploadsUnder(prefix: string): Promise<string[]> {
+    await this.ensureReady();
+    const out: string[] = [];
+    let keyMarker: string | undefined;
+    let uploadIdMarker: string | undefined;
+    for (let page = 0; page < 100; page += 1) {
+      const res = await this.client.send(
+        new ListMultipartUploadsCommand({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(keyMarker ? { KeyMarker: keyMarker } : {}),
+          ...(uploadIdMarker ? { UploadIdMarker: uploadIdMarker } : {}),
+        }),
+      );
+      for (const u of res.Uploads ?? []) if (u.Key) out.push(u.Key);
+      if (!res.IsTruncated) break;
+      keyMarker = res.NextKeyMarker;
+      uploadIdMarker = res.NextUploadIdMarker;
+      if (!keyMarker && !uploadIdMarker) break;
+    }
+    return out;
+  }
+
   async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
     try {
       await this.client.send(

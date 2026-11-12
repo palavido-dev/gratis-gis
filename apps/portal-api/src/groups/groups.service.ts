@@ -9,6 +9,8 @@ export interface CreateGroupInput {
   title: string;
   description?: string;
   access?: GroupAccess;
+  /** Sent by the create form when a thumbnail was uploaded first. */
+  thumbnailUrl?: string | null;
 }
 
 export interface UpdateGroupInput {
@@ -72,6 +74,7 @@ export class GroupsService {
         title: input.title,
         description: input.description ?? '',
         access: input.access ?? 'private',
+        ...(input.thumbnailUrl ? { thumbnailUrl: input.thumbnailUrl } : {}),
         members: {
           create: { userId: user.id, role: 'admin' },
         },
@@ -234,9 +237,12 @@ export class GroupsService {
 
   async removeMember(user: AuthUser, groupId: string, memberId: string) {
     await this.assertAdminOfGroup(user, groupId);
-    await this.prisma.groupMember.delete({
-      where: { groupId_userId: { groupId, userId: memberId } },
+    // deleteMany so a second click, or two admins removing the same
+    // person, is a 404 and not an unmapped Prisma error (500).
+    const r = await this.prisma.groupMember.deleteMany({
+      where: { groupId, userId: memberId },
     });
+    if (r.count === 0) throw new NotFoundException('That user is not a member of this group');
     this.authSync.invalidate(memberId);
   }
 
@@ -256,6 +262,9 @@ export class GroupsService {
       throw new NotFoundException('Group not found or you are not a member');
     }
     if (user.orgRole === 'admin') return group;
+    // The owner can manage members without a membership row of their
+    // own (see listVisible): ownership lives on the group, not here.
+    if (group.ownerId === user.id) return group;
     const membership = await this.prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId: user.id } },
     });

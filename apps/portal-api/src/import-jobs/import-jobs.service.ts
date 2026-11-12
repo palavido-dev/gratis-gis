@@ -56,27 +56,47 @@ export class ImportJobsService {
     /** Staged file size. Zero is a concurrency hold only. */
     bytes?: bigint;
   }): Promise<ImportJob> {
-    const created = await this.prisma.importJob.create({
-      data: {
-        itemId: input.itemId,
-        layerId: input.layerId,
-        stagingId: input.stagingId,
-        sourceFileName: input.sourceFileName,
-        sourceLayerName: input.sourceLayerName,
-        mode: input.mode,
-        createdBy: input.userId,
-        orgId: input.orgId,
-        totalFeatures: input.totalFeatures,
-        status: 'queued',
-      },
-    });
+    // Reserve first, then insert. The worker claims any queued row
+    // within a second, so inserting first let it start an import the
+    // reservation then refused (and whose row this method deleted).
+    await this.quota?.reserve(input.orgId, input.bytes ?? 0n, input.stagingId);
+    let created: ImportJob;
     try {
-      await this.quota?.reserve(input.orgId, input.bytes ?? 0n, created.stagingId);
+      created = await this.prisma.importJob.create({
+        data: {
+          itemId: input.itemId,
+          layerId: input.layerId,
+          stagingId: input.stagingId,
+          sourceFileName: input.sourceFileName,
+          sourceLayerName: input.sourceLayerName,
+          mode: input.mode,
+          createdBy: input.userId,
+          orgId: input.orgId,
+          totalFeatures: input.totalFeatures,
+          status: 'queued',
+        },
+      });
     } catch (err) {
-      await this.prisma.importJob.delete({ where: { id: created.id } }).catch(() => undefined);
+      await this.releaseHoldIfIdle(input.stagingId);
       throw err;
     }
     return created;
+  }
+
+  /**
+   * Drop the disk hold for a staged file once no queued or running
+   * job still needs it. A multi-layer file queues one job per layer
+   * on one staging and one hold, so releasing on the first job's end
+   * freed space the other layers were still going to use. (If two
+   * jobs end at once and both see the other live, the next reserve's
+   * cleanup removes the hold.)
+   */
+  private async releaseHoldIfIdle(stagingId: string): Promise<void> {
+    if (!this.quota) return;
+    const live = await this.prisma.importJob.count({
+      where: { stagingId, status: { in: ['queued', 'running'] } },
+    });
+    if (live === 0) await this.quota.releasePurpose(stagingId);
   }
 
   /**
@@ -130,7 +150,7 @@ export class ImportJobsService {
           finishedAt: new Date(),
         },
       });
-      await this.quota?.releasePurpose(updated.stagingId);
+      await this.releaseHoldIfIdle(updated.stagingId);
       return updated;
     }
     return row;
@@ -207,9 +227,7 @@ export class ImportJobsService {
         insertedFeatures,
       },
     });
-    if (this.quota && done?.stagingId) {
-      await this.quota.releasePurpose(done.stagingId);
-    }
+    if (done?.stagingId) await this.releaseHoldIfIdle(done.stagingId);
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
@@ -227,9 +245,7 @@ export class ImportJobsService {
         errorMessage,
       },
     });
-    if (this.quota && done?.stagingId) {
-      await this.quota.releasePurpose(done.stagingId);
-    }
+    if (done?.stagingId) await this.releaseHoldIfIdle(done.stagingId);
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 

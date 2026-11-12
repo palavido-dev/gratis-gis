@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { reusableToken, tokenCacheKey } from './arcgis-auth.js';
+import {
+  cacheSet,
+  passwordDigest,
+  reusableToken,
+  tokenCacheKey,
+  tokenCacheSize,
+} from './arcgis-auth.js';
 
 /**
  * The exchanged token is sent to the item's service URL. The cache was
@@ -34,7 +40,7 @@ describe('tokenCacheKey', () => {
 
 describe('reusableToken', () => {
   const now = 1_000_000;
-  const entry = { token: 'tok', expires: now + 10 * 60_000, password: 'pw' };
+  const entry = { token: 'tok', expires: now + 10 * 60_000, passwordDigest: passwordDigest('pw') };
 
   it('reuses a live token minted with the same password', () => {
     expect(reusableToken(entry, 'pw', now)).toBe('tok');
@@ -51,5 +57,18 @@ describe('reusableToken', () => {
 
   it('refuses when nothing is cached', () => {
     expect(reusableToken(undefined, 'pw', now)).toBeNull();
+  });
+});
+
+describe('token cache bounds', () => {
+  it('does not keep the password itself', () => {
+    expect(passwordDigest('pw').toString('utf8')).not.toContain('pw');
+  });
+
+  it('never holds more than its ceiling', () => {
+    for (let i = 0; i < 700; i++) {
+      cacheSet(`k${i}`, { token: 't', expires: Date.now() + 60 * 60_000, passwordDigest: passwordDigest('x') });
+    }
+    expect(tokenCacheSize()).toBeLessThanOrEqual(500);
   });
 });

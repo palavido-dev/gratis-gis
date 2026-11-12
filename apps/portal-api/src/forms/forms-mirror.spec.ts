@@ -70,6 +70,10 @@ describe('form mirror reconciliation', () => {
       (c) => ((c as unknown[])[0] as { submissionId: string }).submissionId,
     );
     expect(new Set(tried)).toEqual(new Set(['good-1']));
+    // The waiting rows are left out by the query itself, before its
+    // LIMIT, so they cannot fill the scan.
+    const params = prisma.$queryRaw.mock.calls[1].slice(1) as unknown[];
+    expect(params).toContainEqual(ids);
   });
 
   it('repairs nothing when the leader finds no gap', async () => {

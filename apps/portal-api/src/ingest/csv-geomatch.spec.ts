@@ -195,6 +195,25 @@ describe('detectUsGeomatch', () => {
     expect(result.geojson.features[0]?.properties.zcta).toBe('10001');
   });
 
+  it('keeps a ZIP column as text so leading zeros survive', () => {
+    const result = detectUsGeomatch('ZIP,Pop\n02134,1\n10001,2\n');
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    expect(result.fields.find((f) => f.name === 'ZIP')?.type).toBe('string');
+    expect(result.geojson.features[0]?.properties.ZIP).toBe('02134');
+  });
+
+  it('does not reuse a header name for an appended column', () => {
+    const result = detectUsGeomatch('zcta,population\n10001,100\n');
+    expect(result.kind).toBe('matched');
+    if (result.kind !== 'matched') return;
+    const names = result.fields.map((f) => f.name);
+    expect(new Set(names).size).toBe(names.length);
+    const props = result.geojson.features[0]?.properties ?? {};
+    expect(props.zcta).toBe('10001');
+    expect(Object.keys(props)).toContain('zcta_2');
+  });
+
   it('prefers ZCTAs over states when both columns exist', () => {
     const result = detectUsGeomatch(
       'ZIP,State,Pop\n10001,NY,1\n',

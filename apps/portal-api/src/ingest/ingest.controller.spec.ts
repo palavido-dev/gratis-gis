@@ -57,6 +57,7 @@ function makeController() {
       filePath: '/staged/upload.gpkg',
     }),
     dropStaging: jest.fn().mockResolvedValue(undefined),
+    recordLayerCounts: jest.fn().mockResolvedValue(undefined),
   } as unknown as IngestStagingService;
   // Only the two collaborators the gated handlers reach are real
   // mocks. The rest are placeholders: the gate must fire before any
@@ -205,5 +206,92 @@ describe('IngestController publish gate', () => {
       release();
       expect(existsSync(file.destination)).toBe(false);
     });
+  });
+});
+
+describe('IngestController v3 layer import', () => {
+  interface FakeRes {
+    statusCode: number;
+    headersSent: boolean;
+    body: string;
+    setHeader: jest.Mock;
+    flushHeaders: jest.Mock;
+    status: jest.Mock;
+    write: jest.Mock;
+    end: jest.Mock;
+  }
+  function fakeRes(): FakeRes {
+    const res: FakeRes = {
+      statusCode: 200,
+      headersSent: false,
+      body: '',
+      setHeader: jest.fn(),
+      flushHeaders: jest.fn(() => {
+        res.headersSent = true;
+      }),
+      status: jest.fn((code: number) => {
+        res.statusCode = code;
+        return res;
+      }),
+      write: jest.fn((chunk: string) => {
+        res.headersSent = true;
+        res.body += chunk;
+      }),
+      end: jest.fn(),
+    };
+    return res;
+  }
+
+  afterEach(() => resetIngestSlotsForTests());
+
+  it('removes the upload when stagingId is malformed', async () => {
+    const { controller } = makeController();
+    const upload = diskUpload();
+    await expect(
+      controller.ingestV3Layer(
+        fakeRes() as never,
+        userWithRole('contributor'),
+        'item',
+        'layer',
+        upload.file,
+        upload.req,
+        undefined,
+        undefined,
+        ['a', 'b'],
+      ),
+    ).rejects.toThrow(/stagingId/);
+    expect(existsSync(upload.file.destination)).toBe(false);
+  });
+
+  it('answers a refused import with its real status, not 200', async () => {
+    const items = {
+      get: jest.fn(async () => {
+        throw new ForbiddenException('no');
+      }),
+    };
+    const controller = new IngestController(
+      {} as never,
+      items as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      undefined as never,
+      {} as never,
+    );
+    const upload = diskUpload();
+    const res = fakeRes();
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await controller.ingestV3Layer(
+      res as never,
+      userWithRole('contributor'),
+      'item',
+      'layer',
+      upload.file,
+      upload.req,
+    );
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.flushHeaders).not.toHaveBeenCalled();
+    expect(JSON.parse(res.body.trim())).toMatchObject({ event: 'error' });
   });
 });
