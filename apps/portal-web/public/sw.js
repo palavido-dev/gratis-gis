@@ -1114,6 +1114,9 @@ async function drainFeatureQueue() {
         claimed = await claimRow(db, OFFLINE_QUEUE_STORE, key, canClaim, {
           syncStatus: 'syncing',
           lastAttemptAt: new Date().toISOString(),
+          // Mirrors claimQueueRow: the request may reach the server
+          // from here on, so this row is never folded into again.
+          mayHaveReachedServer: true,
         });
       } catch {
         retry = true;
@@ -1149,6 +1152,7 @@ async function drainFeatureQueue() {
           OFFLINE_QUEUE_STORE,
           Object.assign({}, record, {
             syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+            mayHaveReachedServer: true,
           }),
         ).catch(() => {});
         retry = true;

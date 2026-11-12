@@ -290,6 +290,16 @@ export interface QueueRecord {
    * docs/sync-protocol.md.
    */
   baseObservationId?: string;
+  /**
+   * Set once a drain has claimed this row, and when the online submit
+   * fell back to the queue after its request was sent. Either way the
+   * server may already hold this edit. Such a row is never folded
+   * into: an insert that landed would be re-sent, deduplicated by the
+   * server's idempotent create, and the folded correction thrown away
+   * (and an insert plus delete would annihilate a feature the server
+   * keeps). A later edit becomes its own row behind this one.
+   */
+  mayHaveReachedServer?: boolean;
 }
 
 /**
@@ -923,6 +933,19 @@ export async function deleteFeatures(
   });
 }
 
+/** One cached feature row, or null when it is not on the device. */
+export async function getCachedFeature(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalId: string,
+): Promise<CachedFeature | null> {
+  return withStore(STORES.features, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.get([dataCollectionId, dataLayerId, layerKey, globalId]));
+    return (r as CachedFeature | undefined) ?? null;
+  });
+}
+
 export async function listFeaturesForLayer(
   dataCollectionId: string,
   dataLayerId: string,
@@ -1059,6 +1082,9 @@ export interface FeatureEditInput {
   /** For update / delete: the edited feature's cached
    *  `_observation_id`. See QueueRecord.baseObservationId. */
   baseObservationId?: string;
+  /** The online submit sent this edit before falling back to the
+   *  queue. See QueueRecord.mayHaveReachedServer. */
+  mayHaveReachedServer?: boolean;
 }
 
 /**
@@ -1082,6 +1108,7 @@ export type EnqueueResult =
 function isFoldable(row: QueueRecord, ownerUserId: string): boolean {
   return (
     (row.syncStatus === 'pending' || row.syncStatus === 'failed') &&
+    row.mayHaveReachedServer !== true &&
     isQueueRowOwnedBy(row, ownerUserId)
   );
 }
@@ -1149,6 +1176,7 @@ export async function enqueueEdit(
         ...(edit.op !== 'insert' && edit.baseObservationId
           ? { baseObservationId: edit.baseObservationId }
           : {}),
+        ...(edit.mayHaveReachedServer ? { mayHaveReachedServer: true } : {}),
       };
       store.put(record);
       return { kind: 'queued', record } as EnqueueResult;
@@ -1333,6 +1361,9 @@ export async function claimQueueRow(
       ...existing,
       syncStatus: 'syncing',
       lastAttemptAt: new Date().toISOString(),
+      // From here on the request may reach the server. Kept on every
+      // write-back so a later edit is never folded into it.
+      mayHaveReachedServer: true,
     };
     store.put(claimed);
     return claimed;

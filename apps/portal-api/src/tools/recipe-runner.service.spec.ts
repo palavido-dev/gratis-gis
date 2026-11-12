@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { ToolParameter, ToolStep } from '@gratis-gis/shared-types';
 
 import {
@@ -219,7 +219,10 @@ describe('RecipeRunnerService SQL failure', () => {
           throw new Error(leak);
         },
       } as never,
-      { get: async () => ({ id: 'layer-1', type: 'data_layer' }) } as never,
+      {
+        get: async () => ({ id: 'layer-1', type: 'data_layer' }),
+        isFeatureReadLimited: async () => false,
+      } as never,
       {} as never,
     );
     const recipe = {
@@ -244,5 +247,85 @@ describe('RecipeRunnerService SQL failure', () => {
     ).runSelectionInternal({ id: 'u' }, 'tool-1', recipe, { parameters: {} });
     await expect(run).rejects.toBeInstanceOf(BadRequestException);
     await expect(run).rejects.not.toThrow(/ssn_last4/);
+  });
+});
+
+describe('RecipeRunnerService layer access (every layer a selection reads)', () => {
+  const recipe = {
+    kind: 'recipe',
+    parameters: [
+      { name: 'target', kind: 'feature-source', binding: { mode: 'runtime-host' } },
+      { name: 'other', kind: 'feature-source', binding: { mode: 'runtime-host' } },
+    ],
+    pipeline: [
+      {
+        tool: 'spatial-filter',
+        params: { predicate: 'intersects', otherSource: { kind: 'parameter', name: 'other' } },
+      },
+    ],
+    output: { kind: 'selection', targetParameterRef: 'target' },
+  } as never;
+  const target = { kind: 'data_layer', itemId: '11111111-1111-4111-8111-111111111111', layerKey: 'a' };
+  const other = { kind: 'data_layer', itemId: '22222222-2222-4222-8222-222222222222', layerKey: 'b' };
+
+  function runner(items: { get: (u: unknown, id: string) => Promise<unknown>; isFeatureReadLimited: (u: unknown, id: string) => Promise<boolean> }) {
+    const queries: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RecipeRunnerService } = require('./recipe-runner.service.js') as typeof import('./recipe-runner.service.js');
+    const svc = new RecipeRunnerService(
+      { $queryRawUnsafe: async (sql: string) => (queries.push(sql), []) } as never,
+      items as never,
+      {} as never,
+    );
+    return { svc, queries };
+  }
+
+  it('refuses a pipeline layer the caller cannot read, before any SQL runs', async () => {
+    const { svc, queries } = runner({
+      get: async (_u, id) => {
+        if (id === other.itemId) throw new NotFoundException();
+        return { id, type: 'data_layer' };
+      },
+      isFeatureReadLimited: async () => false,
+    });
+    await expect(
+      (svc as unknown as { runSelectionInternal: (...a: unknown[]) => Promise<unknown> }).runSelectionInternal(
+        { id: 'u' }, 'tool-1', recipe, { parameters: { target, other } },
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(queries).toEqual([]);
+  });
+
+  it('refuses a target shared with a row or area limit', async () => {
+    const { svc, queries } = runner({
+      get: async (_u, id) => ({ id, type: 'data_layer' }),
+      isFeatureReadLimited: async (_u, id) => id === target.itemId,
+    });
+    await expect(
+      (svc as unknown as { runSelectionInternal: (...a: unknown[]) => Promise<unknown> }).runSelectionInternal(
+        { id: 'u' }, 'tool-1', recipe, { parameters: { target, other } },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(queries).toEqual([]);
+  });
+
+  it('a hardcoded layer cannot be replaced by the request', async () => {
+    const hardcoded = {
+      ...(recipe as object),
+      parameters: [
+        { name: 'target', kind: 'feature-source', binding: { mode: 'runtime-host' } },
+        { name: 'other', kind: 'feature-source', binding: { mode: 'hardcoded', value: { kind: 'data_layer', itemId: '33333333-3333-4333-8333-333333333333', layerKey: 'c' } } },
+      ],
+    } as never;
+    const seen: string[] = [];
+    const { svc } = runner({
+      get: async (_u, id) => (seen.push(id), { id, type: 'data_layer' }),
+      isFeatureReadLimited: async () => false,
+    });
+    await (svc as unknown as { runSelectionInternal: (...a: unknown[]) => Promise<unknown> })
+      .runSelectionInternal({ id: 'u' }, 'tool-1', hardcoded, { parameters: { target, other } })
+      .catch(() => undefined);
+    expect(seen).toContain('33333333-3333-4333-8333-333333333333');
+    expect(seen).not.toContain(other.itemId);
   });
 });

@@ -8,6 +8,37 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- Analysis tools check the caller's access to every layer they read,
+  not only the target layer, and refuse layers shared with a row or
+  area limit. Parameters a tool author fixed can no longer be changed
+  by the request, and tool runs that query OpenStreetMap use the same
+  area, preset and feature caps as the OSM query page.
+- Folder contents and the trash list hide the same item settings the
+  item list hides from people who cannot edit an item.
+
+### Fixed
+
+- Clicking another feature while an attribute form is open now opens
+  that feature's own values. The form kept the first feature's values
+  and saved them onto the second, in the Editor app, the custom app
+  Edit widget, and the field app's related records.
+- Inline edits in the attribute table save to the record that was
+  double-clicked, even when the table refreshes while you type, and
+  send only the changed field, so they no longer undo another editor's
+  changes or fail on layers that allow only some fields.
+- The custom app Edit widget loads the full feature before editing
+  instead of the trimmed map tile copy.
+
+### Fixed
+
+- An attribute edit made in the field app while offline (or when the
+  connection dropped) no longer replaces the feature's shape with the
+  clipped, simplified copy drawn on the map. Attribute edits send no
+  geometry, as they already did online.
+- A correction made to a field capture after the app had already sent
+  it, but before the sync finished, is no longer lost. Such edits are
+  now queued on their own instead of being merged into a capture the
+  server had already accepted.
 - One request can no longer exhaust the API's memory or hold its
   database. Opening a file in the browser (Import into editor) now
   accepts files up to 100 MB and 250,000 features, and the API yields

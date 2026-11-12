@@ -2644,6 +2644,10 @@ export function EditorRuntime({
               // (create has nothing to delete).
               <div className="min-h-0 flex-1">
                 <AttributeForm
+                  // One form per record (AttributeForm seeds its values
+                  // once): a click on another feature while the form is
+                  // open must not carry this feature's values over.
+                  key={`${pendingFeature.mode}:${pendingFeature.targetKey}:${pendingFeature.featureId ?? 'new'}`}
                   fields={pendingTarget.layer.fields}
                   editableFieldNames={editableSet}
                   pickLists={pickLists}
