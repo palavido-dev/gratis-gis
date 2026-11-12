@@ -198,7 +198,7 @@ export class OsmService {
     const hash = hashQuery(input, endpoint, maxFeatures);
 
     // #101: a recipe author can request ttlMs=0 to mean "always
-    // fresh" -- skip the cache hit entirely. The cache row is still
+    // fresh": skip the cache hit entirely. The cache row is still
     // upserted on a miss. There is no single-flight: two callers that
     // miss at the same time both call Overpass and both write the
     // scope (the rows are keyed by entity, so they converge).
