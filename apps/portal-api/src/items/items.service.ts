@@ -1253,6 +1253,11 @@ export class ItemsService {
     const rows = await this.prisma.item.findMany({
       where,
       orderBy: { deletedAt: 'desc' },
+      // The trash view never shows an item's content, and an admin's
+      // trash can hold every deleted item in the org, some with large
+      // blobs. Leave `data` out so the list stays small. There is no
+      // paging: the demo purge script reads the whole list.
+      omit: { data: true },
       // Same lean owner projection as the live list and the detail
       // read. An org admin's trash shows other people's items, so the
       // rows need an owner label, and the pre-snapshot demo purge
@@ -4159,11 +4164,15 @@ export class ItemsService {
     if (typeof q.bufferKm === 'number' && q.bufferKm >= 0) {
       opts.bufferKm = q.bufferKm;
     }
-    const rows = await this.list(user, opts);
     const limit =
       typeof q.limit === 'number' && q.limit > 0
         ? Math.min(Math.floor(q.limit), 1000)
         : 1000;
+    // Bounded and lite, like the HTTP list. Without them list()
+    // loaded every visible row with its full data blob and only then
+    // cut the result to the limit. The lite rows carry the same
+    // per-layer hints (`_layers`) the items list does.
+    const rows = await this.list(user, { ...opts, limit, lite: true });
     return Array.isArray(rows) ? rows.slice(0, limit) : rows;
   }
 

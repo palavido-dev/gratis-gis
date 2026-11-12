@@ -611,3 +611,31 @@ describe('listTrash owner projection', () => {
     });
   });
 });
+
+// Smart folders and the trash used to load every matching row with its
+// full data blob before trimming the result.
+describe('smart folder and trash loads', () => {
+  const me = { id: 'u1', orgId: 'o1', orgRole: 'admin', groupIds: [] } as never;
+
+  it('a smart folder asks list() for a bounded lite page', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const list = jest.fn(async () => []);
+    Object.assign(svc, { list });
+    await (svc as unknown as {
+      resolveSmartFolder: (u: unknown, q: unknown) => Promise<unknown>;
+    }).resolveSmartFolder(me, { q: 'parcels', limit: 50 });
+    expect(list).toHaveBeenCalledWith(
+      me,
+      expect.objectContaining({ q: 'parcels', limit: 50, lite: true }),
+    );
+  });
+
+  it('the trash list leaves out item data', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const findMany = jest.fn(async () => []);
+    Object.assign(svc, { prisma: { item: { findMany } } });
+    await svc.listTrash(me);
+    const calls = findMany.mock.calls as unknown as Array<[{ omit?: unknown }]>;
+    expect(calls[0]![0].omit).toEqual({ data: true });
+  });
+});
