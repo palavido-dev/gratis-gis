@@ -188,15 +188,12 @@ export function createGpsMarker(map: maplibregl.Map): GpsMarkerHandle {
     },
     update(pos) {
       lastPosition = pos;
-      // Style might not be loaded yet on the first call; queue until it is.
-      if (!map.isStyleLoaded()) {
-        map.once('load', () => {
-          ensureSourceAndLayers();
-          pushSourceData();
-        });
-        return;
-      }
-      ensureSourceAndLayers();
+      // isStyleLoaded() is also false while tiles load, which in follow
+      // mode is nearly always. Waiting on 'load' (fired once per map)
+      // then dropped the fix and leaked a listener per fix. Once the
+      // source exists, just push the data. Only the first add has to
+      // wait, and the styledata handler retries that.
+      if (map.isStyleLoaded()) ensureSourceAndLayers();
       pushSourceData();
     },
     detach() {
