@@ -41,6 +41,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   splitByPrefetchPolicy,
+  isServerStampedField,
   stampSubmissionMetadata,
 } from '@gratis-gis/shared-types';
 import {
@@ -77,6 +78,7 @@ import {
   type QueueRecord,
 } from '@/lib/offline-store';
 import { loadFeatureForEdit } from '@/lib/field-edit-source';
+import { placedAtGpsFix } from '@/lib/gps-placement';
 import { buildOfflineRecoveryZip } from '@/lib/offline-export';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatOfflineMessage } from '@/lib/offline-message';
@@ -139,7 +141,7 @@ import {
 } from './use-offline-basemap';
 import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
-import { stampGpsMetadata } from './gps-metadata-stamp';
+import { classifyGpsField, stampGpsMetadata } from './gps-metadata-stamp';
 import { FieldAttachments } from './field-attachments';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { describeZoom } from '@/lib/map-scale';
@@ -2825,7 +2827,27 @@ export function FieldRuntime({
             const presetAttributes: Record<string, string> = {};
             for (const [k, v] of Object.entries(hit.properties)) {
               if (v === null || v === undefined) continue;
+              // Submission and GPS columns describe the original's
+              // visit, not this one. Copied, they also blocked the
+              // stamps, which only fill blanks.
+              if (isServerStampedField(k) || classifyGpsField(k)) continue;
               presetAttributes[k] = typeof v === 'string' ? v : String(v);
+            }
+            // A line or polygon copy needs a shape of its own. Opening
+            // the form with no geometry saved a row that could never
+            // be tapped again, so go through vertex collection with
+            // the copied attributes instead.
+            if (hit.editable.geometryType !== 'point') {
+              setFeatureSheet(null);
+              setActiveTemplate({
+                id: `copy:${hit.editable.dataLayerId}:${hit.editable.layerKey}`,
+                layer: hit.editable,
+                label: hit.editable.layerLabel,
+                sublabel: hit.editable.dataLayerTitle,
+                color: '#888888',
+                presetAttributes,
+              });
+              return;
             }
             const map = mapRef.current;
             const gpsPos = gps.position;
@@ -4374,8 +4396,9 @@ function FormModal({
       modal.mode === 'add'
         ? { ...modal.presetAttributes, ...response }
         : response;
+    // Only when the point was put at the fix; see placedAtGpsFix.
     const gpsStamped: FormResponse =
-      modal.mode === 'add' && gpsPosition
+      modal.mode === 'add' && placedAtGpsFix(activeGeometry, gpsPosition)
         ? stampGpsMetadata(modal.layer.fields, responseWithPresets, gpsPosition)
         : responseWithPresets;
     // Submission bookkeeping, on adds only (an edit keeps the row's
