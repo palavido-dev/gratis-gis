@@ -152,6 +152,7 @@ export class IngestController {
     }
     try {
       const probe = await this.ingest.probeFileFromPath(staged.filePath);
+      await this.staging.recordLayerCounts(staged.stagingId, user.id, probe.layers);
       return {
         stagingId: staged.stagingId,
         driver: probe.driver,

@@ -14,7 +14,7 @@ jest.mock('node:dns/promises', () => ({
  */
 describe('external ArcGIS geocoder', () => {
   const realFetch = globalThis.fetch;
-  let calls: Array<{ url: string; init?: RequestInit }>;
+  let calls: Array<{ url: string; init: RequestInit | undefined }>;
 
   beforeEach(() => {
     calls = [];

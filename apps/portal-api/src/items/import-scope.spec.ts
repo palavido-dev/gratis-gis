@@ -119,7 +119,6 @@ describe('import routes refuse a limited editor', () => {
       jobs as never,
       itemsService([editShare({ geoLimit: POLY })]),
       staging as never,
-      {} as never,
     );
     await expect(
       controller.createJob(editor as never, ITEM, 'L1', {

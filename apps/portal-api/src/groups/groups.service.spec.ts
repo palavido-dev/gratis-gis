@@ -283,6 +283,6 @@ describe('GroupsService membership changes', () => {
   it('keeps the thumbnail sent on create', async () => {
     const { svc, prisma } = svcWith(makeGroup(), null);
     await svc.create(makeUser({ orgId: 'org-a' }), { title: 'T', thumbnailUrl: '/api/storage/x.png' });
-    expect(prisma.group.create.mock.calls[0][0].data.thumbnailUrl).toBe('/api/storage/x.png');
+    expect(prisma.group.create.mock.calls[0]?.[0].data.thumbnailUrl).toBe('/api/storage/x.png');
   });
 });

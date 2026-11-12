@@ -57,6 +57,7 @@ function makeController() {
       filePath: '/staged/upload.gpkg',
     }),
     dropStaging: jest.fn().mockResolvedValue(undefined),
+    recordLayerCounts: jest.fn().mockResolvedValue(undefined),
   } as unknown as IngestStagingService;
   // Only the two collaborators the gated handlers reach are real
   // mocks. The rest are placeholders: the gate must fire before any
