@@ -74,6 +74,7 @@ import {
   type CachedFeature,
   type QueueRecord,
 } from '@/lib/offline-store';
+import { loadFeatureForEdit } from '@/lib/field-edit-source';
 import { buildOfflineRecoveryZip } from '@/lib/offline-export';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatOfflineMessage } from '@/lib/offline-message';
@@ -576,6 +577,9 @@ export function FieldRuntime({
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // Bumped on each popup Edit so a slow record read cannot open a
+  // form after a newer Edit tap.
+  const editLoadTokenRef = useRef(0);
   // GPS state (Phase A). Hook owns the watch lifecycle and follow-mode
   // toggle; marker handle paints the dot + accuracy ring on the map and
   // is created on first map-ready. The two are intentionally
@@ -2755,13 +2759,32 @@ export function FieldRuntime({
             // editable layer. The same shape the legacy tap-to-edit
             // flow used; the sheet just makes the path explicit.
             if (!hit.editable || !hit.globalId) return;
-            setFeatureSheet(null);
-            setFormModal({
-              layer: hit.editable,
-              mode: 'edit',
-              featureId: hit.globalId,
-              properties: hit.properties,
-              geometry: hit.geometry,
+            const layer = hit.editable;
+            const featureId = hit.globalId;
+            // Read the record before opening the form. The tap gives
+            // tile values, which can be stale, miss trimmed fields and
+            // never carry `_observation_id`, so the server could not
+            // spot a conflicting edit and the stale values won.
+            const token = ++editLoadTokenRef.current;
+            void loadFeatureForEdit({
+              dataCollectionId,
+              dataLayerId: layer.dataLayerId,
+              layerKey: layer.layerKey,
+              globalId: featureId,
+              isOnline,
+              tile: { properties: hit.properties, geometry: hit.geometry },
+            }).then((loaded) => {
+              // The collector tapped something else while this read
+              // was in flight; that newer tap owns the screen.
+              if (token !== editLoadTokenRef.current) return;
+              setFeatureSheet(null);
+              setFormModal({
+                layer,
+                mode: 'edit',
+                featureId,
+                properties: loaded.properties,
+                geometry: loaded.geometry ?? hit.geometry,
+              });
             });
           }}
           onCopy={(hit) => {
