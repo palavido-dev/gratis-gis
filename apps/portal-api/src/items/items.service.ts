@@ -2526,6 +2526,14 @@ export class ItemsService {
     // own finalize inputs, but this generic path bypasses both.
     assertItemAssetKey(item.type, nextData, item.data);
     assertRenderSafeData(item.type, nextData);
+    // The pyramid worker owns a tile layer's processing state. A client
+    // PATCH (the only caller that passes clientKeys) keeps whatever the
+    // worker last wrote for those keys, so an owner cannot set
+    // processingState / tiling* / maxZoom to values that break the
+    // worker's recovery for every org or crash it.
+    if (opts.clientKeys && item.type === 'tile_layer' && nextData !== undefined) {
+      nextData = keepTileWorkerFields(item.data, nextData) as Prisma.InputJsonValue;
+    }
     // Same tile settings validation as create(). The cache needs no
     // invalidation here: a setting that changes tile bytes changes the
     // tile cache key (see data-layer/tile-settings.ts).
@@ -3317,39 +3325,41 @@ export class ItemsService {
       itemType === 'tile_layer' ||
       itemType === 'point_cloud'
     ) {
-      // file + tile_layer + point_cloud all store a single MinIO
-      // object keyed by data.storageKey; cleanup is identical. Best-effort: a
+      // file + tile_layer + point_cloud keep their bytes in MinIO under
+      // the keys their data names: storageKey, and for a tile layer
+      // also the archival COG (cogStorageKey) and a mosaic's
+      // sources[].storageKey. Purge used to delete only storageKey, so
+      // a purged 5 GB ortho left its COG behind. Best-effort: a
       // missing key, MinIO down, or transient permission error
       // shouldn't block the item-row delete. Orphan accounting
       // on the storage card surfaces any leaked object.
-      const data = itemData as { storageKey?: string } | null;
-      const key = data?.storageKey;
-      // Pin the prefix before deleting through it. Rows written before
-      // the create/update guard landed can still carry a key pointing
-      // at another kind's object, and purge runs with portal-api's
-      // credentials, so an unpinned key here is a delete primitive over
-      // the whole bucket. Skip rather than throw: purge must still tear
-      // the item row down, and a stale key is a leaked object at worst
-      // (the housekeeping orphan card accounts for it).
+      //
+      // Pin the prefix before deleting through each key. Rows written
+      // before the create/update guard landed can still carry a key
+      // pointing at another kind's object, and purge runs with
+      // portal-api's credentials, so an unpinned key here is a delete
+      // primitive over the whole bucket. Skip rather than throw: purge
+      // must still tear the item row down, and a stale key is a leaked
+      // object at worst (the housekeeping orphan card accounts for it).
       const expectedKind =
         ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND];
-      if (typeof key === 'string' && key.length > 0) {
+      for (const key of new Set(itemDataStorageKeys(itemData))) {
         if (!isValidAssetKey(key, expectedKind)) {
           this.log.warn(
-            `purge ${itemId}: refusing to delete storageKey ${key}, outside ${expectedKind}/`,
+            `purge ${itemId}: refusing to delete storage key ${key}, outside ${expectedKind}/`,
           );
-        } else {
-          try {
-            // Another item or attachment may still reference the same
-            // object (rows from before attach paths checked
-            // ownership). Leave it; the orphan sweep reclaims it once
-            // nothing does.
-            await deleteIfUnreferenced(this.prisma, this.storage, key, {
-              itemId,
-            });
-          } catch (err) {
-            void err;
-          }
+          continue;
+        }
+        try {
+          // Another item or attachment may still reference the same
+          // object (rows from before attach paths checked
+          // ownership). Leave it; the orphan sweep reclaims it once
+          // nothing does.
+          await deleteIfUnreferenced(this.prisma, this.storage, key, {
+            itemId,
+          });
+        } catch (err) {
+          void err;
         }
       }
     }
@@ -4861,4 +4871,35 @@ export function mapLayerBackingItemId(layer: unknown): string | null {
       return null;
   }
   return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/** tile_layer data keys only the server writes. */
+const TILE_WORKER_KEYS = [
+  'processingState',
+  'tilingProgress',
+  'tilingError',
+  'tilingStartedAt',
+  'tilingHeartbeatAt',
+  'tilingCompletedAt',
+  'tilingAttempts',
+  'maxZoom',
+  'minZoom',
+] as const;
+
+/**
+ * `next` with every worker-owned key put back to its value in `prev`
+ * (or removed when `prev` has none). A client cannot write them.
+ */
+export function keepTileWorkerFields(prev: unknown, next: unknown): unknown {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return next;
+  const before =
+    prev && typeof prev === 'object' && !Array.isArray(prev)
+      ? (prev as Record<string, unknown>)
+      : {};
+  const out = { ...(next as Record<string, unknown>) };
+  for (const k of TILE_WORKER_KEYS) {
+    if (k in before) out[k] = before[k];
+    else delete out[k];
+  }
+  return out;
 }

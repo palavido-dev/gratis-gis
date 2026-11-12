@@ -278,20 +278,10 @@ export class StorageController {
       // storage_ref has its own index, so this is a pair of index
       // probes. The JSON path equality used before matched the same
       // rows but scanned and detoasted every item on each download.
-      const owners = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id FROM "item"
-        WHERE deleted_at IS NULL
-          AND (
-            storage_ref = ${storageKey}
-            OR data_json @> jsonb_build_object('storageKey', ${storageKey}::text)
-            OR data_json @> jsonb_build_object('pmtilesStorageKey', ${storageKey}::text)
-            OR data_json @> jsonb_build_object('cogStorageKey', ${storageKey}::text)
-          )
-        ORDER BY created_at ASC
-        LIMIT 1`);
-      const item = owners[0]
+      const ownerId = await findItemIdOwningKey(this.prisma, storageKey);
+      const item = ownerId
         ? await this.prisma.item.findUnique({
-            where: { id: owners[0].id },
+            where: { id: ownerId },
             select: { id: true, type: true, data: true, access: true },
           })
         : null;
@@ -359,6 +349,29 @@ export class StorageController {
     res.setHeader('Cache-Control', 'private, max-age=60');
     upstream.body.pipe(res);
   }
+}
+
+/**
+ * The live item that references `storageKey`, oldest first, or null.
+ * Containment (`@>`) is what the item_data_gin index serves and
+ * storage_ref has its own index, so this is a set of index probes.
+ */
+export async function findItemIdOwningKey(
+  prisma: { $queryRaw: <T>(q: Prisma.Sql) => Promise<T> },
+  storageKey: string,
+): Promise<string | null> {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM "item"
+    WHERE deleted_at IS NULL
+      AND (
+        storage_ref = ${storageKey}
+        OR data_json @> jsonb_build_object('storageKey', ${storageKey}::text)
+        OR data_json @> jsonb_build_object('pmtilesStorageKey', ${storageKey}::text)
+        OR data_json @> jsonb_build_object('cogStorageKey', ${storageKey}::text)
+      )
+    ORDER BY created_at ASC
+    LIMIT 1`);
+  return rows[0]?.id ?? null;
 }
 
 /** The v3 layer an attachment hangs off, for its policy and type. */

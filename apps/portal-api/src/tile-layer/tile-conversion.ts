@@ -192,6 +192,24 @@ export async function convertUpload(
 ): Promise<ConversionResult> {
   const originalFormat = detectOriginalFormat(fileName);
   const workDir = await mkdtemp(join(tmpdir(), 'tile-conv-'));
+  // The work dir is handed to the caller only on success. On any
+  // failure (download, extract, gdalwarp, pmtiles) nobody else holds
+  // it, and a failed multi-GB conversion used to stay on the API's
+  // disk; repeating the same finalize leaked another copy each time.
+  try {
+    return await convertUploadIn(download, fileName, originalFormat, workDir);
+  } catch (err) {
+    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function convertUploadIn(
+  download: TileSourceDownloader,
+  fileName: string,
+  originalFormat: TileLayerOriginalFormat,
+  workDir: string,
+): Promise<ConversionResult> {
 
   // Raw-raster branch.  Dispatch to the COG converter; the rest
   // of this function handles pre-tiled inputs (PMTiles / MBTiles
@@ -1087,9 +1105,23 @@ function sanitizeFileName(name: string): string {
  * said. stdout is discarded (the CLIs we run produce progress on
  * stderr and silence on stdout, or write to disk directly).
  */
+/**
+ * Wall-clock limit for one conversion tool run. A county ortho can
+ * take tens of minutes; nothing legitimate takes this long, and
+ * without a limit a stuck gdalwarp held the API's CPU and disk for
+ * good.
+ */
+export const CONVERSION_COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
 function runCommand(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${cmd} did not finish within the time limit.`));
+    }, CONVERSION_COMMAND_TIMEOUT_MS);
+    timer.unref();
+    child.on('close', () => clearTimeout(timer));
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
@@ -1124,6 +1156,12 @@ function runCommand(cmd: string, args: string[]): Promise<void> {
 function runCommandCapture(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${cmd} did not finish within the time limit.`));
+    }, CONVERSION_COMMAND_TIMEOUT_MS);
+    timer.unref();
+    child.on('close', () => clearTimeout(timer));
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => {

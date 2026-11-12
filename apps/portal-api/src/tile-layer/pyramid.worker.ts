@@ -151,7 +151,9 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     try {
       const staleBefore = new Date(Date.now() - STALE_HEARTBEAT_MS);
       // Fail-out first so the re-arm pass only touches under-budget
-      // rows. Heartbeat age uses COALESCE(tilingHeartbeatAt,
+      // rows. The gg_try_* casts return NULL for a value that does not
+      // parse: these fields sit in owner-writable item data, and one
+      // bad value used to fail the whole statement for every org. Heartbeat age uses COALESCE(tilingHeartbeatAt,
       // tilingStartedAt) so pre-heartbeat claims still reclaim.
       const failed = await this.prisma.$executeRaw`
         UPDATE "item"
@@ -164,23 +166,23 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         WHERE type = 'tile-layer'::"ItemType"
           AND "data_json"->>'processingState' = 'tiling'
           AND COALESCE(
-            ("data_json"->>'tilingHeartbeatAt')::timestamptz,
-            ("data_json"->>'tilingStartedAt')::timestamptz
+            gg_try_timestamptz("data_json"->>'tilingHeartbeatAt'),
+            gg_try_timestamptz("data_json"->>'tilingStartedAt')
           ) < ${staleBefore}
-          AND COALESCE(("data_json"->>'tilingAttempts')::int, 0) >= ${MAX_TILING_ATTEMPTS - 1}
+          AND COALESCE(gg_try_int("data_json"->>'tilingAttempts'), 0) >= ${MAX_TILING_ATTEMPTS - 1}
       `;
       const rearmed = await this.prisma.$executeRaw`
         UPDATE "item"
         SET "updated_at" = NOW(),
         "data_json" = ("data_json" - 'tilingHeartbeatAt') || jsonb_build_object(
           'processingState', 'cog-ready',
-          'tilingAttempts', COALESCE(("data_json"->>'tilingAttempts')::int, 0) + 1
+          'tilingAttempts', COALESCE(gg_try_int("data_json"->>'tilingAttempts'), 0) + 1
         )
         WHERE type = 'tile-layer'::"ItemType"
           AND "data_json"->>'processingState' = 'tiling'
           AND COALESCE(
-            ("data_json"->>'tilingHeartbeatAt')::timestamptz,
-            ("data_json"->>'tilingStartedAt')::timestamptz
+            gg_try_timestamptz("data_json"->>'tilingHeartbeatAt'),
+            gg_try_timestamptz("data_json"->>'tilingStartedAt')
           ) < ${staleBefore}
       `;
       if (failed > 0 || rearmed > 0) {
@@ -280,7 +282,9 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       );
       return;
     }
-    const maxZoom = data.maxZoom ?? 18;
+    // item.data is owner-writable through older paths; a huge value
+    // here built a billion-entry argument list and crashed the worker.
+    const maxZoom = clampMaxZoom(data.maxZoom);
     const onBeat = () => this.beatHeartbeat(itemId);
 
     const workDir = await mkdtemp(join(tmpdir(), 'tile-pyramid-'));
@@ -607,7 +611,9 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         'COG URL is not this portal\'s object storage. Re-upload the raster so it has a storage key.',
       );
     }
-    const res = await fetch(url);
+    // The host check above covers the first hop only; a redirect
+    // could lead anywhere, so none is followed.
+    const res = await fetch(url, { redirect: 'error' });
     if (!res.ok) {
       throw new Error(`Download failed (HTTP ${res.status})`);
     }
@@ -730,4 +736,11 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       });
     });
   }
+}
+
+/** A pyramid's top zoom: an integer 0..24, 18 when unset or invalid. */
+export function clampMaxZoom(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number.NaN;
+  if (!Number.isFinite(n)) return 18;
+  return Math.min(24, Math.max(0, Math.floor(n)));
 }

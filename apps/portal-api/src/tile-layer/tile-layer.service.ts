@@ -5,6 +5,7 @@ import { statfs } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -117,6 +118,8 @@ const PMTILES_ARCHIVE_CACHE_SIZE = 32;
  */
 @Injectable()
 export class TileLayerService {
+  /** Items with a finalize in progress in this process. */
+  private readonly finalizing = new Set<string>();
   private readonly log = new Logger(TileLayerService.name);
 
   /**
@@ -145,6 +148,35 @@ export class TileLayerService {
    * surface, and persist everything into item.data.
    */
   async finalizeUpload(
+    user: AuthUser,
+    itemId: string,
+    input: {
+      storageKey: string;
+      storageUrl: string;
+      fileName: string;
+      sizeBytes: number;
+    },
+  ): Promise<TileLayerData> {
+    // A conversion runs inside this request and can take many
+    // minutes. When the browser or a proxy gave up, a retry started a
+    // second conversion of the same item beside the first, two
+    // multi-GB downloads competing on the API box, and the later
+    // finisher won while the other's output was orphaned. One at a
+    // time per item, per process.
+    if (this.finalizing.has(itemId)) {
+      throw new ConflictException(
+        'A file for this layer is already being processed. Wait for it to finish, then reload.',
+      );
+    }
+    this.finalizing.add(itemId);
+    try {
+      return await this.finalizeUploadOnce(user, itemId, input);
+    } finally {
+      this.finalizing.delete(itemId);
+    }
+  }
+
+  private async finalizeUploadOnce(
     user: AuthUser,
     itemId: string,
     input: {
@@ -225,9 +257,8 @@ export class TileLayerService {
         input.fileName,
       );
     } catch (err) {
-      // convertUpload owns its own temp-dir lifecycle: any workdir
-      // it created before throwing is its own to clean up. We don't
-      // have a handle to it from out here. The original upload
+      // convertUpload removes its own work dir when it throws; we
+      // have no handle to it from out here. The original upload
       // stays in MinIO so the user can retry without re-uploading.
       throw new BadRequestException(
         `Conversion failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -679,11 +710,23 @@ export class TileLayerService {
       (key) =>
         new PMTiles(new StorageRangeSource(this.storage, key), undefined, cappedPmtilesDecompress),
     );
-    const tile = await archive.getZxy(z, x, y);
-    if (!tile) return null;
-    // Free after getZxy: the same instance already resolved and
-    // cached the header to find the tile.
-    const header = await archive.getHeader();
+    let tile: Awaited<ReturnType<PMTiles['getZxy']>>;
+    let header: Awaited<ReturnType<PMTiles['getHeader']>>;
+    try {
+      tile = await archive.getZxy(z, x, y);
+      if (!tile) return null;
+      // Free after getZxy: the same instance already resolved and
+      // cached the header to find the tile.
+      header = await archive.getHeader();
+    } catch (err) {
+      // The pmtiles library caches the header and directory promises
+      // before they settle and keeps them when they reject, so one
+      // transient storage error used to fail every later tile of this
+      // archive until a restart. Drop the instance; the next request
+      // opens a fresh one.
+      this.archives.delete(storageKey, archive);
+      throw err;
+    }
     return {
       data: Buffer.from(tile.data),
       contentType: tileTypeContentType(header.tileType),
@@ -1125,36 +1168,6 @@ export class TileLayerService {
     const { tilingError: _stripped, ...rest } = data;
     return { ...rest, ...patch };
   }
-
-  /**
-   * Drop the MinIO object backing this tile layer. Called by the
-   * items service during purge. Best-effort: a missing key is
-   * fine (the item may have been created without the upload ever
-   * completing).
-   */
-  async tearDownStorage(itemId: string, data: unknown): Promise<void> {
-    if (!isTileLayerData(data)) return;
-    const tl: TileLayerData = data;
-    if (!tl.storageKey) return;
-    // Re-check the prefix before deleting: item.data is owner-
-    // writable, so a key edited to point at another prefix would
-    // otherwise turn purge into an arbitrary-object delete.
-    if (!tl.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
-      this.log.warn(
-        `Refusing to delete non-tile-layer key ${tl.storageKey} while purging item ${itemId}`,
-      );
-      return;
-    }
-    try {
-      await deleteIfUnreferenced(this.prisma, this.storage, tl.storageKey, {
-        itemId,
-      });
-    } catch (err) {
-      this.log.warn(
-        `Failed to delete tile_layer storage object for item ${itemId}: ${err instanceof Error ? err.message : err}`,
-      );
-    }
-  }
 }
 
 /**
@@ -1256,6 +1269,16 @@ export class PmtilesArchiveCache {
       this.open.delete(oldest.value);
     }
     return archive;
+  }
+
+  /**
+   * Forget `key`, but only while it still maps to `archive`, so a
+   * late failure on an old instance cannot drop a fresh one.
+   */
+  delete(key: string, archive?: PMTiles): void {
+    if (archive === undefined || this.open.get(key) === archive) {
+      this.open.delete(key);
+    }
   }
 }
 
