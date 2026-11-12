@@ -16,6 +16,20 @@ import {
   type FeatureScope,
 } from '../items/sharing.service.js';
 
+/**
+ * A real UUID. The old `[0-9a-f-]{36}` let strings such as 36 hyphens
+ * through to a `::uuid` cast, which then failed as a 500.
+ */
+const FEATURE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Interactive transaction limits for the bulk paths. Prisma's default
+ * 5 s closed a replace-all of about 100k features part way through
+ * (P2028), so a large legacy layer could never be loaded. Each
+ * statement still has the role's own statement_timeout.
+ */
+const BULK_TX_OPTIONS = { maxWait: 10_000, timeout: 15 * 60 * 1000 };
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -263,7 +277,12 @@ export class FeaturesService {
   ): Promise<{ inserted: number }> {
     if (features.length === 0) return { inserted: 0 };
     const tbl = toTableName(itemId);
-    const inserted = await this.bulkInsertCore(this.prisma, tbl, features, user);
+    // One transaction across the 500-row batches, like replaceAll: a
+    // failing later batch must not leave the earlier ones committed.
+    const inserted = await this.prisma.$transaction(
+      (tx) => this.bulkInsertCore(tx, tbl, features, user),
+      BULK_TX_OPTIONS,
+    );
     // Lazy-grow buffer-by-field caches on derived layers that read
     // from this v2 source. v2 has no sublayer concept, so layerKey
     // is null. Fire-and-forget: notifySourceWrite swallows its own
@@ -312,7 +331,9 @@ export class FeaturesService {
         // Push all 6 params unconditionally so $base through $base+5 are
         // always defined. COALESCE handles the null globalId case in SQL.
         params.push(
-          feat.globalId ?? null,                                  // $base
+          // A non-UUID id (GeoServer "states.12", OSM "way/123") gets
+          // a fresh UUID instead of failing the whole cast.
+          feat.globalId && FEATURE_UUID.test(feat.globalId) ? feat.globalId : null, // $base
           feat.geometry ? JSON.stringify(feat.geometry) : null,  // $base+1
           JSON.stringify(feat.properties ?? {}),                  // $base+2
           now.toISOString(),                                      // $base+3 valid_from
@@ -374,7 +395,7 @@ export class FeaturesService {
 
       const inserted = await this.bulkInsertCore(tx, tbl, features, user);
       return { inserted, expired };
-    });
+    }, BULK_TX_OPTIONS);
     // Same staleness hook as bulkInsert. replaceAll is the bulk
     // upload path the wizard / API caller uses to populate a v2
     // layer; without this hook a freshly-uploaded source whose
@@ -402,7 +423,7 @@ export class FeaturesService {
     scope?: FeatureScope,
   ): Promise<GeoJsonFeature> {
     const tbl = toTableName(itemId);
-    if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
+    if (!FEATURE_UUID.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const now = new Date().toISOString();
@@ -506,7 +527,7 @@ export class FeaturesService {
     scope?: FeatureScope,
   ): Promise<void> {
     const tbl = toTableName(itemId);
-    if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
+    if (!FEATURE_UUID.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const now = new Date().toISOString();
@@ -606,7 +627,7 @@ export class FeaturesService {
     at?: string,
     scope?: FeatureScope,
   ): Promise<GeoJsonFeature> {
-    if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
+    if (!FEATURE_UUID.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const tbl = toTableName(itemId);
@@ -646,7 +667,7 @@ export class FeaturesService {
     globalId: string,
     scope?: FeatureScope,
   ): Promise<GeoJsonFeature[]> {
-    if (!/^[0-9a-f-]{36}$/i.test(globalId)) {
+    if (!FEATURE_UUID.test(globalId)) {
       throw new BadRequestException('Invalid feature id');
     }
     const tbl = toTableName(itemId);
@@ -755,7 +776,7 @@ export class FeaturesService {
     if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(fkColumn)) {
       throw new BadRequestException('Invalid FK column name');
     }
-    if (!/^[0-9a-f-]{36}$/i.test(parentGlobalId)) {
+    if (!FEATURE_UUID.test(parentGlobalId)) {
       throw new BadRequestException('Invalid parent feature id');
     }
     const tbl = toTableName(childItemId);
@@ -806,7 +827,7 @@ export class FeaturesService {
     if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(fkColumn)) {
       throw new BadRequestException('Invalid FK column name');
     }
-    if (!/^[0-9a-f-]{36}$/i.test(parentGlobalId)) {
+    if (!FEATURE_UUID.test(parentGlobalId)) {
       throw new BadRequestException('Invalid parent feature id');
     }
     // Bound user-supplied geometry size before it reaches PostGIS.

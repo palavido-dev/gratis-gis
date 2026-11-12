@@ -248,7 +248,10 @@ export class FeaturesController {
       throw new BadRequestException('Body must be a GeoJSON FeatureCollection with a features array');
     }
 
-    const inputs: InsertFeatureInput[] = body.features.map((f: unknown) => {
+    const inputs: InsertFeatureInput[] = body.features.map((f: unknown, i: number) => {
+      if (!f || typeof f !== 'object' || Array.isArray(f)) {
+        throw new BadRequestException(`features[${i}] is not a GeoJSON Feature object`);
+      }
       const feat = f as { type?: string; geometry?: unknown; properties?: Record<string, unknown>; id?: string };
       const input: InsertFeatureInput = { properties: feat.properties ?? {} };
       if (typeof feat.id === 'string') input.globalId = feat.id;
@@ -404,7 +407,15 @@ export class FeaturesController {
     const input: Parameters<typeof this.features.createRelatedFeature>[3] = {
       properties: body.properties ?? {},
     };
-    if (body.globalId) input.globalId = body.globalId;
+    if (body.globalId !== undefined) {
+      if (
+        typeof body.globalId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.globalId)
+      ) {
+        throw new BadRequestException('globalId must be a UUID');
+      }
+      input.globalId = body.globalId;
+    }
     if (body.geometry !== undefined) input.geometry = body.geometry;
 
     const result = await this.features.createRelatedFeature(
