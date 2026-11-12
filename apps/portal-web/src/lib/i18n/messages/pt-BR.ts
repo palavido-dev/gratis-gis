@@ -1716,6 +1716,7 @@ export const ptBR: Partial<CatalogShape> = {
       'As camadas estão somente para visualização. Ative "Editável em implantações de campo" em uma camada do mapa e confirme que a edição está habilitada na própria camada de dados.',
     nothingToCollectNoLayers:
       "O mapa não tem camadas às quais você possa adicionar.",
+    nothingToCollectSignIn: 'Entre para adicionar ou editar feições nesta implantação.',
     removeFromDevice: "Remover do dispositivo",
     confirmRemoveFromDevice: "Confirmar remoção do dispositivo",
     downloadLayers: "Camadas",

@@ -97,7 +97,7 @@ describe('loadFeatureForEdit', () => {
   });
 
   it('encodes ids into the URL', async () => {
-    const fetchImpl = jest.fn(async () => jsonResponse({ features: [] }));
+    const fetchImpl = jest.fn(async (_url: string) => jsonResponse({ features: [] }));
     await loadFeatureForEdit({
       ...BASE,
       globalId: 'a/b?c',

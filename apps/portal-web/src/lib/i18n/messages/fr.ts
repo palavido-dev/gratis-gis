@@ -1720,6 +1720,7 @@ export const fr: Partial<CatalogShape> = {
       'Ses couches sont en lecture seule. Activez « Modifiable dans les déploiements terrain » pour une couche de la carte, et vérifiez que l’édition est activée sur la couche de données elle-même.',
     nothingToCollectNoLayers:
       "Sa carte n’a aucune couche à laquelle vous pouvez ajouter.",
+    nothingToCollectSignIn: 'Connectez-vous pour ajouter ou modifier des entités dans ce déploiement.',
     removeFromDevice: "Retirer de l’appareil",
     confirmRemoveFromDevice: "Confirmer le retrait de l’appareil",
     downloadLayers: "Couches",

@@ -1785,6 +1785,7 @@ export const en = {
     nothingToCollectViewOnly:
       'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.',
     nothingToCollectNoLayers: 'Its map has no layers you can add to.',
+    nothingToCollectSignIn: 'Sign in to add or edit features in this deployment.',
     removeFromDevice: 'Remove from device',
     confirmRemoveFromDevice: 'Confirm remove from device',
     downloadLayers: 'Layers',

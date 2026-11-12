@@ -1473,9 +1473,10 @@ export function FieldRuntime({
   // Templates: one row per (editable layer, symbology class) pair.
   // Computed once unless the source data changes; stable React keys
   // come from `template.id`.
+  // No templates for an anonymous viewer; see canWriteLayer.
   const templates = useMemo<FieldTemplate[]>(
-    () => buildTemplates(editableLayers, mapData),
-    [editableLayers, mapData],
+    () => (currentUserId ? buildTemplates(editableLayers, mapData) : []),
+    [editableLayers, mapData, currentUserId],
   );
 
   // Selection is unused at this slice but MapCanvas requires the
@@ -2449,9 +2450,11 @@ export function FieldRuntime({
               {t('fieldRuntime.nothingToCollectTitle')}
             </p>
             <p className="mt-0.5 text-2xs text-muted">
-              {editableLayers.length > 0
-                ? t('fieldRuntime.nothingToCollectViewOnly')
-                : t('fieldRuntime.nothingToCollectNoLayers')}
+              {!currentUserId
+                ? t('fieldRuntime.nothingToCollectSignIn')
+                : editableLayers.length > 0
+                  ? t('fieldRuntime.nothingToCollectViewOnly')
+                  : t('fieldRuntime.nothingToCollectNoLayers')}
             </p>
           </div>
         ) : null}
@@ -2758,7 +2761,9 @@ export function FieldRuntime({
             // Switch the FormModal to edit mode for the hit's
             // editable layer. The same shape the legacy tap-to-edit
             // flow used; the sheet just makes the path explicit.
-            if (!hit.editable || !hit.globalId) return;
+            if (!canWriteLayer(hit.editable, currentUserId) || !hit.globalId) {
+              return;
+            }
             const layer = hit.editable;
             const featureId = hit.globalId;
             // Read the record before opening the form. The tap gives
@@ -2797,7 +2802,7 @@ export function FieldRuntime({
             // through to GPS / map center via the same fallback
             // the FAB uses. For non-point geometries, fall back
             // to no geometry; the FormModal already handles that.
-            if (!hit.editable) return;
+            if (!canWriteLayer(hit.editable, currentUserId)) return;
             const presetAttributes: Record<string, string> = {};
             for (const [k, v] of Object.entries(hit.properties)) {
               if (v === null || v === undefined) continue;
@@ -2971,6 +2976,24 @@ export function FieldRuntime({
  * gesture and ride along with terra-draw integration in a follow-up
  * slice (#196).
  */
+/**
+ * Whether this viewer may write to `layer` from the field app: add,
+ * edit, copy, or add a related row.
+ *
+ * A layer with `addable: false` is kept in editableLayers only so the
+ * layer panel can list it; the data layer or the map marks it as
+ * reference only, and the API does not refuse the write on its own.
+ * An anonymous viewer of a public deployment has no account to save
+ * as, so a capture would fail online or queue under an empty owner
+ * that no signed-in account can ever send.
+ */
+function canWriteLayer(
+  layer: EditableLayer | null | undefined,
+  currentUserId: string,
+): layer is EditableLayer {
+  return !!layer && layer.addable !== false && currentUserId !== '';
+}
+
 function isPointGeometry(t: LayerGeometryType): boolean {
   return t === 'point';
 }
@@ -4749,11 +4772,16 @@ function FormModal({
               </p>
               <div className="space-y-4">
                 {(modal.layer.childLayers ?? []).map((c) => {
-                  const childEditable = editableLayers.find(
+                  const childFound = editableLayers.find(
                     (e) =>
                       e.dataLayerId === modal.layer.dataLayerId &&
                       e.layerKey === c.layerKey,
                   );
+                  // A child marked not editable stays listed, with its
+                  // Add and Open buttons off; see canWriteLayer.
+                  const childEditable = canWriteLayer(childFound, currentUserId)
+                    ? childFound
+                    : undefined;
                   const state = relatedRowsByChild[c.layerKey];
                   const count = state?.rows.length ?? 0;
                   return (
@@ -5066,6 +5094,9 @@ function FieldFeaturePopupSheet({
   // list mode (the hook's first guard short-circuits on a null
   // parentId).
   const detailHit = concrete.mode === 'detail' ? concrete.hit : null;
+  const hitWritable =
+    concrete.mode === 'detail' &&
+    canWriteLayer(concrete.hit.editable, currentUserId);
   const parentEditable =
     detailHit && detailHit.editable && detailHit.globalId
       ? detailHit.editable
@@ -5176,13 +5207,11 @@ function FieldFeaturePopupSheet({
           <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-0 px-3 py-2">
             <button
               type="button"
-              disabled={
-                !concrete.hit.editable || !concrete.hit.globalId
-              }
+              disabled={!hitWritable || !concrete.hit.globalId}
               onClick={() => onEdit(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
+                hitWritable
                   ? t('fieldRuntime.sheetEditTitle')
                   : t('fieldRuntime.relatedNoEditAccess')
               }
@@ -5192,11 +5221,11 @@ function FieldFeaturePopupSheet({
             </button>
             <button
               type="button"
-              disabled={!concrete.hit.editable}
+              disabled={!hitWritable}
               onClick={() => onCopy(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
+                hitWritable
                   ? t('fieldRuntime.sheetCopyTitle')
                   : t('fieldRuntime.relatedNoEditAccess')
               }
@@ -5308,9 +5337,16 @@ function FieldFeaturePopupSheet({
               (parentEditable.childLayers?.length ?? 0) > 0 ? (
                 <div className="border-t border-border bg-surface-0/50">
                   {(parentEditable.childLayers ?? []).map((c) => {
-                    const child = editableLayers.find(
-                      (e) => e.layerKey === c.layerKey,
+                    // Sublayer keys are unique only inside one data
+                    // layer, so match the parent's data layer too.
+                    const found = editableLayers.find(
+                      (e) =>
+                        e.dataLayerId === parentEditable.dataLayerId &&
+                        e.layerKey === c.layerKey,
                     );
+                    const child = canWriteLayer(found, currentUserId)
+                      ? found
+                      : undefined;
                     const rowsState = relatedRowsByChild[c.layerKey];
                     return (
                       <section

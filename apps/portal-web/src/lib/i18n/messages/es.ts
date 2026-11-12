@@ -1718,6 +1718,7 @@ export const es: Partial<CatalogShape> = {
     nothingToCollectViewOnly:
       'Sus capas están solo de consulta. Active "Editable en despliegues de campo" en una capa del mapa y asegúrese de que la edición esté habilitada en la propia capa de datos.',
     nothingToCollectNoLayers: "Su mapa no tiene capas a las que pueda añadir.",
+    nothingToCollectSignIn: 'Inicia sesión para añadir o editar entidades en esta implementación.',
     removeFromDevice: "Quitar del dispositivo",
     confirmRemoveFromDevice: "Confirmar quitar del dispositivo",
     downloadLayers: "Capas",

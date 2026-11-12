@@ -1719,6 +1719,7 @@ export const de: Partial<CatalogShape> = {
       'Ihre Ebenen sind schreibgeschützt. Aktivieren Sie „In Feldeinsätzen bearbeitbar“ für eine Kartenebene und stellen Sie sicher, dass die Bearbeitung auf der Datenebene selbst aktiviert ist.',
     nothingToCollectNoLayers:
       "Ihre Karte hat keine Ebenen, zu denen Sie hinzufügen können.",
+    nothingToCollectSignIn: 'Melden Sie sich an, um in dieser Bereitstellung Objekte hinzuzufügen oder zu bearbeiten.',
     removeFromDevice: "Vom Gerät entfernen",
     confirmRemoveFromDevice: "Entfernen vom Gerät bestätigen",
     downloadLayers: "Ebenen",
