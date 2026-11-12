@@ -157,8 +157,13 @@ export class HousekeepingController {
    * handful of monthly partitions and stops being useful for
    * "which dataset is eating disk?". This drills down to
    * data_layer:itemId:layerId.
+   *
+   * The scope list is install-wide (top 50 over the whole observation
+   * table), so it is an operator view like its two neighbours. An
+   * admin of another org saw other orgs' layer ids and row counts.
    */
   @Get('largest-data-layers')
+  @UseGuards(OperatorOrgGuard)
   largestDataLayers(@CurrentUser() user: AuthUser) {
     return this.housekeeping.largestDataLayers(user.orgId);
   }

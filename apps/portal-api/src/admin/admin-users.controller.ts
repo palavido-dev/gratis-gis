@@ -690,6 +690,11 @@ export class AdminUsersController {
         orgRole: true,
       },
     });
+    // Same org gate as get(). Without it, the no-local-row branch
+    // below handed out the name and email of any realm user.
+    if (!inCallerOrg(me, kcUser, target?.orgId)) {
+      throw new NotFoundException('User not found');
+    }
     if (!target) {
       // Genuinely never signed in -- Keycloak has the user but no
       // local row exists. Return a friendly empty bundle so the UI

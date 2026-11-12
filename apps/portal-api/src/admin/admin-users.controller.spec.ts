@@ -902,3 +902,28 @@ describe('AdminUsersController DELETE keeps both sides consistent', () => {
     });
   });
 });
+
+describe('AdminUsersController.access org gate', () => {
+  it('does not return the name and email of another org user who never signed in', async () => {
+    const caller = makeAuthUser();
+    const { controller } = makeController({
+      caller,
+      targets: [
+        {
+          id: 'kc-other',
+          kc: {
+            id: 'kc-other',
+            username: 'other',
+            email: 'other@example.test',
+            attributes: { org: ['org-2'] },
+          } as unknown as KeycloakUserRep,
+          local: null,
+        },
+      ],
+      adminCount: 1,
+    });
+    await expect(controller.access(caller, 'kc-other')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
