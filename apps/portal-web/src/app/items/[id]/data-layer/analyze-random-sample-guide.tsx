@@ -60,7 +60,10 @@ export function AnalyzeRandomSampleGuide({
   const validationError =
     sampleReason && /percentage or count/.test(sampleReason)
       ? t('analyzeWorkbench.randomSampleValidateMode')
-      : sampleReason && /at most 100/.test(sampleReason)
+      : // Anchored on "Percentage": the count cap message is
+        // "Count must be at most 100,000.", which also contains
+        // "at most 100" and showed the percentage error.
+        sampleReason && /^Percentage must be at most/.test(sampleReason)
         ? t('analyzeWorkbench.randomSampleValidatePct')
         : sampleReason && /positive integer/.test(sampleReason)
           ? t('analyzeWorkbench.randomSampleValidateCount')
