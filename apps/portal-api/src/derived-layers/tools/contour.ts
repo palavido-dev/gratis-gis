@@ -8,6 +8,7 @@ import type {
   ToolGenerator,
   ToolValidateContext,
 } from './types.js';
+import { NUMERIC_TEXT_REGEX_LITERAL, numericTextSql } from './numeric-text.js';
 
 export interface ContourParams {
   field: string;
@@ -222,8 +223,8 @@ export const contourGenerator: ToolGenerator<ContourParams> = {
     if (min === undefined || max === undefined) {
       const rows = await ctx.queryRaw<{ minv: number | null; maxv: number | null }>(
         `SELECT
-           MIN((properties->>'${safeField}')::numeric) AS minv,
-           MAX((properties->>'${safeField}')::numeric) AS maxv
+           MIN(${numericTextSql(`(properties->>'${safeField}')`)}) AS minv,
+           MAX(${numericTextSql(`(properties->>'${safeField}')`)}) AS maxv
          FROM ${ctx.sourceTable}`,
       );
       const r = rows[0];
@@ -329,17 +330,21 @@ export const contourGenerator: ToolGenerator<ContourParams> = {
         SELECT
           global_id,
           geom,
-          (properties->>'${safeField}')::numeric AS val
+          ${numericTextSql(`(properties->>'${safeField}')`)}::numeric AS val
         FROM ${inputAlias}
         WHERE geom IS NOT NULL
-          AND (properties->>'${safeField}') IS NOT NULL
-          AND (properties->>'${safeField}') ~ '^-?\\d+(\\.\\d+)?$'
+          AND (properties->>'${safeField}') ~ ${NUMERIC_TEXT_REGEX_LITERAL}
       ),
+      -- Number the triangles from the dump itself. row_number() next
+      -- to a set-returning call in the select list runs before the
+      -- set is expanded, so every triangle used to get id 1.
       tin AS (
-        SELECT
-          row_number() OVER () AS tri_id,
-          (ST_Dump(ST_DelaunayTriangles(ST_Collect(geom), 0.0, 0))).geom AS tri_geom
-        FROM pts
+        SELECT d.tri_id, d.geom AS tri_geom
+        FROM (
+          SELECT ST_DelaunayTriangles(ST_Collect(geom), 0.0, 0) AS g
+          FROM pts
+        ) c
+        CROSS JOIN LATERAL ST_Dump(c.g) WITH ORDINALITY AS d(path, geom, tri_id)
       ),
       verts AS (
         SELECT
@@ -365,12 +370,14 @@ export const contourGenerator: ToolGenerator<ContourParams> = {
       tri AS (
         SELECT
           tri_id,
-          MAX(vgeom) FILTER (WHERE idx = 1) AS a_geom,
-          MAX(val)   FILTER (WHERE idx = 1) AS a_z,
-          MAX(vgeom) FILTER (WHERE idx = 2) AS b_geom,
-          MAX(val)   FILTER (WHERE idx = 2) AS b_z,
-          MAX(vgeom) FILTER (WHERE idx = 3) AS c_geom,
-          MAX(val)   FILTER (WHERE idx = 3) AS c_z
+          -- Pivot the three vertices by position. MAX() on a geometry
+          -- only ran through an implicit text cast.
+          (array_agg(vgeom ORDER BY idx))[1] AS a_geom,
+          (array_agg(val ORDER BY idx))[1] AS a_z,
+          (array_agg(vgeom ORDER BY idx))[2] AS b_geom,
+          (array_agg(val ORDER BY idx))[2] AS b_z,
+          (array_agg(vgeom ORDER BY idx))[3] AS c_geom,
+          (array_agg(val ORDER BY idx))[3] AS c_z
         FROM verts_z
         GROUP BY tri_id
       ),

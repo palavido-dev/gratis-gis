@@ -36,6 +36,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { getGeneratorForStep } from '../derived-layers/tools/registry.js';
+import { leafSchema } from '../derived-layers/derived-layers.service.js';
+import { featureIdsAsUuids } from '../derived-layers/tools/spatial-filter.js';
 import { OsmService } from '../osm/osm.service.js';
 import type { OsmGeoJsonFeature } from '../osm/osm-to-geojson.js';
 import { getOsmPreset } from '../osm/preset-catalog.js';
@@ -483,8 +485,11 @@ export class RecipeRunnerService {
       // Selection-from-current-selection workflow: the target
       // parameter resolved to "these specific features" rather than
       // "the whole layer", so we pre-restrict the source rows.
-      sqlParams.push(targetSource.featureIds);
-      sourceConditions.push(`entity = ANY($${sqlParams.length}::text[])`);
+      sqlParams.push(
+        featureIdsAsUuids(targetSource.featureIds, 'The selected feature ids'),
+      );
+      // entity is a uuid column; a text[] here failed every run.
+      sourceConditions.push(`entity = ANY($${sqlParams.length}::uuid[])`);
     }
     const sourceFragment = dataLayerSourceSqlFragment(sourceScope, {
       collapseConditions: sourceConditions,
@@ -500,6 +505,8 @@ export class RecipeRunnerService {
     const concretePipeline = recipe.pipeline.map((step) =>
       substituteStep(step, resolved),
     );
+    // Threaded so filter and calculate-field can cast numeric fields.
+    let schema = leafSchema(targetItem.data, layerKey);
     for (let i = 0; i < concretePipeline.length; i++) {
       const step = concretePipeline[i]!;
       const generator = getGeneratorForStep(step);
@@ -509,11 +516,14 @@ export class RecipeRunnerService {
       for (const depId of generator.extractDependencies(stepParams).itemIds) {
         await this.assertFullyReadableLayer(user, depId);
       }
-      const fragment = generator.toSql(inputAlias, stepParams, sqlParams.length);
+      const fragment = generator.toSql(inputAlias, stepParams, sqlParams.length, {
+        inputSchema: schema,
+      });
       const cteName = `tool_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
       sqlParams.push(...fragment.params);
       inputAlias = cteName;
+      schema = generator.outputSchema(schema, stepParams);
     }
 
     const cap = recipe.selectionLimit ?? DEFAULT_TOOL_SELECTION_LIMIT;
@@ -1286,7 +1296,7 @@ export class RecipeRunnerService {
       // into the lat/lng pair the OSM resolver expects.
       const ids =
         value.featureIds && value.featureIds.length > 0
-          ? value.featureIds.map((id) => String(id))
+          ? featureIdsAsUuids(value.featureIds, 'The area of interest feature ids')
           : null;
       type ExtentRow = { extent: string | null };
       const rows: ExtentRow[] = ids

@@ -10,7 +10,8 @@ import {
   SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
-import type { ToolGenerator, ToolValidateContext } from './types.js';
+import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
+import { numericTextSql } from './numeric-text.js';
 
 export interface CalculateFieldParams {
   outputName: string;
@@ -46,7 +47,9 @@ function columnForField(
   const raw = `(properties->>'${fieldName}')`;
   switch (ref?.type) {
     case 'number':
-      return `NULLIF(${raw}, '')::double precision`;
+      // Non-numeric text (empty, "n/a") reads as NULL instead of
+      // failing the whole query.
+      return numericTextSql(raw);
     case 'boolean':
       return `(${raw}::boolean)`;
     default:
@@ -188,20 +191,21 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     inputAlias: string,
     params: CalculateFieldParams,
     paramOffset: number,
+    ctx?: ToolSqlContext,
   ) {
     const ast = parseExpression(params.expression);
-    // Same fallback as filter: no schema at read time, so cast logic
-    // keys off the operator rather than the column type.  Result is
-    // still correct for arithmetic + comparisons because the
-    // compiler emits explicit casts where needed.
+    // Same as filter: the compiler emits no casts, so numeric fields
+    // are cast here from the input schema the caller threads through.
+    const schema: FeatureField[] = ctx?.inputSchema ?? [];
     const compiled = compileExpression(
       ast,
-      (name) => columnForField(name, [] as FeatureField[]),
+      (name) => columnForField(name, schema),
       paramOffset,
     );
-    // Stash the field name as the first parameter so the JSONB key
-    // doesn't have to be escaped manually.  PostgreSQL's
-    // jsonb_build_object handles the key + value coercion.
+    // Pass the field name as a parameter so the JSONB key never has
+    // to be escaped by hand. jsonb_build_object takes VARIADIC "any",
+    // so the key needs an explicit ::text: an untyped parameter there
+    // fails to plan under the pg driver.
     const fieldNameIdx = paramOffset + compiled.params.length + 1;
     const valueCast =
       params.outputType === 'number'
@@ -214,7 +218,7 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
         ${inputAlias}.global_id,
         ${inputAlias}.geom,
         ${inputAlias}.properties || jsonb_build_object(
-          $${fieldNameIdx},
+          $${fieldNameIdx}::text,
           (${compiled.sql})${valueCast}
         ) AS properties
       FROM ${inputAlias}

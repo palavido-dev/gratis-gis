@@ -15,6 +15,7 @@ import {
   dataLayerSourceSqlFragment,
 } from '../engine/data-layer.js';
 import { getGeneratorForStep } from './tools/registry.js';
+import type { ToolEnrichContext } from './tools/types.js';
 
 /**
  * Maximum allowed pipeline length. Each step is a separate CTE in
@@ -47,17 +48,45 @@ const MAX_FEATURE_LIMIT = 50_000;
 const MAX_CHAIN_DEPTH = 5;
 
 /**
- * Approximate degrees of latitude per meter at the equator. Used
- * once when expanding a request bbox by the pipeline's outward
- * reach so features near the edge keep their halo. The value is
- * deliberately a constant (1 / 111_320) rather than a per-latitude
- * approximation: at high latitudes the longitudinal expansion would
- * need to be larger, so we use the SAME meters-per-degree on both
- * axes (treating the latitude axis as the worst case). This
- * over-includes longitudinal features near the poles, which is fine
- * for a pre-filter that exists only to limit work.
+ * Degrees of latitude per meter. A degree of longitude is shorter by
+ * cos(latitude), so the longitude pad is divided by that (see
+ * padBboxDegrees). Using this one constant for both axes padded too
+ * little east and west everywhere off the equator.
  */
 const DEGREES_PER_METER = 1 / 111_320;
+
+/**
+ * Tools whose output row depends only on its own input row (plus, for
+ * the two-input tools, the other layer, which no bbox touches). A
+ * `?bbox` can be applied to the leaf before these. Any other tool
+ * (dissolve, aggregate, top-n, count sampling, nearest neighbour,
+ * contour) answers over the whole set, so prefiltering to the view
+ * would change its answer.
+ */
+const ROW_LOCAL_TOOLS = new Set<string>([
+  'buffer',
+  'centroid',
+  'convex-hull',
+  'bbox',
+  'simplify',
+  'vertices',
+  'densify',
+  'fishnet',
+  'calculate-geometry',
+  'calculate-field',
+  'filter',
+  'spatial-join',
+  'spatial-filter',
+  'clip',
+  'erase',
+]);
+
+function isRowLocalStep(step: ToolStep): boolean {
+  if (step.tool === 'random-sample') {
+    return (step.params as { mode?: string }).mode !== 'count';
+  }
+  return ROW_LOCAL_TOOLS.has(step.tool);
+}
 
 /**
  * Mechanics for derived_layer items: validation + read-path SQL
@@ -218,27 +247,11 @@ export class DerivedLayersService {
       : sublayer
         ? sublayer.fields
         : readSourceSchema(sourceItem.data);
-    // Source feature surface for any tool's `enrich` hook that
-    // needs to query against the source (buffer's field-mode max
-    // computation is the only consumer in v1). After Phase 2.7,
-    // this is a SQL subquery that materialises the data_layer's
-    // current truth from the observation log, aliased so callers
-    // can drop it into a `FROM ${sourceTable}` clause unchanged.
-    // Tools see the same column names they did against the legacy
-    // fs_ table: global_id, geom, properties.
-    //
-    // For derived_layer chained sources we don't run enrich hooks
-    // that need a materialised source CTE here (buffer's
-    // field-mode is the only one and it requires geometry types
-    // resolved at save time).  Pass an empty-table placeholder for
-    // those callers; the hook is a no-op for the common case.
-    const sourceTable = source.kind === 'derived_layer'
-      ? '(SELECT NULL::uuid AS global_id, NULL::geometry AS geom, NULL::jsonb AS properties WHERE FALSE) AS source_features'
-      : `(${dataLayerSourceSqlFragment(
-          sublayer
-            ? dataLayerScope(sourceItem.id, sublayer.id)
-            : dataLayerScope(sourceItem.id, 'default'),
-        )}) AS source_features`;
+    const resolvedSource: DerivedLayerData['source'] = {
+      kind: source.kind as 'data_layer' | 'derived_layer',
+      itemId: source.itemId as string,
+      ...(sublayer ? { layerKey: sublayer.id } : {}),
+    };
     let schema: FeatureField[] = sourceSchema;
     let totalReachMeters = 0;
     const validatedPipeline: ToolStep[] = [];
@@ -259,20 +272,25 @@ export class DerivedLayersService {
         tool,
         params: (stepRaw as { params?: unknown }).params,
       } as ToolStep);
-      const validated = generator.validate(
-        (stepRaw as { params?: unknown }).params,
-        { sourceSchema: schema },
+      const validated = await this.resolveOtherSourceLayer(
+        generator.validate((stepRaw as { params?: unknown }).params, {
+          sourceSchema: schema,
+        }),
+        i,
       );
       // Async enrichment hook: tools fill in any caches the recipe
       // needs (buffer's field-mode `cachedMaxMeters`). Only fired at
       // save time; reads trust the persisted shape.
       const enrichedParams = generator.enrich
-        ? await generator.enrich(validated, {
-            sourceSchema: schema,
-            sourceTable,
-            queryRaw: <T = unknown>(sql: string, ...p: unknown[]) =>
-              this.prisma.$queryRawUnsafe<T[]>(sql, ...p),
-          })
+        ? await generator.enrich(
+            validated,
+            await this.enrichContext(
+              resolvedSource,
+              sourceItem.data,
+              validatedPipeline,
+              schema,
+            ),
+          )
         : validated;
       schema = generator.outputSchema(schema, enrichedParams);
       totalReachMeters += generator.outwardReachMeters(enrichedParams);
@@ -293,15 +311,91 @@ export class DerivedLayersService {
 
     return {
       version: 1,
-      source: {
-        kind: source.kind as 'data_layer' | 'derived_layer',
-        itemId: source.itemId as string,
-        ...(sublayer ? { layerKey: sublayer.id } : {}),
-      },
+      source: resolvedSource,
       pipeline: validatedPipeline,
       featureLimit,
       outputSchema: schema,
       bbox,
+    };
+  }
+
+  /**
+   * Pin a two-input step's other layer to a real sublayer, by the same
+   * rules as the primary source. Clip, erase, join and spatial filter
+   * fall back to the `default` scope when the key is missing or
+   * misspelled, and a v3 item has no rows there: clip dropped every
+   * feature, erase kept them all, and nothing said why.
+   */
+  private async resolveOtherSourceLayer<T>(params: T, index: number): Promise<T> {
+    const other = (params as { otherSource?: unknown } | null)?.otherSource as
+      | { kind?: unknown; itemId?: unknown; layerKey?: unknown }
+      | undefined;
+    if (!other || other.kind !== 'data_layer' || typeof other.itemId !== 'string') {
+      return params;
+    }
+    const item = await this.prisma.item.findUnique({
+      where: { id: other.itemId },
+      select: { data: true },
+    });
+    // Missing items are reported by the access checks the caller runs.
+    // Only v3 items have sublayer keys; older shapes read `default`.
+    if (!item || readSourceVersion(item.data) !== 3) return params;
+    let sub: { id: string } | null;
+    try {
+      sub = resolveSublayer(
+        item.data,
+        3,
+        typeof other.layerKey === 'string' ? other.layerKey : undefined,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `derived_layer.pipeline[${index}].params.otherSource: ${msg.replace(/^derived_layer\.source\.layerKey/, 'layerKey')}`,
+      );
+    }
+    if (!sub || sub.id === other.layerKey) return params;
+    return {
+      ...params,
+      otherSource: { ...other, layerKey: sub.id },
+    } as T;
+  }
+
+  /**
+   * Context for a step's `enrich` hook. The hook queries the rows the
+   * step will really receive: the source run through every earlier
+   * step, and through the parent recipe when the source is another
+   * derived layer. Handing it the raw source table cached the wrong
+   * MAX (or 0, for a chained source), and buffer by field then drew
+   * zero-width buffers with no error.
+   */
+  private async enrichContext(
+    source: DerivedLayerData['source'],
+    sourceData: unknown,
+    earlierSteps: ToolStep[],
+    schema: FeatureField[],
+  ): Promise<ToolEnrichContext> {
+    const sourceParams: unknown[] = [];
+    const { ctes, finalAlias } = await this.composeReadCtes({
+      layerData: {
+        version: 1,
+        source,
+        pipeline: earlierSteps,
+        featureLimit: 1,
+        outputSchema: [],
+        bbox: [],
+      },
+      depth: 0,
+      params: sourceParams,
+      opts: {},
+      visited: new Set(),
+      sourceData,
+    });
+    return {
+      sourceSchema: schema,
+      sourceTable: `(WITH ${ctes.join(', ')} SELECT global_id, geom, properties FROM ${finalAlias}) AS source_features`,
+      sourceParamCount: sourceParams.length,
+      queryRaw: <T = unknown>(sql: string, ...p: unknown[]) =>
+        this.prisma.$queryRawUnsafe<T[]>(sql, ...sourceParams, ...p),
     };
   }
 
@@ -426,13 +520,23 @@ export class DerivedLayersService {
     }
 
     const queryParams: unknown[] = [];
-    let { ctes, finalAlias } = await this.composeReadCtes({
+    const { ctes, finalAlias, bboxDeferred } = await this.composeReadCtes({
       layerData: data,
       depth: 0,
       params: queryParams,
       opts,
       visited: new Set([item.id]),
+      sourceData: sourceItem.data,
     });
+
+    // A whole-set step ran over every row, so the view filter goes on
+    // its output rather than on the source.
+    let viewFilter = '';
+    if (bboxDeferred && opts.bbox) {
+      queryParams.push(...opts.bbox);
+      const b = queryParams.length;
+      viewFilter = `AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`;
+    }
 
     queryParams.push(data.featureLimit);
     const limitParam = queryParams.length;
@@ -441,7 +545,7 @@ export class DerivedLayersService {
       WITH ${ctes.join(', ')}
       SELECT global_id, ST_AsGeoJSON(geom) AS geom, properties
       FROM ${finalAlias}
-      WHERE geom IS NOT NULL
+      WHERE geom IS NOT NULL ${viewFilter}
       LIMIT $${limitParam}
     `;
 
@@ -497,8 +601,26 @@ export class DerivedLayersService {
       boundaryClipId?: string;
     };
     visited: Set<string>;
-  }): Promise<{ ctes: string[]; finalAlias: string }> {
-    const { layerData, depth, params, opts, visited } = args;
+    /** The source item's data when the caller already has it. */
+    sourceData?: unknown;
+    /** Outward reach of every level above this one, in meters. */
+    reachAbove?: number;
+  }): Promise<{ ctes: string[]; finalAlias: string; bboxDeferred: boolean }> {
+    const { layerData, depth, params, visited } = args;
+    let opts = args.opts;
+    // A whole-set step here must see every row, so nothing below it
+    // may be cut to the view. The caller applies the bbox to the
+    // final output instead.
+    let bboxDeferred = false;
+    if (opts.bbox && !layerData.pipeline.every(isRowLocalStep)) {
+      const { bbox: _deferred, ...rest } = opts;
+      void _deferred;
+      opts = rest;
+      bboxDeferred = true;
+    }
+    // Schema of the rows entering this layer's pipeline. Tools that
+    // compile expressions need it to cast numeric properties.
+    let inputSchema: FeatureField[] = [];
     const prefix = `d${depth}`;
 
     // Sum outward reach across this layer's pipeline; used (only at
@@ -557,9 +679,14 @@ export class DerivedLayersService {
         params,
         opts,
         visited: next,
+        reachAbove: (args.reachAbove ?? 0) + layerReachMeters,
       });
+      if (inner.bboxDeferred) bboxDeferred = true;
       ctes = inner.ctes;
       sourceAlias = inner.finalAlias;
+      inputSchema = Array.isArray(parentData.outputSchema)
+        ? parentData.outputSchema
+        : [];
     } else {
       // data_layer leaf: build the engine's current-truth projection
       // with the request's bbox / temporal / boundary filters
@@ -577,6 +704,16 @@ export class DerivedLayersService {
       const sourceScope = layerData.source.layerKey
         ? dataLayerScope(layerData.source.itemId, layerData.source.layerKey)
         : dataLayerScope(layerData.source.itemId, 'default');
+      const leafData =
+        args.sourceData !== undefined
+          ? args.sourceData
+          : (
+              await this.prisma.item.findUnique({
+                where: { id: layerData.source.itemId },
+                select: { data: true },
+              })
+            )?.data;
+      inputSchema = leafSchema(leafData, layerData.source.layerKey);
       const collapseConditions: string[] = [];
       const contentConditions: string[] = [];
       if (opts.at) {
@@ -592,18 +729,14 @@ export class DerivedLayersService {
         collapseConditions.push('valid_to IS NULL');
       }
       if (opts.bbox) {
-        // Pad by THIS layer's reach.  When this layer is an ancestor
-        // in a chain, the caller's reach has already been added at
-        // an outer level; we use the per-layer figure here because
-        // each level only sees the bbox once at the leaf.
-        const padding = layerReachMeters * DEGREES_PER_METER;
-        const [minX, minY, maxX, maxY] = opts.bbox;
-        params.push(
-          minX - padding,
-          minY - padding,
-          maxX + padding,
-          maxY + padding,
+        // The leaf is the only place the bbox is applied, so it is
+        // padded by the reach of every level above it as well as this
+        // one: a buffer two levels up still needs its halo here.
+        const [minX, minY, maxX, maxY] = padBboxDegrees(
+          opts.bbox,
+          (args.reachAbove ?? 0) + layerReachMeters,
         );
+        params.push(minX, minY, maxX, maxY);
         const b = params.length;
         contentConditions.push(
           `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
@@ -641,18 +774,22 @@ export class DerivedLayersService {
     // alias the source resolution produced.  The step-N CTE names
     // are depth-prefixed so adjacent levels never collide.
     let inputAlias = sourceAlias;
+    let schema = inputSchema;
     for (let i = 0; i < layerData.pipeline.length; i++) {
       const step = layerData.pipeline[i]!;
       const generator = getGeneratorForStep(step);
       const stepParams = generator.validate(step.params);
-      const fragment = generator.toSql(inputAlias, stepParams, params.length);
+      const fragment = generator.toSql(inputAlias, stepParams, params.length, {
+        inputSchema: schema,
+      });
       const cteName = `${prefix}_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
       params.push(...fragment.params);
       inputAlias = cteName;
+      schema = generator.outputSchema(schema, stepParams);
     }
 
-    return { ctes, finalAlias: inputAlias };
+    return { ctes, finalAlias: inputAlias, bboxDeferred };
   }
 
   /**
@@ -757,12 +894,27 @@ export class DerivedLayersService {
         ? sublayer.fields
         : readSourceSchema(args.sourceItem.data);
     }
+    // Enrich as save does, so a buffer by field preview uses the real
+    // cap instead of the 0 the wizard sends.
+    const enrichedSteps: ToolStep[] = [];
     for (const step of sliced) {
       const generator = getGeneratorForStep(step);
       const validated = generator.validate(step.params, {
         sourceSchema: schema,
       });
-      schema = generator.outputSchema(schema, validated);
+      const enriched = generator.enrich
+        ? await generator.enrich(
+            validated,
+            await this.enrichContext(
+              args.source,
+              args.sourceItem.data,
+              enrichedSteps,
+              schema,
+            ),
+          )
+        : validated;
+      enrichedSteps.push({ tool: step.tool, params: enriched } as ToolStep);
+      schema = generator.outputSchema(schema, enriched);
     }
 
     // Compose the SQL via the same path getGeoJson uses, but with
@@ -771,7 +923,7 @@ export class DerivedLayersService {
     const fakeRecipe: DerivedLayerData = {
       version: 1,
       source: args.source,
-      pipeline: sliced,
+      pipeline: enrichedSteps,
       featureLimit: previewLimit + 1,
       outputSchema: schema,
       bbox: [],
@@ -855,14 +1007,11 @@ export class DerivedLayersService {
     }
 
     if (opts.bbox) {
-      const padding = totalReachMeters * DEGREES_PER_METER;
-      const [minX, minY, maxX, maxY] = opts.bbox;
-      queryParams.push(
-        minX - padding,
-        minY - padding,
-        maxX + padding,
-        maxY + padding,
+      const [minX, minY, maxX, maxY] = padBboxDegrees(
+        opts.bbox,
+        totalReachMeters,
       );
+      queryParams.push(minX, minY, maxX, maxY);
       const b = queryParams.length;
       contentConditions.push(
         `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
@@ -876,6 +1025,7 @@ export class DerivedLayersService {
       })})`,
     ];
     let inputAlias = 'source';
+    let schema = leafSchema(sourceItem.data, data.source.layerKey);
     for (let i = 0; i < data.pipeline.length; i++) {
       const step = data.pipeline[i]!;
       const generator = getGeneratorForStep(step);
@@ -884,11 +1034,13 @@ export class DerivedLayersService {
         inputAlias,
         params,
         queryParams.length,
+        { inputSchema: schema },
       );
       const cteName = `step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
       queryParams.push(...fragment.params);
       inputAlias = cteName;
+      schema = generator.outputSchema(schema, params);
     }
 
     queryParams.push(data.featureLimit);
@@ -1011,6 +1163,21 @@ export function readSourceSchema(data: unknown): FeatureField[] {
 }
 
 /**
+ * Field schema of a data layer source at read time: the named v3
+ * sublayer's fields, or the top-level v2 fields. Never throws: a
+ * source that no longer resolves just yields no types, and the tools
+ * then treat every field as text, as before.
+ */
+export function leafSchema(data: unknown, layerKey?: string): FeatureField[] {
+  try {
+    const sub = resolveSublayer(data, readSourceVersion(data), layerKey);
+    return sub ? sub.fields : readSourceSchema(data);
+  } catch {
+    return readSourceSchema(data);
+  }
+}
+
+/**
  * Pad a [west, south, east, north] bbox outward by `reachMeters`,
  * approximating using a single meters-per-degree constant. Returns
  * empty array when the input bbox is empty / malformed (matching the
@@ -1028,11 +1195,26 @@ export function padBboxByMeters(
     return [];
   }
   if (reachMeters <= 0) return [...bbox];
-  const padding = reachMeters * DEGREES_PER_METER;
-  return [
-    bbox[0]! - padding,
-    bbox[1]! - padding,
-    bbox[2]! + padding,
-    bbox[3]! + padding,
-  ];
+  return padBboxDegrees(bbox as [number, number, number, number], reachMeters);
+}
+
+/**
+ * Pad a bbox by `reachMeters` on every side. Latitude uses the plain
+ * meters-per-degree figure; longitude divides it by cos(latitude) at
+ * the box's most poleward edge, where a degree is shortest, so the pad
+ * is never short. Latitude is floored at 89 degrees for the cosine so
+ * the pad stays finite near the poles.
+ */
+export function padBboxDegrees(
+  bbox: readonly number[],
+  reachMeters: number,
+): [number, number, number, number] {
+  const [minX, minY, maxX, maxY] = bbox as [number, number, number, number];
+  if (!(reachMeters > 0)) return [minX, minY, maxX, maxY];
+  const latPad = reachMeters * DEGREES_PER_METER;
+  const south = minY - latPad;
+  const north = maxY + latPad;
+  const poleward = Math.min(89, Math.max(Math.abs(south), Math.abs(north)));
+  const lonPad = latPad / Math.cos((poleward * Math.PI) / 180);
+  return [minX - lonPad, south, maxX + lonPad, north];
 }

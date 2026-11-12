@@ -1883,7 +1883,18 @@ export class ItemsService {
           where: { id: depId },
           include: { shares: true },
         });
-        if (!node || node.deletedAt !== null) continue;
+        // The read path builds SQL for every input from the recipe's
+        // ids and never loads the items, so this walk is the only
+        // check on deeper levels. A missing, trashed or unreadable
+        // input is refused: skipping it would serve a trashed layer's
+        // rows to readers who never had it.
+        if (
+          !node ||
+          node.deletedAt !== null ||
+          !this.sharing.canRead(user, node, node.shares)
+        ) {
+          return depId;
+        }
         if (node.type === 'derived_layer') {
           queue.push(node.data);
           continue;

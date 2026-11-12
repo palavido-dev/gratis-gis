@@ -574,9 +574,10 @@ export function parseExpression(src: string): Expr {
  * expression is valid.
  *
  * Light type-checking only: numeric vs string vs boolean.  We
- * don't try to be SQL-strict; the SQL emitter handles coercions
- * via casts.  Goal here is to catch "you typed `acres + name`
- * but name is a string" before the user saves.
+ * don't try to be SQL-strict.  The SQL emitter itself never casts:
+ * the caller's `columnSql` must return a typed expression for each
+ * field.  Goal here is to catch "you typed `acres + name` but name
+ * is a string" before the user saves.
  */
 export function validateExpression(
   expr: Expr,

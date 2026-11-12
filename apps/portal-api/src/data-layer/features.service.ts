@@ -931,6 +931,13 @@ export class DataLayerFeaturesService {
     }));
 
     const written = await this.dataLayer.copyFeaturesCreate(args, writer);
+    // Imports are where large distance values usually arrive. A
+    // buffer-by-field cap also clamps each row's buffer in SQL, so a
+    // stale cap shrinks imported halos. The cap only ever grows, so
+    // growing it from a batch that later rolls back is harmless.
+    if (written.length > 0) {
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, validated);
+    }
     return { inserted: written.length };
   }
 

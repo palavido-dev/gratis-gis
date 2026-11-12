@@ -179,6 +179,37 @@ describe('derived layers honour the reader scope on their inputs', () => {
     expect(limited).not.toBeNull();
   });
 
+  it('a trashed leaf under a shared parent is refused, not skipped', async () => {
+    // C over P over D. The reader holds P and C but never D. Once D is
+    // in the trash the walk used to skip it and call the chain clean.
+    const PARENT = '00000000-0000-4000-8000-0000000000d1';
+    const { svc, derivedGetGeoJson } = service({
+      [PARENT]: {
+        id: PARENT,
+        type: 'derived_layer',
+        orgId: 'org-1',
+        ownerId: 'owner',
+        access: 'private',
+        deletedAt: null,
+        shares: [viewShare()],
+        data: {
+          version: 1,
+          source: { kind: 'data_layer', itemId: SOURCE, layerKey: 'l' },
+          pipeline: [],
+        },
+      },
+      [SOURCE]: { ...dataLayer(SOURCE, []), deletedAt: new Date() },
+    });
+    const limited = await (svc as unknown as {
+      derivedInputScopeLimit: (u: unknown, d: unknown) => Promise<string | null>;
+    }).derivedInputScopeLimit(reader, {
+      source: { kind: 'derived_layer', itemId: PARENT },
+      pipeline: [],
+    });
+    expect(limited).toBe(SOURCE);
+    expect(derivedGetGeoJson).not.toHaveBeenCalled();
+  });
+
   it('a limited reader does not see the derived extent or buffer cap', async () => {
     const stored = {
       ...derivedItem([

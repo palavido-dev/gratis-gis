@@ -200,11 +200,23 @@ describe('padBboxByMeters', () => {
 
   it('pads outward in degrees proportional to meters', () => {
     const padded = padBboxByMeters([0, 0, 1, 1], 11132);
-    // 11132m / 111320 m/deg ~= 0.1 deg
-    expect(padded[0]).toBeCloseTo(-0.1, 5);
+    // 11132m / 111320 m/deg ~= 0.1 deg of latitude. Longitude is
+    // divided by cos of the most poleward padded edge (1.1 deg).
+    const lon = 0.1 / Math.cos((1.1 * Math.PI) / 180);
+    expect(padded[0]).toBeCloseTo(-lon, 6);
     expect(padded[1]).toBeCloseTo(-0.1, 5);
-    expect(padded[2]).toBeCloseTo(1.1, 5);
+    expect(padded[2]).toBeCloseTo(1 + lon, 6);
     expect(padded[3]).toBeCloseTo(1.1, 5);
+  });
+
+  it('pads longitude by 1/cos(latitude) so the east-west pad is never short', () => {
+    // At 60 N a degree of longitude is about half as long, so the same
+    // 10 km needs about twice as many degrees east and west.
+    const padded = padBboxByMeters([10, 59, 11, 60], 10_000);
+    const lat = 10_000 / 111_320;
+    const lonMeters = (10 - padded[0]!) * 111_320 * Math.cos(((60 + lat) * Math.PI) / 180);
+    expect(lonMeters).toBeCloseTo(10_000, 0);
+    expect(10 - padded[0]!).toBeGreaterThan(1.9 * lat);
   });
 
   it('treats malformed bboxes as empty', () => {
@@ -267,8 +279,8 @@ describe('DerivedLayersService.validateAndEnrich', () => {
     );
     expect(enriched.featureLimit).toBe(1000);
     expect(enriched.outputSchema).toEqual([STRING_FIELD]);
-    // bbox padded by ~0.1 deg in each axis
-    expect(enriched.bbox[0]).toBeCloseTo(-122.6, 4);
+    // bbox padded by ~0.1 deg of latitude; longitude by 0.1 / cos(38.1)
+    expect(enriched.bbox[0]).toBeCloseTo(-122.5 - 0.1 / Math.cos((38.1 * Math.PI) / 180), 4);
     expect(enriched.bbox[3]).toBeCloseTo(38.1, 4);
   });
 
@@ -469,9 +481,9 @@ describe('DerivedLayersService.buildReadSql', () => {
     });
     // Order: padded bbox (4 numbers), then buffer distance, then limit.
     expect(params).toHaveLength(6);
-    expect(params[0]).toBeCloseTo(-0.1, 5);
+    expect(params[0]).toBeCloseTo(-0.1, 3);
     expect(params[1]).toBeCloseTo(-0.1, 5);
-    expect(params[2]).toBeCloseTo(1.1, 5);
+    expect(params[2]).toBeCloseTo(1.1, 3);
     expect(params[3]).toBeCloseTo(1.1, 5);
     expect(params[4]).toBe(11132);
     expect(params[5]).toBe(500);
