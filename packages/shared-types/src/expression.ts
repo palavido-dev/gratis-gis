@@ -616,7 +616,9 @@ export function validateExpression(
           }
           return 'number';
         }
-        // NOT
+        // NOT: still check the operand (a missing field inside it went
+        // unreported).
+        inferType(e.arg);
         return 'boolean';
       case 'binop': {
         const lt = inferType(e.left);
@@ -675,6 +677,16 @@ export function validateExpression(
       }
       case 'func': {
         const arity = e.args.length;
+        // Every argument is checked, so a missing field or a type error
+        // inside a function is reported. Before, only coalesce and if
+        // looked at one argument each, and an empty argument list threw.
+        const argTypes = e.args.map((a) => inferType(a));
+        const numericArg = () => {
+          const t = argTypes[0];
+          if (t !== undefined && t !== 'number' && t !== 'unknown') {
+            errors.push(`${e.name}() needs a number (got ${shown(t)})`);
+          }
+        };
         switch (e.name) {
           case 'upper':
           case 'lower':
@@ -689,18 +701,19 @@ export function validateExpression(
             if (arity < 2) {
               errors.push('coalesce() takes at least two arguments');
             }
-            return inferType(e.args[0]!) === 'unknown' ? 'unknown' : inferType(e.args[0]!);
+            return argTypes[0] ?? 'unknown';
           case 'abs':
           case 'round':
           case 'floor':
           case 'ceil':
             if (arity !== 1) errors.push(`${e.name}() takes one argument`);
+            numericArg();
             return 'number';
           case 'if':
             if (arity !== 3) {
               errors.push('if(cond, then, else) takes three arguments');
             }
-            return inferType(e.args[1]!);
+            return argTypes[1] ?? 'unknown';
           default:
             errors.push(`Unknown function ${e.name}()`);
             return 'unknown';

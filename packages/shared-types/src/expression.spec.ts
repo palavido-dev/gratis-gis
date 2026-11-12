@@ -137,3 +137,16 @@ describe('evaluateExpression: text ordering', () => {
     expect(evaluateExpression(parseExpression('{{n}} > 9'), { n: '12' })).toBe(true);
   });
 });
+
+describe('validateExpression: inside functions and NOT', () => {
+  it('reports a missing field inside a function or NOT', () => {
+    expect(check('upper({{nmae}})').join(' ')).toMatch(/does not exist/);
+    expect(check('NOT {{nope}}').join(' ')).toMatch(/does not exist/);
+  });
+
+  it('returns an arity error for an empty coalesce or if, without throwing', () => {
+    expect(() => check('coalesce()')).not.toThrow();
+    expect(check('coalesce()').join(' ')).toMatch(/at least two/);
+    expect(() => check('if()')).not.toThrow();
+  });
+});

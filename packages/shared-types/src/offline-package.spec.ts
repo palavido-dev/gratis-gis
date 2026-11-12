@@ -142,3 +142,11 @@ describe('validateOfflineArea', () => {
     expect(validateOfflineArea(bad)).toMatch(/coordinates/i);
   });
 });
+
+describe('validateOfflineArea with a malformed area', () => {
+  it('returns a message instead of throwing', () => {
+    expect(validateOfflineArea({ id: 'x', bbox: [0, 0, 1, 1], refreshDays: 1 } as never)).toMatch(/name/);
+    expect(validateOfflineArea({ id: 'x', name: null, bbox: [0, 0, 1, 1] } as never)).toMatch(/name/);
+    expect(validateOfflineArea({ id: 'x', name: 'A' } as never)).toMatch(/extent/);
+  });
+});
