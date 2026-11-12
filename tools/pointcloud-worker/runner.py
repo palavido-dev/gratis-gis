@@ -52,6 +52,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1274,8 +1275,17 @@ def grid_chunked(
     if len(tiles) == 1 and len(chunks) == 1:
         return tiles[0]
     vrt = work / f"{name}.vrt"
+    # -te pins the VRT to the planned extent (the union of the chunk
+    # cores, which tile it exactly). A skipped empty chunk at an edge
+    # otherwise shrinks one surface and not the other, and gdal_calc
+    # then refuses heightmap's DSM and DTM as different sizes.
+    ex0 = min(c["core"][0] for c in chunks)
+    ey0 = min(c["core"][1] for c in chunks)
+    ex1 = max(c["core"][2] for c in chunks)
+    ey1 = max(c["core"][3] for c in chunks)
     run(
-        ["gdalbuildvrt", str(vrt)] + [str(t) for t in tiles],
+        ["gdalbuildvrt", "-te", str(ex0), str(ey0), str(ex1), str(ey1), str(vrt)]
+        + [str(t) for t in tiles],
         work,
         conn,
         job_id,
@@ -1313,9 +1323,7 @@ def do_hillshade(conn, s3, job) -> None:
         # pass). The hillshade itself runs on the combined surface
         # (VRT), never per chunk: shading stitched per-tile
         # hillshades would leave seams at every tile edge.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dem = grid_chunked(
             src, work, "dem", resolution, bounds,
             ground_only=(mode == "dtm"), output_type="idw",
@@ -1443,9 +1451,7 @@ def do_elevation(conn, s3, job) -> None:
         # #208: chunked gridding; see do_hillshade for the rationale.
         # The gdalwarp COG step below reads the VRT block-by-block,
         # so the full-extent DEM never materializes uncompressed.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dem = grid_chunked(
             src, work, "dem", resolution, bounds,
             ground_only=True, output_type="idw",
@@ -2359,9 +2365,7 @@ def do_heightmap(conn, s3, job) -> None:
         # bounds (grid_chunked always pins the lattice to them), so
         # DSM and DTM stay cell-aligned for the subtraction no
         # matter how the ground subset's extent differs.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dsm = grid_chunked(
             src, work, "dsm", resolution, bounds,
             ground_only=False, output_type="max",
@@ -2679,6 +2683,69 @@ def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
         "hasRgb": pdrf in (2, 3, 5, 7, 8),
         "crsWkt": wkt,
     }
+
+
+_WKT_UNIT_RE = re.compile(
+    r'\b(LENGTHUNIT|ANGLEUNIT|SCALEUNIT|TIMEUNIT|UNIT)\s*\[\s*"([^"]*)"\s*,\s*([0-9.eE+-]+)'
+)
+_ANGLE_UNIT_NAMES = ("degree", "radian", "grad", "arc-second", "arc-minute", "gon")
+
+
+def non_metric_crs_reason(wkt: str) -> str | None:
+    """Why a cloud's CRS cannot be gridded in meters, or None.
+
+    Resolution goes to PDAL's writers.gdal in CRS units and Z is
+    carried through as is, while the API, the terrain layer and the
+    contour fields all treat both as meters. A geographic CRS or any
+    length unit other than the metre (horizontal or vertical) would
+    grid at the wrong cell size and store feet as meters. An empty WKT
+    is unknown and passes, as before. Parsed from the WKT text so the
+    check does not depend on GDAL's Python bindings.
+    """
+    if not wkt:
+        return None
+    if not re.search(r"\b(PROJCS|PROJCRS|PROJECTEDCRS)\s*\[", wkt):
+        return (
+            "This point cloud uses a geographic coordinate system "
+            "(degrees). Reproject it to a projected system in meters, "
+            "then run the analysis again."
+        )
+    for kind, name, factor in _WKT_UNIT_RE.findall(wkt):
+        if kind in ("ANGLEUNIT", "SCALEUNIT", "TIMEUNIT"):
+            continue
+        if any(a in name.lower() for a in _ANGLE_UNIT_NAMES):
+            continue
+        try:
+            f = float(factor)
+        except ValueError:
+            continue
+        if abs(f - 1.0) > 1e-6:
+            return (
+                f"This point cloud is in {name} units. Analyses here grid "
+                "and label elevations in meters, so reproject the cloud to "
+                "a system in meters (horizontal and vertical), then run "
+                "the analysis again."
+            )
+    return None
+
+
+def metric_cloud_bounds(source: dict, src: Path, conn, job_id: str) -> list[float]:
+    """The cloud's bounds, after refusing a CRS that is not in meters.
+
+    Uses the item's stamped bounds and crsWkt when present, otherwise
+    one header read supplies both.
+    """
+    bounds = source.get("bounds")
+    wkt = source.get("crsWkt")
+    if not bounds or wkt is None:
+        meta = copc_header_meta(src, conn, job_id)
+        bounds = bounds or meta["bounds"]
+        if wkt is None:
+            wkt = meta.get("crsWkt") or ""
+    reason = non_metric_crs_reason(wkt)
+    if reason:
+        raise RuntimeError(reason)
+    return bounds
 
 
 def bounds_to_wgs84(bounds: list[float], wkt: str) -> list[float] | None:

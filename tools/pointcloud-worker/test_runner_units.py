@@ -559,6 +559,77 @@ def test_failure_stamp_keeps_a_handler_message():
         runner.item_data, runner.merge_item_data = orig_get, orig_merge
 
 
+def test_non_metric_crs_is_refused():
+    utm = (
+        'PROJCS["WGS 84 / UTM zone 11N",GEOGCS["WGS 84",DATUM["WGS_1984",'
+        'SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],'
+        'UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],'
+        'PARAMETER["scale_factor",0.9996],UNIT["metre",1]]'
+    )
+    assert runner.non_metric_crs_reason(utm) is None
+    assert runner.non_metric_crs_reason("") is None
+    ftus = utm.replace('UNIT["metre",1]', 'UNIT["US survey foot",0.304800609601219]')
+    assert "US survey foot" in runner.non_metric_crs_reason(ftus)
+    vert_ft = (
+        'COMPD_CS["x",' + utm + ',VERT_CS["NAVD88",VERT_DATUM["NAVD88",2005],'
+        'UNIT["foot",0.3048]]]'
+    )
+    assert "foot" in runner.non_metric_crs_reason(vert_ft)
+    geo = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257]],UNIT["degree",0.0174532925199433]]'
+    assert "geographic" in runner.non_metric_crs_reason(geo)
+    wkt2 = (
+        'PROJCRS["NAD83 / California zone 6 (ftUS)",BASEGEOGCRS["NAD83",'
+        'ELLIPSOID["GRS 1980",6378137,298.257222101,LENGTHUNIT["metre",1]],'
+        'ANGLEUNIT["degree",0.0174532925199433]],CONVERSION["x",'
+        'PARAMETER["Scale",1,SCALEUNIT["unity",1]]],'
+        'CS[Cartesian,2],LENGTHUNIT["US survey foot",0.304800609601219]]'
+    )
+    assert "US survey foot" in runner.non_metric_crs_reason(wkt2)
+    try:
+        runner.metric_cloud_bounds(
+            {"bounds": [0, 0, 0, 1, 1, 1], "crsWkt": ftus}, None, None, "j"
+        )
+    except RuntimeError as err:
+        assert "meters" in str(err)
+    else:
+        raise AssertionError("a cloud in feet must be refused")
+    assert runner.metric_cloud_bounds(
+        {"bounds": [0, 0, 0, 1, 1, 1], "crsWkt": utm}, None, None, "j"
+    ) == [0, 0, 0, 1, 1, 1]
+
+
+def test_grid_vrt_spans_the_planned_extent():
+    import tempfile as _tf
+    from pathlib import Path as _P
+
+    calls = []
+    orig = (runner.run, runner.run_long, runner.plan_grid_chunks)
+    chunks = [
+        {"core": (0.0, 0.0, 10.0, 10.0), "buffered": (0.0, 0.0, 10.0, 10.0)},
+        {"core": (10.0, 0.0, 20.0, 10.0), "buffered": (10.0, 0.0, 20.0, 10.0)},
+    ]
+    try:
+        runner.plan_grid_chunks = lambda *a, **k: chunks
+        state = {"n": 0}
+
+        def fake_long(cmd, *a, **k):
+            state["n"] += 1
+            if state["n"] == 2:
+                raise RuntimeError(runner._EMPTY_CHUNK_MARKERS[0])
+
+        runner.run_long = fake_long
+        runner.run = lambda cmd, *a, **k: calls.append(cmd)
+        with _tf.TemporaryDirectory() as d:
+            runner.grid_chunked(
+                _P(d) / "c.laz", _P(d), "dtm", 1.0, [0, 0, 0, 20, 10, 5],
+                True, "idw", None, "j", 0, 10,
+            )
+        vrt = [c for c in calls if c[0] == "gdalbuildvrt"][0]
+        assert vrt[1:6] == ["-te", "0.0", "0.0", "20.0", "10.0"], vrt
+    finally:
+        runner.run, runner.run_long, runner.plan_grid_chunks = orig
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -581,4 +652,6 @@ if __name__ == "__main__":
     test_plan_grid_chunks_refuses_before_building()
     test_tool_beat_stops_on_lost_lease_and_closed_connection()
     test_failure_stamp_keeps_a_handler_message()
+    test_non_metric_crs_is_refused()
+    test_grid_vrt_spans_the_planned_extent()
     print("test_runner_units: all assertions passed")
