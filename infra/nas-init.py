@@ -270,9 +270,23 @@ SERVICE_ENV_KEYS = {
 }
 
 
+# Where each reduced file goes. Each service mounts only its own small
+# volume: mounting the whole boot volume handed them /boot/env (every
+# secret, mode 0644) one open() away, which defeated the reduced env.
+SERVICE_ENV_DIRS = {
+    "env.chromium": "CHROMIUM_ENV_DIR",
+    "env.pointcloud": "POINTCLOUD_ENV_DIR",
+}
+
+
 def write_service_envs(boot: Path, values: dict[str, str]) -> None:
     for name, keys in SERVICE_ENV_KEYS.items():
-        write_env(boot / name, {key: values.get(key, "") for key in keys})
+        target_dir = os.environ.get(SERVICE_ENV_DIRS[name], "").strip()
+        target = Path(target_dir) / name if target_dir else boot / name
+        write_env(target, {key: values.get(key, "") for key in keys})
+        if target_dir:
+            # The copy an older version left on the boot volume.
+            (boot / name).unlink(missing_ok=True)
 
 
 def read_env(path: Path) -> dict[str, str]:
