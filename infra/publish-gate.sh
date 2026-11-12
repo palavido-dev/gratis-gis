@@ -18,7 +18,9 @@
 # a tag push or manual run that should not publish exits 1. A tag
 # push or manual run waits up to GATE_WAIT_SECONDS (default 3600) for
 # CI and Security on its commit to finish, polling every
-# GATE_POLL_SECONDS (default 30).
+# GATE_POLL_SECONDS (default 30). If the newest run on the commit was
+# cancelled, a tag push or manual run asks GitHub to re-run it once
+# and keeps waiting (see the note above the loop).
 #
 #   bash infra/publish-gate.test.sh
 set -euo pipefail
@@ -54,22 +56,46 @@ esac
 # every release tag failed here and needed a manual re-run. A
 # workflow_run never waits: the run that is still going starts this
 # workflow again when it finishes.
+#
+# A cancelled run used to fail the release. CI and Security now keep
+# main pushes in a group per commit, so a later merge no longer
+# cancels them, but a run can still be cancelled by hand or by an
+# older workflow file. A tag push or manual run then re-runs that run
+# once and waits for the result, so the tag does not need a manual
+# retry. A workflow_run never re-runs anything: it only publishes the
+# tip of main, and the next push publishes it again.
 wait_left="${GATE_WAIT_SECONDS:-3600}"
 poll="${GATE_POLL_SECONDS:-30}"
+# Prints "<status> <conclusion> <run id>", or "missing".
 status_of() {
   gh api "repos/$repo/actions/workflows/$1/runs?head_sha=$sha&event=push&branch=main&per_page=20" \
-    --jq '[.workflow_runs[]] | sort_by(.created_at) | last | if . == null then "missing" else "\(.status) \(.conclusion)" end'
+    --jq '[.workflow_runs[]] | sort_by(.created_at) | last | if . == null then "missing" else "\(.status) \(.conclusion) \(.id)" end'
 }
 for wf in ci.yml security.yml; do
   row="$(status_of "$wf")"
   if [ "$EVENT" != workflow_run ]; then
-    while [ "${row%% *}" != completed ] && [ "$row" != missing ] && [ "$wait_left" -gt 0 ]; do
-      echo "$wf is ${row%% *} on $sha; checking again in ${poll}s (${wait_left}s left)."
+    rerun_done=0
+    while [ "$wait_left" -gt 0 ]; do
+      case "$row" in
+        missing) break ;;
+        "completed cancelled "*)
+          [ "$rerun_done" = 0 ] || break
+          id="${row##* }"
+          echo "$wf run $id on $sha was cancelled; asking GitHub to re-run it."
+          gh api -X POST "repos/$repo/actions/runs/$id/rerun" > /dev/null \
+            || refuse "$wf run $id on $sha was cancelled and could not be re-run."
+          rerun_done=1
+          ;;
+        completed*) break ;;
+        *) echo "$wf is ${row%% *} on $sha; checking again in ${poll}s (${wait_left}s left)." ;;
+      esac
       sleep "$poll"
       wait_left=$((wait_left - poll))
       row="$(status_of "$wf")"
     done
   fi
+  # Drop the run id; keep "<status> <conclusion>".
+  [ "$row" = missing ] || { set -- $row; row="$1 $2"; }
   case "$row" in
     "completed success") echo "$wf passed on $sha" ;;
     missing) [ "$EVENT" = workflow_run ] && skip "$wf has no push run for $sha." || refuse "$wf has no push run on main for $sha." ;;

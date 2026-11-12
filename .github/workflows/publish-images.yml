@@ -25,7 +25,9 @@
 # finishing on a main push starts this one, and the gate job publishes
 # only when both are green for that commit and it is still the tip of
 # main. A tag or a manual run needs the same green runs, and a manual
-# run is refused on any ref other than main or a release tag.
+# run is refused on any ref other than main or a release tag. If the
+# commit's CI or Security run was cancelled, a tag or manual run
+# re-runs it once and waits, instead of failing the release.
 
 name: Publish images
 
@@ -60,7 +62,9 @@ jobs:
     timeout-minutes: 70
     permissions:
       contents: read
-      actions: read
+      # write: a tag push re-runs a cancelled CI or Security run on its
+      # commit (infra/publish-gate.sh).
+      actions: write
     outputs:
       publish: ${{ steps.check.outputs.publish }}
       sha: ${{ steps.check.outputs.sha }}

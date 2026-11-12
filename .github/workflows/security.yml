@@ -36,8 +36,12 @@ permissions:
   security-events: write
   actions: read
 
+# A newer push to a pull request cancels the older run. A push to
+# main gets a group per commit instead: publish-images.yml needs this
+# workflow to pass on the exact release commit, and a shared group let
+# the next merge cancel that run, so the release tag failed its gate.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
