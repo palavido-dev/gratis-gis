@@ -225,6 +225,9 @@ export default async function CustomAppRuntimePage(props: Props) {
     layerKey: string;
     title: string;
     mapLayer: MapLayer;
+    /** The sublayer's declared geometry, so tool layer pickers can
+     *  honour a parameter's geometry restriction. */
+    geometryType?: string;
   }> = [];
   // Kept so the camera can be fitted to the data below.
   const targetItems: Array<{ bbox?: unknown }> = [];
@@ -276,16 +279,26 @@ export default async function CustomAppRuntimePage(props: Props) {
       if (!mapLayerByTarget.has(key)) mapLayerByTarget.set(key, l);
     }
   }
+  // Fetch every source's layer item once, in parallel. Several
+  // sources commonly read the same layer (the sites layer four times
+  // with different filters), and one sequential round trip per source
+  // held up the first byte of the page.
+  const layerIds = Array.from(
+    new Set((app.sources ?? []).map((s) => s.layer.dataLayerId)),
+  );
+  const layerItems = await Promise.all(
+    layerIds.map((lid) =>
+      fetchItem<Item<DataLayerData>>(`/api/items/${lid}`).catch(() => null),
+    ),
+  );
+  const layerItemById = new Map<string, Item<DataLayerData>>();
+  layerIds.forEach((lid, i) => {
+    const it = layerItems[i];
+    if (it) layerItemById.set(lid, it);
+  });
   for (const src of app.sources ?? []) {
     const t = src.layer;
-    let layerItem: Item<DataLayerData> | null = null;
-    try {
-      layerItem = await fetchItem<Item<DataLayerData>>(
-        `/api/items/${t.dataLayerId}`,
-      );
-    } catch {
-      continue;
-    }
+    const layerItem = layerItemById.get(t.dataLayerId) ?? null;
     if (!layerItem) continue;
     const dlData = layerItem.data as DataLayerData | undefined;
     if (!dlData || dlData.version !== 3) continue;
@@ -325,12 +338,12 @@ export default async function CustomAppRuntimePage(props: Props) {
           }
         : existingRaw;
     const id = customTargetLayerId(t);
-    const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({
       sourceId: src.id,
       dataLayerId: t.dataLayerId,
       layerKey: t.layerKey,
       title: src.label?.trim() || `${layerItem.title} / ${sub.label}`,
+      geometryType: sub.geometryType,
       mapLayer: existing ?? {
         id,
         title: `${layerItem.title} / ${sub.label}`,
@@ -339,7 +352,18 @@ export default async function CustomAppRuntimePage(props: Props) {
         // The sublayer declares its geometry, so the legend never has
         // to guess. Free here; unknowable later.
         legendGeometry: sub.geometryType,
-        source: { kind: 'geojson-url', url },
+        // A data-layer source, not a GeoJSON download: it streams
+        // tiles like the map item's own layers, it is the only kind
+        // that can carry the relate (`via`) to the tile request, and
+        // it is the kind the selection tools and the cross-filter
+        // look for. As GeoJSON the map drew every row of a related
+        // layer and a tool's selection on it was dropped.
+        source: {
+          kind: 'data-layer',
+          itemId: t.dataLayerId,
+          layerKey: t.layerKey,
+          ...(layerVia ? { via: layerVia } : {}),
+        },
         style: DEFAULT_LAYER_STYLE,
         renderer: DEFAULT_LAYER_RENDERER,
         popup: DEFAULT_LAYER_POPUP,

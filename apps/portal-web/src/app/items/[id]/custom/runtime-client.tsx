@@ -213,6 +213,9 @@ interface ResolvedAppTarget {
   dataLayerId: string;
   layerKey: string;
   title: string;
+  /** The sublayer's declared geometry, when known.  Tool layer
+   *  pickers use it to honour a parameter's geometry restriction. */
+  geometryType?: string;
   /**
    * Pre-built MapLayer descriptor for this target. Each Map widget
    * starts with all of these in its mapData.layers; LayerList +
@@ -7030,6 +7033,13 @@ function buildHostLayerOptions(
       itemId: target.dataLayerId,
       layerKey: target.layerKey,
       title: target.title,
+      // Without this the picker's geometry filter let every layer
+      // through, so a polygons-only parameter offered point layers.
+      ...(target.geometryType === 'point' ||
+      target.geometryType === 'line' ||
+      target.geometryType === 'polygon'
+        ? { geometryType: target.geometryType }
+        : {}),
       ...(selected.size > 0 ? { selectedIds: Array.from(selected) } : {}),
       ...(mapBbox ? { mapBbox } : {}),
     });
