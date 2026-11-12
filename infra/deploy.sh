@@ -459,26 +459,35 @@ if rows:
   # refresh-token survives restarts and weeks offline. Keycloak gates
   # that on the user holding the offline_access realm role; without
   # it the PKCE code exchange returns "Offline tokens not allowed for
-  # the user or client". Grant to everyone, a page at a time so a
-  # realm with more than one page of users is covered; add-roles is
-  # idempotent.
-  echo "Granting offline_access to every realm user..."
-  GG_KC_OFFSET=0
-  while :; do
-    GG_KC_PAGE="$(KC get users -r gratis-gis --fields username \
-        --offset "$GG_KC_OFFSET" --limit 100 2>/dev/null \
-      | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
-        2>/dev/null || true)"
-    [[ -n "$GG_KC_PAGE" ]] || break
-    while read -r username; do
-      if [[ -z "$username" ]]; then continue; fi
-      KC add-roles -r gratis-gis --uusername "$username" \
-          --rolename offline_access >/dev/null 2>&1 \
-        && echo "  + $username" \
-        || echo "  = $username (already had role)"
-    done <<< "$GG_KC_PAGE"
-    GG_KC_OFFSET=$((GG_KC_OFFSET + 100))
-  done
+  # the user or client". Users who hold the default role already have
+  # it through the step above, so only users with neither the default
+  # role nor a direct grant get one. Granting to everyone started one
+  # kcadm JVM per user on every deploy, under the shared stack lock.
+  # add-roles fails when the role is already present, so its exit
+  # status is not used to tell the two cases apart.
+  kc_usernames() {
+    local path="$1" offset=0 page
+    while :; do
+      page="$(KC get "$path" -r gratis-gis --offset "$offset" --limit 100 2>/dev/null \
+        | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
+          2>/dev/null || true)"
+      [[ -n "$page" ]] || break
+      printf '%s\n' "$page"
+      offset=$((offset + 100))
+    done
+  }
+  echo "Granting offline_access to realm users who lack it..."
+  GG_KC_COVERED="$( { kc_usernames roles/offline_access/users
+    [[ -n "$GG_DEFAULT_ROLE" ]] && kc_usernames "roles/$GG_DEFAULT_ROLE/users"; } | sort -u)"
+  GG_KC_ALL="$(kc_usernames users | sort -u)"
+  GG_KC_MISSING="$(comm -23 <(printf '%s\n' "$GG_KC_ALL") <(printf '%s\n' "$GG_KC_COVERED"))"
+  while read -r username; do
+    if [[ -z "$username" ]]; then continue; fi
+    KC add-roles -r gratis-gis --uusername "$username" \
+        --rolename offline_access >/dev/null 2>&1 \
+      && echo "  + $username" \
+      || echo "WARN: could not grant offline_access to $username" >&2
+  done <<< "$GG_KC_MISSING"
   echo "Offline-access reconciliation done."
 
   # --- portal-api-admin: portal-admin identity for snapshot tooling ---
