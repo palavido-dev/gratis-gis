@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -111,7 +112,7 @@ function makeMocks(opts: {
     },
     formSubmission: {
       findUnique: jest.fn(async () => opts.existingSubmission ?? null),
-      upsert: jest.fn(async () => ({ id: 'sub-1', createdAt: new Date() })),
+      create: jest.fn(async () => ({ id: 'sub-1' })),
     },
     user: {
       findUnique: jest.fn(async () => ({
@@ -169,10 +170,30 @@ describe('FormsService.submit', () => {
     const m = makeMocks();
     const result = await m.service.submit('form-1', makeUser(), VALID_DTO);
     expect(result).toEqual({ id: 'sub-1', created: true });
-    expect(m.prisma.formSubmission.upsert).toHaveBeenCalledTimes(1);
+    expect(m.prisma.formSubmission.create).toHaveBeenCalledTimes(1);
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).toHaveBeenCalled();
     expect(m.notifications.notify).toHaveBeenCalled();
+  });
+
+  it('treats the loser of a duplicate-submit race as a re-drain and sends nothing', async () => {
+    const m = makeMocks();
+    // First lookup: nothing yet. Insert: unique violation because the
+    // other request just wrote the row. Second lookup: the winner.
+    m.prisma.formSubmission.findUnique
+      .mockImplementationOnce(async () => null)
+      .mockImplementationOnce(async () => ({ id: 'sub-winner' }) as never);
+    m.prisma.formSubmission.create.mockImplementationOnce(async () => {
+      throw new Prisma.PrismaClientKnownRequestError('dup', {
+        code: 'P2002',
+        clientVersion: 'test',
+      });
+    });
+    const result = await m.service.submit('form-1', makeUser(), VALID_DTO);
+    expect(result).toEqual({ id: 'sub-winner', created: false });
+    await flush();
+    expect(m.notifications.notify).not.toHaveBeenCalled();
+    expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid submission with a 400 listing field errors', async () => {
@@ -201,7 +222,7 @@ describe('FormsService.submit', () => {
       { questionId: 'grp[0].result', message: 'This field is required.' },
     ]);
     // Nothing stored, nothing mirrored, nobody notified.
-    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+    expect(m.prisma.formSubmission.create).not.toHaveBeenCalled();
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
     expect(m.notifications.notify).not.toHaveBeenCalled();
@@ -213,7 +234,7 @@ describe('FormsService.submit', () => {
     await expect(m.service.submit('form-1', makeUser(), dto)).rejects.toThrow(
       /captured against schema version 2[\s\S]*current schema version is 1/,
     );
-    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+    expect(m.prisma.formSubmission.create).not.toHaveBeenCalled();
   });
 
   it('rejects submissions to a form without a usable schema', async () => {
@@ -232,7 +253,7 @@ describe('FormsService.submit', () => {
     const dto = { ...VALID_DTO, response: {} };
     const result = await m.service.submit('form-1', makeUser(), dto);
     expect(result).toEqual({ id: 'sub-existing', created: false });
-    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+    expect(m.prisma.formSubmission.create).not.toHaveBeenCalled();
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
     expect(m.notifications.notify).not.toHaveBeenCalled();
@@ -248,7 +269,7 @@ describe('FormsService.submit access', () => {
     await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).rejects.toThrow(
       /Form not found/,
     );
-    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+    expect(m.prisma.formSubmission.create).not.toHaveBeenCalled();
   });
 
   it('refuses a private form when the only share has expired', async () => {
@@ -267,7 +288,7 @@ describe('FormsService.submit access', () => {
     await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).rejects.toThrow(
       /do not have access/,
     );
-    expect(m.prisma.formSubmission.upsert).not.toHaveBeenCalled();
+    expect(m.prisma.formSubmission.create).not.toHaveBeenCalled();
   });
 
   it('accepts a private form with a live share', async () => {
@@ -332,10 +353,10 @@ describe('FormsService.submit cleaning', () => {
       },
     });
     const stored = (
-      m.prisma.formSubmission.upsert.mock.calls[0] as unknown as [
-        { create: { response: Record<string, unknown> } },
+      m.prisma.formSubmission.create.mock.calls[0] as unknown as [
+        { data: { response: Record<string, unknown> } },
       ]
-    )[0].create.response;
+    )[0].data.response;
     expect(stored).toEqual({ kind: 'tree', grp: [{ result: 'ok' }] });
     await flush();
     const props = (

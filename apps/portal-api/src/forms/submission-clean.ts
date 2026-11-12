@@ -5,6 +5,7 @@ import {
   walkQuestions,
 } from '@gratis-gis/form-schema';
 import type {
+  Expression,
   FormSchema,
   Question,
   Response as FormResponse,
@@ -36,16 +37,30 @@ export function cleanSubmission(
 }
 
 function recalculate(form: FormSchema, response: FormResponse): FormResponse {
-  let next = response;
+  const calcs: Array<{ id: string; expr: Expression }> = [];
   for (const q of walkQuestions(form)) {
     const expr = q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
     if (!expr) continue;
     if (TIME_BUILTIN_RE.test(JSON.stringify(expr))) continue;
-    const computed = evaluate(expr, response);
-    if (next[q.id] !== computed) {
-      if (next === response) next = { ...response };
-      next[q.id] = computed;
+    calcs.push({ id: q.id, expr });
+  }
+  // Repeat until nothing changes, like the browser does by re-running
+  // its effect. One pass would compute an answer that depends on
+  // another calculated answer from the value the client sent, not
+  // from the recomputed one. A chain is at most as long as the number
+  // of calculations, so that bounds the loop (a cycle just stops).
+  let next = response;
+  for (let pass = 0; pass <= calcs.length; pass++) {
+    let changed = false;
+    for (const { id, expr } of calcs) {
+      const computed = evaluate(expr, next);
+      if (next[id] !== computed) {
+        if (next === response) next = { ...response };
+        next[id] = computed;
+        changed = true;
+      }
     }
+    if (!changed) break;
   }
   return next;
 }

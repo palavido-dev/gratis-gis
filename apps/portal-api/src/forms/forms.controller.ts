@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -57,10 +58,21 @@ export class FormsController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Query('limit') limitRaw?: string,
+    @Query('before') before?: string,
   ) {
-    const limit = limitRaw === undefined ? undefined : Math.max(1, Number(limitRaw));
-    const opts: { limit?: number } = {};
-    if (limit !== undefined) opts.limit = limit;
+    const opts: { limit?: number; before?: string } = {};
+    if (limitRaw !== undefined) {
+      // A non-number or a fraction used to reach Prisma as `take: NaN`
+      // and come back as a 500.
+      const limit = Number(limitRaw);
+      if (!Number.isInteger(limit) || limit < 1) {
+        throw new BadRequestException('limit must be a whole number of 1 or more.');
+      }
+      opts.limit = limit;
+    }
+    // Id of the last row of the previous page. Without it only the
+    // newest 500 submissions could ever be listed.
+    if (before !== undefined) opts.before = before;
     return this.forms.list(id, user, opts);
   }
 

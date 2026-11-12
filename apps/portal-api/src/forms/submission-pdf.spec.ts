@@ -59,6 +59,8 @@ describe('submission pdf', () => {
     expect(text).toContain('Bench \\(report\\)');
     expect(text).toContain('Broken \\(slat\\)');
     expect(text).toContain('/Count 1');
+    // Both fonts declare WinAnsi so Latin-1 bytes print as accents.
+    expect(text.match(/\/Encoding \/WinAnsiEncoding/g)).toHaveLength(2);
     const start = Number(/startxref\n(\d+)/.exec(text)?.[1]);
     expect(text.slice(start, start + 4)).toBe('xref');
   });
