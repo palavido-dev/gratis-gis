@@ -505,11 +505,8 @@ export class IngestService {
             !featureTableAllowlist.has(layer.name)
           ) {
             // Skip GPKG aux tables (NGA style, gpkg internals,
-            // rtree spatial indexes, etc.) that aren't registered
-            // as features in gpkg_contents. The data_layer wizard
-            // is for SPATIAL data; non-feature tables belong in
-            // a separate "related tables" surface that doesn't
-            // exist yet.
+            // rtree spatial indexes, etc.): gpkg_contents does not
+            // list them as feature or user attribute tables.
             continue;
           }
           const fields: Array<{
@@ -555,7 +552,9 @@ export class IngestService {
             name: layer.name,
             geometryType,
             fields,
-            featureCount: layer.features.count(),
+            // Counting scans the whole file for GeoJSON, CSV and KML;
+            // off the event loop for the same reason as the open.
+            featureCount: await layer.features.countAsync(),
           });
         }
         if (out.length === 0) {
@@ -920,6 +919,9 @@ export class IngestService {
         // the attribute table as well. They are the user's data and
         // they asked for a faithful import; dropping them would also
         // make a re-export lossy.
+        // Sync on purpose: Driver.openAsync in gdal-async 3.12 drops
+        // the open options, and the CSV driver reads only the header
+        // on open, so this does not hold the event loop.
         const csvDs = gdal.drivers.get('CSV').open(openPath, 'r', [
           `X_POSSIBLE_NAMES=${pair.lngColumn}`,
           `Y_POSSIBLE_NAMES=${pair.latColumn}`,
@@ -929,7 +931,10 @@ export class IngestService {
         return csvDs;
       }
     }
-    const ds = gdal.open(openPath);
+    // openAsync runs in GDAL's worker threads. The sync open parsed a
+    // whole GeoJSON (or KML, GML) on the API event loop, which then
+    // answered no other request for the length of the scan.
+    const ds = await gdal.openAsync(openPath);
     this.assertGdalDriver(ds);
     return ds;
   }
