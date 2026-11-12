@@ -6,6 +6,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Analysis tools check the caller's access to every layer they read,
+  not only the target layer, and refuse layers shared with a row or
+  area limit. Parameters a tool author fixed can no longer be changed
+  by the request, and tool runs that query OpenStreetMap use the same
+  area, preset and feature caps as the OSM query page.
+- Folder contents and the trash list hide the same item settings the
+  item list hides from people who cannot edit an item.
+
 ### Fixed
 
 - The hourly OSM cache cleanup no longer deletes rows of user data

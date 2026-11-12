@@ -39,6 +39,12 @@ import { getGeneratorForStep } from '../derived-layers/tools/registry.js';
 import { OsmService } from '../osm/osm.service.js';
 import type { OsmGeoJsonFeature } from '../osm/osm-to-geojson.js';
 import { getOsmPreset } from '../osm/preset-catalog.js';
+import {
+  OSM_QUERY_MAX_CONDITIONS,
+  OSM_QUERY_MAX_FEATURES,
+  OSM_QUERY_MAX_PRESETS,
+  validateOsmQueryBounds,
+} from '../osm/osm-query.limits.js';
 
 /**
  * Narrow GeoJSON-geometry shape used by post-fetch spatial passes
@@ -463,6 +469,9 @@ export class RecipeRunnerService {
 
     // Build CTEs: source from the target data_layer + each step.
     const layerKey = targetSource.layerKey ?? 'default';
+    // The SQL below reads the whole layer from the observation log, so
+    // a share limited to some rows or an area cannot be honoured here.
+    await this.assertFullyReadableLayer(user, targetSource.itemId, layerKey);
     const sqlParams: unknown[] = [];
     const sourceScope = dataLayerScope(targetSource.itemId, layerKey);
     const sourceConditions = ['valid_to IS NULL'];
@@ -495,6 +504,11 @@ export class RecipeRunnerService {
       const step = concretePipeline[i]!;
       const generator = getGeneratorForStep(step);
       const stepParams = generator.validate(step.params);
+      // Every other layer a step reads (spatial filter, join, clip,
+      // erase) is compiled straight into SQL: check it like the target.
+      for (const depId of generator.extractDependencies(stepParams).itemIds) {
+        await this.assertFullyReadableLayer(user, depId);
+      }
       const fragment = generator.toSql(inputAlias, stepParams, sqlParams.length);
       const cteName = `tool_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
@@ -710,7 +724,12 @@ export class RecipeRunnerService {
       ttlMs = minutes * 60 * 1000;
     }
 
+    const osmMax = assertOsmRunBounds(paddedBbox, {
+      presets: sourceVal.presetIds.length,
+      tagFilters: sourceVal.tagFilters?.length ?? 0,
+    });
     const result = await this.osm.resolve({
+      maxFeatures: osmMax,
       presetIds: sourceVal.presetIds,
       ...(sourceVal.tagFilters && sourceVal.tagFilters.length > 0
         ? { tagFilters: sourceVal.tagFilters }
@@ -832,6 +851,11 @@ export class RecipeRunnerService {
     // adjacent road, the immediately-adjacent POIs."
     const distance = findDistanceParam(recipe.parameters, resolved);
     const radius = distance && distance > 0 ? distance : 50;
+    if (radius > OSM_POINT_MAX_RADIUS_METERS) {
+      throw new BadRequestException(
+        `The search radius is limited to ${OSM_POINT_MAX_RADIUS_METERS / 1000} km.`,
+      );
+    }
 
     const result = await this.osm.resolveAtPoint({
       lng: pointVal.lng,
@@ -953,6 +977,10 @@ export class RecipeRunnerService {
     const negationDistancesMeters = (action.negations ?? []).map((n) =>
       relationalDistanceToMeters(n.distance),
     );
+    const relMax = assertOsmRunBounds(paddedBbox, {
+      presets: 1 + action.conditions.length + (action.negations?.length ?? 0),
+      conditions: action.conditions.length + (action.negations?.length ?? 0),
+    });
     let result;
     try {
       result = await this.osm.resolveRelational({
@@ -974,9 +1002,7 @@ export class RecipeRunnerService {
           : {}),
         bbox: paddedBbox,
         ...(user?.orgId ? { orgId: user.orgId } : {}),
-        ...(action.anchorMaxResults
-          ? { maxFeatures: action.anchorMaxResults }
-          : {}),
+        maxFeatures: Math.min(action.anchorMaxResults ?? relMax, relMax),
       });
     } catch (err) {
       // Relational queries over large bboxes with multiple
@@ -1197,6 +1223,28 @@ export class RecipeRunnerService {
    * geometry, layer empty), so callers can surface a sensible "your
    * AOI is empty" error instead of a silent zero-area query.
    */
+  /**
+   * Refuse a layer the caller cannot read in full. Tool SQL reads the
+   * observation log directly, outside the per-share row and area
+   * scopes the feature routes apply, so a layer must be readable and
+   * not limited for this user. Throws 404/403 like items.get.
+   */
+  private async assertFullyReadableLayer(
+    user: AuthUser,
+    itemId: string,
+    layerKey?: string,
+  ): Promise<void> {
+    const item = await this.items.get(user, itemId);
+    if (item.type !== 'data_layer' && item.type !== 'derived_layer') {
+      throw new BadRequestException(`Item ${itemId} is not a layer`);
+    }
+    if (await this.items.isFeatureReadLimited(user, itemId, layerKey)) {
+      throw new ForbiddenException(
+        'A layer this tool reads is shared to you with a row or area limit, so the tool cannot run on it.',
+      );
+    }
+  }
+
   private async computeAoiBbox(
     user: AuthUser | null,
     value: FeatureSourceValue,
@@ -1499,6 +1547,11 @@ function resolveFeatureSource(
   param: Extract<ToolParameter, { kind: 'feature-source' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
+  // Hardcoded means hardcoded: the client cannot swap in another layer
+  // or area (a public tool's fixed layer, a fixed facility AOI).
+  if (param.binding.mode === 'hardcoded') {
+    return { kind: 'feature-source', value: param.binding.value };
+  }
   if (provided !== undefined && typeof provided === 'object' && provided !== null) {
     const v = provided as FeatureSourceValue;
     if (
@@ -1511,10 +1564,6 @@ function resolveFeatureSource(
       );
     }
     return { kind: 'feature-source', value: v };
-  }
-  // Fall back to binding-defined defaults.
-  if (param.binding.mode === 'hardcoded') {
-    return { kind: 'feature-source', value: param.binding.value };
   }
   if (
     param.binding.mode === 'runtime-host' &&
@@ -1529,6 +1578,9 @@ function resolvePredicateParam(
   param: Extract<ToolParameter, { kind: 'predicate' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
+  if (param.binding.mode === 'hardcoded') {
+    return { kind: 'predicate', value: param.binding.value };
+  }
   if (typeof provided === 'string') {
     const value = provided as SpatialPredicate;
     if (
@@ -1542,9 +1594,6 @@ function resolvePredicateParam(
     }
     return { kind: 'predicate', value };
   }
-  if (param.binding.mode === 'hardcoded') {
-    return { kind: 'predicate', value: param.binding.value };
-  }
   if (param.binding.mode === 'runtime-pick') {
     return { kind: 'predicate', value: param.binding.defaultValue };
   }
@@ -1556,10 +1605,10 @@ function resolveDistanceParam(
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
   let meters: number | undefined;
-  if (typeof provided === 'number') {
-    meters = provided;
-  } else if (param.binding.mode === 'hardcoded') {
+  if (param.binding.mode === 'hardcoded') {
     meters = param.binding.meters;
+  } else if (typeof provided === 'number') {
+    meters = provided;
   } else if (param.binding.mode === 'runtime-input') {
     meters = param.binding.defaultMeters;
   }
@@ -1590,8 +1639,8 @@ function resolveNumberParam(
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
   let value: number | undefined;
-  if (typeof provided === 'number') value = provided;
-  else if (param.binding.mode === 'hardcoded') value = param.binding.value;
+  if (param.binding.mode === 'hardcoded') value = param.binding.value;
+  else if (typeof provided === 'number') value = provided;
   else if (param.binding.mode === 'runtime-input')
     value = param.binding.defaultValue;
   if (value === undefined) return undefined;
@@ -1620,11 +1669,11 @@ function resolveTextParam(
   param: Extract<ToolParameter, { kind: 'text' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
-  if (typeof provided === 'string') {
-    return { kind: 'text', value: provided };
-  }
   if (param.binding.mode === 'hardcoded') {
     return { kind: 'text', value: param.binding.value };
+  }
+  if (typeof provided === 'string') {
+    return { kind: 'text', value: provided };
   }
   if (
     param.binding.mode === 'runtime-input' &&
@@ -2014,5 +2063,30 @@ function linearizeIfGraph(
   const pipeline: ToolStep[] = sorted.order.map((id) => byId.get(id)!.step);
   const { graph: _omitted, ...rest } = action;
   return { ...rest, pipeline };
+}
+
+/** Radius cap for point-based OSM lookups (about 1 square degree). */
+const OSM_POINT_MAX_RADIUS_METERS = 50_000;
+
+/**
+ * The same caps the authenticated OSM query route applies (area,
+ * presets, conditions, feature count). Tool runs reach Overpass and
+ * write the result into the observation log, and public tools run for
+ * anonymous callers, so they must not be looser than that route.
+ * Returns the feature cap to pass on.
+ */
+export function assertOsmRunBounds(
+  bbox: [number, number, number, number],
+  counts: { presets: number; tagFilters?: number; conditions?: number },
+): number {
+  const r = validateOsmQueryBounds({ bbox, limit: OSM_QUERY_MAX_FEATURES });
+  if (!r.ok) throw new BadRequestException(r.message);
+  if (counts.presets > OSM_QUERY_MAX_PRESETS) {
+    throw new BadRequestException(`A tool run may use at most ${OSM_QUERY_MAX_PRESETS} presets.`);
+  }
+  if ((counts.tagFilters ?? 0) > OSM_QUERY_MAX_CONDITIONS || (counts.conditions ?? 0) > OSM_QUERY_MAX_CONDITIONS) {
+    throw new BadRequestException(`A tool run may use at most ${OSM_QUERY_MAX_CONDITIONS} conditions.`);
+  }
+  return r.maxFeatures;
 }
 
