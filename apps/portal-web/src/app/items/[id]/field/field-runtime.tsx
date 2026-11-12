@@ -2810,6 +2810,11 @@ export function FieldRuntime({
 
       {bottomSheet === 'form' && formModal ? (
         <FormModal
+          // One form per record. "Open" and "Add related" swap the
+          // modal in place; without a key the child record kept the
+          // parent's answers and saved them. Update Point keeps the
+          // same record and so the same key (no remount).
+          key={`${formModal.mode}:${formModal.layer.dataLayerId}:${formModal.layer.layerKey}:${formModal.featureId}`}
           dataCollectionId={dataCollectionId}
           modal={formModal}
           pickLists={effectivePickLists}
