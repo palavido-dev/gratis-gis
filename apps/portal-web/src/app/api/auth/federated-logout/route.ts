@@ -65,8 +65,15 @@ export async function POST(req: NextRequest) {
 
 /** Step 3: redirect through Keycloak's end-session endpoint. */
 export async function GET(req: NextRequest) {
-  const idToken =
-    req.cookies.get(LOGOUT_HINT_COOKIE)?.value || (await sessionIdToken(req));
+  // Only the step 1 cookie counts. It is SameSite=Strict, so it is
+  // present only on the app's own navigation. The session cookie is
+  // SameSite=Lax and rides along on a link from any other site, so
+  // falling back to it let any page or email sign a visitor out of
+  // the portal and Keycloak without a confirmation. Without the hint
+  // Keycloak asks the user to confirm, and the portal session cookies
+  // are left alone.
+  const hint = req.cookies.get(LOGOUT_HINT_COOKIE)?.value;
+  const idToken = hint || undefined;
 
   const base = (process.env.NEXTAUTH_URL ?? new URL(req.url).origin).replace(
     /\/$/,
@@ -94,12 +101,15 @@ export async function GET(req: NextRequest) {
     maxAge: 0,
   });
   // A BFF response that was in flight during signOut can have written
-  // the session cookie back. Expire it again here.
-  for (const c of sessionCookieClears(
-    req.cookies.getAll().map((x) => x.name),
-    secureCookies(),
-  )) {
-    res.cookies.set(c.name, c.value, c.options);
+  // the session cookie back. Expire it again here, but only on the
+  // app's own sign-out (see the hint check above).
+  if (hint) {
+    for (const c of sessionCookieClears(
+      req.cookies.getAll().map((x) => x.name),
+      secureCookies(),
+    )) {
+      res.cookies.set(c.name, c.value, c.options);
+    }
   }
   return res;
 }

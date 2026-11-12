@@ -178,15 +178,28 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     }
   }
 
+  /** fetch for the row actions. A rejected fetch (connection
+   *  dropped) used to skip the line that clears `working`, which left
+   *  the row's controls disabled with no message until a reload. */
+  async function fetchOrReport(url: string, init?: RequestInit): Promise<Response | null> {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
+
   async function setEnabled(user: AdminUserRow, enabled: boolean) {
     setWorking(user.id);
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${user.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled }),
     });
     setWorking(null);
+    if (!res) return;
     if (!res.ok) {
       setError(
         enabled
@@ -214,12 +227,13 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
   async function setRole(user: AdminUserRow, orgRole: OrgRole) {
     setWorking(user.id);
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${user.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ orgRole }),
     });
     setWorking(null);
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminUsers.errChangeRole', {
@@ -259,10 +273,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
   async function performDelete(user: AdminUserRow) {
     setWorking(user.id);
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${user.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${user.id}`, {
       method: 'DELETE',
     });
     setWorking(null);
+    if (!res) return;
     if (res.status === 409) {
       // The server refuses while the user still owns something the
       // preflight cannot see (items in the trash, groups) and says
@@ -300,10 +315,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
         // Items carry the portal's own user id as owner, which is not
         // the Keycloak id for seeded accounts.
         const ownerId = user.localId ?? user.id;
-        const res = await fetch(
+        const res = await fetchOrReport(
           `/api/portal/items?ownerId=${encodeURIComponent(ownerId)}` +
             `&limit=${PAGE}&offset=${page * PAGE}`,
         );
+        if (!res) return;
         if (!res.ok) {
           setError(
             t('adminUsers.errCheckOwned', { status: String(res.status) }),
@@ -346,7 +362,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
   ) {
     if (!deleteWithItems) return;
     setError(null);
-    const res = await fetch('/api/portal/items/bulk/reassign-owner', {
+    const res = await fetchOrReport('/api/portal/items/bulk/reassign-owner', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -355,6 +371,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
         keepPreviousOwnerAccess,
       }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminUsers.errReassign', {
@@ -383,11 +400,12 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     }
     setWorking(user.id);
     setError(null);
-    const res = await fetch(
+    const res = await fetchOrReport(
       `/api/portal/admin/users/${user.id}/reset-password`,
       { method: 'POST' },
     );
     setWorking(null);
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminUsers.errResetEmail', { status: String(res.status) }),
@@ -730,18 +748,27 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
       return;
     }
     setSubmitting(true);
-    const res = await fetch('/api/portal/admin/users', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        username: username.trim(),
-        email: email.trim(),
-        firstName: firstName.trim() || undefined,
-        lastName: lastName.trim() || undefined,
-        orgRole,
-        sendSetupEmail: true,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/portal/admin/users', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: username.trim(),
+          email: email.trim(),
+          firstName: firstName.trim() || undefined,
+          lastName: lastName.trim() || undefined,
+          orgRole,
+          sendSetupEmail: true,
+        }),
+      });
+    } catch (err) {
+      // Without this the dialog's buttons stayed disabled after a
+      // dropped connection.
+      setSubmitting(false);
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
     setSubmitting(false);
     if (!res.ok) {
       await res.text().catch(() => '');
@@ -1233,7 +1260,12 @@ function CapabilitiesSection({
     setBusy(row.capability);
     setError(null);
     try {
-      const baseline = localBaselines?.get(row.capability) ?? row.baseline;
+      // The server works out the effective value from the SAVED role,
+      // so the decision uses its baseline. The draft role's baseline
+      // (localBaselines) is for display only: deciding with it sent a
+      // DELETE for an override that did not exist while a role change
+      // was pending, and the box snapped back with no message.
+      const baseline = row.baseline;
       const newEffective = !row.effective;
       // If the new desired state matches the baseline, the row should
       // not have an override at all. Otherwise upsert the override.
