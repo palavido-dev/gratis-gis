@@ -18,6 +18,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Clicking another feature while an attribute form is open now opens
+  that feature's own values. The form kept the first feature's values
+  and saved them onto the second, in the Editor app, the custom app
+  Edit widget, and the field app's related records.
+- Inline edits in the attribute table save to the record that was
+  double-clicked, even when the table refreshes while you type, and
+  send only the changed field, so they no longer undo another editor's
+  changes or fail on layers that allow only some fields.
+- The custom app Edit widget loads the full feature before editing
+  instead of the trimmed map tile copy.
+
+### Fixed
+
 - The hourly OSM cache cleanup no longer deletes rows of user data
   layers. It removed expired cache rows by physical row position,
   which is only unique inside one monthly partition of the feature
