@@ -889,14 +889,16 @@ export function FieldRuntime({
           next = { ...next, visible: false };
         }
         if (offlineActive && next.source?.kind === 'data-layer') {
-          const key = `${next.source.itemId}:${next.source.layerKey ?? ''}`;
-          // Try with an empty layerKey first (legacy v1/v2), then
-          // with the layerKey when present.
+          // The cache is keyed by the resolved sublayer, which a legacy
+          // map source without a layerKey only names through
+          // resolveEditableLayer. Fall back to the raw key for
+          // single-table layers that are not editable here.
+          const resolved = resolveEditableLayer(editableLayers, next.source);
           const fc =
-            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`] ??
-            (next.source.layerKey
-              ? offlineFeatures[`${next.source.itemId}:${next.source.layerKey}`]
-              : undefined);
+            (resolved
+              ? offlineFeatures[`${next.source.itemId}:${resolved.layerKey}`]
+              : undefined) ??
+            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`];
           if (fc) {
             next = {
               ...next,
@@ -907,12 +909,18 @@ export function FieldRuntime({
           // It'll fail to fetch offline, but MapCanvas tolerates
           // that (empty source) and the user sees an empty layer
           // rather than a broken canvas.
-          void key;
         }
         return next;
       }),
     };
-  }, [mapData, hiddenLayerIds, isOnline, offlineFeatures, basemapOverrideId]);
+  }, [
+    mapData,
+    hiddenLayerIds,
+    isOnline,
+    offlineFeatures,
+    basemapOverrideId,
+    editableLayers,
+  ]);
 
   // Effective pickLists. When offline, pick from IndexedDB instead of
   // the prop so newly-added pick lists from the download cache work.
@@ -1807,10 +1815,7 @@ export function FieldRuntime({
           // narrowing across `ml.source!.x` is too pessimistic
           // inside arrow callbacks.
           const src = ml.source;
-          const dl = editableLayers.find(
-            (e) =>
-              e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
-          );
+          const dl = resolveEditableLayer(editableLayers, src);
           if (dl) editable = dl;
         }
         hits.push({
@@ -3024,6 +3029,27 @@ export function FieldRuntime({
  * slice (#196).
  */
 /**
+ * The EditableLayer a map's data-layer source draws. A legacy map
+ * source with no layerKey is resolved by page.tsx to the data layer's
+ * first spatial sublayer, so it matches the first spatial entry for
+ * that item. Matching on layerKey alone left such a layer with no
+ * Edit, hidden from the layer panel, and drawn empty offline.
+ */
+function resolveEditableLayer(
+  editableLayers: readonly EditableLayer[],
+  src: { itemId: string; layerKey?: string | undefined },
+): EditableLayer | undefined {
+  if (src.layerKey) {
+    return editableLayers.find(
+      (e) => e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
+    );
+  }
+  return editableLayers.find(
+    (e) => e.dataLayerId === src.itemId && e.geometryType !== null,
+  );
+}
+
+/**
  * Whether this viewer may write to `layer` from the field app: add,
  * edit, copy, or add a related row.
  *
@@ -3562,11 +3588,7 @@ function LayerVisibilityPanel({
             let geometryType: LayerGeometryType = null;
             if (l.source?.kind === 'data-layer') {
               const src = l.source;
-              const dl = editableLayers.find(
-                (e) =>
-                  e.dataLayerId === src.itemId &&
-                  e.layerKey === src.layerKey,
-              );
+              const dl = resolveEditableLayer(editableLayers, src);
               geometryType = dl?.geometryType ?? null;
             } else if (!isGroup) {
               // Non-data-layer overlays (arcgis-rest, geojson-url):
