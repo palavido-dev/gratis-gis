@@ -23,15 +23,19 @@
  * also in this module.
  */
 
-interface CachedToken {
+export interface CachedToken {
   token: string;
   expires: number;
-  /** The password that minted the token, so a replaced password is
-   *  never answered with the old one's token. Held in memory only,
-   *  like the credential the caller already passed in. */
-  password: string;
+  /** Keyed digest of the password that minted the token, so a
+   *  replaced password is never answered with the old one's token.
+   *  The password itself is not kept: a credential cleared from an
+   *  item used to stay in API memory for the life of the process. */
+  passwordDigest: Buffer;
 }
 
+/** Most entries kept. The probe route keys by the URL the caller
+ *  sends, so the cache grew by one entry per distinct URL forever. */
+const TOKEN_CACHE_MAX = 500;
 const TOKEN_CACHE = new Map<string, CachedToken>();
 
 /**
@@ -45,9 +49,43 @@ const TOKEN_CACHE = new Map<string, CachedToken>();
  * than 60s remaining are treated as expired so a slow downstream
  * call doesn't fail mid-flight.
  */
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { safeFetch } from '../common/net-guards.js';
+
+/** Per-process key for the password digests. Nothing outside this
+ *  process can recompute a digest. */
+const DIGEST_KEY = randomBytes(32);
+
+export function passwordDigest(password: string): Buffer {
+  return createHmac('sha256', DIGEST_KEY).update(password, 'utf8').digest();
+}
+
+/** Look up an entry, dropping it when expired. A hit moves the entry
+ *  to the back so the oldest unused one is evicted first. */
+function cacheGet(key: string, now: number = Date.now()): CachedToken | undefined {
+  const entry = TOKEN_CACHE.get(key);
+  if (!entry) return undefined;
+  TOKEN_CACHE.delete(key);
+  if (entry.expires <= now) return undefined;
+  TOKEN_CACHE.set(key, entry);
+  return entry;
+}
+
+export function cacheSet(key: string, entry: CachedToken): void {
+  TOKEN_CACHE.delete(key);
+  TOKEN_CACHE.set(key, entry);
+  while (TOKEN_CACHE.size > TOKEN_CACHE_MAX) {
+    const oldest = TOKEN_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    TOKEN_CACHE.delete(oldest);
+  }
+}
+
+/** For tests. */
+export function tokenCacheSize(): number {
+  return TOKEN_CACHE.size;
+}
 
 /**
  * Cache key for an exchanged token. The token is sent to `serviceUrl`,
@@ -67,7 +105,7 @@ export function tokenCacheKey(
 /**
  * The cached token when it was minted with this password and has more
  * than 60 seconds left, else null. The password comparison runs in
- * constant time.
+ * constant time, on keyed digests.
  */
 export function reusableToken(
   entry: CachedToken | undefined,
@@ -75,9 +113,10 @@ export function reusableToken(
   now: number = Date.now(),
 ): string | null {
   if (!entry || entry.expires - 60_000 <= now) return null;
-  const a = Buffer.from(entry.password, 'utf8');
-  const b = Buffer.from(password, 'utf8');
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  const b = passwordDigest(password);
+  if (entry.passwordDigest.length !== b.length || !timingSafeEqual(entry.passwordDigest, b)) {
+    return null;
+  }
   return entry.token;
 }
 
@@ -98,7 +137,7 @@ export async function exchangeBasicForArcgisToken(args: {
     );
   }
   const compositeKey = tokenCacheKey(args, tokenUrl);
-  const cached = reusableToken(TOKEN_CACHE.get(compositeKey), args.password);
+  const cached = reusableToken(cacheGet(compositeKey), args.password);
   if (cached !== null) return cached;
 
   const body = new URLSearchParams({
@@ -150,10 +189,10 @@ export async function exchangeBasicForArcgisToken(args: {
   // ArcGIS reports `expires` as a millisecond epoch.
   const expires =
     typeof data.expires === 'number' ? data.expires : Date.now() + 60 * 60_000;
-  TOKEN_CACHE.set(compositeKey, {
+  cacheSet(compositeKey, {
     token: data.token,
     expires,
-    password: args.password,
+    passwordDigest: passwordDigest(args.password),
   });
   return data.token;
 }

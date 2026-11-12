@@ -232,7 +232,11 @@ export class CommentsService {
       where: { id: commentId },
       data: { body, editedAt: new Date() },
     });
-    const display = await this.resolveDisplay(user);
+    // The comment is still the author's, also when an editor changed
+    // it. Naming the caller showed it as the editor's until a reload.
+    const display = isAuthor
+      ? await this.resolveDisplay(user)
+      : await this.resolveDisplayById(existing.authorId);
     return this.commentToDto(updated, display);
   }
 
@@ -454,6 +458,18 @@ export class CommentsService {
       where: { itemId: item.id },
     });
     return this.sharing.canEdit(user, item, shares);
+  }
+
+  private async resolveDisplayById(userId: string): Promise<string> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true, username: true },
+    });
+    const display =
+      (row?.fullName && row.fullName.trim().length > 0 ? row.fullName : null) ??
+      row?.username ??
+      'Reviewer';
+    return display.slice(0, 200);
   }
 
   private async resolveDisplay(user: AuthUser): Promise<string> {
