@@ -186,4 +186,61 @@ describe('AiConfigService', () => {
     expect(rows.size).toBe(0);
     expect(await svc.loadUsable(ORG)).toBeNull();
   });
+
+  describe('local or private endpoints', () => {
+    const OPERATOR = '22222222-2222-4222-8222-222222222222';
+
+    function withOrgs() {
+      const mem = memoryPrisma();
+      Object.assign(mem.prisma, {
+        organization: { findFirst: jest.fn(async () => ({ id: OPERATOR })) },
+      });
+      return mem;
+    }
+
+    it('refuses a private base URL for an org that is not the operator', async () => {
+      const { prisma, rows } = withOrgs();
+      const svc = new AiConfigService(prisma as unknown as PrismaService);
+      await expect(
+        svc.save(ORG, 'admin-1', {
+          provider: 'openai-compatible',
+          model: 'llama3.2',
+          apiKey: SECRET,
+          baseUrl: 'http://minio:9000/v1',
+        }),
+      ).rejects.toThrow(/operator organization/);
+      expect(rows.size).toBe(0);
+    });
+
+    it('lets the operator org use a local endpoint', async () => {
+      const { prisma } = withOrgs();
+      const svc = new AiConfigService(prisma as unknown as PrismaService);
+      const out = await svc.save(OPERATOR, 'admin-1', {
+        provider: 'openai-compatible',
+        model: 'llama3.2',
+        apiKey: SECRET,
+        baseUrl: 'http://ollama:11434/v1',
+      });
+      expect(out.configured).toBe(true);
+    });
+
+    it('will not load a stored private endpoint for another org', async () => {
+      const { prisma, rows } = withOrgs();
+      const svc = new AiConfigService(prisma as unknown as PrismaService);
+      await svc.save(OPERATOR, 'admin-1', {
+        provider: 'openai-compatible',
+        model: 'llama3.2',
+        apiKey: SECRET,
+        baseUrl: 'http://ollama:11434/v1',
+      });
+      // Same row, now owned by a non-operator org. The key itself
+      // decrypts; only the endpoint rule refuses it.
+      rows.set(ORG, { ...rows.get(OPERATOR)!, orgId: ORG });
+      jest
+        .spyOn(svc as unknown as { tryDecrypt: () => string }, 'tryDecrypt')
+        .mockReturnValue(SECRET);
+      expect(await svc.loadUsable(OPERATOR)).not.toBeNull();
+      expect(await svc.loadUsable(ORG)).toBeNull();
+    });
+  });
 });

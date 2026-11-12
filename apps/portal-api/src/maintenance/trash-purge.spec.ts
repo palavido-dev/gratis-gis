@@ -22,6 +22,8 @@ function build(stillTrashed: Set<string>) {
       stillTrashed.has(id) ? [{ id }] : [],
     ),
     item: {
+      // The blob is read per item, under the row lock.
+      findUnique: jest.fn(async () => ({ type: 'data_layer', data: {} })),
       delete: jest.fn(async ({ where }: { where: { id: string } }) => {
         deleted.push(where.id);
         return {};
@@ -37,10 +39,7 @@ function build(stillTrashed: Set<string>) {
   };
   const prisma = {
     item: {
-      findMany: jest.fn(async () => [
-        { id: 'kept', type: 'data_layer', data: {} },
-        { id: 'gone', type: 'data_layer', data: {} },
-      ]),
+      findMany: jest.fn(async () => [{ id: 'kept' }, { id: 'gone' }]),
     },
     group: { findMany: jest.fn(async () => [{ id: 'g-1' }]) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
@@ -51,7 +50,7 @@ function build(stillTrashed: Set<string>) {
     { shouldRun: () => true } as unknown as LeaderElectionService,
     { tearDownItemBackingStorage: teardown, detachPurgedItemReferences: detach } as unknown as ItemsService,
   );
-  return { svc, teardown, deleted, shareDeletes };
+  return { svc, teardown, deleted, shareDeletes, prisma };
 }
 
 describe('TrashPurgeService', () => {
@@ -62,6 +61,15 @@ describe('TrashPurgeService', () => {
     expect(deleted).toEqual(['gone']);
     expect(teardown).toHaveBeenCalledTimes(1);
     expect(teardown).toHaveBeenCalledWith('gone', 'data_layer', {});
+  });
+
+  it('lists candidates by id only, without their data blobs', async () => {
+    const { svc, prisma } = build(new Set());
+    await svc.purgeExpired();
+    const args = (prisma.item.findMany.mock.calls[0] as unknown as [
+      { select: Record<string, boolean> },
+    ])[0];
+    expect(args.select).toEqual({ id: true });
   });
 
   it('deletes item shares that name a purged group', async () => {

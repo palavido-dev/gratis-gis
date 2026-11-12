@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../common/uuid-shape.js';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Item } from '@prisma/client';
 import {
@@ -105,16 +106,25 @@ export class WebMapJsonService {
     // unsupported sources are skipped silently; clients see only
     // what they can render.
     const operationalLayers: EsriOperationalLayer[] = [];
+    // Hidden layers are exported too, with visibility false, so a
+    // round trip keeps them; only an explicit false hides a layer.
     for (let i = layers.length - 1; i >= 0; i -= 1) {
       const layer = layers[i]!;
-      if (!layer.visible) continue;
       const source = layer.source;
       if (!source) continue;
       if (source.kind === 'data-layer') {
         const lens = this.lensFromDataLayerSource(layer, source);
         if (lens) {
           const op = operationalLayerForLens(lens, ctx);
-          if (op) operationalLayers.push(op);
+          if (op) {
+            // The lens emitter knows nothing of the map layer, so it
+            // writes visible and opaque; carry the layer's own values.
+            operationalLayers.push({
+              ...op,
+              visibility: layer.visible !== false,
+              opacity: typeof layer.opacity === 'number' ? layer.opacity : 1,
+            });
+          }
         }
       } else if (source.kind === 'arcgis-rest') {
         const direct = operationalLayerFromArcgisRest(layer, source);
@@ -185,9 +195,17 @@ export class WebMapJsonService {
   }> {
     const data = map.data as MapDataShape | null;
     const ref = typeof data?.basemap === 'string' ? data.basemap : '';
-    if (ref) {
-      const item = await this.prisma.item.findUnique({
-        where: { id: ref },
+    // The ref is whatever the map author saved. Only a uuid can name
+    // an item (anything else reached a uuid column and threw), and
+    // only a basemap of the map's own org, or a public one, may be
+    // resolved: otherwise an author who learned another org's private
+    // basemap id could read its tile URL, and any key inside it.
+    if (isUuidShape(ref)) {
+      const item = await this.prisma.item.findFirst({
+        where: {
+          id: ref,
+          OR: [{ orgId: map.orgId }, { access: 'public' }],
+        },
         select: { id: true, title: true, data: true, deletedAt: true, type: true },
       });
       if (
@@ -303,7 +321,8 @@ function attrFilterFromMapLayerFilter(
   if (op === 'isNull' || op === 'isNotNull') {
     return { filter: { field: clause.field, op } };
   }
-  const raw = clause.value ?? '';
+  // item.data arrives unvalidated, so the value may be a number.
+  const raw = String(clause.value ?? '');
   if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
     const n = Number(raw);
     if (raw.trim() === '' || !Number.isFinite(n)) {

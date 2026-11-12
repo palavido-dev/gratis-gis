@@ -71,7 +71,7 @@ const ALLOWED_ATTRS = new Set([
   'stroke-linejoin',
   'stroke-dasharray',
   'stroke-miterlimit',
-  'viewBox',
+  // viewBox is handled by name before this list is consulted.
   'xmlns',
   'opacity',
   'fill-opacity',
@@ -88,6 +88,21 @@ const ALLOWED_ATTRS = new Set([
 
 const STYLE_BAD = /(javascript|data|expression|url\s*\()/i;
 const URL_BAD = /^\s*(javascript|data):/i;
+/** A same-document paint reference such as `url(#grad)`. */
+const LOCAL_URL_REF = /url\(\s*(['"]?)#[A-Za-z0-9_.:-]+\1\s*\)/gi;
+const ANY_URL_REF = /url\s*\(/i;
+
+/**
+ * True when a value names a resource outside the document. Only
+ * `url(#id)` is allowed: `fill="url(https://host/x.svg#p)"` makes a
+ * viewer's browser call that host when the file is opened directly.
+ * A backslash is refused too: CSS escapes (`\75rl(`) spell `url(`
+ * without the letters, and SVG paths never need one.
+ */
+function hasExternalRef(value: string): boolean {
+  if (value.includes('\\')) return true;
+  return ANY_URL_REF.test(value.replace(LOCAL_URL_REF, ''));
+}
 
 /**
  * Sanitize an SVG document body. Returns the cleaned SVG body
@@ -189,6 +204,14 @@ export function sanitizeSvg(input: string): string | null {
     for (const [name, value] of attrs) {
       const ln = name.toLowerCase();
       if (ln.startsWith('on')) return null; // event handler
+      // Names are compared lower-cased, so the camel-case `viewBox`
+      // never matched the allowlist and every icon's own viewBox was
+      // dropped and replaced with 0 0 24 24. Keep it, spelled right.
+      if (ln === 'viewbox') {
+        if (hasExternalRef(value)) return null;
+        kept.push(['viewBox', value]);
+        continue;
+      }
       if (ln === 'href' || ln === 'xlink:href') {
         // `<use href="#foo">` is fine; external refs are not.
         if (!value.startsWith('#')) return null;
@@ -204,6 +227,7 @@ export function sanitizeSvg(input: string): string | null {
       }
       if (ln === 'style' && STYLE_BAD.test(value)) return null;
       if (URL_BAD.test(value)) return null;
+      if (hasExternalRef(value)) return null;
       kept.push([ln, value]);
     }
 
@@ -216,7 +240,7 @@ export function sanitizeSvg(input: string): string | null {
       if (!kept.some(([k]) => k === 'xmlns')) {
         kept.unshift(['xmlns', 'http://www.w3.org/2000/svg']);
       }
-      if (!kept.some(([k]) => k === 'viewbox')) {
+      if (!kept.some(([k]) => k === 'viewBox')) {
         // Default to 0 0 24 24 to match the lucide style.
         kept.push(['viewBox', '0 0 24 24']);
       }
