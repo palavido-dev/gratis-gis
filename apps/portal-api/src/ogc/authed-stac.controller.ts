@@ -228,6 +228,7 @@ export class AuthedStacController {
       base,
       apiRoot: root,
       selfUrl: `${root}/search`,
+      postBody: body ?? {},
     });
   }
 }

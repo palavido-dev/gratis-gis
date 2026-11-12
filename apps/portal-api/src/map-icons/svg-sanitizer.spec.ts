@@ -40,3 +40,32 @@ describe('sanitizeSvg', () => {
     expect(Date.now() - t).toBeLessThan(2000);
   });
 });
+
+describe('sanitizeSvg viewBox and external references', () => {
+  it('keeps the uploaded viewBox instead of forcing 0 0 24 24', () => {
+    const out = sanitizeSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><path d="M0 0h512v512H0z"/></svg>',
+    );
+    expect(out).toContain('viewBox="0 0 512 512"');
+    expect(out).not.toContain('0 0 24 24');
+  });
+
+  it('still adds a default viewBox when there is none', () => {
+    expect(sanitizeSvg('<svg><path d="M0 0"/></svg>')).toContain('viewBox="0 0 24 24"');
+  });
+
+  it('keeps a same-document paint reference', () => {
+    expect(
+      sanitizeSvg('<svg viewBox="0 0 1 1"><path d="M0 0" fill="url(#g)"/></svg>'),
+    ).toContain('fill="url(#g)"');
+  });
+
+  it('refuses an external paint reference or a CSS escape', () => {
+    expect(
+      sanitizeSvg('<svg viewBox="0 0 1 1"><path d="M0 0" fill="url(https://host/x.svg#p)"/></svg>'),
+    ).toBeNull();
+    expect(
+      sanitizeSvg('<svg viewBox="0 0 1 1"><path d="M0 0" style="fill:\\75rl(https://host/a)"/></svg>'),
+    ).toBeNull();
+  });
+});

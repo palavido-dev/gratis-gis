@@ -5,13 +5,16 @@
 // database. Jest runs suites in parallel worker processes, so an
 // in-process mutex is not enough.
 
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
 function sleepMs(ms: number): void {
   Atomics.wait(sleeper, 0, 0, ms);
 }
+
+/** How long an empty lock file is taken as a holder mid-write. */
+const EMPTY_LOCK_GRACE_MS = 5_000;
 
 function holderAlive(path: string): boolean {
   let pid: number;
@@ -21,7 +24,16 @@ function holderAlive(path: string): boolean {
     // Gone between our failed create and this read: not held.
     return false;
   }
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (!Number.isInteger(pid) || pid <= 0) {
+    // The holder creates the file and writes its pid in a second
+    // call, so an empty file is usually a live lock caught in that
+    // gap. Treat it as held unless it has sat empty for a while.
+    try {
+      return Date.now() - statSync(path).mtimeMs < EMPTY_LOCK_GRACE_MS;
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(pid, 0);
     return true;

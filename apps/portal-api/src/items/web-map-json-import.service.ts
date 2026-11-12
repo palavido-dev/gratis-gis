@@ -163,11 +163,11 @@ export class WebMapJsonImportService {
     for (const it of arcgisItems) {
       const url = (it.data as { url?: unknown } | null)?.url;
       if (typeof url === 'string' && url.length > 0) {
-        // Store both the exact URL and the URL with the trailing
-        // /<layerId> stripped so a match against either survives.
-        arcgisByUrl.set(url, it.id);
-        const stripped = url.replace(/\/\d+\/?$/, '');
-        if (stripped !== url) arcgisByUrl.set(stripped, it.id);
+        // Keyed on the service root (an item URL may also carry a
+        // trailing /<layerId>), normalised so case and a trailing
+        // slash do not decide the match. Looked up with the root
+        // captured from the layer URL.
+        arcgisByUrl.set(arcgisServiceKey(url), it.id);
       }
     }
 
@@ -411,7 +411,9 @@ function mapSourceFromUrl(args: {
   // FeatureServer / MapServer with a layer-id suffix: parse it.
   const featureServer = url.match(/^(.*\/FeatureServer)\/(\d+)\/?$/i);
   if (featureServer) {
-    const matchedItemId = args.arcgisByUrl.get(url);
+    const matchedItemId = args.arcgisByUrl.get(
+      arcgisServiceKey(featureServer[1] as string),
+    );
     return {
       kind: 'arcgis-rest',
       url: featureServer[1] as string,
@@ -422,7 +424,9 @@ function mapSourceFromUrl(args: {
   }
   const mapServer = url.match(/^(.*\/MapServer)\/(\d+)\/?$/i);
   if (mapServer) {
-    const matchedItemId = args.arcgisByUrl.get(url);
+    const matchedItemId = args.arcgisByUrl.get(
+      arcgisServiceKey(mapServer[1] as string),
+    );
     return {
       kind: 'arcgis-rest',
       url: mapServer[1] as string,
@@ -476,11 +480,15 @@ function buildMapLayer(args: {
   // so imported maps carried a shape no other surface produced.
   // Typing the literal as MapLayer makes that class of drift a
   // compile error.
+  const q = args.lens.query as { visibility?: unknown; opacity?: unknown };
   return {
     id,
     title: args.lens.name,
-    visible: true,
-    opacity: 1,
+    visible: q.visibility !== false,
+    opacity:
+      typeof q.opacity === 'number' && Number.isFinite(q.opacity)
+        ? Math.min(1, Math.max(0, q.opacity))
+        : 1,
     source: args.source,
     style,
     renderer: { kind: 'simple' },
@@ -704,3 +712,19 @@ function guessTitle(webMap: EsriWebMap): string {
 // `LensView` is referenced by the engine; re-export so the
 // controller signature can quote it without a separate import.
 export type { LensView };
+
+/**
+ * Match key for an ArcGIS service URL: query and trailing slashes
+ * dropped, a trailing /<layerId> dropped, lower-cased. The old lookup
+ * used the full layer URL (`.../FeatureServer/0`) against item URLs
+ * that are service roots, so it never matched and imported layers
+ * bypassed the item's proxy and stored credential.
+ */
+export function arcgisServiceKey(url: string): string {
+  return url
+    .trim()
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '')
+    .replace(/\/\d+$/, '')
+    .toLowerCase();
+}

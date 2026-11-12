@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { NextFunction, Request, Response } from 'express';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
 /**
@@ -16,10 +17,78 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 export const JSON_BODY_LIMIT = '10mb';
 
 /**
+ * JSON body limit for the script executor. The claimer posts a whole
+ * script source (capped at 256 KB) as a JSON string, so escaped
+ * quotes and newlines can roughly double it. 2 MB leaves room.
+ */
+export const EXECUTOR_JSON_BODY_LIMIT = '2mb';
+
+/**
  * Register the JSON parser with our limit. Must run before the app
  * initialises: Nest then sees a parser named jsonParser already in
  * place and skips its own 100 KB one.
  */
 export function configureBodyParsers(app: NestExpressApplication): void {
   app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
+}
+
+/**
+ * How long a non-upload request may take to arrive in full.
+ *
+ * main.ts turns Node's own requestTimeout off so a large multipart
+ * import on a slow link is not cut at 300 s. That switch is server
+ * wide, so without this a caller could start a JSON body on any route
+ * and stall, holding the connection and its buffered body forever.
+ * The JSON parser runs before the auth guards, so no sign-in is
+ * needed to do it.
+ */
+export const BODY_READ_TIMEOUT_MS = 300_000;
+
+/**
+ * Drop a request whose body has not fully arrived within `ms`.
+ * Multipart uploads are exempt: they are the reason requestTimeout
+ * is off. Must be registered before the body parsers. A request that
+ * has arrived in full is never touched, however long its handler
+ * runs.
+ */
+export function bodyReadDeadline(ms: number = BODY_READ_TIMEOUT_MS) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const type = req.headers['content-type'] ?? '';
+    if (req.complete || type.toLowerCase().startsWith('multipart/')) {
+      next();
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (!req.complete) req.destroy();
+    }, ms);
+    timer.unref();
+    const clear = (): void => clearTimeout(timer);
+    req.once('end', clear);
+    res.once('close', clear);
+    next();
+  };
+}
+
+/**
+ * Refuse a repeated query key on the anonymous surface. Express turns
+ * `?bbox=1&bbox=2` into an array, and handlers typed for a string
+ * call `.split` / `.trim` on it and throw (500). No public route takes
+ * a repeated key; lists are comma separated.
+ */
+export function rejectRepeatedQueryKeys(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  const query = req.query as Record<string, unknown>;
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value !== 'string') {
+      res.status(400).json({
+        statusCode: 400,
+        message: `Query parameter "${key}" must be given once, as a plain value.`,
+      });
+      return;
+    }
+  }
+  next();
 }

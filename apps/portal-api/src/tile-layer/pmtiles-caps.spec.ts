@@ -27,3 +27,27 @@ describe('cappedPmtilesDecompress', () => {
     await expect(cappedPmtilesDecompress(ab(Buffer.from('x')), 3)).rejects.toThrow(/not supported/);
   });
 });
+
+describe('pooled PMTiles archive after a storage error', () => {
+  it('opens a fresh archive on the next request instead of replaying the error', async () => {
+    const { TileLayerService } = await import('./tile-layer.service.js');
+    let calls = 0;
+    const storage = {
+      readRange: jest.fn(async () => {
+        calls += 1;
+        throw new Error('MinIO unavailable');
+      }),
+      streamObject: jest.fn(async () => {
+        calls += 1;
+        throw new Error('MinIO unavailable');
+      }),
+    };
+    const svc = new TileLayerService({} as never, {} as never, storage as never, {} as never, {} as never);
+    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', 0, 0, 0)).rejects.toThrow();
+    const after = calls;
+    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', 0, 0, 0)).rejects.toThrow();
+    // The second request reached storage again: the failed header
+    // promise was not served from a pooled instance.
+    expect(calls).toBeGreaterThan(after);
+  });
+});

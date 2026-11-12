@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 
 import { DataSnapshotService } from '../items/data-snapshot.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
@@ -25,9 +25,10 @@ export class SnapshotPurgeService {
     private readonly leader: LeaderElectionService,
   ) {}
 
-  // 3:15am UTC, staggered off the trash purge so they don't both wake
-  // the DB at the same instant.
-  @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'purge-snapshots' })
+  // 3:15am UTC, staggered off the trash purge (3:00) so they don't
+  // both wake the DB at the same instant. The time zone is explicit so
+  // "UTC" holds whatever the container clock is set to.
+  @Cron('0 15 3 * * *', { name: 'purge-snapshots', timeZone: 'UTC' })
   async handleCron() {
     if (!this.leader.shouldRun()) return;
     const res = await this.snapshots.purge();

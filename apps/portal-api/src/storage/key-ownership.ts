@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
@@ -35,6 +36,45 @@ export const GRANTED_KINDS: ReadonlySet<AssetKind> = new Set<AssetKind>([
 ]);
 
 const GRANT_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+
+/** Kinds whose presigned PUT may be gigabytes (8 GB each). */
+export const LARGE_UPLOAD_KINDS: ReadonlySet<AssetKind> = new Set<AssetKind>([
+  'item-tile-layer',
+  'item-point-cloud',
+]);
+
+/** Large-upload URLs one user may hold open at a time. */
+export const MAX_OPEN_LARGE_GRANTS = 4;
+
+/** How long a presigned PUT stays usable (StorageService signs 600 s). */
+const PRESIGN_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Refuse a large-upload presign when the caller already holds
+ * MAX_OPEN_LARGE_GRANTS that could still be used. Without a cap any
+ * signed-in account could loop presign and PUT and fill the object
+ * store, 8 GB at a time.
+ */
+export async function assertLargeGrantRoom(
+  prisma: PrismaService,
+  kind: AssetKind,
+  userId: string,
+): Promise<void> {
+  if (!LARGE_UPLOAD_KINDS.has(kind)) return;
+  const open = await prisma.storageUploadGrant.count({
+    where: {
+      userId,
+      createdAt: { gte: new Date(Date.now() - PRESIGN_WINDOW_MS) },
+      OR: [...LARGE_UPLOAD_KINDS].map((k) => ({ key: { startsWith: `${k}/` } })),
+    },
+  });
+  if (open >= MAX_OPEN_LARGE_GRANTS) {
+    throw new HttpException(
+      `You already have ${open} large uploads in progress. Finish or wait for them before starting another.`,
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+}
 
 /** Record that `userId` was issued `key` by presign. */
 export async function recordUploadGrant(

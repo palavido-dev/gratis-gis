@@ -402,6 +402,17 @@ export function webMapJsonToLenses(json: EsriWebMap): {
     if (agoRenderer && typeof agoRenderer === 'object') {
       (lens.query as { agoRenderer?: unknown }).agoRenderer = agoRenderer;
     }
+    // Same for the layer's own visibility and opacity, so a hidden or
+    // faded layer stays that way after import.
+    if (typeof layer.visibility === 'boolean') {
+      (lens.query as { visibility?: boolean }).visibility = layer.visibility;
+    }
+    if (typeof layer.opacity === 'number' && Number.isFinite(layer.opacity)) {
+      (lens.query as { opacity?: number }).opacity = Math.min(
+        1,
+        Math.max(0, layer.opacity),
+      );
+    }
     lenses.push(lens);
   }
   return view !== undefined ? { lenses, view, warnings } : { lenses, warnings };

@@ -16,7 +16,10 @@ import {
   CredentialService,
   type CredentialPayload,
 } from '../items/credential.service.js';
-import { exchangeBasicForArcgisToken } from '../items/arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from '../items/arcgis-auth.js';
 import { probeArcgisExtent } from '../items/arcgis-extent.js';
 import {
   extractDependencies,
@@ -1675,7 +1678,11 @@ export class HousekeepingService {
             password: credential.password,
             cacheKey: itemId,
           });
-          credential = { kind: 'arcgis_token', token };
+          credential = {
+            kind: 'arcgis_token',
+            token,
+            referer: ARCGIS_TOKEN_REFERER,
+          };
         } catch (err) {
           this.log.warn(
             `arcgis extent probe: token exchange failed for item=${itemId}: ${

@@ -14,7 +14,9 @@ import {
   IsUrl,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -23,7 +25,10 @@ import {
   type AuthKind,
   type CredentialPayload,
 } from './credential.service.js';
-import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from './arcgis-auth.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
   PROBE_MAX_BODY_BYTES,
@@ -52,21 +57,26 @@ import {
  * cloud-metadata endpoint, none of which the browser can reach.
  */
 
-class ProbeCredentialDto {
+export class ProbeCredentialDto {
   @IsEnum(AUTH_KINDS) kind!: AuthKind;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(4096) token?: string;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(256) username?: string;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(1024) password?: string;
 }
 
-class ProbeRequestDto {
+export class ProbeRequestDto {
   /** Service URL to fetch. The wizard hands us the URL the user
    *  pasted, after it's been split into a service-root form (we
    *  don't normalise here -- caller is responsible). */
   @IsUrl({ require_tld: false }) url!: string;
 
-  /** Optional credential to inject. Omit for an anonymous probe. */
-  @IsOptional() credential?: ProbeCredentialDto;
+  /** Optional credential to inject. Omit for an anonymous probe.
+   *  ValidateNested + Type make the nested rules run; without them
+   *  an unknown kind was accepted and the probe went out anonymous. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProbeCredentialDto)
+  credential?: ProbeCredentialDto;
 }
 
 @ApiTags('services', 'probe')
@@ -102,7 +112,11 @@ export class ServiceProbeController {
           password: credential.password,
           cacheKey: `probe|${user.id}`,
         });
-        credential = { kind: 'arcgis_token', token };
+        credential = {
+          kind: 'arcgis_token',
+          token,
+          referer: ARCGIS_TOKEN_REFERER,
+        };
       } catch (err) {
         return {
           ok: false,
@@ -258,6 +272,8 @@ function composeHeaders(
       'utf8',
     ).toString('base64');
     headers.authorization = `Basic ${encoded}`;
+  } else if (credential?.kind === 'arcgis_token' && credential.referer) {
+    headers.referer = credential.referer;
   }
   return headers;
 }

@@ -127,8 +127,29 @@ export class AiBuildService {
     return out;
   }
 
+  /**
+   * Create everything the plan names. Items are created one at a
+   * time, so a failure part way leaves the earlier ones behind and a
+   * retry would make them again. On failure, move what this call made
+   * to the trash (restorable) before passing the error on.
+   */
   private async apply(user: AuthUser, plan: BuildPlan): Promise<BuiltItem[]> {
     const created: BuiltItem[] = [];
+    try {
+      return await this.applyInto(user, plan, created);
+    } catch (err) {
+      for (const item of [...created].reverse()) {
+        await this.items.remove(user, item.id).catch(() => undefined);
+      }
+      throw err;
+    }
+  }
+
+  private async applyInto(
+    user: AuthUser,
+    plan: BuildPlan,
+    created: BuiltItem[],
+  ): Promise<BuiltItem[]> {
     const resolved = new Map<string, { itemId: string; layerKey: string; title: string }>();
 
     for (const layer of plan.layers) {
@@ -154,10 +175,14 @@ export class AiBuildService {
     let mapId: string | null = null;
     if (plan.map) {
       const layers: MapLayer[] = [];
+      const placed = new Set<string>();
       for (const entry of plan.map.layers) {
         const target = resolved.get(entry.ref);
-        if (!target) continue;
-        layers.push(mapLayer(target, entry.color));
+        if (!target || placed.has(entry.ref)) continue;
+        placed.add(entry.ref);
+        // The plan ref is unique (seenRefs); the layer key is not, as
+        // two reused items can both call their first layer `sites`.
+        layers.push(mapLayer(entry.ref, target, entry.color));
       }
       if (layers.length > 0) {
         const data: MapData = {
@@ -283,11 +308,12 @@ function layerData(layer: BuildLayer): DataLayerDataV3 {
 }
 
 function mapLayer(
+  id: string,
   target: { itemId: string; layerKey: string; title: string },
   color: string,
 ): MapLayer {
   return {
-    id: target.layerKey,
+    id,
     title: target.title,
     visible: true,
     opacity: 1,

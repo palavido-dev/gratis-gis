@@ -93,6 +93,11 @@ export function extractDependencies(
     if (typeof clipRef === 'string' && clipRef.length > 0) {
       itemIds.add(clipRef);
     }
+    // The map's search box can point at a geocoding_service item.
+    const geocoderRef = (data as { geocoderId?: unknown }).geocoderId;
+    if (typeof geocoderRef === 'string' && geocoderRef.length > 0) {
+      itemIds.add(geocoderRef);
+    }
     // #186: 3D terrain references an elevation tile_layer. #211:
     // terrain became an ordered STACK of them; the legacy itemId
     // mirrors stack[0] but both are walked so maps saved by either
@@ -489,6 +494,7 @@ function walkCustomWidgets(widgets: readonly unknown[], out: Set<string>): void 
           kind?: string;
           mapId?: unknown;
           templateIds?: unknown;
+          basemapIds?: unknown;
           asset?: { kind?: unknown; itemId?: unknown };
           widgets?: Array<Record<string, unknown>>;
           tabs?: Array<{ widgets?: Array<Record<string, unknown>> }>;
@@ -503,6 +509,12 @@ function walkCustomWidgets(widgets: readonly unknown[], out: Set<string>): void 
     // Print widget's allowlist of print_template items.
     if (cfg.kind === 'print' && Array.isArray(cfg.templateIds)) {
       for (const id of cfg.templateIds) {
+        if (typeof id === 'string' && id.length > 0) out.add(id);
+      }
+    }
+    // Basemap gallery's allowlist of basemap items.
+    if (cfg.kind === 'basemap-gallery' && Array.isArray(cfg.basemapIds)) {
+      for (const id of cfg.basemapIds) {
         if (typeof id === 'string' && id.length > 0) out.add(id);
       }
     }
@@ -639,4 +651,6 @@ export const REFERENCER_TYPES: ItemType[] = [
   // #211: preferredElevationItemId refs.
   'tile_layer',
   'point_cloud',
+  // #74: a geocoder references its source data_layer.
+  'geocoding_service',
 ];

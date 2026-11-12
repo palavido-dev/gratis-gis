@@ -107,11 +107,9 @@ describe('StorageService.presignUpload size guard', () => {
       4096,
     );
     expect(signedHeaders(uploadUrl)).toContain('content-length');
-    // Only the size is asserted as signed. Observed while writing this:
-    // the SDK presigner leaves content-type out of X-Amz-SignedHeaders
-    // for PutObject, so the type the client "committed to" is echoed
-    // back but not bound by the signature. That is a separate, older
-    // gap; this spec does not pretend otherwise.
+    // The type is signed too, so a PUT cannot swap image/png for
+    // text/html on a public prefix.
+    expect(signedHeaders(uploadUrl)).toContain('content-type');
     expect(contentType).toBe('application/zip');
   });
 
@@ -138,5 +136,39 @@ describe('StorageService.presignUploadPart', () => {
     // A browser cannot add checksum headers, so none may be signed.
     expect(signedHeaders(url).filter((h) => h.includes('checksum'))).toEqual([]);
     expect([...params.keys()].filter((k) => k.toLowerCase().includes('checksum'))).toEqual([]);
+  });
+});
+
+describe('large upload presign gate', () => {
+  it('refuses a fifth open large upload for one user', async () => {
+    const { assertLargeGrantRoom, MAX_OPEN_LARGE_GRANTS } = await import('./key-ownership.js');
+    const prisma = {
+      storageUploadGrant: { count: jest.fn(async () => MAX_OPEN_LARGE_GRANTS) },
+    };
+    await expect(
+      assertLargeGrantRoom(prisma as never, 'item-tile-layer', 'u1'),
+    ).rejects.toThrow(/large uploads in progress/);
+    // Small kinds are not counted.
+    await expect(
+      assertLargeGrantRoom(prisma as never, 'item-thumb', 'u1'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('refuses a large presign from a viewer', async () => {
+    const { StorageController } = await import('./storage.controller.js');
+    const { ROLE_BASELINES } = await import('../auth/capabilities.js');
+    const c = new StorageController(
+      {} as never,
+      { storageUploadGrant: { count: async () => 0 } } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    await expect(
+      c.presignUpload(
+        { id: 'u1', capabilities: new Set(ROLE_BASELINES.viewer) } as never,
+        { kind: 'item-tile-layer', contentType: 'image/tiff', sizeBytes: 10 } as never,
+      ),
+    ).rejects.toThrow(/contributor or admin/);
   });
 });

@@ -128,6 +128,8 @@ async function fetchLayerExtent(
       'utf8',
     ).toString('base64');
     headers.authorization = `Basic ${encoded}`;
+  } else if (credential?.kind === 'arcgis_token' && credential.referer) {
+    headers.referer = credential.referer;
   }
   // Per-call timeout via AbortController so a hung upstream can't
   // stall the whole recompute pass.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -10,6 +11,8 @@ import {
   decryptCredential,
   encryptCredential,
 } from '../items/credential-cipher.js';
+import { operatorOrgId } from '../backup/operator-org.js';
+import { isPrivateOrLoopbackHost } from '../common/net-guards.js';
 import {
   assertCompatibleBaseUrl,
   isAiProviderId,
@@ -88,6 +91,9 @@ export class AiConfigService {
     if (!apiKey) return null;
     if (row.provider === 'openai-compatible') {
       if (!row.baseUrl || !row.baseUrl.trim()) return null;
+      // A row saved before the operator rule, or kept after the
+      // operator moved, must not reach into the private network.
+      if (!(await this.privateBaseAllowed(orgId, row.baseUrl))) return null;
       return {
         provider: row.provider,
         model: row.model,
@@ -101,6 +107,32 @@ export class AiConfigService {
       baseUrl: null,
       apiKey,
     };
+  }
+
+  /**
+   * A base URL on a loopback, private or single-label host reaches
+   * the install's own network (the database, object storage, other
+   * containers). That is an operator decision: an admin of any other
+   * organization could otherwise aim the API at internal services and
+   * read which ones answer from the error it gets back.
+   */
+  private async privateBaseAllowed(orgId: string, baseUrl: string): Promise<boolean> {
+    let host: string;
+    try {
+      host = new URL(baseUrl).hostname;
+    } catch {
+      return false;
+    }
+    if (!isPrivateOrLoopbackHost(host)) return true;
+    return (await operatorOrgId(this.prisma)) === orgId;
+  }
+
+  private async assertPrivateBaseAllowed(orgId: string, baseUrl: string): Promise<void> {
+    if (!(await this.privateBaseAllowed(orgId, baseUrl))) {
+      throw new ForbiddenException(
+        'Only admins of the operator organization can use a local or private AI endpoint.',
+      );
+    }
   }
 
   async save(
@@ -125,6 +157,7 @@ export class AiConfigService {
         );
       }
       baseUrl = await assertCompatibleBaseUrl(rawBase);
+      await this.assertPrivateBaseAllowed(orgId, baseUrl);
     } else if (rawBase) {
       throw new BadRequestException(
         'Base URL is only used for an OpenAI-compatible endpoint.',

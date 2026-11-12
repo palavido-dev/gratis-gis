@@ -35,7 +35,8 @@ describe('buildMetaUi', () => {
     expect(ui.downloads).toEqual([
       {
         label: 'GeoJSON',
-        url: '/api/items/11111111-1111-4111-8111-111111111111/geojson',
+        // v3 is served per sublayer; the item-level route has no rows.
+        url: '/api/items/11111111-1111-4111-8111-111111111111/layers/parcels/geojson',
         format: 'GeoJSON',
       },
     ]);
@@ -174,5 +175,30 @@ describe('filterMapForViewer with a malformed blob', () => {
       ],
     })) as { layers: Array<{ id: string }> };
     expect(out.layers.map((l) => l.id)).toEqual(['b']);
+  });
+});
+
+describe('filterMapForViewer backing items', () => {
+  it('drops item-backed layers of every kind when the viewer cannot read the item', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const findMany = jest.fn(async () => [
+      { id: 'pub', access: 'public', shares: [] },
+      { id: 'priv', access: 'private', shares: [] },
+    ]);
+    Object.assign(svc, { prisma: { item: { findMany } } });
+    const out = (await svc.filterMapForViewer(null, {
+      layers: [
+        { id: 'a', source: { kind: 'arcgis-rest', url: 'https://x', sourceItemId: 'priv' } },
+        { id: 'b', source: { kind: 'tile', itemId: 'priv' } },
+        { id: 'c', source: { kind: 'point-cloud', itemId: 'priv' } },
+        { id: 'd', source: { kind: 'postgis-live', serviceItemId: 'priv' } },
+        { id: 'e', source: { kind: 'arcgis-rest', url: 'https://x', sourceItemId: 'pub' } },
+        { id: 'f', source: { kind: 'arcgis-rest', url: 'https://x' } },
+      ],
+    })) as { layers: Array<{ id: string }> };
+    expect(out.layers.map((l) => l.id)).toEqual(['e', 'f']);
+    const asked = (findMany.mock.calls[0] as unknown as [{ where: { id: { in: string[] } } }])[0]
+      .where.id.in;
+    expect(asked.sort()).toEqual(['priv', 'pub']);
   });
 });

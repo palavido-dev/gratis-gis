@@ -155,3 +155,27 @@ describe('ItemsService.create authorization', () => {
     });
   });
 });
+
+describe('ItemsService.create of a form with a bad pattern', () => {
+  it('refuses before the paired submissions layer is created', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const pair = jest.fn();
+    Object.assign(svc, { createPairedDataLayerForForm: pair });
+    await expect(
+      svc.create(
+        {
+          id: '00000000-0000-0000-0000-0000000000aa',
+          orgId: '00000000-0000-0000-0000-0000000000bb',
+          orgRole: 'contributor',
+          capabilities: new Set<CapabilityKey>(ROLE_BASELINES.contributor),
+        } as unknown as AuthUser,
+        {
+          type: 'form',
+          title: 'Survey',
+          data: { questions: [{ id: 'q1', type: 'text', pattern: '(' }] },
+        } as never,
+      ),
+    ).rejects.toThrow(/not a valid regular expression/);
+    expect(pair).not.toHaveBeenCalled();
+  });
+});

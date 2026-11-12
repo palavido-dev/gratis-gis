@@ -2,7 +2,10 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { gunzip } from 'node:zlib';
+
+const gunzipAsync = promisify(gunzip);
 
 /**
  * Loader for the bundled Randolph County sample datasets (#147).
@@ -11,9 +14,11 @@ import { gunzipSync } from 'node:zlib';
  * network fetch (air-gap safe by design; see
  * docs/handoff/sample-content-manifest.md).
  *
- * Loaded once per process and cached; the payload is a few tens of
- * kilobytes so keeping it resident is cheaper than re-reading and
- * re-validating on every org's seed run.
+ * The small sets are loaded once per process and cached; they are a
+ * few tens of kilobytes. The parcels set is about 38 MB of GeoJSON
+ * once inflated, so it is read fresh on each seed run and released
+ * afterwards instead of being held for the life of the process, and
+ * it is inflated off the event loop.
  */
 
 export interface SampleFeature {
@@ -165,10 +170,9 @@ function parseSubmissions(raw: string, filePath: string): SampleSubmission[] {
   });
 }
 
-let cached: SampleAssets | null = null;
+let cached: Omit<SampleAssets, 'parcels'> | null = null;
 
 export async function loadSampleAssets(): Promise<SampleAssets> {
-  if (cached) return cached;
   const dir = resolveSamplesDir();
   const read = async (name: string): Promise<{ raw: string; file: string }> => {
     const file = path.join(dir, name);
@@ -177,32 +181,29 @@ export async function loadSampleAssets(): Promise<SampleAssets> {
   // Parcels ship gzipped: the full-resolution county cadastre is ~38 MB
   // of GeoJSON, which compresses to ~12 MB for the repo and image. The
   // geometry is never simplified (parcel edges must stay crisp), so we
-  // trade a one-time gunzip at seed time for a much smaller committed
-  // asset.
-  const readGz = async (
-    name: string,
-  ): Promise<{ raw: string; file: string }> => {
-    const file = path.join(dir, name);
-    return { raw: gunzipSync(await readFile(file)).toString('utf8'), file };
-  };
-  const [facilities, trails, parks, parcels, boundary, submissions] =
-    await Promise.all([
+  // trade a gunzip at seed time for a much smaller committed asset.
+  const parcelsFile = path.join(dir, 'parcels.geojson.gz');
+  const parcels = parseFeatureCollection(
+    (await gunzipAsync(await readFile(parcelsFile))).toString('utf8'),
+    parcelsFile,
+  );
+  if (!cached) {
+    const [facilities, trails, parks, boundary, submissions] = await Promise.all([
       read('facilities.geojson'),
       read('trails.geojson'),
       read('parks.geojson'),
-      readGz('parcels.geojson.gz'),
       read('county-boundary.geojson'),
       read('submissions.json'),
     ]);
-  cached = {
-    facilities: parseFeatureCollection(facilities.raw, facilities.file),
-    trails: parseFeatureCollection(trails.raw, trails.file),
-    parks: parseFeatureCollection(parks.raw, parks.file),
-    parcels: parseFeatureCollection(parcels.raw, parcels.file),
-    boundary: parseFeatureCollection(boundary.raw, boundary.file),
-    submissions: parseSubmissions(submissions.raw, submissions.file),
-  };
-  return cached;
+    cached = {
+      facilities: parseFeatureCollection(facilities.raw, facilities.file),
+      trails: parseFeatureCollection(trails.raw, trails.file),
+      parks: parseFeatureCollection(parks.raw, parks.file),
+      boundary: parseFeatureCollection(boundary.raw, boundary.file),
+      submissions: parseSubmissions(submissions.raw, submissions.file),
+    };
+  }
+  return { ...cached, parcels };
 }
 
 /** Test-only: drop the in-process cache so a spec can re-read from

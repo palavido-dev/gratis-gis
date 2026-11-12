@@ -17,16 +17,16 @@ import { absoluteBase } from './url.js';
 import {
   CATALOG_COLLECTION_ID,
   ITEM_SELECT,
-  MAX_RECORDS_BBOX_SCAN,
   UUID_RE,
   buildRecord,
   buildRecordsPage,
   catalogCollectionDoc,
   clamp,
-  filterAndPageRecords,
   parseSortby,
   recordsListParams,
   recordsWhere,
+  assertRecordsQuery,
+  queryPublicRecords,
   type ItemRow,
 } from './records-core.js';
 
@@ -74,6 +74,11 @@ export class OgcRecordsCatalogController {
     const rootHref = `${base}/api/public/ogc/`;
     const limit = clamp(parseInt(limitParam ?? '', 10) || 100, 1, 1000);
     const offset = Math.max(0, parseInt(offsetParam ?? '', 10) || 0);
+    assertRecordsQuery(Object.keys(req.query), {
+      bbox: bboxParam,
+      type: typeParam,
+      offset,
+    });
     const params = recordsListParams({
       limit,
       offset,
@@ -85,28 +90,15 @@ export class OgcRecordsCatalogController {
     const where = recordsWhere({ q, type: typeParam });
     const orderBy = parseSortby(sortbyParam);
 
-    if (bboxParam && bboxParam.trim().length > 0) {
-      const rows = (await this.prisma.item.findMany({
-        where,
-        select: ITEM_SELECT,
-        orderBy,
-        take: MAX_RECORDS_BBOX_SCAN,
-      })) as ItemRow[];
-      return filterAndPageRecords(rows, base, selfBase, params, rootHref);
-    }
-
-    const [total, rows] = await Promise.all([
-      this.prisma.item.count({ where }),
-      this.prisma.item.findMany({
-        where,
-        select: ITEM_SELECT,
-        orderBy,
-        skip: offset,
-        take: limit,
-      }),
-    ]);
+    const { rows, total } = await queryPublicRecords(this.prisma, {
+      where,
+      orderBy,
+      offset,
+      limit,
+      bbox: bboxParam,
+    });
     return buildRecordsPage(
-      rows as ItemRow[],
+      rows,
       total,
       base,
       selfBase,

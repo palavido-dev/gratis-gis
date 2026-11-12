@@ -67,12 +67,28 @@ export class DrawingsCollabGateway
     });
 
     try {
-      const joined = await this.collab.join(rec, (msg) => this.send(client, msg));
+      const joined = await this.collab.join(
+        rec,
+        (msg) => this.send(client, msg),
+        () => {
+          try {
+            client.close();
+          } catch {
+            /* ignore */
+          }
+        },
+      );
       this.state.set(client, {
         mapId,
         drawingSetId,
         connectionId: joined.connectionId,
       });
+      // The socket may have closed while the room was loading. Its
+      // disconnect then found no state and did nothing, which left a
+      // ghost peer that kept the room alive forever.
+      if (client.readyState !== client.OPEN) {
+        this.handleDisconnect(client);
+      }
     } catch (err) {
       this.close(client, err instanceof Error ? err.message : 'Join failed');
     }

@@ -517,15 +517,6 @@ export class SharingService {
     user: AuthUser,
     opts: { includeTrashed?: boolean } = {},
   ): Prisma.ItemWhereInput {
-    // Admin short-circuit: an org admin's "visible" set is every item
-    // in their org, regardless of sharing. Matches the point-check in
-    // canRead so list queries and per-item checks agree.
-    if (user.orgRole === 'admin') {
-      const adminAccess: Prisma.ItemWhereInput = { orgId: user.orgId };
-      if (opts.includeTrashed) return adminAccess;
-      return { AND: [adminAccess, { deletedAt: null }] };
-    }
-
     // Build the per-share match predicate, then AND in the
     // not-expired filter so a share with `expires_at <= now()`
     // doesn't grant access (#84). Null expiresAt means "never
@@ -542,8 +533,13 @@ export class SharingService {
     const notExpired: Prisma.ItemShareWhereInput = {
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
     };
+    // An org admin sees every item in their org, regardless of
+    // sharing, PLUS what any member sees from outside it (public
+    // items and shares from other orgs). canRead grants an admin both,
+    // so the list must too or the two disagree.
     const access: Prisma.ItemWhereInput = {
       OR: [
+        ...(user.orgRole === 'admin' ? [{ orgId: user.orgId }] : []),
         { ownerId: user.id },
         { access: 'public' },
         { access: 'org', orgId: user.orgId },

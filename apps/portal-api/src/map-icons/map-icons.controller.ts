@@ -6,6 +6,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   UploadedFile,
@@ -21,6 +22,8 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { canDeleteMapIcon } from './map-icon-auth.js';
+import { hasCapability } from '../auth/capabilities.js';
+import { UuidPathPipe } from '../common/uuid-shape.js';
 import { sanitizeSvg } from './svg-sanitizer.js';
 import {
   RASTER_ICON_MAX_BYTES,
@@ -33,6 +36,8 @@ import {
 const SVG_MAX_BYTES = 1024 * 1024;
 /** Multer's hard stop: the larger of the per-type caps. */
 const MAX_BYTES = Math.max(SVG_MAX_BYTES, RASTER_ICON_MAX_BYTES);
+/** Uploaded icons one organization may hold. */
+export const MAX_ICONS_PER_ORG = 1000;
 
 class UploadMapIconDto {
   @IsString()
@@ -115,6 +120,22 @@ export class MapIconsController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: UploadMapIconDto,
   ): Promise<MapIconUploadDto> {
+    // Icons go into the whole org's picker and their bytes are never
+    // deleted, so adding one is publishing. A viewer could otherwise
+    // add icons without limit and push the org's own out of the list.
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Uploading map icons needs a contributor or admin role.',
+      );
+    }
+    const count = await this.prisma.mapIconUpload.count({
+      where: { orgId: user.orgId },
+    });
+    if (count >= MAX_ICONS_PER_ORG) {
+      throw new BadRequestException(
+        `This organization has ${MAX_ICONS_PER_ORG} uploaded icons, the most allowed. Delete some to add more.`,
+      );
+    }
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
@@ -211,13 +232,13 @@ export class MapIconsController {
   @Delete(':id')
   async remove(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new UuidPathPipe('Map icon not found.')) id: string,
   ): Promise<{ ok: true }> {
     const row = await this.prisma.mapIconUpload.findUnique({
       where: { id },
     });
     if (!row || row.orgId !== user.orgId) {
-      throw new BadRequestException('Map icon not found.');
+      throw new NotFoundException('Map icon not found.');
     }
     if (!canDeleteMapIcon(user, row)) {
       throw new ForbiddenException(

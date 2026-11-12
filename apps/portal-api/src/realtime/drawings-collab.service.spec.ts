@@ -196,4 +196,96 @@ describe('DrawingsCollabService', () => {
     await new Promise((r) => setImmediate(r));
     expect(drawings.update).not.toHaveBeenCalled();
   });
+
+  function bigUpdate(key: string, bytes: number): string {
+    const d = new Y.Doc();
+    d.getMap<string>('features').set(key, 'x'.repeat(bytes));
+    return Buffer.from(Y.encodeStateAsUpdate(d)).toString('base64');
+  }
+
+  async function joinAs(svc: DrawingsCollabService, user: AuthUser, close?: () => void) {
+    const issued = await svc.mintTicket(user, 'map-1', 'set-1');
+    const rec = svc.consumeTicket(issued.ticket, 'map-1', 'set-1');
+    const msgs: Array<{ type?: string; message?: string }> = [];
+    await svc.join(rec, (m) => msgs.push(m as never), close);
+    return { rec, msgs };
+  }
+
+  it('drops a writer whose access was removed while connected', async () => {
+    const { svc, drawings } = makeSvc({ writable: true });
+    const close = jest.fn();
+    const { rec, msgs } = await joinAs(svc, makeUser(), close);
+    drawings.requireWritableSet.mockRejectedValue(new ForbiddenException('revoked'));
+    await svc.reauthorize({ mapId: 'map-1', drawingSetId: 'set-1' });
+    expect(close).toHaveBeenCalled();
+    expect(msgs.some((m) => m.type === 'error')).toBe(true);
+    expect(() =>
+      svc.applyUpdate('map-1', 'set-1', rec.connectionId, bigUpdate('k', 10)),
+    ).toThrow();
+  });
+
+  it('refuses an update that would grow the doc past its budget', async () => {
+    const { svc } = makeSvc({ writable: true });
+    const { rec } = await joinAs(svc, makeUser());
+    // Each update stays under the frame size; together they pass the doc budget.
+    for (let i = 0; i < 10; i++) {
+      svc.applyUpdate('map-1', 'set-1', rec.connectionId, bigUpdate(`k${i}`, 200_000));
+    }
+    expect(() =>
+      svc.applyUpdate('map-1', 'set-1', rec.connectionId, bigUpdate('k-last', 200_000)),
+    ).toThrow(/too large/);
+  });
+
+  it('gives two simultaneous first joiners one room', async () => {
+    const { svc, drawings } = makeSvc({ writable: true });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const set = (await drawings.list())[0];
+    drawings.list.mockImplementation(async () => {
+      await gate;
+      return [set];
+    });
+    const a = svc.mintTicket(makeUser(), 'map-1', 'set-1');
+    const b = svc.mintTicket(makeUser({ id: 'user-2' }), 'map-1', 'set-1');
+    release();
+    const [ia, ib] = await Promise.all([a, b]);
+    const ra = svc.consumeTicket(ia.ticket, 'map-1', 'set-1');
+    const rb = svc.consumeTicket(ib.ticket, 'map-1', 'set-1');
+    let releaseBoot!: () => void;
+    const bootGate = new Promise<void>((r) => (releaseBoot = r));
+    drawings.list.mockImplementation(async () => {
+      await bootGate;
+      return [set];
+    });
+    const msgsA: Array<{ type?: string }> = [];
+    const joinA = svc.join(ra, (m) => msgsA.push(m as never));
+    const joinB = svc.join(rb, () => undefined);
+    releaseBoot();
+    await Promise.all([joinA, joinB]);
+    // B's update reaches A only if both are in the same room.
+    svc.applyUpdate('map-1', 'set-1', rb.connectionId, bigUpdate('shared', 10));
+    expect(msgsA.some((m) => m.type === 'update')).toBe(true);
+  });
+
+  it('saves as another writer when the first one is refused, and reports a total failure', async () => {
+    const { svc, drawings } = makeSvc({ writable: true });
+    const { rec: w1, msgs } = await joinAs(svc, makeUser());
+    await joinAs(svc, makeUser({ id: 'user-2' }));
+    drawings.update
+      .mockRejectedValueOnce(new ForbiddenException('revoked'))
+      .mockResolvedValueOnce({});
+    svc.applyUpdate('map-1', 'set-1', w1.connectionId, bigUpdate('f', 10));
+    await (svc as unknown as { snapshotNow: (r: unknown) => Promise<void> }).snapshotNow(
+      (svc as unknown as { rooms: Map<string, unknown> }).rooms.get('map-1:set-1'),
+    );
+    expect(drawings.update).toHaveBeenCalledTimes(2);
+    expect((drawings.update.mock.calls[1] as [{ user: AuthUser }])[0].user.id).toBe('user-2');
+
+    drawings.update.mockRejectedValue(new ForbiddenException('nope'));
+    svc.applyUpdate('map-1', 'set-1', w1.connectionId, bigUpdate('g', 10));
+    await (svc as unknown as { snapshotNow: (r: unknown) => Promise<void> }).snapshotNow(
+      (svc as unknown as { rooms: Map<string, unknown> }).rooms.get('map-1:set-1'),
+    );
+    expect(msgs.some((m) => m.message === 'Markup changes could not be saved.')).toBe(true);
+  });
 });

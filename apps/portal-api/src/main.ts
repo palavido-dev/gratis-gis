@@ -7,7 +7,11 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module.js';
 import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
 import { requestIdMiddleware } from './common/public-error.js';
-import { configureBodyParsers } from './common/body-limits.js';
+import {
+  bodyReadDeadline,
+  configureBodyParsers,
+  rejectRepeatedQueryKeys,
+} from './common/body-limits.js';
 import { installMetrics } from './metrics/install-metrics.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
@@ -34,6 +38,16 @@ process.on('uncaughtException', (err) => {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Flush in-memory work (bbox windows, in-flight jobs) on SIGTERM
+  // instead of dropping it when a deploy stops the container.
+  app.enableShutdownHooks();
+  // A JSON body must arrive within a bounded time. requestTimeout is
+  // off below for multipart imports; this keeps every other route
+  // bounded. Registered first so it runs before the body parsers.
+  app.use(bodyReadDeadline());
+  // Anonymous routes are typed for one string per key; a repeated key
+  // arrives as an array and used to throw a 500.
+  app.use('/api/public', rejectRepeatedQueryKeys);
   // JSON bodies up to 10 MB instead of Express's 100 KB (#679).
   configureBodyParsers(app);
   // Every response carries an id the UI can show when a call fails,
@@ -113,7 +127,8 @@ async function bootstrap() {
   // (server.requestTimeout). A large import on the multipart
   // `POST /ingest/stage` path can take far longer than that on a slow
   // uplink, so the cap is turned off here. Caddy sits in front and
-  // headersTimeout still bounds a client that never sends its headers.
+  // headersTimeout still bounds a client that never sends its headers;
+  // bodyReadDeadline above bounds every non-multipart body.
   const httpServer = app.getHttpServer() as { requestTimeout?: number };
   httpServer.requestTimeout = 0;
 
@@ -123,4 +138,13 @@ async function bootstrap() {
   console.log(`portal-api listening on http://localhost:${port}`);
 }
 
-bootstrap();
+// A failed startup (a throwing onModuleInit, a port in use) used to be
+// caught by the unhandledRejection logger above and the process kept
+// running with no listener, so the container never restarted. Exit
+// instead and let the restart policy try again.
+bootstrap().catch((err: unknown) => {
+  processLogger.error(
+    `Startup failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`,
+  );
+  process.exit(1);
+});

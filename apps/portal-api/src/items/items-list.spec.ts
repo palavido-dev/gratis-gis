@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PolicyService } from '../policy/policy.service.js';
@@ -248,7 +248,72 @@ describe('ItemsService list paging and projection', () => {
   });
 });
 
+describe('ItemsService full list of maps', () => {
+  it('applies the per-layer viewer filter to maps the caller cannot edit', async () => {
+    const prisma = makePrisma();
+    prisma.item.findMany.mockResolvedValue([
+      makeListRow({
+        ownerId: 'someone-else',
+        data: {
+          layers: [
+            {
+              id: 'hidden',
+              access: {
+                policy: 'custom',
+                entries: [
+                  { principalType: 'user', principalId: 'x', view: true },
+                ],
+              },
+            },
+            { id: 'open' },
+          ],
+        },
+      }),
+    ]);
+    const svc = makeService(prisma);
+    const rows = (await svc.list(makeUser(), { lite: false })) as Array<{
+      data: { layers: Array<{ id: string; access?: { entries?: unknown } }> };
+    }>;
+    expect(rows[0]!.data.layers.map((l) => l.id)).toEqual(['open']);
+  });
+});
+
+describe('ItemsService list owner filter', () => {
+  it('lets a non-admin filter by another owner, still inside visibleWhere', async () => {
+    const prisma = makePrisma();
+    const svc = makeService(prisma);
+    await svc.list(makeUser(), {
+      lite: true,
+      ownerId: '22222222-2222-2222-2222-222222222222',
+    });
+    const args = prisma.item.findMany.mock.calls[0]![0] as {
+      where: Record<string, unknown>;
+    };
+    expect(JSON.stringify(args.where)).toContain(
+      '22222222-2222-2222-2222-222222222222',
+    );
+    // The visibility clause is still there.
+    expect(JSON.stringify(args.where)).toContain('org-1');
+  });
+});
+
 describe('ItemsController GET /items paging contract', () => {
+  it('refuses a malformed ownerId with 400 instead of reaching Prisma', async () => {
+    const listPaged = jest.fn().mockResolvedValue({ rows: [], total: 0 });
+    const { controller, res } = makeController({ listPaged });
+    await expect(
+      controller.list(
+        makeUser(),
+        res as never,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-uuid',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(listPaged).not.toHaveBeenCalled();
+  });
+
   it('defaults to lite + limit 500 and emits X-Total-Count', async () => {
     const listPaged = jest
       .fn()

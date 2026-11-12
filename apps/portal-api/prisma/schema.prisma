@@ -645,6 +645,7 @@ model Item {
   @@index([publicGeoBoundaryId], map: "item_public_geo_boundary_id_idx")
   @@index([orgGeoBoundaryId], map: "item_org_geo_boundary_id_idx")
   @@index([data(ops: JsonbPathOps)], type: Gin, map: "item_data_gin")
+  @@index([storageRef], map: "item_storage_ref_idx")
   @@map("item")
 }
 
@@ -1049,6 +1050,7 @@ model FeatureAttachment {
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([itemId, layerId, featureId])
+  @@index([storageKey], map: "feature_attachment_storage_key_idx")
   @@map("feature_attachment")
 }
 

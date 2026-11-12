@@ -131,3 +131,72 @@ describe('ScriptRunnerWorker terminal writes', () => {
     expect(db.row.state).toBe('done');
   });
 });
+
+describe('ScriptRunnerWorker failure labels', () => {
+  it('fails a run whose key cannot be minted, instead of stranding it', async () => {
+    const db = fakeRuns({ id: 'r', scriptId: 's', state: 'running' });
+    const w = new ScriptRunnerWorker(
+      { scriptRun: db.scriptRun } as never,
+      {
+        mintForRun: async () => {
+          throw new Error('owner is gone');
+        },
+        revokeSystemKey: async () => undefined,
+      } as never,
+    );
+    await (w as unknown as { dispatch(j: object): Promise<void> }).dispatch({
+      id: 'r',
+      userId: 'u',
+      source: 'print(1)',
+      format: 'python',
+    });
+    expect(db.row.state).toBe('failed');
+    expect(String(db.row.error)).toMatch(/Could not start the run: owner is gone/);
+  });
+
+  it('strips NUL characters before saving a log', async () => {
+    const db = fakeRuns({ id: 'r', scriptId: 's', state: 'running' });
+    const w = new ScriptRunnerWorker(
+      { scriptRun: db.scriptRun } as never,
+      { revokeSystemKey: async () => undefined } as never,
+    );
+    await (
+      w as unknown as { finish(id: string, input: object): Promise<boolean> }
+    ).finish('r', { state: 'done', log: 'a\u0000b', notebook: '{\u0000}', apiKeyId: null });
+    expect(db.row.log).toBe('ab');
+    expect(db.row.notebook).toBe('{}');
+  });
+});
+
+describe('ScriptRunnerWorker run time limit', () => {
+  const saved = process.env.SCRIPT_TIMEOUT_SECONDS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SCRIPT_TIMEOUT_SECONDS;
+    else process.env.SCRIPT_TIMEOUT_SECONDS = saved;
+  });
+
+  function limitFor(data: unknown) {
+    const w = new ScriptRunnerWorker(
+      { item: { findUnique: async () => ({ data }) } } as never,
+      {} as never,
+    );
+    return (w as unknown as {
+      runTimeoutSeconds(id: string): Promise<number>;
+    }).runTimeoutSeconds('s');
+  }
+
+  it('uses the per-script setting', async () => {
+    delete process.env.SCRIPT_TIMEOUT_SECONDS;
+    await expect(limitFor({ timeoutSeconds: 1800 })).resolves.toBe(1800);
+  });
+
+  it('never goes above the operator setting', async () => {
+    process.env.SCRIPT_TIMEOUT_SECONDS = '600';
+    await expect(limitFor({ timeoutSeconds: 1800 })).resolves.toBe(600);
+  });
+
+  it('falls back to the default without a per-script value', async () => {
+    delete process.env.SCRIPT_TIMEOUT_SECONDS;
+    await expect(limitFor({})).resolves.toBe(300);
+  });
+});

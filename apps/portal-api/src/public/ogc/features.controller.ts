@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../../common/uuid-shape.js';
 import {
   Controller,
   Get,
@@ -51,6 +52,7 @@ const ITEMS_QUERY_PARAMS = [
   'limit',
   'offset',
   'sortby',
+  'cursor',
 ] as const;
 const FEATURE_QUERY_PARAMS = ['crs'] as const;
 
@@ -150,6 +152,7 @@ export class OgcFeaturesController {
     @Query('limit') limitParam?: string,
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
+    @Query('cursor') cursorParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const row = await this.resolvePublicCollection(id);
@@ -165,7 +168,7 @@ export class OgcFeaturesController {
     return buildItemsResponse({
       query: {
         bboxParam, bboxCrsParam, crsParam,
-        limitParam, offsetParam, sortbyParam,
+        limitParam, offsetParam, sortbyParam, cursorParam,
       },
       itemsUrl: `${base}/api/public/ogc/collections/${id}/items`,
       collectionUrl: `${base}/api/public/ogc/collections/${id}`,
@@ -174,6 +177,13 @@ export class OgcFeaturesController {
           ...opts,
           ...(tierClip ? { geoLimit: tierClip } : {}),
         }),
+      readPage: ({ pageSize, after, ...opts }) =>
+        this.v3.readFeaturePage(
+          row.itemId,
+          row.layerId,
+          { ...opts, ...(tierClip ? { geoLimit: tierClip } : {}) },
+          { pageSize, after },
+        ),
     });
   }
 
@@ -196,6 +206,9 @@ export class OgcFeaturesController {
     @Query('crs') crsParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
+    // Feature ids are entity uuids. Anything else reached a ::uuid
+    // cast in the engine and came back as a 500.
+    if (!isUuidShape(featureId)) throw new NotFoundException('Feature not found.');
     const row = await this.resolvePublicCollection(id);
     if (!row) throw new NotFoundException('Collection not found.');
     const crs = parseCrs(crsParam);

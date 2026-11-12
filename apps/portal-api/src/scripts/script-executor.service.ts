@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import {
   chmod,
   chown,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rm,
-  stat,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -277,12 +278,25 @@ export class ScriptExecutorService {
           // writes the notebook as it goes, so a cell that raised is
           // preserved with its traceback in place, which is the most
           // useful artifact a failed run can leave.
-          void this.readNotebook(
-            outFile,
-            req.maxNotebookBytes ?? SCRIPT_MAX_NOTEBOOK_BYTES,
-          ).then((notebook) => {
+          //
+          // The file sits in a directory the script can write, so it is
+          // read as untrusted: anything the script left running is
+          // killed first (so the file cannot be swapped while it is
+          // read), the open refuses links and never blocks, only a
+          // regular file is read, and a timeout means nothing it left
+          // behind can hold up the run queue.
+          void (async () => {
+            if (asUser) await this.killByUid(asUser.uid);
+            const notebook = await withTimeout(
+              this.readNotebook(
+                outFile,
+                req.maxNotebookBytes ?? SCRIPT_MAX_NOTEBOOK_BYTES,
+              ),
+              NOTEBOOK_READ_TIMEOUT_MS,
+              null,
+            );
             resolve({ exitCode: code, log: out, killedBy, notebook });
-          });
+          })();
         };
         child.on('error', (err) => {
           out += `\nCould not start the script: ${err.message}\n`;
@@ -402,14 +416,33 @@ export class ScriptExecutorService {
     maxBytes: number,
   ): Promise<string | null> {
     try {
-      const info = await stat(path);
-      if (info.size > maxBytes) {
-        this.log.warn(
-          `Executed notebook is ${info.size} bytes, over the ${maxBytes} limit; keeping the log only.`,
-        );
-        return null;
+      const fh = await open(
+        path,
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+      );
+      try {
+        const info = await fh.stat();
+        // A FIFO, device or directory is not a notebook. Checked on
+        // the open descriptor, so it is the same file that is read.
+        if (!info.isFile()) return null;
+        // The controller already clamps the cap; clamp again here so the
+        // buffer below can never be sized by a caller's number alone.
+        const cap = Math.min(Math.max(0, maxBytes), NOTEBOOK_HARD_CAP_BYTES);
+        if (info.size > cap) {
+          this.log.warn(
+            `Executed notebook is ${info.size} bytes, over the ${cap} limit; keeping the log only.`,
+          );
+          return null;
+        }
+        // Sized by the file, which the checks above bound by the cap and
+        // by the fixed hard cap, never by the caller's number itself.
+        if (info.size > NOTEBOOK_HARD_CAP_BYTES) return null;
+        const buf = Buffer.alloc(info.size);
+        const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+        return buf.subarray(0, bytesRead).toString('utf8');
+      } finally {
+        await fh.close();
       }
-      return await readFile(path, 'utf8');
     } catch {
       // No notebook: the run was killed before papermill wrote one, or
       // the source was not a notebook at all. The log still stands on
@@ -510,4 +543,27 @@ function scriptUser(): { uid: number; gid: number } | null {
     );
   }
   return { uid, gid };
+}
+
+/** Longest the executor waits to read a run's notebook. */
+const NOTEBOOK_READ_TIMEOUT_MS = 10_000;
+/** Same upper bound the executor controller clamps to. */
+const NOTEBOOK_HARD_CAP_BYTES = 32 * 1024 * 1024;
+
+/** `p`, or `fallback` if it has not settled within `ms`. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    t.unref();
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(fallback);
+      },
+    );
+  });
 }

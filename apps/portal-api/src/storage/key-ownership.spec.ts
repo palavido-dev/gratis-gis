@@ -92,12 +92,35 @@ describe('tile-layer finalize (failure a)', () => {
   });
 
   it('purge leaves an object another item still references', async () => {
-    const t = service(prismaWith({ referenced: true }));
-    await t.svc.tearDownStorage('attacker-tl', {
+    const storage = { deleteObject: jest.fn() };
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    Object.assign(svc, { prisma: prismaWith({ referenced: true }), storage });
+    await svc.tearDownItemBackingStorage('attacker-tl', 'tile_layer', {
       kind: 'raster',
       storageKey: VICTIM_COG,
     });
-    expect(t.storage.deleteObject).not.toHaveBeenCalled();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('purge deletes every key a tile layer names, not just storageKey', async () => {
+    const storage = { deleteObject: jest.fn(async () => undefined) };
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    Object.assign(svc, {
+      prisma: prismaWith({ referenced: false }),
+      storage,
+      log: { warn: jest.fn() },
+    });
+    await svc.tearDownItemBackingStorage('tl', 'tile_layer', {
+      storageKey: 'item-tile-layer/pyramid',
+      cogStorageKey: 'item-tile-layer/source-cog',
+      sources: [{ storageKey: 'item-tile-layer/src-1' }, { storageKey: 'item-file/elsewhere' }],
+    });
+    const deleted = storage.deleteObject.mock.calls.map((c) => (c as unknown as [string])[0]).sort();
+    expect(deleted).toEqual([
+      'item-tile-layer/pyramid',
+      'item-tile-layer/source-cog',
+      'item-tile-layer/src-1',
+    ]);
   });
 });
 

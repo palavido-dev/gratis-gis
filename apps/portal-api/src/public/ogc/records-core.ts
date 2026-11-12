@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ItemType } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
+import { ItemType, Prisma } from '@prisma/client';
 import {
   keywordsFromTags,
   themesFromTags,
@@ -24,17 +25,98 @@ import {
  *  it never collides with a Features collection id. */
 export const CATALOG_COLLECTION_ID = 'catalog';
 
+/** Largest `offset` the records list takes. */
+export const MAX_RECORDS_OFFSET = 100_000;
+
+/** Query parameters the records list understands. */
+export const RECORDS_QUERY_PARAMS = [
+  'limit',
+  'offset',
+  'q',
+  'type',
+  'sortby',
+  'bbox',
+  'f',
+] as const;
+
+/** Every item type the database knows, from the Prisma enum. */
+const ITEM_TYPE_VALUES: ReadonlySet<string> = new Set(Object.values(ItemType));
+
 /**
- * Hard ceiling on rows loaded for in-memory `?bbox=` filtering
- * (SEC-records-bbox-throttle). item.bbox is JSON, not a PostGIS
- * column, so we cannot push the intersect into SQL yet; without a
- * take() a public bbox query would scan every public item into
- * Node heap. Callers must pass `take: MAX_RECORDS_BBOX_SCAN`.
- * numberMatched then reflects the filtered slice of that scan, not
- * the whole catalogue — honest for the cap, incomplete for the
- * portal until a spatial index lands.
+ * Refuse a filter the list cannot apply, instead of answering with
+ * the unfiltered catalogue under an authoritative numberMatched. Same
+ * rule the Features and STAC twins follow.
  */
-export const MAX_RECORDS_BBOX_SCAN = 5_000;
+export function assertRecordsQuery(
+  queryKeys: Iterable<string>,
+  q: { bbox?: string | undefined; type?: string | undefined; offset: number },
+): void {
+  const allowed = new Set<string>(RECORDS_QUERY_PARAMS);
+  const unknown = [...queryKeys].filter((k) => !allowed.has(k));
+  if (unknown.length > 0) {
+    throw new BadRequestException(
+      `Unknown query parameter(s): ${unknown.join(', ')}.`,
+    );
+  }
+  if (q.bbox !== undefined && q.bbox.trim().length > 0 && parseBboxQuery(q.bbox) === null) {
+    throw new BadRequestException('bbox must be four comma-separated numbers.');
+  }
+  if (q.type !== undefined && q.type.length > 0 && !ITEM_TYPE_VALUES.has(q.type)) {
+    throw new BadRequestException(`Unknown type: ${q.type}.`);
+  }
+  if (q.offset > MAX_RECORDS_OFFSET) {
+    throw new BadRequestException(
+      `offset beyond ${MAX_RECORDS_OFFSET} is not supported.`,
+    );
+  }
+}
+
+/**
+ * One page of public records and the total that matches. A bbox is
+ * tested in SQL against the indexed bbox_geom column (generated from
+ * item.bbox), so the count covers the whole catalogue, not a capped
+ * scan held in memory.
+ */
+export async function queryPublicRecords(
+  prisma: {
+    $queryRaw: <T>(query: Prisma.Sql) => Promise<T>;
+    item: {
+      count: (args: { where: Prisma.ItemWhereInput }) => Promise<number>;
+      findMany: (args: Prisma.ItemFindManyArgs) => Promise<unknown[]>;
+    };
+  },
+  args: {
+    where: Prisma.ItemWhereInput;
+    orderBy: Prisma.ItemFindManyArgs['orderBy'];
+    offset: number;
+    limit: number;
+    bbox: string | undefined;
+  },
+): Promise<{ rows: ItemRow[]; total: number }> {
+  let where = args.where;
+  const box = parseBboxQuery(args.bbox);
+  if (box) {
+    const [w, s, e, n] = box;
+    const ids = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM "item"
+      WHERE access = 'public'
+        AND deleted_at IS NULL
+        AND bbox_geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
+    `);
+    where = { AND: [where, { id: { in: ids.map((r) => r.id) } }] };
+  }
+  const [total, rows] = await Promise.all([
+    prisma.item.count({ where }),
+    prisma.item.findMany({
+      where,
+      select: ITEM_SELECT,
+      ...(args.orderBy !== undefined ? { orderBy: args.orderBy } : {}),
+      skip: args.offset,
+      take: args.limit,
+    }),
+  ]);
+  return { rows: rows as ItemRow[], total };
+}
 
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,25 +146,6 @@ export type ItemRow = {
   updatedAt: Date;
   owner: { fullName: string; username: string } | null;
 };
-
-/** Known item types we serve. Mirrors the public catalog allow-list. */
-export const KNOWN_ITEM_TYPES: Set<string> = new Set([
-  'data_layer',
-  'map',
-  'web_app',
-  'form',
-  'file',
-  'dashboard',
-  'report_template',
-  'tool',
-  'arcgis_service',
-  'basemap',
-  'geo_boundary',
-  'pick_list',
-  'layer_package',
-  'service',
-  'geocoding_service',
-]);
 
 export function catalogCollectionDoc(
   ogcRoot: string,
@@ -125,7 +188,9 @@ export function buildRecord(
   const links: Array<Record<string, string>> = [
     { href: self, rel: 'self', type: 'application/json' },
     {
-      href: `${base}/api/items/${row.id}`,
+      // Records are a public surface; the anonymous mirror of the
+      // item document is the one a caller here can open.
+      href: `${base}/api/public/items/${row.id}`,
       rel: 'alternate',
       type: 'application/json',
       title: 'Portal item document',
@@ -435,39 +500,6 @@ export function buildRecordsPage(
   };
 }
 
-/**
- * Apply a CRS84 bbox filter in memory, then page. Used when `?bbox=`
- * is present: item.bbox is JSON, not a PostGIS column, so a raw-SQL
- * index path is deferred until catalogues are large enough to need
- * it. Callers must already have capped the input with
- * `MAX_RECORDS_BBOX_SCAN`. numberMatched stays honest for the
- * filtered set of that scan.
- */
-export function filterAndPageRecords(
-  rows: ItemRow[],
-  base: string,
-  selfBase: string,
-  params: RecordsListParams,
-  rootHref: string,
-): RecordsPage {
-  const bboxFilter = parseBboxQuery(params.bbox);
-  const filtered = bboxFilter
-    ? rows.filter((r) => {
-        const b = parseBbox(r.bbox);
-        return b !== null && bboxesIntersect(b, bboxFilter);
-      })
-    : rows;
-  const page = filtered.slice(params.offset, params.offset + params.limit);
-  return buildRecordsPage(
-    page,
-    filtered.length,
-    base,
-    selfBase,
-    params,
-    rootHref,
-  );
-}
-
 /** Prisma `where` fragment shared by both Records mounts. */
 export function recordsWhere(opts: {
   q?: string | undefined;
@@ -484,7 +516,7 @@ export function recordsWhere(opts: {
     type?: ItemType;
     OR?: Array<Record<string, unknown>>;
   } = { access: 'public', deletedAt: null };
-  if (opts.type && KNOWN_ITEM_TYPES.has(opts.type)) {
+  if (opts.type && ITEM_TYPE_VALUES.has(opts.type)) {
     where.type = opts.type as ItemType;
   }
   if (opts.q && opts.q.trim().length > 0) {

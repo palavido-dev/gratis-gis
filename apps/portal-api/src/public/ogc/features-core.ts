@@ -243,14 +243,18 @@ export function clamp(n: number, lo: number, hi: number): number {
 export function pagedUrl(
   selfBase: string,
   limit: number,
-  offset: number,
+  offset: number | { cursor: string },
   bbox: string | undefined,
   crs: string | undefined,
   bboxCrs: string | undefined,
 ): string {
   const url = new URL(selfBase);
   url.searchParams.set('limit', String(limit));
-  url.searchParams.set('offset', String(offset));
+  if (typeof offset === 'number') {
+    url.searchParams.set('offset', String(offset));
+  } else {
+    url.searchParams.set('cursor', offset.cursor);
+  }
   if (bbox) url.searchParams.set('bbox', bbox);
   if (crs) url.searchParams.set('crs', crs);
   if (bboxCrs) url.searchParams.set('bbox-crs', bboxCrs);
@@ -264,6 +268,54 @@ export interface ItemsQuery {
   limitParam?: string | undefined;
   offsetParam?: string | undefined;
   sortbyParam?: string | undefined;
+  cursorParam?: string | undefined;
+}
+
+/**
+ * Largest `offset` the items route takes. Offset paging re-reads
+ * every row before the offset on each page, so it is only kept for
+ * small values; `next` links page with a keyset cursor instead.
+ */
+export const MAX_ITEMS_OFFSET = 5_000;
+
+/** One keyset page as the engine returns it. */
+export interface ItemsPage {
+  features: unknown[];
+  nextCursor: string | null;
+  asOf: Date;
+}
+
+/**
+ * The `cursor` value in a next link: the engine's keyset cursor plus
+ * the instant the walk reads at, so every page of one walk sees the
+ * same snapshot. Opaque to clients.
+ */
+export function encodeItemsCursor(after: string, asOf: Date): string {
+  return Buffer.from(JSON.stringify({ a: after, t: asOf.toISOString() })).toString(
+    'base64url',
+  );
+}
+
+export function decodeItemsCursor(raw: string): { after: string; at: string } {
+  try {
+    const v = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
+      a?: unknown;
+      t?: unknown;
+    };
+    if (
+      typeof v.a === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.a) &&
+      typeof v.t === 'string' &&
+      !Number.isNaN(Date.parse(v.t))
+    ) {
+      return { after: v.a, at: v.t };
+    }
+  } catch {
+    /* fall through */
+  }
+  throw new BadRequestException(
+    'cursor is not valid; follow the next link from a previous page.',
+  );
 }
 
 /**
@@ -347,6 +399,18 @@ export async function buildItemsResponse(args: {
     bbox?: [number, number, number, number];
     limit: number;
   }) => Promise<{ features: unknown[] }>;
+  /**
+   * Keyset page reader. When given, a request with no offset is
+   * served a page at a time from the engine cursor and `next` links
+   * carry that cursor, so a walk costs one page of reads per page
+   * instead of re-reading everything before the offset.
+   */
+  readPage?: (opts: {
+    bbox?: [number, number, number, number];
+    pageSize: number;
+    after: string | null;
+    at?: string;
+  }) => Promise<ItemsPage>;
 }): Promise<FeatureCollectionPage> {
   const { query } = args;
   if (query.sortbyParam !== undefined) {
@@ -358,16 +422,22 @@ export async function buildItemsResponse(args: {
   }
   const limit = clamp(parseInt(query.limitParam ?? '', 10) || 100, 1, 10_000);
   const offset = Math.max(0, parseInt(query.offsetParam ?? '', 10) || 0);
-  const MAX_OFFSET = 100_000;
-  if (offset > MAX_OFFSET) {
+  if (offset > MAX_ITEMS_OFFSET) {
     throw new BadRequestException(
-      `offset beyond ${MAX_OFFSET} is not supported; narrow the ` +
+      `offset beyond ${MAX_ITEMS_OFFSET} is not supported; narrow the ` +
         'result with a bbox filter, or page from the start using the ' +
         'returned next links.',
     );
   }
   const crs = parseCrs(query.crsParam);
   const bboxCrs = parseCrs(query.bboxCrsParam);
+
+  if (args.readPage && offset === 0) {
+    return keysetItemsResponse(args, args.readPage, limit, crs, bboxCrs);
+  }
+  if (query.cursorParam !== undefined) {
+    throw new BadRequestException('Use either cursor or offset, not both.');
+  }
 
   const fetchN = offset + limit + 1;
   const opts: { bbox?: [number, number, number, number]; limit: number } = {
@@ -416,6 +486,57 @@ export async function buildItemsResponse(args: {
     timeStamp: new Date().toISOString(),
     numberReturned: slice.length,
     features: slice,
+    links,
+    crs:
+      crs === 'epsg-4326'
+        ? 'http://www.opengis.net/def/crs/EPSG/0/4326'
+        : 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+  };
+}
+
+/** The cursor-paged form of buildItemsResponse. */
+async function keysetItemsResponse(
+  args: Parameters<typeof buildItemsResponse>[0],
+  readPage: NonNullable<Parameters<typeof buildItemsResponse>[0]['readPage']>,
+  limit: number,
+  crs: ReturnType<typeof parseCrs>,
+  bboxCrs: ReturnType<typeof parseCrs>,
+): Promise<FeatureCollectionPage> {
+  const { query } = args;
+  const cursor =
+    query.cursorParam !== undefined ? decodeItemsCursor(query.cursorParam) : null;
+  const opts: Parameters<typeof readPage>[0] = {
+    pageSize: limit,
+    after: cursor?.after ?? null,
+  };
+  if (cursor) opts.at = cursor.at;
+  if (query.bboxParam) opts.bbox = parseBbox(query.bboxParam, bboxCrs);
+  const page = await readPage(opts);
+  let features = page.features as Array<{ geometry?: unknown }>;
+  if (crs === 'epsg-4326') features = features.map(swapAxes);
+
+  const links: Array<Record<string, string>> = [
+    { href: args.itemsUrl, rel: 'self', type: 'application/geo+json' },
+    { href: args.collectionUrl, rel: 'collection', type: 'application/json' },
+  ];
+  // nextCursor is null only at the true end. A page can be short, or
+  // even empty, with more data behind it (a run of deleted rows).
+  if (page.nextCursor !== null) {
+    links.push({
+      href: pagedUrl(
+        args.itemsUrl, limit,
+        { cursor: encodeItemsCursor(page.nextCursor, page.asOf) },
+        query.bboxParam, query.crsParam, query.bboxCrsParam,
+      ),
+      rel: 'next',
+      type: 'application/geo+json',
+    });
+  }
+  return {
+    type: 'FeatureCollection',
+    timeStamp: new Date().toISOString(),
+    numberReturned: features.length,
+    features,
     links,
     crs:
       crs === 'epsg-4326'

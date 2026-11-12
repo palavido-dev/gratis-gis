@@ -105,6 +105,23 @@ function dataLayerLayers(item: MetaUiItemInput): MetaUiLayer[] {
   ];
 }
 
+/** Spatial sublayers of a v3 data layer, or null for any other shape. */
+function v3SpatialLayers(
+  item: MetaUiItemInput,
+): Array<{ id: string; label: string }> | null {
+  const d = item.data as { version?: number; layers?: unknown } | null;
+  if (d?.version !== 3 || !Array.isArray(d.layers)) return null;
+  return (d.layers as Array<{ id?: unknown; label?: unknown; geometryType?: unknown }>)
+    .filter(
+      (l): l is { id: string; label?: unknown; geometryType?: unknown } =>
+        !!l && typeof l.id === 'string' && !!l.geometryType,
+    )
+    .map((l) => ({
+      id: l.id,
+      label: typeof l.label === 'string' && l.label ? l.label : l.id,
+    }));
+}
+
 function resolveDataSublayers(item: MetaUiItemInput):
   | Array<{ id: string; label: string; geometryType: string | null }>
   | null {
@@ -236,12 +253,24 @@ function downloadsFor(item: MetaUiItemInput): MetaUiDownload[] {
   const out: MetaUiDownload[] = [];
   if (item.type === 'data_layer' || item.type === 'derived_layer') {
     // Auth-gated path first so private items never advertise a
-    // public OGC URL that 404s for anonymous callers.
-    out.push({
-      label: 'GeoJSON',
-      url: `/api/items/${item.id}/geojson`,
-      format: 'GeoJSON',
-    });
+    // public OGC URL that 404s for anonymous callers. A v3 data layer
+    // is served per sublayer; the item-level route has no rows for it.
+    const v3 = item.type === 'data_layer' ? v3SpatialLayers(item) : null;
+    if (v3) {
+      for (const l of v3) {
+        out.push({
+          label: v3.length === 1 ? 'GeoJSON' : `GeoJSON (${l.label})`,
+          url: `/api/items/${item.id}/layers/${encodeURIComponent(l.id)}/geojson`,
+          format: 'GeoJSON',
+        });
+      }
+    } else {
+      out.push({
+        label: 'GeoJSON',
+        url: `/api/items/${item.id}/geojson`,
+        format: 'GeoJSON',
+      });
+    }
     if (item.access === 'public') {
       out.push({
         label: 'GeoJSON (OGC API Features)',

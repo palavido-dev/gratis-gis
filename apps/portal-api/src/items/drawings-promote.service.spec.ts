@@ -63,6 +63,7 @@ describe('DrawingsPromoteService', () => {
   function makeSvc(opts: {
     set: DrawingSet;
     refuseWrite?: boolean;
+    failInsert?: boolean;
   }) {
     const drawings = {
       requireWritableSet: jest.fn(async () => {
@@ -74,15 +75,20 @@ describe('DrawingsPromoteService', () => {
     };
     const items = {
       create: jest.fn(async () => ({ id: 'layer-item-1' })),
+      remove: jest.fn(async () => undefined),
+      purge: jest.fn(async () => undefined),
     };
     const features = {
-      insertFeatures: jest.fn(async (_itemId: string, _layerId: string, rows: unknown[]) => ({
+      insertFeatures: jest.fn(async (_itemId: string, _layerId: string, rows: unknown[]) => {
+        if (opts.failInsert) throw new Error('insert failed');
+        return {
         inserted: rows.length,
         deduplicated: 0,
         globalIds: (rows as Array<{ globalId?: string }>).map(
           (r, i) => r.globalId ?? `g-${i}`,
         ),
-      })),
+        };
+      }),
     };
     const svc = new DrawingsPromoteService(
       drawings as never,
@@ -158,5 +164,37 @@ describe('DrawingsPromoteService', () => {
         drawingId: 'set-1',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('passes only uuid-shaped, unique drawing ids as globalId', async () => {
+    const uuid = '22222222-2222-4222-8222-222222222222';
+    const { svc, features } = makeSvc({
+      set: setWith([pin('f1'), pin(uuid), pin(uuid)]),
+    });
+    await svc.promote({
+      user: makeUser(),
+      mapId: '11111111-1111-4111-8111-111111111111',
+      drawingId: 'set-1',
+    });
+    const rows = features.insertFeatures.mock.calls[0]![2] as Array<{
+      globalId?: string;
+    }>;
+    expect(rows.map((r) => r.globalId)).toEqual([undefined, uuid, undefined]);
+  });
+
+  it('removes the new layer when an insert fails', async () => {
+    const { svc, items } = makeSvc({
+      set: setWith([pin('p1')]),
+      failInsert: true,
+    });
+    await expect(
+      svc.promote({
+        user: makeUser(),
+        mapId: '11111111-1111-4111-8111-111111111111',
+        drawingId: 'set-1',
+      }),
+    ).rejects.toThrow('insert failed');
+    expect(items.remove).toHaveBeenCalledWith(expect.anything(), 'layer-item-1');
+    expect(items.purge).toHaveBeenCalledWith(expect.anything(), 'layer-item-1');
   });
 });

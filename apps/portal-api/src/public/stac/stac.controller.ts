@@ -239,6 +239,7 @@ export class PublicStacController {
       base,
       apiRoot: root,
       selfUrl: `${root}/search`,
+      postBody: body ?? {},
     });
   }
 }

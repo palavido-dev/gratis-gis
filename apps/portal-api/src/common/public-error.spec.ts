@@ -212,3 +212,46 @@ describe('OgcProblemJsonFilter portal errors', () => {
     expect(captured.body).toMatchObject({ status: 400 });
   });
 });
+
+describe('OgcProblemJsonFilter internal errors', () => {
+  it('never sends an internal error message to an OGC caller', () => {
+    const filter = new OgcProblemJsonFilter();
+    const captured: { status?: number; body?: { detail?: string; instance?: string } } = {};
+    const req = {
+      method: 'GET',
+      originalUrl: '/api/public/ogc/collections/x/items/abc?f=json',
+      url: '/api/public/ogc/collections/x/items/abc?f=json',
+      header: () => undefined,
+      requestId: 'req12345abcd',
+    };
+    const res = {
+      headersSent: false,
+      status(code: number) {
+        captured.status = code;
+        return this;
+      },
+      type() {
+        return this;
+      },
+      send(body: { detail?: string; instance?: string }) {
+        captured.body = body;
+        return this;
+      },
+      end() {
+        return this;
+      },
+    };
+    filter.catch(
+      new Error(
+        'Invalid `prisma.$queryRaw()` invocation: Code: `22P02`. invalid input syntax for type uuid: "abc"',
+      ),
+      {
+        switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+      } as unknown as ArgumentsHost,
+    );
+    expect(captured.status).toBe(500);
+    expect(captured.body?.detail).not.toMatch(/prisma|22P02|uuid/i);
+    expect(captured.body?.detail).toContain('req12345abcd');
+    expect(captured.body?.instance).toBe('/api/public/ogc/collections/x/items/abc');
+  });
+});

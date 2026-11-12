@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { Item } from '@prisma/client';
 import {
   ForbiddenException,
   Injectable,
@@ -80,6 +81,8 @@ const PALETTE: string[] = [
 
 @Injectable()
 export class RealtimeService {
+  /** user:map -> time until which a passed read check is reused. */
+  private readonly readOk = new Map<string, number>();
   private readonly rooms = new Map<string, RoomState>();
   private readonly tickets = new Map<string, TicketRecord>();
 
@@ -321,17 +324,32 @@ export class RealtimeService {
     return name.slice(0, 80);
   }
 
+  /**
+   * Read check for a presence frame. Cursor frames arrive several
+   * times a second per viewer, so a pass is remembered for a few
+   * seconds (a revoked viewer is still dropped within that window),
+   * and only the columns the policy reads are loaded: the map row
+   * itself can carry megabytes of inline drawings.
+   */
   private async assertCanRead(user: AuthUser, mapId: string): Promise<void> {
+    const key = `${user.id}:${mapId}`;
+    const now = Date.now();
+    const until = this.readOk.get(key);
+    if (until !== undefined && until > now) return;
     const item = await this.prisma.item.findFirst({
       where: { id: mapId, type: 'map', deletedAt: null },
+      select: { id: true, orgId: true, ownerId: true, access: true },
     });
     if (!item) throw new NotFoundException('Map not found');
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: mapId },
     });
-    if (!this.sharing.canRead(user, item, shares)) {
+    if (!this.sharing.canRead(user, item as Item, shares)) {
+      this.readOk.delete(key);
       throw new ForbiddenException('You do not have access to this map');
     }
+    if (this.readOk.size >= READ_CACHE_MAX) this.readOk.clear();
+    this.readOk.set(key, now + READ_CACHE_MS);
   }
 }
 
@@ -340,3 +358,8 @@ function mintConnectionId(userId: string): string {
     .toString(36)
     .slice(2, 8)}`;
 }
+
+/** How long a passed presence read check is reused. */
+const READ_CACHE_MS = 5_000;
+/** Entries kept before the cache is simply cleared. */
+const READ_CACHE_MAX = 10_000;

@@ -92,18 +92,18 @@ describe('org isolation (C1)', () => {
   });
 
   describe('visibleWhere org scoping', () => {
-    it('for Org A admin only includes orgId: ORG_A', () => {
+    it('for Org A admin adds every ORG_A item and nothing org-wide from ORG_B', () => {
       const where = svc.visibleWhere(orgAAdmin);
-      // Admin short-circuit: { AND: [{ orgId }, { deletedAt: null }] }
       const and = (where as { AND: Prisma.ItemWhereInput[] }).AND;
-      expect(and).toEqual(
-        expect.arrayContaining([{ orgId: ORG_A }, { deletedAt: null }]),
-      );
-      const orgClause = and.find(
-        (c) => typeof c === 'object' && c !== null && 'orgId' in c,
-      ) as { orgId: string };
-      expect(orgClause.orgId).toBe(ORG_A);
-      expect(orgClause.orgId).not.toBe(ORG_B);
+      expect(and).toEqual(expect.arrayContaining([{ deletedAt: null }]));
+      const access = and.find(
+        (c) => typeof c === 'object' && c !== null && 'OR' in c,
+      ) as { OR: Prisma.ItemWhereInput[] };
+      // Every item of the admin's own org, regardless of sharing.
+      expect(access.OR).toContainEqual({ orgId: ORG_A });
+      // The same outside reach as any member (public items, shares),
+      // which canRead also grants an admin.
+      expect(access.OR).toContainEqual({ access: 'public' });
       // The admin clause must not broaden to ORG_B under any key.
       expect(JSON.stringify(where)).not.toContain(ORG_B);
     });
