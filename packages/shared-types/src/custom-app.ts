@@ -1862,13 +1862,20 @@ export function newSourceId(): string {
 function migrateTargetsToSources(cur: CustomAppData): CustomAppData {
   const legacyFollow = (cur as { followMapWidgetId?: string })
     .followMapWidgetId;
-  const sources: AppDataSource[] = (cur.targets ?? []).map((t, i) => ({
-    id: migratedSourceId(i),
-    layer: t,
-    ...(legacyFollow !== undefined
-      ? { followMapWidgetId: legacyFollow }
-      : {}),
-  }));
+  // The create wizard writes `sources` (with the dashboard's "follow
+  // the map" default) onto a v4 starter blueprint. Rebuilding them
+  // from `targets` threw that default away on first load, so sources
+  // already present are kept and widgets bind to them by position.
+  const sources: AppDataSource[] =
+    Array.isArray(cur.sources) && cur.sources.length > 0
+      ? cur.sources
+      : (cur.targets ?? []).map((t, i) => ({
+          id: migratedSourceId(i),
+          layer: t,
+          ...(legacyFollow !== undefined
+            ? { followMapWidgetId: legacyFollow }
+            : {}),
+        }));
   const bindWidget = (w: CustomWidget): CustomWidget => {
     const cfg = w.config as { targetIndex?: unknown; sourceId?: unknown };
     let next = w;
