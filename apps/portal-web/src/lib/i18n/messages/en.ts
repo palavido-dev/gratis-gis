@@ -2886,6 +2886,7 @@ export const en = {
       "Anyone on the internet will be able to see the {count, plural, one {# selected item} other {# selected items}} without signing in. Use this for shareable map / viewer links. Items referenced by the selection (layers, basemaps, etc.) need to be public too; you'll be prompted to cascade after this completes.",
     geographicScope: 'Geographic scope',
     noBoundaryItems: 'No boundary items in this org yet',
+    keepScope: "Keep each item's current scope",
     noScope: 'No scope (unrestricted)',
     geoScopeHint:
       'When set, viewers reaching these items via {via} only see features inside the boundary. Enforced at the API layer.',
