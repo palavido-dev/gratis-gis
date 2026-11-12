@@ -52,9 +52,14 @@ export async function readRecoveryStatus(
   file: string | undefined,
 ): Promise<RecoveryStatus | null> {
   if (!file) return null;
+  let text: string;
   try {
-    return parseRecoveryStatus(await readFile(file, 'utf8'));
-  } catch {
+    text = await readFile(file, 'utf8');
+  } catch (err) {
+    // No recovery has run yet: that is no status, not a failure.
+    // Reporting it as failed mailed "host recovery failed" on the
+    // first visit to the backup page.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     return {
       outcome: 'failed',
       phase: 'status-file',
@@ -65,6 +70,7 @@ export async function readRecoveryStatus(
       detail: 'The recovery status file could not be read.',
     };
   }
+  return parseRecoveryStatus(text);
 }
 
 export interface MailSink {

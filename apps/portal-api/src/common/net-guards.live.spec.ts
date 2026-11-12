@@ -359,3 +359,41 @@ describe('denied dial addresses', () => {
     expect(connectHost('2001:db8::1')).toBe('2001:db8::1');
   });
 });
+
+describe('safeFetch time limit', () => {
+  afterEach(() => {
+    _setSafeFetchTransportForTests(null);
+  });
+
+  it('adds a time limit when the caller brings no signal', async () => {
+    let seen: AbortSignal | null | undefined;
+    _setSafeFetchTransportForTests(async (_url, init) => {
+      seen = init?.signal;
+      return new Response('ok');
+    });
+    await safeFetch('http://tiles.example/x');
+    expect(seen).toBeInstanceOf(AbortSignal);
+  });
+
+  it('stops reading a body that drips past the caller signal', async () => {
+    const server = createHttpServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('a');
+      const t = setInterval(() => res.write('a'), 50);
+      res.on('close', () => clearInterval(t));
+    });
+    const port = await listen(server);
+    _setSafeFetchTransportForTests((url, init) => pinnedRequest(url, init, '127.0.0.1'));
+    try {
+      const res = await safeFetch(`http://tiles.example:${port}/drip`, {
+        signal: AbortSignal.timeout(300),
+      });
+      const started = Date.now();
+      await expect(res.text()).rejects.toBeDefined();
+      expect(Date.now() - started).toBeLessThan(5_000);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

@@ -23,7 +23,8 @@ import { defineConfig } from 'prisma/config';
 const envPath = path.resolve(process.cwd(), '.env');
 if (fs.existsSync(envPath) && !process.env.DATABASE_URL) {
   const text = fs.readFileSync(envPath, 'utf8');
-  for (const line of text.split('\n')) {
+  // \r?\n: a Windows checkout can give the copied .env CRLF endings.
+  for (const line of text.split(/\r?\n/)) {
     const m = line.match(/^DATABASE_URL=(.*)$/);
     if (m) {
       // Strip optional surrounding quotes.
@@ -43,7 +44,25 @@ if (fs.existsSync(envPath) && !process.env.DATABASE_URL) {
 // succeed (which matters during the Docker build phase where the
 // container has no DB connection yet) while the runtime + migrate
 // paths still fail loudly if the env-var is missing later.
-const databaseUrl = process.env.DATABASE_URL;
+//
+// The app role carries a 30 s statement_timeout (migration
+// 20260518150000), and the CLI connects as that same role. A
+// migration that builds an index or backfills a big table would hit
+// it and stop the deploy. The CLI is only run by operators and the
+// deploy's migrate step, so it asks the server for no limit here.
+// The running API connects through its own adapter and keeps 30 s.
+function withoutStatementTimeout(url: string | undefined): string | undefined {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    if (u.searchParams.has('options')) return url;
+    u.searchParams.set('options', '-c statement_timeout=0');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+const databaseUrl = withoutStatementTimeout(process.env.DATABASE_URL);
 // Only `migrate dev` and `migrate diff --from-migrations` (the CI
 // schema drift check) need a shadow database.
 const shadowDatabaseUrl = process.env.SHADOW_DATABASE_URL;

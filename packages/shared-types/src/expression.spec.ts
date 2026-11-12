@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  compileExpression,
   evaluateExpression,
   ExpressionError,
   fieldRefTypeFor,
@@ -135,5 +136,29 @@ describe('evaluateExpression: text ordering', () => {
   it('still orders numbers numerically, including numeric text against a number', () => {
     expect(run('{{acres}} > 9')).toBe(true);
     expect(evaluateExpression(parseExpression('{{n}} > 9'), { n: '12' })).toBe(true);
+  });
+});
+
+describe('validateExpression: inside functions and NOT', () => {
+  it('reports a missing field inside a function or NOT', () => {
+    expect(check('upper({{nmae}})').join(' ')).toMatch(/does not exist/);
+    expect(check('NOT {{nope}}').join(' ')).toMatch(/does not exist/);
+  });
+
+  it('returns an arity error for an empty coalesce or if, without throwing', () => {
+    expect(() => check('coalesce()')).not.toThrow();
+    expect(check('coalesce()').join(' ')).toMatch(/at least two/);
+    expect(() => check('if()')).not.toThrow();
+  });
+});
+
+describe('toSqlSafeFieldName and division', () => {
+  it('prefixes a reserved name instead of falling back to "field"', () => {
+    expect(toSqlSafeFieldName('constructor')).toBe('f_constructor');
+  });
+
+  it('compiles division and modulo with a NULLIF guard', () => {
+    const sql = JSON.stringify(compileExpression(parseExpression('{{acres}} / {{acres}}'), (n) => `"${n}"`, 0));
+    expect(sql).toContain('NULLIF');
   });
 });

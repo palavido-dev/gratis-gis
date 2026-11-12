@@ -726,6 +726,10 @@ function compileAttrFilter(
   const attrs = alias === 'p' ? Prisma.raw('p.attrs') : Prisma.raw('attrs');
   const parts: Prisma.Sql[] = [];
   for (const c of filter.clauses) {
+    // A clause with no field yet (the author is mid-edit) is skipped,
+    // as the map and the in-memory matcher skip it; it used to fail
+    // the whole read.
+    if (!c.field) continue;
     if (!ATTR_NAME_RE.test(c.field)) {
       throw new Error(`Invalid attribute name: ${c.field}`);
     }

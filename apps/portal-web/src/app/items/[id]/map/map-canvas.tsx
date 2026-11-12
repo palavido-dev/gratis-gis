@@ -4095,11 +4095,14 @@ type MlFilter = maplibregl.FilterSpecification;
 function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
   if (!clause.field) return null;
   const prop = ['get', clause.field];
+  // Same rules as packages/shared-types/src/filter-match.ts and the
+  // engine's SQL: equality on the text form (5 equals "5"), contains
+  // ignoring case, and null meaning absent or JSON null.
   switch (clause.op) {
     case '==':
-      return ['==', prop, clause.value];
+      return ['all', ['!=', prop, null], ['==', ['to-string', prop], clause.value]];
     case '!=':
-      return ['!=', prop, clause.value];
+      return ['any', ['==', prop, null], ['!=', ['to-string', prop], clause.value]];
     case '>':
     case '>=':
     case '<':
@@ -4109,11 +4112,15 @@ function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
       return [clause.op, prop, n];
     }
     case 'contains':
-      return ['>=', ['index-of', clause.value, ['to-string', prop]], 0];
+      return [
+        'all',
+        ['!=', prop, null],
+        ['>=', ['index-of', String(clause.value).toLowerCase(), ['downcase', ['to-string', prop]]], 0],
+      ];
     case 'is-null':
-      return ['!', ['has', clause.field]];
+      return ['==', prop, null];
     case 'is-not-null':
-      return ['has', clause.field];
+      return ['!=', prop, null];
   }
 }
 

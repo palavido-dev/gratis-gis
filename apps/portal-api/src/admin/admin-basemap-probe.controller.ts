@@ -149,13 +149,13 @@ export class AdminBasemapProbeController {
     }
 
     // (2) ArcGIS MapServer.
+    let mapServerError: string | undefined;
     if (looksLikeArcgisMapServer(parsed)) {
       try {
         return await this.probeArcgisMapServer(parsed);
       } catch (err) {
-        this.log.warn(
-          `MapServer probe failed for ${url}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        mapServerError = err instanceof Error ? err.message : String(err);
+        this.log.warn(`MapServer probe failed for ${url}: ${mapServerError}`);
         // Fall through to the generic style probe; some MapServer
         // URLs respond to ?f=json with errors but still serve
         // tiles, so a manual tile-url paste might still work.
@@ -205,6 +205,9 @@ export class AdminBasemapProbeController {
       );
     }
 
+    // The URL looked like a MapServer and nothing else matched: its
+    // own reason is more useful than the generic list.
+    if (mapServerError) throw new BadRequestException(mapServerError);
     throw new BadRequestException(
       'Could not detect a recognized basemap format at that URL. ' +
         'Supported: XYZ tile template ({z}/{x}/{y} placeholders), ArcGIS ' +
@@ -218,8 +221,13 @@ export class AdminBasemapProbeController {
   private async probeArcgisMapServer(
     parsed: URL,
   ): Promise<BasemapProbeResult> {
-    const base = parsed.toString().replace(/(?<!\/)\/+$/, '');
-    const metaUrl = `${base}?f=json`;
+    // Path only: a pasted `?token=...` must go after `?f=json` and
+    // after the tile path, not in the middle of them.
+    const base = `${parsed.origin}${parsed.pathname}`.replace(/(?<!\/)\/+$/, '');
+    const extra = new URLSearchParams(parsed.search);
+    extra.delete('f');
+    const query = extra.toString();
+    const metaUrl = `${base}?f=json${query ? `&${query}` : ''}`;
     const res = await fetchWithTimeout(metaUrl, 10_000);
     if (!res.ok) {
       throw new Error(`MapServer ?f=json returned ${res.status}`);
@@ -232,8 +240,22 @@ export class AdminBasemapProbeController {
       tileInfo?: { lods?: Array<{ level: number }> };
       minLOD?: number;
       maxLOD?: number;
+      error?: { message?: string };
     };
     const meta = (await res.json()) as EsriMapServer;
+    // ArcGIS reports errors as HTTP 200 with an `error` body.
+    if (meta.error) {
+      throw new Error(
+        `MapServer returned an error: ${typeof meta.error.message === 'string' ? meta.error.message : 'unknown'}`,
+      );
+    }
+    // A dynamic (uncached) MapServer has no /tile endpoint, so a tile
+    // template for it would fail on every request.
+    if (meta.singleFusedMapCache !== true) {
+      throw new Error(
+        'This MapServer has no cached tiles (singleFusedMapCache is not true), so it cannot be used as a tile basemap.',
+      );
+    }
     const title =
       (meta.mapName && meta.mapName.trim()) ||
       (meta.documentInfo?.Title && meta.documentInfo.Title.trim()) ||
@@ -246,7 +268,7 @@ export class AdminBasemapProbeController {
     // MapLibre expresses as /tile/{z}/{y}/{x}. The row-before-
     // column swap matters; getting it backwards gives mirrored
     // tiles that don't blow up but are obviously wrong.
-    const tileUrl = `${base}/tile/{z}/{y}/{x}`;
+    const tileUrl = `${base}/tile/{z}/{y}/{x}${query ? `?${query}` : ''}`;
     // LOD range becomes minzoom / maxzoom so MapLibre doesn't try
     // to fetch tiles outside the cached pyramid (which 404s noisy
     // log spam).
@@ -303,7 +325,7 @@ export class AdminBasemapProbeController {
     const svcProvider = asElement(caps.ServiceProvider);
     const title = textOf(svcId?.Title);
     const attribution =
-      textOf(svcId?.AccessConstraints) ?? textOf(svcProvider?.ProviderName);
+      constraintText(svcId?.AccessConstraints) ?? textOf(svcProvider?.ProviderName);
 
     const contents = asElement(caps.Contents);
     if (!contents) {
@@ -488,7 +510,7 @@ export class AdminBasemapProbeController {
     const contactInfo = asElement(service?.ContactInformation);
     const contactPerson = asElement(contactInfo?.ContactPersonPrimary);
     const attribution =
-      textOf(service?.AccessConstraints) ??
+      constraintText(service?.AccessConstraints) ??
       textOf(contactPerson?.ContactOrganization);
 
     // The <Capability><Layer> root is conventionally a non-
@@ -804,9 +826,27 @@ function looksLikeWms(parsed: URL): boolean {
   return false;
 }
 
+/**
+ * AccessConstraints as attribution text. OGC servers write the
+ * reserved word "none" when there are no constraints; that is not an
+ * attribution, so fall through to the provider name.
+ */
+function constraintText(node: XmlValue | undefined): string | undefined {
+  const text = textOf(node);
+  if (!text || text.trim().toLowerCase() === 'none') return undefined;
+  return text;
+}
+
+/** Ceiling for a probed metadata document (capabilities, JSON). */
+const PROBE_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The time limit covers reading the body too: the signal is never
+ * cleared, and safeFetch keeps it on the request until the response
+ * closes. Clearing it once the headers arrived let a host that drips
+ * its body hold the request open for good.
+ */
 async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
   try {
     // Route every probe fetch through the SSRF guard (DNS-resolution
     // + private-range block). The endpoint-level check at line ~99
@@ -816,23 +856,25 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
     // surface it as a 400 so the admin sees a useful message.
     // safeFetch re-checks every redirect. A plain fetch() would
     // follow a public URL that 302s to a private address.
-    const res = await safeFetch(url, {
-      signal: ctrl.signal,
-      headers: { 'user-agent': 'GratisGIS/probe' },
-    });
+    const res = await safeFetch(
+      url,
+      {
+        signal: AbortSignal.timeout(ms),
+        headers: { 'user-agent': 'GratisGIS/probe' },
+      },
+      { maxBytes: PROBE_MAX_BYTES },
+    );
     return res;
   } catch (err) {
     if (err instanceof UnsafeOutboundUrlError) {
       throw new BadRequestException(err.message);
     }
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
       throw new HttpException(
         'Probe timed out (10s). Check the URL or try again.',
         HttpStatus.GATEWAY_TIMEOUT,
       );
     }
     throw err;
-  } finally {
-    clearTimeout(t);
   }
 }

@@ -167,20 +167,40 @@ function sanitizeHtml(input: unknown, profile: SanitizeProfile): string {
   const out: string[] = [];
   /** Allowed elements currently open, innermost last. */
   const open: string[] = [];
+  // The output is capped too, not just the input: links gain
+  // attributes and `&` becomes `&amp;`, so a capped input could come
+  // out twice as long, and the next pass (render, or the next save)
+  // cut it mid-tag. Stop before a piece that would not fit together
+  // with the closing tags still owed.
+  let used = 0;
+  const closing = (extra?: string): number =>
+    open.reduce((n, t) => n + t.length + 3, 0) + (extra ? extra.length + 3 : 0);
+  const fits = (piece: string, opens?: string): boolean =>
+    used + piece.length + closing(opens) <= profile.maxLength;
+  const emit = (piece: string): void => {
+    out.push(piece);
+    used += piece.length;
+  };
 
   for (const token of tokenize(source)) {
     if (token.kind === 'text') {
-      out.push(escapeHtml(decodeHtmlEntities(token.text)));
+      const piece = escapeHtml(decodeHtmlEntities(token.text));
+      if (!fits(piece)) break;
+      emit(piece);
       continue;
     }
     if (token.kind === 'start') {
       const rendered = renderStartTag(token, profile.allowed);
       if (rendered === null) {
         // Refused: show it rather than deleting it.
-        out.push(escapeHtml(decodeHtmlEntities(token.raw)));
+        const piece = escapeHtml(decodeHtmlEntities(token.raw));
+        if (!fits(piece)) break;
+        emit(piece);
         continue;
       }
-      out.push(rendered);
+      const opens = profile.voidTags.has(token.name) ? undefined : token.name;
+      if (!fits(rendered, opens)) break;
+      emit(rendered);
       // A void element such as `<br>` must not be pushed onto the
       // open stack. A self-closing non-void tag still opens, because
       // the HTML parser ignores the slash on those elements.
@@ -191,10 +211,12 @@ function sanitizeHtml(input: unknown, profile: SanitizeProfile): string {
     // output stays well formed even when the input interleaved tags.
     const depth = lastIndexOfTag(open, token.name);
     if (depth === -1) {
-      out.push(escapeHtml(decodeHtmlEntities(token.raw)));
+      const piece = escapeHtml(decodeHtmlEntities(token.raw));
+      if (!fits(piece)) break;
+      emit(piece);
       continue;
     }
-    for (let i = open.length - 1; i >= depth; i--) out.push(`</${open[i]}>`);
+    for (let i = open.length - 1; i >= depth; i--) emit(`</${open[i]}>`);
     open.length = depth;
   }
 
@@ -259,9 +281,18 @@ function tokenize(source: string): Token[] {
     }
   };
 
+  // A '<' after the last '>' can never close. Without this check each
+  // such '<' rescanned to the end of the input: quadratic, seconds of
+  // frozen tab for a 20 KB popup of "<a<a<a...".
+  const lastGt = source.lastIndexOf('>');
   while (i < source.length) {
     if (source[i] !== '<') {
       text += source[i];
+      i += 1;
+      continue;
+    }
+    if (i > lastGt) {
+      text += '<';
       i += 1;
       continue;
     }
@@ -592,7 +623,11 @@ function decodeHtmlEntities(value: string): string {
       if (code >= 0xd800 && code <= 0xdfff) return match;
       return String.fromCodePoint(code);
     }
-    const named = NAMED_ENTITIES[body.toLowerCase()];
+    // Own keys only: `&constructor;` found Object on the prototype.
+    const key = body.toLowerCase();
+    const named = Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, key)
+      ? NAMED_ENTITIES[key]
+      : undefined;
     return named === undefined ? match : named;
   });
 }

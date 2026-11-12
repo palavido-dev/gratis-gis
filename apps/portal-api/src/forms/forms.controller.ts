@@ -13,9 +13,11 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsInt,
+  IsOptional,
   IsObject,
   IsString,
   Length,
+  Max,
   Min,
 } from 'class-validator';
 import type { Response } from 'express';
@@ -29,6 +31,8 @@ class SubmitDto {
   @IsInt() @Min(1) schemaVersion!: number;
   @IsObject() response!: Record<string, unknown>;
   @IsString() capturedAt!: string;
+  /** Respondent's minutes east of UTC at capture, for today(). */
+  @IsOptional() @IsInt() @Min(-840) @Max(840) utcOffsetMinutes?: number;
 }
 
 @ApiTags('forms')

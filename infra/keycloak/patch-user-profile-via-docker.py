@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Declare org and org_role on the Keycloak user-profile schema.
 
-Same change as patch-user-profile-schema.sh. This one uses only the
-Python standard library and talks to Keycloak over the Docker bridge,
-because Caddy blocks /admin and the master realm on the public name.
-TrueNAS's shell often has no jq, which the shell script requires.
+It uses only the Python standard library and talks to Keycloak over
+the Docker bridge, because Caddy blocks /admin and the master realm on
+the public name.
 
     KC_ADMIN_PASS='...' python3 infra/keycloak/patch-user-profile-via-docker.py
 

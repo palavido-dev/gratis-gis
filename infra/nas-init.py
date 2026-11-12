@@ -250,8 +250,13 @@ def write_env(path: Path, values: dict[str, str]) -> None:
     ]
     for key, value in values.items():
         lines.append(f"{key}={sh_quote(value)}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    path.chmod(0o644)
+    # Temp file and rename: other services source this file while this
+    # one may be rewriting it, and an in-place rewrite could hand them
+    # half a file.
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.chmod(0o644)
+    os.replace(tmp, path)
 
 
 # Services that handle untrusted input get only the variables they read.
@@ -270,9 +275,23 @@ SERVICE_ENV_KEYS = {
 }
 
 
+# Where each reduced file goes. Each service mounts only its own small
+# volume: mounting the whole boot volume handed them /boot/env (every
+# secret, mode 0644) one open() away, which defeated the reduced env.
+SERVICE_ENV_DIRS = {
+    "env.chromium": "CHROMIUM_ENV_DIR",
+    "env.pointcloud": "POINTCLOUD_ENV_DIR",
+}
+
+
 def write_service_envs(boot: Path, values: dict[str, str]) -> None:
     for name, keys in SERVICE_ENV_KEYS.items():
-        write_env(boot / name, {key: values.get(key, "") for key in keys})
+        target_dir = os.environ.get(SERVICE_ENV_DIRS[name], "").strip()
+        target = Path(target_dir) / name if target_dir else boot / name
+        write_env(target, {key: values.get(key, "") for key in keys})
+        if target_dir:
+            # The copy an older version left on the boot volume.
+            (boot / name).unlink(missing_ok=True)
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -500,9 +519,10 @@ def build_realm(values: dict[str, str]) -> dict:
 # security policy from portal-web.
 LAN_SECURITY_HEADERS = """\theader {
 \t\tX-Content-Type-Options nosniff
-\t\tX-Frame-Options DENY
+\t\tX-Frame-Options SAMEORIGIN
 \t\tReferrer-Policy strict-origin-when-cross-origin
-\t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+\t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), midi=(), magnetometer=(), accelerometer=(), gyroscope=()"
+\t\tCross-Origin-Opener-Policy same-origin
 \t\t-Server
 \t}
 """
@@ -632,9 +652,12 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	}}
 	header {{
 		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
+		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		# Same as infra/Caddyfile.
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), midi=(), magnetometer=(), accelerometer=(), gyroscope=()"
+		Cross-Origin-Opener-Policy same-origin
 		-Server
 	}}
 }}
@@ -645,10 +668,23 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 		respond 404
 	}}
 	reverse_proxy keycloak:8080
+	# As infra/Caddyfile. No X-Frame-Options: the login screen is
+	# sometimes framed during account linking.
+	header {{
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}}
 }}
 
 {storage} {{
 	reverse_proxy minio:9000
+	header {{
+		X-Content-Type-Options nosniff
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}}
 }}
 """
 
@@ -675,8 +711,11 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             raise SystemExit("GRATIS_BASE_URL must be a full https URL with a domain name")
         scheme = "https"
         public = f"{scheme}://{host}"
-        auth_host = os.environ.get("GRATIS_AUTH_DOMAIN", f"auth.{host}").strip()
-        storage_host = os.environ.get("GRATIS_STORAGE_DOMAIN", f"storage.{host}").strip()
+        # `or`, not a get() default: Compose passes both keys as empty
+        # strings when the operator did not set them, and get() only
+        # falls back when the key is missing. That gave "https://".
+        auth_host = os.environ.get("GRATIS_AUTH_DOMAIN", "").strip() or f"auth.{host}"
+        storage_host = os.environ.get("GRATIS_STORAGE_DOMAIN", "").strip() or f"storage.{host}"
         auth = f"https://{auth_host}"
         s3 = s3_requested or f"https://{storage_host}"
         return {"mode": "public", "public": public, "auth": auth, "s3": s3, "tls": "acme"}
@@ -692,7 +731,11 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             if prev_host and not saved_host_is_bad(prev_host):
                 host = prev_host
                 if not tls and previous.get("GRATIS_TLS") == "internal":
+                    # Carry the whole setting: an https address with a
+                    # plain-HTTP Caddy (tls left empty) broke sign-in
+                    # for one boot and then flipped to http.
                     scheme = "https"
+                    tls = "internal"
         if not host:
             detected = detect_lan_ip()
             if not detected:
@@ -708,6 +751,17 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
     else:
         s3_scheme = parsed.scheme or scheme
         s3 = f"{s3_scheme}://{host}:{s3_port}"
+        if s3_scheme == "https":
+            # The upload port is MinIO's own plain HTTP listener. With an
+            # https portal address (Tailscale Serve, GRATIS_TLS=internal)
+            # nothing terminates TLS on it, so browser uploads fail.
+            print(
+                f"WARN: uploads will go to {s3}, but port {s3_port} serves plain HTTP. "
+                "Set GRATIS_S3_URL to an https address that forwards to it "
+                "(for example a second Tailscale Serve listener on that port). "
+                "See docs/truenas.md.",
+                flush=True,
+            )
     auth = public.rstrip("/") + "/auth"
     return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
 
@@ -1110,6 +1164,11 @@ def patch_keycloak(values: dict[str, str]) -> None:
         return
     user = users[0]
     attrs = user.get("attributes") or {}
+    # Only when the import dropped them, as restore-golden.sh does. An
+    # operator who demoted `admin` or moved it to another org must not
+    # see that undone on every restart.
+    if attrs.get("org"):
+        return
     attrs["org"] = ["gratis-gis"]
     attrs["org_role"] = ["admin"]
     user["attributes"] = attrs

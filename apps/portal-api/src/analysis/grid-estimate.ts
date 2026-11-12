@@ -116,6 +116,14 @@ export function assertGridBudget(
   if (!Array.isArray(b) || b.length < 5) return null;
   const cellsX = Math.max(1, Math.ceil((Number(b[3]) - Number(b[0])) / resolution));
   const cellsY = Math.max(1, Math.ceil((Number(b[4]) - Number(b[1])) / resolution));
+  // Item bounds are not checked on save. A value JS cannot read as a
+  // number ("10_000_000") gave NaN, and NaN passed the ceiling check
+  // while the worker's Python read the same text as 1e7.
+  if (!Number.isFinite(cellsX) || !Number.isFinite(cellsY)) {
+    throw new BadRequestException(
+      "This point cloud's recorded extent is not valid. Re-upload it to rebuild its details.",
+    );
+  }
   const estimate = estimateGrid({
     ...(typeof data.sizeBytes === 'number' ? { sizeBytes: data.sizeBytes } : {}),
     ...(typeof data.pointCount === 'number'

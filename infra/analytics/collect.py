@@ -135,13 +135,15 @@ ROBOTS_RE = re.compile(r"^/robots\.txt$", re.I)
 # flag_coordinated() exists beside it: that rule catches the same
 # shape without needing to know the operator's name.
 HOSTING_ORG_RE = re.compile(
-    r"digitalocean|amazon|aws|google|microsoft|azure|oracle|linode|akamai"
-    r"|ovh|hetzner|vultr|scaleway|contabo|leaseweb|choopa|m247|datacamp"
+    r"digitalocean|amazon|\baws\b|google|microsoft|azure|oracle|linode|akamai"
+    r"|\bovh\b|hetzner|vultr|scaleway|contabo|leaseweb|choopa|\bm247\b|datacamp"
     r"|alibaba|tencent|huawei cloud|ucloud|kamatera|hostinger|namecheap"
     r"|godaddy|cloudflare|fastly|censys|shodan|internet measurement"
     r"|palo alto|recyber|driftnet|stretchoid|binaryedge|bitsight"
     r"|guanghuan|sinnet|suibian|techoff|storm industries|internet vikings"
-    r"|idc|hosting|colocation|colo(?:crossing)?|vps|dedicated server"
+    # Short tokens need word boundaries: bare "idc" matched
+    # "Midcontinent", "colo" matched Colombia and Colorado carriers.
+    r"|\bidc\b|hosting|colocation|\bcolo(?:crossing)?\b|\bvps\b|dedicated server"
     r"|data ?cent(?:er|re)|cloud ?(?:computing|service|platform)",
     re.I,
 )
@@ -225,7 +227,10 @@ ACTIVITY_RULES: list[tuple[re.Pattern[str], str]] = [
 
 def classify(path: str, ua: str) -> tuple[bool, bool, str | None]:
     """Return (is_bot, is_asset, activity) for one request line."""
-    is_bot = bool(BOT_UA_RE.search(ua or "")) or bool(PROBE_RE.match(path or ""))
+    # search, not match: the second half of PROBE_RE (".pem$",
+    # ".sql.gz$", "/credentials$", any "x.env") is written to match
+    # anywhere, and match() anchored all of it at the start.
+    is_bot = bool(BOT_UA_RE.search(ua or "")) or bool(PROBE_RE.search(path or ""))
     # Keepalive first: it is an /api/ path, so the activity rules below
     # would otherwise tag it as real API use and the session builder
     # would count it.
@@ -614,7 +619,9 @@ def resolve_asn(conn: sqlite3.Connection) -> int:
             conn.execute(
                 "INSERT OR REPLACE INTO ip_asn (ip, asn, org, is_hosting, looked_up)"
                 " VALUES (?,?,?,?,?)",
-                (ip, asn, org, int(bool(org and HOSTING_ORG_RE.search(org))), now),
+                # Same rule the session verdict uses, consumer carve-out
+                # included, so the stored flag cannot disagree with it.
+                (ip, asn, org, int(machine_org(org)), now),
             )
             done += 1
     conn.commit()
@@ -708,8 +715,31 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     gap = SESSION_GAP_MINUTES * 60
     recent = time.time() - SESSION_REBUILD_DAYS * 86400
     last_end = conn.execute("SELECT MAX(ended) e FROM session").fetchone()["e"]
-    cutoff = 0.0 if full else (min(recent, last_end - gap) if last_end else 0.0)
-    conn.execute("DELETE FROM session WHERE ended >= ?", (cutoff,))
+    # Oldest raw request still held. A session that started before it
+    # cannot be rebuilt (its head was pruned), so it is kept as it is:
+    # `full` used to delete every session ever recorded and could only
+    # recreate the last 30 days.
+    floor = conn.execute("SELECT MIN(ts) t FROM request").fetchone()["t"]
+    floor = floor if floor is not None else 0.0
+    cutoff = floor if full else (min(recent, last_end - gap) if last_end else 0.0)
+    # A visit that started before the cutoff and ended after it is
+    # deleted whole below, so it must be rebuilt from its start, not
+    # from the cutoff: reading only from the cutoff kept just its tail.
+    low = conn.execute(
+        "SELECT MIN(started) s FROM session WHERE ended >= ? AND started >= ?",
+        (cutoff, floor),
+    ).fetchone()["s"]
+    low = min(low, cutoff) if low is not None else cutoff
+    kept: dict[tuple[str, str], float] = {
+        (r["ip"], r["ua_hash"]): r["ended"]
+        for r in conn.execute(
+            "SELECT ip, ua_hash, ended FROM session WHERE ended >= ? AND started < ?",
+            (cutoff, floor),
+        )
+    }
+    conn.execute(
+        "DELETE FROM session WHERE ended >= ? AND started >= ?", (cutoff, floor)
+    )
 
     # Addresses that rattled a doorknob, and when. A scanner that
     # rotates user agents lands in several session rows; this is what
@@ -717,7 +747,7 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     probe_ts: dict[str, list[float]] = {}
     for r in conn.execute(
         "SELECT ip, ts FROM request WHERE is_bot = 1 AND ts >= ?",
-        (cutoff - PROBE_HALO_HOURS * 3600,),
+        (low - PROBE_HALO_HOURS * 3600,),
     ):
         probe_ts.setdefault(r["ip"], []).append(r["ts"])
     # Computed from the stored org string rather than read from the
@@ -734,7 +764,7 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     rows = conn.execute(
         "SELECT ts, ip, ua, is_bot, is_asset, activity, path, status FROM request"
         " WHERE ts >= ? ORDER BY ip, ua, ts",
-        (cutoff,),
+        (low,),
     ).fetchall()
 
     current: dict | None = None
@@ -742,6 +772,14 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
 
     def flush(s: dict | None) -> int:
         if not s:
+            return 0
+        # Ended before the cutoff: that row was not deleted, keep it.
+        if s["end"] < cutoff:
+            return 0
+        # The tail of a kept session whose head was pruned: the kept
+        # row already covers it.
+        k = kept.get((s["ip"], s["ua_hash"]))
+        if k is not None and s["start"] <= k + gap:
             return 0
         tags = [
             t

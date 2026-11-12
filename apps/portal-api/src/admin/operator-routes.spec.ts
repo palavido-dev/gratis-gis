@@ -70,6 +70,8 @@ const RULES: Record<string, Rule> = {
       'runNow',
       'orphanedUploads',
       'purgeOrphanedUploads',
+      // Install-wide: lists the biggest fs_ tables across every org.
+      'largestDataLayers',
     ],
     org: [
       'summary',
@@ -77,7 +79,6 @@ const RULES: Record<string, Rule> = {
       'danglingReferences',
       'staleUsers',
       'largeItems',
-      'largestDataLayers',
       'expiringShares',
       'expiringUsers',
       'getConfig',

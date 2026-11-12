@@ -10,83 +10,10 @@
 #
 # Review cadence: monthly, or any time the Security workflow goes red.
 
-# ------------------------------------------------------------------
-# pmtiles Go binary (statically linked, embeds Go 1.26.1 stdlib).
-# The vulnerabilities live in the embedded stdlib, not in code we
-# control. The latest pmtiles release (v1.30.2, 2026-04-22) was cut
-# before most of these CVEs were published, so upstream has not had
-# the chance to rebuild against patched Go yet.
-#
-# Exposure analysis: the pmtiles binary in our image is invoked by
-# TileLayerService.runPmtilesConvert (apps/portal-api/src/tile-layer/
-# tile-conversion.ts) on uploaded MBTiles / zipped XYZ inputs. The
-# inputs are uploaded by authenticated contributors and processed
-# offline (worker queue, not on the request hot path). The Go net /
-# net/mail / x/crypto bugs require attacker-controlled network input
-# the binary never sees in our usage.
-#
-# Re-evaluate when pmtiles ships a release built with Go >= 1.27.
-# Track upstream: https://github.com/protomaps/go-pmtiles/releases
-CVE-2026-39883
-CVE-2026-32280
-CVE-2026-32281
-CVE-2026-32283
-CVE-2026-33810
-CVE-2026-33811
-CVE-2026-33814
-CVE-2026-39820
-CVE-2026-39836
-CVE-2026-42499
-
-# 2026-07-19: a further batch of Go x/crypto and x/net HIGH CVEs
-# against the same statically linked pmtiles binary. go-pmtiles
-# 1.30.3 (the newest release) still pins golang.org/x/crypto v0.49.0
-# and golang.org/x/net v0.52.0, and no upstream release has bumped
-# them, so a version bump cannot clear these. The real fix is a
-# forced dependency-override rebuild of pmtiles, tracked in #178;
-# accepted here temporarily so the Security workflow stays actionable
-# instead of permanently red on an issue we have already triaged. The
-# exposure analysis above (offline tile conversion, not on the request
-# path) applies unchanged. Remove this block when #178 lands.
-CVE-2026-25681
-CVE-2026-27136
-CVE-2026-39821
-CVE-2026-39828
-CVE-2026-39829
-CVE-2026-39830
-CVE-2026-39831
-CVE-2026-39832
-CVE-2026-39835
-CVE-2026-42508
-CVE-2026-46595
-CVE-2026-46597
-
-# 2026-07-23: google.golang.org/grpc HIGH advisory against the same
-# statically linked pmtiles binary. pmtiles vendors grpc v1.79.3
-# (fixed upstream in 1.82.1) inside the release binary; no go-pmtiles
-# release has bumped it, so this cannot be cleared by a version bump.
-# grpc is only reachable if the binary runs its server mode, which we
-# never invoke: our only use is offline MBTiles -> PMTiles conversion
-# (tile-conversion.ts), off the request path. Same accept-and-track
-# rationale as the block above; clears when the pmtiles rebuild (#178)
-# lands.
-GHSA-hrxh-6v49-42gf
-
-# ------------------------------------------------------------------
-# gdal-async@3.12.3 ships @mapbox/node-pre-gyp as a bundledDependency
-# (see "bundledDependencies" in its package.json). node-pre-gyp pulls
-# tar@7.5.9 into the published tarball, which pnpm cannot override
-# because the files are physically inside the package archive.
-#
-# Exposure analysis: node-pre-gyp's only job is to download the
-# prebuilt native binary for gdal-async at INSTALL time. After
-# install, nothing in the running portal-api process imports or
-# invokes tar from that path. The CVEs require an attacker to feed
-# malicious tarballs to the consuming code; nothing in our runtime
-# does that.
-#
-# Re-evaluate when gdal-async ships a release bundling tar >= 7.5.11
-# (or drops bundledDependencies). gdal-async latest is 3.12.3 as of
-# 2026-05-18 so we wait on upstream.
-CVE-2026-29786
-CVE-2026-31802
+# 2026-11: emptied. Every entry was for the upstream pmtiles binary
+# (now built from source on Go 1.27 with patched x/crypto, x/net and
+# grpc, see apps/portal-api/Dockerfile) or for the tar bundled in
+# gdal-async (now deleted in the image). Trivy matches ignores by id
+# across every scan, so stale entries would hide the same CVE turning
+# up in another artifact. Re-add only what still fires, with a current
+# reason.

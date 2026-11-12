@@ -38,6 +38,7 @@ import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
+import { isAdminTierLocked } from './admin-tier-lock.js';
 
 /** Keycloak user enriched with portal-specific fields we track ourselves. */
 export type AdminUserRep = KeycloakUserRep & {
@@ -529,7 +530,20 @@ export class AdminUsersController {
     // gate it through the same self / sole-admin / protected checks.
     // We model delete as "would remove an active admin" so the
     // sole-admin floor catches it the same way demote does.
-    await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    try {
+      await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    } catch (err) {
+      // A user already removed in Keycloak 404s in the guard, which
+      // made the local-only cleanup below unreachable. Allow it for a
+      // local row of this org that is not protected and not the caller.
+      if (!(err instanceof NotFoundException)) throw err;
+      const ghost = await this.prisma.user
+        .findUnique({ where: { id }, select: { id: true, orgId: true, isProtected: true } })
+        .catch(() => null);
+      if (!ghost || ghost.orgId !== me.orgId || ghost.isProtected || ghost.id === me.id) {
+        throw err;
+      }
+    }
 
     // First try to grab the Keycloak record so we know the username
     // for local cleanup. Either the user is there (we'll delete) or
@@ -689,6 +703,11 @@ export class AdminUsersController {
         orgRole: true,
       },
     });
+    // Same org gate as get(). Without it, the no-local-row branch
+    // below handed out the name and email of any realm user.
+    if (!inCallerOrg(me, kcUser, target?.orgId)) {
+      throw new NotFoundException('User not found');
+    }
     if (!target) {
       // Genuinely never signed in -- Keycloak has the user but no
       // local row exists. Return a friendly empty bundle so the UI
@@ -1171,11 +1190,6 @@ function readOrgAttribute(user: KeycloakUserRep): string | undefined {
  * single-org private instance unless the operator explicitly opts
  * into testing mode.
  */
-function isAdminTierLocked(): boolean {
-  const raw = (process.env.PORTAL_LOCK_ADMIN_TIER ?? '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-}
-
 /**
  * Permission ordering for picking the "highest" permission across
  * multiple group shares of the same item. Mirrors the

@@ -138,7 +138,8 @@ export class AdminAuditService {
     opts: { limit?: number; before?: string } = {},
   ): Promise<{ events: AuditEventOut[]; nextBefore: string | null }> {
     await this.prune(orgId);
-    const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
+    // trunc: a fractional limit (?limit=1.5) made Prisma reject `take`.
+    const limit = Math.min(200, Math.max(1, Math.trunc(opts.limit ?? 50)));
     const cursor = parseCursor(opts.before);
     const rows = await this.prisma.adminAuditEvent.findMany({
       where: {

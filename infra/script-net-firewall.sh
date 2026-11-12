@@ -157,18 +157,24 @@ fi
 OTHER_SUBNETS="$(docker network inspect \
   $(docker network ls -q) \
   --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null \
-  | tr ' ' '\n' | grep -v '^$' | grep -vFx "$SUBNET" | sort -u)"
+  | tr ' ' '\n' | grep -v '^$' | grep -vFx "$SUBNET" | grep -v ':' | sort -u)"
+# IPv4 only (grep -v ':'): iptables refuses an IPv6 subnet, and under
+# set -e that stopped the script with the chain half built.
 
 # --- forwarded traffic out of the script network --------------------
 #
 # DOCKER-USER is evaluated before Docker's own FORWARD rules and is the
 # documented place for operator policy; Docker will not clobber its
 # contents when it rebuilds its chains.
-iptables -N "$CHAIN" 2>/dev/null || true
-iptables -F "$CHAIN"
-iptables -A "$CHAIN" -d "$LINK_LOCAL" -j DROP
+# Built as a new chain and swapped in: flushing the live chain and
+# adding rules one by one left the executor unfenced for a moment on
+# every run. The new jumps go in before the old ones come out, so some
+# fence is always in place.
+NEXT="${CHAIN}-next"
+iptables -N "$NEXT" 2>/dev/null || iptables -F "$NEXT"
+iptables -A "$NEXT" -d "$LINK_LOCAL" -j DROP
 for other in $OTHER_SUBNETS; do
-  iptables -A "$CHAIN" -d "$other" -j DROP
+  iptables -A "$NEXT" -d "$other" -j DROP
 done
 if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
   # Everything that is not this network. Traffic to portal-api never
@@ -176,23 +182,27 @@ if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
   # to allow explicitly and no rule here that could accidentally widen
   # it. DNS is likewise untouched, because Docker's resolver answers
   # inside the container's own namespace.
-  iptables -A "$CHAIN" ! -d "$SUBNET" -j DROP
+  iptables -A "$NEXT" ! -d "$SUBNET" -j DROP
 fi
-iptables -A "$CHAIN" -j RETURN
+iptables -A "$NEXT" -j RETURN
+
+for ip in $EXECUTOR_IPS; do
+  iptables -I DOCKER-USER 1 -s "$ip" -j "$NEXT"
+done
 
 # Idempotent, and it must clean up addresses the executor no longer has.
-# Sweep every rule in DOCKER-USER that jumps to our chain, whatever its
-# source, then add one per current executor address. A rule left pointing
-# at a recycled address would fence whichever container inherits it,
-# which is exactly the failure this file already caused once.
+# Sweep every rule in DOCKER-USER that jumps to the old chain, whatever
+# its source. A rule left pointing at a recycled address would fence
+# whichever container inherits it, which is exactly the failure this
+# file already caused once.
 while read -r stale; do
   [[ -n "$stale" ]] && iptables -D DOCKER-USER -s "$stale" -j "$CHAIN" 2>/dev/null || true
 done < <(iptables -S DOCKER-USER 2>/dev/null \
-  | awk -v c="$CHAIN" '$0 ~ ("-j " c) {for (i=1;i<NF;i++) if ($i=="-s") print $(i+1)}')
-
-for ip in $EXECUTOR_IPS; do
-  iptables -I DOCKER-USER 1 -s "$ip" -j "$CHAIN"
-done
+  | awk -v c="$CHAIN" '$0 ~ ("-j " c "( |$)") {for (i=1;i<NF;i++) if ($i=="-s") print $(i+1)}')
+iptables -F "$CHAIN" 2>/dev/null || true
+iptables -X "$CHAIN" 2>/dev/null || true
+# Rename carries the jumps that point at it.
+iptables -E "$NEXT" "$CHAIN"
 
 # --- traffic to the host itself ------------------------------------
 #
@@ -211,11 +221,10 @@ delete_input_rule() {
   iptables -D INPUT "${spec[@]}" 2>/dev/null || true
 }
 
-# Our own rules, by tag. This also finds rules written for an address
-# the executor has since lost.
-while IFS= read -r rule; do
-  [[ -n "$rule" ]] && delete_input_rule "$rule"
-done < <(iptables -S INPUT 2>/dev/null | grep -F -- "--comment $FENCE_TAG" || true)
+# Our own rules, by tag, listed now and removed only after the new ones
+# are in (below), so the host is never unfenced in between. This also
+# finds rules written for an address the executor has since lost.
+OLD_INPUT_RULES="$(iptables -S INPUT 2>/dev/null | grep -F -- "--comment $FENCE_TAG" || true)"
 
 # One-time cleanup of rules written by versions before the tag. Only the
 # exact two shapes those versions wrote, untagged, for a single address
@@ -245,6 +254,11 @@ for ip in $EXECUTOR_IPS; do
   iptables -I INPUT 1 -s "$ip" -m conntrack \
     --ctstate ESTABLISHED,RELATED -m comment --comment "$FENCE_TAG" -j ACCEPT
 done
+# Each listed rule is removed once. For a current address that removes
+# one of two identical copies and the other stays; a lost address goes.
+while IFS= read -r rule; do
+  [[ -n "$rule" ]] && delete_input_rule "$rule"
+done <<< "$OLD_INPUT_RULES"
 
 echo "Script executor(s) fenced: $(echo $EXECUTOR_IPS | tr '\n' ' ')"
 echo "  link-local:     $LINK_LOCAL DROP"

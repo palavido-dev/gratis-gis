@@ -118,6 +118,12 @@ infra/recovery/restore.sh \
   --status-file /secure/recovery/status.json
 ```
 
+The object archive may hold at most 1,000,000 tar members
+(directories count too; MinIO keeps at least two per object). A
+larger store needs `GRATIS_RECOVERY_DATA_MAX_MEMBERS` set above its
+count when you restore; capture prints a warning when a bundle is
+over the default.
+
 In order:
 
 1. Check the project as above.
@@ -215,8 +221,12 @@ immutable. Clearing the write bit is not object-lock storage.
 
 Point `GRATIS_RECOVERY_STATUS_FILE` at `status.json` on the API process
 to show the failure sentence on the backup page. The status file has
-no secrets. `announceRecoveryFailure` sends one mail through the
-existing transport; it is not called on a health poll.
+no secrets. The backup health check (`GET /admin/backup/health`)
+calls `announceRecoveryFailure`, which sends one mail per failed
+phase through the existing transport. The once-only memory is per API
+process, so each replica, and each restart, can send its own copy. A
+status file that does not exist yet means no recovery has run, and
+sends nothing.
 
 What is not in the data bundle: the recovery passphrase, and the
 secret files you pass with `--secret-file`. Those files are sealed

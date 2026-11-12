@@ -21,6 +21,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { validateCronExpression } from 'cron';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -349,6 +350,15 @@ export class BackupService implements OnModuleInit {
       if (!/^(\S+\s+){4}\S+$/.test(patch.customCron.trim())) {
         throw new BadRequestException(
           'Custom schedule must be a 5-field cron expression (e.g. "0 2 * * *")',
+        );
+      }
+      // The scheduler builds a CronJob from it later and only logs a
+      // rejection, so a bad value was saved and shown as active while
+      // nothing ever ran. Ask the same library now.
+      const check = validateCronExpression(patch.customCron.trim());
+      if (!check.valid) {
+        throw new BadRequestException(
+          `Custom schedule is not a valid cron expression: ${check.error?.message ?? 'rejected by the scheduler'}`,
         );
       }
     }

@@ -313,11 +313,23 @@ export interface SafeFetchOptions {
   maxBytes?: number;
 }
 
+/**
+ * Time limit for a call that brings no signal of its own, when
+ * GRATIS_SAFE_FETCH_TIMEOUT_MS is not set. It covers the body too:
+ * the abort listener stays on the request until the response closes.
+ * Without it a host that accepts the connection and never answers,
+ * or drips the body, held the caller open for good.
+ */
+export const SAFE_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
+
 export async function safeFetch(
   rawUrl: string,
   init?: RequestInit,
   options: SafeFetchOptions = {},
 ): Promise<Response> {
+  if (!init?.signal && !process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS) {
+    init = { ...init, signal: AbortSignal.timeout(SAFE_FETCH_DEFAULT_TIMEOUT_MS) };
+  }
   // Caller opted out of following ('manual' returns the 3xx as-is,
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
@@ -357,6 +369,14 @@ export async function safeFetch(
     // Redirect status without a Location is not followable; hand
     // it back like fetch itself would.
     if (!location) return res;
+    // This hop's body is never read, and every path below either
+    // follows the redirect or refuses it. Release it first, so a
+    // refused hop does not keep its socket open either.
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* already errored or consumed; nothing to release */
+    }
     if (hop >= MAX_REDIRECT_HOPS) {
       throw new UnsafeOutboundUrlError(
         `too many redirects (limit ${MAX_REDIRECT_HOPS}) fetching ${rawUrl}`,
@@ -372,13 +392,6 @@ export async function safeFetch(
     }
     const nextPinned = await resolveSafe(nextRaw);
     const nextUrl = nextPinned.url;
-    // We won't read this hop's body; release it so the connection
-    // can be reused instead of idling until timeout.
-    try {
-      await res.body?.cancel();
-    } catch {
-      /* already errored or consumed; nothing to release */
-    }
     // Method rewrite per the fetch spec: 303 always downgrades to
     // GET; 301/302 do too when the request was a POST.  307/308
     // preserve method and body.
@@ -515,6 +528,9 @@ export function pinnedRequest(
   const lib = url.protocol === 'https:' ? https : http;
   const headers = new Headers(init?.headers);
   headers.set('host', url.host);
+  // node:http does not decode bodies. Ask for none unless the caller
+  // chose an encoding; the proxy forwards any it still gets.
+  if (!headers.has('accept-encoding')) headers.set('accept-encoding', 'identity');
   const path = `${url.pathname}${url.search}`;
   const timeoutMs = Number(process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS ?? '');
   const signals: AbortSignal[] = [];

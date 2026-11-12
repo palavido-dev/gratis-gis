@@ -348,7 +348,8 @@ if env.get("SCRATCH_DIR") != "/scratch":
 if env.get("GDAL_DISABLE_READDIR_ON_OPEN") != "EMPTY_DIR":
     raise SystemExit("GDAL lockdown missing")
 wt = targets(worker)
-if "/boot" not in wt or "/scratch" not in wt:
+# /svc holds only the worker's reduced env; /boot must not be mounted.
+if "/svc" not in wt or "/scratch" not in wt or "/boot" in wt:
     raise SystemExit(f"worker volumes {wt}")
 api_targets = targets(cfg["services"]["portal-api"])
 if "/app/backups" not in api_targets:
@@ -414,10 +415,14 @@ def command_text(svc):
 
 
 # Services that handle untrusted input source only their own env file.
-for name, env_file in (("chromium", "/boot/env.chromium"), ("pointcloud-worker", "/boot/env.pointcloud")):
+for name, env_file in (("chromium", "/svc/env.chromium"), ("pointcloud-worker", "/svc/env.pointcloud")):
     text = command_text(cfg["services"][name])
     if env_file not in text or re.search(r"\. /boot/env\s*$", text, re.M):
         raise SystemExit(f"{name} must source {env_file}, not /boot/env")
+    # The boot volume holds every secret; these services must not mount it.
+    for vol in cfg["services"][name].get("volumes") or []:
+        if (vol.get("source") if isinstance(vol, dict) else str(vol).split(":")[0]) == "boot":
+            raise SystemExit(f"{name} must not mount the boot volume")
 for name in ("portal-api", "portal-worker", "portal-web", "pointcloud-worker"):
     svc = cfg["services"][name]
     if "ALL" not in (svc.get("cap_drop") or []):

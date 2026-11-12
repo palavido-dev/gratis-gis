@@ -40,7 +40,7 @@
 
 gg_load_env_file() {
   local file="$1"
-  local line key value trimmed
+  local line key value trimmed rest quoted inner body i c n
   if [[ ! -f "$file" ]]; then
     echo "FATAL: env file not found: $file" >&2
     return 1
@@ -57,12 +57,55 @@ gg_load_env_file() {
     key="${trimmed%%=*}"
     value="${trimmed#*=}"
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    if [[ ${#value} -ge 2 && "$value" == \'*\' ]]; then
+    # A quoted value may be followed by a ` # comment`, as Compose
+    # allows. Take the text up to the closing quote; only blanks or a
+    # comment may follow it.
+    rest=""
+    quoted=""
+    if [[ "$value" == \'* ]]; then
+      inner="${value:1}"
+      if [[ "$inner" == *\'* ]]; then
+        rest="${inner#*\'}"
+        if [[ -z "${rest//[[:space:]]/}" || "$rest" =~ ^[[:space:]]+# ]]; then
+          quoted=single
+          value="${inner%%\'*}"
+        fi
+      fi
+    elif [[ "$value" == \"* ]]; then
+      inner="${value:1}"
+      body=""
+      i=0
+      while (( i < ${#inner} )); do
+        c="${inner:i:1}"
+        if [[ "$c" == '\' && $((i + 1)) -lt ${#inner} ]]; then
+          n="${inner:i+1:1}"
+          case "$n" in
+            n) body+=$'\n' ;;
+            t) body+=$'\t' ;;
+            '"' | '\' | '$') body+="$n" ;;
+            *) body+="\\$n" ;;
+          esac
+          i=$((i + 2))
+          continue
+        fi
+        if [[ "$c" == '"' ]]; then
+          rest="${inner:i+1}"
+          if [[ -z "${rest//[[:space:]]/}" || "$rest" =~ ^[[:space:]]+# ]]; then
+            quoted=double
+            value="$body"
+          fi
+          break
+        fi
+        body+="$c"
+        i=$((i + 1))
+      done
+    fi
+    if [[ "$quoted" == single ]]; then
       # Single quotes are literal for compose too. Nothing else to do.
-      value="${value:1:${#value}-2}"
+      :
     else
-      if [[ ${#value} -ge 2 && "$value" == \"*\" ]]; then
-        value="${value:1:${#value}-2}"
+      if [[ "$quoted" == double ]]; then
+        :
       else
         value="${value%%[[:space:]]#*}"
         value="${value%"${value##*[![:space:]]}"}"
@@ -161,15 +204,16 @@ gg_require_prod_env() {
   # AES-256-GCM key: exactly 32 raw bytes, base64. Rotating it later
   # makes every encrypted credential unreadable, so a wrong length has
   # to fail before the first row is written.
-  if ! python3 - "$CREDENTIAL_ENCRYPTION_KEY" <<'PY'
+  # The key goes in on stdin, not argv, so `ps` never shows it.
+  if ! python3 -c '
 import base64, sys
-raw = sys.argv[1].strip()
+raw = sys.stdin.read().strip()
 try:
     decoded = base64.b64decode(raw, validate=True)
 except Exception:
     sys.exit(1)
 sys.exit(0 if len(decoded) == 32 else 1)
-PY
+' <<<"$CREDENTIAL_ENCRYPTION_KEY"
   then
     echo "FATAL: CREDENTIAL_ENCRYPTION_KEY must be 32 bytes of base64 (openssl rand -base64 32)." >&2
     return 1

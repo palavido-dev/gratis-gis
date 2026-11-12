@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Delete,
@@ -86,12 +87,24 @@ export class AdminCapabilitiesController {
     }
     const user = await this.prisma.user.findUnique({
       where: { username: kcUser.username },
-      select: { id: true, orgId: true, orgRole: true },
+      select: { id: true, orgId: true, orgRole: true, isProtected: true },
     });
     if (!user || user.orgId !== actorOrgId) {
       throw new NotFoundException('User not found in your organization.');
     }
     return user;
+  }
+
+  /**
+   * The protected (master) account takes no change through the API
+   * from anyone else, the same rule admin-users.controller applies.
+   * Without it a shared admin could switch off the master admin's
+   * publish or share capability.
+   */
+  private assertNotProtected(user: { id: string; isProtected: boolean }, actor: AuthUser): void {
+    if (user.isProtected && user.id !== actor.id) {
+      throw new ForbiddenException('This account is protected and cannot be changed here.');
+    }
   }
 
   @Get()
@@ -158,6 +171,7 @@ export class AdminCapabilitiesController {
       );
     }
     const user = await this.resolveLocalUser(userId, actor.orgId);
+    this.assertNotProtected(user, actor);
 
     await this.prisma.userCapabilityOverride.upsert({
       where: {
@@ -201,6 +215,7 @@ export class AdminCapabilitiesController {
       throw new BadRequestException(`Unknown capability "${capability}".`);
     }
     const user = await this.resolveLocalUser(userId, actor.orgId);
+    this.assertNotProtected(user, actor);
 
     await this.prisma.userCapabilityOverride
       .delete({

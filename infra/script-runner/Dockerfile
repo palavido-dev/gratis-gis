@@ -108,9 +108,6 @@ RUN "$SCRIPT_VENV/bin/pip" install --no-cache-dir --upgrade \
 
 # The runner spawns this interpreter, not the system one.
 ENV SCRIPT_PYTHON=/opt/script-venv/bin/python3
-# Scripts get a writable HOME they do not share with the app user's,
-# so a library that caches into ~ cannot write anywhere interesting.
-ENV SCRIPT_HOME=/tmp
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # A dedicated identity for user code, distinct from the one the

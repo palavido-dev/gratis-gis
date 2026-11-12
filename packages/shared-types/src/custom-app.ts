@@ -176,7 +176,8 @@ export interface CustomPage {
   /**
    * Widgets on this page. Layout positions are stored on the widget
    * itself (CSS grid coordinates). The designer renders this list
-   * inside a 12-column grid; the runtime renders it the same way.
+   * inside the 192-column grid (v4 and later); the runtime renders it
+   * the same way.
    */
   widgets: CustomWidget[];
 }
@@ -193,7 +194,7 @@ export interface CustomWidget {
   /** Discriminator. Adding a kind: extend CustomWidgetKind +
    *  CustomWidgetConfig + ship a renderer for it. */
   kind: CustomWidgetKind;
-  /** CSS grid position on the page's 12-column grid. Row count is
+  /** CSS grid position on the page's 192-column grid. Row count is
    *  unbounded so widgets stack vertically as the page grows. */
   layout: CustomLayout;
   /**
@@ -309,13 +310,13 @@ export interface AppDataSource {
   };
 }
 
-/** CSS grid layout descriptor in the page's 12-column grid. */
+/** CSS grid layout descriptor in the page's 192-column grid. */
 export interface CustomLayout {
   /** 1-based column number of the widget's top-left cell. */
   col: number;
   /** 1-based row number of the widget's top-left cell. */
   row: number;
-  /** Column span; clamped to 12 - col + 1 by the designer. */
+  /** Column span; clamped to 192 - col + 1 by the designer. */
   colSpan: number;
   /** Row span; unbounded. */
   rowSpan: number;
@@ -1862,13 +1863,20 @@ export function newSourceId(): string {
 function migrateTargetsToSources(cur: CustomAppData): CustomAppData {
   const legacyFollow = (cur as { followMapWidgetId?: string })
     .followMapWidgetId;
-  const sources: AppDataSource[] = (cur.targets ?? []).map((t, i) => ({
-    id: migratedSourceId(i),
-    layer: t,
-    ...(legacyFollow !== undefined
-      ? { followMapWidgetId: legacyFollow }
-      : {}),
-  }));
+  // The create wizard writes `sources` (with the dashboard's "follow
+  // the map" default) onto a v4 starter blueprint. Rebuilding them
+  // from `targets` threw that default away on first load, so sources
+  // already present are kept and widgets bind to them by position.
+  const sources: AppDataSource[] =
+    Array.isArray(cur.sources) && cur.sources.length > 0
+      ? cur.sources
+      : (cur.targets ?? []).map((t, i) => ({
+          id: migratedSourceId(i),
+          layer: t,
+          ...(legacyFollow !== undefined
+            ? { followMapWidgetId: legacyFollow }
+            : {}),
+        }));
   const bindWidget = (w: CustomWidget): CustomWidget => {
     const cfg = w.config as { targetIndex?: unknown; sourceId?: unknown };
     let next = w;
@@ -2003,9 +2011,9 @@ export function migrateCustomAppData(data: CustomAppData): CustomAppData {
  * origin placeholder.  Children at index i of n get axis value
  * 1 + round((i / (n-1)) * 191), so a 4-tool app-bar maps to cols
  * 1, 65, 128, 192 (visually: left edge, first third, second third,
- * right edge).  Non-row/column containers (overlay-trigger, inline)
- * and tabs are left alone -- they don't use the free-position axis
- * for child layout.
+ * right edge).  Inline containers are respread too; overlay-trigger
+ * containers and tabs are left alone, as they don't use the
+ * free-position axis for child layout.
  */
 function spreadContainerChildren(w: CustomWidget): CustomWidget {
   let next = w;

@@ -146,6 +146,11 @@ if [[ -n "$MAINT_FILE" && ! -e "$MAINT_FILE" ]]; then
   MAINT_CREATED=1
 fi
 
+# Before anything stops: node is needed at the end to seal the
+# bundle, and a missing node used to end the script silently (errexit
+# on the assignment) after the portal had been down for the dumps.
+NODE="$(recovery_node)" || fail 'node 20 or newer was not found for seal.mjs'
+
 # Stop writers that are running. MinIO is stopped too: a bucket policy
 # does not stop root or an IAM Allow on the image we ship, so the
 # process has to be down before the data directory is copied. Only
@@ -160,11 +165,13 @@ maybe_fail() {
   fi
 }
 
-recovery_compose exec -T -e PGOPTIONS='-c lock_timeout=15000' postgres \
-  pg_dump -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Fc --no-owner --no-privileges >"$STAGE/portal.dump" \
+# --lock-wait-timeout, not PGOPTIONS: pg_dump sets lock_timeout = 0 on
+# its own connection, which overrode the PGOPTIONS value.
+recovery_compose exec -T postgres \
+  pg_dump --lock-wait-timeout=15000 -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Fc --no-owner --no-privileges >"$STAGE/portal.dump" \
   || fail 'portal database dump failed'
-recovery_compose exec -T -e PGOPTIONS='-c lock_timeout=15000' postgres \
-  pg_dump -U "${POSTGRES_USER:-gratisgis}" -d "$KEYCLOAK_DB" -Fc >"$STAGE/keycloak.dump" \
+recovery_compose exec -T postgres \
+  pg_dump --lock-wait-timeout=15000 -U "${POSTGRES_USER:-gratisgis}" -d "$KEYCLOAK_DB" -Fc >"$STAGE/keycloak.dump" \
   || fail 'keycloak database dump failed'
 [[ -s "$STAGE/portal.dump" && -s "$STAGE/keycloak.dump" ]] || fail 'a database dump is empty'
 LATEST_MIGRATION="$(recovery_latest_migration "$PORTAL_DB")" || fail 'could not read the portal migration history'
@@ -184,6 +191,14 @@ docker run --rm --network none --entrypoint tar \
   -C /data -cf /out/minio-data.tar . \
   || fail 'object store copy failed'
 mv "$STAGE/minio-data.tar" "$STAGE/minio.tar"
+# restore.sh refuses an object archive with more members than this
+# (directories count too; MinIO keeps at least two per object). Say so
+# now, not on the day of a restore.
+DATA_MEMBERS="$(tar -tf "$STAGE/minio.tar" | wc -l | tr -dc '0-9')"
+if [[ "${DATA_MEMBERS:-0}" -gt "${GRATIS_RECOVERY_DATA_MAX_MEMBERS:-1000000}" ]]; then
+  printf 'recovery: WARNING the object archive has %s members, over the restore limit of %s. Set GRATIS_RECOVERY_DATA_MAX_MEMBERS above it when you restore this bundle.\n' \
+    "$DATA_MEMBERS" "${GRATIS_RECOVERY_DATA_MAX_MEMBERS:-1000000}" >&2
+fi
 maybe_fail minio
 
 recovery_images >"$STAGE/images.txt" || fail 'could not list the stack images'
@@ -213,7 +228,9 @@ for line in pathlib.Path(images_path).read_text().splitlines():
     if line:
         service, _, image_id = line.partition("|")
         images.append({"service": service, "id": image_id})
-key = pathlib.Path(key_path).read_bytes()
+# Trimmed: the same key written with echo (trailing newline) and with
+# printf must give the same fingerprint.
+key = pathlib.Path(key_path).read_bytes().strip()
 doc = {
     "kind": "gratis-recovery-bundle",
     "format": 4,
@@ -263,8 +280,6 @@ PY
 tar -C "$STAGE" -cf "$STAGE/bundle.tar" manifest.json portal.dump keycloak.dump minio.tar \
   || fail 'bundle archive could not be written'
 rm -f "$STAGE/portal.dump" "$STAGE/keycloak.dump" "$STAGE/minio.tar"
-NODE="$(recovery_node)"
-[[ -n "$NODE" ]] || fail 'node was not found for seal.mjs'
 "$NODE" "$HERE/seal.mjs" enc "$RECOVERY_KEY" "$STAGE/bundle.tar" "$TMP_BUNDLE" \
   || fail 'bundle could not be sealed'
 rm -f "$STAGE/bundle.tar"
@@ -292,7 +307,13 @@ fi
 BUNDLE_NAME="bundle-${TS}.tar.enc"
 SECRETS_NAME="secrets-${TS}.tar.enc"
 publish() {
-  ln "$1" "$OUT/$2" 2>/dev/null || fail "${2} already exists; refusing to replace it"
+  local err
+  if ! err="$(ln "$1" "$OUT/$2" 2>&1)"; then
+    # Only a name that exists is a collision. A file system without
+    # hard links (exFAT, some SMB mounts) fails here too.
+    [[ -e "$OUT/$2" ]] && fail "${2} already exists; refusing to replace it"
+    fail "could not publish ${2}: ${err}"
+  fi
   rm -f "$1"
 }
 sha="$(recovery_sha256 "$TMP_BUNDLE")"

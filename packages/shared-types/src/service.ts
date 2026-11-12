@@ -406,7 +406,8 @@ export function isServiceData(value: unknown): value is ServiceData {
     v.protocol === 'arcgis_geocode' ||
     v.protocol === 'wms' ||
     v.protocol === 'wfs' ||
-    v.protocol === 'wmts'
+    v.protocol === 'wmts' ||
+    v.protocol === 'postgis_live'
   );
 }
 

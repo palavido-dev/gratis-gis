@@ -107,6 +107,11 @@ jobs:
           # reviews those. fetch-metadata spells it github_actions.
           REVIEW_ECOSYSTEMS = {"github_actions", "github-actions"}
           KNOWN_BUCKETS = {"pass", "fail", "pending", "skipping", "cancel"}
+          # The Node base image is pinned on purpose and must move in
+          # both app Dockerfiles together (apps/portal-api/Dockerfile).
+          # Dependabot opens one pull request per Dockerfile, so merging
+          # each on its own could leave api and web on different Node.
+          REVIEW_DOCKER_IMAGES = {"node"}
 
           def parse_deps(raw):
               if raw is None or not str(raw).strip():
@@ -136,6 +141,9 @@ jobs:
                   if dep.get("packageEcosystem") in REVIEW_ECOSYSTEMS:
                       name = dep.get("dependencyName") or "(unnamed)"
                       return False, "%s is a GitHub Actions update and needs a review" % name
+                  dep_eco = dep.get("packageEcosystem") or (ecosystem or "").strip()
+                  if dep_eco == "docker" and dep.get("dependencyName") in REVIEW_DOCKER_IMAGES:
+                      return False, "the Node base image moves in both Dockerfiles together and needs a review"
                   kind = dep.get("updateType")
                   if kind not in ALLOWED:
                       name = dep.get("dependencyName") or "(unnamed)"

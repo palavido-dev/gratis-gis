@@ -27,11 +27,17 @@ docker compose version >/dev/null 2>&1 || { echo "docker compose v2 is required"
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    mkdir -p /opt/cursor/artifacts
-    docker compose -p "$PROJECT" -f "$COMPOSE" ps -a > /opt/cursor/artifacts/nas-boot-ps.txt 2>&1 || true
+    # Somewhere this user can write (/opt is root-owned on a runner and
+    # a laptop). A failing mkdir under set -e used to end the trap at
+    # once: no logs, and the stack was left running.
+    out="${NAS_BOOT_ARTIFACTS:-${RUNNER_TEMP:-/tmp}/nas-boot}"
+    mkdir -p "$out" || true
+    docker compose -p "$PROJECT" -f "$COMPOSE" ps -a > "$out/nas-boot-ps.txt" 2>&1 || true
     # Tail only. The bootstrap log contains the admin password.
     docker compose -p "$PROJECT" -f "$COMPOSE" logs --no-color --tail 60 \
-      > /opt/cursor/artifacts/nas-boot.log 2>&1 || true
+      > "$out/nas-boot.log" 2>&1 || true
+    echo "--- NAS boot logs (tail) in $out ---" >&2
+    tail -n 60 "$out/nas-boot.log" >&2 2>/dev/null || true
   fi
   docker compose -p "$PROJECT" -f "$COMPOSE" down -v --remove-orphans >/dev/null 2>&1 || true
   docker compose -p "${PROJECT}-off" -f "$COMPOSE" down -v --remove-orphans >/dev/null 2>&1 || true

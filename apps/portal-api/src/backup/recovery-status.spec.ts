@@ -71,3 +71,10 @@ describe('recovery status', () => {
     );
   });
 });
+
+describe('readRecoveryStatus with no file yet', () => {
+  it('reports no status, not a failure, when the file does not exist', async () => {
+    const { readRecoveryStatus } = await import('./recovery-status.js');
+    await expect(readRecoveryStatus('/nonexistent/gg-b7/status.json')).resolves.toBeNull();
+  });
+});

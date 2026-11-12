@@ -93,6 +93,7 @@ export class HousekeepingCronService
       cfg.autoTrashEnabled,
       cfg.autoDisableEnabled,
       cfg.recomputeExtentsEnabled,
+      cfg.fieldQueueAutoPruneEnabled,
     ].join('|');
     if (key === this.appliedKey) return;
     this.appliedKey = key;
@@ -104,10 +105,13 @@ export class HousekeepingCronService
       );
       return;
     }
+    // Same set of actions materialize() counts, so a schedule the
+    // page shows as active (field-queue prune alone) is registered.
     if (
       !cfg.autoTrashEnabled &&
       !cfg.autoDisableEnabled &&
-      !cfg.recomputeExtentsEnabled
+      !cfg.recomputeExtentsEnabled &&
+      !cfg.fieldQueueAutoPruneEnabled
     ) {
       this.log.log(
         'Schedule set but no auto-actions enabled; nothing to register.',

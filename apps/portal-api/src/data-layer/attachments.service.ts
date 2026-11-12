@@ -38,7 +38,7 @@ const ATTACHMENT_PUBLIC_SELECT = {
   fileName: true,
   mime: true,
   sizeBytes: true,
-  storageUrl: true,
+  storageKey: true,
   createdAt: true,
   createdBy: true,
 } as const;
@@ -48,7 +48,7 @@ type AttachmentRow = {
   fileName: string;
   mime: string;
   sizeBytes: number;
-  storageUrl: string;
+  storageKey: string;
   createdAt: Date;
   createdBy: string;
 };
@@ -60,7 +60,9 @@ function toPublicAttachment(row: AttachmentRow): FeatureAttachment {
     fileName: row.fileName,
     mime: row.mime,
     sizeBytes: row.sizeBytes,
-    storageUrl: row.storageUrl,
+    // Built from the key, never from what the client sent: a stored
+    // client URL was shown to every reader as a link and image source.
+    storageUrl: StorageService.privateApiUrl('feature-attachment', row.storageKey),
     createdAt: row.createdAt.toISOString() as FeatureAttachment['createdAt'],
     createdBy: row.createdBy,
   };
@@ -242,7 +244,7 @@ export class DataLayerAttachmentsService {
         mime: input.mime,
         sizeBytes: realSize,
         storageKey: input.storageKey,
-        storageUrl: input.storageUrl,
+        storageUrl: StorageService.privateApiUrl('feature-attachment', input.storageKey),
         createdBy: userId,
       },
       select: ATTACHMENT_PUBLIC_SELECT,
