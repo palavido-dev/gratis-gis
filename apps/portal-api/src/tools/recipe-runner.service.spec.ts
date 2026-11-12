@@ -329,3 +329,73 @@ describe('RecipeRunnerService layer access (every layer a selection reads)', () 
     expect(seen).not.toContain(other.itemId);
   });
 });
+
+describe('search padding and caller inputs on tool runs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require('./recipe-runner.service.js') as typeof import('./recipe-runner.service.js');
+
+  it('pads longitude by 1/cos(latitude) so 1000 m reaches 1000 m east and west', () => {
+    const [w, s, , n] = mod.padBboxMeters([10, 40, 10, 40], 1000);
+    expect(40 - s).toBeCloseTo(1000 / 111_320, 8);
+    // Measured at the most poleward edge, where a degree is shortest.
+    const eastWestMeters = (10 - w) * 111_320 * Math.cos((n * Math.PI) / 180);
+    expect(eastWestMeters).toBeCloseTo(1000, 3);
+  });
+
+  it('clamps the padded box to the valid range', () => {
+    expect(mod.padBboxMeters([179.99, 89.99, 179.99, 89.99], 5000)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      180,
+      90,
+    ]);
+  });
+
+  it('refuses a point outside the valid range with a 400', () => {
+    const params: ToolParameter[] = [
+      { kind: 'point', name: 'p', label: 'P', binding: { mode: 'runtime-pick' } } as never,
+    ];
+    expect(() =>
+      resolveParameters(params, { p: { kind: 'point-input', lng: 500, lat: 0 } } as never),
+    ).toThrow(BadRequestException);
+  });
+
+  it('refuses malformed preset ids and tag filters with a 400', () => {
+    const params: ToolParameter[] = [
+      { kind: 'osm-feature', name: 'o', label: 'O', binding: { mode: 'runtime-pick' } } as never,
+    ];
+    expect(() =>
+      resolveParameters(params, { o: { kind: 'osm-feature-input', presetIds: [1] } } as never),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      resolveParameters(params, {
+        o: { kind: 'osm-feature-input', presetIds: ['cafe'], tagFilters: [null] },
+      } as never),
+    ).toThrow(BadRequestException);
+  });
+
+  it('says a derived layer cannot be an area of interest', async () => {
+    const svc = new mod.RecipeRunnerService({} as never, {} as never, {} as never);
+    await expect(
+      (svc as unknown as { computeAoiBbox: (u: unknown, v: unknown) => Promise<unknown> }).computeAoiBbox(
+        { id: 'u' },
+        { kind: 'derived_layer', itemId: '11111111-1111-4111-8111-111111111111' },
+      ),
+    ).rejects.toThrow(/derived layer cannot be used as an area of interest/);
+  });
+
+  it('defaults a data layer AOI to the default sublayer', async () => {
+    const seen: unknown[] = [];
+    const svc = new mod.RecipeRunnerService(
+      { $queryRaw: async () => [{ extent: 'BOX(0 0,1 1)' }] } as never,
+      { isFeatureReadLimited: async (_u: unknown, _id: string, key: string) => (seen.push(key), false) } as never,
+      {} as never,
+    );
+    const bbox = await (svc as unknown as { computeAoiBbox: (u: unknown, v: unknown) => Promise<unknown> }).computeAoiBbox(
+      { id: 'u' },
+      { kind: 'data_layer', itemId: '11111111-1111-4111-8111-111111111111' },
+    );
+    expect(seen).toEqual(['default']);
+    expect(bbox).toEqual([0, 0, 1, 1]);
+  });
+});

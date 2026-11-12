@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -64,6 +66,11 @@ export interface HillshadeParams {
  */
 const MAX_RASTER_CELLS = 12000 * 12000;
 
+/** Analysis jobs one user, and one org, may have waiting or running. */
+export const ANALYSIS_MAX_IN_FLIGHT_PER_USER = 5;
+export const ANALYSIS_MAX_IN_FLIGHT_PER_ORG = 20;
+const ACTIVE_JOB_STATES = ['queued', 'running', 'cancel_requested', 'ingest', 'importing'];
+
 @Injectable()
 export class AnalysisService {
   constructor(
@@ -76,6 +83,33 @@ export class AnalysisService {
 
   private assertServerTier(): void {
     assertServerHeavyTier(this.cfg, 'Server-side analysis');
+  }
+
+  /**
+   * Every analysis kind shares one FIFO queue across all orgs, and a
+   * heavy job may run for hours. Without a cap one user could queue
+   * hundreds and make every other org wait behind them. Same shape as
+   * the outline tool's per-user cap; checked before the target item
+   * is created, so a refused call leaves nothing behind.
+   */
+  private async assertJobCapacity(user: AuthUser): Promise<void> {
+    const active = { in: ACTIVE_JOB_STATES };
+    const [mine, org] = await Promise.all([
+      this.prisma.analysisJob.count({
+        where: { userId: user.id, kind: { not: 'sam-embed' }, state: active },
+      }),
+      this.prisma.analysisJob.count({
+        where: { orgId: user.orgId, kind: { not: 'sam-embed' }, state: active },
+      }),
+    ]);
+    if (mine >= ANALYSIS_MAX_IN_FLIGHT_PER_USER || org >= ANALYSIS_MAX_IN_FLIGHT_PER_ORG) {
+      throw new HttpException(
+        mine >= ANALYSIS_MAX_IN_FLIGHT_PER_USER
+          ? `You already have ${mine} analysis jobs waiting or running. Wait for one to finish, or cancel one, and try again.`
+          : 'Your organization has too many analysis jobs waiting or running. Try again when some have finished.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async createHillshadeJob(
@@ -119,6 +153,7 @@ export class AnalysisService {
     // starts as an empty tile_layer; the worker stamps it into the
     // cog-ready state and the pyramid pipeline takes over.
     const modeLabel = params.mode === 'dtm' ? 'terrain' : 'surface';
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `${source.title} hillshade (${modeLabel}, ${resolution}m)`,
@@ -203,6 +238,7 @@ export class AnalysisService {
     // the number attached, and the estimate rides the response.
     const estimate = assertGridBudget(data, resolution, 1);
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `${source.title} elevation (${resolution}m)`,
@@ -314,6 +350,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Visible area (${source.title})`,
@@ -383,6 +420,7 @@ export class AnalysisService {
     const intervalM = clampNumber(params.intervalM, 0.5, 500, 3.048);
 
     const layerId = randomUUID();
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'data_layer',
       title: `Contour lines (${source.title})`,
@@ -458,6 +496,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Steepness map (${source.title})`,
@@ -529,6 +568,7 @@ export class AnalysisService {
     // two gridding passes (DSM + DTM) count double.
     const estimate = assertGridBudget(data, resolution, 2);
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Height above ground (${source.title})`,
@@ -635,6 +675,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'point_cloud',
       title: `${source.title} (colored from ${raster.title})`,
@@ -874,6 +915,7 @@ export class AnalysisService {
       label: `Zonal ${s}`,
       nullable: true,
     }));
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'data_layer',
       title: `Zonal stats (${source.title})`,
@@ -966,7 +1008,15 @@ export class AnalysisService {
         data: { state: 'cancelled', finishedAt: new Date() },
       });
       if (handoffFlip.count > 0) {
-        const importJobId = (job.params as { importJobId?: unknown } | null)
+        // Read params again after the flip. The bridge may have
+        // recorded the import id between the first read and the flip;
+        // the stale copy would miss it and the import would still fill
+        // the layer.
+        const fresh = await this.prisma.analysisJob.findUnique({
+          where: { id: jobId },
+          select: { params: true },
+        });
+        const importJobId = (fresh?.params as { importJobId?: unknown } | null)
           ?.importJobId;
         if (typeof importJobId === 'string') {
           await cancelLinkedImport(this.prisma, importJobId);

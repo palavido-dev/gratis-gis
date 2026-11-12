@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
   Get,
+  Optional,
   Patch,
   Query,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsEmail,
@@ -21,6 +24,11 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+
+/** How long /users/me reuses a user's Keycloak names. */
+const KC_NAME_CACHE_MS = 5 * 60_000;
+const KC_NAME_CACHE_MAX = 10_000;
+const KC_NAME_TIMEOUT_MS = 3_000;
 
 class UpdateMeDto {
   // Null clears a previously-set avatar back to the initial badge.
@@ -53,7 +61,58 @@ export class UsersController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kc: KeycloakAdminService,
+    @Optional() private readonly cfg?: ConfigService,
   ) {}
+
+  /**
+   * Keycloak first and last names by user id, for a few minutes. The
+   * app shell and most pages call /users/me on every load, and each
+   * call used to wait on a Keycloak admin request only the profile
+   * form needs. PATCH /users/me drops the user's entry.
+   */
+  private readonly kcNames = new Map<
+    string,
+    { firstName?: string; lastName?: string; at: number }
+  >();
+
+  private async keycloakNames(
+    userId: string,
+  ): Promise<{ firstName?: string; lastName?: string } | null> {
+    const hit = this.kcNames.get(userId);
+    if (hit && Date.now() - hit.at < KC_NAME_CACHE_MS) return hit;
+    try {
+      // A short timeout: a stalled Keycloak must not hold every page.
+      const kcUser = await this.kc.getUser(userId, { timeoutMs: KC_NAME_TIMEOUT_MS });
+      if (this.kcNames.size >= KC_NAME_CACHE_MAX) this.kcNames.clear();
+      const entry = {
+        ...(kcUser.firstName !== undefined ? { firstName: kcUser.firstName } : {}),
+        ...(kcUser.lastName !== undefined ? { lastName: kcUser.lastName } : {}),
+        at: Date.now(),
+      };
+      this.kcNames.set(userId, entry);
+      return entry;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Only the portal's own avatar uploads may be stored. The value is
+   * rendered as an <img src> for other users and anonymous visitors,
+   * so any other URL lets a user log who views their name.
+   */
+  private assertOwnAvatarUrl(url: string): void {
+    const get = (k: string, d: string) => this.cfg?.get<string>(k) ?? process.env[k] ?? d;
+    const endpoint = get('MINIO_ENDPOINT', 'http://localhost:9000');
+    const base = get('MINIO_PUBLIC_BASE', endpoint).replace(/\/$/, '');
+    const prefix = `${base}/${get('MINIO_BUCKET', 'gratisgis')}/user-avatar/`;
+    const rest = url.startsWith(prefix) ? url.slice(prefix.length) : null;
+    if (rest === null || !/^[0-9a-f-]{36}[A-Za-z0-9._-]*$/i.test(rest)) {
+      throw new BadRequestException(
+        'avatarUrl must be an image uploaded to this portal.',
+      );
+    }
+  }
 
   @Get('me')
   async me(@CurrentUser() user: AuthUser) {
@@ -74,13 +133,10 @@ export class UsersController {
     let firstName: string | undefined;
     let lastName: string | undefined;
     if (this.kc.isConfigured()) {
-      try {
-        const kcUser = await this.kc.getUser(user.id);
-        firstName = kcUser.firstName;
-        lastName = kcUser.lastName;
-      } catch {
-        /* non-fatal: read-only display continues to work */
-      }
+      // Non-fatal: read-only display continues to work without it.
+      const names = await this.keycloakNames(user.id);
+      firstName = names?.firstName;
+      lastName = names?.lastName;
     }
     return {
       ...user,
@@ -207,6 +263,7 @@ export class UsersController {
       lastName?: string;
       email?: string;
     } = {};
+    if (typeof dto.avatarUrl === 'string') this.assertOwnAvatarUrl(dto.avatarUrl);
     if (dto.firstName !== undefined) identityPatch.firstName = dto.firstName.trim();
     if (dto.lastName !== undefined) identityPatch.lastName = dto.lastName.trim();
     if (dto.email !== undefined) identityPatch.email = dto.email.trim();
@@ -232,6 +289,7 @@ export class UsersController {
         );
       }
       await this.kc.updateUser(user.id, identityPatch);
+      this.kcNames.delete(user.id);
     }
 
     // Mirror the new identity fields into the local row so downstream

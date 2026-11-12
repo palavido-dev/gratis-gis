@@ -138,6 +138,21 @@ describe('LensPolicyService', () => {
       });
       expect(result).toBe(true);
     });
+
+    it('still evaluates a feature that has a null or fractional attribute', () => {
+      // Cedar rejects JSON null and non-integer numbers; one such
+      // field used to fail the evaluation and hide the feature.
+      const result = svc.checkFeature({
+        user: makeUser(),
+        lens: { id: 'lens-budget', policy },
+        feature: {
+          entityId: 'feat-mixed',
+          attrs: { cost: 50, note: null, area: 1.5, tags: [null, 'a'] },
+          spatial: [],
+        },
+      });
+      expect(result).toBe(true);
+    });
   });
 
   // ---------------------------------------------------------------

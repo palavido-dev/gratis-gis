@@ -429,8 +429,10 @@ function finishElement(
   }
 
   // Element with children. Collect children by name; on collision,
-  // promote to an array.
-  const obj: XmlElement = { ...attrs };
+  // promote to an array. No prototype: a child element named
+  // `constructor` or `toString` read as an existing (inherited) value,
+  // and one named `__proto__` replaced the object's prototype.
+  const obj: XmlElement = Object.assign(Object.create(null) as XmlElement, attrs);
   if (hasText) obj['#text'] = trimmedText;
   for (const c of children) {
     const existing = obj[c.name];

@@ -84,6 +84,8 @@ import {
   parseSafetyConfig,
   visibleTools,
   wrapUntrusted,
+  formatToolError,
+  PortalHttpError,
 } from './safety.js';
 
 const BASE_URL = (
@@ -591,11 +593,13 @@ async function portalFetch(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    const base = `GratisGIS ${res.status}: ${text || res.statusText}`;
-    if (opts.requireAuth && (res.status === 401 || res.status === 403)) {
-      throw new Error(`${base}\n${TOKEN_SETUP_HINT}`);
-    }
-    throw new Error(base);
+    throw new PortalHttpError(
+      res.status,
+      text || res.statusText,
+      opts.requireAuth && (res.status === 401 || res.status === 403)
+        ? TOKEN_SETUP_HINT
+        : undefined,
+    );
   }
   if (res.status === 204) return null;
   const text = await res.text();
@@ -806,19 +810,24 @@ async function runTool(
         featureCount: features.length,
       };
       if (outcome.failedBatch !== undefined) {
-        return {
-          ...toContent({
-            ...summary,
-            failedBatch: outcome.failedBatch,
-            error: outcome.error,
-            resume:
+        const ours = toContent({
+          ...summary,
+          failedBatch: outcome.failedBatch,
+          resume:
               `Batch ${outcome.failedBatch} of ${outcome.batches} failed. ` +
               `Call again with itemId ${itemId} and layerKey ${layerKey} to ` +
               'append into this item instead of creating another, sending ' +
               `features from index ${outcome.batchesDone * APPEND_BATCH_SIZE} ` +
               'onward. Features with UUID ids are deduplicated on retry; ' +
               'others would be inserted twice if resent.',
-          }),
+        });
+        // The portal's error text goes in the envelope, apart from the
+        // resume guidance this server wrote.
+        return {
+          content: [
+            ...ours.content,
+            { type: 'text', text: wrapUntrusted('gratisgis:error', { error: outcome.error }) },
+          ],
           isError: true,
         };
       }
@@ -849,9 +858,8 @@ async function main(): Promise<void> {
     try {
       return await runTool(name, args ?? {});
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       return {
-        content: [{ type: 'text', text: `Error: ${message}` }],
+        content: [{ type: 'text', text: formatToolError(err) }],
         isError: true,
       };
     }

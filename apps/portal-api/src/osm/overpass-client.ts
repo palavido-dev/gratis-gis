@@ -51,12 +51,25 @@ export class OverpassClient {
         },
         body: new URLSearchParams({ data: args.ql }).toString(),
         signal: controller.signal,
+      }, {
+        // The whole body is buffered and parsed in the API process,
+        // and the endpoint can be an org admin's choice. 64 MiB is far
+        // more than the feature caps ever need.
+        maxBytes: OVERPASS_MAX_RESPONSE_BYTES,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw mapOverpassError(res.status, text);
       }
-      const body = (await res.json()) as OverpassResponse;
+      const body = (await res.json()) as OverpassResponse & { remark?: unknown };
+      // Overpass reports a timeout or out-of-memory as HTTP 200 with a
+      // `remark` and partial or no elements. Treating that as success
+      // cached an empty answer for the whole TTL.
+      if (typeof body.remark === 'string' && /runtime error/i.test(body.remark)) {
+        throw new Error(
+          `Overpass rejected the query: it ran out of time or memory (${body.remark.slice(0, 160)})`,
+        );
+      }
       return body;
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
@@ -70,6 +83,9 @@ export class OverpassClient {
     }
   }
 }
+
+/** Largest Overpass response body read into memory. */
+export const OVERPASS_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 function mapOverpassError(status: number, text: string): Error {
   if (status === 504 || status === 503) {

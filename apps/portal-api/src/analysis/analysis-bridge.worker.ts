@@ -210,7 +210,10 @@ export class AnalysisBridgeWorker implements OnModuleInit {
     for (const job of candidates) {
       const claimed = await this.prisma.analysisJob.updateMany({
         where: { id: job.id, state: 'ingest' },
-        data: { state: 'importing', progress: 82 },
+        // Fresh heartbeat: the stranded sweep ages 'importing' rows by
+        // it, and a job that sat in 'ingest' through a restart would
+        // otherwise look stale to another replica while still staging.
+        data: { state: 'importing', progress: 82, heartbeatAt: new Date() },
       });
       if (claimed.count === 0) continue; // another replica took it
       try {
@@ -279,8 +282,10 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           err instanceof Error
             ? err.message
             : 'The analysis result could not be imported.';
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        // Only while still 'importing': a job the user cancelled during
+        // staging stays cancelled.
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             state: 'failed',
             error: msg.slice(0, 2000),

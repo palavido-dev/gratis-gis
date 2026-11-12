@@ -61,7 +61,10 @@ export class MaintenanceAdminController {
   @HttpCode(200)
   async set(@CurrentUser() user: AuthUser, @Body() body: MaintenanceDto) {
     const before = this.mode.snapshot();
-    if (!body.active && failedRestore(before.reason)) {
+    // Both directions are refused under a failed-restore hold. Turning
+    // it "on" replaced the stored failure reason, after which "off"
+    // no longer saw the hold and cleared the flag.
+    if (failedRestore(before.reason)) {
       await this.audit.record({
         orgId: user.orgId,
         actorUserId: user.id,
@@ -69,7 +72,7 @@ export class MaintenanceAdminController {
         targetType: 'maintenance',
         targetId: user.orgId,
         outcome: 'failed',
-        detail: { active: false, held: true },
+        detail: { active: body.active, held: true },
       });
       throw new ConflictException(
         'A failed restore is holding maintenance. It stays on until a restore finishes. The portal will not serve a partial database.',

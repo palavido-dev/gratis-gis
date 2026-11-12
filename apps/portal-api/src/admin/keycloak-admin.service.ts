@@ -396,10 +396,39 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return rows[0]?.id ?? null;
   }
 
-  async getUser(id: string): Promise<KeycloakUserRep> {
+  /**
+   * Whether the Keycloak user with exactly this username exists and is
+   * enabled. One small request, for callers that would otherwise page
+   * through the whole realm to answer it.
+   */
+  async isUsernameEnabled(username: string): Promise<boolean> {
+    const token = await this.getAccessToken();
+    const qs = new URLSearchParams({
+      username,
+      exact: 'true',
+      max: '1',
+      briefRepresentation: 'true',
+    });
+    const res = await fetch(this.adminUrl(`/users?${qs.toString()}`), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak isUsernameEnabled failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const rows = (await res.json()) as Array<{ enabled?: boolean }>;
+    return rows[0]?.enabled === true;
+  }
+
+  async getUser(
+    id: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<KeycloakUserRep> {
     const token = await this.getAccessToken();
     const res = await fetch(this.adminUrl(`/users/${id}`), {
       headers: { authorization: `Bearer ${token}` },
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
     if (res.status === 404) {
       throw new NotFoundException(`Keycloak user ${id} not found`);

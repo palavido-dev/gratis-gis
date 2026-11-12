@@ -48,6 +48,8 @@ export class PrintRenderController {
    * print_template and the map item.
    */
   @Post('render')
+  // Each render holds a Chromium session for up to 45 s.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async render(
     @CurrentUser() user: AuthUser,
     @Body() dto: RenderDto,

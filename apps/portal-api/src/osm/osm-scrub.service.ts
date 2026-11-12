@@ -78,7 +78,7 @@ export class OsmScrubService implements OnApplicationBootstrap {
     // stale scopes from getting cleaned up.
     const expired = await this.prisma.osmQueryCache.findMany({
       where: { expiresAt: { lt: now } },
-      select: { hash: true, scope: true },
+      select: { hash: true, scope: true, expiresAt: true },
       orderBy: { expiresAt: 'asc' },
       take: OsmScrubService.MAX_SCOPES_PER_RUN,
     });
@@ -86,12 +86,38 @@ export class OsmScrubService implements OnApplicationBootstrap {
     if (expired.length === 0) return;
 
     for (const row of expired) {
+      // Claim the row first, and only while it is still expired. A
+      // resolve of the same query may have refreshed it since the list
+      // was read; purging then left a fresh cache row over a half
+      // deleted scope.
+      const claimed = await this.prisma.osmQueryCache.deleteMany({
+        where: { hash: row.hash, expiresAt: { lt: now } },
+      });
+      if (claimed.count === 0) continue;
+      totalCacheDeleted += 1;
       try {
         const obsCount = await this.purgeScope(row.scope);
         totalObsDeleted += obsCount;
-        await this.prisma.osmQueryCache.delete({ where: { hash: row.hash } });
-        totalCacheDeleted += 1;
       } catch (err) {
+        // Put the expired row back so the next tick retries the purge;
+        // without it the scope's rows would have nothing pointing at
+        // them and would never be reclaimed.
+        await this.prisma.osmQueryCache
+          .upsert({
+            where: { hash: row.hash },
+            create: {
+              hash: row.hash,
+              scope: row.scope,
+              presetIds: [],
+              bbox: [],
+              featureCount: 0,
+              endpoint: '',
+              fetchedAt: row.expiresAt,
+              expiresAt: row.expiresAt,
+            },
+            update: {},
+          })
+          .catch(() => undefined);
         // One scope failing should not stop the whole run. Log and
         // continue; the row stays expired and will be retried next
         // tick.

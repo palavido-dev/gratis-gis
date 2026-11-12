@@ -246,6 +246,36 @@ d('CopyWriter on PostGIS', () => {
     }
   });
 
+  it('stores empty geometries instead of failing the import', async () => {
+    // GDAL writes an empty geometry as `"coordinates": []`. The encoder
+    // used to emit `POLYGON()`, which is not valid EWKT, so one empty
+    // row rolled back the whole COPY.
+    const writer = new CopyWriter(DB_URL);
+    await writer.begin();
+    writer.beginCopy();
+    const t0 = new Date('2026-06-01T00:00:00Z');
+    const geoms: unknown[] = [
+      { type: 'Polygon', coordinates: [] },
+      { type: 'Point', coordinates: [] },
+      { type: 'GeometryCollection', geometries: [] },
+      { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+    ];
+    await writer.writeBatch(
+      geoms.map((geom, i) => ({
+        ...row('77777777-7777-7777-7777-77777777777' + i, `abababab-abab-abab-abab-ababababab0${i}`, t0),
+        geom,
+      })) as Observation[],
+    );
+    await writer.sealCopy();
+    await writer.commit();
+    await writer.close();
+    const r = await pool.query<{ e: boolean }>(
+      `SELECT ST_IsEmpty(geom) AS e FROM observation
+       WHERE entity::text LIKE '77777777-%' ORDER BY entity`,
+    );
+    expect(r.rows.map((x) => x.e)).toEqual([true, true, true, false]);
+  });
+
   it('stores text and attributes that contain NUL characters', async () => {
     // DBF fields padded with NUL are common. Postgres refuses U+0000
     // in text and in jsonb, so the encoder drops it.

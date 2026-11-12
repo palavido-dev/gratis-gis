@@ -358,7 +358,11 @@ export function buildTileJson(args: {
   labelPoints?: boolean;
 }): Record<string, unknown> {
   const minzoom = args.settings.minZoom ?? TILE_ZOOM_MIN;
-  const maxzoom = args.settings.maxZoom ?? DEFAULT_ADVERTISED_MAXZOOM;
+  // Zooms go up to TILE_ZOOM_MAX, so a minZoom above the advertised
+  // default must lift the default too; minzoom > maxzoom makes strict
+  // clients reject the TileJSON.
+  const maxzoom =
+    args.settings.maxZoom ?? Math.max(DEFAULT_ADVERTISED_MAXZOOM, minzoom);
   const fields: Record<string, string> = { _global_id: 'String' };
   for (const f of args.fields) fields[f.name] = tileJsonType(f.type);
   const featureFields: Record<string, string> = args.labelPoints

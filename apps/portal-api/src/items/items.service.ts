@@ -1903,7 +1903,7 @@ export class ItemsService {
    * The derived read path materialises its inputs in SQL with no way
    * to carry a reader's share limits, so these readers are refused
    * instead of handed the whole input. Unreadable or missing inputs
-   * are left to the ACL checks that already handle them.
+   * are refused too.
    */
   private async derivedInputScopeLimit(
     user: AuthUser,
@@ -1931,7 +1931,18 @@ export class ItemsService {
           });
           nodes.set(depId, node);
         }
-        if (!node || node.deletedAt !== null) continue;
+        // The read path builds SQL for every input from the recipe's
+        // ids and never loads the items, so this walk is the only
+        // check on deeper levels. A missing, trashed or unreadable
+        // input is refused: skipping it would serve a trashed layer's
+        // rows to readers who never had it.
+        if (
+          !node ||
+          node.deletedAt !== null ||
+          !this.sharing.canRead(user, node, node.shares)
+        ) {
+          return depId;
+        }
         if (node.type === 'derived_layer') {
           queue.push(node.data);
           continue;

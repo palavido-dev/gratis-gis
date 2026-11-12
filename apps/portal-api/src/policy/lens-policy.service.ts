@@ -203,12 +203,33 @@ function combinePolicyText(lensPolicy: string): string {
 function cedarValueFromAttrs(
   attrs: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Filter to JSON-friendly types Cedar can consume. Skip
-  // undefined values; coerce nulls; pass scalars + arrays through.
+  // Cedar refuses JSON null and any number that is not a 64-bit
+  // integer, and one refused attribute fails the whole evaluation,
+  // which reads as a deny. So every feature with an empty field or a
+  // float (area, length) was hidden under any policy. Nulls are left
+  // out; fractions become Cedar decimals.
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(attrs)) {
-    if (v === undefined) continue;
-    out[k] = v;
+    const c = toCedarValue(v);
+    if (c !== undefined) out[k] = c;
   }
   return out;
+}
+
+function toCedarValue(v: unknown): unknown {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return undefined;
+    if (Number.isSafeInteger(v)) return v;
+    // Cedar decimal: four fractional digits, about +-9.2e14.
+    if (Math.abs(v) < 9e14) return { __extn: { fn: 'decimal', arg: v.toFixed(4) } };
+    return String(v);
+  }
+  if (Array.isArray(v)) {
+    return v.map(toCedarValue).filter((x) => x !== undefined);
+  }
+  if (typeof v === 'object') {
+    return cedarValueFromAttrs(v as Record<string, unknown>);
+  }
+  return v;
 }

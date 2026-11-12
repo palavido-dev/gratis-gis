@@ -104,6 +104,53 @@ const DROP_RESPONSE_HEADERS = new Set([
 ]);
 
 /**
+ * Limits shared by every third-party fetch of one render. Each fetch
+ * is buffered in the API process, so without them a template with a
+ * hundred slow 49 MB images held gigabytes, and the fetches kept
+ * running after the page closed.
+ */
+export interface PrintFetchBudget {
+  /** Aborted when the render ends; stops every fetch still running. */
+  signal: AbortSignal;
+  /** Bytes the render may still buffer. */
+  remainingBytes: number;
+  /** Fetches allowed at once. */
+  maxParallel: number;
+  inFlight: number;
+  waiting: Array<() => void>;
+}
+
+/** Total third-party bytes one render may buffer. */
+const PRINT_RENDER_MAX_BYTES = 200 * 1024 * 1024;
+/** Third-party fetches one render may run at once. */
+const PRINT_RENDER_MAX_PARALLEL = 6;
+/** Longest a single third-party fetch may take, body included. */
+const PRINT_RESOURCE_TIMEOUT_MS = 20_000;
+
+export function createPrintFetchBudget(signal: AbortSignal): PrintFetchBudget {
+  return {
+    signal,
+    remainingBytes: PRINT_RENDER_MAX_BYTES,
+    maxParallel: PRINT_RENDER_MAX_PARALLEL,
+    inFlight: 0,
+    waiting: [],
+  };
+}
+
+async function takeSlot(budget: PrintFetchBudget): Promise<void> {
+  while (budget.inFlight >= budget.maxParallel) {
+    if (budget.signal.aborted) throw new Error('render ended');
+    await new Promise<void>((resolve) => budget.waiting.push(resolve));
+  }
+  budget.inFlight += 1;
+}
+
+function releaseSlot(budget: PrintFetchBudget): void {
+  budget.inFlight -= 1;
+  budget.waiting.shift()?.();
+}
+
+/**
  * Answer one intercepted request according to the filter. Never
  * throws: a failure aborts that one request so the render goes on.
  */
@@ -111,6 +158,7 @@ export async function answerPrintRequest(
   request: InterceptedRequest,
   decide: (url: string) => PrintRequestDecision,
   fetcher: Fetcher = safeFetch,
+  budget?: PrintFetchBudget,
 ): Promise<void> {
   const decision = decide(request.url());
   try {
@@ -130,14 +178,30 @@ export async function answerPrintRequest(
     const init: RequestInit = { method, headers };
     const body = request.postData();
     if (body !== undefined && method === 'POST') init.body = body;
-    const res = await fetcher(request.url(), init, {
-      maxBytes: PRINT_RESOURCE_MAX_BYTES,
-    });
+    let buf: Buffer;
+    let res: Response;
+    if (budget) await takeSlot(budget);
+    try {
+      if (budget && (budget.signal.aborted || budget.remainingBytes <= 0)) {
+        throw new Error('render budget spent');
+      }
+      const timeout = AbortSignal.timeout(PRINT_RESOURCE_TIMEOUT_MS);
+      init.signal = budget ? AbortSignal.any([budget.signal, timeout]) : timeout;
+      res = await fetcher(request.url(), init, {
+        maxBytes: Math.min(
+          PRINT_RESOURCE_MAX_BYTES,
+          budget?.remainingBytes ?? PRINT_RESOURCE_MAX_BYTES,
+        ),
+      });
+      buf = Buffer.from(await res.arrayBuffer());
+      if (budget) budget.remainingBytes -= buf.byteLength;
+    } finally {
+      if (budget) releaseSlot(budget);
+    }
     const out: Record<string, string> = {};
     res.headers.forEach((value, key) => {
       if (!DROP_RESPONSE_HEADERS.has(key.toLowerCase())) out[key] = value;
     });
-    const buf = Buffer.from(await res.arrayBuffer());
     await request.respond({ status: res.status, headers: out, body: buf });
   } catch {
     await request.abort('blockedbyclient').catch(() => undefined);

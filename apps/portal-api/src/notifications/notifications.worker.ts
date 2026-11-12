@@ -160,6 +160,9 @@ export class NotificationsWorker {
         status: NotificationStatus.queued,
         scheduledAt: new Date(),
         sendingAt: null,
+        // Counts as an attempt, so a row that strands every time runs
+        // out of budget instead of being retried forever.
+        attempts: { increment: 1 },
         lastError: 'Sending was interrupted before it completed; requeued.',
       },
     });
@@ -237,7 +240,14 @@ export class NotificationsWorker {
     if (due.length === 0) return;
     this.log.debug(`Draining ${due.length} notification(s)`);
     for (const row of due) {
-      await this.processOne(row.id);
+      try {
+        await this.processOne(row.id);
+      } catch (err) {
+        // One row must not stop the rest of the batch.
+        this.log.warn(
+          `Notification ${row.id} could not be processed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 
@@ -278,21 +288,30 @@ export class NotificationsWorker {
     let rendered = null as Awaited<
       ReturnType<typeof renderNotification>
     > | null;
-    const recipient = await this.prisma.user.findUnique({
-      where: { id: row.userId },
-      select: { orgId: true },
-    });
-    if (recipient?.orgId) {
-      rendered = await this.templates.renderOverride(
-        recipient.orgId,
-        row.type,
-        row.channel,
-        row.payload,
-        this.renderCtx,
-      );
-    }
-    if (!rendered) {
-      rendered = renderNotification(row.type, row.payload, this.renderCtx);
+    try {
+      const recipient = await this.prisma.user.findUnique({
+        where: { id: row.userId },
+        select: { orgId: true },
+      });
+      if (recipient?.orgId) {
+        rendered = await this.templates.renderOverride(
+          recipient.orgId,
+          row.type,
+          row.channel,
+          row.payload,
+          this.renderCtx,
+        );
+      }
+      if (!rendered) {
+        rendered = renderNotification(row.type, row.payload, this.renderCtx);
+      }
+    } catch (err) {
+      // A lookup or render that throws (a malformed payload, a
+      // transient database error) is a failed attempt like a failed
+      // send. Left outside, it stranded the row in `sending`, cut the
+      // batch short, and never counted against the retry budget.
+      await this.recordFailure(row, err);
+      return;
     }
     if (!rendered) {
       await this.prisma.notification.update({
@@ -328,41 +347,50 @@ export class NotificationsWorker {
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const nextAttempts = row.attempts + 1;
-      const isFinal = nextAttempts >= this.maxAttempts;
-      // Backoff in milliseconds: 60s, 5m, 30m, 2h, 12h. The index
-      // is the attempt-just-completed; if next attempt would still
-      // be retryable, push scheduledAt forward by the matching
-      // delay. The last entry is reused if we somehow exceed it.
-      const backoffMs = [
-        60_000,
-        5 * 60_000,
-        30 * 60_000,
-        2 * 60 * 60_000,
-        12 * 60 * 60_000,
-      ];
-      const delay =
-        backoffMs[Math.min(nextAttempts - 1, backoffMs.length - 1)] ??
-        backoffMs[backoffMs.length - 1]!;
-      await this.prisma.notification.update({
-        where: { id },
-        data: {
-          status: isFinal
-            ? NotificationStatus.failed
-            : NotificationStatus.queued,
-          attempts: { increment: 1 },
-          // Truncate at ~1KB so a verbose SMTP error doesn't blow
-          // up the row size.
-          lastError: message.slice(0, 1024),
-          scheduledAt: isFinal ? row.scheduledAt : new Date(Date.now() + delay),
-          sendingAt: null,
-        },
-      });
-      this.log.warn(
-        `Notification ${id} attempt ${nextAttempts} failed: ${message}` +
-          (isFinal ? ' (final, marked failed)' : ' (will retry)'),
-      );
+      await this.recordFailure(row, err);
     }
+  }
+
+  /** Count a failed attempt and requeue with backoff, or fail the row. */
+  private async recordFailure(
+    row: { id: string; attempts: number; scheduledAt: Date },
+    err: unknown,
+  ) {
+    const id = row.id;
+    const message = err instanceof Error ? err.message : String(err);
+    const nextAttempts = row.attempts + 1;
+    const isFinal = nextAttempts >= this.maxAttempts;
+    // Backoff in milliseconds: 60s, 5m, 30m, 2h, 12h. The index
+    // is the attempt-just-completed; if next attempt would still
+    // be retryable, push scheduledAt forward by the matching
+    // delay. The last entry is reused if we somehow exceed it.
+    const backoffMs = [
+      60_000,
+      5 * 60_000,
+      30 * 60_000,
+      2 * 60 * 60_000,
+      12 * 60 * 60_000,
+    ];
+    const delay =
+      backoffMs[Math.min(nextAttempts - 1, backoffMs.length - 1)] ??
+      backoffMs[backoffMs.length - 1]!;
+    await this.prisma.notification.update({
+      where: { id },
+      data: {
+        status: isFinal
+          ? NotificationStatus.failed
+          : NotificationStatus.queued,
+        attempts: { increment: 1 },
+        // Truncate at ~1KB so a verbose SMTP error doesn't blow
+        // up the row size.
+        lastError: message.slice(0, 1024),
+        scheduledAt: isFinal ? row.scheduledAt : new Date(Date.now() + delay),
+        sendingAt: null,
+      },
+    });
+    this.log.warn(
+      `Notification ${id} attempt ${nextAttempts} failed: ${message}` +
+        (isFinal ? ' (final, marked failed)' : ' (will retry)'),
+    );
   }
 }

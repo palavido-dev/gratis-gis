@@ -9,6 +9,9 @@ const TIMEOUT_MS = 2000;
 
 export type CheckState = 'ok' | 'down' | 'unconfigured';
 
+/** An import queued longer than this means no worker is taking jobs. */
+const QUEUE_STALL_MS = 10 * 60_000;
+
 async function withTimeout<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -64,7 +67,10 @@ export class ReadinessService {
     const objectStore = await this.ping(originOnly(process.env.MINIO_ENDPOINT), '/minio/health/live');
     const identity = await this.ping(
       originOnly(process.env.KEYCLOAK_URL),
-      `/realms/${encodeURIComponent(process.env.KEYCLOAK_REALM || 'gratis')}/.well-known/openid-configuration`,
+      // Same default realm as the JWT strategy and Keycloak admin
+      // client. 'gratis' named a realm that does not exist, so a bare
+      // install reported identity down while sign-in worked.
+      `/realms/${encodeURIComponent(process.env.KEYCLOAK_REALM || 'gratis-gis')}/.well-known/openid-configuration`,
     );
     const queue = await this.pingQueue();
     const configured = analysisConfigured();
@@ -89,10 +95,28 @@ export class ReadinessService {
     }
   }
 
+  /**
+   * The queue is down when an import has waited longer than a worker
+   * takes to pick one up and nothing is running, which is what a
+   * stopped worker looks like. Counting rows only proved the database
+   * was up.
+   */
   private async pingQueue(): Promise<CheckState> {
     try {
-      await withTimeout(this.prisma.importJob.count({ where: { status: 'running' } }));
-      return 'ok';
+      const stuck = await withTimeout(
+        this.prisma.importJob.count({
+          where: {
+            status: 'queued',
+            createdAt: { lt: new Date(Date.now() - QUEUE_STALL_MS) },
+          },
+        }),
+      );
+      if (stuck === 0) return 'ok';
+      // Waiting behind a long import is normal.
+      const running = await withTimeout(
+        this.prisma.importJob.count({ where: { status: 'running' } }),
+      );
+      return running > 0 ? 'ok' : 'down';
     } catch {
       return 'down';
     }

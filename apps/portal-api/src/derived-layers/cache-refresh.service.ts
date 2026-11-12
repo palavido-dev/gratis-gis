@@ -139,10 +139,9 @@ export class DerivedLayerCacheRefreshService {
    * anyway (cross-org references aren't a thing in v1), so the
    * scope is correct and the wasteful cross-tenant scan goes away.
    *
-   * Within the org, filters in memory rather than via a JSON-path
-   * Prisma `where`, since the dependent set is small (one row per
-   * derived layer in the org) and the JSON-path predicate is
-   * awkward to write portably.
+   * The source id is matched in SQL with a JSON-path filter. This
+   * runs on every feature write, and loading every recipe in the org
+   * (pipelines and cached schemas) for each edit was the slow part.
    *
    * For v3 sources the layerKey must match too: a write to a
    * sublayer `A` shouldn't refresh derived layers that read from
@@ -158,6 +157,7 @@ export class DerivedLayerCacheRefreshService {
         type: 'derived_layer',
         deletedAt: null,
         orgId,
+        data: { path: ['source', 'itemId'], equals: sourceItemId },
       },
       select: { id: true, data: true },
     });
@@ -190,10 +190,12 @@ export function growCachedCaps(
     if (step.tool !== 'buffer') return step;
     const params = step.params;
     if (params.mode !== 'field') return step;
-    const candidate = largestRelevantValueMeters(
-      params.field,
-      params.unit,
-      properties,
+    // Clamp before comparing: a value over the ceiling would otherwise
+    // beat a cap already at the ceiling on every write and rewrite the
+    // recipe with the same number each time.
+    const candidate = Math.min(
+      largestRelevantValueMeters(params.field, params.unit, properties),
+      MAX_BUFFER_DISTANCE_METERS,
     );
     if (candidate <= params.cachedMaxMeters) return step;
     mutated = true;
@@ -201,7 +203,7 @@ export function growCachedCaps(
       mode: 'field',
       field: params.field,
       unit: params.unit,
-      cachedMaxMeters: Math.min(candidate, MAX_BUFFER_DISTANCE_METERS),
+      cachedMaxMeters: candidate,
     };
     return { tool: 'buffer', params: grown };
   });

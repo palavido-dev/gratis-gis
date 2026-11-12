@@ -284,6 +284,29 @@ describe('AuthSyncService.upsertFromClaims principal cache', () => {
     expect(prisma.user.upsert).not.toHaveBeenCalled();
   });
 
+  it('refuses a disabled user even with a still-valid token', async () => {
+    const prisma = makePrisma({
+      user: makeUserRow({ disabledAt: new Date(T0 - 1) }),
+    });
+    const service = svc(prisma);
+    await expect(service.upsertFromClaims(makeClaims())).rejects.toThrow(/disabled/);
+    expect(prisma.user.upsert).not.toHaveBeenCalled();
+  });
+
+  it('seeds built-in basemaps under the seed unique index, skipping duplicates', async () => {
+    const prisma = makePrisma();
+    prisma.item.findMany.mockImplementation(async () =>
+      SEEDED_ITEMS.filter((r) => !(r.data && 'seededKey' in r.data)),
+    );
+    await svc(prisma).upsertFromClaims(makeClaims());
+    const calls = prisma.item.createMany.mock.calls as unknown as Array<
+      [{ skipDuplicates?: boolean; data: Array<{ type: string; seedKind?: string }> }]
+    >;
+    const basemaps = calls.find((c) => c[0].data.some((d) => d.type === 'basemap'));
+    expect(basemaps?.[0].skipDuplicates).toBe(true);
+    expect(basemaps?.[0].data.every((d) => typeof d.seedKind === 'string' && d.seedKind.startsWith('basemap:'))).toBe(true);
+  });
+
   it('re-checks the auto-disable instant on every hit', async () => {
     // Disable falls 5 s from now, well inside the 10 s TTL. The entry
     // must refuse on the dot, not when it happens to expire.

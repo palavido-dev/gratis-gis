@@ -49,11 +49,9 @@ export const APPEND_LOCK_BUCKETS = 64;
  *     considerably faster than GeoJSON.
  *   - The `cell` h3 index is set null in the bulk path; #115 P4
  *     dropped the index that justified per-row computation.
- *   - This path bypasses derived-layer cache invalidation
- *     (notifySourceWrite). The worker fires a single bulk
- *     invalidation after the COPY completes -- cheaper than
- *     N per-row calls and good enough for the staleness window
- *     between import-finished and the next regular write.
+ *   - This class does not touch derived-layer caches itself.
+ *     bulkInsertFeatures calls notifySourceWrite once per batch it
+ *     hands to the writer.
  */
 export class CopyWriter {
   private pool: Pool;

@@ -32,6 +32,12 @@ export interface ToolEnrichContext {
    */
   sourceTable: string;
   /**
+   * How many `$N` placeholders `sourceTable` already uses. A hook's own
+   * placeholders start at `$${sourceParamCount + 1}`; `queryRaw` binds
+   * the source's values ahead of the hook's.
+   */
+  sourceParamCount?: number;
+  /**
    * Run a parameterized SQL query against the workspace database.
    * Generators MUST go through this rather than touching Prisma
    * directly so the surface stays narrow.
@@ -67,6 +73,16 @@ export interface ToolSqlFragment {
    * appends these to the outer query's parameter array as-is.
    */
   params: unknown[];
+}
+
+/**
+ * Optional context handed to `toSql(...)`. `inputSchema` is the schema
+ * of the rows at `inputAlias`, threaded through the pipeline by the
+ * caller. Tools that compile user expressions need it to know which
+ * properties are numbers: the properties blob only ever yields text.
+ */
+export interface ToolSqlContext {
+  inputSchema?: FeatureField[];
 }
 
 /**
@@ -169,5 +185,6 @@ export interface ToolGenerator<TParams> {
     inputAlias: string,
     params: TParams,
     paramOffset: number,
+    ctx?: ToolSqlContext,
   ): ToolSqlFragment;
 }

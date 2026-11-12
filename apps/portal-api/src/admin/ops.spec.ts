@@ -53,6 +53,10 @@ describe('diskDecision', () => {
     });
     expect(diskDecision({ requestedBytes: 50n, freeBytes: null })).toEqual({ ok: true });
   });
+
+  it('never refuses a reservation of zero bytes', () => {
+    expect(diskDecision({ requestedBytes: 0n, freeBytes: 20n, heldBytes: 30n })).toEqual({ ok: true });
+  });
 });
 
 describe('isStagingId', () => {

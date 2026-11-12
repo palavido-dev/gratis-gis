@@ -100,6 +100,7 @@ export class EmailTransport {
         port: cfg.port,
         secure: cfg.secure,
         ...(cfg.user ? { user: cfg.user, password: cfg.password ?? '' } : {}),
+        allowPlaintextAuth: process.env.SMTP_ALLOW_PLAINTEXT_AUTH === 'true',
       },
       {
         from: this.cachedFrom,
@@ -132,6 +133,7 @@ export class EmailTransport {
         port: cfg.port,
         secure: cfg.secure,
         ...(cfg.user ? { user: cfg.user, password: cfg.password ?? '' } : {}),
+        allowPlaintextAuth: process.env.SMTP_ALLOW_PLAINTEXT_AUTH === 'true',
       },
       {
         from: formatFrom(cfg),
@@ -144,10 +146,24 @@ export class EmailTransport {
   }
 }
 
-function formatFrom(cfg: SmtpConfig): string {
+export function formatFrom(cfg: SmtpConfig): string {
   if (!cfg.fromAddress) return 'GratisGIS <noreply@gratisgis.local>';
   if (cfg.fromDisplayName) {
-    return `${cfg.fromDisplayName} <${cfg.fromAddress}>`;
+    return `${displayNamePhrase(cfg.fromDisplayName)} <${cfg.fromAddress}>`;
   }
   return cfg.fromAddress;
+}
+
+/**
+ * A From display name as an RFC 5322 phrase. Unquoted, a comma made
+ * "City of Springfield, GIS" two mailboxes, which strict receivers
+ * reject; non-ASCII went out as raw 8-bit header bytes. ASCII is
+ * quoted, anything else is RFC 2047 encoded.
+ */
+function displayNamePhrase(name: string): string {
+  const flat = name.replace(/[\r\n]+/g, ' ').trim();
+  if (/^[\x20-\x7E]*$/.test(flat)) {
+    return `"${flat.replace(/(["\\])/g, '\\$1')}"`;
+  }
+  return `=?UTF-8?B?${Buffer.from(flat, 'utf8').toString('base64')}?=`;
 }
