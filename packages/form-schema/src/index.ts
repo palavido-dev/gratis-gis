@@ -1348,6 +1348,23 @@ function numericResolve(operand: Operand, response: Response): number | null {
   return null;
 }
 
+/**
+ * The lower-case scheme of an absolute URL, or null when `value` is
+ * not one: a scheme, a colon, no whitespace, and for a `scheme://`
+ * form a non-empty host.
+ */
+function urlScheme(value: string): string | null {
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):(\S+)$/.exec(value.trim());
+  if (!m) return null;
+  const rest = m[2]!;
+  if (rest.startsWith('//')) {
+    const host = rest.slice(2).split(/[/?#]/, 1)[0] ?? '';
+    const bare = host.replace(/^[^@]*@/, '').replace(/:\d*$/, '');
+    if (bare === '') return null;
+  }
+  return m[1]!.toLowerCase();
+}
+
 /** An attachment answer: captured inline (`dataUrl`) or uploaded (`url`). */
 function hasMediaSource(v: object): boolean {
   return (
@@ -1909,14 +1926,13 @@ function validateType(q: Question, value: unknown): string | null {
       if (q.maxLength && value.length > q.maxLength) {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
-      let parsed: URL | null = null;
-      try {
-        parsed = new URL(value);
-      } catch {
-        return 'Enter a valid URL.';
-      }
+      // A pure check, not `new URL`: URL is a platform global that the
+      // field engine's QuickJS host does not have, so every value
+      // failed on the phone while the web and the server accepted it.
+      const scheme = urlScheme(value);
+      if (scheme === null) return 'Enter a valid URL.';
       if (q.allowedProtocols && q.allowedProtocols.length > 0) {
-        const proto = parsed.protocol.replace(/:$/, '');
+        const proto = scheme;
         if (!q.allowedProtocols.includes(proto)) {
           return `URL must use ${q.allowedProtocols.join(' or ')}.`;
         }
@@ -2382,28 +2398,72 @@ function validateType(q: Question, value: unknown): string | null {
  * Returns the mutated response (callers can rely on identity
  * equality when nothing changed).
  */
+/**
+ * `skipClock` leaves every expression that reads the clock alone (the
+ * server keeps the value the client captured).
+ */
 export function applyCalculations(
   form: FormSchema,
   response: Response,
+  opts: { skipClock?: boolean } = {},
 ): Response {
-  let next = response;
-  let changed = false;
-  for (const q of walkQuestions(form)) {
-    // Pull the expression from either source: the required field on
-    // the `calculated` type, or the optional QuestionBase one. We
-    // prefer the type-specific field when it exists so v3-import or
-    // legacy data round-trips cleanly.
-    const expr =
-      q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
-    if (!expr) continue;
-    const computed = evaluate(expr, response);
-    if (next[q.id] !== computed) {
-      if (!changed) {
-        next = { ...response };
-        changed = true;
+  return calculateLevel(form.questions, response, opts.skipClock === true);
+}
+
+/** An expression that reads the clock (`today`, `now`). */
+function readsClock(expr: Expression): boolean {
+  return /"call":"(today|now)"/.test(JSON.stringify(expr));
+}
+
+/**
+ * One level of the response: top level, or one repeat instance.
+ * Repeat children are computed inside each instance, with the
+ * instance as their context (as validate reads them); the old flat
+ * walk computed them at the top level, where the result was dropped.
+ * Expressions see `next`, so a calculation that depends on another
+ * one earlier in the form reads the fresh value.
+ */
+function calculateLevel(
+  questions: readonly Question[],
+  level: Response,
+  skipClock: boolean,
+): Response {
+  let next = level;
+  const put = (id: string, value: unknown) => {
+    if (next[id] === value) return;
+    if (next === level) next = { ...level };
+    next[id] = value;
+  };
+  for (const q of questions) {
+    if (q.type === 'group') {
+      if (q.repeat) {
+        const instances = next[q.id];
+        if (!Array.isArray(instances)) continue;
+        let arr: unknown[] = instances;
+        instances.forEach((inst, i) => {
+          if (!inst || typeof inst !== 'object' || Array.isArray(inst)) return;
+          const out = calculateLevel(q.children, inst as Response, skipClock);
+          if (out !== inst) {
+            if (arr === instances) arr = [...instances];
+            arr[i] = out;
+          }
+        });
+        put(q.id, arr);
+        continue;
       }
-      next[q.id] = computed;
+      const out = calculateLevel(q.children, next, skipClock);
+      if (out !== next) next = out;
+      continue;
     }
+    const expr = q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
+    if (!expr) continue;
+    // A clock value is taken once. Recomputing now() on every pass
+    // changed the response each time, and the web runtime re-rendered
+    // without end; the stored value should be the capture time anyway.
+    const current = next[q.id];
+    if (readsClock(expr) && skipClock) continue;
+    if (readsClock(expr) && current !== undefined && current !== null && current !== '') continue;
+    put(q.id, evaluate(expr, next));
   }
   return next;
 }

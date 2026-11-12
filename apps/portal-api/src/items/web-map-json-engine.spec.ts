@@ -52,7 +52,7 @@ describe('WebMap import and export (engine)', () => {
     const doc = lensesToWebMapJson({ lenses: [] } as never, {
       basemap: { id: 'b', title: 'B', tileUrl: 'https://t.example/{z}/{x}/{y}.png' },
     } as never);
-    expect(doc.baseMap.baseMapLayers[0]?.['templateUrl']).toBe(
+    expect(doc.baseMap?.baseMapLayers[0]?.['templateUrl']).toBe(
       'https://t.example/{level}/{col}/{row}.png',
     );
   });

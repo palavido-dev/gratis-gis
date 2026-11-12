@@ -62,6 +62,8 @@ describe('bundle', () => {
     expect(source).not.toMatch(/\bTextEncoder\b/);
     expect(source).not.toMatch(/\bfetch\(/);
     expect(source).not.toMatch(/\bprocess\.env\b/);
+    // URL is not an ECMAScript builtin; QuickJS on Android has none.
+    expect(source).not.toMatch(/\bnew URL\(/);
   });
 
   it('exposes the same surface and version as the TypeScript', () => {

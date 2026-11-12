@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  applyCalculations,
   evaluate,
   pruneHidden,
   validate,
@@ -55,5 +56,49 @@ describe('today() with an evaluation clock', () => {
     const clock = { now: new Date('2026-11-12T01:00:00Z'), utcOffsetMinutes: -480 };
     expect(withEvaluationClock(clock, () => evaluate(expr, {}))).toBe(true);
     expect(withEvaluationClock({ ...clock, utcOffsetMinutes: 0 }, () => evaluate(expr, {}))).toBe(false);
+  });
+});
+
+describe('url questions', () => {
+  const schema = form([{ id: 'u', type: 'url', label: 'U', allowedProtocols: ['https'] }]);
+  it('validates without the platform URL class', () => {
+    const saved = (globalThis as { URL?: unknown }).URL;
+    delete (globalThis as { URL?: unknown }).URL;
+    try {
+      expect(validate(schema, { u: 'https://example.org/a?b=1' }).ok).toBe(true);
+      expect(validate(schema, { u: 'http://example.org' }).ok).toBe(false);
+      expect(validate(schema, { u: 'not a url' }).ok).toBe(false);
+      expect(validate(schema, { u: 'https://' }).ok).toBe(false);
+    } finally {
+      (globalThis as { URL?: unknown }).URL = saved;
+    }
+  });
+});
+
+describe('applyCalculations', () => {
+  it('computes a calculation inside each repeat instance', () => {
+    const schema = form([
+      {
+        id: 'rep',
+        type: 'group',
+        repeat: true,
+        label: 'Lines',
+        children: [
+          { id: 'qty', type: 'number', label: 'Qty' },
+          { id: 'tot', type: 'calculated', label: 'Total', calculate: { op: 'mul', left: { ref: 'qty' }, right: { value: 2 } } },
+        ],
+      },
+    ]);
+    const out = applyCalculations(schema, { rep: [{ qty: 3 }] });
+    expect(out).toEqual({ rep: [{ qty: 3, tot: 6 }] });
+  });
+
+  it('takes a now() value once, so the response settles', () => {
+    const schema = form([
+      { id: 'at', type: 'calculated', label: 'At', calculate: { op: 'concat', operands: [{ call: 'now', args: [] }] } },
+    ]);
+    const first = applyCalculations(schema, {});
+    expect(typeof first.at).toBe('string');
+    expect(applyCalculations(schema, first)).toBe(first);
   });
 });

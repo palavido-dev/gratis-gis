@@ -1,23 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
-  evaluate,
+  applyCalculations,
   pruneHidden,
   walkQuestions,
 } from '@gratis-gis/form-schema';
 import type {
-  Expression,
   FormSchema,
   Question,
   Response as FormResponse,
 } from '@gratis-gis/form-schema';
 
-/**
- * Builtins whose value depends on when they run. A submission can be
- * captured offline days before it reaches the server, so recomputing
- * these here would overwrite the capture-time value with the upload
- * time. Calculations that use them keep the value the client sent.
- */
-const TIME_BUILTIN_RE = /"call"\s*:\s*"(?:now|today)"/;
 
 /**
  * Server copy of what the form runtime does before it posts:
@@ -37,30 +29,20 @@ export function cleanSubmission(
 }
 
 function recalculate(form: FormSchema, response: FormResponse): FormResponse {
-  const calcs: Array<{ id: string; expr: Expression }> = [];
-  for (const q of walkQuestions(form)) {
-    const expr = q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
-    if (!expr) continue;
-    if (TIME_BUILTIN_RE.test(JSON.stringify(expr))) continue;
-    calcs.push({ id: q.id, expr });
-  }
   // Repeat until nothing changes, like the browser does by re-running
-  // its effect. One pass would compute an answer that depends on
-  // another calculated answer from the value the client sent, not
-  // from the recomputed one. A chain is at most as long as the number
-  // of calculations, so that bounds the loop (a cycle just stops).
+  // its effect. A chain is at most as long as the number of
+  // calculations, so that bounds the loop (a cycle just stops).
+  // applyCalculations also computes questions inside repeat instances,
+  // which the old flat walk left empty. Clock expressions keep the
+  // value the client captured (skipClock).
+  const bound = [...walkQuestions(form)].filter((q) =>
+    q.type === 'calculated' ? q.calculate : q.calculate,
+  ).length;
   let next = response;
-  for (let pass = 0; pass <= calcs.length; pass++) {
-    let changed = false;
-    for (const { id, expr } of calcs) {
-      const computed = evaluate(expr, next);
-      if (next[id] !== computed) {
-        if (next === response) next = { ...response };
-        next[id] = computed;
-        changed = true;
-      }
-    }
-    if (!changed) break;
+  for (let pass = 0; pass <= bound; pass++) {
+    const out = applyCalculations(form, next, { skipClock: true });
+    if (out === next) break;
+    next = out;
   }
   return next;
 }
