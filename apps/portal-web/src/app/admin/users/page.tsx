@@ -36,6 +36,10 @@ export interface AdminUserRow {
    *  corresponding controls and shows a lock badge so the
    *  affordance matches what the server will accept. */
   isProtected: boolean;
+  /** The portal's own id for this person, which items and groups use
+   *  as their owner. Differs from `id` (the Keycloak id) for seeded
+   *  accounts. Null when they have never had a local row. */
+  localId?: string | null;
   /** Populated by the invite flow when the user was created in
    *  Keycloak but the password-setup email could not be sent
    *  (typically because the realm SMTP isn't configured yet, or

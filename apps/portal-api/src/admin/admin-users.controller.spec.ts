@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -63,6 +64,13 @@ function makeFakePrisma(opts: {
       count: jest.fn(async () => opts.adminCount),
       update: jest.fn(async (_args: unknown) => ({})),
       updateMany: jest.fn(async (_args: unknown) => ({ count: 1 })),
+      delete: jest.fn(async (_args: unknown) => ({})),
+    },
+    item: {
+      count: jest.fn(async (_args: unknown) => 0),
+    },
+    group: {
+      count: jest.fn(async (_args: unknown) => 0),
     },
     apiKey: {
       updateMany: jest.fn(async (_args: unknown) => ({ count: 2 })),
@@ -781,5 +789,92 @@ describe('AdminUsersController mutations on users with no local row', () => {
     });
     await controller.update(caller, 'kc-i', { firstName: 'Ida' });
     expect(kc.updateUser).toHaveBeenCalled();
+  });
+});
+
+describe('AdminUsersController DELETE keeps both sides consistent', () => {
+  const target = {
+    id: 'kc-sam',
+    kc: {
+      id: 'kc-sam',
+      username: 'sam',
+      enabled: true,
+      attributes: { org: ['org-1'] },
+    } as KeycloakUserRep,
+    // Seeded shape: the local id differs from the Keycloak id.
+    local: {
+      id: 'local-sam',
+      orgId: 'org-1',
+      orgRole: 'contributor' as const,
+      isProtected: false,
+      username: 'sam',
+    },
+  };
+  const caller = makeAuthUser({ username: 'other-admin' });
+
+  it('refuses with 409 before touching Keycloak when the user still owns items, trash included', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 2,
+    });
+    prisma.item.count.mockResolvedValue(1);
+    await expect(controller.remove(caller, 'kc-sam')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    // No deletedAt filter: an item in the trash still has an owner.
+    expect(prisma.item.count).toHaveBeenCalledWith({ where: { ownerId: 'local-sam' } });
+    expect(kc.deleteUser).not.toHaveBeenCalled();
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the user owns a group', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 2,
+    });
+    prisma.group.count.mockResolvedValue(1);
+    await expect(controller.remove(caller, 'kc-sam')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(kc.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('revokes keys before Keycloak, then deletes the local row', async () => {
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 2,
+    });
+    const order: string[] = [];
+    prisma.apiKey.updateMany.mockImplementation(async () => {
+      order.push('revoke');
+      return { count: 1 };
+    });
+    kc.deleteUser.mockImplementation(async () => {
+      order.push('keycloak');
+    });
+    prisma.user.delete.mockImplementation(async () => {
+      order.push('local');
+      return {};
+    });
+    await controller.remove(caller, 'kc-sam');
+    expect(order).toEqual(['revoke', 'keycloak', 'local']);
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'local-sam' } });
+  });
+
+  it('keeps a deleted tombstone when the local delete is refused late', async () => {
+    const { controller, prisma } = makeController({
+      caller,
+      targets: [target],
+      adminCount: 2,
+    });
+    prisma.user.delete.mockRejectedValue(new Error('violates foreign key constraint'));
+    await controller.remove(caller, 'kc-sam');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'local-sam' },
+      data: { deletedAt: expect.any(Date) },
+    });
   });
 });
