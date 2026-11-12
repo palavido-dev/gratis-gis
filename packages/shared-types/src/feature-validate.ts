@@ -222,7 +222,9 @@ function coerceValue(field: FeatureField, raw: unknown): CoerceOk | CoerceFail {
         // integer past 2^53, which broke "never silently drop a value".
         const t = raw.trim();
         const n = Number(t);
-        const decimal = /^[+-]?(\d+\.?\d*|\.\d+)$/.test(t);
+        // The fraction is one optional group so a long run of digits has
+        // only one way to match (no slow backtracking on bad input).
+        const decimal = /^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t);
         const exactInt = !/^[+-]?\d+$/.test(t) || Number.isSafeInteger(n);
         if (decimal && Number.isFinite(n) && exactInt) {
           return { ok: true, value: n };
