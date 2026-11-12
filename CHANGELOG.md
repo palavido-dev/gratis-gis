@@ -6,6 +6,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- The hourly OSM cache cleanup no longer deletes rows of user data
+  layers. It removed expired cache rows by physical row position,
+  which is only unique inside one monthly partition of the feature
+  log, so each cleanup also deleted the rows at the same positions in
+  older months. Rows lost this way can only come back from a backup
+  taken before the cleanup ran. The cleanup now matches rows by key
+  and scope and refuses any scope that is not an OSM cache scope.
 ### Security
 
 - GDAL in portal-api no longer loads the drivers that read other files
