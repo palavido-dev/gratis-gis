@@ -31,6 +31,7 @@ function user(
 function service(opts: {
   users?: Array<{ id: string; orgId: string; deletedAt: Date | null; orgRole?: string }>;
   groups?: Array<{ id: string; orgId: string; deletedAt: Date | null }>;
+  canAdmin?: boolean;
 }) {
   const svc = Object.create(ItemsService.prototype) as ItemsService;
   const item = { id: 'item-1', orgId: ORG, ownerId: 'owner-1', access: 'private', shares: [] };
@@ -49,7 +50,7 @@ function service(opts: {
   const upsert = jest.fn(async () => ({}));
   Object.assign(svc, {
     get: jest.fn(async () => item),
-    sharing: { canAdmin: () => true, canEdit: () => true },
+    sharing: { canAdmin: () => opts.canAdmin ?? true, canEdit: () => true },
     prisma: {
       itemShare: { upsert, findMany: jest.fn(async () => []) },
       user: {
@@ -90,6 +91,25 @@ describe('ItemsService sharing gates', () => {
         access: 'public',
       } as never),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // An edit share must not let its holder change who can see the item
+  // or lift a tier's geographic limit: share() needs owner or admin.
+  it('refuses an access change from an editor who is not owner or admin', async () => {
+    const { svc } = service({ canAdmin: false });
+    await expect(
+      svc.update(user('contributor'), 'item-1', { access: 'public' } as never),
+    ).rejects.toThrow('Only the owner or an org admin');
+  });
+
+  it('refuses a tier boundary change from an editor who is not owner or admin', async () => {
+    const { svc } = service({ canAdmin: false });
+    await expect(
+      svc.update(user('contributor'), 'item-1', {
+        publicGeoBoundaryId: null,
+        orgGeoBoundaryId: '00000000-0000-0000-0000-000000000001',
+      } as never),
+    ).rejects.toThrow('Only the owner or an org admin');
   });
 
   it('refuses a user principal from another org', async () => {

@@ -2319,6 +2319,28 @@ export class ItemsService {
       }
     }
 
+    // Who can see the item, and the geographic limit on each tier,
+    // are sharing settings. share() lets only the owner or an org
+    // admin change sharing, so the same rule holds here: an edit
+    // share lets someone change the content, not make it public or
+    // lift its clip. Values sent unchanged pass, so a full-item save
+    // by an editor still works.
+    const tierFields = item as Item & {
+      publicGeoBoundaryId?: string | null;
+      orgGeoBoundaryId?: string | null;
+    };
+    const changesSharing =
+      (input.access !== undefined && input.access !== item.access) ||
+      (input.publicGeoBoundaryId !== undefined &&
+        input.publicGeoBoundaryId !== (tierFields.publicGeoBoundaryId ?? null)) ||
+      (input.orgGeoBoundaryId !== undefined &&
+        input.orgGeoBoundaryId !== (tierFields.orgGeoBoundaryId ?? null));
+    if (changesSharing && !this.sharing.canAdmin(user, item)) {
+      throw new ForbiddenException(
+        'Only the owner or an org admin can change who can see this item',
+      );
+    }
+
     // Widening access (to org or public) is sharing, so it needs the
     // same capability as share(). Narrowing to private never does.
     if (
