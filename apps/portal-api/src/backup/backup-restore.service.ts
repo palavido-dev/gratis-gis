@@ -21,7 +21,11 @@ import { ConfigService } from '@nestjs/config';
 
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BackupService } from './backup.service.js';
+import {
+  BackupService,
+  MINIO_META_MEMBER,
+  type MinioArchiveMeta,
+} from './backup.service.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
 import { extractTarGz, readTarEntry } from './tar-cli.js';
 
@@ -119,6 +123,33 @@ export function parseMigrationsCopy(sql: string): string[] | null {
     if (name) names.push(name);
   }
   return names.sort();
+}
+
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  pdf: 'application/pdf',
+  json: 'application/json',
+  geojson: 'application/geo+json',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  zip: 'application/zip',
+};
+
+/**
+ * A Content-Type guessed from an object key's extension, for archives
+ * made before the backup recorded each object's type. Undefined when
+ * there is no known extension (the store then uses its default).
+ */
+export function contentTypeFromKey(key: string): string | undefined {
+  const m = /\.([a-z0-9]+)$/i.exec(key);
+  return m ? TYPE_BY_EXTENSION[m[1]!.toLowerCase()] : undefined;
 }
 
 /**
@@ -409,7 +440,10 @@ export class BackupRestoreService {
       // 6. Rebuild the MinIO bucket. #233: PUT archive objects first
       //    (overwrite in place), then delete keys that were not in
       //    the archive.
-      await this.restoreMinio(path.join(stageDir, 'minio'));
+      await this.restoreMinio(
+        path.join(stageDir, 'minio'),
+        await this.readStagedContentTypes(stageDir),
+      );
 
       // 6b. pg_restore rewrote the observation log without firing the
       //     NOTIFY the tile cache listens for. Drop this replica's
@@ -673,7 +707,29 @@ export class BackupRestoreService {
    * PUT pass, deletes bucket keys that were not in the archive so
    * the live store matches the backup without a pre-empty (#233).
    */
-  private async restoreMinio(srcDir: string) {
+  /**
+   * Content types recorded by the backup, keyed by object key. Empty
+   * for archives made before the backup recorded them; those fall
+   * back to a guess from the file extension.
+   */
+  private async readStagedContentTypes(
+    stageDir: string,
+  ): Promise<Record<string, string>> {
+    try {
+      const raw = await fs.readFile(path.join(stageDir, MINIO_META_MEMBER), 'utf8');
+      const meta = JSON.parse(raw) as Partial<MinioArchiveMeta>;
+      return meta.contentTypes && typeof meta.contentTypes === 'object'
+        ? meta.contentTypes
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private async restoreMinio(
+    srcDir: string,
+    contentTypes: Record<string, string> = {},
+  ) {
     const exists = await fs
       .access(srcDir)
       .then(() => true)
@@ -694,12 +750,14 @@ export class BackupRestoreService {
           await walk(full, rel);
         } else if (e.isFile()) {
           const stat = await fs.stat(full);
+          const contentType = contentTypes[rel] ?? contentTypeFromKey(rel);
           await this.s3.send(
             new PutObjectCommand({
               Bucket: this.bucket,
               Key: rel,
               Body: createReadStream(full),
               ContentLength: stat.size,
+              ...(contentType ? { ContentType: contentType } : {}),
             }),
           );
           restoredKeys.add(rel);

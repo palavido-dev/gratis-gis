@@ -183,6 +183,28 @@ interface BackupManifest {
  *   - Incremental / differential backups: out of scope. Full dump
  *     every run keeps restore simple; retention handles the space.
  */
+/** Archive member with per-object metadata, written after the objects. */
+export const MINIO_META_MEMBER = 'minio-meta.json';
+
+export interface MinioArchiveMeta {
+  version: 1;
+  /** Object key to its stored Content-Type. */
+  contentTypes: Record<string, string>;
+  /** Keys in the listing that were deleted before they were read. */
+  skipped: string[];
+}
+
+/** S3 says the object is gone (deleted after the listing). */
+export function isNoSuchKey(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { name?: unknown; Code?: unknown; $metadata?: { httpStatusCode?: unknown } };
+  return (
+    e.name === 'NoSuchKey' ||
+    e.Code === 'NoSuchKey' ||
+    e.$metadata?.httpStatusCode === 404
+  );
+}
+
 @Injectable()
 export class BackupService implements OnModuleInit {
   private readonly log = new Logger(BackupService.name);
@@ -1136,14 +1158,33 @@ export class BackupService implements OnModuleInit {
       open: () => createReadStream(dumpPath),
     };
 
+    // Per-object metadata the tar member cannot carry. Restore puts
+    // each object back with its Content-Type; without it every file
+    // came back as application/octet-stream.
+    const contentTypes: Record<string, string> = {};
+    const skipped: string[] = [];
     for (const { key } of keys) {
       // Clean exit point between members. A cancel landing mid-body is
       // handled by the signal itself, which aborts the in-flight GET.
       checkCancelled();
-      const get = await this.s3.send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-        { abortSignal: signal },
-      );
+      let get;
+      try {
+        get = await this.s3.send(
+          new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+          { abortSignal: signal },
+        );
+      } catch (err) {
+        // The portal keeps serving while a backup runs, so an object
+        // listed at the start can be deleted before its turn. That is
+        // not a reason to lose the whole night's backup: leave it out
+        // and say so. Every other error still fails the run.
+        if (isNoSuchKey(err)) {
+          skipped.push(key);
+          continue;
+        }
+        throw err;
+      }
+      if (get.ContentType) contentTypes[key] = get.ContentType;
       const body = get.Body;
       if (!body) {
         // Previously a bare `continue`, which dropped the object from
@@ -1165,6 +1206,23 @@ export class BackupService implements OnModuleInit {
           body instanceof Readable ? body : Readable.fromWeb(body as never),
       };
     }
+
+    if (skipped.length > 0) {
+      this.log.warn(
+        `Backup left out ${skipped.length} object(s) deleted while it ran: ${skipped
+          .slice(0, 20)
+          .join(', ')}${skipped.length > 20 ? ', ...' : ''}`,
+      );
+    }
+    // Last, because it is only known once every GET has answered. The
+    // manifest's counts were taken from the listing before that, so
+    // the skipped keys are recorded here as well.
+    const meta: MinioArchiveMeta = { version: 1, contentTypes, skipped };
+    yield {
+      kind: 'buffer',
+      name: MINIO_META_MEMBER,
+      body: Buffer.from(JSON.stringify(meta), 'utf8'),
+    };
   }
 
   // ---------------------------------------------------------------
