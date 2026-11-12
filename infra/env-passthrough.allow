@@ -138,3 +138,4 @@ DEFAULT_ORG_NAME nas NAS bootstrap asks no organization name
 # Forced by the code, not operator settings.
 GML_DOWNLOAD_SCHEMA both set to NO in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs
 GML_SKIP_RESOLVE_ELEMS both set to ALL in process by apps/portal-api/src/ingest/gdal-open-guard.ts before GDAL runs
+GDAL_SKIP  Set and restored inside the process by common/gdal-load.ts while gdal-async registers its drivers; an operator value is merged, never required.
