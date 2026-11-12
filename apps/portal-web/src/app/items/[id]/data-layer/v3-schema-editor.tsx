@@ -77,7 +77,7 @@ export function V3StructureSection({
 }) {
   const t = useT();
   const router = useRouter();
-  const { data, setData, initial } = useV3Editor();
+  const { data, setData, dirty, markSaved } = useV3Editor();
   const [pendingImports, setPendingImports] = useState<PendingFileImport[]>(
     [],
   );
@@ -86,10 +86,6 @@ export function V3StructureSection({
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Simple dirty check. Reference inequality is fine here: the builder
-  // replaces the whole value on every edit, so `data !== initial`
-  // tracks any mutation the user has made.
-  const dirty = data !== initial;
 
   async function save() {
     setError(null);
@@ -127,6 +123,7 @@ export function V3StructureSection({
         setError(await parseApiError(res, 'Save failed'));
         return;
       }
+      markSaved();
       const liveIds = new Set(data.layers.map((layer) => layer.id));
       const livePending = pendingImports
         .map((entry) => ({
