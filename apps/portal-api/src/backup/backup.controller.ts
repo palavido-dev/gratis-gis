@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 
 import {
   BadRequestException,
@@ -198,12 +200,22 @@ export class BackupController {
     @Res({ passthrough: false }) res: Response,
   ) {
     const { path: p, filename } = await this.backup.resolveArchivePath(id);
+    const { size } = await stat(p);
     res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Length', String(size));
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${filename}"`,
     );
-    createReadStream(p).pipe(res);
+    // pipeline, not pipe: pipe left the file open after an aborted
+    // download (holding a deleted archive's space) and never ended
+    // the response on a read error. pipeline closes both ends.
+    try {
+      await pipeline(createReadStream(p), res);
+    } catch {
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy();
+    }
   }
 
   /**

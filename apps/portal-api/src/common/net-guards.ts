@@ -369,6 +369,14 @@ export async function safeFetch(
     // Redirect status without a Location is not followable; hand
     // it back like fetch itself would.
     if (!location) return res;
+    // This hop's body is never read, and every path below either
+    // follows the redirect or refuses it. Release it first, so a
+    // refused hop does not keep its socket open either.
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* already errored or consumed; nothing to release */
+    }
     if (hop >= MAX_REDIRECT_HOPS) {
       throw new UnsafeOutboundUrlError(
         `too many redirects (limit ${MAX_REDIRECT_HOPS}) fetching ${rawUrl}`,
@@ -384,13 +392,6 @@ export async function safeFetch(
     }
     const nextPinned = await resolveSafe(nextRaw);
     const nextUrl = nextPinned.url;
-    // We won't read this hop's body; release it so the connection
-    // can be reused instead of idling until timeout.
-    try {
-      await res.body?.cancel();
-    } catch {
-      /* already errored or consumed; nothing to release */
-    }
     // Method rewrite per the fetch spec: 303 always downgrades to
     // GET; 301/302 do too when the request was a POST.  307/308
     // preserve method and body.
@@ -527,6 +528,9 @@ export function pinnedRequest(
   const lib = url.protocol === 'https:' ? https : http;
   const headers = new Headers(init?.headers);
   headers.set('host', url.host);
+  // node:http does not decode bodies. Ask for none unless the caller
+  // chose an encoding; the proxy forwards any it still gets.
+  if (!headers.has('accept-encoding')) headers.set('accept-encoding', 'identity');
   const path = `${url.pathname}${url.search}`;
   const timeoutMs = Number(process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS ?? '');
   const signals: AbortSignal[] = [];

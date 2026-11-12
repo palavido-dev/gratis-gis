@@ -678,6 +678,11 @@ export class StorageService implements OnModuleInit {
    * resolves it against the current origin.
    */
   private apiUrlFor(kind: AssetKind, key: string): string {
+    return StorageService.privateApiUrl(kind, key);
+  }
+
+  /** The api route that serves a private-kind key, with a sharing check. */
+  static privateApiUrl(kind: AssetKind, key: string): string {
     // Strip the kind prefix off the key for the api-side URL since
     // the route segment already implies it.  E.g.
     // `feature-attachment/abc...` -> `/api/portal/storage/private/feature-attachment/abc...`.
