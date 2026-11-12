@@ -714,7 +714,11 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             if prev_host and not saved_host_is_bad(prev_host):
                 host = prev_host
                 if not tls and previous.get("GRATIS_TLS") == "internal":
+                    # Carry the whole setting: an https address with a
+                    # plain-HTTP Caddy (tls left empty) broke sign-in
+                    # for one boot and then flipped to http.
                     scheme = "https"
+                    tls = "internal"
         if not host:
             detected = detect_lan_ip()
             if not detected:
@@ -1143,6 +1147,11 @@ def patch_keycloak(values: dict[str, str]) -> None:
         return
     user = users[0]
     attrs = user.get("attributes") or {}
+    # Only when the import dropped them, as restore-golden.sh does. An
+    # operator who demoted `admin` or moved it to another org must not
+    # see that undone on every restart.
+    if attrs.get("org"):
+        return
     attrs["org"] = ["gratis-gis"]
     attrs["org_role"] = ["admin"]
     user["attributes"] = attrs

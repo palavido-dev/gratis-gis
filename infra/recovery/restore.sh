@@ -153,8 +153,7 @@ fail_phase() {
 # Decrypt into STAGE (0700). seal.mjs writes the plaintext inside its
 # own 0700 directory and moves it here only after every record has
 # verified, so a tampered bundle leaves no plaintext behind.
-NODE="$(recovery_node)"
-[[ -n "$NODE" ]] || fail_phase decrypt 'node was not found for seal.mjs'
+NODE="$(recovery_node)" || fail_phase decrypt 'node 20 or newer was not found for seal.mjs'
 if ! "$NODE" "$HERE/seal.mjs" dec "$RECOVERY_KEY" "$BUNDLE" "$STAGE/bundle.tar"; then
   fail_phase decrypt 'recovery key could not open the bundle'
 fi

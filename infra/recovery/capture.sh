@@ -146,6 +146,11 @@ if [[ -n "$MAINT_FILE" && ! -e "$MAINT_FILE" ]]; then
   MAINT_CREATED=1
 fi
 
+# Before anything stops: node is needed at the end to seal the
+# bundle, and a missing node used to end the script silently (errexit
+# on the assignment) after the portal had been down for the dumps.
+NODE="$(recovery_node)" || fail 'node 20 or newer was not found for seal.mjs'
+
 # Stop writers that are running. MinIO is stopped too: a bucket policy
 # does not stop root or an IAM Allow on the image we ship, so the
 # process has to be down before the data directory is copied. Only
@@ -160,11 +165,13 @@ maybe_fail() {
   fi
 }
 
-recovery_compose exec -T -e PGOPTIONS='-c lock_timeout=15000' postgres \
-  pg_dump -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Fc --no-owner --no-privileges >"$STAGE/portal.dump" \
+# --lock-wait-timeout, not PGOPTIONS: pg_dump sets lock_timeout = 0 on
+# its own connection, which overrode the PGOPTIONS value.
+recovery_compose exec -T postgres \
+  pg_dump --lock-wait-timeout=15000 -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Fc --no-owner --no-privileges >"$STAGE/portal.dump" \
   || fail 'portal database dump failed'
-recovery_compose exec -T -e PGOPTIONS='-c lock_timeout=15000' postgres \
-  pg_dump -U "${POSTGRES_USER:-gratisgis}" -d "$KEYCLOAK_DB" -Fc >"$STAGE/keycloak.dump" \
+recovery_compose exec -T postgres \
+  pg_dump --lock-wait-timeout=15000 -U "${POSTGRES_USER:-gratisgis}" -d "$KEYCLOAK_DB" -Fc >"$STAGE/keycloak.dump" \
   || fail 'keycloak database dump failed'
 [[ -s "$STAGE/portal.dump" && -s "$STAGE/keycloak.dump" ]] || fail 'a database dump is empty'
 LATEST_MIGRATION="$(recovery_latest_migration "$PORTAL_DB")" || fail 'could not read the portal migration history'
@@ -263,8 +270,6 @@ PY
 tar -C "$STAGE" -cf "$STAGE/bundle.tar" manifest.json portal.dump keycloak.dump minio.tar \
   || fail 'bundle archive could not be written'
 rm -f "$STAGE/portal.dump" "$STAGE/keycloak.dump" "$STAGE/minio.tar"
-NODE="$(recovery_node)"
-[[ -n "$NODE" ]] || fail 'node was not found for seal.mjs'
 "$NODE" "$HERE/seal.mjs" enc "$RECOVERY_KEY" "$STAGE/bundle.tar" "$TMP_BUNDLE" \
   || fail 'bundle could not be sealed'
 rm -f "$STAGE/bundle.tar"
