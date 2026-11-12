@@ -898,7 +898,7 @@ describe('AgoImportService file and probe fixes', () => {
     );
     expect(report.created).toBe(1);
     expect(seen.some((u) => u.startsWith(`${portal}/content/items/file-1/data`))).toBe(true);
-    expect(seen.some((u) => u.includes('www.arcgis.com'))).toBe(false);
+    expect(seen.some((u) => new URL(u).hostname === 'www.arcgis.com')).toBe(false);
   });
 
   it('fails a file whose download is an ArcGIS error body instead of saving it', async () => {

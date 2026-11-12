@@ -49,7 +49,7 @@ const TOKEN_CACHE = new Map<string, CachedToken>();
  * than 60s remaining are treated as expired so a slow downstream
  * call doesn't fail mid-flight.
  */
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { safeFetch } from '../common/net-guards.js';
 
@@ -57,8 +57,15 @@ import { safeFetch } from '../common/net-guards.js';
  *  process can recompute a digest. */
 const DIGEST_KEY = randomBytes(32);
 
+/** Iterations for the in-memory digest. The digest only identifies a
+ *  credential inside this process (the cache key and the equality
+ *  check), never leaves it and is never stored, so a small count is
+ *  enough; a key derivation function keeps the plain password out of
+ *  the cache without a fast hash of it. */
+const DIGEST_ITERATIONS = 2_000;
+
 export function passwordDigest(password: string): Buffer {
-  return createHmac('sha256', DIGEST_KEY).update(password, 'utf8').digest();
+  return pbkdf2Sync(password, DIGEST_KEY, DIGEST_ITERATIONS, 32, 'sha256');
 }
 
 /** Look up an entry, dropping it when expired. A hit moves the entry

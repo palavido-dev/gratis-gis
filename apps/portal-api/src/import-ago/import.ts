@@ -779,7 +779,7 @@ export class AgoImportService {
       );
     }
     const { createWriteStream } = await import('node:fs');
-    const { readFile, stat, unlink } = await import('node:fs/promises');
+    const { open, unlink } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { Readable } = await import('node:stream');
@@ -804,16 +804,25 @@ export class AgoImportService {
         Readable.fromWeb(res.body as import('node:stream/web').ReadableStream),
         createWriteStream(tmp),
       );
-      const sizeBytes = (await stat(tmp)).size;
-      if (sizeBytes === 0) {
-        throw new Error('AGO returned an empty body; no bytes to re-host.');
-      }
-      // ArcGIS answers an expired token or an item it will not serve
-      // with a success status and a JSON error body. Saving that as the
-      // file reported the item as migrated while its bytes were lost.
-      if (sizeBytes <= AGO_ERROR_ENVELOPE_MAX_BYTES) {
-        const envelope = agoErrorEnvelope(await readFile(tmp, 'utf8'));
-        if (envelope) throw new Error(envelope);
+      // One handle for the size and the bytes, so both describe the
+      // same file.
+      let sizeBytes: number;
+      const fh = await open(tmp, 'r');
+      try {
+        sizeBytes = (await fh.stat()).size;
+        if (sizeBytes === 0) {
+          throw new Error('AGO returned an empty body; no bytes to re-host.');
+        }
+        // ArcGIS answers an expired token or an item it will not serve
+        // with a success status and a JSON error body. Saving that as
+        // the file reported the item as migrated while its bytes were
+        // lost.
+        if (sizeBytes <= AGO_ERROR_ENVELOPE_MAX_BYTES) {
+          const envelope = agoErrorEnvelope(await fh.readFile('utf8'));
+          if (envelope) throw new Error(envelope);
+        }
+      } finally {
+        await fh.close();
       }
       const upload = await this.storage.uploadLocalFile(
         'item-file',
