@@ -53,6 +53,8 @@ export class NotificationsWorker {
   private readonly enabled: boolean;
   private readonly batchSize: number;
   private readonly maxAttempts: number;
+  /** See expireStaleQueued(). */
+  private readonly maxQueuedMs: number;
   private readonly renderCtx: RenderContext;
 
   constructor(
@@ -71,6 +73,12 @@ export class NotificationsWorker {
     this.maxAttempts = Number(
       this.cfg.get<string>('NOTIFICATIONS_MAX_ATTEMPTS') ?? '5',
     );
+    const maxQueuedHours = Number(
+      this.cfg.get<string>('NOTIFICATIONS_MAX_QUEUED_HOURS') ?? '48',
+    );
+    this.maxQueuedMs =
+      (Number.isFinite(maxQueuedHours) && maxQueuedHours > 0 ? maxQueuedHours : 48) *
+      3_600_000;
     this.renderCtx = {
       orgLabel: textEnv(this.cfg.get<string>('PORTAL_NAME'), 'GratisGIS'),
       baseUrl:
@@ -103,6 +111,9 @@ export class NotificationsWorker {
       // so gating it on SMTP would leave the stuck row invisible until
       // SMTP recovered. The drain itself still needs a live transport.
       await this.reclaimStaleSending();
+      // Also before the transport check: this is what keeps the queue
+      // from growing while SMTP is off.
+      await this.expireStaleQueued();
       if (await this.transport.isAvailable()) {
         await this.drainBatch();
       }
@@ -172,6 +183,37 @@ export class NotificationsWorker {
     if (n > 0) {
       this.log.warn(`Reclaimed ${n} notification(s) stranded in 'sending'.`);
     }
+  }
+
+  /**
+   * Give up on queued rows that have waited too long to be sent
+   * (NOTIFICATIONS_MAX_QUEUED_HOURS, default 48). Enqueue only needs
+   * NOTIFICATIONS_ENABLED, while sending needs a working SMTP row, so
+   * with SMTP off or unset every share, mention and form receipt kept
+   * queuing, and the whole backlog went out (weeks-old "expires soon"
+   * warnings included) the moment SMTP came back. Marked failed with
+   * a reason, so the admin list shows them and retention prunes them.
+   *
+   * Measured from scheduledAt, the time the row became due. A retry's
+   * backoff and an admin's Retry both move it forward, so neither is
+   * expired by this.
+   */
+  async expireStaleQueued(): Promise<number> {
+    const hours = Math.round(this.maxQueuedMs / 3_600_000);
+    const res = await this.prisma.notification.updateMany({
+      where: {
+        status: NotificationStatus.queued,
+        scheduledAt: { lt: new Date(Date.now() - this.maxQueuedMs) },
+      },
+      data: {
+        status: NotificationStatus.failed,
+        lastError: `Not sent: waited more than ${hours} hours for the mail server.`,
+      },
+    });
+    if (res.count > 0) {
+      this.log.warn(`Expired ${res.count} queued notification(s) older than ${hours} hours.`);
+    }
+    return res.count;
   }
 
   /**
