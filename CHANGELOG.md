@@ -17,6 +17,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   and scope and refuses any scope that is not an OSM cache scope.
 ### Security
 
+- Item references saved in maps and apps must be plain ids. Pages that
+  build API addresses from saved item data now check those ids before
+  any request is sent, and the API refuses to store a reference that is
+  not a plain id.
 - GDAL in portal-api no longer loads the drivers that read other files
   or URLs named inside a file (VRT, tile index, web service
   descriptions), so an upload cannot make the server fetch anything.
