@@ -152,6 +152,14 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       select: { id: true, slug: true },
     });
     const orgIdBySlug = new Map(orgs.map((o) => [o.slug, o.id]));
+    // Accounts invited before the slug fix carry the org's id in the
+    // `org` attribute. auth-sync and the admin controller accept that
+    // form, so reconcile has to as well; otherwise the user counts as
+    // unseen and the soft-delete pass locks them out on every run.
+    const orgIds = new Set(orgs.map((o) => o.id));
+    // Every username the realm scan returned, whatever its attributes.
+    // A row is only tombstoned when the realm has no such user at all.
+    const seenInRealm = new Set<string>();
 
     // Track "username -> Keycloak id (sub)" we've seen across all
     // pages, scoped by org. We need this set at the end to identify
@@ -200,6 +208,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       realmUsersSeen += page.length;
 
       for (const kcUser of page) {
+        seenInRealm.add(kcUser.username.toLowerCase());
         // Some users may legitimately be disabled (offboarding in
         // progress). They stay in the mirror so existing FKs / shares
         // can resolve their display name, and `enabled` is copied to
@@ -210,7 +219,8 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           skippedNoOrgAttr++;
           continue;
         }
-        const orgId = orgIdBySlug.get(orgSlug);
+        const orgId =
+          orgIdBySlug.get(orgSlug) ?? (orgIds.has(orgSlug) ? orgSlug : undefined);
         if (!orgId) {
           // The user is in a realm org we've never seen locally.
           // A deployment serves one organization, so in practice this
@@ -322,9 +332,10 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         },
         select: { id: true, username: true },
       });
-      const stale = candidates.filter(
-        (u) => !seenUsernames.has(u.username.toLowerCase()),
-      );
+      const stale = candidates.filter((u) => {
+        const name = u.username.toLowerCase();
+        return !seenUsernames.has(name) && !seenInRealm.has(name);
+      });
       if (stale.length === 0) continue;
       const now = new Date();
       const result = await this.prisma.user.updateMany({
