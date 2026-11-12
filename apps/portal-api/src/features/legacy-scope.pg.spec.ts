@@ -209,4 +209,20 @@ d('legacy v2 feature routes honour share scope', () => {
       controller.createRelated(owner, ITEM, INSIDE, ITEM, { properties: {} }),
     ).rejects.toThrow(/no registered relationship/);
   });
+
+  it('a geo-limited append is checked in one pass, inside and outside', async () => {
+    const scope = { geoLimit: DISTRICT } as never;
+    await expect(
+      features.assertGeometriesInsideLimit(scope, [
+        { type: 'Point', coordinates: [0, 0] },
+        { type: 'Point', coordinates: [0.5, 0.5] },
+      ]),
+    ).resolves.toBeUndefined();
+    await expect(
+      features.assertGeometriesInsideLimit(scope, [
+        { type: 'Point', coordinates: [0, 0] },
+        { type: 'Point', coordinates: [50, 50] },
+      ]),
+    ).rejects.toThrow(/outside the area/);
+  });
 });

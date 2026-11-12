@@ -875,27 +875,29 @@ export class FeaturesService {
     if (!scope.geoLimit) return;
     const closed = isClosedGeoLimit(scope.geoLimit);
     const limitJson = JSON.stringify(scope.geoLimit);
-    for (const g of geometries) {
-      if (g === undefined || g === null) continue;
-      validateGeoJson(g);
-      if (closed) {
-        throw new BadRequestException(
-          'Geometry is outside the area this layer is shared to you for',
-        );
-      }
-      const rows = await this.prisma.$queryRawUnsafe<Array<{ inside: boolean }>>(
-        `SELECT ST_Intersects(
-                  ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326),
-                  ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326)
-                ) AS inside`,
-        JSON.stringify(g),
-        limitJson,
+    const present = geometries.filter((g) => g !== undefined && g !== null);
+    for (const g of present) validateGeoJson(g);
+    if (present.length === 0) return;
+    if (closed) {
+      throw new BadRequestException(
+        'Geometry is outside the area this layer is shared to you for',
       );
-      if (rows[0]?.inside !== true) {
-        throw new BadRequestException(
-          'Geometry is outside the area this layer is shared to you for',
-        );
-      }
+    }
+    // One statement for the whole batch. One round trip per geometry
+    // made a 5,000-feature append wait on 5,000 sequential queries.
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ outside: bigint | number }>>(
+      `WITH lim AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326) AS g)
+       SELECT count(*) FILTER (
+                WHERE NOT ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(x::text), 4326), lim.g)
+              ) AS outside
+         FROM jsonb_array_elements($1::jsonb) AS x, lim`,
+      JSON.stringify(present),
+      limitJson,
+    );
+    if (Number(rows[0]?.outside ?? 1) !== 0) {
+      throw new BadRequestException(
+        'Geometry is outside the area this layer is shared to you for',
+      );
     }
   }
 }
