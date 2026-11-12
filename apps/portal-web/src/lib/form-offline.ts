@@ -39,6 +39,10 @@ export interface QueuedSubmission {
   schemaVersion: number;
   response: Record<string, unknown>;
   capturedAt: string;
+  /** Minutes east of UTC where the answer was captured, so the server
+   *  evaluates today() in the respondent's time zone. Absent on rows
+   *  queued by older builds. */
+  utcOffsetMinutes?: number;
   status: 'queued' | 'sending' | 'sent' | 'failed';
   lastError?: string;
   attempts: number;
@@ -135,6 +139,7 @@ export async function queueSubmission(opts: {
     schemaVersion: opts.schemaVersion,
     response: opts.response,
     capturedAt: new Date().toISOString(),
+    utcOffsetMinutes: -new Date().getTimezoneOffset(),
     status: 'queued',
     attempts: 0,
   };

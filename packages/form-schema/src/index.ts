@@ -1247,9 +1247,9 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
   if (!expr) return null;
   switch (expr.op) {
     case 'eq':
-      return resolve(expr.left, response) === resolve(expr.right, response);
+      return looseEqual(resolve(expr.left, response), resolve(expr.right, response));
     case 'neq':
-      return resolve(expr.left, response) !== resolve(expr.right, response);
+      return !looseEqual(resolve(expr.left, response), resolve(expr.right, response));
     case 'gt':
       return cmp(expr.left, expr.right, response) > 0;
     case 'gte':
@@ -1348,13 +1348,80 @@ function numericResolve(operand: Operand, response: Response): number | null {
   return null;
 }
 
+/** An attachment answer: captured inline (`dataUrl`) or uploaded (`url`). */
+function hasMediaSource(v: object): boolean {
+  return (
+    typeof (v as { dataUrl?: unknown }).dataUrl === 'string' ||
+    typeof (v as { url?: unknown }).url === 'string'
+  );
+}
+
+/**
+ * The designer stores numeric-looking literals as numbers ("2" -> 2,
+ * "true" -> true), while select and text answers are strings. Strict
+ * equality therefore never matched `rating eq 2` for choice "2". A
+ * number or boolean against a string compares by value.
+ */
+function asNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function looseEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a === 'number' && typeof b === 'string') return asNumber(b) === a;
+  if (typeof b === 'number' && typeof a === 'string') return asNumber(a) === b;
+  if (typeof a === 'boolean' && typeof b === 'string') return String(a) === b;
+  if (typeof b === 'boolean' && typeof a === 'string') return String(b) === a;
+  return false;
+}
+
 function cmp(left: Operand, right: Operand, response: Response): number {
   const a = resolve(left, response);
   const b = resolve(right, response);
   if (typeof a === 'number' && typeof b === 'number') return a - b;
+  // One side a number: compare numerically when the other side reads
+  // as one ("100" gt 18 was false as text).
+  if (typeof a === 'number' || typeof b === 'number') {
+    const na = asNumber(a);
+    const nb = asNumber(b);
+    if (na !== null && nb !== null) return na - nb;
+  }
   // String compare for everything else (dates compare correctly as
   // ISO strings).
   return String(a ?? '').localeCompare(String(b ?? ''));
+}
+
+/**
+ * The moment `today` and `now` mean, and the respondent's offset from
+ * UTC in minutes. Unset, they read this process's clock and time zone,
+ * which is right in the browser or on the phone while the respondent
+ * fills the form. The server re-validates at upload time, possibly
+ * days later and in UTC, so it sets the capture time and offset with
+ * withEvaluationClock; otherwise a valid "not before today" answer
+ * failed there.
+ */
+export interface EvaluationClock {
+  now: Date;
+  /** Minutes east of UTC (the negation of getTimezoneOffset()). */
+  utcOffsetMinutes?: number;
+}
+
+let evaluationClock: EvaluationClock | null = null;
+
+/** Run `fn` with `today` and `now` pinned to `clock`. Synchronous. */
+export function withEvaluationClock<T>(clock: EvaluationClock | null, fn: () => T): T {
+  const previous = evaluationClock;
+  evaluationClock = clock;
+  try {
+    return fn();
+  } finally {
+    evaluationClock = previous;
+  }
 }
 
 function callBuiltin(
@@ -1364,14 +1431,22 @@ function callBuiltin(
 ): unknown {
   switch (name) {
     case 'today': {
-      const d = new Date();
+      const clock = evaluationClock;
+      if (clock && typeof clock.utcOffsetMinutes === 'number') {
+        const d = new Date(clock.now.getTime() + clock.utcOffsetMinutes * 60_000);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      const d = clock ? clock.now : new Date();
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
     }
     case 'now':
-      return new Date().toISOString();
+      return (evaluationClock ? evaluationClock.now : new Date()).toISOString();
     case 'len': {
       const v = args[0] ? resolve(args[0], response) : null;
       if (typeof v === 'string') return v.length;
@@ -1667,7 +1742,11 @@ function validateQuestionList(
         continue;
       }
       // Non-repeat group: children write at the current level's
-      // keys (#288), so recurse with the same context and path.
+      // keys (#288), so recurse with the same context and path. A
+      // hidden group hides its children (the renderer skips it), so
+      // they are not checked: a required question inside it blocked
+      // the submit with an error about a field nobody could see.
+      if (!isVisible(q, response)) continue;
       validateQuestionList(q.children, response, pathPrefix, errors);
       continue;
     }
@@ -2081,10 +2160,12 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} ${kindLabel}s allowed.`;
       }
       for (const v of value) {
+        // An uploaded entry carries `url` (and the storage key), not
+        // `dataUrl`; accept either, as the signature branch does.
         if (
           typeof v !== 'object' ||
           v === null ||
-          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string' ||
+          !hasMediaSource(v) ||
           typeof (v as { mimeType?: unknown }).mimeType !== 'string'
         ) {
           return `${kindLabel} entry has an unexpected shape.`;
@@ -2109,7 +2190,7 @@ function validateType(q: Question, value: unknown): string | null {
           typeof v !== 'object' ||
           v === null ||
           typeof (v as { name?: unknown }).name !== 'string' ||
-          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string'
+          !hasMediaSource(v)
         ) {
           return 'File entry has an unexpected shape.';
         }
@@ -2366,7 +2447,9 @@ export function pruneHidden(form: FormSchema, response: Response): Response {
           continue;
         }
         // Non-repeat group: children write to top-level (#288),
-        // so recurse and let them be picked up individually.
+        // so recurse and let them be picked up individually. A hidden
+        // group drops its children's answers, like validate skips them.
+        if (!isVisible(q, response)) continue;
         walk(q.children);
         continue;
       }

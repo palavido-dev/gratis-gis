@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Item } from '@prisma/client';
-import { validate } from '@gratis-gis/form-schema';
+import { validate, withEvaluationClock } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -158,6 +158,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       schemaVersion: number;
       response: Record<string, unknown>;
       capturedAt: string;
+      utcOffsetMinutes?: number;
     },
   ): Promise<{ id: string; created: boolean }> {
     const form = await this.getVisibleForm(formId, user);
@@ -210,8 +211,24 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
     // the raw body would let a stale tab or a hand-crafted POST put
     // unchecked values into the submission, the paired layer and the
     // receipt email. The browser runtime does the same before it posts.
-    const response = cleanSubmission(schema, dto.response as FormResponse);
-    const validation = validate(schema, response);
+    // today() and now() mean the moment of capture, in the
+    // respondent's time zone when the client says it. With this
+    // server's clock (UTC, at upload time) a valid "not before
+    // today" answer failed, and every offline capture synced after
+    // midnight failed again on each retry.
+    const offset =
+      typeof dto.utcOffsetMinutes === 'number' &&
+      Number.isInteger(dto.utcOffsetMinutes) &&
+      Math.abs(dto.utcOffsetMinutes) <= 14 * 60
+        ? dto.utcOffsetMinutes
+        : 0;
+    const { response, validation } = withEvaluationClock(
+      { now: captured, utcOffsetMinutes: offset },
+      () => {
+        const cleaned = cleanSubmission(schema, dto.response as FormResponse);
+        return { response: cleaned, validation: validate(schema, cleaned) };
+      },
+    );
     if (!validation.ok) {
       const details = validation.errors
         .map((e) => `${e.questionId}: ${e.message}`)
