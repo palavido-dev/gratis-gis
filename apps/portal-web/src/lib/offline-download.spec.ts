@@ -384,6 +384,45 @@ describe('downloadDeployment delta refresh', () => {
     expect(urls.filter((u) => u.includes('/geojson'))).toHaveLength(2);
   });
 
+  it('fails the layer when a page is the service worker cache fallback', async () => {
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/delta?since=0&limit=1')) {
+        return jsonResponse({ syncVersion: 42, since: 0, changes: [], truncated: false });
+      }
+      const params = new URL(url, 'https://example.test').searchParams;
+      if (!params.get('cursor')) {
+        return jsonResponse({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              id: 'f1',
+              geometry: { type: 'Point', coordinates: [0, 0] },
+              properties: { _global_id: 'f1' },
+            },
+          ],
+          nextCursor: 'f1',
+          asOf: '2026-11-08T00:00:00.000Z',
+        });
+      }
+      // Signal dropped: the worker answered from an older cached copy.
+      return new Response(
+        JSON.stringify({ type: 'FeatureCollection', features: [], nextCursor: null }),
+        { status: 200, headers: { 'x-gg-sw-fallback': '1' } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await downloadDeployment(
+      { dataCollectionId: DC, title: 'Delta Test', mapId: 'map-1', layers: [LAYER], pickListIds: [] },
+      () => {},
+    );
+    // Not recorded as complete, so the next download starts over
+    // instead of syncing forward from a head it never reached.
+    expect(result.layerSchemas['dl-1:main']?.syncVersion).toBeUndefined();
+  });
+
   it('pages through one syncVersion that spans pages without skipping rows', async () => {
     await putDeployment(manifest(10));
     const row = (i: number) => ({

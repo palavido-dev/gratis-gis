@@ -72,6 +72,11 @@ export default async function FormRespondPage(props: Props) {
   // even before the device identity guard has caught up.
   const me = await apiFetch<{ id: string }>('/api/users/me').catch(() => null);
   return (
-    <RespondClient form={schema} formItemTitle={item.title} userId={me?.id ?? null} />
+    <RespondClient
+      form={schema}
+      formId={params.id}
+      formItemTitle={item.title}
+      userId={me?.id ?? null}
+    />
   );
 }

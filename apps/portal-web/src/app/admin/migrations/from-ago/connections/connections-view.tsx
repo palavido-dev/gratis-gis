@@ -244,12 +244,12 @@ function ConnectionModal({
           {mode === 'create' ? 'Add AGO connection' : 'Edit AGO connection'}
         </DialogTitle>
 
-        <div className="mb-4 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+        <div className="mb-4 rounded-md border border-warn/30 bg-warn/5 p-3 text-xs text-warn">
           <p className="flex items-start gap-2 font-medium">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             One-time setup on the AGO portal
           </p>
-          <ol className="ml-5 mt-2 list-decimal space-y-1 text-warning/90">
+          <ol className="ml-5 mt-2 list-decimal space-y-1 text-warn/90">
             <li>
               Sign into the AGO portal as an org admin and go to{' '}
               <strong>Content &rarr; My Content &rarr; New Item &rarr; Application</strong>{' '}

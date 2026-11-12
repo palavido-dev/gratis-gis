@@ -103,11 +103,17 @@ export function MembersPanel({
   async function addMember(pick: PrincipalOption) {
     setError(null);
     if (memberIds.has(pick.id)) return;
+    // Called with `void`, so a rejected fetch was an unhandled
+    // rejection with nothing on screen. Report it instead.
     const res = await fetch(`/api/portal/groups/${groupId}/members`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ userId: pick.id, role: addingRole }),
+    }).catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('groups.members.addFailed', {
@@ -162,7 +168,11 @@ export function MembersPanel({
     const res = await fetch(
       `/api/portal/groups/${groupId}/members/${member.userId}`,
       { method: 'DELETE' },
-    );
+    ).catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('groups.members.removeFailed', {

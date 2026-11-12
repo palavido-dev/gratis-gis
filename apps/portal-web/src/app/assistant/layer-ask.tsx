@@ -13,7 +13,6 @@ interface LayerChoice {
 interface LayerItem {
   id: string;
   title: string;
-  layers: LayerChoice[];
 }
 
 interface AskHit {
@@ -55,6 +54,8 @@ function speechCtor(): SpeechCtor | null {
  */
 export function LayerAsk() {
   const [items, setItems] = useState<LayerItem[] | null>(null);
+  // Sub-layers of the chosen item, read when it is chosen.
+  const [layers, setLayers] = useState<LayerChoice[] | null>(null);
   const [itemId, setItemId] = useState('');
   const [layerId, setLayerId] = useState('');
   const [question, setQuestion] = useState('');
@@ -69,33 +70,24 @@ export function LayerAsk() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/portal/items?type=data_layer&full=1&limit=30');
+        // The lite list (no `full=1`): the picker needs titles only.
+        // The full list sent every item's whole data, which for older
+        // layers embeds the features, and stopped at the 30 most
+        // recent, so older layers could not be asked about at all.
+        // The sub-layers are read for the one item that is chosen.
+        const res = await fetch('/api/portal/items?type=data_layer&limit=1000');
         if (!res.ok) {
           if (!cancelled) setItems([]);
           return;
         }
-        const rows = (await res.json()) as Array<{
-          id: string;
-          title: string;
-          data?: { layers?: Array<{ id?: string; label?: string }> };
-        }>;
+        const rows = (await res.json()) as Array<{ id: string; title: string }>;
         if (cancelled) return;
         const next = rows
-          .map((row) => ({
-            id: row.id,
-            title: row.title,
-            layers: (row.data?.layers ?? [])
-              .filter((layer): layer is { id: string; label?: string } => typeof layer.id === 'string')
-              .map((layer) => ({ id: layer.id, label: layer.label || layer.id })),
-          }))
+          .map((row) => ({ id: row.id, title: row.title }))
           .sort((a, b) => a.title.localeCompare(b.title));
         setItems(next);
         const first = next[0];
-        if (first) {
-          setItemId(first.id);
-          const layer = first.layers[0];
-          if (layer) setLayerId(layer.id);
-        }
+        if (first) setItemId(first.id);
       } catch {
         if (!cancelled) setItems([]);
       }
@@ -105,7 +97,33 @@ export function LayerAsk() {
     };
   }, []);
 
-  const selected = items?.find((item) => item.id === itemId) ?? null;
+  useEffect(() => {
+    if (!itemId) return;
+    let cancelled = false;
+    setLayers(null);
+    setLayerId('');
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${encodeURIComponent(itemId)}`);
+        const body = res.ok
+          ? ((await res.json()) as {
+              data?: { layers?: Array<{ id?: string; label?: string }> };
+            })
+          : null;
+        if (cancelled) return;
+        const next = (body?.data?.layers ?? [])
+          .filter((layer): layer is { id: string; label?: string } => typeof layer.id === 'string')
+          .map((layer) => ({ id: layer.id, label: layer.label || layer.id }));
+        setLayers(next);
+        if (next[0]) setLayerId(next[0].id);
+      } catch {
+        if (!cancelled) setLayers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
 
   function toggleMic() {
     if (recognition.current) {
@@ -207,10 +225,7 @@ export function LayerAsk() {
             <select
               value={itemId}
               onChange={(event) => {
-                const nextId = event.target.value;
-                setItemId(nextId);
-                const next = items.find((item) => item.id === nextId);
-                setLayerId(next?.layers[0]?.id ?? '');
+                setItemId(event.target.value);
                 setResult(null);
               }}
               className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-2 text-sm text-ink-0"
@@ -222,7 +237,7 @@ export function LayerAsk() {
               ))}
             </select>
           </label>
-          {selected && selected.layers.length > 1 ? (
+          {layers && layers.length > 1 ? (
             <label className="block text-sm text-ink-0">
               Layer
               <select
@@ -233,7 +248,7 @@ export function LayerAsk() {
                 }}
                 className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-2 text-sm text-ink-0"
               >
-                {selected.layers.map((layer) => (
+                {layers.map((layer) => (
                   <option key={layer.id} value={layer.id}>
                     {layer.label}
                   </option>
@@ -280,7 +295,7 @@ export function LayerAsk() {
           <p className="text-sm text-ink-0">{result.answer}</p>
           <p className="mt-2 text-xs text-muted">
             Sampled {result.sampled} row{result.sampled === 1 ? '' : 's'}.{' '}
-            <Link href={`/items/${itemId}`} className="text-accent underline">
+            <Link href={`/items/${encodeURIComponent(itemId)}`} className="text-accent underline">
               Open the layer
             </Link>
           </p>

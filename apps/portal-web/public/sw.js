@@ -3,15 +3,16 @@
  * GratisGIS Service Worker
  *
  * Caching strategy:
- *   - Static assets (JS, CSS, fonts, images): Cache-first with background
- *     revalidation.
+ *   - Static assets (JS, CSS, fonts, images): Cache-first, no
+ *     revalidation (URLs are per deploy). Never applied under /api/.
  *   - GeoJSON feature data (/api/portal/items/:id/geojson and the v3
  *     per-layer /api/portal/items/:id/layers/:key/geojson): Network-first
  *     with cache fallback so maps render offline with the last-seen dataset.
  *     Capped at GEOJSON_CACHE_CAP entries, oldest first; the field page
  *     cache (PAGES_CACHE) is capped the same way at PAGES_CACHE_CAP.
  *   - Tiles (raster XYZ, vector pbf/mvt, WMS GetMap, style.json):
- *     Cache-first in TILES_CACHE. Passively cached tiles (ordinary map
+ *     Cache-first in TILES_CACHE (WMS GetMap and item-proxy tiles are
+ *     served from cache and refreshed in the background). Passively cached tiles (ordinary map
  *     browsing) are capped at RUNTIME_TILE_CAP entries with oldest-write
  *     eviction; tiles inside a downloaded deployment's bbox are pinned and
  *     never evicted (see "Tile cache cap" below).
@@ -46,8 +47,9 @@
  *     predate ownership), so a shared tablet cannot send one person's
  *     captures under whoever signs in next.
  *
- * Versioning: bump CACHE_VERSION on every deploy so stale assets are
- * evicted.
+ * Versioning: CACHE_VERSION rotates per deploy (see DEPLOY_ID) so
+ * stale code is evicted. Tiles and geojson use DATA_CACHE_VERSION and
+ * survive deploys. Activate only ever deletes this worker's own caches.
  */
 
 // v6: runtime tile cache is now capped (RUNTIME_TILE_CAP) with
@@ -104,19 +106,34 @@ const DEPLOY_ID = (() => {
   }
 })();
 const CACHE_VERSION = DEPLOY_ID ? `d-${DEPLOY_ID}` : 'v8';
+/**
+ * Version for the caches that hold DATA rather than code: tiles and
+ * the geojson fallback. These used to share CACHE_VERSION, so once
+ * that became per-deploy every deploy emptied them on every device,
+ * including tiles warmed for a downloaded area that the header says
+ * are never evicted. Nothing in them depends on the build, so they
+ * keep one name across deploys. Bump this by hand only when the
+ * caching rules for those entries change (as v7 did for opaque
+ * tiles), which is exactly when the old entries should go.
+ */
+const DATA_CACHE_VERSION = 'v8';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
-const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
+const GEOJSON_CACHE = `gratis-geojson-${DATA_CACHE_VERSION}`;
 // Server-rendered HTML for the two navigations the field arc needs
 // offline: the catalog at /field and each deployment's runtime at
 // /items/<id>/field. Kept apart from STATIC_CACHE because this holds
 // AUTHENTICATED, user-specific markup and therefore has to be purged
-// on sign-out, which content-addressed assets do not.
+// on sign-out, which content-addressed assets do not. It stays on the
+// per-deploy version on purpose: a cached page points at this deploy's
+// JS chunks, which live in STATIC_CACHE and rotate with it, so a page
+// kept across a deploy would load with its scripts missing.
 const PAGES_CACHE = `gratis-pages-${CACHE_VERSION}`;
 // Slice 10: basemap + reference tiles. Keyed separately from static
 // assets so the eviction policy can differ (tiles are large and we
 // retain them aggressively for offline; static assets churn with
-// every deploy and rotate via CACHE_VERSION).
-const TILES_CACHE = `gratis-tiles-${CACHE_VERSION}`;
+// every deploy and rotate via CACHE_VERSION). Tiles use
+// DATA_CACHE_VERSION so a deploy does not throw them away.
+const TILES_CACHE = `gratis-tiles-${DATA_CACHE_VERSION}`;
 // Bucket for the offline catalog shell at /field. Pre-cached at SW
 // install so the back-arrow from a field deployment always lands
 // somewhere usable, online or not.
@@ -139,10 +156,16 @@ const PRECACHED_SHELL_PATHS = [FIELD_OFFLINE_SHELL];
 // layer costs. 100 pages is the catalog plus 99 deployment runtimes;
 // a device is cached for a handful.
 const GEOJSON_CACHE_CAP = 200;
+// Set on any response this worker made up or served from cache in
+// place of the network. Read by offline-download.ts (lockstep).
+const SW_FALLBACK_HEADER = 'x-gg-sw-fallback';
 const PAGES_CACHE_CAP = 100;
 // A deployment's field runtime, e.g. /items/<uuid>/field. Anchored so
 // it cannot match a deeper route that happens to contain the segment.
 const FIELD_RUNTIME_PATH = /^\/items\/[^/]+\/field\/?$/;
+// Present in the field runtime's HTML only when it was rendered for a
+// signed-in user. Lockstep with app/items/[id]/field/page.tsx.
+const FIELD_SIGNED_IN_MARKER = 'name="gg-field-signed-in"';
 
 // Detect the Next.js dev server. Dev chunks under /_next/static/ reuse
 // filenames across restarts, so cache-first serves up stale JS whose
@@ -217,6 +240,20 @@ const STYLE_JSON_PATTERN = /\/style\.json(?:$|\?)/i;
  */
 const DATA_LAYER_TILE_PATTERN =
   /^\/api\/(?:portal|public)\/items\/[^/]+\/layers\/[^/]+\/tile\//;
+
+/**
+ * Tiles whose content can change while the URL stays the same: WMS
+ * GetMap (live overlays such as radar or a layer the team edits) and
+ * tiles relayed through an item's proxy. Same reasoning as the data
+ * layer exclusion above, but these are still needed offline, so they
+ * are served from cache and refreshed in the background instead of
+ * being left out.
+ */
+const PROXY_TILE_PATTERN = /^\/api\/(?:portal|public)\/items\/[^/]+\/proxy\//;
+function isRevalidatedTile(url) {
+  if (TILE_QUERY_PATTERN.test(url.search)) return true;
+  return url.origin === self.location.origin && PROXY_TILE_PATTERN.test(url.pathname);
+}
 
 function isTileRequest(url) {
   if (DATA_LAYER_TILE_PATTERN.test(url.pathname)) return false;
@@ -414,6 +451,18 @@ const SW_META_VERSION = 1;
 const TILE_WRITES_STORE = 'tileWrites';
 
 let lastTileSweepAt = 0;
+// What the last full scan learned: how many entries were pinned, and
+// when. A device with a downloaded area holds far more than
+// RUNTIME_TILE_CAP pinned tiles, so the plain size check never took
+// the fast path and every sweep walked the whole cache plus two
+// IndexedDB reads. Pinned tiles do not count toward the cap, so while
+// (total - pinned) stays under it there is nothing to evict. The
+// count goes stale when a deployment is removed (its tiles stop being
+// pinned), so a full scan still runs at least every
+// TILE_FULL_SCAN_MAX_AGE_MS, and always on a forced sweep.
+let lastPinnedCount = 0;
+let lastFullScanAt = 0;
+const TILE_FULL_SCAN_MAX_AGE_MS = 30 * 60 * 1000;
 
 // -------------------------------------------------------------------------
 // Install: pre-cache the field offline shell so the back arrow from
@@ -442,6 +491,17 @@ self.addEventListener('install', (event) => {
 // -------------------------------------------------------------------------
 // Activate: clean up old caches, then reconcile the tile write log.
 // -------------------------------------------------------------------------
+/**
+ * True for a cache this worker created under some version. Activate
+ * deletes only these. It used to delete every cache it did not name,
+ * which included caches the page owns, such as the downloaded offline
+ * basemap archive (gratis-offline-basemap-v1, see offline-basemap.ts).
+ */
+const OWN_CACHE_PATTERN = /^gratis-(?:static|geojson|pages|tiles|shell)-/;
+function isOwnCacheName(name) {
+  return OWN_CACHE_PATTERN.test(name);
+}
+
 self.addEventListener('activate', (event) => {
   const keep = new Set([
     STATIC_CACHE,
@@ -453,7 +513,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => !keep.has(k)).map((k) => caches.delete(k)),
+        keys
+          .filter((k) => isOwnCacheName(k) && !keep.has(k))
+          .map((k) => caches.delete(k)),
       ),
     )
       .then(() => self.clients.claim())
@@ -537,7 +599,15 @@ self.addEventListener('fetch', (event) => {
 
   // Static assets: cache-first in prod (content-addressed), pass-through
   // in dev (chunk filenames aren't stable across dev server restarts).
-  if (STATIC_PATTERNS.some((p) => p.test(url.pathname))) {
+  // Never under /api/: the extension pattern also matches API routes
+  // such as /api/portal/items/:id/thumbnail.svg, which are access
+  // checked per user. Kept in STATIC_CACHE they were served to the
+  // next person on the device after sign-out, because the sign-out
+  // purge leaves static assets alone.
+  if (
+    !url.pathname.startsWith('/api/') &&
+    STATIC_PATTERNS.some((p) => p.test(url.pathname))
+  ) {
     if (IS_DEV_HOST) return;
     event.respondWith(cacheFirst(request, STATIC_CACHE));
     return;
@@ -1560,9 +1630,19 @@ async function sweepTileCache(force) {
     const requests = await cache.keys();
     // Fast path: under the cap even before subtracting pinned tiles.
     if (requests.length <= RUNTIME_TILE_CAP) return;
+    // Second fast path: under the cap once the pinned tiles counted by
+    // a recent full scan are taken off.
+    if (
+      !force &&
+      now - lastFullScanAt < TILE_FULL_SCAN_MAX_AGE_MS &&
+      requests.length - lastPinnedCount <= RUNTIME_TILE_CAP
+    ) {
+      return;
+    }
     const bboxes = await readDeploymentBboxes();
     const writeTimes = await readTileWriteTimes();
     const evictable = [];
+    let pinned = 0;
     for (const req of requests) {
       const url = req.url;
       let pathname = '';
@@ -1575,9 +1655,14 @@ async function sweepTileCache(force) {
       // vector basemap offline. Never evict them.
       if (STYLE_JSON_PATTERN.test(pathname)) continue;
       const t = parseTileZxy(url);
-      if (t && bboxes.some((b) => tileTouchesBbox(t, b))) continue; // pinned
+      if (t && bboxes.some((b) => tileTouchesBbox(t, b))) {
+        pinned += 1;
+        continue;
+      }
       evictable.push({ req, url, writtenAt: writeTimes.get(url) || 0 });
     }
+    lastPinnedCount = pinned;
+    lastFullScanAt = now;
     const overflow = evictable.length - RUNTIME_TILE_CAP;
     if (overflow <= 0) return;
     // Grace: never evict very recent writes (see TILE_WRITE_GRACE_MS).
@@ -1680,44 +1765,18 @@ async function cacheFirst(request, cacheName) {
 async function tileCacheFirst(request) {
   const cache = await caches.open(TILES_CACHE);
   const cached = await cache.match(request);
-  if (cached) return cached;
-  try {
-    const response = await fetch(request);
-    // Cache only responses whose status we can actually read.
-    //
-    // This used to accept `response.type === 'opaque'` as well, right
-    // under a comment saying "don't cache 4xx/5xx; a 404 tile
-    // shouldn't poison the cache". Those two statements contradict
-    // each other: an opaque response has status 0 and hides the real
-    // one, so a 429 from a rate-limiting provider, or a 403 from one
-    // that has blocked you, is indistinguishable from a tile and was
-    // cached as if it were. Cache-first then serves that error for
-    // the life of the cache. It presents as a permanently blank
-    // basemap with no network requests and nothing in the console,
-    // and it is most likely to happen straight after a large prefetch,
-    // which is exactly what the old offline download did.
-    //
-    // The cost is that a provider serving tiles without CORS headers
-    // is no longer cached, because we cannot tell success from
-    // failure there. That is the right trade: unverifiable caching is
-    // how the cache got poisoned. OSM and Carto both send
-    // `Access-Control-Allow-Origin: *`, so the providers that matter
-    // are unaffected, and the ones that are not are also the ones
-    // whose terms we now refuse to prefetch anyway.
-    if (response && response.ok) {
-      // Clone before put: response body can only be consumed once.
-      cache
-        .put(request, response.clone())
-        .then(() => {
-          void recordTileWrite(request.url);
-          void sweepTileCache(false);
-        })
-        .catch(() => {
-          /* quota exhaustion or storage failure; ignore, the live
-             response still flows through to MapLibre */
-        });
+  if (cached) {
+    let revalidate = false;
+    try {
+      revalidate = isRevalidatedTile(new URL(request.url));
+    } catch {
+      revalidate = false;
     }
-    return response;
+    if (revalidate) void fetchAndCacheTile(cache, request).catch(() => {});
+    return cached;
+  }
+  try {
+    return await fetchAndCacheTile(cache, request);
   } catch {
     // Offline + no cache. Return a 504 so MapLibre's tile-error
     // handler renders the placeholder rather than retrying forever.
@@ -1726,6 +1785,47 @@ async function tileCacheFirst(request) {
       statusText: 'Tile not in cache',
     });
   }
+}
+
+/** Fetch a tile and store it when its status is readable and OK.
+ *  Rejects when the network does. */
+async function fetchAndCacheTile(cache, request) {
+  const response = await fetch(request);
+  // Cache only responses whose status we can actually read.
+  //
+  // This used to accept `response.type === 'opaque'` as well, right
+  // under a comment saying "don't cache 4xx/5xx; a 404 tile
+  // shouldn't poison the cache". Those two statements contradict
+  // each other: an opaque response has status 0 and hides the real
+  // one, so a 429 from a rate-limiting provider, or a 403 from one
+  // that has blocked you, is indistinguishable from a tile and was
+  // cached as if it were. Cache-first then serves that error for
+  // the life of the cache. It presents as a permanently blank
+  // basemap with no network requests and nothing in the console,
+  // and it is most likely to happen straight after a large prefetch,
+  // which is exactly what the old offline download did.
+  //
+  // The cost is that a provider serving tiles without CORS headers
+  // is no longer cached, because we cannot tell success from
+  // failure there. That is the right trade: unverifiable caching is
+  // how the cache got poisoned. OSM and Carto both send
+  // `Access-Control-Allow-Origin: *`, so the providers that matter
+  // are unaffected, and the ones that are not are also the ones
+  // whose terms we now refuse to prefetch anyway.
+  if (response && response.ok) {
+    // Clone before put: response body can only be consumed once.
+    cache
+      .put(request, response.clone())
+      .then(() => {
+        void recordTileWrite(request.url);
+        void sweepTileCache(false);
+      })
+      .catch(() => {
+        /* quota exhaustion or storage failure; ignore, the live
+           response still flows through to MapLibre */
+      });
+  }
+  return response;
 }
 
 /**
@@ -1825,6 +1925,18 @@ async function cachePageResponse(request, response) {
     const url = new URL(request.url);
     const cache = await caches.open(PAGES_CACHE);
     const key = pageCacheKey(url);
+    // A public-shared deployment renders a 200 read-only page for a
+    // visitor with no session (expired, say), and that is not a
+    // redirect, so it used to overwrite the signed-in copy. Offline,
+    // the collector then had no Add button until they could sign in
+    // again. The signed-in render carries a marker; without it, keep
+    // whatever copy is already here.
+    if (FIELD_RUNTIME_PATH.test(url.pathname)) {
+      const html = await response.clone().text();
+      if (!html.includes(FIELD_SIGNED_IN_MARKER) && (await cache.match(key))) {
+        return;
+      }
+    }
     // Delete first so a page opened again counts as the newest entry
     // for the trim's oldest-first order (see trimCache).
     await cache.delete(key);
@@ -1883,11 +1995,33 @@ async function fieldRuntimeNavigate(request) {
   }
 }
 
+/**
+ * Network-first for the geojson endpoints, with the last good copy as
+ * the offline fallback.
+ *
+ * A fallback is marked with SW_FALLBACK_HEADER so a caller that needs
+ * live data (the offline download's paged walk) can tell it from a
+ * real answer. With no cached copy the answer is a 504, not an empty
+ * FeatureCollection: an empty 200 read as "no more features", so a
+ * dropped request in the middle of a download stored a truncated
+ * layer and recorded it as complete. MapLibre treats a failed source
+ * fetch as a source error, not a crash.
+ *
+ * Keyset pages (a `cursor` in the query) are not cached. They are only
+ * read by the download walk, which writes them to IndexedDB already,
+ * so a copy here spent quota for nothing.
+ */
 async function networkFirstWithCache(request, cacheName, cap) {
   const cache = await caches.open(cacheName);
+  let cacheable;
+  try {
+    cacheable = !new URL(request.url).searchParams.has('cursor');
+  } catch {
+    cacheable = false;
+  }
   try {
     const response = await fetch(request);
-    if (response.ok) {
+    if (response.ok && cacheable) {
       // Clone before the write chain starts: the body can only be
       // consumed once and the live response is returned below. Delete
       // before put so a re-viewed layer counts as the newest entry for
@@ -1904,14 +2038,26 @@ async function networkFirstWithCache(request, cacheName, cap) {
     }
     return response;
   } catch {
-    // Network failed: serve from cache.
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    // No cache either; return an empty FeatureCollection so MapLibre
-    // doesn't crash when the layer source URL resolves.
+    // Network failed: serve from cache, marked as a fallback.
+    const cached = cacheable ? await cache.match(request) : null;
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set(SW_FALLBACK_HEADER, '1');
+      return new Response(cached.body, {
+        status: cached.status,
+        statusText: cached.statusText,
+        headers,
+      });
+    }
     return new Response(
-      JSON.stringify({ type: 'FeatureCollection', features: [] }),
-      { headers: { 'content-type': 'application/json' } },
+      JSON.stringify({ message: 'Offline and no cached copy' }),
+      {
+        status: 504,
+        headers: {
+          'content-type': 'application/json',
+          [SW_FALLBACK_HEADER]: '1',
+        },
+      },
     );
   }
 }

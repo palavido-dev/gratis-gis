@@ -78,7 +78,7 @@ describe('logout redirect step', () => {
     const req = new NextRequest('https://portal.test/api/auth/federated-logout', {
       headers: {
         cookie:
-          '__Secure-next-auth.session-token.0=a; __Secure-next-auth.session-token.2=b; other=1',
+          'gg-logout-hint=tok; __Secure-next-auth.session-token.0=a; __Secure-next-auth.session-token.2=b; other=1',
       },
     });
     const res = await GET(req);
@@ -99,5 +99,26 @@ describe('logout redirect step', () => {
     expect(cleared).not.toContain('other');
     const secure = res.cookies.get('__Secure-next-auth.session-token.2');
     expect(secure?.secure).toBe(true);
+  });
+});
+
+describe('logout redirect step without the hint cookie', () => {
+  // A link from another site carries the Lax session cookie but not
+  // the Strict hint. It must not end the session silently.
+  it('sends no id_token_hint and clears no session cookie', async () => {
+    process.env.NEXTAUTH_URL = 'https://portal.test';
+    process.env.NEXTAUTH_SECRET = 'x';
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('../app/api/auth/federated-logout/route');
+    const req = new NextRequest('https://portal.test/api/auth/federated-logout', {
+      headers: { cookie: '__Secure-next-auth.session-token=a' },
+    });
+    const res = await GET(req);
+    expect(res.headers.get('location') ?? '').not.toContain('id_token_hint');
+    const cleared = res.cookies
+      .getAll()
+      .filter((c) => c.value === '' && c.maxAge === 0)
+      .map((c) => c.name);
+    expect(cleared).not.toContain('__Secure-next-auth.session-token');
   });
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useCallback, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Check,
@@ -26,6 +26,7 @@ import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import { useT } from '@/lib/i18n/locale-context';
 import { parseApiError } from '@/lib/api-error';
+import { probeSelection } from '@/lib/arcgis-service-selection';
 
 /** Interactive copy hard cap (mirrors portal-api ARCGIS_COPY_FEATURE_HARD_CAP). */
 const COPY_FEATURE_HARD_CAP = 50_000;
@@ -54,6 +55,11 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     ...DEFAULT_ARCGIS_SERVICE,
     ...initial,
   });
+  // What the server holds. Edits write into `data`, so Save has to
+  // compare against this, not against `data`: comparing staged with
+  // data meant layer ticks, labels and the default layer never
+  // enabled Save unless a probe was staged.
+  const [savedData, setSavedData] = useState<ArcgisServiceData>(data);
   const [urlDraft, setUrlDraft] = useState(data.url);
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] =
@@ -105,22 +111,13 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         ...(stagedDefault !== undefined
           ? { defaultLayerId: stagedDefault }
           : {}),
-        // Re-probing preserves existing selection when the probed
-        // layer ids overlap; new ids discovered in the probe are
-        // added to the selection so the 'all layers selected' default
-        // extends to new additions. Items without a prior selection
-        // (legacy) get 'all' on probe.
-        selectedLayerIds: (() => {
-          const prev = data.selectedLayerIds
-            ? new Set(data.selectedLayerIds.map(String))
-            : null;
-          const ids = probeResult.layers.map((l) => l.id);
-          if (!prev) return ids;
-          const keptOrAdded = ids.filter(
-            (id) => prev.has(String(id)) || !data.layers.some((dl) => dl.id === id),
-          );
-          return keptOrAdded.length > 0 ? keptOrAdded : ids;
-        })(),
+        // The selection for the probed layers is worked out once,
+        // when the probe lands (see probeSelection), and is edited in
+        // `data` from then on. Working it out on every render re-added
+        // every new layer each time, so a new layer could not be
+        // unticked and "None" snapped back to all.
+        selectedLayerIds:
+          data.selectedLayerIds ?? probeResult.layers.map((l) => l.id),
         probedAt: new Date().toISOString() as ISODateString,
       }
     : data;
@@ -134,15 +131,15 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
 
   const hasChanges =
     probeResult !== null ||
-    staged.defaultLayerId !== data.defaultLayerId ||
-    staged.url !== data.url ||
+    staged.defaultLayerId !== savedData.defaultLayerId ||
+    staged.url !== savedData.url ||
     // Selection or config diffs
     !sameIdSet(
       staged.selectedLayerIds ?? staged.layers.map((l) => l.id),
-      data.selectedLayerIds ?? data.layers.map((l) => l.id),
+      savedData.selectedLayerIds ?? savedData.layers.map((l) => l.id),
     ) ||
     JSON.stringify(staged.layerConfig ?? {}) !==
-      JSON.stringify(data.layerConfig ?? {});
+      JSON.stringify(savedData.layerConfig ?? {});
 
   const toggleSelected = (id: number) => {
     const currentIds = staged.selectedLayerIds
@@ -208,6 +205,13 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     setProbing(true);
     try {
       let desc: ArcgisServiceDescription;
+      if (data.requiresAuth && raw !== savedData.url) {
+        // The proxy below reads the URL saved on the item, not the
+        // one typed here, so probing a new URL through it paired the
+        // new URL with the old service's layers. Save the URL first.
+        setError(t('serviceEditors.probeSaveUrlFirst'));
+        return;
+      }
       if (data.requiresAuth) {
         // Route through the per-item proxy so the stored
         // credential is applied server-side. The proxy also
@@ -257,6 +261,14 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         );
         return;
       }
+      // Re-probing keeps the existing selection where the probed layer
+      // ids overlap and adds layers the probe newly found, so the "all
+      // layers selected" default extends to them. Items without a
+      // prior selection (legacy) get all.
+      setData((prev) => ({
+        ...prev,
+        selectedLayerIds: probeSelection(prev, desc.layers.map((l) => l.id)),
+      }));
       setProbeResult(desc);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return;
@@ -267,7 +279,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     } finally {
       if (!controller.signal.aborted) setProbing(false);
     }
-  }, [urlDraft, itemId, data.requiresAuth]);
+  }, [urlDraft, itemId, data.requiresAuth, savedData.url, t]);
 
   async function save() {
     setError(null);
@@ -285,6 +297,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         return;
       }
       setData(staged);
+      setSavedData(staged);
       setProbeResult(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -418,6 +431,8 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
           // Persist the flag against the item's data so the layer
           // source reads it when constructing the fetch URL.
           // Optimistic local state with rollback on failure.
+          // Sends the saved data with only the flag changed, so
+          // unsaved layer edits are not written as a side effect.
           const prev = data.requiresAuth;
           setData((d) => ({ ...d, requiresAuth: next }));
           try {
@@ -425,10 +440,11 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
               method: 'PATCH',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({
-                data: { ...data, requiresAuth: next },
+                data: { ...savedData, requiresAuth: next },
               }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setSavedData((d) => ({ ...d, requiresAuth: next }));
             startTransition(() => router.refresh());
           } catch (err) {
             setData((d) => ({ ...d, requiresAuth: prev ?? false }));
@@ -694,12 +710,14 @@ function CredentialsCard({
     }
   }, [itemId]);
 
-  // Load on mount + whenever the toggle flips on (the flip is a
-  // signal that the user is actively configuring auth and the
-  // metadata may have changed via another tab).
-  if (canEdit && meta === null && !loading) {
-    void refresh();
-  }
+  // Load once on mount. This used to run from the render body
+  // whenever meta was still null, and a failed load leaves meta null,
+  // so any error (403, 429, 5xx, offline) turned into the same
+  // request sent back to back for as long as the tab stayed open.
+  // A failure now shows the error and waits for the user.
+  useEffect(() => {
+    if (canEdit) void refresh();
+  }, [canEdit, refresh]);
 
   async function saveCredential() {
     setBusy(true);

@@ -2752,7 +2752,7 @@ function CalculateFieldModal({
                 ? t('mapAttributeTable.previewFirstTitle')
                 : t('mapAttributeTable.applyValuesTitle')
             }
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:bg-accent/90 disabled:opacity-50"
           >
             {submitting ? (
               <Loader2 className="h-3 w-3 animate-spin" />

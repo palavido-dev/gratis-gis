@@ -45,3 +45,14 @@ describe('tool open-url action', () => {
     expect(source).toMatch(/safeNavigationUrl\(action\.url\)/);
   });
 });
+
+describe('notification template previews', () => {
+  it('render admin HTML only inside a sandboxed frame', () => {
+    const source = readFileSync(
+      join(__dirname, '..', 'app', 'admin', 'notifications', 'notifications-admin-view.tsx'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/dangerouslySetInnerHTML/);
+    expect(source).toMatch(/<iframe\s+sandbox=""\s+srcDoc=\{html\}/);
+  });
+});

@@ -2016,6 +2016,9 @@ export const de: Partial<CatalogShape> = {
     viewBody: 'Öffnen Sie diese App und verwenden Sie sie so, wie ihre Leser sie sehen.',
     viewAction: 'App öffnen',
   },
+  groupDetail: {
+    rosterHidden: 'Nur Mitglieder dieser Gruppe können sehen, wer dazugehört.',
+  },
   groupItems: {
     title: 'Mit dieser Gruppe geteilt',
     empty:
@@ -3768,7 +3771,6 @@ export const de: Partial<CatalogShape> = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3811,6 +3813,9 @@ export const de: Partial<CatalogShape> = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "Serverzeit, {zone}",
+    scheduleRunNowUnsaved:
+      "Speichern Sie zuerst Ihre Änderungen. Der sofortige Lauf verwendet die gespeicherten Einstellungen.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',
@@ -5813,6 +5818,8 @@ export const de: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Dieser Dienst braucht ein Passwort, daher liest Prüfen die gespeicherte URL. Speichern Sie zuerst die neue URL und prüfen Sie dann erneut.",
     connection: "Verbindung",
     serviceEndpoint: "Dienst-Endpunkt",
     probe: "Prüfen",

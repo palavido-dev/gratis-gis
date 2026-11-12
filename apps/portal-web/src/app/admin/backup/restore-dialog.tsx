@@ -65,6 +65,12 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
   const [restoring, setRestoring] = useState(false);
   const [result, setResult] = useState<'success' | 'failed' | null>(null);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
+  // Whether the failure can have left maintenance mode on. The API
+  // refuses a wrong name or a busy preflight with a 4xx before it
+  // raises maintenance, and lowers it again for a restore that never
+  // started (409), so only a 5xx or a lost connection warrants the
+  // "maintenance stays on" warning.
+  const [maintenanceKept, setMaintenanceKept] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,9 +99,13 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
   // Case-insensitive, whitespace-trimmed match so an admin typing
   // "Acme Corp" vs "acme corp" doesn't get bounced by a capitalisation
   // mismatch. The wire-level check on the server mirrors this.
+  // An empty orgName means the branding fetch failed. An empty input
+  // would match it, and the server would then refuse the name, so
+  // the button stays off instead.
   const canRestore =
     !restoring &&
     !result &&
+    orgName.trim() !== '' &&
     confirmText.trim().toLowerCase() === orgName.trim().toLowerCase();
 
   async function handleRestore() {
@@ -116,6 +126,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
           (body as { message?: string }).message ?? `HTTP ${res.status}`;
         setResult('failed');
         setResultMsg(msg);
+        setMaintenanceKept(res.status >= 500);
         return;
       }
       setResult('success');
@@ -125,6 +136,8 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
     } catch (e) {
       setResult('failed');
       setResultMsg(e instanceof Error ? e.message : 'Restore failed.');
+      // The request may have reached the server; assume the worst.
+      setMaintenanceKept(true);
     } finally {
       setRestoring(false);
     }
@@ -232,9 +245,15 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
           {result === 'failed' ? (
             <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
               <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-              Restore failed: {resultMsg}. Maintenance mode stays on so
-              users are not served a half-restored portal — finish or
-              re-run the restore from Admin → Backup before clearing it.
+              {maintenanceKept ? (
+                <>
+                  Restore failed: {resultMsg}. Maintenance mode stays on so
+                  users are not served a half-restored portal. Finish or
+                  re-run the restore from Admin → Backup before clearing it.
+                </>
+              ) : (
+                <>Restore did not start: {resultMsg}. Nothing was changed.</>
+              )}
             </div>
           ) : null}
           {result === 'success' ? (

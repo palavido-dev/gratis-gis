@@ -81,3 +81,39 @@ export function fetchFailureReason(err: unknown): string {
   if (cause !== undefined) return `${e.message}: ${String(cause)}`;
   return e.message;
 }
+
+/**
+ * Long-running upstream calls (ingest, per-layer import, whole-layer
+ * export, backup restore) go through longRunningFetch, which has a
+ * 15 min budget instead of the default fetch timeouts, so a county-scale parcel
+ * ingest or a GeoParquet export of the same layer can finish. Normal
+ * API calls keep the tight defaults and fail fast. See
+ * src/lib/long-running-fetch.ts for why it is undici's own fetch.
+ *
+ * Matches v3 per-layer ingest, v2 ingest, the wizard probe path,
+ * the per-layer GeoParquet export, admin backup restore (#233) and
+ * creating a backup.
+ * Conservative: only widens for endpoints we know can take minutes.
+ */
+export function isLongRunningPath(suffix: string): boolean {
+  return (
+    /^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
+    /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
+    /^items\/[^/]+\/ingest$/.test(suffix) ||
+    suffix === 'ingest/probe' ||
+    suffix === 'ingest/stage' ||
+    // #573: copies the finished upload out of storage and probes it,
+    // which takes minutes for a multi-GB file.
+    suffix === 'ingest/upload/complete' ||
+    // #573: purging a data layer deletes all of its rows, minutes for
+    // a layer with millions of features.
+    /^items\/[^/]+\/purge$/.test(suffix) ||
+    // #233: pg_restore + full MinIO refill routinely exceeds undici's
+    // 30s default; without this the BFF aborts mid-restore.
+    /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix) ||
+    // POST admin/backup/runs waits for the whole pg_dump and object
+    // archive. Under the default timeout the BFF answered 502 while
+    // the backup kept running, and a retry then got 409.
+    suffix === 'admin/backup/runs'
+  );
+}

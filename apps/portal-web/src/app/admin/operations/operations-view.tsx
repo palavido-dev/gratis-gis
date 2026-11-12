@@ -59,7 +59,7 @@ export function OperationsView({ operator }: { operator: boolean }) {
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
-                className="rounded-md border border-line px-3 py-2 text-sm"
+                className="rounded-md border border-border px-3 py-2 text-sm"
                 disabled={busy}
                 onClick={() =>
                   void run(
@@ -77,7 +77,7 @@ export function OperationsView({ operator }: { operator: boolean }) {
               </button>
               <button
                 type="button"
-                className="rounded-md border border-line px-3 py-2 text-sm"
+                className="rounded-md border border-border px-3 py-2 text-sm"
                 disabled={busy}
                 onClick={() =>
                   void run(

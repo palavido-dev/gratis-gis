@@ -416,18 +416,26 @@ export default async function FieldRuntimePage(props: Props) {
     .filter((b): b is CustomBasemap => b !== null);
 
   return (
-    <FieldRuntime
-      dataCollectionId={dcItem.id}
-      title={dcItem.title}
-      mapData={mapData}
-      mapId={mapItem.id}
-      mapTitle={mapItem.title}
-      basemaps={basemaps}
-      editableLayers={editableLayers}
-      pickLists={pickLists}
-      boundForms={boundForms}
-      currentUserId={me.id}
-    />
+    <>
+      {/* Tells the service worker this copy was rendered for a
+          signed-in user, so an anonymous read-only render (public
+          deployment, expired session) does not replace it as the
+          offline page. Lockstep with FIELD_SIGNED_IN_MARKER in
+          public/sw.js. */}
+      {me.id ? <meta name="gg-field-signed-in" content="1" /> : null}
+      <FieldRuntime
+        dataCollectionId={dcItem.id}
+        title={dcItem.title}
+        mapData={mapData}
+        mapId={mapItem.id}
+        mapTitle={mapItem.title}
+        basemaps={basemaps}
+        editableLayers={editableLayers}
+        pickLists={pickLists}
+        boundForms={boundForms}
+        currentUserId={me.id}
+      />
+    </>
   );
 }
 

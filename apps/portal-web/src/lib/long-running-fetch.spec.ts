@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fetchFailureReason, longRunningFetch } from './long-running-fetch';
+import { fetchFailureReason, isLongRunningPath, longRunningFetch } from './long-running-fetch';
 
 /**
  * A real HTTP server, not a mock: #573 was a version mismatch between
@@ -109,5 +109,14 @@ describe('fetchFailureReason', () => {
       (e: unknown) => e,
     );
     expect(fetchFailureReason(err)).toMatch(/^fetch failed: ECONNREFUSED/);
+  });
+});
+
+describe('isLongRunningPath', () => {
+  it('covers backup create and restore, and nothing else under admin/backup', () => {
+    expect(isLongRunningPath('admin/backup/runs')).toBe(true);
+    expect(isLongRunningPath('admin/backup/runs/abc/restore')).toBe(true);
+    expect(isLongRunningPath('admin/backup/runs/abc')).toBe(false);
+    expect(isLongRunningPath('admin/backup/config')).toBe(false);
   });
 });
