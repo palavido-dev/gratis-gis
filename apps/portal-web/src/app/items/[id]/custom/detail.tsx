@@ -4,6 +4,15 @@
 import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useT } from '@/lib/i18n/locale-context';
 import {
+  containerFlowsInRow,
+  findWidgetWithParent,
+  insertionIndex,
+  isFlowContainer,
+  moveWidgetInTree,
+  pastDragThreshold,
+  removeWidgetDeep,
+} from '@/lib/custom-app-tree';
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -2007,8 +2016,6 @@ interface ActiveGesture {
   widgetHeight: number;
 }
 
-const DRAG_THRESHOLD_PX = 4;
-
 function Canvas({
   widgets,
   selectedId,
@@ -2223,7 +2230,7 @@ function Canvas({
     let targetLayout: CustomLayout | null = null;
     if (host) {
       const targetEl = canvasRef.current?.querySelector(
-        `[data-widget-id="${host.id}"]`,
+        `[data-widget-id="${CSS.escape(host.id)}"]`,
       ) as HTMLElement | null;
       if (targetEl) {
         const tr = targetEl.getBoundingClientRect();
@@ -2268,7 +2275,7 @@ function Canvas({
       // rely on currentTarget (which may be a resize-handle button
       // for resize gestures).
       const widgetEl = canvasRef.current?.querySelector(
-        `[data-widget-id="${widget.id}"], [data-child-id="${widget.id}"]`,
+        `[data-widget-id="${CSS.escape(widget.id)}"], [data-child-id="${CSS.escape(widget.id)}"]`,
       ) as HTMLElement | null;
       const rect = widgetEl?.getBoundingClientRect();
       const grabOffsetX = rect ? e.clientX - rect.left : 0;
@@ -2324,11 +2331,14 @@ function Canvas({
     }
     /**
      * Compute the insertion index inside a container based on the
-     * cursor position vs. existing children's bounding rects.  For
-     * a row-layout container, slot picked by cursor X; for column-
-     * layout, by cursor Y.  Children that match `excludeId` (the
-     * widget currently being dragged) are skipped so a reorder
-     * doesn't count its own slot.
+     * cursor position vs. existing children's bounding rects.  The
+     * axis comes from the container's config (dock, overlay and menu
+     * containers always stack vertically): measuring the children's
+     * spread picked the wrong axis whenever there was only one
+     * sibling.  Only direct children count, not the children of a
+     * nested container.  The dragged widget is skipped, so the result
+     * is an index into the list with that widget taken out, which is
+     * what moveWidgetInTree expects.
      */
     function indexInContainer(
       containerId: string,
@@ -2336,41 +2346,31 @@ function Canvas({
       excludeId: string,
     ): number {
       const containerEl = canvasRef.current?.querySelector(
-        `[data-widget-id="${containerId}"]`,
+        `[data-widget-id="${CSS.escape(containerId)}"]`,
       ) as HTMLElement | null;
       if (!containerEl) return 0;
       const children = Array.from(
         containerEl.querySelectorAll('[data-child-id]'),
       ) as HTMLElement[];
       const relevant = children.filter(
-        (c) => c.getAttribute('data-child-id') !== excludeId,
+        (c) =>
+          c.getAttribute('data-child-id') !== excludeId &&
+          c.parentElement?.closest('[data-widget-id]') === containerEl,
       );
       if (relevant.length === 0) return 0;
-      // Detect layout direction by the children's center spread:
-      // wider horizontal range than vertical → row, else column.
+      const parentCfg = findWidgetWithParent(widgets, containerId)?.widget.config;
+      const isRow =
+        parentCfg?.kind === 'container' ? containerFlowsInRow(parentCfg) : false;
       const rects = relevant.map((c) => c.getBoundingClientRect());
-      const xs = rects.map((r) => r.left + r.width / 2);
-      const ys = rects.map((r) => r.top + r.height / 2);
-      const xSpread = Math.max(...xs) - Math.min(...xs);
-      const ySpread = Math.max(...ys) - Math.min(...ys);
-      const isRow = xSpread >= ySpread;
-      const cursor = isRow ? e.clientX : e.clientY;
-      const centers = isRow ? xs : ys;
-      // Insertion index: first center > cursor; else after last.
-      for (let i = 0; i < centers.length; i++) {
-        if (cursor < centers[i]!) return i;
-      }
-      return relevant.length;
+      const centers = rects.map((r) =>
+        isRow ? r.left + r.width / 2 : r.top + r.height / 2,
+      );
+      return insertionIndex(centers, isRow ? e.clientX : e.clientY);
     }
     function onMove(e: MouseEvent) {
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
-      if (
-        Math.abs(dx) < DRAG_THRESHOLD_PX &&
-        Math.abs(dy) < DRAG_THRESHOLD_PX
-      ) {
-        return;
-      }
+      if (!pastDragThreshold(dx, dy)) return;
       // #96: track hovered container for drop-target highlight on
       // every move kind.  The mouseup handler reads the cursor's
       // final position; this just keeps the visual indicator in
@@ -2404,17 +2404,13 @@ function Canvas({
           const parent = findWidgetWithParent(widgets, g.srcParentId);
           const parentCfg = parent?.widget.config;
           const isFlowParent =
-            parentCfg?.kind === 'container' &&
-            (parentCfg.position === undefined ||
-              parentCfg.position === 'inline' ||
-              parentCfg.position === 'sticky-top' ||
-              parentCfg.position === 'sticky-bottom');
+            parentCfg?.kind === 'container' && isFlowContainer(parentCfg);
           if (!isFlowParent) return;
           // Compute the cursor's position WITHIN the parent
           // container's rect and map it to a col / row in the
           // 1..192 space the renderer uses.
           const parentEl = canvasRef.current?.querySelector(
-            `[data-widget-id="${g.srcParentId}"]`,
+            `[data-widget-id="${CSS.escape(g.srcParentId)}"]`,
           ) as HTMLElement | null;
           if (!parentEl) return;
           const prect = parentEl.getBoundingClientRect();
@@ -2509,7 +2505,13 @@ function Canvas({
       // gesture crossed a parent boundary (reparent), reordered
       // within the same container, or was a pure top-level grid
       // move (already applied live by onMove).
-      if (g.kind === 'move') {
+      //
+      // A release within the drag threshold is a click: it only
+      // selects.  Without this check a plain click on a dock child
+      // ran a reorder (and could reparent a nested child) and marked
+      // the app as changed.
+      const dragged = pastDragThreshold(e.clientX - g.startX, e.clientY - g.startY);
+      if (g.kind === 'move' && dragged) {
         const { col, row } = cursorToGrid(e);
         // #98: same DOM hit-test as the dragover handler so the
         // mouseup decision matches the live drop-target highlight.
@@ -2567,11 +2569,23 @@ function Canvas({
               : indexInContainer(targetParentId, e, g.widgetId);
           let pageLayout: CustomLayout | null = null;
           if (targetParentId === null) {
+            // Children inside a container carry placeholder 1x1 spans
+            // (containers ignore spans).  Taking those onto the page
+            // grid made a 6 px speck, so fall back to the kind's
+            // default size.
+            const moving = findWidgetWithParent(widgets, g.widgetId)?.widget;
+            const placeholder =
+              g.startLayout.colSpan <= 1 && g.startLayout.rowSpan <= 1;
+            const spans =
+              placeholder && moving
+                ? defaultLayoutForKind(moving.kind)
+                : g.startLayout;
+            const colSpan = Math.min(spans.colSpan, GRID_COLS - clampCol(col) + 1);
             pageLayout = {
               col: clampCol(col),
               row: Math.max(1, row),
-              colSpan: g.startLayout.colSpan,
-              rowSpan: g.startLayout.rowSpan,
+              colSpan,
+              rowSpan: spans.rowSpan,
             };
           } else {
             // #99: compute the destination col/row from the cursor
@@ -2579,7 +2593,7 @@ function Canvas({
             // child will render at that spot in the free-position
             // FlowContainer.
             const targetEl = canvasRef.current?.querySelector(
-              `[data-widget-id="${targetParentId}"]`,
+              `[data-widget-id="${CSS.escape(targetParentId)}"]`,
             ) as HTMLElement | null;
             if (targetEl) {
               const tr = targetEl.getBoundingClientRect();
@@ -2594,11 +2608,14 @@ function Canvas({
               const yRatio = (e.clientY - tr.top - g.grabOffsetY) / travelY;
               const xClamp = Math.max(0, Math.min(1, xRatio));
               const yClamp = Math.max(0, Math.min(1, yRatio));
+              // Keep the widget's own spans: the container ignores
+              // them, and keeping them means the widget gets its size
+              // back if it is dragged out onto the page again.
               pageLayout = {
                 col: Math.max(1, Math.min(192, Math.round(xClamp * 191) + 1)),
                 row: Math.max(1, Math.min(192, Math.round(yClamp * 191) + 1)),
-                colSpan: 1,
-                rowSpan: 1,
+                colSpan: g.startLayout.colSpan,
+                rowSpan: g.startLayout.rowSpan,
               };
             }
           }
@@ -2614,11 +2631,7 @@ function Canvas({
           const parent = findWidgetWithParent(widgets, targetParentId);
           const parentCfg = parent?.widget.config;
           const isFlowParent =
-            parentCfg?.kind === 'container' &&
-            (parentCfg.position === undefined ||
-              parentCfg.position === 'inline' ||
-              parentCfg.position === 'sticky-top' ||
-              parentCfg.position === 'sticky-bottom');
+            parentCfg?.kind === 'container' && isFlowContainer(parentCfg);
           if (!isFlowParent) {
             const targetIndex = indexInContainer(
               targetParentId,
@@ -4423,18 +4436,15 @@ function WidgetConfigForm({
             }
           >
             <select
-              value={(() => {
-                if (atCfg.sourceId !== undefined) {
-                  const i = appTargets.findIndex(
-                    (s) => s.id === atCfg.sourceId,
-                  );
-                  if (i >= 0) return i;
-                }
-                return atCfg.targetIndex;
-              })()}
+              value={targetSelectIndex(
+                atCfg.targetIndex,
+                atCfg.sourceId,
+                appTargets,
+              )}
               disabled={!canEdit || appTargets.length === 0}
               onChange={(e) => {
                 const i = Number(e.target.value);
+                if (i < 0) return;
                 const id = appTargets[i]?.id;
                 onChangeConfig({
                   targetIndex: i,
@@ -4446,11 +4456,21 @@ function WidgetConfigForm({
               {appTargets.length === 0 ? (
                 <option value={0}>(no targets)</option>
               ) : (
-                appTargets.map((src, i) => (
-                  <option key={src.id} value={i}>
-                    {src.label?.trim() || src.layer.layerKey}
-                  </option>
-                ))
+                <>
+                  {/* The widget names a removed layer: say so rather
+                      than showing a layer it does not read. */}
+                  {targetSelectIndex(atCfg.targetIndex, atCfg.sourceId, appTargets) ===
+                  -1 ? (
+                    <option value={-1} disabled>
+                      (layer removed, pick one)
+                    </option>
+                  ) : null}
+                  {appTargets.map((src, i) => (
+                    <option key={src.id} value={i}>
+                      {src.label?.trim() || src.layer.layerKey}
+                    </option>
+                  ))}
+                </>
               )}
             </select>
           </Field>
@@ -5863,6 +5883,7 @@ function FeatureMutationWidgetConfigEditor({
   config: {
     kind: 'create-feature' | 'edit-feature' | 'delete-feature';
     mapWidgetId: string;
+    sourceId?: string;
     targetIndex?: number;
     label?: string;
   };
@@ -5876,9 +5897,18 @@ function FeatureMutationWidgetConfigEditor({
   // target in the bound map -- it builds a templates palette /
   // listens for clicks across all of them.  When set, the legacy
   // single-target behavior kicks in.
+  //
+  // The pin is written as `sourceId` too, and read by id first, the
+  // same as every other widget: the runtime resolves it by id, so a
+  // removed or reordered source cannot move the pin to another layer.
   const sentinel = -1;
-  const currentValue =
-    typeof config.targetIndex === 'number' ? config.targetIndex : sentinel;
+  const removed = -2;
+  const pinned =
+    config.sourceId !== undefined || typeof config.targetIndex === 'number';
+  const pinnedIndex = pinned
+    ? targetSelectIndex(config.targetIndex, config.sourceId, appTargets)
+    : sentinel;
+  const currentValue = pinned && pinnedIndex < 0 ? removed : pinnedIndex;
   return (
     <div className="space-y-3">
       <MapBindingPicker
@@ -5902,13 +5932,23 @@ function FeatureMutationWidgetConfigEditor({
             // delete here: the WidgetConfigForm wrapper does
             // `{...current, ...patch}` and undefined overwrites the
             // stored value.
-            onChangeConfig({ targetIndex: n === sentinel ? undefined : n });
+            if (n === removed) return;
+            onChangeConfig(
+              n === sentinel
+                ? { targetIndex: undefined, sourceId: undefined }
+                : { targetIndex: n, sourceId: appTargets[n]?.id },
+            );
           }}
           className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value={sentinel}>
             All editable targets (recommended)
           </option>
+          {currentValue === removed ? (
+            <option value={removed} disabled>
+              (pinned layer removed, pick one)
+            </option>
+          ) : null}
           {appTargets.map((src, i) => (
             <option key={src.id} value={i}>
               {`Only ${src.label?.trim() || src.layer.layerKey}`}
@@ -6178,6 +6218,10 @@ function DesignerChild({
         }}
         onMouseDown={(e) => onChildMoveStart(child, parentId, e)}
         data-child-id={child.id}
+        // Also a container host: the drop and move hit test only
+        // looks at data-widget-id, so without it a nested container
+        // was invisible and drops went to the outer container.
+        data-widget-id={child.id}
         className={`relative cursor-pointer ${
           isSelected ? 'outline-solid outline-2 outline-accent' : ''
         }`}
@@ -8065,13 +8109,12 @@ function TargetSelect({
   // is the kind of database detail the UI is supposed to keep to
   // itself.
   const resolved = useResolvedTargets(appTargets);
-  const effectiveIndex = (() => {
-    if (sourceId !== undefined) {
-      const i = appTargets.findIndex((s) => s.id === sourceId);
-      if (i >= 0) return i;
-    }
-    return value;
-  })();
+  // Same precedence as useWidgetSource: an id that no longer exists
+  // (its layer was removed) binds to nothing at runtime, so it must
+  // not fall back to the legacy index here either.  Show an explicit
+  // placeholder instead; that also leaves every real layer pickable,
+  // so a change event can rebind the widget even with one layer left.
+  const effectiveIndex = targetSelectIndex(value, sourceId, appTargets);
   return (
     <Field
       label="Layer"
@@ -8086,6 +8129,7 @@ function TargetSelect({
         disabled={!canEdit || appTargets.length === 0}
         onChange={(e) => {
           const i = Number(e.target.value);
+          if (i < 0) return;
           onChange(i, appTargets[i]?.id);
         }}
         className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
@@ -8093,17 +8137,44 @@ function TargetSelect({
         {appTargets.length === 0 ? (
           <option value={0}>(no layers)</option>
         ) : (
-          appTargets.map((src, i) => (
-            <option key={src.id} value={i}>
-              {src.label?.trim() ||
-                resolved.find((r) => r.sourceId === src.id)?.title ||
-                src.layer.layerKey}
-            </option>
-          ))
+          <>
+            {effectiveIndex === -1 ? (
+              <option value={-1} disabled>
+                (layer removed, pick one)
+              </option>
+            ) : null}
+            {appTargets.map((src, i) => (
+              <option key={src.id} value={i}>
+                {src.label?.trim() ||
+                  resolved.find((r) => r.sourceId === src.id)?.title ||
+                  src.layer.layerKey}
+              </option>
+            ))}
+          </>
         )}
       </select>
     </Field>
   );
+}
+
+/**
+ * Position of a widget's layer in the app's source list for a layer
+ * picker, or -1 when the widget names a source that is gone (or an
+ * index past the end).  Mirrors useWidgetSource in the runtime: the
+ * id wins, and the legacy index is only read when there is no id.
+ */
+function targetSelectIndex(
+  value: number | undefined,
+  sourceId: string | undefined,
+  appTargets: AppDataSource[],
+): number {
+  if (sourceId !== undefined) {
+    return appTargets.findIndex((s) => s.id === sourceId);
+  }
+  if (typeof value === 'number' && value >= 0 && value < appTargets.length) {
+    return value;
+  }
+  return appTargets.length === 0 ? 0 : -1;
 }
 
 /**
@@ -9397,45 +9468,6 @@ function updateWidgetDeep(
 }
 
 /**
- * #22 WYSIWYG: remove a widget by id anywhere in the tree.
- * Mirrors updateWidgetDeep's walking behaviour.
- */
-function removeWidgetDeep(
-  widgets: CustomWidget[],
-  targetId: string,
-): CustomWidget[] {
-  const filtered = widgets.filter((w) => w.id !== targetId);
-  if (filtered.length !== widgets.length) return filtered;
-  return widgets.map((w) => {
-    const cfg = w.config;
-    if ('widgets' in cfg && Array.isArray(cfg.widgets)) {
-      const nextChildren = removeWidgetDeep(cfg.widgets, targetId);
-      if (nextChildren !== cfg.widgets) {
-        return {
-          ...w,
-          config: { ...cfg, widgets: nextChildren },
-        } as CustomWidget;
-      }
-    }
-    if (cfg.kind === 'tabs' && Array.isArray(cfg.tabs)) {
-      let touched = false;
-      const nextTabs = cfg.tabs.map((t) => {
-        const nextTabWidgets = removeWidgetDeep(t.widgets, targetId);
-        if (nextTabWidgets !== t.widgets) {
-          touched = true;
-          return { ...t, widgets: nextTabWidgets };
-        }
-        return t;
-      });
-      if (touched) {
-        return { ...w, config: { ...cfg, tabs: nextTabs } } as CustomWidget;
-      }
-    }
-    return w;
-  });
-}
-
-/**
  * Append a child widget to a container identified by id. Returns a
  * new `widgets` array with the container updated; doesn't mutate.
  * Recurses through nested containers so dropping into a foldable-
@@ -9473,131 +9505,6 @@ function appendChildToContainer(
     }
     return w;
   });
-}
-
-/**
- * #96: locate a widget anywhere in the tree along with its parent
- * container's id (null = page-level) and its index in the parent's
- * children array.  Used by the reparent gesture so the move handler
- * can remove the widget from its source location precisely.
- *
- * Recurses through container.config.widgets[] and tabs.tabs[].widgets[].
- */
-function findWidgetWithParent(
-  widgets: CustomWidget[],
-  id: string,
-  parentId: string | null = null,
-): { widget: CustomWidget; parentId: string | null; index: number } | null {
-  for (let i = 0; i < widgets.length; i++) {
-    const w = widgets[i]!;
-    if (w.id === id) return { widget: w, parentId, index: i };
-    const cfg = w.config;
-    if ('widgets' in cfg && Array.isArray(cfg.widgets)) {
-      const inner = findWidgetWithParent(cfg.widgets, id, w.id);
-      if (inner) return inner;
-    }
-    if (cfg.kind === 'tabs' && Array.isArray(cfg.tabs)) {
-      for (const t of cfg.tabs) {
-        const inner = findWidgetWithParent(t.widgets, id, w.id);
-        if (inner) return inner;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * #96: insert a child widget at a specific index inside a container.
- * `containerId === null` inserts at the page level.  index clamped
- * to [0, parent.length].  Returns a fresh widgets array.
- */
-function insertWidgetAt(
-  widgets: CustomWidget[],
-  containerId: string | null,
-  index: number,
-  child: CustomWidget,
-): CustomWidget[] {
-  if (containerId === null) {
-    const i = Math.max(0, Math.min(index, widgets.length));
-    return [...widgets.slice(0, i), child, ...widgets.slice(i)];
-  }
-  return widgets.map((w) => {
-    if (w.id === containerId) {
-      const cfg = w.config;
-      if ('widgets' in cfg && Array.isArray(cfg.widgets)) {
-        const i = Math.max(0, Math.min(index, cfg.widgets.length));
-        const nextChildren = [
-          ...cfg.widgets.slice(0, i),
-          child,
-          ...cfg.widgets.slice(i),
-        ];
-        return { ...w, config: { ...cfg, widgets: nextChildren } } as CustomWidget;
-      }
-      return w;
-    }
-    const cfg = w.config;
-    if ('widgets' in cfg && Array.isArray(cfg.widgets)) {
-      const nextChildren = insertWidgetAt(cfg.widgets, containerId, index, child);
-      if (nextChildren !== cfg.widgets) {
-        return { ...w, config: { ...cfg, widgets: nextChildren } } as CustomWidget;
-      }
-    }
-    return w;
-  });
-}
-
-/**
- * #96: move a widget from wherever it lives in the tree to a new
- * parent + index.  Performs the remove + insert in one pass so the
- * page-level widgets array updates atomically.  When the source
- * widget is rooted at page-level and moves into a container, its
- * grid layout coords are reset to a (1,1,1,1) placeholder because
- * children inside containers ignore grid coords.  When moving from
- * a container OUT to the page level, the caller supplies a
- * `pageLayout` overlay (the cursor's drop coords) so the widget
- * re-acquires a sensible grid position.
- */
-function moveWidgetInTree(
-  widgets: CustomWidget[],
-  sourceId: string,
-  targetParentId: string | null,
-  targetIndex: number,
-  pageLayout: CustomLayout | null,
-): CustomWidget[] {
-  const found = findWidgetWithParent(widgets, sourceId);
-  if (!found) return widgets;
-  // When the source and target parent are the same, removing first
-  // would shift the indices to the LEFT for any post-source index.
-  // Account for that here so callers can pass the "visual" index
-  // without thinking about the shift.
-  const adjustedIndex =
-    found.parentId === targetParentId && targetIndex > found.index
-      ? targetIndex - 1
-      : targetIndex;
-  const withoutSource = removeWidgetDeep(widgets, sourceId);
-  let widgetToInsert = found.widget;
-  if (pageLayout) {
-    // #99: pageLayout is the cursor-derived destination layout.
-    // When dropping at page level, it's the grid coords.  When
-    // dropping into a container (free-position FlowContainer), it's
-    // the in-container col/row in the 1..192 axis space the
-    // renderer maps to a left/top percent.  Either way we just
-    // overwrite the widget's layout with the cursor-derived one.
-    widgetToInsert = { ...widgetToInsert, layout: pageLayout };
-  } else if (targetParentId !== null && found.parentId === null) {
-    // Moving from page level into a container without a pageLayout
-    // (shouldn't happen with the current canvas, but kept as a
-    // safety net for any future call site that doesn't compute a
-    // cursor-derived destination): collapse the layout to the
-    // placeholder origin.  The container's auto-spread fallback
-    // will visually distribute the child until it gets its first
-    // explicit position write.
-    widgetToInsert = {
-      ...widgetToInsert,
-      layout: { col: 1, row: 1, colSpan: 1, rowSpan: 1 },
-    };
-  }
-  return insertWidgetAt(withoutSource, targetParentId, adjustedIndex, widgetToInsert);
 }
 
 /**
@@ -9908,7 +9815,6 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
         config: {
           kind: 'create-feature',
           mapWidgetId: '',
-          targetIndex: 0,
           label: 'Add feature',
           displayMode: 'tool',
           panelArrangement: defaultPanelArrangement('create-feature'),
@@ -9922,7 +9828,6 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
         config: {
           kind: 'edit-feature',
           mapWidgetId: '',
-          targetIndex: 0,
           label: 'Edit feature',
           displayMode: 'tool',
           panelArrangement: defaultPanelArrangement('edit-feature'),
@@ -9936,7 +9841,6 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
         config: {
           kind: 'delete-feature',
           mapWidgetId: '',
-          targetIndex: 0,
           label: 'Delete feature',
           displayMode: 'tool',
           panelArrangement: defaultPanelArrangement('delete-feature'),

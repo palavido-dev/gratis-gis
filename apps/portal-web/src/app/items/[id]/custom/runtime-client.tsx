@@ -7987,6 +7987,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   const map = ctx?.maps[cfg.mapWidgetId] ?? null;
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -8647,6 +8648,7 @@ type WriteBusyState =
  */
 interface MutationTarget {
   index: number;
+  sourceId: string;
   dataLayerId: string;
   layerKey: string;
   title: string;
@@ -8667,6 +8669,7 @@ interface MutationTarget {
  */
 function useMutationTargets(args: {
   mapWidgetId: string;
+  sourceId?: string | undefined;
   targetIndex?: number;
 }): {
   targets: MutationTarget[];
@@ -8676,49 +8679,86 @@ function useMutationTargets(args: {
   setEditClaim: CustomMapsCtx['setEditClaim'];
 } | null {
   const ctx = useContext(CustomMapsContext);
-  if (!ctx) return null;
+  const order = useContext(AppSourceOrderContext);
   const mapWidgetIdResolved = args.mapWidgetId || null;
-  const boundState = mapWidgetIdResolved
-    ? ctx.states[mapWidgetIdResolved] ?? null
-    : null;
-  const mapInstance = mapWidgetIdResolved
-    ? ctx.maps[mapWidgetIdResolved] ?? null
-    : null;
-  if (!boundState) {
+  const boundState =
+    ctx && mapWidgetIdResolved ? ctx.states[mapWidgetIdResolved] ?? null : null;
+  const mapInstance =
+    ctx && mapWidgetIdResolved ? ctx.maps[mapWidgetIdResolved] ?? null : null;
+  const boundLayers = boundState?.mapData.layers;
+  const selection = boundState?.selection;
+  const resolvedTargets = ctx?.resolvedTargets;
+  // The "Only <layer>" pin, as a source id.  Same precedence as
+  // useWidgetSource: the id wins, the legacy index is read through
+  // the author's source order.  It used to be compared with the
+  // position in resolvedTargets, which drops sources the viewer
+  // cannot read and table-only sublayers, so the pin could land on a
+  // different layer.  undefined = no pin (every editable target);
+  // null = pinned to a source that is gone (nothing is editable).
+  const pinnedId: string | null | undefined =
+    args.sourceId !== undefined
+      ? args.sourceId
+      : typeof args.targetIndex === 'number'
+        ? order[args.targetIndex] ?? null
+        : undefined;
+  // Memoized so callers get the same array (and the same result
+  // object) between renders.  The Edit widget's claim effect depends
+  // on these; a fresh object every render re-ran that effect, which
+  // updated root state, which rendered again, forever.
+  const targets = useMemo<MutationTarget[]>(() => {
+    if (!resolvedTargets || !boundLayers) return [];
+    // Build the list of targets from resolvedTargets, filtering to
+    // those whose MapLayer.id exists on the bound map (an author can
+    // hide a target from a Map widget; hidden targets are not
+    // editable here).
+    const layerIds = new Set(boundLayers.map((l) => l.id));
+    let pool: MutationTarget[] = resolvedTargets
+      .map((t, index) => ({
+        index,
+        sourceId: t.sourceId,
+        dataLayerId: t.dataLayerId,
+        layerKey: t.layerKey,
+        title: t.title,
+        mapLayer: t.mapLayer,
+      }))
+      .filter((t) => layerIds.has(t.mapLayer.id));
+    if (pinnedId !== undefined) {
+      pool = pool.filter((t) => t.sourceId === pinnedId);
+    }
+    return pool;
+  }, [resolvedTargets, boundLayers, pinnedId]);
+  const ctxFlyTo = ctx?.flyTo;
+  const setEditClaim = ctx?.setEditClaim;
+  const hasState = boundState !== null;
+  return useMemo(() => {
+    if (!setEditClaim || !ctxFlyTo) return null;
+    if (!hasState) {
+      return {
+        targets: [],
+        mapInstance,
+        selectionByLayerId: {},
+        flyTo: () => {},
+        setEditClaim,
+      };
+    }
     return {
-      targets: [],
+      targets,
       mapInstance,
-      selectionByLayerId: {},
-      flyTo: () => {},
-      setEditClaim: ctx.setEditClaim,
+      selectionByLayerId: selection ?? {},
+      flyTo: (bbox: [number, number, number, number]) => {
+        if (mapWidgetIdResolved) ctxFlyTo(mapWidgetIdResolved, bbox);
+      },
+      setEditClaim,
     };
-  }
-  // Build the list of targets from resolvedTargets, filtering to
-  // those whose MapLayer.id exists on the bound map (an author can
-  // hide a target from a Map widget; hidden targets are not
-  // editable here).
-  const layerIds = new Set(boundState.mapData.layers.map((l) => l.id));
-  let pool: MutationTarget[] = ctx.resolvedTargets
-    .map((t, index) => ({
-      index,
-      dataLayerId: t.dataLayerId,
-      layerKey: t.layerKey,
-      title: t.title,
-      mapLayer: t.mapLayer,
-    }))
-    .filter((t) => layerIds.has(t.mapLayer.id));
-  if (typeof args.targetIndex === 'number') {
-    pool = pool.filter((t) => t.index === args.targetIndex);
-  }
-  return {
-    targets: pool,
+  }, [
+    setEditClaim,
+    ctxFlyTo,
+    hasState,
+    targets,
     mapInstance,
-    selectionByLayerId: boundState.selection,
-    flyTo: (bbox) => {
-      if (mapWidgetIdResolved) ctx.flyTo(mapWidgetIdResolved, bbox);
-    },
-    setEditClaim: ctx.setEditClaim,
-  };
+    selection,
+    mapWidgetIdResolved,
+  ]);
 }
 
 /**
@@ -8858,6 +8898,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const appAt = useAppTime();
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -9124,6 +9165,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const container = ctx?.maps[cfg.mapWidgetId]?.getContainer() ?? null;
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -9163,9 +9205,9 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   // toggle flips.  The click callback opens the editing dialog
   // pre-filled with a feature lookup (in case the tile-side props
   // are partial -- MVT tiles strip non-trivial properties for size).
+  const setEditClaim = mut?.setEditClaim;
   useEffect(() => {
-    if (!mut || !active) return;
-    const setEditClaim = mut.setEditClaim;
+    if (!setEditClaim || !active) return;
     setEditClaim(cfg.mapWidgetId, {
       layerIds: editableLayerIds,
       onClick: (info) => {
@@ -9209,7 +9251,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       setEditClaim(cfg.mapWidgetId, null);
     };
   }, [
-    mut,
+    setEditClaim,
     active,
     cfg.mapWidgetId,
     editableLayerIds,
@@ -9396,6 +9438,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const appAt = useAppTime();
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
