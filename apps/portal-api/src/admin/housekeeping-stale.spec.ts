@@ -69,12 +69,12 @@ function matches(r: Row, where: Record<string, unknown>): boolean {
       if (r.shares !== 0) return false;
     } else if (v === null) {
       if ((r as Record<string, unknown>)[k] !== null) return false;
-    } else if (typeof v === 'object' && v !== null && 'lt' in v) {
+    } else if (typeof v === 'object' && 'lt' in v) {
       const val = (r as Record<string, unknown>)[k] as Date | null;
       if (!val || !(val < (v as { lt: Date }).lt)) return false;
-    } else if (typeof v === 'object' && v !== null && 'not' in v) {
+    } else if (typeof v === 'object' && 'not' in v) {
       if ((r as Record<string, unknown>)[k] === (v as { not: unknown }).not) return false;
-    } else if (typeof v === 'object' && v !== null && 'in' in v) {
+    } else if (typeof v === 'object' && 'in' in v) {
       if (!(v as { in: unknown[] }).in.includes((r as Record<string, unknown>)[k])) return false;
     } else if ((r as Record<string, unknown>)[k] !== v) {
       return false;
