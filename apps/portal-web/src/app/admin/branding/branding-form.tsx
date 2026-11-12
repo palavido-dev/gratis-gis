@@ -121,6 +121,15 @@ export function BrandingForm({ initial }: Props) {
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       startTransition(() => router.refresh());
+    } catch (e) {
+      // A dropped connection rejects fetch; without this the spinner
+      // stopped and nothing said the save had not happened.
+      setError(
+        t('adminBranding.errSaveFailed', {
+          status: '',
+          detail: e instanceof Error ? e.message : String(e),
+        }),
+      );
     } finally {
       setSaving(false);
     }

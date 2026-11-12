@@ -32,7 +32,10 @@ export default async function AdminFeedbackPage() {
   let first: FeedbackPage | null = null;
   let error: string | null = null;
   try {
-    first = await apiFetch<FeedbackPage>('/api/admin/feedback?limit=25');
+    // status=new to match the tab the view opens on. With no status
+    // the API returns every status, so handled and spam rows showed
+    // under "New" until the first action reloaded the list.
+    first = await apiFetch<FeedbackPage>('/api/admin/feedback?status=new&limit=25');
   } catch (err) {
     error =
       err instanceof Error

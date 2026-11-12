@@ -30,7 +30,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * - landingHeroImageUrl: optional hero band image; empty falls back to a
  *                         muted fill
  * - landingShowPublicItems: toggle the content grid
- * - landingFeaturedItemIds: ordered ids to feature ahead of the rest
+ * - landingFeaturedItemIds: ordered ids; when non-empty the landing
+ *                          page shows only these
  *
  * GET returns the current config so the editor can prefill. PATCH
  * accepts any subset of the fields; omitted keys are left untouched,

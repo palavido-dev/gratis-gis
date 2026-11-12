@@ -146,11 +146,14 @@ RUN mkdir -p apps/portal-web/public/models \
 # onnxruntime-web executes the decoder; its wasm binaries must be
 # self-hosted (prod never reaches a CDN). ort resolves them from
 # env.wasm.wasmPaths = '/models/ort/' (set in lib/sam-outline.ts).
+# The wasm copy must fail the build if the files moved; only the
+# optional .mjs copy is allowed to find nothing. (A bare `|| true` at
+# the end of the chain also swallowed a failed wasm copy.)
 RUN mkdir -p apps/portal-web/public/models/ort \
     && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.wasm \
       apps/portal-web/public/models/ort/ \
-    && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.mjs \
-      apps/portal-web/public/models/ort/ 2>/dev/null || true
+    && { cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.mjs \
+      apps/portal-web/public/models/ort/ 2>/dev/null || true; }
 
 # GG_DEPLOYMENT_ID feeds next.config's `deploymentId`, which appends
 # a per-deploy query param to every /_next asset URL. Required
@@ -221,7 +224,7 @@ ENV GG_VERSION=$GG_VERSION \
     REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -fsS http://localhost:3000/ || exit 1
+  CMD curl -fsS http://localhost:3000/api/healthz || exit 1
 
 # The standalone server lives at <package>/server.js relative to the
 # tracing root. Our root is the repo, so the server lands at
