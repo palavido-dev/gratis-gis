@@ -90,6 +90,19 @@ d('job queue metrics against the real schema', () => {
     await prisma.analysisJob.create({
       data: { orgId: ORG, userId: USER, kind: 'contours', sourceItemId: ITEM, state: 'importing' },
     });
+    // script_run references its script item (02-3), so the script
+    // has to exist. The other job tables carry no foreign keys.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organization (id, slug, name) VALUES ('${ORG}', 'metrics-org', 'Metrics') ON CONFLICT DO NOTHING`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "user" (id, org_id, username, email, full_name, org_role)
+       VALUES ('${USER}', '${ORG}', 'metrics-user', 'm@example.test', 'M', 'admin') ON CONFLICT DO NOTHING`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO item (id, org_id, owner_id, type, title, data_json, updated_at)
+       VALUES ('${ITEM}', '${ORG}', '${USER}', 'script', 'Script', '{}'::jsonb, now())`,
+    );
     await prisma.scriptRun.create({
       data: { scriptId: ITEM, orgId: ORG, userId: USER, state: 'failed', finishedAt: new Date() },
     });
