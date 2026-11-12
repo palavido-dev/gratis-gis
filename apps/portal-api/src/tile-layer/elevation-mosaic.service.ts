@@ -152,7 +152,7 @@ export class ElevationMosaicService {
       let src: import('gdal-async').Dataset | null = null;
       let warped: import('gdal-async').Dataset | null = null;
       try {
-        src = await gdal.openAsync(`/vsis3/${bucket}/${entry.storageKey}`);
+        src = await gdal.openAsync(`/vsis3/${bucket}/${entry.storageKey}`, 'r', ['GTiff']);
         warped = await gdal.drivers
           .get('MEM')
           .createAsync('', size, size, 1, 'Float32');

@@ -56,6 +56,7 @@ import {
   assertAllowedGdalDriver,
   assertSafeGdalOpenPath,
 } from './gdal-open-guard.js';
+import { loadGdalHardened } from '../common/gdal-load.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -1502,10 +1503,7 @@ export class IngestService {
    */
   private async loadGdal(): Promise<typeof import('gdal-async')> {
     try {
-      const mod = await import('gdal-async');
-      const gdal =
-        (mod as unknown as { default?: typeof import('gdal-async') }).default ??
-        mod;
+      const gdal = await loadGdalHardened();
       // #234: harden outbound HTTP before any user file is opened.
       applyGdalNetworkHardening(gdal);
       return gdal;
