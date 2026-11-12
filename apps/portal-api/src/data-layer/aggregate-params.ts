@@ -219,7 +219,7 @@ export function parseBin(raw: unknown): ParsedBin | undefined {
     return { field, mode: 'count', count: n };
   }
   if (mode === 'width') {
-    const w = Number(o.width);
+    const w = strictNumber(o.width);
     if (!Number.isFinite(w) || w <= 0) {
       throw new BadRequestException('bin.width must be a positive number.');
     }
@@ -235,7 +235,7 @@ export function parseBin(raw: unknown): ParsedBin | undefined {
       );
     }
     const edges = o.edges.map((e, i) => {
-      const n = Number(e);
+      const n = strictNumber(e);
       if (!Number.isFinite(n)) {
         throw new BadRequestException(
           `bin.edges[${i}] must be a finite number.`,
@@ -382,7 +382,7 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
     // nothing while "< abc" matched the entire layer. Refuse instead.
     if (
       (op === '>' || op === '>=' || op === '<' || op === '<=') &&
-      !Number.isFinite(Number(value))
+      !Number.isFinite(strictNumber(value))
     ) {
       throw new BadRequestException(
         `where.clauses[${i}].value must be a number for "${op}"; ` +
@@ -396,6 +396,16 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
     };
   });
   return { combinator, clauses };
+}
+
+/**
+ * A finite number, refusing what `Number()` quietly turns into 0:
+ * the empty or blank string, null, false and [].
+ */
+function strictNumber(v: unknown): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v);
+  return NaN;
 }
 
 /** Accept both `?agg=a&agg=b` (array) and `?agg=a,b` (comma). */
@@ -455,7 +465,7 @@ export function parseAggregateQuery(query: {
   const out: ParsedAggregateQuery = { groupBy, aggs };
 
   if (query.bbox !== undefined) {
-    const parts = String(query.bbox).split(',').map(Number);
+    const parts = String(query.bbox).split(',').map(strictNumber);
     if (parts.length !== 4 || !parts.every((n) => Number.isFinite(n))) {
       throw new BadRequestException(
         'bbox must be four comma-separated numbers: west,south,east,north.',

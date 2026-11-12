@@ -181,7 +181,8 @@ export class BackupController {
   @Post('runs')
   async runNow(@CurrentUser() user: AuthUser) {
     const run = await this.backup.runBackup('manual', user.id);
-    this.note(user, 'backup.run', run.id, 'succeeded');
+    // runBackup returns a failed or cancelled run instead of throwing.
+    this.note(user, 'backup.run', run.id, run.status === 'succeeded' ? 'succeeded' : 'failed');
     return {
       ...run,
       sizeBytes:

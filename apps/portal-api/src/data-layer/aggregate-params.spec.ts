@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import {
   parseAggregateQuery,
+  parseBin,
   parseVia,
   parseWhere,
   rejectUnknownAggregateParams,
@@ -329,5 +330,17 @@ describe('rejectUnknownAggregateParams', () => {
     expect(() =>
       rejectUnknownAggregateParams(['agg', 'having', 'orderBy']),
     ).toThrow(/having, orderBy/);
+  });
+});
+
+describe('numeric checks refuse blank values', () => {
+  it('refuses an empty comparison value, a null bin edge and an empty bbox', () => {
+    expect(() =>
+      parseWhere(JSON.stringify({ combinator: 'and', clauses: [{ field: 'ph', op: '<', value: '' }] })),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseBin(JSON.stringify({ field: 'ph', mode: 'edges', edges: [null] })),
+    ).toThrow(BadRequestException);
+    expect(() => parseAggregateQuery({ agg: 'count', bbox: ',,,' })).toThrow(BadRequestException);
   });
 });

@@ -2,12 +2,11 @@
 /**
  * System tar wrapper (#47).
  *
- * Replaces the npm `tar` package for the three operations the
- * backup / restore services need:
+ * Replaces the npm `tar` package for the two operations the
+ * restore side needs (backups are packed by tar-pack.ts):
  *
- *   1. Create a gzipped archive from a staging directory.
- *   2. Extract a gzipped archive into a directory.
- *   3. Pull a single entry's bytes out of an archive (used to peek
+ *   1. Extract a gzipped archive into a directory.
+ *   2. Pull a single entry's bytes out of an archive (used to peek
  *      at manifest.json without extracting everything).
  *
  * Why shell out: every supported deployment target ships a `tar`
@@ -95,27 +94,6 @@ function runTar(
   });
 }
 
-/**
- * Create a gzipped tar archive. Entries are written relative to
- * `cwd`, so the archive's internal paths match what was at the
- * project root in the staging dir (`postgres/...`, `minio/...`,
- * `manifest.json`).
- *
- *   tar -czf <file> -C <cwd> <entry1> <entry2> ...
- *
- * `--no-acls --no-xattrs` keep the archive portable: macOS-side
- * bsdtar otherwise tucks resource forks into extended attributes
- * that GNU tar on the restore side spends time complaining about.
- * Backups don't need those attributes.
- */
-export async function createTarGz(
-  file: string,
-  cwd: string,
-  entries: readonly string[],
-): Promise<void> {
-  const args = ['-czf', file, '-C', cwd, ...entries];
-  await runTar(args);
-}
 
 /**
  * Extract a gzipped tar archive into `cwd`.
@@ -127,6 +105,26 @@ export async function extractTarGz(
   cwd: string,
 ): Promise<void> {
   await runTar(['-xzf', file, '-C', cwd]);
+}
+
+let firstMatchFlags: Promise<string[]> | null = null;
+
+/**
+ * Flags that make tar stop once it has printed the entry. Without
+ * them tar decompresses the whole archive after the manifest (which
+ * is written first), and a restore peeks three times. GNU tar (the
+ * image) takes --occurrence=1, bsdtar (macOS dev) takes -q.
+ */
+function stopAfterFirstMatch(): Promise<string[]> {
+  firstMatchFlags ??= new Promise((resolve) => {
+    let out = '';
+    runTar(['--version'], { onStdout: (c) => (out += c.toString()) })
+      .then(() =>
+        resolve(/GNU tar/.test(out) ? ['--occurrence=1'] : /bsdtar/.test(out) ? ['-q'] : []),
+      )
+      .catch(() => resolve([]));
+  });
+  return firstMatchFlags;
 }
 
 /**
@@ -147,7 +145,7 @@ export async function readTarEntry(
 ): Promise<Buffer | null> {
   const chunks: Buffer[] = [];
   try {
-    await runTar(['-xzOf', file, entry], {
+    await runTar([...(await stopAfterFirstMatch()), '-xzOf', file, entry], {
       onStdout: (c) => {
         chunks.push(c);
       },
