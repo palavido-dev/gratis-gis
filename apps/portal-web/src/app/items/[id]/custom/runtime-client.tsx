@@ -413,6 +413,42 @@ function useWidgetSource(cfg: {
 const AppSourceOrderContext = createContext<string[]>([]);
 
 /**
+ * Map layer ids drawn from a source that RELATES to the selection's
+ * source. They cannot be narrowed by an expression over the tile, so
+ * the predicate goes onto their relate and travels with the tile
+ * request instead. See applySelectionToLayers. Shared by the map and
+ * the attribute table so both narrow the same layers.
+ *
+ * #77: a relate whose parent reads the same LAYER as the selection's
+ * source is narrowed too, matching what resolveSourceScope does for
+ * charts. The clauses are facts about the layer, not about the one
+ * source the publishing widget was bound to.
+ */
+const NO_LAYER_IDS: string[] = [];
+function relatedLayerIdsFor(
+  selection: { sourceId: string } | null | undefined,
+  resolvedTargets: ResolvedAppTarget[] | undefined,
+  sourcesById: Record<string, AppDataSource>,
+): string[] {
+  if (!selection || !resolvedTargets) return NO_LAYER_IDS;
+  const selLayer = sourcesById[selection.sourceId]?.layer;
+  return resolvedTargets
+    .filter((t) => {
+      const via = sourcesById[t.sourceId]?.via;
+      if (!via) return false;
+      if (via.sourceId === selection.sourceId) return true;
+      const parentLayer = sourcesById[via.sourceId]?.layer;
+      return (
+        selLayer !== undefined &&
+        parentLayer !== undefined &&
+        parentLayer.dataLayerId === selLayer.dataLayerId &&
+        parentLayer.layerKey === selLayer.layerKey
+      );
+    })
+    .map((t) => t.mapLayer.id);
+}
+
+/**
  * Source id for a widget config, without calling a hook.
  *
  * Same precedence as useWidgetSource: the stable id wins, the legacy
@@ -2133,29 +2169,15 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // source. They cannot be narrowed by an expression over the tile,
   // so the predicate goes onto their relate and travels with the tile
   // request instead. See applySelectionToLayers.
-  const relatedLayerIds = useMemo(() => {
-    if (!selection || !ctx) return [];
-    // #77: a relate whose parent reads the same LAYER as the
-    // selection's source is narrowed too, matching what
-    // resolveSourceScope does for charts. The clauses are facts
-    // about the layer, not about the one source the publishing
-    // widget was bound to.
-    const selLayer = sourcesById[selection.sourceId]?.layer;
-    return ctx.resolvedTargets
-      .filter((t) => {
-        const via = sourcesById[t.sourceId]?.via;
-        if (!via) return false;
-        if (via.sourceId === selection.sourceId) return true;
-        const parentLayer = sourcesById[via.sourceId]?.layer;
-        return (
-          selLayer !== undefined &&
-          parentLayer !== undefined &&
-          parentLayer.dataLayerId === selLayer.dataLayerId &&
-          parentLayer.layerKey === selLayer.layerKey
-        );
-      })
-      .map((t) => t.mapLayer.id);
-  }, [selection, ctx, sourcesById]);
+  //
+  // Keyed on resolvedTargets, not the whole context: the context
+  // changes on every pan, and a fresh array here re-ran the layer
+  // projection below and MapCanvas's overlay sync with it.
+  const resolvedTargets = ctx?.resolvedTargets;
+  const relatedLayerIds = useMemo(
+    () => relatedLayerIdsFor(selection, resolvedTargets, sourcesById),
+    [selection, resolvedTargets, sourcesById],
+  );
 
   // #77: fly to the union extent of the filtered features when a
   // selection lands. On by default, off via the widget's
@@ -2226,21 +2248,32 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // already carries every declared field, so the features are all
   // there to hide, and re-cutting tiles per selection would throw
   // away the tile cache and make a click feel slow.
-  const mapData = useMemo(() => {
-    if (!state) return null;
-    const base = state.mapData.layers ?? [];
-    const layers = applySelectionToLayers({
+  //
+  // The projection is keyed on the layer array, not the whole map
+  // state: a pan replaces the state (camera) but keeps the layers,
+  // and MapCanvas keys its overlay sync on `map.layers` identity.
+  // Keyed on the state, every pan with a selection active rebuilt
+  // the array and re-synced every overlay.
+  const baseLayers = state?.mapData.layers;
+  const targetLayerId = target?.mapLayer.id;
+  const projectedLayers = useMemo(() => {
+    const base = baseLayers ?? [];
+    return applySelectionToLayers({
       layers: base,
-      targetLayerId: target?.mapLayer.id,
+      targetLayerId,
       relatedLayerIds,
       selection,
-    });
+    }) as MapLayer[];
+  }, [baseLayers, selection, targetLayerId, relatedLayerIds]);
+  const mapData = useMemo(() => {
+    if (!state) return null;
     // Identity is the signal that nothing applied; returning the
     // original object keeps MapCanvas from remounting its sources on
     // every pan.
-    if (layers === base) return state.mapData;
-    return { ...state.mapData, layers: layers as MapLayer[] };
-  }, [state, selection, target, relatedLayerIds]);
+    if (projectedLayers === (state.mapData.layers ?? [])) return state.mapData;
+    if (projectedLayers === baseLayers) return state.mapData;
+    return { ...state.mapData, layers: projectedLayers };
+  }, [state, projectedLayers, baseLayers]);
 
   if (!ctx || !state || !mapData) return null;
 
@@ -4527,35 +4560,57 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // map: all the map's layers (the rich AttributeTable filters down
   // to queryable ones internally). Unbound: just the configured
   // target as a synthetic single-layer array.
+  //
+  // Layers related to the selection's source are narrowed through
+  // their relate, the same as on the map (relatedLayerIdsFor); the
+  // table used to skip that and list rows the map had hidden.
+  //
+  // Keyed on the pieces it reads rather than the whole map state and
+  // context, which change on every pan.
+  const appSourcesById = useContext(AppSourcesContext);
+  const resolvedTargets = ctx?.resolvedTargets;
+  const sourceOrder = ctx?.sourceOrder;
+  const boundLayers = boundMapState?.mapData.layers;
+  const tableRelatedLayerIds = useMemo(
+    () => relatedLayerIdsFor(crossFilter, resolvedTargets, appSourcesById),
+    [crossFilter, resolvedTargets, appSourcesById],
+  );
+  const selectionTargetLayerId = selectionTarget?.mapLayer.id;
   const layers = useMemo<MapLayer[]>(() => {
-    const projectTargetId = selectionInScope
-      ? null
-      : selectionTarget?.mapLayer.id;
-    if (boundMapState?.mapData.layers) {
+    const projectTargetId = selectionInScope ? null : selectionTargetLayerId;
+    if (boundLayers) {
       return applySelectionToLayers({
-        layers: boundMapState.mapData.layers,
+        layers: boundLayers,
         targetLayerId: projectTargetId,
+        relatedLayerIds: tableRelatedLayerIds,
         selection: crossFilter,
       }) as MapLayer[];
     }
-    if (!ctx) return [];
-    const target = ctx.resolvedTargets.find(
-      (t) => t.sourceId === sourceIdOf(ctx, cfg),
-    );
+    if (!resolvedTargets || !sourceOrder) return [];
+    const ownId =
+      cfg.sourceId !== undefined
+        ? cfg.sourceId
+        : typeof cfg.targetIndex === 'number'
+          ? sourceOrder[cfg.targetIndex]
+          : undefined;
+    const target = resolvedTargets.find((t) => t.sourceId === ownId);
     if (!target) return [];
     return applySelectionToLayers({
       layers: [target.mapLayer],
       targetLayerId: projectTargetId,
+      relatedLayerIds: tableRelatedLayerIds,
       selection: crossFilter,
     }) as MapLayer[];
   }, [
-    boundMapState,
-    ctx,
+    boundLayers,
+    resolvedTargets,
+    sourceOrder,
     cfg.sourceId,
     cfg.targetIndex,
     crossFilter,
-    selectionTarget,
+    selectionTargetLayerId,
     selectionInScope,
+    tableRelatedLayerIds,
   ]);
 
   // Selection state. Shared with the bound map when present; the
