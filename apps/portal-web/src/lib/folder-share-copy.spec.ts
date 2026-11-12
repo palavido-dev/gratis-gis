@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /// <reference types="jest" />
-import type { ItemShare } from '@gratis-gis/shared-types';
+import type { ISODateString, ItemShare } from '@gratis-gis/shared-types';
 import { postShareCopy, shareCopyBody } from './folder-share-copy';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -17,7 +17,7 @@ function share(over: Partial<ItemShare> = {}): ItemShare {
 
 describe('shareCopyBody', () => {
   it('forwards the expiry of a time limited share', () => {
-    expect(shareCopyBody(share({ expiresAt: '2026-11-14T00:00:00Z' as ItemShare['expiresAt'] }), NOW)).toEqual({
+    expect(shareCopyBody(share({ expiresAt: '2026-11-14T00:00:00Z' as ISODateString }), NOW)).toEqual({
       principalType: 'user',
       principalId: 'u-1',
       permission: 'view',
@@ -26,7 +26,7 @@ describe('shareCopyBody', () => {
   });
 
   it('skips a share that has already ended', () => {
-    expect(shareCopyBody(share({ expiresAt: '2026-11-01T00:00:00Z' as ItemShare['expiresAt'] }), NOW)).toBeNull();
+    expect(shareCopyBody(share({ expiresAt: '2026-11-01T00:00:00Z' as ISODateString }), NOW)).toBeNull();
   });
 
   it('copies a permanent share without an expiry', () => {
