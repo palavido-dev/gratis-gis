@@ -338,7 +338,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         }>;
         coordinateSystem?: { wkt?: string };
         metadata?: { IMAGE_STRUCTURE?: { LAYOUT?: string } };
-      }>('gdalinfo', ['-json', cogPath], onBeat);
+      }>('gdalinfo', ['-if', 'GTiff', '-json', cogPath], onBeat);
       const bands = info.bands ?? [];
       const isPhoto =
         bands.length === 3 &&
@@ -396,6 +396,10 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         await this.runCommand(
           'gdalwarp',
           [
+            // The stored COG is ours, but its bytes came from an
+            // upload; never let GDAL read it as anything but GeoTIFF.
+            '-if',
+            'GTiff',
             '-t_srs',
             'EPSG:3857',
             '-r',
@@ -416,6 +420,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       await this.runCommand(
         'gdal_translate',
         [
+          '-if',
+          'GTiff',
           '-of',
           'MBTILES',
           '-co',

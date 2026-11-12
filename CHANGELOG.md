@@ -6,6 +6,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- GDAL in portal-api no longer loads the drivers that read other files
+  or URLs named inside a file (VRT, tile index, web service
+  descriptions), so an upload cannot make the server fetch anything.
+  Raster tile uploads must also be real GeoTIFF or JPEG 2000 files,
+  checked by their first bytes, and every GDAL command reads them with
+  that one driver.
+
 ## [1.4.2] - 2026-11-11
 
 Patch release. Purging a data layer works again for layers of any

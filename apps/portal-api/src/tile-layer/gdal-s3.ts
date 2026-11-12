@@ -8,6 +8,7 @@
  * handled a request first would win, and the loser's variant would be
  * dead code that still read as authoritative.
  */
+import { loadGdalHardened } from '../common/gdal-load.js';
 import type { StorageService } from '../storage/storage.service.js';
 
 /**
@@ -16,12 +17,8 @@ import type { StorageService } from '../storage/storage.service.js';
  * ingest). Callers await this per request; node caches the module, so
  * only the first call pays.
  */
-export async function loadGdal(): Promise<typeof import('gdal-async')> {
-  const mod = await import('gdal-async');
-  return (
-    (mod as unknown as { default?: typeof import('gdal-async') }).default ??
-    mod
-  );
+export function loadGdal(): Promise<typeof import('gdal-async')> {
+  return loadGdalHardened();
 }
 
 let vsis3Ready = false;
