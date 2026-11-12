@@ -112,6 +112,10 @@ import {
 import { BasemapPreview } from '@/components/basemap-preview';
 import { PRINT_SNAPSHOT_PREFIX, storePrintSnapshot } from '@/lib/print-snapshot';
 import {
+  toggleLayerVisibility,
+  type GroupVisibilityMemory,
+} from '@/lib/layer-group-toggle';
+import {
   resolveRefreshSeconds,
   useAutoRefresh,
 } from '@/lib/use-auto-refresh';
@@ -2419,40 +2423,31 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
     return m;
   }, [layers, layerById]);
 
+  // What each hidden group's descendants looked like when it was
+  // hidden, so showing the group again restores them.
+  const groupMemory = useRef<GroupVisibilityMemory>(new Map());
   const toggleVisible = useCallback(
     (id: string, next: boolean) => {
       // Cascading toggle: flipping a group OFF hides every
-      // descendant; flipping a group ON shows the group itself
-      // but does NOT force every child back on (the children
-      // remember their own visibility state).  That mirrors how
-      // the map item's layer panel behaves and matches what users
-      // expect from "turn the whole flood overlay off, then back
-      // on" -- the floods don't all suddenly become visible if
-      // some were hidden before.
-      const affected = new Set<string>([id]);
-      if (next === false) {
-        // Walk descendants and turn them off too.
-        const stack = [id];
-        while (stack.length > 0) {
-          const parent = stack.pop()!;
-          for (const child of childrenByParent.get(parent) ?? []) {
-            if (affected.has(child.id)) continue;
-            affected.add(child.id);
-            stack.push(child.id);
-          }
-        }
-      }
+      // descendant (the map canvas knows nothing about groups);
+      // flipping it back ON restores each descendant to what it was
+      // before, so "turn the whole flood overlay off, then back on"
+      // neither leaves every child hidden nor shows ones that were
+      // hidden before.
       update((cur) => ({
         ...cur,
         mapData: {
           ...cur.mapData,
-          layers: (cur.mapData.layers ?? []).map((x) =>
-            affected.has(x.id) ? { ...x, visible: next } : x,
+          layers: toggleLayerVisibility(
+            cur.mapData.layers ?? [],
+            id,
+            next,
+            groupMemory.current,
           ),
         },
       }));
     },
-    [childrenByParent, update],
+    [update],
   );
 
   return (
