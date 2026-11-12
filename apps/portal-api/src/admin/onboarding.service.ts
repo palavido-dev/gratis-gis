@@ -61,6 +61,9 @@ interface StoredState {
   dismissed: string[];
 }
 
+/** Org admins looked up in Keycloak for the status; two settle the item. */
+const MAX_ADMINS_CHECKED = 10;
+
 @Injectable()
 export class OnboardingService {
   constructor(
@@ -205,18 +208,17 @@ export class OnboardingService {
     );
     if (!this.keycloak) return { count: eligible.length, signInChecked: false };
     try {
-      const enabled = new Set<string>();
-      let first = 0;
-      for (let page = 0; page < 20; page += 1) {
-        const rows = await this.keycloak.listUsers({ first, max: 100 });
-        for (const row of rows) {
-          if (row.enabled && row.username) enabled.add(row.username);
-        }
-        if (rows.length < 100) break;
-        first += rows.length;
-      }
+      // Ask about this org's admins by name. Paging the whole realm
+      // (every org's users, up to 20 sequential calls) ran on each
+      // admin page load and treated admins past 2000 users as
+      // disabled. The item only needs to know about two of them.
+      const keycloak = this.keycloak;
+      const checked = eligible.slice(0, MAX_ADMINS_CHECKED);
+      const enabled = await Promise.all(
+        checked.map((user) => keycloak.isUsernameEnabled(user.username)),
+      );
       return {
-        count: eligible.filter((user) => enabled.has(user.username)).length,
+        count: enabled.filter(Boolean).length,
         signInChecked: true,
       };
     } catch {

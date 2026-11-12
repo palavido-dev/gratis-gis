@@ -10,9 +10,9 @@ import {
   Param,
   Post,
   Res,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { pipeline } from 'node:stream';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 
@@ -21,6 +21,7 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { assertServerHeavyTier } from './analysis-tiers.js';
 
 /**
  * Magic-outline (SAM) embedding surface. The browser decoder needs
@@ -46,16 +47,9 @@ export class SamController {
     private readonly cfg: ConfigService,
   ) {}
 
+  /** The shared tier gate, so this route cannot drift from the others. */
   private assertServerTier(): void {
-    const tiers = (this.cfg.get<string>('ANALYSIS_TIERS') ?? '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (!tiers.includes('server-heavy')) {
-      throw new ServiceUnavailableException(
-        'The outline tool needs the analysis worker, which is not enabled on this portal.',
-      );
-    }
+    assertServerHeavyTier(this.cfg, 'The outline tool');
   }
 
   /** Validate + normalize the supertile address. */
@@ -206,21 +200,33 @@ export class SamController {
     await this.assertReadableImagery(user, itemId);
     const parsed = this.parseKey(z, gx, gy);
     const key = `sam-embed/${itemId}/${parsed.z}/${parsed.gx}/${parsed.gy}.bin`;
+    let obj: Awaited<ReturnType<StorageService['streamObject']>>;
     try {
-      const obj = await this.storage.streamObject(key);
-      res.status(200);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      if (obj.contentLength !== undefined) {
-        res.setHeader('Content-Length', String(obj.contentLength));
+      obj = await this.storage.streamObject(key);
+    } catch (err) {
+      // Only a missing object means "not ready yet". A storage outage
+      // reported as 404 made the client keep polling.
+      const name = (err as { name?: string; Code?: string } | null)?.name;
+      const code = (err as { Code?: string } | null)?.Code;
+      if (name === 'NoSuchKey' || code === 'NoSuchKey' || name === 'NotFound') {
+        throw new NotFoundException(
+          'The embedding for this view is not ready yet.',
+        );
       }
-      // Content-addressed by key and immutable once computed.
-      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-      obj.body.pipe(res);
-    } catch {
-      throw new NotFoundException(
-        'The embedding for this view is not ready yet.',
-      );
+      throw err;
     }
+    res.status(200);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    if (obj.contentLength !== undefined) {
+      res.setHeader('Content-Length', String(obj.contentLength));
+    }
+    // Content-addressed by key and immutable once computed.
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    // pipeline, not pipe: a storage error mid-stream would otherwise be
+    // an uncaught exception and leave the response hanging.
+    pipeline(obj.body, res, (err) => {
+      if (err) res.destroy(err);
+    });
   }
 }
 

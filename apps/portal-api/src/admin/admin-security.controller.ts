@@ -76,8 +76,8 @@ export class AdminSecurityController {
       displayName: dto.displayName.trim(),
       clientId: dto.clientId.trim(),
       clientSecret: dto.clientSecret,
-      authorizationUrl: assertPublicHttps(dto.authorizationUrl),
-      tokenUrl: assertPublicHttps(dto.tokenUrl),
+      authorizationUrl: await assertPublicHttps(dto.authorizationUrl),
+      tokenUrl: await assertPublicHttps(dto.tokenUrl),
       orgSlug: user.orgSlug,
       domain,
     });

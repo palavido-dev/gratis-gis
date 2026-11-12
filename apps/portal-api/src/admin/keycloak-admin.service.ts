@@ -396,6 +396,31 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return rows[0]?.id ?? null;
   }
 
+  /**
+   * Whether the Keycloak user with exactly this username exists and is
+   * enabled. One small request, for callers that would otherwise page
+   * through the whole realm to answer it.
+   */
+  async isUsernameEnabled(username: string): Promise<boolean> {
+    const token = await this.getAccessToken();
+    const qs = new URLSearchParams({
+      username,
+      exact: 'true',
+      max: '1',
+      briefRepresentation: 'true',
+    });
+    const res = await fetch(this.adminUrl(`/users?${qs.toString()}`), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak isUsernameEnabled failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const rows = (await res.json()) as Array<{ enabled?: boolean }>;
+    return rows[0]?.enabled === true;
+  }
+
   async getUser(
     id: string,
     opts: { timeoutMs?: number } = {},

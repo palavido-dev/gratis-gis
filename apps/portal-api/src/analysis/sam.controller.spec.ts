@@ -81,3 +81,42 @@ describe('supertileTouchesBbox', () => {
     expect(supertileTouchesBbox(16, 0, 0, [])).toBe(true);
   });
 });
+
+describe('SAM embedding download', () => {
+  function controllerWith(streamObject: () => Promise<unknown>) {
+    const c = new SamController(
+      {} as never,
+      {
+        get: async () => ({
+          type: 'tile_layer',
+          bbox: BBOX,
+          data: { kind: 'raster', cogStorageKey: 'item-tile-layer/x' },
+        }),
+      } as never,
+      { streamObject } as never,
+      { get: () => 'server-heavy' } as never,
+    );
+    return c;
+  }
+  const cell = cellAt(16, -116.5, 33.8);
+  const res = { status: jest.fn(), setHeader: jest.fn() };
+
+  it('answers 404 only for a missing embedding', async () => {
+    const c = controllerWith(async () => {
+      throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+    });
+    await expect(
+      c.fetch(USER, 'img-1', String(cell.z), String(cell.gx), String(cell.gy), res as never),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('lets a storage outage through instead of a "not ready" 404', async () => {
+    const c = controllerWith(async () => {
+      throw new Error('connect ECONNREFUSED minio:9000');
+    });
+    const err = await c
+      .fetch(USER, 'img-1', String(cell.z), String(cell.gx), String(cell.gy), res as never)
+      .catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(HttpException);
+  });
+});

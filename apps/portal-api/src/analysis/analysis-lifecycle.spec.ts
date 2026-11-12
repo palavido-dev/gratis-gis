@@ -180,6 +180,22 @@ describe('AnalysisService.cancelJob', () => {
     expect(world.importJobUpdates![0]!.data).toMatchObject({ status: 'cancelled' });
   });
 
+  it('cancels an import recorded between the first read and the flip', async () => {
+    const world = freshWorld({ job: jobRow({ state: 'importing', params: {} }) });
+    const prisma = makePrisma(world);
+    const findUnique = (prisma as unknown as { analysisJob: { findUnique: jest.Mock } }).analysisJob
+      .findUnique;
+    // The first read sees no import id; the bridge records one right after.
+    findUnique.mockImplementationOnce(async () => {
+      const snapshot = { ...world.job!, params: {} };
+      world.job!.params = { importJobId: 'imp-late' };
+      return snapshot;
+    });
+    const svc = new AnalysisService(prisma, {} as never, {} as never, {} as never, {} as never);
+    await svc.cancelJob(user(), 'job-1');
+    expect(world.importJobUpdates?.[0]?.where).toMatchObject({ id: 'imp-late' });
+  });
+
   it('terminal job is a no-op (idempotent cancel)', async () => {
     const world = freshWorld({ job: jobRow({ state: 'done' }) });
     const svc = makeService(world);

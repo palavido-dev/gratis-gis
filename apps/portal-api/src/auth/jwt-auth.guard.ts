@@ -57,10 +57,28 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // routes too, matching what a Bearer JWT does there.
     const bearer = readBearer(ctx);
     if (bearer !== null && looksLikeApiKey(bearer)) {
-      const user = await this.apiKeys.resolve(bearer);
+      let user: Awaited<ReturnType<ApiKeyService['resolve']>>;
+      try {
+        user = await this.apiKeys.resolve(bearer);
+      } catch (err) {
+        // On a public route a bad key reads as anonymous, the same as
+        // an expired or invalid JWT does there. A 401 here refused
+        // data the caller could fetch with no header at all.
+        if (isPublic && err instanceof UnauthorizedException) {
+          ctx.switchToHttp().getRequest<{ user?: unknown }>().user = null;
+          return true;
+        }
+        throw err;
+      }
       if (user.apiKeyReadOnly === true) {
         const req = ctx.switchToHttp().getRequest<{ method?: string }>();
         if (!isReadOnlySafeMethod(req.method ?? 'GET')) {
+          // A public write is open to anonymous callers, so a read-only
+          // key may make it, as nobody.
+          if (isPublic) {
+            ctx.switchToHttp().getRequest<{ user?: unknown }>().user = null;
+            return true;
+          }
           throw new ForbiddenException(
             'This API key is read-only. Create a key without the read-only option to make changes.',
           );

@@ -193,6 +193,26 @@ describe('mutations', () => {
     );
   });
 
+  it('asks Keycloak about each org admin by name instead of paging the realm', async () => {
+    const world = freshWorld({
+      admins: [
+        { username: 'ada', autoDisableAt: null },
+        { username: 'bea', autoDisableAt: null },
+      ],
+    });
+    const base = makeService(world) as unknown as { prisma: unknown; settings: unknown };
+    const keycloak = {
+      listUsers: jest.fn(),
+      isUsernameEnabled: jest.fn(async (u: string) => u === 'ada'),
+    };
+    const svc = new OnboardingService(base.prisma as never, base.settings as never, keycloak as never);
+    const status = await svc.getStatus(ORG);
+    const item = status.items.find((i) => i.key === 'second-admin')!;
+    expect(item.detail.enabledAdminCount).toBe(1);
+    expect(keycloak.listUsers).not.toHaveBeenCalled();
+    expect(keycloak.isUsernameEnabled).toHaveBeenCalledTimes(2);
+  });
+
   it('complete rejects derived items', async () => {
     const svc = makeService(freshWorld());
     await expect(svc.complete(ORG, 'configure-email')).rejects.toThrow(

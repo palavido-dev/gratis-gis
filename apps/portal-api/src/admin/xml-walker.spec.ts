@@ -24,3 +24,14 @@ describe('parseXml text', () => {
     expect(process.memoryUsage().heapUsed - before).toBeLessThan(400 * 1024 * 1024);
   });
 });
+
+describe('parseXml child names', () => {
+  it('treats Object.prototype names as ordinary children', () => {
+    const el = parseXml('<a><constructor>x</constructor><toString>y</toString><__proto__><Point/></__proto__></a>') as Record<string, unknown>;
+    const a = el.a as Record<string, unknown>;
+    expect(a.constructor).toBe('x');
+    expect(a.toString).toBe('y');
+    expect(Object.getPrototypeOf(a)).toBeNull();
+    expect(Object.keys(a)).toEqual(['constructor', 'toString', '__proto__']);
+  });
+});
