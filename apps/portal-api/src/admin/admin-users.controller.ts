@@ -38,6 +38,7 @@ import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
+import { isAdminTierLocked } from './admin-tier-lock.js';
 
 /** Keycloak user enriched with portal-specific fields we track ourselves. */
 export type AdminUserRep = KeycloakUserRep & {
@@ -1171,11 +1172,6 @@ function readOrgAttribute(user: KeycloakUserRep): string | undefined {
  * single-org private instance unless the operator explicitly opts
  * into testing mode.
  */
-function isAdminTierLocked(): boolean {
-  const raw = (process.env.PORTAL_LOCK_ADMIN_TIER ?? '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-}
-
 /**
  * Permission ordering for picking the "highest" permission across
  * multiple group shares of the same item. Mirrors the
