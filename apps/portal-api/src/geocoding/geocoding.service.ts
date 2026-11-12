@@ -732,7 +732,7 @@ export class GeocodingService {
         'URL must point at an ArcGIS GeocodeServer (path ends in /GeocodeServer).',
       );
     }
-    const base = parsed.toString().replace(/\/+$/, '');
+    const base = parsed.toString().replace(/(?<!\/)\/+$/, '');
     const metaUrl = `${base}?f=json`;
     // DNS-rebinding defense in addition to the hostname check above.
     let safeMetaUrl: URL;
@@ -827,7 +827,7 @@ export class GeocodingService {
         'External geocoder has no upstream URL configured.',
       );
     }
-    const base = config.externalUrl.replace(/\/+$/, '');
+    const base = config.externalUrl.replace(/(?<!\/)\/+$/, '');
     const params = new URLSearchParams();
     // Most modern locators support `SingleLine`. If a locator
     // only has multi-line fields (no singleLineAddressField), the

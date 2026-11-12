@@ -503,7 +503,7 @@ function sanitizeId(raw: string | undefined): string {
     .normalize('NFKD')
     .replace(/[^\w]/g, '_')
     .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/^_+|(?<!_)_+$/g, '');
   if (!s) return '';
   if (/^[0-9]/.test(s)) return `q_${s}`;
   return s;

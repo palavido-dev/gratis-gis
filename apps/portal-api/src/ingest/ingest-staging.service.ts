@@ -586,6 +586,6 @@ function notMetaFile(name: string): string {
 function safeFilename(name: string): string {
   const fileOnly = basename(name);
   let base = fileOnly.replace(/[^\w.-]/g, '_');
-  base = base.replace(/^\.+/, '_').replace(/\.+$/, '_');
+  base = base.replace(/^\.+/, '_').replace(/(?<!\.)\.+$/, '_');
   return base.length > 0 && base !== '_' ? base : 'upload.bin';
 }

@@ -1728,7 +1728,7 @@ function safeFilename(name: string): string {
   // Replace any leading-dot run so '..' / '.hidden' cannot escape
   // the temp dir or hide as a dotfile. A single trailing dot is also
   // suspicious on Windows; flatten it.
-  base = base.replace(/^\.+/, '_').replace(/\.+$/, '_');
+  base = base.replace(/^\.+/, '_').replace(/(?<!\.)\.+$/, '_');
   return base.length > 0 && base !== '_' ? base : 'upload.bin';
 }
 

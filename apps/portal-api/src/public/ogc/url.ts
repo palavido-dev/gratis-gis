@@ -14,7 +14,7 @@ import type { Request } from 'express';
  */
 export function absoluteBase(req: Request): string {
   const configured = process.env.PORTAL_BASE_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, '');
+  if (configured) return configured.replace(/(?<!\/)\/+$/, '');
 
   const proto =
     (req.headers['x-forwarded-proto'] as string | undefined) ??

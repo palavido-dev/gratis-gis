@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { compileAnchoredPattern, matchAnchoredPattern } from './pattern';
+
+export { compileAnchoredPattern, matchAnchoredPattern };
 /**
  * Form schema for the Data Collection workflow (#131).
  *
@@ -1290,8 +1293,7 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
         // pattern is a designer-side error, not a respondent-blocking
         // condition, so we treat construction failures as a no-match
         // (false) rather than throwing.
-        const re = new RegExp(`^(?:${pattern})$`, expr.flags ?? '');
-        return re.test(subject);
+        return matchAnchoredPattern(pattern, expr.flags ?? '', subject) === true;
       } catch {
         return false;
       }
@@ -1784,16 +1786,11 @@ function validateType(q: Question, value: unknown): string | null {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
       if (q.type === 'text' && q.pattern) {
-        let re: RegExp;
-        try {
-          re = new RegExp(`^(?:${q.pattern})$`);
-        } catch {
-          // Same rule as the `regex` type: a bad pattern is a designer
-          // error, so pass rather than throw out of validate(), which
-          // the server would turn into a 500 on every submission.
-          return null;
-        }
-        if (!re.test(value)) return 'Does not match the required format.';
+        // Same rule as the `regex` type: a bad pattern is a designer
+        // error, so pass rather than throw out of validate(), which
+        // the server would turn into a 500 on every submission.
+        const ok = matchAnchoredPattern(q.pattern, '', value);
+        if (ok === false) return 'Does not match the required format.';
       }
       return null;
     }
@@ -1863,15 +1860,10 @@ function validateType(q: Question, value: unknown): string | null {
       if (q.maxLength && value.length > q.maxLength) {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
-      let re: RegExp;
-      try {
-        re = new RegExp(`^(?:${q.pattern})$`, q.flags ?? '');
-      } catch {
-        // A bad pattern is a designer error; pass validation rather
-        // than block the respondent on something they can't fix.
-        return null;
-      }
-      if (!re.test(value)) return q.message ?? 'Does not match the required format.';
+      // A bad pattern is a designer error; pass validation rather
+      // than block the respondent on something they can't fix.
+      const ok = matchAnchoredPattern(q.pattern, q.flags ?? '', value);
+      if (ok === false) return q.message ?? 'Does not match the required format.';
       return null;
     }
     case 'number':
@@ -2946,3 +2938,4 @@ export {
   type XlsFormChoicesRow,
   type XlsFormSettingsRow,
 } from './xlsform-import';
+

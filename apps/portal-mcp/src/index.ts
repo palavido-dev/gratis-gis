@@ -88,7 +88,7 @@ import {
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
-).replace(/\/+$/, '');
+).replace(/(?<!\/)\/+$/, '');
 const TOKEN = process.env.GRATIS_GIS_TOKEN ?? '';
 const USER_AGENT = 'gratis-gis-mcp/0.1';
 

@@ -549,7 +549,7 @@ export function normalizeArcgisUrl(u: string): string {
   // Collapse scheme so http/https variants match.
   s = s.replace(/^https?:\/\//i, '');
   // Strip trailing slashes (handles both `/` and `///`).
-  s = s.replace(/\/+$/, '');
+  s = s.replace(/(?<!\/)\/+$/, '');
   // Strip a trailing /<layerId> so a layer URL (.../MapServer/2)
   // matches the service root (.../MapServer) the arcgis_service item
   // persists.

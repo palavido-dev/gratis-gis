@@ -89,7 +89,7 @@ export class WebMapJsonService {
 
     const view = lensViewFromMapData(data);
     const ctx: WebMapJsonContext = {
-      portalBaseUrl: portalBaseUrl.replace(/\/+$/, ''),
+      portalBaseUrl: portalBaseUrl.replace(/(?<!\/)\/+$/, ''),
       basemap,
     };
 

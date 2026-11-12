@@ -205,7 +205,7 @@ export class AgoHostedFsImportService {
     copyAttachments?: boolean;
   }): Promise<HostedFsImportResult> {
     const warnings: string[] = [];
-    const cleanUrl = args.serviceUrl.replace(/\/+$/, '');
+    const cleanUrl = args.serviceUrl.replace(/(?<!\/)\/+$/, '');
 
     // The service URL comes off the user-supplied dry-run report
     // and seeds every per-layer / per-feature / per-attachment URL
@@ -349,7 +349,7 @@ export class AgoHostedFsImportService {
     copyAttachments?: boolean;
   }): Promise<HostedFsImportResult> {
     const warnings: string[] = [];
-    const cleanUrl = args.serviceUrl.replace(/\/+$/, '');
+    const cleanUrl = args.serviceUrl.replace(/(?<!\/)\/+$/, '');
     const maxFeatures = Math.min(
       Math.max(1, args.maxFeatures ?? ARCGIS_COPY_FEATURE_HARD_CAP),
       ARCGIS_COPY_FEATURE_HARD_CAP,
@@ -853,7 +853,7 @@ function sanitizeSublayerId(raw: string): string {
   const clean = raw
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_+|(?<!_)_+$/g, '')
     .slice(0, 60);
   return clean.length > 0 ? clean : 'layer';
 }

@@ -229,7 +229,7 @@ export function operationalLayerForLens(
     lens.query.scopes.length === 1 ? lens.query.scopes[0] : undefined;
   const parts = scope !== undefined ? dataLayerScopeParts(scope) : null;
   if (!parts) return undefined;
-  const base = ctx.portalBaseUrl.replace(/\/+$/, '');
+  const base = ctx.portalBaseUrl.replace(/(?<!\/)\/+$/, '');
   const layerBase = `${base}/api/items/${parts.itemId}/layers/${parts.layerKey}`;
   if (lens.render.kind === 'geojson') {
     const def = esriDefinitionFromAttrFilter(lens);

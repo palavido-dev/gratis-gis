@@ -2218,7 +2218,7 @@ function exportFilenameStem(
     // which keeps the Content-Disposition value trivially safe.
     .replace(/[^\w.-]+/g, '_')
     .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_+|(?<!_)_+$/g, '')
     .slice(0, 120);
   return stem.length > 0 ? stem : 'layer';
 }

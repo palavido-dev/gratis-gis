@@ -277,7 +277,7 @@ function EventLayerWizard({
     const baseName = trimmedLabel
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
+      .replace(/^_+|(?<!_)_+$/g, '')
       .slice(0, 32) || 'events';
     const existingNames = new Set(data.layers.map((l) => l.name));
     let name = baseName;
