@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -100,7 +100,7 @@ interface PendingWork {
  * anything lost to a crash mid window.
  */
 @Injectable()
-export class ItemBboxRefreshService {
+export class ItemBboxRefreshService implements OnApplicationShutdown {
   private static readonly REFRESH_THROTTLE_MS = 60_000;
   private static readonly MAX_REVERSE_HOPS = 2;
 
@@ -197,6 +197,16 @@ export class ItemBboxRefreshService {
     await run;
   }
 
+  /**
+   * Drain every waiting window on shutdown. Without this, envelopes
+   * gathered in the last minute before a deploy were dropped, and the
+   * bbox stayed wrong until a later write forced a recompute.
+   */
+  async onApplicationShutdown(): Promise<void> {
+    const ids = Array.from(this.pending.keys());
+    await Promise.all(ids.map((id) => this.flushPending(id)));
+  }
+
   /** True while a flush is scheduled or work is waiting. */
   hasPending(itemId: string): boolean {
     return this.pending.has(itemId);
@@ -261,7 +271,56 @@ export class ItemBboxRefreshService {
     if (work.grew === null) return;
     const next = unionEnvelopes(stored, work.grew)!;
     if (envelopesEqual(next, stored)) return;
-    await this.runRefresh(itemId, next);
+    // The union is done by Postgres against the row as it is at write
+    // time, not against the copy read above. Two replicas growing the
+    // same item at once then both keep their growth instead of one
+    // overwriting the other.
+    const grown = await this.growStoredBbox(itemId, work.grew);
+    if (grown === null) {
+      // The stored bbox was cleared or the item went away in between.
+      await this.runRefresh(itemId, null);
+      return;
+    }
+    await this.runRefresh(itemId, grown);
+  }
+
+  /**
+   * Write a bbox without touching `updated_at`. A background extent
+   * stamp is not an edit: going through `prisma.item.update` bumped
+   * the @updatedAt column on the layer and on every map and editor
+   * that uses it, which moved them to the top of "Recently updated"
+   * and reset their stale clock. Same reasoning as LastUsageStamp.
+   */
+  private async writeBbox(id: string, bbox: Envelope | null): Promise<void> {
+    const value: number[] = bbox ?? [];
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE "item" SET bbox = ${value}::double precision[]
+      WHERE id = ${id}::uuid
+    `);
+  }
+
+  /**
+   * Grow the stored bbox by `grew` in one statement and return the
+   * result, or null when the row has no 4 number bbox to grow.
+   */
+  private async growStoredBbox(
+    id: string,
+    grew: Envelope,
+  ): Promise<Envelope | null> {
+    const [w, s, e, n] = grew;
+    const rows = await this.prisma.$queryRaw<Array<{ bbox: number[] }>>(Prisma.sql`
+      UPDATE "item"
+      SET bbox = ARRAY[
+        LEAST(bbox[1], ${w}::double precision),
+        LEAST(bbox[2], ${s}::double precision),
+        GREATEST(bbox[3], ${e}::double precision),
+        GREATEST(bbox[4], ${n}::double precision)
+      ]
+      WHERE id = ${id}::uuid AND cardinality(bbox) = 4
+      RETURNING bbox
+    `);
+    if (rows.length === 0) return null;
+    return readStoredEnvelope(rows[0]!.bbox);
   }
 
   /**
@@ -286,10 +345,7 @@ export class ItemBboxRefreshService {
     const seen = new Set<string>([seedId]);
 
     if (seedBbox !== null) {
-      await this.prisma.item.update({
-        where: { id: seedId },
-        data: { bbox: seedBbox },
-      });
+      // Already written by growStoredBbox.
       freshById.set(seedId, seedBbox);
     } else {
       const seed = await this.prisma.item.findUnique({
@@ -328,10 +384,7 @@ export class ItemBboxRefreshService {
     const next = await this.computeBbox(row, freshById);
     freshById.set(row.id, next);
     if (!envelopesEqual(readStoredEnvelope(row.bbox), next)) {
-      await this.prisma.item.update({
-        where: { id: row.id },
-        data: { bbox: next ?? [] },
-      });
+      await this.writeBbox(row.id, next);
     }
   }
 
@@ -427,8 +480,10 @@ export class ItemBboxRefreshService {
    * for `@>`), so this is an index probe per shape, not a scan.
    *
    * The shapes are exactly the references `computeBbox` reads back
-   * through `collectMapItemRefs` and `collectEditorItemRefs`, plus
-   * a derived_layer's source, which the cascade has always visited.
+   * through `collectMapItemRefs` and `collectEditorItemRefs`. A
+   * derived_layer is not visited: its bbox is read from its own
+   * data, which a source write does not change, so the visit only
+   * recomputed the same value.
    * The previous implementation matched on `extractDependencies`,
    * which also follows basemaps, boundaries, terrain, custom app
    * widgets and print templates; none of those feed a bbox, so
@@ -437,8 +492,8 @@ export class ItemBboxRefreshService {
    * without changing any stored result.
    *
    * Two spellings on purpose: the `type` column holds the Prisma
-   * `@map` kebab form, so raw SQL must say 'web-app' and
-   * 'derived-layer' where TypeScript says web_app / derived_layer.
+   * `@map` kebab form, so raw SQL must say 'web-app' where
+   * TypeScript says web_app.
    */
   private async findReferencingItems(targetIds: string[]): Promise<string[]> {
     if (targetIds.length === 0) return [];
@@ -464,7 +519,6 @@ export class ItemBboxRefreshService {
       { template: 'editor', config: { editor: { mapId: id } } },
       { template: 'editor', config: { editor: { targets: [{ dataLayerId: id }] } } },
     ]);
-    const derivedShapes = targetIds.map((id) => ({ source: { itemId: id } }));
 
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT id
@@ -474,7 +528,6 @@ export class ItemBboxRefreshService {
           (type = 'map'::"ItemType" AND ${anyOf(mapShapes)})
           OR (type IN ('editor'::"ItemType", 'web-app'::"ItemType") AND ${anyOf(editorShapes)})
           OR (type = 'web-app'::"ItemType" AND ${anyOf(wrappedEditorShapes)})
-          OR (type = 'derived-layer'::"ItemType" AND ${anyOf(derivedShapes)})
         )
     `);
     return rows.map((r) => r.id);

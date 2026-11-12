@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../common/uuid-shape.js';
 import {
   BadRequestException,
   Controller,
@@ -1299,11 +1300,7 @@ export class PublicController {
  * non-UUID path segment from a crawler or typo returns a clean
  * 404 instead of leaking Prisma's parser error message.
  */
-export function isUuidShape(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    id,
-  );
-}
+export { isUuidShape };
 
 interface V3LayerInfo {
   geometryType: string | null;

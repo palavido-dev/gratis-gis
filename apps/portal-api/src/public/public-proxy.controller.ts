@@ -19,7 +19,10 @@ import {
   CredentialService,
   type CredentialPayload,
 } from '../items/credential.service.js';
-import { exchangeBasicForArcgisToken } from '../items/arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from '../items/arcgis-auth.js';
 import {
   composeUpstreamHeaders,
   isArcgisRest,
@@ -127,19 +130,21 @@ export class PublicProxyController {
             password: credential.password,
             cacheKey: itemId,
           });
-          credential = { kind: 'arcgis_token', token };
+          credential = {
+            kind: 'arcgis_token',
+            token,
+            referer: ARCGIS_TOKEN_REFERER,
+          };
         } catch (err) {
+          // The detail stays in the log. The upstream's own login
+          // error for the owner's stored account, or our network
+          // error text, is not something an anonymous caller needs.
           this.log.warn(
             `public proxy token-exchange failed for item=${itemId}: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
-          res.status(401).json({
-            message:
-              err instanceof Error
-                ? err.message
-                : 'Could not exchange credentials for an ArcGIS token.',
-          });
+          res.status(401).json({ message: 'Upstream authentication failed.' });
           return;
         }
       }
@@ -176,7 +181,12 @@ export class PublicProxyController {
       );
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
-        res.status(400).json({ message: err.message });
+        this.log.warn(
+          `public proxy refused item=${itemId} target=${maskCredential(
+            target,
+          )}: ${err.message}`,
+        );
+        res.status(400).json({ message: 'Upstream URL is not allowed.' });
         return;
       }
       this.log.warn(

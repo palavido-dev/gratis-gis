@@ -3,7 +3,6 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ROLE_BASELINES, type CapabilityKey } from '../auth/capabilities.js';
-import { DataSnapshotService } from '../items/data-snapshot.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { ScriptsService } from './scripts.service.js';
 
@@ -146,39 +145,39 @@ describe('ItemsService.update on a script', () => {
   });
 });
 
-describe('DataSnapshotService.revert on a script', () => {
-  it('makes a non-owner who reverts the author, and keeps the current schedule', async () => {
-    let written: unknown;
-    const svc = Object.create(DataSnapshotService.prototype) as DataSnapshotService;
+describe('ItemsService.revertToSnapshot on a script', () => {
+  // A revert is an ordinary data save, so the provenance rules apply.
+  function withSnapshot(svc: ItemsService, data: unknown): ItemsService {
     Object.assign(svc, {
-      snapshot: async () => undefined,
-      get: async () => ({
-        id: 'snap-1',
-        itemId: 'script-1',
-        data: { version: 1, source: 'old()', schedule: NIGHTLY, sourceEditedBy: OWNER },
-      }),
-      prisma: (() => {
-        const current = { version: 1, source: 'new()' };
-        const prisma: Record<string, unknown> = {
-          item: {
-            findUnique: async () => ({
-              type: 'script',
-              ownerId: OWNER,
-              data: current,
-            }),
-            update: async (args: { data: { data: unknown } }) => {
-              written = args.data.data;
-            },
-          },
-          // revert() restores under the item row lock.
-          $queryRaw: async () => [{ data: current, updated_at_ms: 0 }],
-        };
-        prisma.$transaction = async (fn: (tx: unknown) => unknown) => fn(prisma);
-        return prisma;
-      })(),
+      snapshots: {
+        get: async () => ({ id: 'snap-1', itemId: 'script-1', data }),
+        snapshot: async () => undefined,
+      },
     });
-    await svc.revert('snap-1', EDITOR);
-    expect(written).toEqual({ version: 1, source: 'old()', sourceEditedBy: EDITOR });
+    return svc;
+  }
+
+  it('makes a non-owner who reverts the author of the restored code', async () => {
+    const captured: { data?: unknown } = {};
+    const current = { version: 1, source: 'new()' };
+    await withSnapshot(
+      itemsServiceFor({ data: current }, captured),
+      { version: 1, source: 'old()', sourceEditedBy: OWNER },
+    ).revertToSnapshot(user(EDITOR), 'script-1', 'snap-1');
+    expect(captured.data).toEqual({
+      version: 1,
+      source: 'old()',
+      sourceEditedBy: EDITOR,
+    });
+  });
+
+  it('refuses a non-owner revert that would bring back a schedule', async () => {
+    await expect(
+      withSnapshot(
+        itemsServiceFor({ data: { version: 1, source: 'new()' } }, {}),
+        { version: 1, source: 'old()', schedule: NIGHTLY },
+      ).revertToSnapshot(user(EDITOR), 'script-1', 'snap-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 

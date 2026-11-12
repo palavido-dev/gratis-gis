@@ -421,6 +421,69 @@ describe('DrawingsService', () => {
         svc.update(author, 'map-1', 'set-1', { title: 'Mine now' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
+
+    function anonSet(token?: string) {
+      return {
+        id: 'set-a',
+        authorId: null,
+        authorDisplay: 'Anonymous 3fa9c1',
+        ...(token ? { anonymousAuthorToken: token } : {}),
+        title: 'Anon',
+        color: '#ef4444',
+        visible: true,
+        features: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    function anonPrisma(set: object) {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({
+          access: 'public',
+          data: { allowAnonymousDrawings: true, drawings: [set] } as object,
+        }),
+      );
+      prisma.item.update.mockResolvedValue(makeItem());
+      return prisma;
+    }
+
+    it('lets an anonymous author edit a set whose stored token matches', async () => {
+      const prisma = anonPrisma(anonSet('3fa9c1aa-real-token'));
+      const svc = makeService(prisma);
+      const out = await svc.update(
+        {
+          kind: 'anonymous',
+          anon: { token: '3fa9c1aa-real-token', display: 'Anonymous 3fa9c1' },
+        },
+        'map-1',
+        'set-a',
+        { title: 'Renamed' },
+      );
+      expect(out.title).toBe('Renamed');
+    });
+
+    it('refuses an anonymous caller whose display matches a token-less set', async () => {
+      // The display is public and derived from 6 hex of the cookie,
+      // so it must never be enough to claim a set.
+      const prisma = anonPrisma(anonSet());
+      const svc = makeService(prisma);
+      await expect(
+        svc.update(
+          {
+            kind: 'anonymous',
+            anon: {
+              token: '3fa9c1aa-0000-4000-8000-000000000000',
+              display: 'Anonymous 3fa9c1',
+            },
+          },
+          'map-1',
+          'set-a',
+          { title: 'Mine now' },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
   });
 
   describe('remove', () => {

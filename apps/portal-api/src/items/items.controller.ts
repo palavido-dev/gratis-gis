@@ -53,6 +53,8 @@ import { safeFetch } from '../common/net-guards.js';
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Every `:id` here names an item row (uuid column). */
+const ITEM_ID = new UuidPathPipe('Item not found');
 /**
  * Cap on the batch permissions route. Each id costs one authorized
  * item resolution, so an uncapped list is an invitation to walk the
@@ -80,6 +82,7 @@ import {
 } from '../public/public-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
+import { isUuidShape, UuidPathPipe } from '../common/uuid-shape.js';
 
 class CreateItemDto {
   @IsEnum(ITEM_TYPES) type!: ItemType;
@@ -337,7 +340,13 @@ export class ItemsController {
       // unfiltered list back, which matches the no-?type behaviour.
     }
     if (q !== undefined) opts.q = q;
-    if (ownerId !== undefined) opts.ownerId = ownerId;
+    if (ownerId !== undefined) {
+      // A non-uuid reaches a uuid column and Prisma throws (500).
+      if (!isUuidShape(ownerId)) {
+        throw new BadRequestException('ownerId must be a uuid');
+      }
+      opts.ownerId = ownerId;
+    }
     // Narrow-by-default: the list strips the heavy data_json blob
     // unless the caller explicitly asks for it with ?full=1. The old
     // ?lite=1 flag keeps working (it now matches the default), and a
@@ -352,10 +361,7 @@ export class ItemsController {
     // The service layer would error on a malformed group id at query
     // time anyway, but a quick reject here keeps that error surface
     // off the public list endpoint.
-    if (
-      sharedWithGroupId !== undefined &&
-      /^[0-9a-f-]{32,40}$/i.test(sharedWithGroupId)
-    ) {
+    if (sharedWithGroupId !== undefined && isUuidShape(sharedWithGroupId)) {
       opts.sharedWithGroupId = sharedWithGroupId;
     }
     if (bbox !== undefined) {
@@ -469,7 +475,7 @@ export class ItemsController {
   }
 
   @Get(':id')
-  async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  async get(@CurrentUser() user: AuthUser, @Param('id', ITEM_ID) id: string) {
     const item = await this.items.getForReader(user, id);
     // Stamp lastUsageAt on direct item-detail GET (#99). Covers
     // map opens, pick_list browses, dashboard views -- anything
@@ -533,7 +539,7 @@ export class ItemsController {
   @Get(':id/thumbnail.svg')
   async thumbnailSvg(
     @CurrentUser() user: AuthUser | null,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Res({ passthrough: false }) res: Response,
   ): Promise<void> {
     let item: Awaited<ReturnType<ItemsService['get']>>;
@@ -637,7 +643,7 @@ export class ItemsController {
   @Get(':id/permissions')
   async permissions(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
   ) {
     // get() throws 404 when the user can't see the item at all, which
     // is the right behavior here -- if you can't read it, the answer
@@ -672,7 +678,7 @@ export class ItemsController {
   @Get(':id/dependencies')
   dependencies(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Query('transitive') transitive?: string,
   ) {
     return this.items.listDependencies(user, id, {
@@ -691,7 +697,7 @@ export class ItemsController {
   @Get(':id/folder-contents')
   folderContents(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
   ) {
     return this.items.listFolderContents(user, id);
   }
@@ -701,7 +707,7 @@ export class ItemsController {
   @Get(':id/dependents')
   dependents(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Query('transitive') transitive?: string,
   ) {
     return this.items.listDependents(user, id, {
@@ -723,7 +729,7 @@ export class ItemsController {
   @Get(':id/cascade-revert-candidates')
   cascadeRevertCandidates(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
   ) {
     return this.items.listCascadeRevertCandidates(user, id);
   }
@@ -740,7 +746,7 @@ export class ItemsController {
   @Get(':id/geojson')
   async geojson(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
@@ -787,7 +793,7 @@ export class ItemsController {
   @Get(':id/web-map.json')
   async webMapJson(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Headers('host') host?: string,
     @Headers('x-forwarded-host') forwardedHost?: string,
     @Headers('x-forwarded-proto') forwardedProto?: string,
@@ -894,7 +900,7 @@ export class ItemsController {
   @Patch(':id')
   update(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Body() dto: UpdateItemDto,
   ) {
     return this.items.update(user, id, dto, { clientKeys: true });
@@ -903,7 +909,7 @@ export class ItemsController {
   @Delete(':id')
   remove(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Query('cascade') cascade?: string,
   ) {
     // ?cascade=true acknowledges the folder-cascade preview (#156)
@@ -931,13 +937,13 @@ export class ItemsController {
   @Get(':id/delete-cascade')
   previewDeleteCascade(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
   ) {
     return this.items.previewFolderDeleteCascade(user, id);
   }
 
   @Post(':id/restore')
-  restore(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  restore(@CurrentUser() user: AuthUser, @Param('id', ITEM_ID) id: string) {
     return this.items.restore(user, id);
   }
 
@@ -946,14 +952,14 @@ export class ItemsController {
    * retrying a DELETE can't accidentally skip the trash step.
    */
   @Delete(':id/purge')
-  purge(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  purge(@CurrentUser() user: AuthUser, @Param('id', ITEM_ID) id: string) {
     return this.items.purge(user, id);
   }
 
   @Post(':id/share')
   share(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Body() dto: ShareDto,
   ) {
     return this.items.share(user, id, dto);
@@ -962,7 +968,7 @@ export class ItemsController {
   @Delete(':id/share')
   unshare(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Body() dto: ShareDto,
   ) {
     return this.items.unshare(user, id, dto);
@@ -971,7 +977,7 @@ export class ItemsController {
   @Patch(':id/owner')
   reassignOwner(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
     @Body() dto: ReassignOwnerDto,
   ) {
     const patch: {
@@ -993,16 +999,16 @@ export class ItemsController {
   @Get(':id/snapshots')
   async listSnapshots(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', ITEM_ID) id: string,
   ) {
     await this.items.assertCanEdit(user, id);
     return this.snapshots.list(id);
   }
 
   /**
-   * Revert an item's data to a prior snapshot. Captures the current
-   * state as a fresh snapshot first, so un-revert is possible for
-   * the retention window. Caller must have edit access.
+   * Revert an item's data to a prior snapshot. Runs as a normal data
+   * save, which snapshots the current state first, so un-revert is
+   * possible for the retention window. Caller must have edit access.
    *
    * The snapshotId must belong to the item in the URL: we don't want
    * /items/A/snapshots/{snap-from-B}/revert to quietly mutate B just
@@ -1011,17 +1017,11 @@ export class ItemsController {
   @Post(':id/snapshots/:snapshotId/revert')
   async revertSnapshot(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Param('snapshotId') snapshotId: string,
+    @Param('id', ITEM_ID) id: string,
+    @Param('snapshotId', new UuidPathPipe('Snapshot not found')) snapshotId: string,
   ) {
     await this.items.assertCanEdit(user, id);
-    const snap = await this.snapshots.get(snapshotId);
-    if (snap.itemId !== id) {
-      throw new BadRequestException(
-        'Snapshot does not belong to this item',
-      );
-    }
-    return this.snapshots.revert(snapshotId, user.id);
+    return this.items.revertToSnapshot(user, id, snapshotId);
   }
 
   @Post('bulk/reassign-owner')

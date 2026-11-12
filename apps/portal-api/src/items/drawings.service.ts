@@ -354,10 +354,11 @@ export class DrawingsService {
       );
     }
     if (author.kind === 'anonymous') {
-      // Anonymous can only edit sets they authored. Prefer the
-      // stored cookie token (set at create); fall back to display
-      // match for any legacy sets written before the token field
-      // landed.
+      // Anonymous can only edit sets they authored, proven by the
+      // cookie token stored at create. There is no display-name
+      // fallback: the display is derived from the first 6 hex of the
+      // token and is shown to everyone, so a forged cookie could match
+      // it. Token-less legacy sets are left to the map's editors.
       if (set.authorId !== null) {
         throw new ForbiddenException(
           'You can only edit drawing sets you created in this session',
@@ -365,10 +366,9 @@ export class DrawingsService {
       }
       if (
         typeof set.anonymousAuthorToken === 'string' &&
-        set.anonymousAuthorToken.length > 0
+        set.anonymousAuthorToken.length > 0 &&
+        set.anonymousAuthorToken === author.anon.token
       ) {
-        if (set.anonymousAuthorToken === author.anon.token) return;
-      } else if (set.authorDisplay === author.anon.display) {
         return;
       }
       throw new ForbiddenException(

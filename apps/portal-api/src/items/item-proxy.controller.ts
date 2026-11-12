@@ -18,7 +18,10 @@ import {
   CredentialService,
   type CredentialPayload,
 } from './credential.service.js';
-import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from './arcgis-auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
 import {
@@ -130,9 +133,9 @@ export class ItemProxyController {
       // When the stored credential is Basic and the item points at
       // an ArcGIS REST URL, exchange username + password for a
       // short-lived token via the service's self-described token
-      // endpoint. The exchange helper caches the token in-process
-      // until it expires so we don't pay the round trip on every
-      // proxied request.
+      // endpoint. The exchange helper caches the token, and the
+      // discovered endpoint, in-process so we don't pay the round
+      // trips on every proxied request.
       if (credential.kind === 'basic' && isArcgisRest(itemUrl)) {
         try {
           const token = await exchangeBasicForArcgisToken({
@@ -141,7 +144,11 @@ export class ItemProxyController {
             password: credential.password,
             cacheKey: itemId,
           });
-          credential = { kind: 'arcgis_token', token };
+          credential = {
+            kind: 'arcgis_token',
+            token,
+            referer: ARCGIS_TOKEN_REFERER,
+          };
         } catch (err) {
           this.log.warn(
             `proxy token-exchange failed for item=${itemId}: ${
@@ -266,6 +273,9 @@ export function composeUpstreamHeaders(
       'utf8',
     ).toString('base64');
     headers.authorization = `Basic ${encoded}`;
+  } else if (credential?.kind === 'arcgis_token' && credential.referer) {
+    // A token from our own exchange is bound to this referer.
+    headers.referer = credential.referer;
   }
   return headers;
 }

@@ -554,6 +554,8 @@ export interface ClientWriteOptions {
   /** Storage keys in `data` are client-supplied: each must be issued
    *  to the caller or already referenced by this item. */
   clientKeys?: boolean;
+  /** Note on the snapshot a data_layer save takes first. */
+  snapshotNote?: string;
 }
 
 /**
@@ -2309,6 +2311,32 @@ export class ItemsService {
     }
   }
 
+  /**
+   * Put an item's data back to a snapshot. This is an ordinary data
+   * save of the snapshot's blob, so it gets every check and
+   * normalizer `update` applies (tile settings, render-safe check,
+   * attribution sanitizing, schema-break notice, syncVersion carry,
+   * row lock) and the usual pre-save snapshot, which makes the
+   * revert itself undoable. Writing the blob directly skipped all of
+   * those.
+   *
+   * The snapshot must belong to the item in the URL, so edit access
+   * on A cannot be used to rewrite B.
+   */
+  async revertToSnapshot(user: AuthUser, id: string, snapshotId: string) {
+    const snap = await this.snapshots.get(snapshotId);
+    if (snap.itemId !== id) {
+      throw new BadRequestException('Snapshot does not belong to this item');
+    }
+    await this.update(
+      user,
+      id,
+      { data: snap.data as Prisma.InputJsonValue },
+      { snapshotNote: `pre-revert to snapshot ${snap.id}` },
+    );
+    return { itemId: id, revertedFrom: snap.id };
+  }
+
   private async updateOnce(
     user: AuthUser,
     id: string,
@@ -2435,7 +2463,7 @@ export class ItemsService {
     // Non-data updates (title / tags / access / thumbnail) skip the
     // snapshot since reverting those is trivially an edit away.
     if (input.data !== undefined && item.type === 'data_layer') {
-      await this.snapshots.snapshot(id, user.id, 'pre-update');
+      await this.snapshots.snapshot(id, user.id, opts.snapshotNote ?? 'pre-update');
     }
     // For derived_layer updates that touch the recipe, validate +
     // re-enrich (recomputes outputSchema and bbox) before persisting.

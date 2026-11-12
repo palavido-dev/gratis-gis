@@ -23,7 +23,10 @@ import {
   type AuthKind,
   type CredentialPayload,
 } from './credential.service.js';
-import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from './arcgis-auth.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
   PROBE_MAX_BODY_BYTES,
@@ -102,7 +105,11 @@ export class ServiceProbeController {
           password: credential.password,
           cacheKey: `probe|${user.id}`,
         });
-        credential = { kind: 'arcgis_token', token };
+        credential = {
+          kind: 'arcgis_token',
+          token,
+          referer: ARCGIS_TOKEN_REFERER,
+        };
       } catch (err) {
         return {
           ok: false,
@@ -258,6 +265,8 @@ function composeHeaders(
       'utf8',
     ).toString('base64');
     headers.authorization = `Basic ${encoded}`;
+  } else if (credential?.kind === 'arcgis_token' && credential.referer) {
+    headers.referer = credential.referer;
   }
   return headers;
 }

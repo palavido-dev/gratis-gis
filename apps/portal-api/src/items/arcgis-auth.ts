@@ -39,6 +39,46 @@ const TOKEN_CACHE_MAX = 500;
 const TOKEN_CACHE = new Map<string, CachedToken>();
 
 /**
+ * Referer the exchanged token is bound to (client=referer). Every
+ * data call that uses such a token must send it as its Referer
+ * header, or a server that enforces the binding answers "invalid
+ * token".
+ */
+export const ARCGIS_TOKEN_REFERER = 'https://gratisgis.local';
+
+/**
+ * Discovered token endpoints, per REST root. Discovery is an upstream
+ * GET, and the exchange used to run it before every cache lookup, so
+ * every proxied tile paid an extra round trip. Ten minutes is short
+ * enough to follow a server that moves its token service.
+ */
+const TOKEN_URL_TTL_MS = 10 * 60_000;
+const TOKEN_URL_CACHE = new Map<string, { tokenUrl: string; expires: number }>();
+
+/** Small cap and timeout for the /info discovery read. */
+const DISCOVERY_TIMEOUT_MS = 10_000;
+const DISCOVERY_MAX_BYTES = 256 * 1024;
+
+/**
+ * Failed exchanges, kept briefly. Without this every request to an
+ * item whose stored password no longer works (including anonymous
+ * requests through the public proxy) submitted another failed login
+ * upstream on the owner's behalf, which can lock the account.
+ */
+const FAILED_EXCHANGE_TTL_MS = 60_000;
+const FAILED_EXCHANGES = new Map<
+  string,
+  { message: string; expires: number; passwordDigest: Buffer }
+>();
+
+/** Test hook: forget every cached token, endpoint and failure. */
+export function resetArcgisAuthCaches(): void {
+  TOKEN_CACHE.clear();
+  TOKEN_URL_CACHE.clear();
+  FAILED_EXCHANGES.clear();
+}
+
+/**
  * Exchange a username + password for an ArcGIS token. Returns the
  * token string. Caches successful exchanges in-process so the
  * proxy doesn't pay a 200ms round-trip on every request. Cache
@@ -120,11 +160,13 @@ export function reusableToken(
   now: number = Date.now(),
 ): string | null {
   if (!entry || entry.expires - 60_000 <= now) return null;
-  const b = passwordDigest(password);
-  if (entry.passwordDigest.length !== b.length || !timingSafeEqual(entry.passwordDigest, b)) {
-    return null;
-  }
+  if (!sameDigest(entry.passwordDigest, passwordDigest(password))) return null;
   return entry.token;
+}
+
+/** Constant-time comparison of two password digests. */
+function sameDigest(a: Buffer, b: Buffer): boolean {
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export async function exchangeBasicForArcgisToken(args: {
@@ -147,15 +189,42 @@ export async function exchangeBasicForArcgisToken(args: {
   const cached = reusableToken(cacheGet(compositeKey), args.password);
   if (cached !== null) return cached;
 
+  const failed = FAILED_EXCHANGES.get(compositeKey);
+  if (
+    failed &&
+    failed.expires > Date.now() &&
+    sameDigest(failed.passwordDigest, passwordDigest(args.password))
+  ) {
+    throw new Error(failed.message);
+  }
+  try {
+    return await mintToken(args, tokenUrl, compositeKey);
+  } catch (err) {
+    FAILED_EXCHANGES.set(compositeKey, {
+      message: err instanceof Error ? err.message : String(err),
+      expires: Date.now() + FAILED_EXCHANGE_TTL_MS,
+      passwordDigest: passwordDigest(args.password),
+    });
+    throw err;
+  }
+}
+
+async function mintToken(
+  args: { username: string; password: string },
+  tokenUrl: string,
+  compositeKey: string,
+): Promise<string> {
+
   const body = new URLSearchParams({
     f: 'json',
     username: args.username,
     password: args.password,
     // 'referer' clients are required by AGO's username/password
     // path; the referer string just needs to be consistent between
-    // generateToken and the actual data call. We send it on both.
+    // generateToken and the actual data call. The data call sends it
+    // as its Referer header (see composeUpstreamHeaders).
     client: 'referer',
-    referer: 'https://gratisgis.local',
+    referer: ARCGIS_TOKEN_REFERER,
     expiration: '60',
   });
   let res: Response;
@@ -201,6 +270,7 @@ export async function exchangeBasicForArcgisToken(args: {
     expires,
     passwordDigest: passwordDigest(args.password),
   });
+  FAILED_EXCHANGES.delete(compositeKey);
   return data.token;
 }
 
@@ -232,15 +302,29 @@ async function discoverTokenEndpoint(
   if (restIdx >= 0) {
     const restRoot = segs.slice(0, restIdx + 1).join('/');
     const infoUrl = `${parsed.origin}/${restRoot}/info?f=json`;
+    const hit = TOKEN_URL_CACHE.get(infoUrl);
+    if (hit && hit.expires > Date.now()) {
+      return hit.tokenUrl;
+    }
     try {
       // infoUrl is derived from the user-provided serviceUrl.
-      const res = await safeFetch(infoUrl);
+      const res = await safeFetch(
+        infoUrl,
+        { signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) },
+        { maxBytes: DISCOVERY_MAX_BYTES },
+      );
       if (res.ok) {
         const info = (await res.json()) as {
           authInfo?: { tokenServicesUrl?: unknown };
         };
         const t = info.authInfo?.tokenServicesUrl;
-        if (typeof t === 'string' && t.length > 0) return t;
+        if (typeof t === 'string' && t.length > 0) {
+          TOKEN_URL_CACHE.set(infoUrl, {
+            tokenUrl: t,
+            expires: Date.now() + TOKEN_URL_TTL_MS,
+          });
+          return t;
+        }
       }
     } catch {
       /* fall through to host-based fallback */
