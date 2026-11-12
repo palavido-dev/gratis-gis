@@ -521,7 +521,8 @@ LAN_SECURITY_HEADERS = """\theader {
 \t\tX-Content-Type-Options nosniff
 \t\tX-Frame-Options SAMEORIGIN
 \t\tReferrer-Policy strict-origin-when-cross-origin
-\t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+\t\tPermissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), midi=(), magnetometer=(), accelerometer=(), gyroscope=()"
+\t\tCross-Origin-Opener-Policy same-origin
 \t\t-Server
 \t}
 """
@@ -654,6 +655,9 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		# Same as infra/Caddyfile.
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), midi=(), magnetometer=(), accelerometer=(), gyroscope=()"
+		Cross-Origin-Opener-Policy same-origin
 		-Server
 	}}
 }}
@@ -664,10 +668,23 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 		respond 404
 	}}
 	reverse_proxy keycloak:8080
+	# As infra/Caddyfile. No X-Frame-Options: the login screen is
+	# sometimes framed during account linking.
+	header {{
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}}
 }}
 
 {storage} {{
 	reverse_proxy minio:9000
+	header {{
+		X-Content-Type-Options nosniff
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}}
 }}
 """
 
