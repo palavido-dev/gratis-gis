@@ -252,7 +252,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
               orgId,
               // Clear tombstone if previously soft-deleted: the user
               // is back in the realm so they should be visible again.
-              // Don't touch lastSeenAt here -- this is a sync from
+              // Don't touch lastSeenAt here: this is a sync from
               // Keycloak metadata, not a real user request, and we
               // don't want to falsely refresh the activity signal.
               deletedAt: null,
