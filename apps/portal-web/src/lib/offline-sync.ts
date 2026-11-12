@@ -310,6 +310,8 @@ export async function syncQueue(
         await updateQueueRecord({
           ...record,
           syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+          // The request may have landed with only the answer lost.
+          mayHaveReachedServer: true,
         });
         result.failed += 1;
         result.errors.push({
@@ -327,6 +329,7 @@ export async function syncQueue(
       await updateQueueRecord({
         ...record,
         syncStatus: terminal ? 'rejected' : 'failed',
+        mayHaveReachedServer: true,
         failure: reason,
         retryCount: (record.retryCount ?? 0) + 1,
         // Stamped so the backoff has something to measure from. The

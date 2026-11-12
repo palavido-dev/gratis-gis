@@ -159,6 +159,32 @@ describe('enqueueEdit', () => {
     expect(rows).toHaveLength(2);
   });
 
+  it('does not fold into an insert a drain already sent', async () => {
+    // The POST landed but a follow-on step (a photo upload) failed, so
+    // the drain put the row back. Folding a correction into it would
+    // re-send an insert the server deduplicates, and the correction
+    // would be lost.
+    await enqueueEdit(edit());
+    const [row] = await listQueue(DC, USER);
+    const claimed = await claimQueueRow(DC, row!.id, () => true);
+    expect(claimed?.mayHaveReachedServer).toBe(true);
+    await updateQueueRecord({ ...row!, syncStatus: 'failed', mayHaveReachedServer: true });
+
+    const result = await enqueueEdit(edit({ op: 'update', geometry: null, properties: { species: 'elm' } }));
+    expect(result.kind).toBe('queued');
+    const rows = await listQueue(DC, USER);
+    expect(rows.map((r) => r.op).sort()).toEqual(['insert', 'update']);
+  });
+
+  it('does not fold into a capture the online submit already sent', async () => {
+    await enqueueEdit(edit({ mayHaveReachedServer: true }));
+    const result = await enqueueEdit(edit({ op: 'delete', geometry: null, properties: null }));
+    // Not annihilated: the server may hold the feature, so the delete
+    // must be sent.
+    expect(result.kind).toBe('queued');
+    expect(await listQueue(DC, USER)).toHaveLength(2);
+  });
+
   it('does not fold into a row parked for a person', async () => {
     await enqueueEdit(edit());
     const [row] = await listQueue(DC, USER);
