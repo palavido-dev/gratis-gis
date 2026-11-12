@@ -144,7 +144,7 @@ export function featuresToCsv(
  * a JSON array of codes. We join with `,` (the AGO convention) and
  * then RFC-4180 quote the whole thing so the inner commas don't
  * break the row's column count. A consumer that splits the cell
- * back to an array for ingest reverses this in csv-import.ts (#108).
+ * back to an array on import has to split on that comma itself (#108).
  */
 function formatField(raw: unknown, field: FeatureField): string {
   if (raw === null || raw === undefined) return '';
