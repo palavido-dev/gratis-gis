@@ -241,15 +241,10 @@ def run(
                 except subprocess.TimeoutExpired:
                     pass
                 if conn is not None and job_id is not None:
-                    try:
-                        # Beat without touching progress; raises
-                        # JobCancelled on a user cancel and the
-                        # finally below kills the child.
-                        set_progress(conn, job_id, None)
-                    except JobCancelled:
-                        raise
-                    except Exception:
-                        pass  # liveness is best effort; a DB blip must not kill the tool
+                    # Beat without touching progress; raises
+                    # JobCancelled on a user cancel and the finally
+                    # below kills the child.
+                    tool_beat(conn, job_id, None)
                 if time.time() > deadline:
                     kill_proc(proc)
                     raise RuntimeError(
@@ -333,18 +328,13 @@ def run_long(
                 pct = min(
                     prog_from + int((prog_to - prog_from) * frac), prog_to - 1
                 )
-                try:
-                    # Beat EVERY pass, not only when the percentage
-                    # moved: near the curve's asymptote pct can sit
-                    # still for many minutes, and heartbeat_at is
-                    # what keeps the reclaim sweep from shooting a
-                    # long, healthy grid. pct=None writes just the
-                    # beat. The beat also carries the cancel check.
-                    set_progress(conn, job_id, pct if pct != last else None)
-                except JobCancelled:
-                    raise  # finally kills the child on the way out
-                except Exception:
-                    pass  # progress/liveness is best effort; never fail the job over it
+                # Beat EVERY pass, not only when the percentage moved:
+                # near the curve's asymptote pct can sit still for many
+                # minutes, and heartbeat_at is what keeps the reclaim
+                # sweep from shooting a long, healthy grid. pct=None
+                # writes just the beat. The beat also carries the
+                # cancel check; the finally kills the child on the way out.
+                tool_beat(conn, job_id, pct if pct != last else None)
                 last = pct
                 if time.time() > deadline:
                     kill_proc(proc)
@@ -411,12 +401,7 @@ def run_with_disk_watchdog(
                     and now - last_beat >= POLL_SECONDS
                 ):
                     last_beat = now
-                    try:
-                        set_progress(conn, job_id, None)
-                    except JobCancelled:
-                        raise  # finally kills untwine on the way out
-                    except Exception:
-                        pass  # liveness is best effort
+                    tool_beat(conn, job_id, None)  # finally kills untwine on the way out
                 if time.time() > deadline:
                     kill_proc(proc)
                     raise RuntimeError(
@@ -487,6 +472,29 @@ def require_lease(conn, job_id: str) -> str:
     if not token or not owns_job(conn, job_id, token):
         raise JobLost()
     return token
+
+
+def tool_beat(conn, job_id: str, pct: int | None) -> None:
+    """A beat from inside a tool's wait loop.
+
+    A cancel or a lost lease stops the tool (the caller's finally kills
+    it). A database error is rolled back so later beats can work; a
+    closed connection stops the tool too. Swallowing everything let a
+    reclaimed job run its tool for hours with every beat failing.
+    """
+    try:
+        set_progress(conn, job_id, pct)
+    except (JobCancelled, JobLost):
+        raise
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if getattr(conn, "closed", 0):
+            raise RuntimeError(
+                "Lost the database connection while the tool was running."
+            )
 
 
 def set_progress(conn, job_id: str, pct: int | None) -> None:
@@ -942,6 +950,19 @@ def stamp_target_failed(conn, job, error: str) -> None:
         return
     target = job.get("target_item_id")
     if not target:
+        return
+    # A handler that already stamped its own failure (colorize writes a
+    # plain-language reason, and its own cancel text) keeps it: this
+    # generic stamp used to overwrite it with the raw tool error.
+    try:
+        current = item_data(conn, target)
+    except Exception:
+        current = {}
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    if current.get("processingState") == "failed" and current.get("processingError"):
         return
     try:
         merge_item_data(

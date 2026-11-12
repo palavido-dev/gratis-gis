@@ -501,6 +501,64 @@ def test_plan_grid_chunks_refuses_before_building():
         raise AssertionError("expected a refusal")
 
 
+def test_tool_beat_stops_on_lost_lease_and_closed_connection():
+    sys.modules["psycopg2"].Error = RuntimeError
+
+    class C:
+        closed = 0
+        rolled = 0
+
+        def rollback(self):
+            self.rolled += 1
+
+    orig = runner.set_progress
+    try:
+        runner.set_progress = lambda *a: (_ for _ in ()).throw(runner.JobLost())
+        try:
+            runner.tool_beat(C(), "j", None)
+        except runner.JobLost:
+            pass
+        else:
+            raise AssertionError("JobLost must stop the tool")
+
+        runner.set_progress = lambda *a: (_ for _ in ()).throw(ValueError("blip"))
+        c = C()
+        runner.tool_beat(c, "j", None)  # a blip on a live connection is survived
+        assert c.rolled == 1
+        c.closed = 1
+        try:
+            runner.tool_beat(c, "j", None)
+        except RuntimeError as err:
+            assert "database connection" in str(err)
+        else:
+            raise AssertionError("a closed connection must stop the tool")
+    finally:
+        runner.set_progress = orig
+
+
+def test_failure_stamp_keeps_a_handler_message():
+    calls = []
+
+    class C:
+        def rollback(self):
+            pass
+
+    orig_get, orig_merge = runner.item_data, runner.merge_item_data
+    try:
+        runner.merge_item_data = lambda conn, item, patch: calls.append(patch)
+        runner.item_data = lambda conn, item: {
+            "processingState": "failed",
+            "processingError": "This cloud has no color to borrow.",
+        }
+        runner.stamp_target_failed(C(), {"kind": "hillshade", "target_item_id": "t"}, "raw gdal error")
+        assert calls == [], calls
+        runner.item_data = lambda conn, item: {"processingState": "running"}
+        runner.stamp_target_failed(C(), {"kind": "hillshade", "target_item_id": "t"}, "raw gdal error")
+        assert calls and calls[0]["processingError"] == "raw gdal error"
+    finally:
+        runner.item_data, runner.merge_item_data = orig_get, orig_merge
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -521,4 +579,6 @@ if __name__ == "__main__":
     test_mercator_ground_scale()
     test_zonal_cell_cap()
     test_plan_grid_chunks_refuses_before_building()
+    test_tool_beat_stops_on_lost_lease_and_closed_connection()
+    test_failure_stamp_keeps_a_handler_message()
     print("test_runner_units: all assertions passed")
