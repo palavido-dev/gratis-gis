@@ -12,6 +12,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -350,6 +351,13 @@ export class BackupService implements OnModuleInit {
       }
     }
 
+    if (typeof patch.archiveDirectory === 'string' && patch.archiveDirectory.trim()) {
+      patch = {
+        ...patch,
+        archiveDirectory: this.allowedArchiveDirectory(patch.archiveDirectory.trim()),
+      };
+    }
+
     const row = await this.ensureConfigRow();
     const updated = await this.prisma.backupConfig.update({
       where: { id: row.id },
@@ -510,6 +518,37 @@ export class BackupService implements OnModuleInit {
     if (!Number.isInteger(v) || v < lo || v > hi) {
       throw new Error(`${field} must be an integer between ${lo} and ${hi}`);
     }
+  }
+
+  /**
+   * The archive directory an admin may pick: BACKUP_DIR or a folder
+   * inside it, or inside one of BACKUP_ALLOWED_DIRS (a list separated
+   * by the platform's path delimiter, for an operator who mounts a
+   * second volume). Backups create, fill and prune whatever folder is
+   * set here, so it cannot be an arbitrary path in the container.
+   * Returns the resolved absolute path.
+   */
+  private allowedArchiveDirectory(raw: string): string {
+    const roots = [
+      this.envBackupDir(),
+      ...(this.cfg.get<string>('BACKUP_ALLOWED_DIRS', '') ?? '')
+        .split(path.delimiter)
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .map((d) => path.resolve(d)),
+    ];
+    const dir = path.resolve(raw);
+    const inside = roots.some((root) => {
+      const rel = path.relative(root, dir);
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    });
+    if (!inside) {
+      throw new BadRequestException(
+        `Backups can only be saved in ${roots.join(' or ')}, or a folder inside it. ` +
+          'Ask whoever runs the server to add another location with BACKUP_ALLOWED_DIRS.',
+      );
+    }
+    return dir;
   }
 
   private envBackupDir(): string {
@@ -1329,14 +1368,21 @@ export class BackupService implements OnModuleInit {
         if (!newest || st.mtime > newest) newest = st.mtime;
       }
     } catch (err) {
+      // The raw error names the path and tells "missing" from "no
+      // permission", which turns this into a probe of the server's
+      // file system. The detail goes to the log only.
+      this.log.warn(
+        `Backup health could not read ${cfg.archiveDirectory}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
       return {
         lastArchiveAt: null,
         ageHours: null,
         archiveCount: 0,
         overdue: true,
-        reason: `Could not read the archive directory: ${
-          err instanceof Error ? err.message : err
-        }`,
+        reason:
+          'Could not read the archive directory. Check that it exists and the portal can read it; the server log has the details.',
       };
     }
     if (!newest) {
