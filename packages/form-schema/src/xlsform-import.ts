@@ -173,6 +173,24 @@ export function importXlsForm(
     return candidate;
   }
 
+  // Group and repeat rows carry section logic too (relevant is where
+  // Survey123 usually puts it). They used to `continue` before the
+  // stash below, so it vanished with no warning.
+  const stashContainer = (q: Question, row: Record<string, unknown>, i: number) => {
+    const meta: Record<string, string> = {};
+    for (const key of ['relevant', 'appearance', 'repeat_count'] as const) {
+      const v = row[key];
+      if (typeof v === 'string' && v.trim().length > 0) meta[key] = v.trim();
+    }
+    if (Object.keys(meta).length === 0) return;
+    q.meta = { ...(q.meta ?? {}), xlsform: meta };
+    if (meta.relevant || meta.repeat_count) {
+      warnings.push(
+        `Row ${i + 2} ("${q.label}"): group expressions (relevant / repeat_count) preserved as raw strings on meta.xlsform; re-author in the GratisGIS expression editor.`,
+      );
+    }
+  };
+
   for (let i = 0; i < workbook.survey.length; i += 1) {
     const row = workbook.survey[i];
     if (!row) continue;
@@ -188,6 +206,7 @@ export function importXlsForm(
         label: string;
       };
       q.label = pickLabel(row) || 'Group';
+      stashContainer(q, row as Record<string, unknown>, i);
       const children: Question[] = [];
       (q as unknown as { children: Question[] }).children = children;
       pushTo(q);
@@ -212,6 +231,7 @@ export function importXlsForm(
       // user note: "begin_repeat... we have that, we just implement
       // it differently."
       (q as unknown as { repeat: boolean }).repeat = true;
+      stashContainer(q, row as Record<string, unknown>, i);
       const children: Question[] = [];
       (q as unknown as { children: Question[] }).children = children;
       pushTo(q);
@@ -286,6 +306,11 @@ export function importXlsForm(
     // runtime side based on question type.
     if (typeof row.default === 'string' && row.default.length > 0) {
       (q as unknown as { defaultValue?: unknown }).defaultValue = row.default;
+      // Nothing applies defaultValue when a response starts (only the
+      // designer shows it), so say so rather than imply it works.
+      warnings.push(
+        `Row ${i + 2} ("${q.label}"): default "${row.default}" is kept on the question but is not filled in automatically.`,
+      );
     }
 
     // Stash raw XLSForm expressions on q.meta so the form item

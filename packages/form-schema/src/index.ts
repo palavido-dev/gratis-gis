@@ -1244,7 +1244,7 @@ export type Response = Record<string, unknown>;
  * for tests / designer validation).
  */
 export function evaluate(expr: Expression | undefined, response: Response): unknown {
-  if (!expr) return null;
+  if (!expr || typeof expr !== 'object') return null;
   switch (expr.op) {
     case 'eq':
       return looseEqual(resolve(expr.left, response), resolve(expr.right, response));
@@ -1259,9 +1259,13 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
     case 'lte':
       return cmp(expr.left, expr.right, response) <= 0;
     case 'and':
-      return expr.operands.every((e) => Boolean(evaluate(e, response)));
+      return (Array.isArray(expr.operands) ? expr.operands : []).every((e) =>
+        Boolean(evaluate(e, response)),
+      );
     case 'or':
-      return expr.operands.some((e) => Boolean(evaluate(e, response)));
+      return (Array.isArray(expr.operands) ? expr.operands : []).some((e) =>
+        Boolean(evaluate(e, response)),
+      );
     case 'not':
       return !evaluate(expr.operand, response);
     case 'in': {
@@ -1318,7 +1322,7 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
       return null;
     }
     case 'concat':
-      return expr.operands
+      return (Array.isArray(expr.operands) ? expr.operands : [])
         .map((o) => {
           const v = resolve(o, response);
           return v === null || v === undefined ? '' : String(v);
@@ -1332,10 +1336,15 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
 }
 
 function resolve(operand: Operand, response: Response): unknown {
+  // Saved forms are not shape-checked, and a missing or non-object
+  // operand used to throw (a 500 on submit, a crash in render). It
+  // reads as no value instead.
+  if (!operand || typeof operand !== 'object') return null;
   if ('value' in operand) return operand.value;
   if ('ref' in operand) return response[operand.ref] ?? null;
+  if (!('call' in operand)) return null;
   // builtin call
-  return callBuiltin(operand.call, operand.args ?? [], response);
+  return callBuiltin(operand.call, Array.isArray(operand.args) ? operand.args : [], response);
 }
 
 function numericResolve(operand: Operand, response: Response): number | null {
@@ -1609,35 +1618,6 @@ export function findQuestion(
   return undefined;
 }
 
-/**
- * Compatible question types per data_layer column type. The Field
- * runtime uses this to filter the palette when binding to an
- * existing layer column. Returns the empty set if the column type
- * is unknown to us.
- */
-export function compatibleQuestionTypes(
-  columnType: string,
-): readonly QuestionType[] {
-  const t = columnType.toLowerCase();
-  if (/text|varchar|char/.test(t)) return ['text', 'multiline', 'select-one'];
-  if (/int|smallint|bigint/.test(t)) return ['integer', 'rating', 'slider', 'select-one'];
-  if (/numeric|float|double|real|decimal/.test(t)) {
-    return ['number', 'slider'];
-  }
-  if (/bool/.test(t)) return ['boolean'];
-  if (t.includes('date') && t.includes('time')) return ['datetime'];
-  if (t.includes('time')) return ['time'];
-  if (t.includes('date')) return ['date'];
-  if (/geometry|geography|point/.test(t)) {
-    if (/point/.test(t)) return ['geopoint'];
-    if (/line/.test(t)) return ['geotrace'];
-    if (/polygon/.test(t)) return ['geoshape'];
-    return ['geopoint', 'geotrace', 'geoshape'];
-  }
-  if (/json/.test(t)) return ['select-many', 'multiline'];
-  return [];
-}
-
 // ---------------------------------------------------------------------------
 // Validator
 // ---------------------------------------------------------------------------
@@ -1770,6 +1750,13 @@ function validateQuestionList(
     if (!isVisible(q, response)) continue;
 
     const value = response[q.id];
+    // An unticked acknowledge box is no answer, the same as an
+    // untouched one. Before, ticking then unticking blocked the form
+    // while never touching it let it through.
+    const empty =
+      q.type === 'acknowledge'
+        ? !(value && typeof value === 'object' && (value as { acknowledged?: unknown }).acknowledged === true)
+        : isEmpty(value);
     // A question nothing can answer cannot be required. Enforcing it
     // does not protect the data, it just refuses the submission
     // forever: there is no control on screen to satisfy the rule with,
@@ -1777,7 +1764,7 @@ function validateQuestionList(
     // exist. Everything else about the question still validates.
     if (
       isRequired(q, response) &&
-      isEmpty(value) &&
+      empty &&
       !isUncapturable(q.type)
     ) {
       errors.push({
@@ -1792,7 +1779,7 @@ function validateQuestionList(
       !(q.type === 'matrix-single' && q.perRowRequired) &&
       !(q.type === 'matrix-multi' && q.perRowMinSelected) &&
       !(q.type === 'matrix-rating' && q.perRowRequired);
-    if (isEmpty(value) && skipIfEmpty) continue;
+    if (empty && skipIfEmpty) continue;
 
     const typeError = validateType(q, value);
     if (typeError) {
@@ -1977,9 +1964,20 @@ function validateType(q: Question, value: unknown): string | null {
       return null;
     case 'select-one':
       if (typeof value !== 'string') return 'Pick one option.';
+      // Membership only for inline choices; a pick list is resolved
+      // at runtime and is not in the schema.
+      if (!q.pickListId && Array.isArray(q.choices) && q.choices.length > 0) {
+        if (!q.choices.some((c) => c.value === value)) return 'Pick one of the options.';
+      }
       return null;
     case 'select-many': {
       if (!Array.isArray(value)) return 'Pick from the options.';
+      if (!q.pickListId && Array.isArray(q.choices) && q.choices.length > 0) {
+        const allowed = new Set(q.choices.map((c) => c.value));
+        if (value.some((v) => typeof v !== 'string' || !allowed.has(v))) {
+          return 'Pick from the options.';
+        }
+      }
       if (q.minSelected !== undefined && value.length < q.minSelected) {
         return `Pick at least ${q.minSelected}.`;
       }
@@ -2116,16 +2114,36 @@ function validateType(q: Question, value: unknown): string | null {
       return null;
     }
     case 'date':
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return 'Expected a date (YYYY-MM-DD).';
+      }
+      return null;
     case 'time':
+      if (typeof value !== 'string' || !/^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) {
+        return 'Expected a time (HH:MM).';
+      }
+      return null;
     case 'datetime':
-      if (typeof value !== 'string') return 'Expected a valid value.';
+      if (
+        typeof value !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ||
+        Number.isNaN(Date.parse(value))
+      ) {
+        return 'Expected a date and time.';
+      }
       return null;
     case 'name': {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return 'Expected a name object.';
       }
       const map = value as Record<string, unknown>;
-      const reqd = q.requiredComponents ?? (q.required ? ['first', 'last'] : []);
+      // Default to the shown components only: a hidden Last name was
+      // demanded with no input on screen. A rule-based `required` is
+      // checked by the caller; only a plain `true` implies parts here.
+      const shown = (q.components ?? ['first', 'last']).filter(
+        (c) => c === 'first' || c === 'last',
+      );
+      const reqd = q.requiredComponents ?? (q.required === true ? shown : []);
       for (const c of reqd) {
         const v = map[c];
         if (typeof v !== 'string' || v.trim() === '') {
@@ -2296,11 +2314,36 @@ function validateType(q: Question, value: unknown): string | null {
       }
       return 'Expected a signature image.';
     }
-    case 'geopoint':
+    case 'geopoint': {
+      const p = value as { lat?: unknown; lng?: unknown };
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        typeof p.lat !== 'number' ||
+        typeof p.lng !== 'number' ||
+        !Number.isFinite(p.lat) ||
+        !Number.isFinite(p.lng) ||
+        Math.abs(p.lat) > 90 ||
+        Math.abs(p.lng) > 180
+      ) {
+        return 'Expected a location.';
+      }
+      return null;
+    }
+    case 'rating': {
+      const max = q.max ?? 5;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > max) {
+        return `Expected a rating from 1 to ${max}.`;
+      }
+      return null;
+    }
+    case 'slider':
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < q.min || value > q.max) {
+        return `Expected a number from ${q.min} to ${q.max}.`;
+      }
+      return null;
     case 'geotrace':
     case 'geoshape':
-    case 'rating':
-    case 'slider':
     case 'calculated':
       return null;
     case 'pick-feature': {

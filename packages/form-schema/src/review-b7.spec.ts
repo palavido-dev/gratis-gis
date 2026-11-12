@@ -7,6 +7,8 @@ import {
   withEvaluationClock,
   type FormSchema,
 } from './index.js';
+import { generateFormFromLayer } from './from-layer.js';
+import { importXlsForm } from './xlsform-import.js';
 
 const form = (questions: unknown[]): FormSchema =>
   ({ schemaVersion: 1, id: 'f', title: 'F', questions }) as unknown as FormSchema;
@@ -100,5 +102,75 @@ describe('applyCalculations', () => {
     const first = applyCalculations(schema, {});
     expect(typeof first.at).toBe('string');
     expect(applyCalculations(schema, first)).toBe(first);
+  });
+});
+
+describe('minor validation fixes', () => {
+  it('name: a hidden Last name is not demanded', () => {
+    const schema = form([{ id: 'n', type: 'name', label: 'N', required: true, components: ['first'] }]);
+    expect(validate(schema, { n: { first: 'Ana' } }).ok).toBe(true);
+  });
+
+  it('acknowledge: unticked counts as unanswered, like untouched', () => {
+    const schema = form([{ id: 'a', type: 'acknowledge', label: 'A', required: true }]);
+    expect(validate(schema, {}).ok).toBe(false);
+    expect(validate(schema, { a: { acknowledged: false } }).ok).toBe(false);
+    expect(validate(schema, { a: { acknowledged: true } }).ok).toBe(true);
+    const optional = form([{ id: 'a', type: 'acknowledge', label: 'A' }]);
+    expect(validate(optional, { a: { acknowledged: false } }).ok).toBe(true);
+  });
+
+  it('malformed expressions read as no value instead of throwing', () => {
+    expect(() => evaluate({ op: 'and' } as never, {})).not.toThrow();
+    expect(() => evaluate({ op: 'eq', left: { ref: 'x' } } as never, {})).not.toThrow();
+  });
+
+  it('checks values the types promise', () => {
+    const schema = form([
+      { id: 's', type: 'select-one', label: 'S', choices: [{ value: 'a', label: 'A' }] },
+      { id: 'r', type: 'rating', label: 'R', max: 5 },
+      { id: 'sl', type: 'slider', label: 'Sl', min: 0, max: 10 },
+      { id: 'd', type: 'date', label: 'D' },
+      { id: 'g', type: 'geopoint', label: 'G' },
+    ]);
+    expect(validate(schema, { s: 'a', r: 4, sl: 5, d: '2026-11-12', g: { lat: 1, lng: 2 } }).ok).toBe(true);
+    expect(validate(schema, { s: 'zz' }).ok).toBe(false);
+    expect(validate(schema, { r: 999 }).ok).toBe(false);
+    expect(validate(schema, { sl: 11 }).ok).toBe(false);
+    expect(validate(schema, { d: 'not a date' }).ok).toBe(false);
+    expect(validate(schema, { g: { any: 1 } }).ok).toBe(false);
+  });
+
+  it('generated layer forms skip server-stamped columns', () => {
+    const f = generateFormFromLayer(
+      {
+        key: 'l',
+        fields: [
+          { name: 'submitted_at', type: 'date', nullable: false },
+          { name: 'note', type: 'string' },
+        ],
+      } as never,
+      { dataLayerId: 'x', formId: 'f' } as never,
+    );
+    const ids = JSON.stringify(f.questions);
+    expect(ids).not.toContain('submitted_at');
+    expect(ids).toContain('note');
+  });
+
+  it('XLSForm group relevant is kept and warned about', () => {
+    const out = importXlsForm(
+      {
+        survey: [
+          { type: 'begin_group', name: 'g', label: 'G', relevant: "${x} = 'yes'" },
+          { type: 'text', name: 't', label: 'T' },
+          { type: 'end_group' },
+        ],
+        choices: [],
+        settings: [],
+      } as never,
+      { itemId: 'i' },
+    );
+    expect(JSON.stringify(out.schema.questions)).toContain('relevant');
+    expect(out.warnings.join(' ')).toMatch(/group expressions/);
   });
 });
