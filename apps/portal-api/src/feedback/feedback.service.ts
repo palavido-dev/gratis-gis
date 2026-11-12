@@ -171,6 +171,7 @@ export class FeedbackService {
       `feedback stored id=${row.id} from=${input.email ?? '(anonymous)'} ` +
         // Control characters stripped: pageUrl comes from anonymous
         // callers, and a newline in it could forge a whole log line.
+        // eslint-disable-next-line no-control-regex
         `page="${truncate((input.pageUrl ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '), 80)}" len=${input.message.length}` +
         `${screenshotKey ? ' +screenshot' : ''}`,
     );
