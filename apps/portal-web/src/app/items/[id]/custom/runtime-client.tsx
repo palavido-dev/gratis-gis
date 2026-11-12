@@ -192,8 +192,8 @@ import {
  *   - Text: markdown-rendered. Tiny inline parser (bold + italic +
  *     links + lists + headings) keeps the bundle small.
  *
- * Chart is a deferred placeholder; the runtime renders it as a
- * "ships next" tile rather than a broken widget.
+ * Chart: server-side aggregates (bar, line, pie, binned
+ *   histograms) drawn with Recharts.
  *
  * Architecture:
  *
@@ -5601,84 +5601,6 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 }
 
-function ChartCanvas({
-  rows,
-  cfg,
-}: {
-  rows: Array<{ id: string | number; props: Record<string, unknown> }>;
-  cfg: Extract<CustomWidget['config'], { kind: 'chart' }>;
-}) {
-  // Aggregate. Group rows by `groupBy` value, then apply `aggregate`
-  // per bucket. 'count' is the only aggregate that doesn't need a
-  // value field; everything else falls back to count if valueField
-  // is missing or non-numeric (the runtime warns inline rather than
-  // throwing).
-  const aggregated = useMemo(() => {
-    const groupBy = cfg.groupBy ?? '';
-    const aggregate = cfg.aggregate ?? 'count';
-    const valueField = cfg.valueField ?? '';
-    const buckets = new Map<string, number[]>();
-    for (const row of rows) {
-      const groupRaw = groupBy ? row.props[groupBy] : '(all)';
-      const groupKey =
-        groupRaw === undefined || groupRaw === null ? '(missing)' : String(groupRaw);
-      const valueRaw =
-        aggregate === 'count' ? 1 : valueField ? row.props[valueField] : 1;
-      const num =
-        typeof valueRaw === 'number' && Number.isFinite(valueRaw)
-          ? valueRaw
-          : Number(valueRaw);
-      const arr = buckets.get(groupKey) ?? [];
-      if (Number.isFinite(num)) arr.push(num);
-      buckets.set(groupKey, arr);
-    }
-    const out: Array<{ name: string; value: number }> = [];
-    for (const [name, vals] of buckets) {
-      if (vals.length === 0) continue;
-      let value: number;
-      switch (aggregate) {
-        case 'count':
-          value = vals.length;
-          break;
-        case 'sum':
-          value = vals.reduce((a, b) => a + b, 0);
-          break;
-        case 'avg':
-          value = vals.reduce((a, b) => a + b, 0) / vals.length;
-          break;
-        case 'min':
-          value = Math.min(...vals);
-          break;
-        case 'max':
-          value = Math.max(...vals);
-          break;
-        default:
-          value = vals.length;
-      }
-      out.push({ name, value });
-    }
-    // Stable order: bar / pie sort by value desc; line keeps insert
-    // order so a numeric x-axis renders monotonically.
-    if (cfg.chartType !== 'line') out.sort((a, b) => b.value - a.value);
-    return out;
-  }, [rows, cfg.groupBy, cfg.aggregate, cfg.valueField, cfg.chartType]);
-
-  if (aggregated.length === 0) {
-    return (
-      <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
-        No data to chart. Bind a target with at least one feature
-        and pick a group-by field.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex-1 p-2">
-      <ChartPlot rows={aggregated} kind={cfg.chartType} />
-    </div>
-  );
-}
-
 /**
  * The actual chart. Lazy-evaluated against Recharts so the import
  * sits inside the function body where bundlers can tree-shake when
@@ -6327,10 +6249,15 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
         </div>
       ) : (
         <select
-          value={activeIndex}
+          // -2: this control's own pick is no longer among the options
+          // (the map moved, the time changed). It is shown as its own
+          // entry so the box does not read "All" while the filter is
+          // on, and choosing "All" can still clear it.
+          value={mine && activeIndex === -1 ? -2 : activeIndex}
           disabled={state.loading && state.options.length === 0}
           onChange={(e) => {
             const i = Number(e.target.value);
+            if (i === -2) return;
             if (i === -1) {
               // "All values": clear this widget's own selection by
               // re-toggling it; a selection owned elsewhere is not
@@ -6348,6 +6275,9 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
               ? t('customRuntime.common.loadingEllipsis')
               : `All ${label ? label.toLowerCase() : 'values'}`}
           </option>
+          {mine && activeIndex === -1 ? (
+            <option value={-2}>{displayOf(mine.value as string | null)}</option>
+          ) : null}
           {state.options.map((o, i) => (
             <option key={i} value={i}>
               {displayOf(o.value)}
