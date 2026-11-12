@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type RefObject,
   type SetStateAction,
 } from 'react';
@@ -2829,6 +2830,13 @@ function LayerRowKebabMenu({
   const [symbologyOpen, setSymbologyOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const wrapperRef = useRef<HTMLSpanElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu is placed with viewport coordinates, so it is portaled
+  // out to the runtime container.  Rendered in place, a LayerList
+  // opened as a toolbar tool sits in a scaled, overflow-hidden
+  // popover, which becomes the containing block for `fixed`: the menu
+  // landed offset by the popover's position and was clipped.
+  const runtimeContainer = useContext(CustomMapsContext)?.runtimeContainerRef.current ?? null;
 
   // Eligibility per-action. Inline FCs get the full set; non-inline
   // (data-layer, arcgis-rest, wms, etc) get Symbology + Properties
@@ -2852,7 +2860,8 @@ function LayerRowKebabMenu({
       if (
         wrapperRef.current &&
         e.target instanceof Node &&
-        !wrapperRef.current.contains(e.target)
+        !wrapperRef.current.contains(e.target) &&
+        !menuRef.current?.contains(e.target)
       ) {
         setMenuOpen(false);
         setPos(null);
@@ -2898,7 +2907,9 @@ function LayerRowKebabMenu({
       </button>
 
       {menuOpen && pos ? (
+        maybePortal(
         <div
+          ref={menuRef}
           role="menu"
           aria-label={`Actions for ${layer.title}`}
           style={{
@@ -3019,7 +3030,9 @@ function LayerRowKebabMenu({
               </button>
             </>
           ) : null}
-        </div>
+        </div>,
+        runtimeContainer,
+        )
       ) : null}
 
       {propsOpen ? (
@@ -3411,7 +3424,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBasemaps')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-1.5 p-2">
-          {visibleBasemaps.map((b) => (
+          {visibleBasemaps.map((b, i) => (
             <li key={b.id}>
               <button
                 type="button"
@@ -3439,11 +3452,26 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
                     MapLibre canvases, only mounted while the
                     picker is open. */}
                 <div className="h-12 w-full overflow-hidden rounded">
-                  <BasemapPreview
-                    data={customBasemapToData(b)}
-                    ariaLabel={`Preview of ${b.label}`}
-                    className="h-full w-full"
-                  />
+                  {/* Each live preview is its own WebGL context, and
+                      browsers drop the oldest context past roughly
+                      16 per page, which is the app's main map.  So
+                      only the first few are live; the rest use the
+                      item thumbnail. */}
+                  {i < MAX_LIVE_BASEMAP_PREVIEWS ? (
+                    <BasemapPreview
+                      data={customBasemapToData(b)}
+                      ariaLabel={`Preview of ${b.label}`}
+                      className="h-full w-full"
+                    />
+                  ) : b.thumbnailUrl ? (
+                    <img
+                      src={b.thumbnailUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-[hsl(var(--app-surface-2))]" />
+                  )}
                 </div>
                 <span className="truncate text-[hsl(var(--app-ink-1))]">{b.label}</span>
               </button>
@@ -3454,6 +3482,15 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
     </WidgetFrame>
   );
 }
+
+/** Portal `node` into `target` when there is one, else render it in
+ *  place. */
+function maybePortal(node: ReactNode, target: Element | null): ReactNode {
+  return target ? createPortal(node, target) : node;
+}
+
+/** Live MapLibre previews the basemap gallery mounts at most. */
+const MAX_LIVE_BASEMAP_PREVIEWS = 8;
 
 // ---- Search widget ---------------------------------------------------------
 
