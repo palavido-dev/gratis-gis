@@ -619,11 +619,10 @@ export function CustomAppDetail({
   }, [app.themePresetId, themeItems]);
 
   // #22: capture the currently-applied theme tokens and stamp them
-  // as a new `theme` item.  Reads from the live CSS variables on
-  // the document root rather than the source tokens object so an
-  // author who customized via the older theme.accent / theme.bg
-  // block also captures those overrides.  Opens the new theme
-  // item in a new tab.
+  // as a new `theme` item.  Takes the resolved preset tokens (the
+  // selected theme item, else the built-in preset), so overrides
+  // made through the older theme.accent / theme.bg block are not
+  // captured.  Opens the new theme item in a new tab.
   const [savingAsTheme, setSavingAsTheme] = useState(false);
   const onSaveAsTheme = useCallback(async () => {
     setSavingAsTheme(true);
@@ -671,7 +670,6 @@ export function CustomAppDetail({
     resolvedThemeTokens,
     themeOptions,
   ]);
-  void savingAsTheme;
 
   const updatePage = useCallback(
     (idx: number, patch: Partial<CustomPage>) => {
@@ -885,9 +883,9 @@ export function CustomAppDetail({
           ),
         };
       });
-      // Select the new widget so the right rail shows it. For tab-
-      // routed drops, select the freshly-added child id; the parent
-      // tabs widget stays the click target on canvas.
+      // Select the new widget so the right rail shows it. A drop
+      // routed into a tab selects nothing; the tabs widget stays the
+      // click target on canvas.
       setSelectedWidgetId(routedToTab ? null : widget.id);
       setDirty(true);
     },
@@ -1103,6 +1101,7 @@ export function CustomAppDetail({
       }}
       onPickMap={() => setPickingMap({ scope: 'app' })}
       onSaveAsTheme={onSaveAsTheme}
+      savingAsTheme={savingAsTheme}
     />
   );
 
@@ -1944,7 +1943,7 @@ const GAP_PX = 1.5;
 /**
  * Floor for the canvas's working width. On viewports narrower than
  * this the designer pane scrolls horizontally instead of squeezing
- * the 48-column grid into a sliver. The earlier 1400px fixed-width
+ * the 192-column grid into a sliver. The earlier 1400px fixed-width
  * experiment was reverted (broke narrow viewports + made wide
  * displays cramped); the new model is responsive container widgets
  * inside a flexible grid, so the grid's min-width is just a
@@ -2153,10 +2152,7 @@ function Canvas({
   // Compute the canvas's grid extent from the widgets' bottom-most
   // row so dropping a widget below the current content extends the
   // canvas naturally. Always at least 12 rows so a fresh app has
-  // room to drop into.  #98: partitioned containers are excluded
-  // because their grid layout is ignored at render time -- counting
-  // their (often arbitrary, e.g. 16 or 240) rowSpan would inflate
-  // the grid height for no visual reason.
+  // room to drop into.
   // #80: the RUNTIME's row formula, verbatim (see totalRows in
   // CustomRuntimeClient). The designer used to run fixed 3px rows
   // with its own row count, which meant a rowSpan bought a
@@ -3225,10 +3221,8 @@ function WidgetCard({
         </>
       )}
       {/* Resize handles -- only visible when the widget is selected
-          AND the user can edit. Three handles cover the common cases
-          (right edge for width, bottom edge for height, bottom-right
-          corner for both). 8-handle resize can come if anyone
-          actually misses it. Each handle stops propagation so the
+          AND the user can edit. Eight handles: four edges and four
+          corners (#97). Each handle stops propagation so the
           mousedown doesn't fall through to the body's move gesture. */}
       {selected && canEdit && <ResizeHandles onResizeStart={onResizeStart} />}
     </div>
@@ -3510,44 +3504,6 @@ async function discoverMapTargets(mapId: string): Promise<TargetCandidate[]> {
 }
 
 /**
- * Friendly name for a target row: the sublayer's label from its
- * data_layer item, cached across renders. Falls back to the raw
- * ids while loading or if the item is gone.
- */
-function TargetLabel({
-  dataLayerId,
-  layerKey,
-}: {
-  dataLayerId: string;
-  layerKey: string;
-}) {
-  const [label, setLabel] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/portal/items/${dataLayerId}`);
-        if (!res.ok || cancelled) return;
-        const item = (await res.json()) as {
-          title?: string;
-          data?: { layers?: Array<{ id?: string; label?: string }> };
-        };
-        const sub = item.data?.layers?.find((l) => l.id === layerKey);
-        if (!cancelled) {
-          setLabel(sub?.label ? `${item.title} · ${sub.label}` : item.title ?? null);
-        }
-      } catch {
-        /* keep the fallback */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [dataLayerId, layerKey]);
-  return <>{label ?? `${dataLayerId.slice(0, 8)} / ${layerKey}`}</>;
-}
-
-/**
  * "Add editable layer" control: lists the data layers in the app's
  * map that aren't already editable, one click adds one. This is the
  * discoverable replacement for the old "add via the Map widget in
@@ -3642,6 +3598,7 @@ function AppProperties({
   onClearMap,
   onPickMap,
   onSaveAsTheme,
+  savingAsTheme,
 }: {
   app: CustomAppData;
   page: CustomPage;
@@ -3667,6 +3624,9 @@ function AppProperties({
   onClearMap: () => void;
   onPickMap: () => void;
   onSaveAsTheme: () => void;
+  /** True while a save-as-theme request is in flight; the button is
+   *  disabled so a double click cannot create two theme items. */
+  savingAsTheme: boolean;
 }) {
   const sources = app.sources ?? [];
   return (
@@ -3765,13 +3725,9 @@ function AppProperties({
           label="Theme"
           hint="Visual preset applied to every widget inside the app. Pick from your org's catalog or save the current look as a new theme."
         >
-          {themeOptions.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border bg-surface-1 px-2 py-1.5 text-xs text-muted">
-              No theme items in your org yet. Ask an admin to restore
-              starter themes via Admin &rarr; Housekeeping.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-1.5">
+          {/* themeOptions is never empty: it falls back to the
+              built-in starter list when the org has no theme items. */}
+          <div className="grid grid-cols-1 gap-1.5">
               {themeOptions.map((opt) => {
                 // Match either by the user-saved item id or by the
                 // starter kind (back-compat with apps saved before
@@ -3813,11 +3769,10 @@ function AppProperties({
                   </button>
                 );
               })}
-            </div>
-          )}
+          </div>
           <button
             type="button"
-            disabled={!canEdit}
+            disabled={!canEdit || savingAsTheme}
             onClick={onSaveAsTheme}
             className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -4236,8 +4191,8 @@ function WidgetProperties({
           </Field>
         </div>
         <p className="text-xs leading-snug text-muted">
-          Drag the widget on the canvas to move; drag the right,
-          bottom, or corner handles to resize. Or enter cells here.
+          Drag the widget on the canvas to move; drag any edge or
+          corner handle to resize. Or enter cells here.
         </p>
         <label className="flex items-start gap-2 text-xs text-ink-1">
           <input
