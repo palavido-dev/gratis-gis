@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { loadBatchesResumable } from './samples.service.js';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { gunzip } from 'node:zlib';
+
+const gunzipAsync = promisify(gunzip);
 
 import {
   ForbiddenException,
@@ -184,11 +188,11 @@ export class ShowcaseService {
     for (const spec of catalog.items) {
       if (spec.access === 'private') continue;
       const row = made.find((item) => item.id === ids.get(spec.key));
-      if (!row) continue;
-      const current = row.wasCreated ? 'private' : row.access;
-      if (current !== spec.access) {
-        await this.items.update(user, row.id, { access: spec.access });
-      }
+      // Only a freshly created item gets its tier. One that already
+      // existed keeps what its owner set; re-running the seed must not
+      // re-publish an item someone made private.
+      if (!row || !row.wasCreated) continue;
+      await this.items.update(user, row.id, { access: spec.access });
     }
 
     this.log.log(
@@ -203,26 +207,22 @@ export class ShowcaseService {
     layerId: string,
     file: string,
   ): Promise<void> {
-    const current = await this.features.listFeatures(itemId, layerId, {
-      limit: 1,
-    });
-    if (current.features.length > 0) return;
+    // Inflated off the event loop. Batches resume where an earlier,
+    // interrupted run stopped instead of leaving the layer partial.
     const parsed = JSON.parse(
-      gunzipSync(await readFile(file)).toString('utf8'),
+      (await gunzipAsync(await readFile(file))).toString('utf8'),
     ) as { features?: Array<{ id?: string; properties?: unknown; geometry?: unknown }> };
     const features = parsed.features ?? [];
-    const BATCH = 1000;
-    for (let i = 0; i < features.length; i += BATCH) {
-      await this.features.insertFeatures(
-        itemId,
-        layerId,
-        features.slice(i, i + BATCH).map((feature) => ({
-          globalId: deterministicSampleUuid(`${itemId}:${feature.id ?? i}`),
-          geometry: feature.geometry as Record<string, unknown>,
-          properties: (feature.properties ?? {}) as Record<string, unknown>,
-        })),
-        user,
-      );
-    }
+    await loadBatchesResumable({
+      features: this.features,
+      user,
+      itemId,
+      layerId,
+      rows: features.map((feature, i) => ({
+        globalId: deterministicSampleUuid(`${itemId}:${feature.id ?? i}`),
+        geometry: feature.geometry as Record<string, unknown>,
+        properties: (feature.properties ?? {}) as Record<string, unknown>,
+      })),
+    });
   }
 }

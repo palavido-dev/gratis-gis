@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { hasCapability } from '../auth/capabilities.js';
+import { Prisma } from '@prisma/client';
 import {
   BadRequestException,
   Body,
@@ -33,7 +35,11 @@ import { publicTierGeoLimit } from '../public/public-geo-limit.js';
 import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import type { AssetKind } from './storage.service.js';
 import { StorageService } from './storage.service.js';
-import { recordUploadGrant } from './key-ownership.js';
+import {
+  LARGE_UPLOAD_KINDS,
+  assertLargeGrantRoom,
+  recordUploadGrant,
+} from './key-ownership.js';
 import { contentDisposition } from '../common/content-disposition.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
@@ -81,11 +87,12 @@ const KEY_SHAPE =
 
 /**
  * Minting presigned URLs requires a valid auth token (the global JWT
- * guard handles that). Beyond auth, we don't gate by role here: any
- * authenticated user may upload imagery for entities they own, and the
- * PATCH endpoint that persists the URL is where we enforce ownership.
- * A leaked presigned URL just lets someone burn 5 MB of our storage,
- * which is a 60-second window and a clear abuse signal if it happens.
+ * guard handles that). Small kinds (avatars, thumbnails, attachments)
+ * are open to any signed-in user; the PATCH or attach that persists
+ * the key is where ownership is enforced. The large kinds (tile
+ * layers and point clouds, up to 8 GB per URL) need the publish
+ * capability, since only a contributor can create the item they
+ * belong to, and a user may hold only a few such URLs at once.
  */
 @ApiTags('storage')
 @ApiBearerAuth()
@@ -120,6 +127,12 @@ export class StorageController {
     @CurrentUser() user: AuthUser,
     @Body() dto: PresignUploadDto,
   ) {
+    if (LARGE_UPLOAD_KINDS.has(dto.kind) && !hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Uploading tile layers and point clouds needs a contributor or admin role.',
+      );
+    }
+    await assertLargeGrantRoom(this.prisma, dto.kind, user.id);
     let signed;
     try {
       signed = await this.storage.presignUpload(
@@ -260,20 +273,28 @@ export class StorageController {
       // Both `item.data->>'storageKey'` and `item.storageRef` get
       // checked because different item types persist the key in
       // different places.
-      const item = await this.prisma.item.findFirst({
-        where: {
-          OR: [
-            { storageRef: storageKey },
-            { data: { path: ['storageKey'], equals: storageKey } },
-            { data: { path: ['pmtilesStorageKey'], equals: storageKey } },
-            { data: { path: ['cogStorageKey'], equals: storageKey } },
-          ],
-          deletedAt: null,
-        },
-        // Oldest row decides, as for attachments above.
-        orderBy: { createdAt: 'asc' },
-        select: { id: true, type: true, data: true, access: true },
-      });
+      //
+      // Containment (`@>`) is what the item_data_gin index serves, and
+      // storage_ref has its own index, so this is a pair of index
+      // probes. The JSON path equality used before matched the same
+      // rows but scanned and detoasted every item on each download.
+      const owners = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM "item"
+        WHERE deleted_at IS NULL
+          AND (
+            storage_ref = ${storageKey}
+            OR data_json @> jsonb_build_object('storageKey', ${storageKey}::text)
+            OR data_json @> jsonb_build_object('pmtilesStorageKey', ${storageKey}::text)
+            OR data_json @> jsonb_build_object('cogStorageKey', ${storageKey}::text)
+          )
+        ORDER BY created_at ASC
+        LIMIT 1`);
+      const item = owners[0]
+        ? await this.prisma.item.findUnique({
+            where: { id: owners[0].id },
+            select: { id: true, type: true, data: true, access: true },
+          })
+        : null;
       if (!item) throw new NotFoundException('File not found');
       // Pull the filename when present in item.data.
       const data = (item.data ?? {}) as Record<string, unknown>;

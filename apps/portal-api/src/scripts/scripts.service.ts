@@ -254,10 +254,24 @@ export class ScriptsService {
     if (!item || item.type !== 'script') {
       throw new NotFoundException('Script not found.');
     }
+    // Summary columns only. The log, source snapshot and executed
+    // notebook can be megabytes each and the summary uses none of
+    // them; the panel polls this while a run is live.
     const rows = await this.prisma.scriptRun.findMany({
       where: { scriptId },
       orderBy: { createdAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 100),
+      select: {
+        id: true,
+        scriptId: true,
+        state: true,
+        trigger: true,
+        exitCode: true,
+        error: true,
+        createdAt: true,
+        startedAt: true,
+        finishedAt: true,
+      },
     });
     return rows.map(toSummary);
   }

@@ -387,7 +387,16 @@ export class StorageService implements OnModuleInit {
     // run multi-GB on slow uplinks, so they get the longer 600s
     // window.
     const expiresIn = isTileLayer || isPointCloud ? 600 : anyMime ? 180 : 60;
-    const uploadUrl = await getSignedUrl(this.presignClient, cmd, { expiresIn });
+    // Sign the Content-Type as well as the size. The presigner leaves
+    // content-type out of the signed headers by default, so the
+    // image-only rule on the public prefixes was advice: a PUT could
+    // send text/html to a URL presigned for image/png and the bucket
+    // would serve it as HTML. Signed, a different type fails the
+    // signature check. Every client sends the type it presigned.
+    const uploadUrl = await getSignedUrl(this.presignClient, cmd, {
+      expiresIn,
+      signableHeaders: new Set(['content-type']),
+    });
     // Private-kind objects are served back through the api with a
     // sharing check (the bucket policy no longer permits anonymous
     // GET on those prefixes).  Public-kind objects (thumbnails,
