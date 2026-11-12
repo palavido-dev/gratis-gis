@@ -66,6 +66,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   build API addresses from saved item data now check those ids before
   any request is sent, and the API refuses to store a reference that is
   not a plain id.
+- GDAL in portal-api no longer loads the drivers that read other files
+  or URLs named inside a file (VRT, tile index, web service
+  descriptions), so an upload cannot make the server fetch anything.
+  Raster tile uploads must also be real GeoTIFF or JPEG 2000 files,
+  checked by their first bytes, and every GDAL command reads them with
+  that one driver.
 
 ## [1.4.2] - 2026-11-11
 

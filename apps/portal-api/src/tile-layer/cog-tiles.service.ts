@@ -124,7 +124,7 @@ export class CogTileService {
     // tiles sharing a path would overwrite each other's bytes.
     const token = randomUUID();
     try {
-      src = await gdal.openAsync(`/vsis3/${bucket}/${source.storageKey}`);
+      src = await gdal.openAsync(`/vsis3/${bucket}/${source.storageKey}`, 'r', ['GTiff']);
       const bandCount = src.bands.count();
       const dataType = String(src.bands.get(1).dataType);
       const lastInterp = String(

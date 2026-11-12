@@ -11,6 +11,8 @@ import { crc32, createInflateRaw } from 'node:zlib';
 
 import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
 
+import { rasterMagicMatches } from '../ingest/gdal-open-guard.js';
+
 /**
  * Tile container conversion pipeline (#179).
  *
@@ -316,6 +318,18 @@ export const convertToPmtiles = convertUpload;
  * imagery can re-encode later; v1 picks the safe choice rather
  * than trying to guess from band structure.
  */
+/** First `n` bytes of a file (fewer when the file is shorter). */
+async function readFileHead(path: string, n: number): Promise<Buffer> {
+  const fh = await open(path, 'r');
+  try {
+    const buf = Buffer.alloc(n);
+    const { bytesRead } = await fh.read(buf, 0, n, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
+
 async function runCogConversion(
   download: TileSourceDownloader,
   fileName: string,
@@ -326,6 +340,21 @@ async function runCogConversion(
 
   const inputPath = join(workDir, sanitizeFileName(fileName));
   await download(inputPath);
+
+  // The name says GeoTIFF or JPEG 2000; make the bytes agree, and pin
+  // GDAL to that one driver. GDAL picks a driver from content, so a
+  // VRT saved as x.tif opened as VRT and fetched whatever its sources
+  // named (internal URLs, other stored objects).
+  const magic = originalFormat === 'jp2' ? 'jp2' : 'tiff';
+  const head = await readFileHead(inputPath, 16);
+  if (!rasterMagicMatches(magic, head)) {
+    throw new Error(
+      magic === 'jp2'
+        ? 'This file is not a JPEG 2000 image.'
+        : 'This file is not a GeoTIFF. Upload a real .tif file.',
+    );
+  }
+  const inputDriver = ['-if', magic === 'jp2' ? 'JP2OpenJPEG' : 'GTiff'];
 
   let outputPath = join(workDir, 'out.tif');
 
@@ -338,7 +367,7 @@ async function runCogConversion(
   // the check cannot false-positive on a plain tiled GTiff.
   let passthroughCog = false;
   try {
-    const preInfo = await runCommandCapture('gdalinfo', ['-json', inputPath]);
+    const preInfo = await runCommandCapture('gdalinfo', [...inputDriver, '-json', inputPath]);
     const pre = JSON.parse(preInfo) as GdalInfoJson;
     const wkt = pre.coordinateSystem?.wkt ?? '';
     if (
@@ -363,6 +392,7 @@ async function runCogConversion(
     //   -co BIGTIFF=IF_SAFER    auto-promote to BigTIFF if >4GB
     //   -co RESAMPLING=BILINEAR pyramid overviews use bilinear
     await runCommand('gdalwarp', [
+      ...inputDriver,
       '-t_srs', 'EPSG:3857',
       '-of', 'COG',
       '-co', 'COMPRESS=DEFLATE',
@@ -385,7 +415,7 @@ async function runCogConversion(
   let maxZoom: number | undefined;
   let bandCount: number | undefined;
   try {
-    const info = await runCommandCapture('gdalinfo', ['-json', outputPath]);
+    const info = await runCommandCapture('gdalinfo', ['-if', 'GTiff', '-json', outputPath]);
     const parsed = JSON.parse(info) as GdalInfoJson;
     if (parsed.wgs84Extent?.coordinates?.[0]) {
       const ring = parsed.wgs84Extent.coordinates[0];

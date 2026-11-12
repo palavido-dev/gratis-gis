@@ -129,6 +129,33 @@ export function assertAllowedGdalDriver(driverDescription: string): void {
   }
 }
 
+/**
+ * Raster drivers a user raster upload may be opened with. GeoTIFF and
+ * JPEG 2000 only, the formats the tile-layer converter accepts. Never
+ * VRT: a VRT names other files or URLs as its sources, so a "GeoTIFF"
+ * whose bytes are a VRT made the server fetch internal URLs and read
+ * other stored objects with its own storage credentials.
+ */
+export const RASTER_UPLOAD_DRIVERS = ['GTiff', 'JP2OpenJPEG'] as const;
+
+/**
+ * Check the first bytes of a raster upload against the format its name
+ * claims. TIFF: II*\0, MM\0*, BigTIFF II+\0 / MM\0+. JPEG 2000: the JP2
+ * signature box or a bare J2K codestream. Returns false for anything
+ * else (a VRT starts with `<`).
+ */
+export function rasterMagicMatches(format: 'tiff' | 'jp2', head: Buffer): boolean {
+  if (format === 'tiff') {
+    if (head.length < 4) return false;
+    const le = head[0] === 0x49 && head[1] === 0x49 && head[3] === 0x00 && (head[2] === 0x2a || head[2] === 0x2b);
+    const be = head[0] === 0x4d && head[1] === 0x4d && head[2] === 0x00 && (head[3] === 0x2a || head[3] === 0x2b);
+    return le || be;
+  }
+  const jp2Box = Buffer.from([0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+  if (head.length >= 12 && head.subarray(0, 12).equals(jp2Box)) return true;
+  return head.length >= 4 && head[0] === 0xff && head[1] === 0x4f && head[2] === 0xff && head[3] === 0x51;
+}
+
 export function applyGdalNetworkHardening(gdal: {
   config?: { set?: (k: string, v: string) => void };
 }): void {
