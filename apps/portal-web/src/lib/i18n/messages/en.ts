@@ -2712,6 +2712,9 @@ export const en = {
     addAndPrepare: 'Add and prepare',
     saveFailed: 'Could not save the area: {status}',
     buildStartFailed: 'Could not start the build: {status}',
+    loadFailed: 'Could not load the areas. Adding and deleting are off until they load.',
+    retry: 'Try again',
+    buildNotStarted: 'The area was saved, but the build could not be started. Use Prepare now to try again.',
   },
   offlineBasemap: {
     preparedMap: 'Prepared map',

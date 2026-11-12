@@ -2568,6 +2568,9 @@ export const es: Partial<CatalogShape> = {
     addAndPrepare: 'Añadir y preparar',
     saveFailed: 'No se pudo guardar el área: {status}',
     buildStartFailed: 'No se pudo iniciar la preparación: {status}',
+    loadFailed: 'No se pudieron cargar las áreas. Añadir y eliminar están desactivados hasta que carguen.',
+    retry: 'Reintentar',
+    buildNotStarted: 'El área se guardó, pero no se pudo iniciar la preparación. Usa Preparar ahora para intentarlo de nuevo.',
   },
   offlineBasemap: {
     preparedMap: 'Mapa preparado',

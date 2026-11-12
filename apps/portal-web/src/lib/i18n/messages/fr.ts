@@ -2574,6 +2574,9 @@ export const fr: Partial<CatalogShape> = {
     addAndPrepare: 'Ajouter et préparer',
     saveFailed: "Impossible d'enregistrer la zone : {status}",
     buildStartFailed: 'Impossible de démarrer la construction : {status}',
+    loadFailed: 'Impossible de charger les zones. L’ajout et la suppression sont désactivés jusqu’à leur chargement.',
+    retry: 'Réessayer',
+    buildNotStarted: 'La zone a été enregistrée, mais la construction n’a pas pu démarrer. Utilisez Préparer maintenant pour réessayer.',
   },
   offlineBasemap: {
     preparedMap: 'Carte préparée',

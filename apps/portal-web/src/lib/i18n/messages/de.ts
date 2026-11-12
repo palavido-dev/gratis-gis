@@ -2572,6 +2572,9 @@ export const de: Partial<CatalogShape> = {
     addAndPrepare: 'Hinzufügen und vorbereiten',
     saveFailed: 'Gebiet konnte nicht gespeichert werden: {status}',
     buildStartFailed: 'Erstellung konnte nicht gestartet werden: {status}',
+    loadFailed: 'Die Gebiete konnten nicht geladen werden. Hinzufügen und Löschen sind gesperrt, bis sie geladen sind.',
+    retry: 'Erneut versuchen',
+    buildNotStarted: 'Das Gebiet wurde gespeichert, aber die Erstellung konnte nicht gestartet werden. Mit Jetzt vorbereiten erneut versuchen.',
   },
   offlineBasemap: {
     preparedMap: 'Vorbereitete Karte',
