@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Item } from '@prisma/client';
-import { setPatternMatcher, validate } from '@gratis-gis/form-schema';
+import { validate } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -30,11 +30,6 @@ import {
 } from './submission-pdf.js';
 import { cleanSubmission } from './submission-clean.js';
 import { isPlainEmailAddress } from '../notifications/email-address.js';
-import { linearPatternMatcher } from './linear-pattern.js';
-
-// Every submission is validated here; author patterns must not be able
-// to stall the process. See linear-pattern.ts.
-setPatternMatcher(linearPatternMatcher);
 
 /**
  * Persistence and access control for form submissions (#131).

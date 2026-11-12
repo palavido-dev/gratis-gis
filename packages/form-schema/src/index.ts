@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { compileAnchoredPattern, matchAnchoredPattern } from './pattern';
+
+export { compileAnchoredPattern, matchAnchoredPattern };
 /**
  * Form schema for the Data Collection workflow (#131).
  *
@@ -2935,40 +2938,4 @@ export {
   type XlsFormChoicesRow,
   type XlsFormSettingsRow,
 } from './xlsform-import';
-
-/**
- * Match `subject` against an author's pattern, anchored at both ends
- * (`^(?:pattern)$`, the XLSForm convention). Returns null when the
- * pattern cannot be compiled, which callers treat as a designer error
- * and let through.
- *
- * The default uses the platform RegExp, a backtracking engine: a
- * pattern such as `(a+)+` takes time exponential in the answer length.
- * That only costs the person typing in a browser, but the API runs
- * validate() on every submission, where one answer could stall the
- * server. The API therefore installs a linear-time matcher with
- * `setPatternMatcher` at startup. Any replacement must never throw.
- */
-export type PatternMatcher = (pattern: string, flags: string, subject: string) => boolean | null;
-
-const nativePatternMatcher: PatternMatcher = (pattern, flags, subject) => {
-  let re: RegExp;
-  try {
-    re = new RegExp(`^(?:${pattern})$`, flags);
-  } catch {
-    return null;
-  }
-  return re.test(subject);
-};
-
-let patternMatcher: PatternMatcher = nativePatternMatcher;
-
-/** Replace the pattern engine (the API passes a linear-time one). */
-export function setPatternMatcher(matcher: PatternMatcher | null): void {
-  patternMatcher = matcher ?? nativePatternMatcher;
-}
-
-export function matchAnchoredPattern(pattern: string, flags: string, subject: string): boolean | null {
-  return patternMatcher(pattern, flags, subject);
-}
 

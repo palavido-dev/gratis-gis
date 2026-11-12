@@ -5,15 +5,11 @@
 // characters, doubling per character). The API now validates with a
 // linear-time engine.
 
-import { setPatternMatcher, validate, matchAnchoredPattern } from '@gratis-gis/form-schema';
+import { validate, matchAnchoredPattern } from '@gratis-gis/form-schema';
 
-import { linearPatternMatcher } from './linear-pattern.js';
 import { assertFormPatternsCompile } from './form-pattern-check.js';
 
 describe('linear pattern matching for form validation', () => {
-  beforeAll(() => setPatternMatcher(linearPatternMatcher));
-  afterAll(() => setPatternMatcher(null));
-
   it('answers a catastrophic pattern at once', () => {
     const t = Date.now();
     expect(matchAnchoredPattern('(a+)+', '', 'a'.repeat(5000) + 'b')).toBe(false);
