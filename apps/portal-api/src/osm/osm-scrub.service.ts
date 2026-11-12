@@ -114,13 +114,21 @@ export class OsmScrubService implements OnApplicationBootstrap {
    * chunks so each statement stays inside statement_timeout. Returns
    * the total number of rows removed.
    *
-   * The CTE form is `DELETE ... WHERE ctid IN (subquery WITH LIMIT)`;
-   * ctid is the cheapest stable row identifier in PostgreSQL and
-   * lets us avoid an index lookup per chunk. The observation table
-   * is partitioned by scope, so the planner narrows to a single
-   * partition before applying the LIMIT.
+   * Rows are matched by primary key (id, tx_time) AND scope. Never by
+   * ctid: observation is partitioned by tx_time, a ctid is only unique
+   * inside one partition, and `WHERE ctid IN (...)` on the parent
+   * deleted whatever row sat at the same physical slot in every other
+   * monthly partition, which were user data layer rows. The scope
+   * predicate on the outer DELETE is a second guard: whatever the
+   * subquery returns, only this scope's rows can go.
    */
-  private async purgeScope(scope: string): Promise<number> {
+  async purgeScope(scope: string): Promise<number> {
+    // Only OSM cache scopes may be purged here. A cache row is written
+    // by OsmService with `osm:<hash>`; anything else (a damaged row, a
+    // future writer) must never reach a bulk delete of user data.
+    if (!/^osm:[A-Za-z0-9_-]+$/.test(scope)) {
+      throw new Error(`refusing to purge non-OSM scope ${JSON.stringify(scope)}`);
+    }
     let total = 0;
     // Hard upper bound: 200 chunks * 5000 rows = 1M rows per scope
     // per run. Anything larger than that is almost certainly a
@@ -129,7 +137,12 @@ export class OsmScrubService implements OnApplicationBootstrap {
     // pathological row can't spin this method forever.
     for (let i = 0; i < 200; i += 1) {
       const deleted: number = await this.prisma.$executeRaw(
-        Prisma.sql`DELETE FROM observation WHERE ctid IN (SELECT ctid FROM observation WHERE scope = ${scope} LIMIT ${OsmScrubService.CHUNK_SIZE})`,
+        Prisma.sql`DELETE FROM observation
+          WHERE scope = ${scope}
+            AND (id, tx_time) IN (
+              SELECT id, tx_time FROM observation
+              WHERE scope = ${scope}
+              LIMIT ${OsmScrubService.CHUNK_SIZE})`,
       );
       total += deleted;
       if (deleted < OsmScrubService.CHUNK_SIZE) break;
