@@ -3,6 +3,7 @@
 
 import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useT } from '@/lib/i18n/locale-context';
+import { inlineMdToHtml } from '@/lib/inline-md';
 import {
   allWidgetsDeep,
   containerFlowsInRow,
@@ -6959,45 +6960,6 @@ function markdownToHtml(md: string): string {
   return parts.join('');
 }
 
-function inlineMdToHtml(s: string): string {
-  // Preserve color spans verbatim BEFORE the HTML escape pass so a
-  // `<span style="color:#xxx">text</span>` written by the rich-text
-  // editor's color picker survives the round-trip.  Each match is
-  // stashed under a placeholder; we escape the rest, run markdown
-  // transforms, then restore canonical spans.  Only the exact shape
-  // (color style, no other attributes, no nested tags) survives --
-  // arbitrary HTML never passes through.
-  const colorSpans: string[] = [];
-  const pre = s.replace(
-    /<span style="color:\s*(#[0-9a-fA-F]{3,8})">([^<]+)<\/span>/g,
-    (_m, color, text) => {
-      const escaped = String(text)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      const idx = colorSpans.length;
-      colorSpans.push(`<span style="color: ${color}">${escaped}</span>`);
-      return ` COLOR${idx} `;
-    },
-  );
-  let out = pre
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => {
-    const safeHref = safeHttpHref(String(href));
-    if (!safeHref) return String(text);
-    return `<a href="${safeHref.replace(/"/g, '&quot;')}">${text}</a>`;
-  });
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
-  out = out.replace(/ COLOR(\d+) /g, (_m, idx) => {
-    return colorSpans[Number(idx)] ?? '';
-  });
-  return out;
-}
-
 /**
  * HTML -> markdown for the MarkdownLite subset.  Walks the
  * contenteditable DOM and emits markdown for the blocks +
@@ -7927,6 +7889,42 @@ function patchHeader(
  * runtime drops them, so the canvas shows the same empty state the
  * published app would.
  */
+/** The parts of a data_layer item the designer's pickers read. */
+type LayerItemLite = {
+  title?: string;
+  data?: {
+    version?: number;
+    layers?: Array<{
+      id?: string;
+      label?: string;
+      geometryType?: string | null;
+      fields?: Array<{ name?: string; type?: string }>;
+    }>;
+  };
+};
+
+/**
+ * Data_layer item reads shared by every layer picker and field picker
+ * in the designer, one request per item for the life of the page.
+ * Each picker used to fetch every source's full item again, one at a
+ * time, on every mount.  A failed read is not kept, so it is retried
+ * next time.
+ */
+const layerItemCache = new Map<string, Promise<LayerItemLite | null>>();
+function fetchLayerItem(dataLayerId: string): Promise<LayerItemLite | null> {
+  const hit = layerItemCache.get(dataLayerId);
+  if (hit) return hit;
+  const p = fetch(`/api/portal/items/${dataLayerId}`)
+    .then((res) => (res.ok ? (res.json() as Promise<LayerItemLite>) : null))
+    .catch(() => null)
+    .then((item) => {
+      if (!item) layerItemCache.delete(dataLayerId);
+      return item;
+    });
+  layerItemCache.set(dataLayerId, p);
+  return p;
+}
+
 function useResolvedTargets(sources: AppDataSource[]): ResolvedTargetLite[] {
   const [resolved, setResolved] = useState<ResolvedTargetLite[]>([]);
   // Sources is a fresh array identity on every keystroke in the
@@ -7938,18 +7936,16 @@ function useResolvedTargets(sources: AppDataSource[]): ResolvedTargetLite[] {
     let cancelled = false;
     void (async () => {
       const out: ResolvedTargetLite[] = [];
-      for (const src of sources) {
+      // All reads in parallel (and shared through the cache); the
+      // loop below keeps the author's order.
+      const items = await Promise.all(
+        sources.map((src) => fetchLayerItem(src.layer.dataLayerId)),
+      );
+      for (const [i, src] of sources.entries()) {
         const t = src.layer;
         try {
-          const res = await fetch(`/api/portal/items/${t.dataLayerId}`);
-          if (!res.ok) continue;
-          const item = (await res.json()) as {
-            title?: string;
-            data?: {
-              version?: number;
-              layers?: Array<{ id?: string; label?: string; geometryType?: string | null }>;
-            };
-          };
+          const item = items[i];
+          if (!item) continue;
           if (item.data?.version !== 3) continue;
           const sub = item.data.layers?.find((l) => l.id === t.layerKey);
           if (!sub) continue;
@@ -8002,8 +7998,9 @@ function useResolvedTargets(sources: AppDataSource[]): ResolvedTargetLite[] {
  * aggregate endpoint refuses names that are not on the layer (so a
  * typo produces an error rather than a confident zero), which is the
  * right server behaviour but a poor authoring experience if the
- * author is typing blind. Cached per target for the life of the
- * inspector; layer schemas change on the order of never.
+ * author is typing blind. Item reads are shared through
+ * fetchLayerItem for the life of the page; layer schemas change on
+ * the order of never.
  */
 function useTargetFields(target: ViewerTarget | undefined): {
   fields: Array<{ name: string; type?: string }>;
@@ -8024,16 +8021,8 @@ function useTargetFields(target: ViewerTarget | undefined): {
     setState({ fields: [], loading: true });
     void (async () => {
       try {
-        const res = await fetch(`/api/portal/items/${dataLayerId}`);
-        if (!res.ok) throw new Error('lookup failed');
-        const item = (await res.json()) as {
-          data?: {
-            layers?: Array<{
-              id?: string;
-              fields?: Array<{ name?: string; type?: string }>;
-            }>;
-          };
-        };
+        const item = await fetchLayerItem(dataLayerId);
+        if (!item) throw new Error('lookup failed');
         const layer = item.data?.layers?.find((l) => l.id === layerKey);
         const fields = (layer?.fields ?? [])
           .filter((f): f is { name: string; type?: string } =>
