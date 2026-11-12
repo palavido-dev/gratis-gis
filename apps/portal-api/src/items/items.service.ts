@@ -559,8 +559,51 @@ export interface ClientWriteOptions {
  * The web client checks both again at render time, because rows
  * written before this landed are still in the database.
  */
+/**
+ * Keys in item data that hold the id of another item. Pages build API
+ * paths from these (`/api/portal/items/${itemId}/...`), so a value with
+ * a slash, dot, `?`, `#`, `%` or backslash would steer a viewer's own
+ * request to a different endpoint (the browser normalizes `..` before
+ * the BFF sees it). The web app checks at each sink too; this stops a
+ * crafted value from being stored at all.
+ */
+const ITEM_REF_KEY =
+  /^(itemId|serviceItemId|dataLayerId|sourceItemId|targetItemId|formId|mapId|folderId|editorId|toolId|[a-z][A-Za-z]*ItemId|[a-z][A-Za-z]*BoundaryId)$/;
+// eslint-disable-next-line no-control-regex
+const UNSAFE_REF_VALUE = /[/\\?#%.\s\u0000-\u001f\u007f]/;
+const REF_WALK_MAX_DEPTH = 64;
+
+/** Paths of item-reference values that are not plain ids. */
+export function findUnsafeItemRefs(data: unknown): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, path: string, depth: number) => {
+    if (depth > REF_WALK_MAX_DEPTH || out.length >= 5) return;
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${path}[${i}]`, depth + 1));
+      return;
+    }
+    if (v === null || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const p = path ? `${path}.${k}` : k;
+      if (typeof x === 'string' && ITEM_REF_KEY.test(k) && UNSAFE_REF_VALUE.test(x)) {
+        out.push(p);
+      } else {
+        walk(x, p, depth + 1);
+      }
+    }
+  };
+  walk(data, '', 0);
+  return out;
+}
+
 function assertRenderSafeData(itemType: string, data: unknown): void {
   if (data === undefined || data === null || typeof data !== 'object') return;
+  const badRefs = findUnsafeItemRefs(data);
+  if (badRefs.length > 0) {
+    throw new BadRequestException(
+      `Item references must be plain ids; invalid value at ${badRefs.join(', ')}.`,
+    );
+  }
   if (itemType === 'tool') {
     const action = (data as { action?: unknown }).action;
     if (action && typeof action === 'object') {

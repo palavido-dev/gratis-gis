@@ -6,6 +6,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Item references saved in maps and apps must be plain ids. Pages that
+  build API addresses from saved item data now check those ids before
+  any request is sent, and the API refuses to store a reference that is
+  not a plain id.
+
 ## [1.4.2] - 2026-11-11
 
 Patch release. Purging a data layer works again for layers of any
