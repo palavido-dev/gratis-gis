@@ -114,6 +114,22 @@ export function initialOrgName(
   return orgSlug === installSlug && name ? name : orgSlug;
 }
 
+/**
+ * True for the install's master admin account: an org admin whose
+ * username is PORTAL_MASTER_ADMIN ("admin" by default, the account
+ * bootstrap creates). Such a row gets `is_protected`, which the admin
+ * API checks before any change to it. An empty PORTAL_MASTER_ADMIN
+ * turns this off, for an operator who manages the flag by hand.
+ */
+export function isMasterAdminAccount(
+  username: string,
+  orgRole: OrgRole,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const master = (env.PORTAL_MASTER_ADMIN ?? 'admin').trim();
+  return master !== '' && orgRole === 'admin' && username === master;
+}
+
 @Injectable()
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
@@ -430,7 +446,16 @@ export class AuthSyncService {
     // fullName only counts as changed when the token carries a name:
     // Prisma skips undefined fields, so the old upsert also left
     // fullName untouched for tokens without a `name` claim.
+    // The master admin is marked protected the first time it is seen.
+    // The migration that added the flag only marked rows that already
+    // existed, and on a fresh install the user table is empty at that
+    // point, so without this no install made later ever had a
+    // protected account.
+    const protectNow =
+      isMasterAdminAccount(claims.preferred_username, normalisedRole) &&
+      (existing === null || !existing.isProtected);
     const claimsChanged =
+      protectNow ||
       existing === null ||
       existing.email !== email ||
       (claims.name !== undefined && existing.fullName !== claims.name) ||
@@ -456,6 +481,7 @@ export class AuthSyncService {
                     orgId: org.id,
                   }
                 : {}),
+              ...(protectNow ? { isProtected: true } : {}),
               ...(writeLastSeen ? { lastSeenAt: new Date() } : {}),
             },
             create: {
@@ -467,6 +493,7 @@ export class AuthSyncService {
               email,
               fullName: claims.name,
               orgRole: normalisedRole,
+              isProtected: protectNow,
               lastSeenAt: new Date(),
             },
           });
