@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   ForbiddenException,
+  HttpException,
   NotFoundException,
   Param,
   Post,
@@ -578,6 +579,9 @@ export class IngestController {
     // A repeated query key arrives as an array. Accept only one UUID
     // string before the value reaches staging or the reservation.
     if (stagingIdParam !== undefined && !isStagingId(stagingIdParam)) {
+      // The multipart body is already on disk; this throw is outside
+      // the try whose finally removes it, so remove it here.
+      await discardDiskUpload(req);
       throw new BadRequestException('stagingId must be a single UUID.');
     }
     const stagingId: string | undefined = stagingIdParam;
@@ -606,14 +610,15 @@ export class IngestController {
     // fixed strings. nosniff still blocks a proxy from treating the
     // body as HTML.
     res.setHeader('x-content-type-options', 'nosniff');
-    res.flushHeaders?.();
+    // Headers are flushed only once the import is about to stream (see
+    // below). Flushing here made every rejection, 403 and 404
+    // included, an HTTP 200 with an error line.
     const writeEvent = (msg: Record<string, unknown>): void => {
       res.write(JSON.stringify(msg) + '\n');
     };
-    // The "throw a 4xx HTTP early" pattern doesn't apply once we've
-    // started streaming -- the headers are already 200. So validation
-    // failures past this point go out as `{event:"error",...}` and we
-    // close the body with res.end().
+    // Once streaming has started the headers are already 200, so a
+    // failure can only go out as `{event:"error",...}` before res.end().
+    // Until then failStream and the catch below still set the status.
     const failStream = (status: number, message: string): void => {
       // For pre-stream rejections the headers haven't been flushed so
       // we can still send a real status code. Once headers are out,
@@ -792,6 +797,9 @@ export class IngestController {
         }
       };
 
+      // Every check that can refuse the request has run; from here on
+      // progress streams, so send the 200 now.
+      res.flushHeaders?.();
       try {
         if (ingestMode === 'replace') {
           // #234 atomic replace. Route through the same COPY-transaction
@@ -943,6 +951,9 @@ export class IngestController {
       // The log line stays static too; ids there are js/log-injection.
       // eslint-disable-next-line no-console
       console.error('[ingestV3Layer] stream failed');
+      if (!res.headersSent) {
+        res.status(err instanceof HttpException ? err.getStatus() : 500);
+      }
       writeEvent({ event: 'error', message });
       res.end();
     } finally {
