@@ -313,11 +313,23 @@ export interface SafeFetchOptions {
   maxBytes?: number;
 }
 
+/**
+ * Time limit for a call that brings no signal of its own, when
+ * GRATIS_SAFE_FETCH_TIMEOUT_MS is not set. It covers the body too:
+ * the abort listener stays on the request until the response closes.
+ * Without it a host that accepts the connection and never answers,
+ * or drips the body, held the caller open for good.
+ */
+export const SAFE_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
+
 export async function safeFetch(
   rawUrl: string,
   init?: RequestInit,
   options: SafeFetchOptions = {},
 ): Promise<Response> {
+  if (!init?.signal && !process.env.GRATIS_SAFE_FETCH_TIMEOUT_MS) {
+    init = { ...init, signal: AbortSignal.timeout(SAFE_FETCH_DEFAULT_TIMEOUT_MS) };
+  }
   // Caller opted out of following ('manual' returns the 3xx as-is,
   // 'error' makes fetch throw on it); neither can hop to an
   // unchecked host, so a single validated dispatch suffices.
