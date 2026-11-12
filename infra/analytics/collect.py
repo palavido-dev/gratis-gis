@@ -135,13 +135,15 @@ ROBOTS_RE = re.compile(r"^/robots\.txt$", re.I)
 # flag_coordinated() exists beside it: that rule catches the same
 # shape without needing to know the operator's name.
 HOSTING_ORG_RE = re.compile(
-    r"digitalocean|amazon|aws|google|microsoft|azure|oracle|linode|akamai"
-    r"|ovh|hetzner|vultr|scaleway|contabo|leaseweb|choopa|m247|datacamp"
+    r"digitalocean|amazon|\baws\b|google|microsoft|azure|oracle|linode|akamai"
+    r"|\bovh\b|hetzner|vultr|scaleway|contabo|leaseweb|choopa|\bm247\b|datacamp"
     r"|alibaba|tencent|huawei cloud|ucloud|kamatera|hostinger|namecheap"
     r"|godaddy|cloudflare|fastly|censys|shodan|internet measurement"
     r"|palo alto|recyber|driftnet|stretchoid|binaryedge|bitsight"
     r"|guanghuan|sinnet|suibian|techoff|storm industries|internet vikings"
-    r"|idc|hosting|colocation|colo(?:crossing)?|vps|dedicated server"
+    # Short tokens need word boundaries: bare "idc" matched
+    # "Midcontinent", "colo" matched Colombia and Colorado carriers.
+    r"|\bidc\b|hosting|colocation|\bcolo(?:crossing)?\b|\bvps\b|dedicated server"
     r"|data ?cent(?:er|re)|cloud ?(?:computing|service|platform)",
     re.I,
 )
@@ -225,7 +227,10 @@ ACTIVITY_RULES: list[tuple[re.Pattern[str], str]] = [
 
 def classify(path: str, ua: str) -> tuple[bool, bool, str | None]:
     """Return (is_bot, is_asset, activity) for one request line."""
-    is_bot = bool(BOT_UA_RE.search(ua or "")) or bool(PROBE_RE.match(path or ""))
+    # search, not match: the second half of PROBE_RE (".pem$",
+    # ".sql.gz$", "/credentials$", any "x.env") is written to match
+    # anywhere, and match() anchored all of it at the start.
+    is_bot = bool(BOT_UA_RE.search(ua or "")) or bool(PROBE_RE.search(path or ""))
     # Keepalive first: it is an /api/ path, so the activity rules below
     # would otherwise tag it as real API use and the session builder
     # would count it.
@@ -614,7 +619,9 @@ def resolve_asn(conn: sqlite3.Connection) -> int:
             conn.execute(
                 "INSERT OR REPLACE INTO ip_asn (ip, asn, org, is_hosting, looked_up)"
                 " VALUES (?,?,?,?,?)",
-                (ip, asn, org, int(bool(org and HOSTING_ORG_RE.search(org))), now),
+                # Same rule the session verdict uses, consumer carve-out
+                # included, so the stored flag cannot disagree with it.
+                (ip, asn, org, int(machine_org(org)), now),
             )
             done += 1
     conn.commit()
