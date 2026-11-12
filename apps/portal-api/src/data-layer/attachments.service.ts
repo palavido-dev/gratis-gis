@@ -242,7 +242,13 @@ export class DataLayerAttachmentsService {
         mime: input.mime,
         sizeBytes: realSize,
         storageKey: input.storageKey,
-        storageUrl: input.storageUrl,
+        // Derived from the checked key. The client's value was stored
+        // as sent and rendered as an image source and link, so any
+        // editor could point every viewer's browser at another host.
+        storageUrl: StorageService.privateAssetUrl(
+          'feature-attachment',
+          input.storageKey,
+        ),
         createdBy: userId,
       },
       select: ATTACHMENT_PUBLIC_SELECT,

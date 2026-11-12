@@ -1992,14 +1992,15 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
-    const { scope, isTable, geoLimit } = await this.assertV3Layer(
+    const { scope: shareScope, isTable, geoLimit } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
       'write',
     );
+    let scope = shareScope;
     if (editorId) {
-      await this.editorPolicy.assertAllows({
+      const policy = await this.editorPolicy.assertAllows({
         user,
         editorId,
         dataLayerId: itemId,
@@ -2013,6 +2014,7 @@ export class DataLayerFeaturesController {
               : [],
         },
       });
+      if (policy.ownRowsOnly) scope = { ...scope, rowScope: 'own' };
     }
     // #82: gate geometry edits the same way appends are gated. An
     // attribute-only PATCH (no geometry in the body) bypasses the
@@ -2050,20 +2052,22 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
-    const { scope, isTable } = await this.assertV3Layer(
+    const { scope: shareScope, isTable } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
       'write',
     );
+    let scope = shareScope;
     if (editorId) {
-      await this.editorPolicy.assertAllows({
+      const policy = await this.editorPolicy.assertAllows({
         user,
         editorId,
         dataLayerId: itemId,
         layerKey: layerId,
         op: 'delete',
       });
+      if (policy.ownRowsOnly) scope = { ...scope, rowScope: 'own' };
     }
     if (body?.checkOnly === true) {
       // Dry run returns a JSON body (200); a real delete stays 204.
