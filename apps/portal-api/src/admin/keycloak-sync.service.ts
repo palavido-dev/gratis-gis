@@ -324,7 +324,26 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     // FK references (items, share rows, group memberships) stay
     // valid, and a future admin action can purge for real.
     let softDeleted = 0;
-    for (const [orgId, seenUsernames] of seenByOrg) {
+    // Keycloak leaves client service-account users out of the user
+    // list, so the scan never "sees" them. Without this set the pass
+    // tombstoned them on every run (the snapshot tooling's
+    // portal-api-admin account was locked out on each boot). If the
+    // set cannot be read, skip the pass for this run: tombstoning on
+    // a guess locks live accounts out, and the next run retries.
+    let serviceAccounts: Set<string> | null;
+    try {
+      serviceAccounts = await this.kc.listServiceAccountUsernames();
+    } catch (err) {
+      serviceAccounts = null;
+      this.log.warn(
+        `reconcileAll: service-account lookup failed (${
+          err instanceof Error ? err.message : String(err)
+        }); skipping the soft-delete pass this run`,
+      );
+    }
+    const serviceAccountNames = serviceAccounts ?? new Set<string>();
+    const passOrgs = serviceAccounts ? seenByOrg : new Map<string, Set<string>>();
+    for (const [orgId, seenUsernames] of passOrgs) {
       const candidates = await this.prisma.user.findMany({
         where: {
           orgId,
@@ -334,7 +353,11 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       });
       const stale = candidates.filter((u) => {
         const name = u.username.toLowerCase();
-        return !seenUsernames.has(name) && !seenInRealm.has(name);
+        return (
+          !seenUsernames.has(name) &&
+          !seenInRealm.has(name) &&
+          !serviceAccountNames.has(name)
+        );
       });
       if (stale.length === 0) continue;
       const now = new Date();

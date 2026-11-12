@@ -180,3 +180,74 @@ describe('KeycloakAdminService.setMfaRequired reaches existing accounts', () => 
     ]);
   });
 });
+
+describe('KeycloakAdminService.listServiceAccountUsernames', () => {
+  const realFetch = globalThis.fetch;
+  let svc: KeycloakAdminService;
+  let urls: string[];
+
+  beforeEach(() => {
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = 'portal-api-admin';
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = 'secret';
+    svc = new KeycloakAdminService(
+      {} as SystemSettingsService,
+      {} as LeaderElectionService,
+    );
+    (svc as unknown as { tokenCache: unknown }).tokenCache = {
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    };
+    urls = [];
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function serve(routes: Record<string, { status: number; body: unknown }>): void {
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url);
+      const key = Object.keys(routes).find((k) => url.includes(k));
+      const r = key ? routes[key]! : { status: 404, body: {} };
+      return new Response(JSON.stringify(r.body), { status: r.status });
+    }) as unknown as typeof fetch;
+  }
+
+  it('returns the lowercased service-account usernames of clients that have them', async () => {
+    serve({
+      '/clients?': {
+        status: 200,
+        body: [
+          { id: 'c-admin', serviceAccountsEnabled: true },
+          { id: 'c-web', serviceAccountsEnabled: false },
+          { id: 'c-report' },
+        ],
+      },
+      '/clients/c-admin/service-account-user': {
+        status: 200,
+        body: { id: 'u-1', username: 'Service-Account-Portal-API-Admin' },
+      },
+    });
+    const names = await svc.listServiceAccountUsernames();
+    expect([...names]).toEqual(['service-account-portal-api-admin']);
+    // Only the client with service accounts enabled is looked up.
+    expect(urls.filter((u) => u.includes('/service-account-user'))).toHaveLength(1);
+  });
+
+  it('throws when Keycloak cannot list clients, so callers can stop', async () => {
+    serve({ '/clients?': { status: 503, body: {} } });
+    await expect(svc.listServiceAccountUsernames()).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+  });
+
+  it('throws when a service-account lookup fails, rather than returning a partial set', async () => {
+    serve({
+      '/clients?': { status: 200, body: [{ id: 'c-admin', serviceAccountsEnabled: true }] },
+      '/clients/c-admin/service-account-user': { status: 500, body: {} },
+    });
+    await expect(svc.listServiceAccountUsernames()).rejects.toBeInstanceOf(
+      BadGatewayException,
+    );
+  });
+});

@@ -328,6 +328,46 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * Usernames (lowercased) of every client's service-account user.
+   * Keycloak leaves these users out of GET /users and /users/count, so
+   * a caller that treats "absent from the user list" as "deleted" has
+   * to exclude them using this set. One client listing plus one
+   * lookup per client that has service accounts enabled.
+   */
+  async listServiceAccountUsernames(): Promise<Set<string>> {
+    const token = await this.getAccessToken();
+    const headers = { authorization: `Bearer ${token}` };
+    const res = await fetch(this.adminUrl('/clients?first=0&max=1000'), {
+      headers,
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak client list failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const clients = (await res.json()) as Array<{
+      id: string;
+      serviceAccountsEnabled?: boolean;
+    }>;
+    const names = new Set<string>();
+    for (const c of clients) {
+      if (!c.serviceAccountsEnabled) continue;
+      const saRes = await fetch(
+        this.adminUrl(`/clients/${c.id}/service-account-user`),
+        { headers },
+      );
+      if (!saRes.ok) {
+        throw new BadGatewayException(
+          `Keycloak service-account lookup failed: ${saRes.status} ${saRes.statusText}`,
+        );
+      }
+      const sa = (await saRes.json()) as { username?: string };
+      if (sa.username) names.add(sa.username.toLowerCase());
+    }
+    return names;
+  }
+
+  /**
    * Resolve a Keycloak user id from a username via
    * GET /users?username=<exact>&exact=true. Returns null when nothing
    * matches. Seeded / pre-Keycloak local rows carry a different local

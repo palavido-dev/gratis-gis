@@ -60,6 +60,7 @@ function build(
 
   const kc = {
     isConfigured: () => true,
+    listServiceAccountUsernames: jest.fn(async () => new Set<string>()),
     listUsers: jest.fn(async () => {
       // Runs after Keycloak answered: an admin action landing here
       // is newer than the page the reconcile is working from.

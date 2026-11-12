@@ -33,6 +33,7 @@ function build(realm: KeycloakUserRep[], local: Array<{ id: string; username: st
   };
   const kc = {
     isConfigured: () => true,
+    listServiceAccountUsernames: jest.fn(async () => new Set<string>()),
     listUsers: jest.fn(async ({ first }: { first: number }) => (first === 0 ? realm : [])),
   };
   const svc = new KeycloakSyncService(
