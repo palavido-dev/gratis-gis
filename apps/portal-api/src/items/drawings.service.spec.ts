@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { Item, ItemShare } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { SharingService } from './sharing.service.js';
 import {
+  DRAWING_LIMITS,
   DrawingsService,
   type DrawingsAuthor,
 } from './drawings.service.js';
@@ -299,6 +300,65 @@ describe('DrawingsService', () => {
       });
       expect(set.features.length).toBe(1);
       expect(set.features[0]!.id).toBe('f1');
+    });
+  });
+
+  // Any reader of a public map can add markup, and the nested DTO
+  // limits never run, so the service must bound what it stores.
+  describe('feature validation', () => {
+    async function createWith(features: unknown[]) {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public' }),
+      );
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      const author: DrawingsAuthor = { kind: 'user', user: makeUser() };
+      return svc.create(author, 'map-1', { features: features as never });
+    }
+
+    it('keeps only type and coordinates, and mints a short id and a real date', async () => {
+      const set = await createWith([
+        {
+          id: 'x'.repeat(1000),
+          kind: 'line',
+          geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]], junk: 'y' },
+          style: { dashStyle: 'z'.repeat(500) },
+          createdAt: 'not a date',
+        },
+      ]);
+      const f = set.features[0]!;
+      expect(f.geometry).toEqual({ type: 'LineString', coordinates: [[0, 0], [1, 1]] });
+      expect(f.id.length).toBeLessThanOrEqual(64);
+      expect(Number.isNaN(Date.parse(f.createdAt))).toBe(false);
+      expect(f.style?.dashStyle).toBeUndefined();
+    });
+
+    it('drops malformed coordinates and features over the vertex cap', async () => {
+      const big = Array.from(
+        { length: DRAWING_LIMITS.MAX_VERTICES_PER_FEATURE + 1 },
+        (_, i) => [i % 180, 0],
+      );
+      const set = await createWith([
+        { kind: 'pin', geometry: { type: 'Point', coordinates: ['a', 0] } },
+        { kind: 'line', geometry: { type: 'LineString', coordinates: [0, 0] } },
+        { kind: 'line', geometry: { type: 'LineString', coordinates: big } },
+        { kind: 'pin', geometry: { type: 'Point', coordinates: [1, 2] } },
+      ]);
+      expect(set.features.map((f) => f.geometry)).toEqual([
+        { type: 'Point', coordinates: [1, 2] },
+      ]);
+    });
+
+    it('refuses a set larger than the byte cap', async () => {
+      const line = Array.from({ length: 9000 }, (_, i) => [i / 7, i / 3]);
+      const features = Array.from({ length: 10 }, () => ({
+        kind: 'line',
+        geometry: { type: 'LineString', coordinates: line },
+      }));
+      await expect(createWith(features)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
   });
 
