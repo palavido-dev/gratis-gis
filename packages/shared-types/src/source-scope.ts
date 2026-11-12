@@ -242,10 +242,15 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
   const out: SourceScope = { spatial: Boolean(bbox) };
   if (bbox) out.bbox = bbox;
   if (clauses.length > 0) {
-    // The author's clauses are ANDed with the reader's selection
-    // regardless of the author's own combinator: a reader's click
-    // narrows what the author published, it never widens it.
-    out.where = { combinator: 'all', clauses };
+    // With no selection the author's filter goes through as written,
+    // combinator included: flattening it to `all` turned an author's
+    // "A or B" into "A and B" from the first render. With a selection,
+    // the author's clauses are ANDed with it: a reader's click narrows
+    // what the author published, it never widens it.
+    out.where =
+      !selecting && source?.where
+        ? { combinator: source.where.combinator, clauses }
+        : { combinator: 'all', clauses };
   }
 
   // A relate needs BOTH a declaration and a parent that resolved. A
@@ -263,7 +268,13 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
       parentLayerId: parent.layer.layerKey,
       ...(parentBbox ? { parentBbox } : {}),
       ...(parentClauses.length > 0
-        ? { parentWhere: { combinator: 'all' as const, clauses: parentClauses } }
+        ? {
+            parentWhere: {
+              combinator:
+                !parentSelecting && parent.where ? parent.where.combinator : ('all' as const),
+              clauses: parentClauses,
+            },
+          }
         : {}),
     };
     if (parentSelecting && !selecting) out.note = parentSelecting.label;

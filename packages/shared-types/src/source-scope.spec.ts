@@ -577,3 +577,17 @@ describe('selectionClauses', () => {
     ]);
   });
 });
+
+describe("resolveSourceScope keeps an author's 'any' with no selection", () => {
+  it('does not turn A or B into A and B', () => {
+    const anyWhere = {
+      combinator: 'any' as const,
+      clauses: [
+        { field: 'status', op: '==' as const, value: 'open' },
+        { field: 'status', op: '==' as const, value: 'pending' },
+      ],
+    };
+    const s = resolveSourceScope({ source: src({ where: anyWhere }) });
+    expect(s.where).toEqual(anyWhere);
+  });
+});
