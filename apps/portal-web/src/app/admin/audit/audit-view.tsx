@@ -68,7 +68,7 @@ export function AuditView() {
         <div className="mt-6 overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-line text-ink-1">
+              <tr className="border-b border-border text-ink-1">
                 <th className="py-2 pr-3 font-medium">{t('adminAudit.when')}</th>
                 <th className="py-2 pr-3 font-medium">{t('adminAudit.action')}</th>
                 <th className="py-2 pr-3 font-medium">{t('adminAudit.actor')}</th>
@@ -78,7 +78,7 @@ export function AuditView() {
             </thead>
             <tbody>
               {events.map((event) => (
-                <tr key={event.id} className="border-b border-line/60">
+                <tr key={event.id} className="border-b border-border/60">
                   <td className="py-2 pr-3 whitespace-nowrap">{event.at}</td>
                   <td className="py-2 pr-3">{event.action}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{event.actorUserId ?? '—'}</td>
@@ -95,7 +95,7 @@ export function AuditView() {
       {nextBefore ? (
         <button
           type="button"
-          className="mt-4 rounded-md border border-line px-3 py-2 text-sm"
+          className="mt-4 rounded-md border border-border px-3 py-2 text-sm"
           onClick={() => void load(nextBefore)}
           disabled={loading}
         >

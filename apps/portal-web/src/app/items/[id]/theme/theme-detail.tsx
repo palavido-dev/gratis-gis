@@ -353,7 +353,7 @@ export function AppThemeDetail({
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
               !canEdit || !dirty || saving
                 ? 'cursor-not-allowed bg-surface-2 text-muted'
-                : 'bg-accent text-accent-ink hover:bg-accent/90'
+                : 'bg-accent text-accent-foreground hover:bg-accent/90'
             }`}
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}

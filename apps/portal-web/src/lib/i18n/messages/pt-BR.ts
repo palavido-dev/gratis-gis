@@ -3753,7 +3753,6 @@ export const ptBR: Partial<CatalogShape> = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3796,6 +3795,9 @@ export const ptBR: Partial<CatalogShape> = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "horário do servidor, {zone}",
+    scheduleRunNowUnsaved:
+      "Salve suas alterações primeiro. A execução imediata usa as configurações salvas.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',

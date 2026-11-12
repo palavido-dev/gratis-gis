@@ -189,7 +189,7 @@ export function StarterThemesCard({ initial }: Props) {
           className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${
             busy !== null || (!force && missingCount === 0)
               ? 'cursor-not-allowed bg-surface-2 text-muted'
-              : 'bg-accent text-accent-ink hover:bg-accent/90'
+              : 'bg-accent text-accent-foreground hover:bg-accent/90'
           }`}
         >
           {busy === 'all'

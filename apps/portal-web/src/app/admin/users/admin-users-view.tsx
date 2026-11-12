@@ -1046,7 +1046,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           {user.emailVerified && email.trim() !== (user.email ?? '') ? (
-            <span className="mt-1 block text-2xs text-warning">
+            <span className="mt-1 block text-2xs text-warn">
               {t('adminUsers.edit.emailChangeWarning')}
             </span>
           ) : null}

@@ -60,7 +60,7 @@ export function PermissionsView() {
           {loading ? t('adminPermissions.loading') : t('adminPermissions.refresh')}
         </button>
         <a
-          className="rounded-md border border-line px-3 py-2 text-sm"
+          className="rounded-md border border-border px-3 py-2 text-sm"
           href="/api/portal/admin/permissions/export.csv"
         >
           {t('adminPermissions.download')}
@@ -83,7 +83,7 @@ export function PermissionsView() {
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-line text-ink-1">
+              <tr className="border-b border-border text-ink-1">
                 <th className="py-2 pr-3 font-medium">{t('adminPermissions.item')}</th>
                 <th className="py-2 pr-3 font-medium">{t('adminPermissions.access')}</th>
                 <th className="py-2 pr-3 font-medium">{t('adminPermissions.owner')}</th>
@@ -92,7 +92,7 @@ export function PermissionsView() {
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={`${row.itemId}-${index}`} className="border-b border-line/60">
+                <tr key={`${row.itemId}-${index}`} className="border-b border-border/60">
                   <td className="py-2 pr-3">{row.title}</td>
                   <td className="py-2 pr-3">{row.access}</td>
                   <td className="py-2 pr-3">

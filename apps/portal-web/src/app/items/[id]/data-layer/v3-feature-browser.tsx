@@ -332,7 +332,7 @@ export function V3FeatureBrowser({
       ) : null}
 
       {truncated ? (
-        <div className="flex items-start gap-1.5 border-b border-border bg-warning/5 px-3 py-1.5 text-2xs text-warning">
+        <div className="flex items-start gap-1.5 border-b border-border bg-warn/5 px-3 py-1.5 text-2xs text-warn">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
             Showing the first {fmt.number(PAGE_LIMIT)} rows. This layer

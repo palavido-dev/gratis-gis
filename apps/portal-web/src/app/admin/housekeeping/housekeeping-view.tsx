@@ -178,6 +178,11 @@ export function HousekeepingView({ bundle }: Props) {
   // ambiguous. Each set is the id of a ticked row.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  // One action at a time. Every trigger is disabled while any of
+  // them runs: with each button checking only its own value, starting
+  // a second action re-enabled the first, and the first one's finally
+  // cleared the flag of the second, so an org-wide recompute or index
+  // build could be started twice at once.
   const [busy, setBusy] = useState<
     'items' | 'users' | 'extents' | 'search-indexes' | null
   >(null);
@@ -490,13 +495,24 @@ export function HousekeepingView({ bundle }: Props) {
   // (POST /items/:id/share, DELETE /items/:id/share, PATCH
   // /admin/users/:id) so the audit log treats these as if the
   // admin had used the per-item / per-user surfaces directly.
+  /** fetch for the row actions below. A dropped connection rejects
+   *  fetch, and these handlers had no catch, so the click did nothing
+   *  visible. Reports it and returns null instead. */
+  async function fetchOrReport(url: string, init: RequestInit): Promise<Response | null> {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
   async function extendShare(
     row: HousekeepingBundle['expiringShares'][number],
     days: number,
   ) {
     setError(null);
     const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+    const res = await fetchOrReport(`/api/portal/items/${row.itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -506,6 +522,7 @@ export function HousekeepingView({ bundle }: Props) {
         expiresAt: next,
       }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(t('adminHousekeeping.errExtendShare', { status: res.status }));
       return;
@@ -521,7 +538,7 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function cancelShare(row: HousekeepingBundle['expiringShares'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+    const res = await fetchOrReport(`/api/portal/items/${row.itemId}/share`, {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -529,6 +546,7 @@ export function HousekeepingView({ bundle }: Props) {
         principalId: row.principalId,
       }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(t('adminHousekeeping.errCancelShare', { status: res.status }));
       return;
@@ -545,11 +563,12 @@ export function HousekeepingView({ bundle }: Props) {
   ) {
     setError(null);
     const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: next }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errExtendUser', {
@@ -570,11 +589,12 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function clearUserExpiry(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: null }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errClearAutoDisable', { status: res.status }),
@@ -591,11 +611,12 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function disableUserNow(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: false }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errDisableUser', {
@@ -626,7 +647,7 @@ export function HousekeepingView({ bundle }: Props) {
         <button
           type="button"
           onClick={recomputeExtents}
-          disabled={busy === 'extents'}
+          disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === 'extents' ? (
@@ -650,7 +671,7 @@ export function HousekeepingView({ bundle }: Props) {
         <button
           type="button"
           onClick={buildSearchIndexes}
-          disabled={busy === 'search-indexes'}
+          disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === 'search-indexes' ? (
@@ -764,6 +785,7 @@ export function HousekeepingView({ bundle }: Props) {
               count={selectedItems.size}
               selectionKind="items"
               busy={busy === 'items'}
+              locked={busy !== null}
               onClear={() => setSelectedItems(new Set())}
               actions={[
                 {
@@ -814,6 +836,7 @@ export function HousekeepingView({ bundle }: Props) {
               count={selectedUsers.size}
               selectionKind="users"
               busy={busy === 'users'}
+              locked={busy !== null}
               onClear={() => setSelectedUsers(new Set())}
               actions={[
                 {
@@ -923,12 +946,16 @@ function BulkBar({
   count,
   selectionKind,
   busy,
+  locked,
   actions,
   onClear,
 }: {
   count: number;
   selectionKind: 'items' | 'users';
   busy: boolean;
+  /** True while any action on the page runs. `busy` is only this
+   *  bar's own action and drives the spinner. */
+  locked: boolean;
   actions: Array<{
     label: string;
     icon: React.ReactNode;
@@ -949,7 +976,7 @@ function BulkBar({
         <button
           type="button"
           onClick={onClear}
-          disabled={busy}
+          disabled={locked}
           className="inline-flex items-center gap-1 text-muted hover:text-ink-1 disabled:opacity-50"
         >
           <X className="h-3 w-3" />
@@ -962,7 +989,7 @@ function BulkBar({
             key={a.label}
             type="button"
             onClick={a.onClick}
-            disabled={busy}
+            disabled={locked}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
               a.tone === 'danger'
                 ? 'border-danger bg-danger/10 text-danger hover:bg-danger/20'
@@ -1609,9 +1636,9 @@ function ExpiringSharesTable({
                 }
                 title={fmt.dateTime(r.expiresAt)}
               >
-                {r.isExpired
-                  ? t('adminHousekeeping.expired')
-                  : t('adminHousekeeping.expiryIn')}{' '}
+                {/* relativeTime already reads "in 3 days", so only the
+                    expired case gets a prefix ("In in 3 days" before). */}
+                {r.isExpired ? <>{t('adminHousekeeping.expired')} </> : null}
                 {fmt.relativeTime(r.expiresAt)}
               </span>
             </td>
@@ -1698,9 +1725,7 @@ function ExpiringUsersTable({
                 }
                 title={fmt.dateTime(r.autoDisableAt)}
               >
-                {r.isExpired
-                  ? t('adminHousekeeping.pastDue')
-                  : t('adminHousekeeping.expiryIn')}{' '}
+                {r.isExpired ? <>{t('adminHousekeeping.pastDue')} </> : null}
                 {fmt.relativeTime(r.autoDisableAt)}
               </span>
             </td>

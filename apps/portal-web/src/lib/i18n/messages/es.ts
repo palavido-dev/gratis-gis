@@ -3754,7 +3754,6 @@ export const es: Partial<CatalogShape> = {
     approxSuffix: 'aprox.',
     orphanBadge: 'huérfano',
     expired: 'Caducado',
-    expiryIn: 'En',
     pastDue: 'Vencido',
     extendShare30Title: 'Ampliar 30 días',
     extend30d: '+30d',
@@ -3797,6 +3796,9 @@ export const es: Partial<CatalogShape> = {
     scheduleModeDaily: 'Cada día',
     scheduleModeWeekly: 'Una vez por semana',
     scheduleHour: 'Hora (0-23)',
+    scheduleServerTime: "hora del servidor, {zone}",
+    scheduleRunNowUnsaved:
+      "Guarde primero los cambios. Ejecutar ahora usa la configuración guardada.",
     scheduleMinute: 'Minuto (0-59)',
     scheduleDayOfWeek: 'Día de la semana',
     daySunday: 'Domingo',

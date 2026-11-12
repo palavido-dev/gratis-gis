@@ -75,7 +75,7 @@ export function JobsView() {
       {jobs && jobs.length > 0 ? (
         <table className="mt-6 w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-line text-ink-1">
+            <tr className="border-b border-border text-ink-1">
               <th className="py-2 pr-3">{t('opsJobs.kind')}</th>
               <th className="py-2 pr-3">{t('opsJobs.source')}</th>
               <th className="py-2 pr-3">{t('opsJobs.status')}</th>
@@ -84,7 +84,7 @@ export function JobsView() {
           </thead>
           <tbody>
             {jobs.map((job) => (
-              <tr key={`${job.kind}-${job.id}`} className="border-b border-line/60">
+              <tr key={`${job.kind}-${job.id}`} className="border-b border-border/60">
                 <td className="py-2 pr-3">{job.kind}</td>
                 <td className="py-2 pr-3">{job.source}</td>
                 <td className="py-2 pr-3">

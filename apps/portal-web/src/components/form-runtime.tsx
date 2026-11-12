@@ -1179,7 +1179,7 @@ function Input({
           return 'border-border bg-surface-1 hover:bg-surface-2 text-ink-1';
         }
         if (n <= 6) return 'border-danger bg-danger/15 text-danger font-medium';
-        if (n <= 8) return 'border-warning bg-warning/15 text-warning font-medium';
+        if (n <= 8) return 'border-warn bg-warn/15 text-warn font-medium';
         return 'border-success bg-success/15 text-success font-medium';
       }
       return (

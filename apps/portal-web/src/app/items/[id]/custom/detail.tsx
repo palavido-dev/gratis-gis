@@ -2972,7 +2972,7 @@ function WidgetCard({
             so the routing into children isn't a mystery. */}
         {isDropTarget && canEdit ? (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-accent/10">
-            <span className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink shadow-md">
+            <span className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground shadow-md">
               Drop into {label}
             </span>
           </div>
