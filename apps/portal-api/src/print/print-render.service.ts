@@ -20,7 +20,11 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { answerPrintRequest, createPrintRequestFilter } from './print-request-filter.js';
+import {
+  answerPrintRequest,
+  createPrintFetchBudget,
+  createPrintRequestFilter,
+} from './print-request-filter.js';
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 
@@ -52,7 +56,8 @@ export interface RenderJobBundle {
  * template's paper size, returns the PDF bytes.
  *
  * Authentication for the preview route: portal-api mints a
- * single-use token, stores it in-memory with a 60-second TTL,
+ * single-use token, stores it as a PrintRenderToken row with a
+ * 60-second TTL,
  * and hands the chromium sidecar a URL with `?renderToken=...`.
  * The preview route on portal-web validates the token against
  * a portal-api callback before rendering, so the public can't
@@ -61,8 +66,14 @@ export interface RenderJobBundle {
  */
 const TOKEN_TTL_MS = 60_000;
 
+/** Renders one API process runs at once (two Chromium sidecars, three sessions each). */
+const MAX_CONCURRENT_RENDERS = 4;
+
 @Injectable()
 export class PrintRenderService {
+  /** Renders running in this process; see MAX_CONCURRENT_RENDERS. */
+  private activeRenders = 0;
+
   private readonly log = new Logger(PrintRenderService.name);
 
   constructor(
@@ -72,7 +83,7 @@ export class PrintRenderService {
   ) {}
 
   /**
-   * Validate a render token against the server's in-memory map.
+   * Validate a render token against its PrintRenderToken row.
    * Used by the preview route's "is this caller legit?" callback.
    * Tokens are single-use: a successful validation consumes the
    * entry.
@@ -244,8 +255,25 @@ export class PrintRenderService {
       `&p=${paramsBlob}`;
 
     // 5. Connect, navigate, page.pdf, return bytes.
+    // Renders hold a Chromium page for up to 45 s and buffer the
+    // page's third-party resources in this process, so a replica runs
+    // only a few at once and turns the rest away.
+    if (this.activeRenders >= MAX_CONCURRENT_RENDERS) {
+      throw new ServiceUnavailableException(
+        'The print service is busy. Try again in a minute.',
+      );
+    }
+    this.activeRenders += 1;
+    const renderDone = new AbortController();
+    const budget = createPrintFetchBudget(renderDone.signal);
     const inches = resolvePaperInches(paper);
-    const browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
+    let browser: Awaited<ReturnType<typeof puppeteer.connect>>;
+    try {
+      browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
+    } catch (err) {
+      this.activeRenders -= 1;
+      throw err;
+    }
     try {
       const page = await browser.newPage();
       try {
@@ -261,7 +289,7 @@ export class PrintRenderService {
         ]);
         await page.setRequestInterception(true);
         page.on('request', (request) => {
-          void answerPrintRequest(request, decide);
+          void answerPrintRequest(request, decide, undefined, budget);
         });
         await page.setViewport({
           width: Math.round(inches.w * 96),
@@ -305,8 +333,12 @@ export class PrintRenderService {
         return Buffer.from(pdf);
       } finally {
         await page.close().catch(() => undefined);
+        // Stop every third-party fetch this page started.
+        renderDone.abort();
+        for (const wake of budget.waiting.splice(0)) wake();
       }
     } finally {
+      this.activeRenders -= 1;
       await browser.disconnect();
     }
   }

@@ -53,6 +53,9 @@ let cachedById: Map<string, OsmPreset> | null = null;
  */
 function resolveCatalogPath(): string {
   const candidates = [
+    // Explicit override via env var. Tried first: listed last, it
+    // could never override a catalog found on a default path.
+    process.env.GRATIS_GIS_OSM_PRESET_CATALOG_PATH ?? '',
     // Monorepo dev: portal-api cwd is apps/portal-api; walk to the
     // sibling portal-web content tree.
     path.resolve(
@@ -73,8 +76,6 @@ function resolveCatalogPath(): string {
       'osm',
       'preset-catalog.json',
     ),
-    // Direct override via env var for unusual deployments.
-    process.env.GRATIS_GIS_OSM_PRESET_CATALOG_PATH ?? '',
   ].filter(Boolean);
 
   for (const c of candidates) {

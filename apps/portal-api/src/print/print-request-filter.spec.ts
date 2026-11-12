@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   answerPrintRequest,
+  createPrintFetchBudget,
   createPrintRequestFilter,
   type InterceptedRequest,
 } from './print-request-filter.js';
@@ -88,6 +89,41 @@ describe('answerPrintRequest', () => {
     expect(r?.headers['access-control-allow-origin']).toBe('*');
     expect(r?.headers['set-cookie']).toBeUndefined();
     expect(r?.headers['content-encoding']).toBeUndefined();
+  });
+
+  it('runs at most the budget\'s parallel fetches and stops them when the render ends', async () => {
+    const done = new AbortController();
+    const budget = createPrintFetchBudget(done.signal);
+    let active = 0;
+    let peak = 0;
+    const signals: AbortSignal[] = [];
+    const fetcher = async (_url: string, init: RequestInit) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      signals.push(init.signal!);
+      await new Promise<void>((resolve) => init.signal!.addEventListener('abort', () => resolve()));
+      active -= 1;
+      throw new Error('aborted');
+    };
+    const runs = Array.from({ length: budget.maxParallel + 4 }, (_, i) =>
+      answerPrintRequest(fakeRequest(`https://slow.example/${i}.png`).req, decide, fetcher, budget),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(peak).toBe(budget.maxParallel);
+    done.abort();
+    for (const wake of budget.waiting.splice(0)) wake();
+    await Promise.all(runs);
+    expect(signals.every((s) => s.aborted)).toBe(true);
+  });
+
+  it('stops fetching once the render byte budget is spent', async () => {
+    const budget = createPrintFetchBudget(new AbortController().signal);
+    budget.remainingBytes = 0;
+    const fetcher = jest.fn();
+    const { req, calls } = fakeRequest('https://tiles.example.org/x.png');
+    await answerPrintRequest(req, decide, fetcher, budget);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(calls).toEqual(['abort']);
   });
 
   it('aborts when the pinned fetch refuses the address', async () => {

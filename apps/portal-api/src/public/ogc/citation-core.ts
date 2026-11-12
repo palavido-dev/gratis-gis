@@ -213,11 +213,20 @@ function bibKeySlug(title: string): string {
     .slice(0, 24);
 }
 
+// One pass: escaping { and } after inserting \textbackslash{} also
+// escaped the braces just inserted.
+const BIB_ESCAPES: Record<string, string> = {
+  '\\': '\\textbackslash{}',
+  '{': '\\{',
+  '}': '\\}',
+  '#': '\\#',
+  '%': '\\%',
+  '&': '\\&',
+  _: '\\_',
+};
+
 function bibEscape(value: string): string {
-  return value
-    .replace(/\\/g, '\\textbackslash{}')
-    .replace(/[{}]/g, (c) => `\\${c}`)
-    .replace(/[#%&_]/g, (c) => `\\${c}`);
+  return value.replace(/[\\{}#%&_]/g, (c) => BIB_ESCAPES[c]!);
 }
 
 function risEscape(value: string): string {

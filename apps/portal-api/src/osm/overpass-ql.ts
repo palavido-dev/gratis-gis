@@ -27,9 +27,8 @@ import type { OsmPreset, OsmPresetTag } from './preset-catalog.js';
  *
  *   - Tag filters from the recipe are concatenated to the preset's
  *     own tag conditions.  All tag filters are ANDed within a
- *     stanza; presets are unioned across stanzas.  v1 ships
- *     equals-only; the `op` field on a filter is accepted but only
- *     `equals` is honoured (contains / regex queued).
+ *     stanza; presets are unioned across stanzas.  The `op` field
+ *     picks equals, contains or regex.
  *
  *   - `out body geom tags` includes inline `geometry` coordinates on
  *     ways + relations + node-only `lat`/`lon` -- the converter we
