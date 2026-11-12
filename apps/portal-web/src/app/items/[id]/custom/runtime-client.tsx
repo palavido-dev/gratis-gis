@@ -2935,7 +2935,7 @@ function LayerRowKebabMenu({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               <ZoomInIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-              Zoom to layer
+              {t('customRuntime.common.zoomToLayer')}
             </button>
           ) : null}
           {canExport ? (
@@ -2959,7 +2959,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as GeoJSON
+                {t('customRuntime.common.exportGeojson')}
               </button>
               <button
                 type="button"
@@ -2971,7 +2971,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as CSV
+                {t('customRuntime.common.exportCsv')}
               </button>
               <button
                 type="button"
@@ -2983,7 +2983,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as Excel (.xlsx)
+                {t('customRuntime.common.exportExcel')}
               </button>
             </>
           ) : null}
@@ -2998,7 +2998,7 @@ function LayerRowKebabMenu({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               <Palette className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-              Symbology...
+              {t('customRuntime.common.symbologyMenu')}
             </button>
           ) : null}
           <button
@@ -3011,7 +3011,7 @@ function LayerRowKebabMenu({
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             <InfoIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-            Properties
+            {t('customRuntime.common.properties')}
           </button>
           {canRemove ? (
             <>
@@ -3026,7 +3026,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-danger))] hover:bg-[hsl(var(--app-danger)/0.05)]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Remove from map
+                {t('customRuntime.common.removeFromMap')}
               </button>
             </>
           ) : null}
@@ -3357,10 +3357,10 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
           const hi = i < r.stops.length ? r.stops[i] : null;
           const label =
             lo === null || lo === undefined
-              ? `under ${hi}`
+              ? t('customRuntime.legend.under', { value: String(hi) })
               : hi === null || hi === undefined
-                ? `${lo} and up`
-                : `${lo} to ${hi}`;
+                ? t('customRuntime.legend.andUp', { value: String(lo) })
+                : t('customRuntime.legend.range', { lo: String(lo), hi: String(hi) });
           return swatch(`${l.id}-cb${i}`, color, label);
         }),
       ];
@@ -4243,7 +4243,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       <div className="flex flex-col gap-3 p-3 text-xs">
         <label className="block">
           <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
-            Layer
+            {t('customRuntime.common.layer')}
           </span>
           <select
             value={targetIndex}
@@ -4257,13 +4257,13 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
               </option>
             ))}
             {noTargets ? (
-              <option value={-1}>(no targets configured)</option>
+              <option value={-1}>{t('customRuntime.empty.noTargetsConfigured')}</option>
             ) : null}
           </select>
         </label>
         <label className="block">
           <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
-            Format
+            {t('customRuntime.common.format')}
           </span>
           <div className="mt-1 inline-flex rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-2))] p-0.5">
             <button
@@ -4275,7 +4275,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
-              Excel
+              {t('customRuntime.common.excel')}
             </button>
             <button
               type="button"
@@ -4286,7 +4286,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
-              CSV
+              {t('customRuntime.common.csv')}
             </button>
           </div>
         </label>
@@ -4303,7 +4303,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             className="inline-flex h-7 items-center gap-1 rounded-md bg-[hsl(var(--app-accent))] px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
-            Export visible
+            {t('customRuntime.common.exportVisible')}
           </button>
           <button
             type="button"
@@ -4311,14 +4311,11 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             onClick={() => void runExport('selection')}
             className="inline-flex h-7 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
           >
-            Export selection
+            {t('customRuntime.common.exportSelection')}
           </button>
         </div>
         <p className="text-2xs text-[hsl(var(--app-muted))]">
-          Exports the features currently loaded for this layer (the
-          map viewport plus its surrounding tile cache).  For a
-          full-layer dump including related tables + attachments,
-          use the bundle export on the data layer&apos;s detail page.
+          {t('customRuntime.export.hint')}
         </p>
       </div>
     </WidgetFrame>
