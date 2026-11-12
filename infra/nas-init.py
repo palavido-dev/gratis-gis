@@ -675,8 +675,11 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             raise SystemExit("GRATIS_BASE_URL must be a full https URL with a domain name")
         scheme = "https"
         public = f"{scheme}://{host}"
-        auth_host = os.environ.get("GRATIS_AUTH_DOMAIN", f"auth.{host}").strip()
-        storage_host = os.environ.get("GRATIS_STORAGE_DOMAIN", f"storage.{host}").strip()
+        # `or`, not a get() default: Compose passes both keys as empty
+        # strings when the operator did not set them, and get() only
+        # falls back when the key is missing. That gave "https://".
+        auth_host = os.environ.get("GRATIS_AUTH_DOMAIN", "").strip() or f"auth.{host}"
+        storage_host = os.environ.get("GRATIS_STORAGE_DOMAIN", "").strip() or f"storage.{host}"
         auth = f"https://{auth_host}"
         s3 = s3_requested or f"https://{storage_host}"
         return {"mode": "public", "public": public, "auth": auth, "s3": s3, "tls": "acme"}
@@ -708,6 +711,17 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
     else:
         s3_scheme = parsed.scheme or scheme
         s3 = f"{s3_scheme}://{host}:{s3_port}"
+        if s3_scheme == "https":
+            # The upload port is MinIO's own plain HTTP listener. With an
+            # https portal address (Tailscale Serve, GRATIS_TLS=internal)
+            # nothing terminates TLS on it, so browser uploads fail.
+            print(
+                f"WARN: uploads will go to {s3}, but port {s3_port} serves plain HTTP. "
+                "Set GRATIS_S3_URL to an https address that forwards to it "
+                "(for example a second Tailscale Serve listener on that port). "
+                "See docs/truenas.md.",
+                flush=True,
+            )
     auth = public.rstrip("/") + "/auth"
     return {"mode": "lan", "public": public, "auth": auth, "s3": s3, "tls": tls}
 

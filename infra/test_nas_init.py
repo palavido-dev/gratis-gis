@@ -105,6 +105,29 @@ class NasInitTests(unittest.TestCase):
         self.assertIn("path /api/geocode /api/geocode/*", caddy)
 
 
+
+class ResolveUrlsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load()
+
+    def test_public_defaults_apply_when_compose_passes_empty_domains(self):
+        import os
+        from unittest import mock
+
+        env = {
+            "GRATIS_MODE": "public",
+            "GRATIS_BASE_URL": "https://gis.example.org",
+            # What Compose passes for ${GRATIS_AUTH_DOMAIN:-} when unset.
+            "GRATIS_AUTH_DOMAIN": "",
+            "GRATIS_STORAGE_DOMAIN": "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            urls = self.mod.resolve_urls(None)
+        self.assertEqual(urls["auth"], "https://auth.gis.example.org")
+        self.assertEqual(urls["s3"], "https://storage.gis.example.org")
+
+
 if __name__ == "__main__":
     unittest.main()
 

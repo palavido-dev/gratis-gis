@@ -92,6 +92,19 @@ already signed in at the LAN address:
 GRATIS_BASE_URL: https://mynas.tail1234.ts.net
 ```
 
+Uploads go to a second port (8900 by default), which is plain HTTP
+too. Add a second Serve listener for it, HTTPS on port 8900 to
+`http://127.0.0.1:8900`, and set the upload address to match:
+
+```yaml
+GRATIS_S3_URL: https://mynas.tail1234.ts.net:8900
+```
+
+Without it the portal tells browsers to upload to
+`https://mynas.tail1234.ts.net:8900`, where nothing answers HTTPS,
+and uploads and stored images fail. The bootstrap log warns about
+this.
+
 Leave the portal itself on plain HTTP. Serve terminates TLS. Do not
 turn on Funnel, and do not forward ports 8080 or 8900 on your router.
 The sign-in cookie is then marked Secure, because the address you
