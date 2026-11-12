@@ -19,8 +19,8 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  *
  * Scheduling:
  *
- *   The sweep runs every 15 minutes. That's frequent enough that an
- *   expiry-warning email lands within a quarter hour of the warning
+ *   The sweep runs every 30 minutes. That's frequent enough that an
+ *   expiry-warning email lands within half an hour of the warning
  *   window opening, infrequent enough that a busy org doesn't burn
  *   cycles re-checking. Heavy lifting (the JSONB idempotency lookups)
  *   only runs on the small candidate sets the time-window query

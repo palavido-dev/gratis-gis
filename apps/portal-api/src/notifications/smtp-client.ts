@@ -41,6 +41,13 @@ export interface SmtpClientOptions {
   password?: string;
   /** TCP / TLS connection timeout in ms. Defaults to 30s. */
   timeoutMs?: number;
+  /**
+   * Send AUTH over a connection that is not encrypted. Off by default:
+   * when the server does not offer STARTTLS (or something on the path
+   * strips it) the password would cross the network readable. Only
+   * for a trusted local relay.
+   */
+  allowPlaintextAuth?: boolean;
 }
 
 export interface SmtpMessage {
@@ -137,8 +144,11 @@ function makeSession(
         const raw = buffer.slice(cursor, nl).replace(/\r$/, '');
         const match = /^(\d{3})([- ])(.*)$/.exec(raw);
         if (!match) {
-          // Malformed line; surface to the caller.
-          lastError = new Error(`Malformed SMTP reply: ${raw}`);
+          // Malformed line; surface to the caller. The peer's text is
+          // left out: the admin test endpoint returns this message,
+          // and echoing it turned the test into a banner grabber for
+          // any host and port.
+          lastError = new Error('Malformed SMTP reply: the server is not an SMTP server');
           flushError(lastError);
           return;
         }
@@ -270,7 +280,9 @@ async function runSession(
   const advertisesStartTls = caps.lines.some(
     (l) => l.toUpperCase() === 'STARTTLS',
   );
+  let encrypted = opts.secure;
   if (advertisesStartTls && !opts.secure) {
+    encrypted = true;
     await s.write('STARTTLS');
     await expectCode(s, [220]);
     await s.upgradeTls();
@@ -283,6 +295,11 @@ async function runSession(
 
   // AUTH LOGIN when credentials were supplied. We don't enforce
   // it -- some local relays accept anonymous submission.
+  if (opts.user && !encrypted && !opts.allowPlaintextAuth) {
+    throw new Error(
+      'The SMTP server did not offer STARTTLS, so the password was not sent. Use port 465 with TLS, or a server that supports STARTTLS.',
+    );
+  }
   if (opts.user) {
     await s.write('AUTH LOGIN');
     await expectCode(s, [334]);
@@ -392,12 +409,14 @@ function buildMime(msg: SmtpMessage): string {
   lines.push('Content-Type: text/plain; charset=UTF-8');
   lines.push('Content-Transfer-Encoding: 8bit');
   lines.push('');
-  lines.push(msg.text);
+  // SMTP requires CRLF line ends. The templates join lines with a bare
+  // LF, which strict relays reject or rewrite.
+  lines.push(crlf(msg.text));
   lines.push(`--${boundary}`);
   lines.push('Content-Type: text/html; charset=UTF-8');
   lines.push('Content-Transfer-Encoding: 8bit');
   lines.push('');
-  lines.push(msg.html);
+  lines.push(crlf(msg.html));
   lines.push(`--${boundary}--`);
   return lines.join('\r\n');
 }
@@ -426,8 +445,13 @@ function dotStuff(body: string): string {
  * Extract the bare email address from a `Name <addr@host>` or
  * plain `addr@host` value for use in MAIL FROM / RCPT TO.
  */
+function crlf(text: string): string {
+  return text.replace(/\r?\n/g, '\r\n');
+}
+
 function extractAddress(value: string): string {
-  const angled = /<([^>]+)>/.exec(value);
+  // The last <...> group: a quoted display name may itself hold '<'.
+  const angled = /<([^<>]+)>\s*$/.exec(value);
   if (angled && angled[1]) return angled[1].trim();
   return value.trim();
 }
