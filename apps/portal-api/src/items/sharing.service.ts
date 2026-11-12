@@ -188,10 +188,10 @@ export class SharingService {
    *     populated: the inline `geoLimit` GeoJSON, or the geometry of
    *     the `geoBoundaryId` it references. If the referenced boundary
    *     no longer exists (or is the wrong item type, or has no
-   *     geometry yet), that share is treated as unrestricted so a
-   *     deleted boundary cannot silently expand access through some
-   *     other matching share's polygon. Tier boundaries follow the
-   *     same rule.
+   *     geometry yet), that path grants nothing: it adds no polygon,
+   *     and if no other path reaches the item the result is the
+   *     closed limit. Trashing a boundary must never widen access.
+   *     Tier boundaries follow the same rule.
    *
    * Callers compose the result into SQL via `ST_GeomFromGeoJSON` +
    * `ST_Intersects`. Result is GeoJSON in EPSG:4326 so no coordinate
@@ -213,7 +213,10 @@ export class SharingService {
     // unrestricted, the union is unrestricted (more permissive path
     // wins). Otherwise the union of polygons is the effective limit.
     let hasUnrestrictedPath = false;
-    let publicBoundaryClosed = false;
+    // Set when a path references a boundary that cannot be resolved.
+    // Such a path grants nothing, so if no other path opens the item
+    // the result is the closed limit, never "no clip".
+    let boundaryClosed = false;
     const polygons: unknown[] = [];
 
     // #80: tier-level path. Anonymous viewers reach via 'public';
@@ -258,7 +261,7 @@ export class SharingService {
     // and per-tier resolution then reads from this map. A boundary
     // that doesn't exist (or isn't a geo_boundary item, or has no
     // geometry yet) just doesn't end up in the map and the path that
-    // referenced it is treated as unrestricted below.
+    // referenced it is treated as closed below.
     const boundaryIds = new Set<string>();
     if (tierBoundaryId !== null) boundaryIds.add(tierBoundaryId);
     for (const s of matching) {
@@ -285,8 +288,7 @@ export class SharingService {
     if (tierBoundaryId !== null) {
       const geom = boundaryGeoms.get(tierBoundaryId);
       if (geom) polygons.push(geom);
-      else if (item.access === 'public') publicBoundaryClosed = true;
-      else hasUnrestrictedPath = true;
+      else boundaryClosed = true;
     }
 
     for (const s of matching) {
@@ -295,7 +297,7 @@ export class SharingService {
       if (typeof ref === 'string' && ref.length > 0) {
         const geom = boundaryGeoms.get(ref);
         if (geom) polygons.push(geom);
-        else hasUnrestrictedPath = true;
+        else boundaryClosed = true;
         continue;
       }
       const inline = (s as ItemShare & { geoLimit?: unknown }).geoLimit;
@@ -304,7 +306,7 @@ export class SharingService {
     }
     if (hasUnrestrictedPath) return null;
     if (polygons.length === 0) {
-      return publicBoundaryClosed ? CLOSED_GEO_LIMIT : null;
+      return boundaryClosed ? CLOSED_GEO_LIMIT : null;
     }
     if (polygons.length === 1) return polygons[0];
     return { type: 'GeometryCollection', geometries: polygons };

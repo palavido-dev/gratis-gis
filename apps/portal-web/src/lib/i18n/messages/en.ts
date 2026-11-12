@@ -2889,6 +2889,7 @@ export const en = {
       "Anyone on the internet will be able to see the {count, plural, one {# selected item} other {# selected items}} without signing in. Use this for shareable map / viewer links. Items referenced by the selection (layers, basemaps, etc.) need to be public too; you'll be prompted to cascade after this completes.",
     geographicScope: 'Geographic scope',
     noBoundaryItems: 'No boundary items in this org yet',
+    keepScope: "Keep each item's current scope",
     noScope: 'No scope (unrestricted)',
     geoScopeHint:
       'When set, viewers reaching these items via {via} only see features inside the boundary. Enforced at the API layer.',
@@ -3912,7 +3913,7 @@ export const en = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',

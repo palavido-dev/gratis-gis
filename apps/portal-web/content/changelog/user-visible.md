@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.4.3] - 2026-11-12
+
+## 2026-11-12 - Safer editing and a security update
+Clicking a second feature while an edit form is open now shows that feature's own values instead of saving the first one's onto it, and table edits always land on the row you changed. Offline edits keep the feature's real shape. This release also closes several security gaps found in a full review.
+
 ## [1.4.2] - 2026-11-11
 
 ## 2026-11-11 - Permanently deleting large layers works

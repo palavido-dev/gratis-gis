@@ -37,6 +37,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * Claim, heartbeat, and stale reclaim are the analysis queue's proven
  * mechanism, reused rather than reinvented.
  */
+/** Prune the run history at most this often. */
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
+
+/** Finished runs kept per script. SCRIPT_RUN_KEEP, default 100. */
+export function scriptRunKeep(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.SCRIPT_RUN_KEEP);
+  return Number.isInteger(n) && n > 0 ? n : 100;
+}
+
 @Injectable()
 export class ScriptRunnerWorker implements OnModuleDestroy {
   private readonly log = new Logger(ScriptRunnerWorker.name);
@@ -46,6 +55,8 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
   private busy = false;
   /** In-flight runs, so shutdown can abort them promptly. */
   private readonly inFlight = new Map<string, AbortController>();
+  /** When the run history was last pruned. See pruneOldRuns(). */
+  private lastPruneAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -81,6 +92,11 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     this.busy = true;
     try {
       await this.reclaimStale();
+      if (Date.now() - this.lastPruneAt >= PRUNE_EVERY_MS) {
+        this.lastPruneAt = Date.now();
+        const removed = await this.pruneOldRuns();
+        if (removed > 0) this.log.log(`pruned ${removed} old script runs`);
+      }
       const claimed = await this.claimOne();
       if (claimed) await this.dispatch(claimed);
     } catch (err) {
@@ -125,6 +141,26 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
         this.log.warn(`script run ${row.id}: reclaimed, heartbeat stale`);
       }
     }
+  }
+
+  /**
+   * Keep the newest SCRIPT_RUN_KEEP finished runs of each script and
+   * delete the rest. Each run can carry a 256 KB log, a source snapshot
+   * and a 4 MB notebook, and a script can run hourly, so without this
+   * the table (and every backup) grows forever. Queued and running
+   * rows are never touched.
+   */
+  async pruneOldRuns(keep = scriptRunKeep()): Promise<number> {
+    return this.prisma.$executeRaw(Prisma.sql`
+      DELETE FROM script_run r
+      USING (
+        SELECT id,
+               row_number() OVER (PARTITION BY script_id ORDER BY created_at DESC) AS rn
+        FROM script_run
+        WHERE state IN ('done', 'failed', 'cancelled')
+      ) old
+      WHERE r.id = old.id AND old.rn > ${keep}
+    `);
   }
 
   private async claimOne(): Promise<{

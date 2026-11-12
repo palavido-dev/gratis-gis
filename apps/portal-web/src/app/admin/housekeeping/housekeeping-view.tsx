@@ -66,7 +66,11 @@ export interface HousekeepingBundle {
     ownerLabel: string;
   }>;
   staleUsers: Array<{
+    /** Portal user id: what items use as owner. */
     id: string;
+    /** Keycloak id: what PATCH /admin/users/:id takes. They differ
+     *  for seeded accounts. */
+    keycloakId?: string;
     username: string;
     fullName: string;
     email: string;
@@ -139,6 +143,8 @@ export interface HousekeepingBundle {
   }>;
   expiringUsers: Array<{
     id: string;
+    /** See staleUsers.keycloakId. */
+    keycloakId?: string;
     username: string;
     fullName: string;
     email: string;
@@ -350,7 +356,10 @@ export function HousekeepingView({ bundle }: Props) {
    */
   async function disableUsers(ids: string[]) {
     await runBatched(ids, 4, async (id) => {
-      const res = await fetch(`/api/portal/admin/users/${id}`, {
+      // `ids` are portal ids (they also drive the owned items lookup);
+      // the admin users API wants the Keycloak id.
+      const kcId = staleUsers.find((u) => u.id === id)?.keycloakId ?? id;
+      const res = await fetch(`/api/portal/admin/users/${kcId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled: false }),
@@ -536,7 +545,7 @@ export function HousekeepingView({ bundle }: Props) {
   ) {
     setError(null);
     const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: next }),
@@ -561,7 +570,7 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function clearUserExpiry(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: null }),
@@ -582,7 +591,7 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function disableUserNow(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetch(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: false }),

@@ -1440,6 +1440,21 @@ function BulkActionBar({
  * parent walks the selection and POSTs share rows; this component
  * just owns the form state.
  */
+// Select value for "keep each item's current geographic scope". The
+// empty string already means "no scope", and a boundary id is a
+// UUID, so this cannot collide with either.
+const KEEP_SCOPE = 'keep';
+
+function boundarySelectValue(id: string | null | undefined): string {
+  if (id === undefined) return KEEP_SCOPE;
+  return id ?? '';
+}
+
+function boundaryFromSelectValue(v: string): string | null | undefined {
+  if (v === KEEP_SCOPE) return undefined;
+  return v || null;
+}
+
 function BulkShareDialog({
   count,
   saving,
@@ -1488,12 +1503,17 @@ function BulkShareDialog({
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   // #80: per-tier boundary selection. Each tier has its own piece
   // of state so toggling between Org and Public preserves the
-  // user's prior pick. null means "no clip" (the picker's empty
-  // option).
-  const [orgBoundaryId, setOrgBoundaryId] = useState<string | null>(null);
-  const [publicBoundaryId, setPublicBoundaryId] = useState<string | null>(
-    null,
-  );
+  // user's prior pick. undefined (the default) keeps each item's
+  // current clip, null clears it, and an id sets it. Defaulting to
+  // "clear" used to strip the clip from every selected item that
+  // had one, without saying so, which could make a clipped layer
+  // fully public.
+  const [orgBoundaryId, setOrgBoundaryId] = useState<
+    string | null | undefined
+  >(undefined);
+  const [publicBoundaryId, setPublicBoundaryId] = useState<
+    string | null | undefined
+  >(undefined);
 
   async function search(q: string): Promise<PrincipalOption[]> {
     const [usersRes, groupsRes] = await Promise.allSettled([
@@ -1609,24 +1629,23 @@ function BulkShareDialog({
               </label>
               <select
                 id={`bulk-boundary-${mode}`}
-                value={
-                  mode === 'public'
-                    ? publicBoundaryId ?? ''
-                    : orgBoundaryId ?? ''
-                }
+                value={boundarySelectValue(
+                  mode === 'public' ? publicBoundaryId : orgBoundaryId,
+                )}
                 onChange={(e) => {
-                  const v = e.target.value || null;
+                  const v = boundaryFromSelectValue(e.target.value);
                   if (mode === 'public') setPublicBoundaryId(v);
                   else setOrgBoundaryId(v);
                 }}
-                disabled={geoBoundaries.length === 0}
                 className="mt-1 h-8 w-full rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <option value="">
-                  {geoBoundaries.length === 0
-                    ? t('items.noBoundaryItems')
-                    : t('items.noScope')}
-                </option>
+                <option value={KEEP_SCOPE}>{t('items.keepScope')}</option>
+                <option value="">{t('items.noScope')}</option>
+                {geoBoundaries.length === 0 ? (
+                  <option value="" disabled>
+                    {t('items.noBoundaryItems')}
+                  </option>
+                ) : null}
                 {geoBoundaries.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.title}

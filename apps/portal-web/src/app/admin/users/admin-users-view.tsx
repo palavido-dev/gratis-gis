@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
 
 /**
  * Admin-side users table.
@@ -111,6 +112,12 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
    * `action` distinguishes between losing-an-admin actions (which
    * trip the sole-admin floor) and non-losing actions (rename).
    */
+  /** `currentUserId` is the local id from /users/me; rows carry the
+   *  Keycloak id, which differs for seeded accounts. */
+  function isCurrentUser(u: AdminUserRow): boolean {
+    return u.id === currentUserId || u.localId === currentUserId;
+  }
+
   function guardReason(
     u: AdminUserRow,
     action: 'role' | 'disable' | 'delete' | 'reset' | 'edit',
@@ -118,7 +125,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     if (u.isProtected) {
       return t('adminUsers.guardProtected');
     }
-    const isSelf = u.id === currentUserId;
+    const isSelf = isCurrentUser(u);
     if (isSelf && (action === 'role' || action === 'disable' || action === 'delete')) {
       return t('adminUsers.guardSelf');
     }
@@ -158,9 +165,13 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
 
   async function refresh() {
     try {
-      const res = await fetch('/api/portal/admin/users?max=200');
-      if (!res.ok) return;
-      const rows = (await res.json()) as AdminUserRow[];
+      const rows = await fetchAllAdminUsers(async (first, max) => {
+        const res = await fetch(
+          `/api/portal/admin/users?${adminUsersPageQuery(first, max)}`,
+        );
+        if (!res.ok) throw new Error(String(res.status));
+        return (await res.json()) as AdminUserRow[];
+      });
       setUsers(rows);
     } catch {
       /* non-fatal: the list stays as-is */
@@ -252,6 +263,18 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       method: 'DELETE',
     });
     setWorking(null);
+    if (res.status === 409) {
+      // The server refuses while the user still owns something the
+      // preflight cannot see (items in the trash, groups) and says
+      // what, so show its words.
+      const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+      setError(
+        typeof body?.message === 'string'
+          ? body.message
+          : t('adminUsers.errDelete', { status: '409' }),
+      );
+      return;
+    }
     if (!res.ok && res.status !== 404) {
       setError(t('adminUsers.errDelete', { status: String(res.status) }));
       return;
@@ -262,10 +285,10 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
 
   async function removeUser(user: AdminUserRow) {
     setError(null);
-    // Preflight: does this user own anything? If so, refuse to delete
-    // until the admin reassigns: otherwise their items would lose
-    // their owner pointer (FK is set-null-deferred in Prisma, but
-    // "orphaned content" is a worse UX than "please pick a new owner").
+    // Preflight: does this user own anything? If so, offer to
+    // reassign first. The server refuses the delete (409) while the
+    // user owns any item or group, including items in the trash,
+    // which this list does not show.
     setWorking(user.id);
     try {
       // Paged walk, not a single fetch: the list endpoint caps each
@@ -274,8 +297,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       const owned: Array<{ id: string; title: string; type: string }> = [];
       const PAGE = 1000;
       for (let page = 0; page < 50; page += 1) {
+        // Items carry the portal's own user id as owner, which is not
+        // the Keycloak id for seeded accounts.
+        const ownerId = user.localId ?? user.id;
         const res = await fetch(
-          `/api/portal/items?ownerId=${encodeURIComponent(user.id)}` +
+          `/api/portal/items?ownerId=${encodeURIComponent(ownerId)}` +
             `&limit=${PAGE}&offset=${page * PAGE}`,
         );
         if (!res.ok) {
@@ -499,7 +525,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                             {t('adminUsers.badgeProtected')}
                           </span>
                         ) : null}
-                        {u.id === currentUserId ? (
+                        {isCurrentUser(u) ? (
                           <span
                             title={t('adminUsers.badgeYouTitle')}
                             className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent"

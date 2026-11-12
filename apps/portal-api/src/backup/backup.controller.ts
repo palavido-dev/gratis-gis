@@ -38,7 +38,7 @@ import {
   BackupRestoreService,
   RestoreNotStartedError,
 } from './backup-restore.service.js';
-import { MaintenanceModeService } from './maintenance-mode.service.js';
+import { MaintenanceModeService, failedRestore } from './maintenance-mode.service.js';
 import { EmailTransport } from '../notifications/email-transport.js';
 import {
   announceRecoveryFailure,
@@ -302,19 +302,36 @@ export class BackupController {
       );
     }
 
+    // While maintenance is on, a restore may start only to recover
+    // from a failed one, and never while this replica is running one.
+    // Any other maintenance (a restore in progress, an admin's manual
+    // switch) refuses, as the middleware used to for every restore.
+    const before = this.mode.snapshot();
+    if (
+      before.active &&
+      (this.mode.isHeldLocally() || !failedRestore(before.reason))
+    ) {
+      throw new ConflictException(
+        'Maintenance is on and no failed restore is waiting to be re-run. Wait for the current restore to finish, or turn maintenance off first.',
+      );
+    }
+
     // Refusals that need no maintenance window (a live backup, an
     // archive whose schema does not match this portal) come first,
     // so they never leave a failed-restore hold behind.
     await this.restore.preflight(id);
-    const before = this.mode.snapshot();
 
     // Flip maintenance mode BEFORE we touch anything; the global
     // middleware then 503s unrelated requests that are in flight or
     // arriving during the restore window. Awaited so the shared flag
     // is persisted (and the other replica will pick it up) before the
     // restore starts dropping the schema.
+    // replaceReason when re-running after a failed restore: the
+    // banner should say a restore is running, and the check above
+    // then refuses a second one started on the other replica.
     await this.mode.activate(
       `Restoring backup ${id.slice(0, 8)}… Initiated by ${user.username ?? user.id.slice(0, 8)}.`,
+      { replaceReason: before.active },
     );
     try {
       const audit = await this.restore.runRestore({
@@ -333,6 +350,10 @@ export class BackupController {
         // Nothing was changed. Lift the maintenance this request
         // raised, unless maintenance was already on before it.
         if (!before.active) await this.mode.deactivate();
+        else if (before.reason) {
+          // Put the failed-restore hold back as it was.
+          await this.mode.activate(before.reason, { replaceReason: true });
+        }
         throw new ConflictException(err.message);
       }
       const msg = err instanceof Error ? err.message : String(err);

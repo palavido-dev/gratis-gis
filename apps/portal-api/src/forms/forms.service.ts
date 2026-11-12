@@ -30,6 +30,7 @@ import {
 } from './submission-pdf.js';
 import { cleanSubmission } from './submission-clean.js';
 import { isPlainEmailAddress } from '../notifications/email-address.js';
+import { formExtraRecipients } from './form-notify-limits.js';
 
 /**
  * Persistence and access control for form submissions (#131).
@@ -944,12 +945,10 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
               | undefined)
           : undefined;
       const notifyOwner = notifyCfg?.notifyOwner !== false;
-      const extras = Array.isArray(notifyCfg?.extraRecipients)
-        ? (notifyCfg!.extraRecipients as unknown[])
-            .filter((e): e is string => typeof e === 'string')
-            .map((e) => e.trim())
-            .filter((e) => isPlainEmailAddress(e))
-        : [];
+      const extras = formExtraRecipients(
+        notifyCfg?.extraRecipients,
+        isPlainEmailAddress,
+      );
 
       // Resolve the owner's email up front so we can de-dup against
       // extras: an author who lists themselves in extraRecipients

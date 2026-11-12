@@ -2,7 +2,7 @@
 import { statfs } from 'node:fs/promises';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ItemType } from '@prisma/client';
+import type { ItemType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
@@ -61,6 +61,62 @@ function isSeededBasemap(data: unknown): boolean {
 }
 
 /**
+ * The cheap SQL half of the stale-item heuristic, shared by the
+ * report, the summary count and the scheduled auto-trash so the three
+ * can never disagree about what counts as a candidate. Pass no orgId
+ * to cover every org (the scheduled pass).
+ *
+ * Seeded builtins are never stale, however long they sit. Every org
+ * gets a catalog at creation: basemaps, themes, print templates, app
+ * templates. Most are never edited and most are referenced by
+ * nothing, because their job is to be available for someone to pick,
+ * not to be used. They therefore satisfy every staleness signal we
+ * have, forever. On the demo that was the entire report: twenty stale
+ * items, twenty seeded builtins, nothing actionable.
+ *
+ * Templates and themes carry `seedKind` and are filtered here.
+ * Basemaps carry a `seededKey` inside data_json instead, so
+ * refineStaleCandidates() drops them.
+ */
+export function staleCandidateWhere(
+  orgId: string | undefined,
+  cutoff: Date,
+): Prisma.ItemWhereInput {
+  return {
+    ...(orgId ? { orgId } : {}),
+    deletedAt: null,
+    updatedAt: { lt: cutoff },
+    // Items recently accessed via the proxy can't be stale by
+    // definition. NULL lastUsageAt passes through (means "never
+    // touched via proxy", no signal either way).
+    OR: [{ lastUsageAt: null }, { lastUsageAt: { lt: cutoff } }],
+    shares: { none: {} },
+    seedKind: null,
+  };
+}
+
+/** How long one org's live item read is shared. See liveItemRows(). */
+const LIVE_ITEMS_TTL_MS = 10_000;
+
+type LiveItemRow = {
+  id: string;
+  type: ItemType;
+  title: string;
+  data: Prisma.JsonValue;
+  publicGeoBoundaryId: string | null;
+  orgGeoBoundaryId: string | null;
+};
+
+/** Item columns refineStaleCandidates() reads. */
+export type StaleCandidate = {
+  id: string;
+  type: ItemType;
+  data: unknown;
+  updatedAt: Date;
+  lastUsageAt: Date | null;
+};
+
+/**
  * Storage keys embedded in JSON text, for the orphan sweep's reference
  * scan. Postgres runs it with regexp_matches; the syntax is shared with
  * JavaScript so the spec can exercise it. Raster map icons (#686)
@@ -82,6 +138,45 @@ export class HousekeepingService {
     private readonly credentials: CredentialService,
     private readonly storage: StorageService,
   ) {}
+
+  /**
+   * Every live item of an org with its full data, for the dependency
+   * walks. One housekeeping page load used to read this four times
+   * (summary runs the stale count and the dangling scan, then the page
+   * asks for both lists), so the read is shared for a few seconds.
+   * `fresh` skips the cache for callers that act on the answer.
+   */
+  private readonly liveItemsCache = new Map<
+    string,
+    { at: number; rows: Promise<LiveItemRow[]> }
+  >();
+
+  private liveItemRows(orgId: string, fresh = false): Promise<LiveItemRow[]> {
+    const now = Date.now();
+    const hit = this.liveItemsCache.get(orgId);
+    if (!fresh && hit && now - hit.at < LIVE_ITEMS_TTL_MS) return hit.rows;
+    const rows = this.prisma.item.findMany({
+      where: { orgId, deletedAt: null },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        data: true,
+        publicGeoBoundaryId: true,
+        orgGeoBoundaryId: true,
+      },
+    });
+    for (const [k, v] of this.liveItemsCache) {
+      if (now - v.at >= LIVE_ITEMS_TTL_MS) this.liveItemsCache.delete(k);
+    }
+    this.liveItemsCache.set(orgId, { at: now, rows });
+    rows.catch(() => {
+      if (this.liveItemsCache.get(orgId)?.rows === rows) {
+        this.liveItemsCache.delete(orgId);
+      }
+    });
+    return rows;
+  }
 
   /**
    * Build / reconcile the per-searchable-field trigram indexes for
@@ -180,17 +275,7 @@ export class HousekeepingService {
    * item table entirely.
    */
   async danglingReferences(orgId: string) {
-    const rows = await this.prisma.item.findMany({
-      where: { orgId, deletedAt: null },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        data: true,
-        publicGeoBoundaryId: true,
-        orgGeoBoundaryId: true,
-      },
-    });
+    const rows = await this.liveItemRows(orgId);
     const referrers: DanglingRefCandidate[] = rows
       .map((r) => ({
         id: r.id,
@@ -239,10 +324,10 @@ export class HousekeepingService {
    *     picks pointed at two of them.
    *   - item_share.geoBoundaryId. Deliberately not a foreign key (the
    *     boundary and its item share one table, so Postgres cannot
-   *     enforce a partial FK on type), and SharingService resolves a
-   *     missing target to "no clip". A share that was scoped to one
-   *     county silently becomes org-wide. That is the one entry here
-   *     with a security consequence, so it carries a note.
+   *     enforce a partial FK on type). SharingService treats a missing
+   *     target as closed, so a share that was scoped to one county
+   *     stops granting any rows. It is listed so the owner can fix
+   *     the share instead of wondering why the grantees see nothing.
    *
    * Deliberately NOT covered: analysis_job and import_job provenance
    * columns (a finished job pointing at a deleted output is ordinary
@@ -294,7 +379,7 @@ export class HousekeepingService {
         title: entry.title,
         scope: 'settings',
         href: `/items/${itemId}`,
-        note: 'A share whose boundary is gone falls back to no clip, so the grant is wider than it was set up to be.',
+        note: 'A share whose boundary is gone grants no rows until it is pointed at a live boundary.',
         refs: entry.refs,
       });
     }
@@ -324,39 +409,7 @@ export class HousekeepingService {
     // tables have recent activity. Multiplier keeps the displayed
     // topN populated even when many candidates get filtered out.
     const candidates = await this.prisma.item.findMany({
-      where: {
-        orgId,
-        deletedAt: null,
-        updatedAt: { lt: cutoff },
-        // Items recently accessed via the proxy can't be stale by
-        // definition; filter them out at the SQL layer so we don't
-        // pay the per-item refine cost. NULL lastUsageAt passes
-        // through (means "never touched via proxy" -- no signal
-        // either way; the refinement step below handles it).
-        OR: [
-          { lastUsageAt: null },
-          { lastUsageAt: { lt: cutoff } },
-        ],
-        shares: { none: {} },
-        // Seeded builtins are never stale, however long they sit.
-        //
-        // Every org gets a catalog at creation: basemaps, themes,
-        // print templates, app templates. Most are never edited and
-        // most are referenced by nothing, because their job is to be
-        // available for someone to pick, not to be used. They
-        // therefore satisfy every staleness signal we have, forever.
-        //
-        // On the demo that was the entire report: twenty stale items,
-        // twenty seeded builtins, nothing actionable. A report with a
-        // permanent noise floor is a report nobody reads, which costs
-        // more than the handful of rows it was hiding.
-        //
-        // Templates and themes carry `seedKind`; basemaps carry a
-        // `seededKey` inside data_json instead, and that one is
-        // filtered in the refine loop below rather than here, because
-        // a JSON-path predicate is harder to read than one `continue`.
-        seedKind: null,
-      },
+      where: staleCandidateWhere(orgId, cutoff),
       select: {
         id: true,
         title: true,
@@ -379,23 +432,11 @@ export class HousekeepingService {
     // fresh because something depends on them. Built once per
     // staleItems() call; the per-candidate lookup is just a Set.has.
     const referenced = await this.buildReferencedItemSet(orgId);
-    const refined: Array<
-      (typeof candidates)[number] & { effectiveActivity: Date }
-    > = [];
-    for (const r of candidates) {
-      if (referenced.has(r.id)) continue;
-      // The basemap half of the seeded-builtin exclusion above.
-      if (isSeededBasemap(r.data)) continue;
-      const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
-      const effective = pickEffectiveActivity(
-        r.updatedAt,
-        dataAt,
-        r.lastUsageAt,
-      );
-      if (effective < cutoff) {
-        refined.push({ ...r, effectiveActivity: effective });
-      }
-    }
+    const refined = await this.refineStaleCandidates(
+      candidates,
+      referenced,
+      cutoff,
+    );
     refined.sort(
       (a, b) =>
         a.effectiveActivity.getTime() - b.effectiveActivity.getTime(),
@@ -429,6 +470,32 @@ export class HousekeepingService {
           r.ownerId.slice(0, 8),
       };
     });
+  }
+
+  /**
+   * The per-item half of the stale heuristic, shared like
+   * staleCandidateWhere(). Drops candidates something else depends on
+   * (#98), seeded basemaps, and data layers whose features changed
+   * recently (#95). Returns the rest with the activity that decided.
+   */
+  async refineStaleCandidates<T extends StaleCandidate>(
+    candidates: T[],
+    referenced: Set<string>,
+    cutoff: Date,
+  ): Promise<Array<T & { effectiveActivity: Date }>> {
+    const out: Array<T & { effectiveActivity: Date }> = [];
+    for (const r of candidates) {
+      if (referenced.has(r.id)) continue;
+      if (isSeededBasemap(r.data)) continue;
+      const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
+      const effective = pickEffectiveActivity(
+        r.updatedAt,
+        dataAt,
+        r.lastUsageAt,
+      );
+      if (effective < cutoff) out.push({ ...r, effectiveActivity: effective });
+    }
+    return out;
   }
 
   /**
@@ -1024,19 +1091,10 @@ export class HousekeepingService {
     const cutoff = new Date(
       Date.now() - this.staleItemDays * 24 * 60 * 60 * 1000,
     );
-    // Refine the count the same way staleItems() does so the
-    // headline number matches the list. Doing the data-activity
-    // probe per candidate is cheap because the cheap SQL filter
-    // already narrowed to "no shares + old item.updatedAt + no
-    // recent proxy usage".
+    // Same candidates and refine as staleItems(), so the headline
+    // number matches the list.
     const candidates = await this.prisma.item.findMany({
-      where: {
-        orgId,
-        deletedAt: null,
-        updatedAt: { lt: cutoff },
-        OR: [{ lastUsageAt: null }, { lastUsageAt: { lt: cutoff } }],
-        shares: { none: {} },
-      },
+      where: staleCandidateWhere(orgId, cutoff),
       select: {
         id: true,
         type: true,
@@ -1046,18 +1104,8 @@ export class HousekeepingService {
       },
     });
     const referenced = await this.buildReferencedItemSet(orgId);
-    let n = 0;
-    for (const c of candidates) {
-      if (referenced.has(c.id)) continue;
-      const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
-      const effective = pickEffectiveActivity(
-        c.updatedAt,
-        dataAt,
-        c.lastUsageAt,
-      );
-      if (effective < cutoff) n += 1;
-    }
-    return n;
+    return (await this.refineStaleCandidates(candidates, referenced, cutoff))
+      .length;
   }
 
   /**
@@ -1072,20 +1120,13 @@ export class HousekeepingService {
    * set is treated as fresh regardless of its own activity signals,
    * because something else in the org depends on it.
    */
-  async buildReferencedItemSet(orgId: string): Promise<Set<string>> {
-    const rows = await this.prisma.item.findMany({
-      where: { orgId, deletedAt: null },
-      select: {
-        id: true,
-        type: true,
-        data: true,
-        // #80: tier-level boundary refs count toward "this item is
-        // depended on, don't flag it as stale" so a geo_boundary
-        // attached as a public/org tier clip stays fresh.
-        publicGeoBoundaryId: true,
-        orgGeoBoundaryId: true,
-      },
-    });
+  async buildReferencedItemSet(
+    orgId: string,
+    opts: { fresh?: boolean } = {},
+  ): Promise<Set<string>> {
+    // Tier-level boundary refs (#80) are in the row too, so a
+    // geo_boundary attached as a public/org tier clip stays fresh.
+    const rows = await this.liveItemRows(orgId, opts.fresh);
     const referencedIds = new Set<string>();
     const referencedUrlKeys = new Set<string>();
     for (const r of rows) {
@@ -1510,9 +1551,15 @@ export class HousekeepingService {
         if (layers !== null) {
           try {
             next = await this.dataLayerTables.aggregateBbox(it.id, layers);
-          } catch {
-            // The extent read failed (logged inside). Keep the stored
-            // bbox rather than overwrite it with an empty one.
+          } catch (err) {
+            this.log.warn(
+              `recompute-extents: extent query failed for ${it.id}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+            // The extent query failed. Keep the stored bbox rather
+            // than blanking it; maps that reference this layer read
+            // the stored value from the row instead.
             continue;
           }
           // Same maintenance pass keeps per-layer featureCount

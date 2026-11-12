@@ -29,8 +29,21 @@ type MetaUiItemInput = {
 };
 
 export function buildMetaUi(item: MetaUiItemInput): MetaUi {
-  const layers = layersFor(item);
-  const downloads = downloadsFor(item);
+  // `data` is stored with only an "is an object" check, so a badly
+  // shaped blob can reach here. This block is presentation only and
+  // runs on every read of the item, including the reads that edit,
+  // delete and restore start with. If it threw, one bad save would
+  // leave the item unreadable and impossible to fix, so a failure
+  // falls back to no layers and no downloads.
+  let layers: MetaUiLayer[] = [];
+  let downloads: MetaUiDownload[] = [];
+  try {
+    layers = layersFor(item);
+    downloads = downloadsFor(item);
+  } catch {
+    layers = [];
+    downloads = [];
+  }
   return {
     version: 1,
     layers,

@@ -586,8 +586,10 @@ function SettingsCard({
                   Where backups are saved
                 </label>
                 <p className="mb-1 text-2xs text-muted">
-                  Absolute path on the portal server. Leave blank to
-                  use the deployment's default location.
+                  Absolute path on the portal server, inside the
+                  deployment's backup folder (or another folder the
+                  server operator allowed). Leave blank to use the
+                  default location.
                 </p>
                 <input
                   type="text"

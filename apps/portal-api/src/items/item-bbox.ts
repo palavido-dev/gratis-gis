@@ -107,3 +107,36 @@ function aggregateLayerBboxes(
   if (!any) return null;
   return [w, s, e, n];
 }
+
+/**
+ * Item types whose stored extent is worked out from somewhere other
+ * than data_json: a data_layer from its features, a map or editor
+ * from the items it references (ItemBboxRefreshService). itemBbox
+ * returns null for a normal blob of these types, so writing its
+ * result on every save used to blank a good extent.
+ */
+const DERIVED_EXTENT_TYPES: ReadonlySet<string> = new Set([
+  'data_layer',
+  'map',
+  'editor',
+  'web_app',
+]);
+
+export function hasDerivedExtent(type: string): boolean {
+  return DERIVED_EXTENT_TYPES.has(type);
+}
+
+/**
+ * The `bbox` column write that goes with a new data blob. For a type
+ * with a derived extent, a blob that carries no extent leaves the
+ * stored value alone (the caller asks ItemBboxRefreshService to
+ * recompute it); every other type takes what the blob says.
+ */
+export function bboxWriteForData(
+  type: ItemType,
+  data: unknown,
+): { bbox: number[] } | Record<string, never> {
+  const next = itemBbox(type, data);
+  if (next === null && hasDerivedExtent(type)) return {};
+  return { bbox: next ?? [] };
+}

@@ -36,7 +36,12 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NOTIFICATION_TYPES, getTypeMeta } from './notification-types.js';
-import { SystemSettingsService, type SmtpConfig } from './system-settings.service.js';
+import {
+  SMTP_PASSWORD_AGAIN,
+  SystemSettingsService,
+  sameSmtpTarget,
+  type SmtpConfig,
+} from './system-settings.service.js';
 import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 import { NotificationTemplateService } from './notification-template.service.js';
 import { EmailTransport } from './email-transport.js';
@@ -447,10 +452,17 @@ export class NotificationsAdminController {
       };
       // If admin left password blank in the form but a stored one
       // exists, fall back to the stored value so the test exercises
-      // the real config the worker would use.
+      // the real config the worker would use. Only for the same
+      // server, port and user: sending it to any other host would
+      // hand the stored password to whoever runs that host.
       if (c.password === undefined) {
         const stored = await this.settings.getSmtpConfig();
-        if (stored?.password) c.password = stored.password;
+        if (stored?.password) {
+          if (!sameSmtpTarget(stored, c)) {
+            throw new BadRequestException(SMTP_PASSWORD_AGAIN);
+          }
+          c.password = stored.password;
+        }
       }
       return c;
     })();

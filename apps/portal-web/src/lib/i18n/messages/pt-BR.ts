@@ -2755,6 +2755,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Qualquer pessoa na internet poderá ver os {count} itens selecionados sem fazer login. Use isto para links compartilháveis de mapas / visualizadores. Os itens referenciados pela seleção (camadas, mapas base, etc.) também precisam ser públicos; você será solicitado a aplicar em cascata ao concluir.',
     geographicScope: 'Escopo geográfico',
     noBoundaryItems: 'Ainda não há itens de limite nesta organização',
+    keepScope: 'Manter o escopo atual de cada item',
     noScope: 'Sem escopo (irrestrito)',
     geoScopeHint:
       'Quando definido, quem acessa estes itens via {via} vê apenas as feições dentro do limite. Aplicado na camada da API.',
@@ -3767,7 +3768,7 @@ export const ptBR: Partial<CatalogShape> = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',

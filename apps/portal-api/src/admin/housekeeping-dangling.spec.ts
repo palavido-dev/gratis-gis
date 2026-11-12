@@ -141,7 +141,7 @@ describe('HousekeepingService dangling references', () => {
     // The consequence is the whole reason this row exists: a share
     // that lost its boundary is not merely cosmetic, it is wider than
     // the admin set it up to be.
-    expect(referrers[0]!.note).toMatch(/wider/);
+    expect(referrers[0]!.note).toMatch(/grants no rows/);
   });
 
   it('collapses several shares on one item into a single row', async () => {

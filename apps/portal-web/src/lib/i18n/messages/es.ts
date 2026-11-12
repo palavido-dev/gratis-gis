@@ -2758,6 +2758,7 @@ export const es: Partial<CatalogShape> = {
       'Cualquiera en internet podrá ver los {count} elementos seleccionados sin iniciar sesión. Úsalo para enlaces compartibles de mapas / visores. Los elementos referenciados por la selección (capas, mapas base, etc.) también deben ser públicos; se te pedirá aplicarlo en cascada al terminar.',
     geographicScope: 'Ámbito geográfico',
     noBoundaryItems: 'Aún no hay elementos de límite en esta organización',
+    keepScope: 'Mantener el ámbito actual de cada elemento',
     noScope: 'Sin ámbito (sin restricciones)',
     geoScopeHint:
       'Cuando está definido, quienes acceden a estos elementos a través de {via} solo ven las entidades dentro del límite. Se aplica en la capa de la API.',
@@ -3768,7 +3769,7 @@ export const es: Partial<CatalogShape> = {
     scheduleIntro: 'Deja que el portal se ordene solo. Desactivado hasta que lo actives. Elige qué limpiar, cuánto tiempo debe estar algo sin uso y cuándo ejecutar la limpieza. Las listas de abajo siguen mostrando lo que puedes limpiar a mano cuando quieras.',
     scheduleAutoTrash: 'Papelera para elementos sin uso',
     scheduleAutoTrashBefore:
-      'Mueve a la papelera elementos sin ediciones ni recursos compartidos en los últimos',
+      'Mueve a la papelera elementos privados sin ediciones ni recursos compartidos en los últimos',
     scheduleAutoTrashAfter:
       'días. No se borran al instante: quedan en Eliminados recientemente y se pueden restaurar.',
     scheduleAutoDisable: 'Pausar inicio de sesión de cuentas inactivas',

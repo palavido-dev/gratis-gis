@@ -13,7 +13,10 @@ import { IsBoolean, IsOptional } from 'class-validator';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import { MaintenanceModeService } from '../backup/maintenance-mode.service.js';
+import {
+  MaintenanceModeService,
+  failedRestore,
+} from '../backup/maintenance-mode.service.js';
 import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
@@ -28,10 +31,9 @@ class MaintenanceDto {
   acknowledgeFailure?: boolean;
 }
 
-export function failedRestore(reason: string | null): boolean {
-  if (!reason) return false;
-  return /restore/i.test(reason) && /fail|inconsistent/i.test(reason);
-}
+// Lives with the maintenance service so the backup controller can use
+// it too; re-exported here for existing callers.
+export { failedRestore } from '../backup/maintenance-mode.service.js';
 
 @ApiTags('admin', 'maintenance')
 @ApiBearerAuth()

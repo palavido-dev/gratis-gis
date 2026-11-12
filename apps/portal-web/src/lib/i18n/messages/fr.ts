@@ -2766,6 +2766,7 @@ export const fr: Partial<CatalogShape> = {
       "N'importe qui sur internet pourra voir les {count} éléments sélectionnés sans se connecter. Utilisez ceci pour des liens partageables de cartes / visionneuses. Les éléments référencés par la sélection (couches, fonds de carte, etc.) doivent aussi être publics ; il vous sera proposé de propager ce choix une fois terminé.",
     geographicScope: 'Portée géographique',
     noBoundaryItems: "Aucun élément de limite dans cette organisation pour l'instant",
+    keepScope: 'Conserver la portée actuelle de chaque élément',
     noScope: 'Aucune portée (sans restriction)',
     geoScopeHint:
       "Une fois définie, les personnes accédant à ces éléments via {via} ne voient que les entités à l'intérieur de la limite. Appliqué au niveau de l'API.",
@@ -3777,7 +3778,7 @@ export const fr: Partial<CatalogShape> = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',
