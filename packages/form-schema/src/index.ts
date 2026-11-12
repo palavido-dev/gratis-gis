@@ -1290,8 +1290,7 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
         // pattern is a designer-side error, not a respondent-blocking
         // condition, so we treat construction failures as a no-match
         // (false) rather than throwing.
-        const re = new RegExp(`^(?:${pattern})$`, expr.flags ?? '');
-        return re.test(subject);
+        return matchAnchoredPattern(pattern, expr.flags ?? '', subject) === true;
       } catch {
         return false;
       }
@@ -1784,16 +1783,11 @@ function validateType(q: Question, value: unknown): string | null {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
       if (q.type === 'text' && q.pattern) {
-        let re: RegExp;
-        try {
-          re = new RegExp(`^(?:${q.pattern})$`);
-        } catch {
-          // Same rule as the `regex` type: a bad pattern is a designer
-          // error, so pass rather than throw out of validate(), which
-          // the server would turn into a 500 on every submission.
-          return null;
-        }
-        if (!re.test(value)) return 'Does not match the required format.';
+        // Same rule as the `regex` type: a bad pattern is a designer
+        // error, so pass rather than throw out of validate(), which
+        // the server would turn into a 500 on every submission.
+        const ok = matchAnchoredPattern(q.pattern, '', value);
+        if (ok === false) return 'Does not match the required format.';
       }
       return null;
     }
@@ -1863,15 +1857,10 @@ function validateType(q: Question, value: unknown): string | null {
       if (q.maxLength && value.length > q.maxLength) {
         return `Must be ${q.maxLength} characters or fewer.`;
       }
-      let re: RegExp;
-      try {
-        re = new RegExp(`^(?:${q.pattern})$`, q.flags ?? '');
-      } catch {
-        // A bad pattern is a designer error; pass validation rather
-        // than block the respondent on something they can't fix.
-        return null;
-      }
-      if (!re.test(value)) return q.message ?? 'Does not match the required format.';
+      // A bad pattern is a designer error; pass validation rather
+      // than block the respondent on something they can't fix.
+      const ok = matchAnchoredPattern(q.pattern, q.flags ?? '', value);
+      if (ok === false) return q.message ?? 'Does not match the required format.';
       return null;
     }
     case 'number':
@@ -2946,3 +2935,40 @@ export {
   type XlsFormChoicesRow,
   type XlsFormSettingsRow,
 } from './xlsform-import';
+
+/**
+ * Match `subject` against an author's pattern, anchored at both ends
+ * (`^(?:pattern)$`, the XLSForm convention). Returns null when the
+ * pattern cannot be compiled, which callers treat as a designer error
+ * and let through.
+ *
+ * The default uses the platform RegExp, a backtracking engine: a
+ * pattern such as `(a+)+` takes time exponential in the answer length.
+ * That only costs the person typing in a browser, but the API runs
+ * validate() on every submission, where one answer could stall the
+ * server. The API therefore installs a linear-time matcher with
+ * `setPatternMatcher` at startup. Any replacement must never throw.
+ */
+export type PatternMatcher = (pattern: string, flags: string, subject: string) => boolean | null;
+
+const nativePatternMatcher: PatternMatcher = (pattern, flags, subject) => {
+  let re: RegExp;
+  try {
+    re = new RegExp(`^(?:${pattern})$`, flags);
+  } catch {
+    return null;
+  }
+  return re.test(subject);
+};
+
+let patternMatcher: PatternMatcher = nativePatternMatcher;
+
+/** Replace the pattern engine (the API passes a linear-time one). */
+export function setPatternMatcher(matcher: PatternMatcher | null): void {
+  patternMatcher = matcher ?? nativePatternMatcher;
+}
+
+export function matchAnchoredPattern(pattern: string, flags: string, subject: string): boolean | null {
+  return patternMatcher(pattern, flags, subject);
+}
+

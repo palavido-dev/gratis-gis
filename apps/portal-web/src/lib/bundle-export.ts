@@ -208,7 +208,7 @@ function sanitizeSegment(raw: string): string {
     .trim()
     .replace(/[^\w.\- ]+/g, '_')
     .replace(/\s+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_+|(?<!_)_+$/g, '')
     .slice(0, 80) || 'item';
 }
 

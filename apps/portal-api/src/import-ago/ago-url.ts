@@ -59,7 +59,7 @@ export function normalizeAgoUrl(raw: string): NormalizedAgoUrl | null {
   //
   // Empty path on AGO public cloud yields the standard
   // /sharing/rest base.
-  const path = parsed.pathname.replace(/\/+$/, '');
+  const path = parsed.pathname.replace(/(?<!\/)\/+$/, '');
   let portalPath = '';
   if (/\/sharing\/rest(\/|$)/i.test(path)) {
     portalPath = path.replace(/\/sharing\/rest.*$/i, '');
@@ -69,7 +69,7 @@ export function normalizeAgoUrl(raw: string): NormalizedAgoUrl | null {
     portalPath = path;
   }
   // Normalize: ensure exactly one leading slash, no trailing.
-  portalPath = portalPath.replace(/\/+/g, '/').replace(/\/+$/, '');
+  portalPath = portalPath.replace(/\/+/g, '/').replace(/(?<!\/)\/+$/, '');
   if (portalPath && !portalPath.startsWith('/')) {
     portalPath = `/${portalPath}`;
   }

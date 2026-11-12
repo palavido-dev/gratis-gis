@@ -108,11 +108,18 @@ export function sanitizeSvg(input: string): string | null {
   // Strip processing instructions, DOCTYPE, comments, and
   // CDATA up front. These are not allowed in the output and
   // simplify the tokenizer.
-  let src = input
+  //
+  // Comments and CDATA are cut with indexOf, not a lazy regex: an
+  // unterminated opener made the regex rescan to the end of the input
+  // from every opener, so a 1 MB upload of repeated `<!--` held the
+  // API for about a minute. An unterminated one is now a rejection.
+  const noComments = stripBlocks(input, '<!--', '-->');
+  if (noComments === null) return null;
+  const noCdata = stripBlocks(noComments, '<![CDATA[', ']]>');
+  if (noCdata === null) return null;
+  let src = noCdata
     .replace(/<\?[^?]*\?>/g, '')
-    .replace(/<!DOCTYPE[^>]*>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+    .replace(/<!DOCTYPE[^>]*>/gi, '');
 
   // Reject UTF-16 BOMs / unusual chars that could be used to
   // smuggle past the regex layer. (Inputs come from a form
@@ -228,21 +235,65 @@ export function sanitizeSvg(input: string): string | null {
   return out.join('');
 }
 
+/**
+ * Remove every `open ... close` block. Null when an opener has no
+ * closer (the input is malformed and is refused).
+ */
+function stripBlocks(input: string, open: string, close: string): string | null {
+  let out = '';
+  let pos = 0;
+  for (;;) {
+    const start = input.indexOf(open, pos);
+    if (start === -1) return out + input.slice(pos);
+    const end = input.indexOf(close, start + open.length);
+    if (end === -1) return null;
+    out += input.slice(pos, start);
+    pos = end + close.length;
+  }
+}
+
+const isSpace = (c: string) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+const isNameStart = (c: string) => /[a-zA-Z_:]/.test(c);
+const isNameChar = (c: string) => /[A-Za-z0-9_\-:]/.test(c);
+const isUnquotedStop = (c: string) => isSpace(c) || c === '"' || c === "'" || c === '<' || c === '>' || c === '`';
+
+/**
+ * name = "value" | 'value' | value, separated by whitespace, and
+ * nothing else. A single left-to-right scan: the attribute regex this
+ * replaced restarted from every position of a long run of name
+ * characters with no `=`, which was quadratic.
+ */
 function parseAttrs(input: string): Array<[string, string]> | null {
   const out: Array<[string, string]> = [];
-  const re = /([a-zA-Z_:][\w\-:]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(input)) !== null) {
-    const name = m[1]!;
-    const value = m[2] ?? m[3] ?? m[4] ?? '';
+  const n = input.length;
+  let i = 0;
+  for (;;) {
+    while (i < n && isSpace(input[i]!)) i++;
+    if (i >= n) return out;
+    if (!isNameStart(input[i]!)) return null;
+    const nameStart = i;
+    i++;
+    while (i < n && isNameChar(input[i]!)) i++;
+    const name = input.slice(nameStart, i);
+    while (i < n && isSpace(input[i]!)) i++;
+    if (input[i] !== '=') return null;
+    i++;
+    while (i < n && isSpace(input[i]!)) i++;
+    let value: string;
+    const q = input[i];
+    if (q === '"' || q === "'") {
+      const end = input.indexOf(q, i + 1);
+      if (end === -1) return null;
+      value = input.slice(i + 1, end);
+      i = end + 1;
+    } else {
+      const vStart = i;
+      while (i < n && !isUnquotedStop(input[i]!)) i++;
+      if (i === vStart) return null;
+      value = input.slice(vStart, i);
+    }
     out.push([name, decodeEntities(value)]);
   }
-  // After consuming attrs, the only chars left should be
-  // whitespace. Anything else means the attribute list was
-  // malformed and we should reject.
-  const tail = input.replace(re, '').trim();
-  if (tail.length > 0) return null;
-  return out;
 }
 
 function decodeEntities(s: string): string {

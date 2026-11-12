@@ -93,7 +93,7 @@ export class AgoClient {
   private readonly timeoutMs: number;
 
   constructor(config: AgoClientConfig) {
-    // Manual trailing-slash strip: the regex form (`/\/+$/`) is
+    // Manual trailing-slash strip: the regex form (`/(?<!\/)\/+$/`) is
     // O(n) on a fully-slashes input but CodeQL js/polynomial-redos
     // still flags it because of the user-controlled source. A loop
     // is just as cheap and sidesteps the warning.

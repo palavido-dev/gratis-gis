@@ -105,7 +105,7 @@ async function tryArcgis(rawUrl: string): Promise<ArcgisServiceDescription> {
   // describeArcgisService takes a parsed JSON body; we mirror probeService's
   // pattern of fetching the URL ourselves and handing the JSON in. Splitting
   // a layer URL is left to the helper.
-  const cleaned = rawUrl.replace(/\/+$/, '');
+  const cleaned = rawUrl.replace(/(?<!\/)\/+$/, '');
   const sep = cleaned.includes('?') ? '&' : '?';
   const res = await fetch(`${cleaned}${sep}f=json`, {
     headers: { Accept: 'application/json' },
@@ -261,7 +261,7 @@ function wfsToServiceData(
  * in the wild). If a future WMTS 2.0 ships we'll add the variant.
  */
 async function probeWmts(rawUrl: string): Promise<ServiceData> {
-  const base = rawUrl.trim().replace(/\?.*$/, '').replace(/\/+$/, '');
+  const base = rawUrl.trim().replace(/\?.*$/, '').replace(/(?<!\/)\/+$/, '');
   const url = `${base}?service=WMTS&request=GetCapabilities&version=1.0.0`;
   const res = await fetch(url, {
     headers: { Accept: 'application/xml, text/xml, */*' },

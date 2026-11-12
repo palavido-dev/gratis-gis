@@ -6,6 +6,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Security
+
+- Text the server checks with patterns can no longer stall it. Form
+  answers are checked against the author's format pattern with a
+  linear-time engine on the server, and a form whose pattern uses
+  lookahead, lookbehind or backreferences is refused when saved. URL
+  cleanup, county matching in CSV imports and the SVG icon cleaner no
+  longer slow down sharply on long or crafted input.
+
 ### Fixed
 
 - The hourly OSM cache cleanup no longer deletes rows of user data

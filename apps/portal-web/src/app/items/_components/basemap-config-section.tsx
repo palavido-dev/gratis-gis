@@ -613,7 +613,7 @@ function serviceItemToBasemapData(
     // Cached ArcGIS MapServers publish at /tile/{level}/{row}/{col}.
     // We rewrite to MapLibre's {z}/{y}/{x} placeholders since
     // Esri's URL ordering is z/y/x (rows-then-cols), not z/x/y.
-    const cleaned = url.replace(/\/+$/, '');
+    const cleaned = url.replace(/(?<!\/)\/+$/, '');
     const tileUrl = `${cleaned}/tile/{z}/{y}/{x}`;
     const next: BasemapData = {
       version: 1,

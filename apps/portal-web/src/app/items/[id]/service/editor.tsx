@@ -629,7 +629,7 @@ function layerWordFor(p: ServiceProtocol): string {
  *  uses GetCapabilities. */
 function capabilitiesUrlFor(d: ServiceData): string | null {
   if (!d.url) return null;
-  const base = d.url.replace(/\?.*$/, '').replace(/\/+$/, '');
+  const base = d.url.replace(/\?.*$/, '').replace(/(?<!\/)\/+$/, '');
   if (
     d.protocol === 'arcgis_map' ||
     d.protocol === 'arcgis_feature' ||

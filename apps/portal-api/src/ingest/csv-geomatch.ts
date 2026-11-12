@@ -320,12 +320,33 @@ function normalizeKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-/** Strip trailing County/Parish/Borough so "Travis County" ≡ "Travis". */
-function normalizeCountyName(value: string): string {
-  const trimmed = value
-    .trim()
-    .replace(/\s+(county|parish|borough|census area|municipality|city and borough)$/i, '');
-  return normalizeKey(trimmed);
+/** County-type suffixes, longest first so "city and borough" wins. */
+const COUNTY_SUFFIXES = [
+  'city and borough',
+  'census area',
+  'municipality',
+  'borough',
+  'county',
+  'parish',
+];
+
+/** Longest county cell worth matching; real names are far shorter. */
+export const MAX_COUNTY_CELL = 200;
+
+/**
+ * Strip trailing County/Parish/Borough so "Travis County" == "Travis".
+ * Plain string code: the regex this replaced backtracked from every
+ * whitespace run, so one long cell held the API for minutes.
+ */
+export function normalizeCountyName(value: string): string {
+  const v = value.trim().replace(/\s+/g, ' ');
+  const lower = v.toLowerCase();
+  for (const suffix of COUNTY_SUFFIXES) {
+    if (lower.endsWith(' ' + suffix)) {
+      return normalizeKey(v.slice(0, v.length - suffix.length - 1));
+    }
+  }
+  return normalizeKey(v);
 }
 
 function bestColumn(
@@ -366,11 +387,20 @@ function inferFieldType(
   return 'string';
 }
 
-function parseCountyCell(raw: string): { name: string; state: string | null } {
-  // "Travis, TX" / "Travis County, Texas"
-  const comma = raw.match(/^(.+?)\s*,\s*([A-Za-z .]+)$/);
-  if (comma) {
-    return { name: comma[1]!.trim(), state: comma[2]!.trim() };
+/**
+ * "Travis, TX" / "Travis County, Texas" -> name and state. Splits on the
+ * LAST comma with string code (the lazy regex this replaced was
+ * quadratic on a long cell), and the state part may hold only letters,
+ * spaces and dots, as before.
+ */
+export function parseCountyCell(raw: string): { name: string; state: string | null } {
+  const at = raw.lastIndexOf(',');
+  if (at > 0) {
+    const name = raw.slice(0, at).trim();
+    const state = raw.slice(at + 1).trim();
+    if (name !== '' && state !== '' && /^[A-Za-z .]+$/.test(state)) {
+      return { name, state };
+    }
   }
   return { name: raw, state: null };
 }
@@ -379,6 +409,9 @@ function lookupCounty(
   raw: string,
   stateHint: string | null,
 ): CountyBoundary | undefined {
+  // No county name is this long; refusing early keeps a crafted cell
+  // from costing anything.
+  if (raw.length > MAX_COUNTY_CELL) return undefined;
   loadUsCountyBoundaries();
   const parsed = parseCountyCell(raw);
   const state = stateHint ?? parsed.state;

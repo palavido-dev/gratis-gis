@@ -58,6 +58,7 @@
     "pmtiles": "^4.5.0",
     "proj4": "^2.22.0",
     "puppeteer-core": "^25.16.0",
+    "re2js": "2.9.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sharp": "^0.35.4",

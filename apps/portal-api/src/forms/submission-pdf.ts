@@ -71,7 +71,7 @@ export function receiptFilename(title: string, submissionId: string): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .slice(0, 40);
   const stem = slug || 'submission';
   const suffix = submissionId.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'receipt';

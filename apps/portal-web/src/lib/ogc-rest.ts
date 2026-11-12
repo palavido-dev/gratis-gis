@@ -59,7 +59,7 @@ function normalizeBaseUrl(raw: string): string {
   // Drop any existing query string -- GetCapabilities owns the params.
   const idx = trimmed.indexOf('?');
   let base = idx >= 0 ? trimmed.slice(0, idx) : trimmed;
-  base = base.replace(/\/+$/, '');
+  base = base.replace(/(?<!\/)\/+$/, '');
   return base;
 }
 
