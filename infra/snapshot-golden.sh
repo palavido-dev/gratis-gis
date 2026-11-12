@@ -132,6 +132,39 @@ dc() {
 # Ordering matters: revert (SQL, postgres is still up) -> purge ->
 # stop services -> dump. restore-golden.sh re-applies the split at
 # the end of every reset.
+# Every artifact is written to a .tmp path first, verified, and only
+# then moved over the previous generation. A crash or a truncated
+# write therefore can never replace a good golden set with a corrupt
+# one; the nightly restore keeps reading the last complete set. The
+# EXIT trap below removes leftover .tmp files and, if the script
+# dies after services were stopped, restarts them so a failed 2am
+# snapshot doesn't leave the demo down until morning.
+APP_DUMP_TMP="$GOLDEN_DIR/postgres-app.dump.tmp"
+KC_DUMP_TMP="$GOLDEN_DIR/postgres-keycloak.dump.tmp"
+MINIO_TAR_TMP="$GOLDEN_DIR/minio.tar.tmp"
+GG_SERVICES_STOPPED=0
+GG_WORKSPACE_REVERTED=0
+cleanup_on_exit() {
+  local rc=$?
+  rm -f "$APP_DUMP_TMP" "$KC_DUMP_TMP" "$MINIO_TAR_TMP"
+  if [[ $rc -ne 0 && "$GG_SERVICES_STOPPED" == 1 ]]; then
+    echo "WARN: snapshot failed (rc=$rc); restarting stopped services." >&2
+    dc start minio || true
+    sleep 3
+    dc start keycloak portal-web portal-worker pointcloud-worker portal-api || true
+  fi
+  # The revert ran on the live database. A failed snapshot used to
+  # leave testers owning nothing until the 04:00 reset.
+  if [[ $rc -ne 0 && "$GG_WORKSPACE_REVERTED" == 1 ]]; then
+    echo "WARN: re-applying the demo tester workspace after the failed snapshot." >&2
+    PG_CONTAINER="$GG_SNAP_PG" PG_USER="$POSTGRES_USER" PG_DB="$POSTGRES_DB_APP" \
+      ADMIN_USERNAME="$ADMIN_USERNAME" \
+      "$INFRA_DIR/seed-demo-workspace.sh" >/dev/null 2>&1 || true
+  fi
+  exit "$rc"
+}
+trap cleanup_on_exit EXIT
+
 echo "=== Reverting demo tester workspace before purge ==="
 GG_SNAP_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
 if [[ -z "$GG_SNAP_PG" ]]; then
@@ -141,6 +174,7 @@ fi
 PG_CONTAINER="$GG_SNAP_PG" PG_USER="$POSTGRES_USER" PG_DB="$POSTGRES_DB_APP" \
   ADMIN_USERNAME="$ADMIN_USERNAME" \
   "$INFRA_DIR/seed-demo-workspace.sh" --revert
+GG_WORKSPACE_REVERTED=1
 
 echo "=== Pre-snapshot purge of non-admin items ==="
 PORTAL_API_CONTAINER="$(dc ps -q portal-api 2>/dev/null | head -n 1)"
@@ -163,29 +197,6 @@ docker exec \
 docker exec -u 0 "$PORTAL_API_CONTAINER" \
   rm -f /tmp/cleanup-non-admin.mjs || true
 
-# Every artifact is written to a .tmp path first, verified, and only
-# then moved over the previous generation. A crash or a truncated
-# write therefore can never replace a good golden set with a corrupt
-# one; the nightly restore keeps reading the last complete set. The
-# EXIT trap below removes leftover .tmp files and, if the script
-# dies after services were stopped, restarts them so a failed 2am
-# snapshot doesn't leave the demo down until morning.
-APP_DUMP_TMP="$GOLDEN_DIR/postgres-app.dump.tmp"
-KC_DUMP_TMP="$GOLDEN_DIR/postgres-keycloak.dump.tmp"
-MINIO_TAR_TMP="$GOLDEN_DIR/minio.tar.tmp"
-GG_SERVICES_STOPPED=0
-cleanup_on_exit() {
-  local rc=$?
-  rm -f "$APP_DUMP_TMP" "$KC_DUMP_TMP" "$MINIO_TAR_TMP"
-  if [[ $rc -ne 0 && "$GG_SERVICES_STOPPED" == 1 ]]; then
-    echo "WARN: snapshot failed (rc=$rc); restarting stopped services." >&2
-    dc start minio || true
-    sleep 3
-    dc start keycloak portal-web portal-worker pointcloud-worker portal-api || true
-  fi
-  exit "$rc"
-}
-trap cleanup_on_exit EXIT
 
 echo "=== Stopping app services for consistent snapshot ==="
 # Stop in dependency order; postgres stays up so we can pg_dump.
@@ -193,6 +204,18 @@ echo "=== Stopping app services for consistent snapshot ==="
 # the dumps and the volume tar are one consistent point in time.
 GG_SERVICES_STOPPED=1
 dc stop portal-api portal-worker pointcloud-worker portal-web keycloak
+
+# The purge ran with the site up, so a tester account could still have
+# created something after its listing. Now that nothing can write,
+# refuse to bake any non-admin item (live or trashed) into golden.
+GG_STRAY="$(docker exec -i "$GG_SNAP_PG" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB_APP" -At -c \
+  "SELECT count(*) FROM item i JOIN \"user\" u ON u.id = i.owner_id
+   WHERE u.username NOT IN ('${ADMIN_USERNAME}', 'service-account-portal-api-admin')")" \
+  || { echo "FATAL: could not check for non-admin items after the stop." >&2; exit 1; }
+if [[ "${GG_STRAY:-1}" -ne 0 ]]; then
+  echo "FATAL: ${GG_STRAY} non-admin item(s) appeared after the purge; not snapshotting. Run it again." >&2
+  exit 1
+fi
 
 PG_CONTAINER="$(dc ps -q postgres | head -n 1)"
 if [[ -z "$PG_CONTAINER" ]]; then
