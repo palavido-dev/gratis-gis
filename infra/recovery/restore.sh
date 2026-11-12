@@ -324,6 +324,25 @@ fi
 if [[ "$FAIL_AFTER" == "keycloak" ]]; then
   fail 'stopped after keycloak on purpose; portal and objects were not restored'
 fi
+# Per-item fs_<id> tables that the API created after the capture are
+# not in the dump. --clean drops only what the dump lists, then tries
+# DROP EXTENSION postgis, which those tables' geometry columns block,
+# and the whole portal restore rolled back. They belong to the newer
+# state this restore replaces (it is in the safety bundle), so drop
+# them first.
+DUMP_TABLES="$(recovery_compose exec -T postgres pg_restore -l <"$STAGE/portal.dump" \
+  | awk '$4 == "TABLE" && $5 == "public" {print $6}' | sort -u)" \
+  || fail 'could not list the portal dump; nothing more was restored'
+LIVE_FS_TABLES="$(recovery_compose exec -T postgres psql -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Atc \
+  "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'fs\\_%'" | sort -u)" \
+  || fail 'could not list the portal tables; nothing more was restored'
+while read -r extra; do
+  [[ -n "$extra" ]] || continue
+  printf 'recovery: dropping %s (created after the capture)\n' "$extra"
+  recovery_compose exec -T postgres psql -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" \
+    -v ON_ERROR_STOP=1 -qc "DROP TABLE IF EXISTS public.\"$extra\"" >/dev/null \
+    || fail "could not drop $extra before the portal restore"
+done < <(comm -13 <(printf '%s\n' "$DUMP_TABLES") <(printf '%s\n' "$LIVE_FS_TABLES"))
 if ! restore_db "$PORTAL_DB" "$STAGE/portal.dump"; then
   fail 'portal database restore failed after keycloak was replaced'
 fi
