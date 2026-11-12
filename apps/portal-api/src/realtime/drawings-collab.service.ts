@@ -27,6 +27,21 @@ import { DRAWINGS_WS_MAX_UPDATES_PER_SEC } from './drawings-collab-frame.js';
 const TICKET_TTL_MS = 30_000;
 const SNAPSHOT_DEBOUNCE_MS = 1_500;
 const ROOM_IDLE_MS = 60_000;
+/**
+ * How often every peer's access is checked again. Access is decided
+ * at ticket mint; without a re-check a writer whose share was removed
+ * kept reading and writing for as long as the tab stayed open.
+ */
+export const COLLAB_REAUTH_MS = 15_000;
+/**
+ * Encoded size one room's doc may reach. The REST path caps a set at
+ * 1 MB of JSON; the CRDT carries some overhead on top. Without a cap
+ * any writer could grow the in-memory doc until the API ran out of
+ * memory.
+ */
+export const COLLAB_MAX_DOC_BYTES = 2 * 1024 * 1024;
+/** Connections one room accepts. */
+export const COLLAB_MAX_PEERS = 50;
 
 export type CollabRole = 'writer' | 'observer';
 
@@ -52,6 +67,8 @@ interface Peer {
   user: AuthUser;
   role: CollabRole;
   send: (msg: unknown) => void;
+  /** Closes the peer's socket. Absent in unit tests. */
+  close?: () => void;
   updateTimestamps: number[];
 }
 
@@ -70,6 +87,9 @@ interface CollabRoom {
   lastWriter: AuthUser | null;
   /** True when the doc has changes no snapshot has saved yet. */
   dirty: boolean;
+  /** Upper bound on the encoded doc size; recomputed when near the cap. */
+  approxBytes: number;
+  reauthTimer: ReturnType<typeof setInterval> | null;
 }
 
 function roomKey(mapId: string, drawingSetId: string): string {
@@ -81,6 +101,12 @@ export class DrawingsCollabService {
   private readonly log = new Logger(DrawingsCollabService.name);
   private readonly rooms = new Map<string, CollabRoom>();
   private readonly tickets = new Map<string, CollabTicketRecord>();
+  /**
+   * Rooms being loaded. Two first joiners used to load two rooms and
+   * the second overwrote the first, leaving the first client in a room
+   * nobody else could reach. Both now wait on one load.
+   */
+  private readonly booting = new Map<string, Promise<CollabRoom>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -161,12 +187,28 @@ export class DrawingsCollabService {
   async join(
     rec: CollabTicketRecord,
     send: (msg: unknown) => void,
+    close?: () => void,
   ): Promise<{ connectionId: string; role: CollabRole }> {
     const key = roomKey(rec.mapId, rec.drawingSetId);
     let room = this.rooms.get(key);
     if (!room) {
-      room = await this.bootstrapRoom(rec.mapId, rec.drawingSetId, rec.user);
-      this.rooms.set(key, room);
+      let pending = this.booting.get(key);
+      if (!pending) {
+        pending = this.bootstrapRoom(rec.mapId, rec.drawingSetId, rec.user).finally(
+          () => this.booting.delete(key),
+        );
+        this.booting.set(key, pending);
+      }
+      const booted = await pending;
+      room = this.rooms.get(key);
+      if (!room) {
+        room = booted;
+        this.rooms.set(key, room);
+        this.startReauth(room);
+      }
+    }
+    if (room.peers.size >= COLLAB_MAX_PEERS) {
+      throw new ForbiddenException('This markup room is full.');
     }
     room.lastActivityAt = Date.now();
     room.peers.set(rec.connectionId, {
@@ -174,6 +216,7 @@ export class DrawingsCollabService {
       user: rec.user,
       role: rec.role,
       send,
+      ...(close ? { close } : {}),
       updateTimestamps: [],
     });
     const update = Y.encodeStateAsUpdate(room.doc);
@@ -206,7 +249,18 @@ export class DrawingsCollabService {
       throw new ForbiddenException('Malformed update');
     }
     if (update.byteLength === 0) return;
+    if (room.approxBytes + update.byteLength > COLLAB_MAX_DOC_BYTES) {
+      // The running total only grows, so measure the real doc before
+      // refusing: overwrites and deletes may have shrunk it.
+      room.approxBytes = Y.encodeStateAsUpdate(room.doc).byteLength;
+      if (room.approxBytes + update.byteLength > COLLAB_MAX_DOC_BYTES) {
+        throw new ForbiddenException(
+          'This markup set is too large. Split it into smaller sets or simplify the shapes.',
+        );
+      }
+    }
     Y.applyUpdate(room.doc, update);
+    room.approxBytes += update.byteLength;
     room.lastActivityAt = Date.now();
     room.lastWriter = peer.user;
     room.dirty = true;
@@ -232,9 +286,8 @@ export class DrawingsCollabService {
         room.snapshotTimer = null;
       }
       void this.snapshotNow(room).finally(() => {
-        if (room.peers.size === 0) {
-          room.doc.destroy();
-          this.rooms.delete(key);
+        if (room.peers.size === 0 && this.rooms.get(key) === room) {
+          this.destroyRoom(key, room);
         }
       });
     } else {
@@ -274,7 +327,62 @@ export class DrawingsCollabService {
       lastActivityAt: Date.now(),
       lastWriter: null,
       dirty: false,
+      approxBytes: Y.encodeStateAsUpdate(doc).byteLength,
+      reauthTimer: null,
     };
+  }
+
+  private destroyRoom(key: string, room: CollabRoom): void {
+    if (room.snapshotTimer) clearTimeout(room.snapshotTimer);
+    if (room.reauthTimer) clearInterval(room.reauthTimer);
+    room.doc.destroy();
+    this.rooms.delete(key);
+  }
+
+  private startReauth(room: CollabRoom): void {
+    const timer = setInterval(() => {
+      void this.reauthorize(room);
+    }, COLLAB_REAUTH_MS);
+    timer.unref?.();
+    room.reauthTimer = timer;
+  }
+
+  /**
+   * Check every peer's access again, the same checks the ticket mint
+   * made, and drop the ones that no longer pass. Public for tests.
+   */
+  async reauthorize(room: CollabRoom | { mapId: string; drawingSetId: string }): Promise<void> {
+    const live = this.rooms.get(roomKey(room.mapId, room.drawingSetId));
+    if (!live) return;
+    for (const peer of [...live.peers.values()]) {
+      if (await this.stillAllowed(peer.user, live, peer.role)) continue;
+      peer.send({ type: 'error', message: 'Your access to this markup has changed.' });
+      peer.close?.();
+      this.leave(live.mapId, live.drawingSetId, peer.connectionId);
+    }
+  }
+
+  private async stillAllowed(
+    user: AuthUser,
+    room: CollabRoom,
+    role: CollabRole,
+  ): Promise<boolean> {
+    try {
+      if (role === 'writer') {
+        await this.drawings.requireWritableSet(
+          { kind: 'user', user },
+          room.mapId,
+          room.drawingSetId,
+        );
+      } else {
+        await this.assertCanRead(user, room.mapId);
+      }
+      return true;
+    } catch (err) {
+      // Only a definite refusal drops a peer; a database blip should
+      // not disconnect everyone.
+      return !(err instanceof ForbiddenException || err instanceof NotFoundException);
+    }
   }
 
   private scheduleSnapshot(room: CollabRoom): void {
@@ -290,17 +398,24 @@ export class DrawingsCollabService {
 
   private async snapshotNow(room: CollabRoom): Promise<void> {
     if (!room.dirty) return;
-    try {
-      const features = featuresFromDoc(room.doc);
-      // Save as a writer still in the room, else as the last writer
-      // to change the doc, who may have left already. Never as an
-      // observer: drawings.update would refuse it and the last edits
-      // would be lost when the room closes.
-      const user =
-        [...room.peers.values()].find((p) => p.role === 'writer')?.user ??
-        room.lastWriter;
-      if (!user) return;
-      room.dirty = false;
+    const features = featuresFromDoc(room.doc);
+    // Save as a writer still in the room, else as the last writer to
+    // change the doc, who may have left already. Never as an observer:
+    // drawings.update would refuse it. Try each in turn, so one writer
+    // whose access was removed cannot make every save fail.
+    const candidates: AuthUser[] = [];
+    for (const p of room.peers.values()) {
+      if (p.role === 'writer' && !candidates.some((u) => u.id === p.user.id)) {
+        candidates.push(p.user);
+      }
+    }
+    if (room.lastWriter && !candidates.some((u) => u.id === room.lastWriter!.id)) {
+      candidates.push(room.lastWriter);
+    }
+    if (candidates.length === 0) return;
+    room.dirty = false;
+    let lastErr: unknown = null;
+    for (const user of candidates) {
       try {
         await this.drawings.update(
           { kind: 'user', user },
@@ -308,16 +423,21 @@ export class DrawingsCollabService {
           room.drawingSetId,
           { features },
         );
+        return;
       } catch (err) {
-        room.dirty = true;
-        throw err;
+        lastErr = err;
+        if (!(err instanceof ForbiddenException || err instanceof NotFoundException)) break;
       }
-    } catch (err) {
-      this.log.warn(
-        `drawings collab snapshot failed map=${room.mapId} set=${room.drawingSetId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+    }
+    room.dirty = true;
+    this.log.warn(
+      `drawings collab snapshot failed map=${room.mapId} set=${room.drawingSetId}: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }`,
+    );
+    // Tell the people in the room, rather than only the server log.
+    for (const p of room.peers.values()) {
+      p.send({ type: 'error', message: 'Markup changes could not be saved.' });
     }
   }
 
@@ -355,9 +475,7 @@ export class DrawingsCollabService {
     for (const [key, room] of this.rooms) {
       if (room.peers.size > 0) continue;
       if (now - room.lastActivityAt > ROOM_IDLE_MS) {
-        if (room.snapshotTimer) clearTimeout(room.snapshotTimer);
-        room.doc.destroy();
-        this.rooms.delete(key);
+        this.destroyRoom(key, room);
       }
     }
   }
