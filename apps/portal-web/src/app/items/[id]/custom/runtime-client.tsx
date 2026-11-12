@@ -1763,6 +1763,11 @@ function ToolPopover({
       <div
         role="dialog"
         aria-label={title}
+        // Marks a tool panel that is portaled out of its trigger's DOM
+        // tree. A stack menu holding the trigger checks for it so a
+        // click inside the panel does not count as a click outside
+        // the menu.
+        data-gg-tool-popover=""
         style={{
           ...positionStyle,
           position: positionMode,
@@ -1865,6 +1870,7 @@ function DockedBottomPopover({
     <div
       role="dialog"
       aria-label={title}
+      data-gg-tool-popover=""
       style={{
         position: 'absolute',
         left: 0,
