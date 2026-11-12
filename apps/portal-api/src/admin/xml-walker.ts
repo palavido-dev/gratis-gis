@@ -233,9 +233,14 @@ class XmlParser {
         children.push({ name: child.name, value: child.content });
         continue;
       }
-      // Plain text character. Accumulate.
-      textBuf += this.src[this.pos]!;
-      this.pos++;
+      // Plain text: take the whole run up to the next '<' as one slice.
+      // Appending one character at a time built a rope of one-char
+      // strings at about 33 bytes of heap per character, so a single
+      // 62 MB text node in an uploaded KML used up the API's heap.
+      const next = this.src.indexOf('<', this.pos);
+      const end = next === -1 ? this.src.length : next;
+      textBuf += this.src.slice(this.pos, end);
+      this.pos = end;
     }
 
     this.fail(`unterminated element <${name}>`);

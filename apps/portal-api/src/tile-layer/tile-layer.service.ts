@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { promisify } from 'node:util';
+import { gunzip } from 'node:zlib';
 import { statfs } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
@@ -347,7 +349,7 @@ export class TileLayerService {
     let metadata: Record<string, unknown> = {};
     try {
       const source = new StorageRangeSource(this.storage, effectiveStorageKey);
-      const pmt = new PMTiles(source);
+      const pmt = new PMTiles(source, undefined, cappedPmtilesDecompress);
       header = await pmt.getHeader();
       metadata = (await pmt.getMetadata()) as Record<string, unknown>;
     } catch (err) {
@@ -674,7 +676,8 @@ export class TileLayerService {
   ): Promise<{ data: Buffer; contentType: string } | null> {
     const archive = this.archives.get(
       storageKey,
-      (key) => new PMTiles(new StorageRangeSource(this.storage, key)),
+      (key) =>
+        new PMTiles(new StorageRangeSource(this.storage, key), undefined, cappedPmtilesDecompress),
     );
     const tile = await archive.getZxy(z, x, y);
     if (!tile) return null;
@@ -1278,6 +1281,33 @@ function pickString(
  * No higher-level caching here: the package caches decoded
  * directories internally and the header itself is small.
  */
+/** Largest single read a PMTiles archive may ask for (tile, directory, metadata). */
+export const PMTILES_MAX_READ_BYTES = 16 * 1024 * 1024;
+/** Largest decompressed tile, directory or metadata block. */
+export const PMTILES_MAX_INFLATED_BYTES = 64 * 1024 * 1024;
+
+const gunzipAsync = promisify(gunzip);
+
+/**
+ * pmtiles' default decompress inflates gzip with no output limit, so a
+ * small tile could expand to gigabytes in the API process. Same
+ * contract (None / Unknown pass through, Gzip inflates), with a cap.
+ */
+export async function cappedPmtilesDecompress(
+  buf: ArrayBuffer,
+  compression: number,
+): Promise<ArrayBuffer> {
+  // pmtiles Compression: 0 Unknown, 1 None, 2 Gzip.
+  if (compression === 0 || compression === 1) return buf;
+  if (compression !== 2) throw new Error('Compression method not supported');
+  const out = await gunzipAsync(Buffer.from(buf), {
+    maxOutputLength: PMTILES_MAX_INFLATED_BYTES,
+  });
+  const ab = new ArrayBuffer(out.byteLength);
+  new Uint8Array(ab).set(out);
+  return ab;
+}
+
 class StorageRangeSource implements Source {
   constructor(
     private readonly storage: StorageService,
@@ -1289,6 +1319,15 @@ class StorageRangeSource implements Source {
   }
 
   async getBytes(offset: number, length: number): Promise<RangeResponse> {
+    // Offsets and lengths come from the archive's own header and
+    // directories, which the uploader wrote. Without a ceiling one
+    // crafted directory entry made a tile request buffer gigabytes.
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+      throw new Error('PMTiles archive asked for an invalid byte range');
+    }
+    if (length > PMTILES_MAX_READ_BYTES) {
+      throw new Error(`PMTiles archive asked for ${length} bytes in one read; the limit is ${PMTILES_MAX_READ_BYTES}`);
+    }
     const upstream = await this.storage.streamObject(
       this.key,
       `bytes=${offset}-${offset + length - 1}`,

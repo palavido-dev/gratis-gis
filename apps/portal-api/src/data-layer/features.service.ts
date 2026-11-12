@@ -1596,8 +1596,8 @@ export class DataLayerFeaturesService {
       ...(args.baseObservationId !== undefined
         ? { baseObservationId: args.baseObservationId }
         : {}),
-      losingSide: args.losingSide,
-      current: args.current,
+      losingSide: boundConflictSide(args.losingSide),
+      current: boundConflictSide(args.current),
     };
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -1619,7 +1619,7 @@ export class DataLayerFeaturesService {
         const prev = Array.isArray(layer.syncConflicts)
           ? (layer.syncConflicts as unknown[])
           : [];
-        const nextConflicts = [...prev, entry].slice(-MAX_SYNC_CONFLICTS);
+        const nextConflicts = trimConflictRing([...prev, entry].slice(-MAX_SYNC_CONFLICTS));
         const nextLayers = data.layers.slice();
         nextLayers[idx] = { ...layer, syncConflicts: nextConflicts };
         const updated = await this.prisma.item.updateMany({
@@ -2071,3 +2071,44 @@ function coerceOutputValue(
   }
   return String(raw);
 }
+
+/** Largest copy of one side of a sync conflict kept on the item. */
+export const SYNC_CONFLICT_SIDE_MAX_BYTES = 16 * 1024;
+/** Largest the whole conflict list of one layer may grow. */
+export const SYNC_CONFLICT_RING_MAX_BYTES = 512 * 1024;
+
+/**
+ * The conflict list lives inside item.data, which every item read
+ * loads. Each entry copied both versions of the feature whole, and an
+ * editor controls one of them: about twenty 9 MB edits left a 170 MB
+ * item row and took the API past its heap. A side larger than
+ * SYNC_CONFLICT_SIDE_MAX_BYTES keeps its id and attributes when they
+ * fit, or only a note that it was too large; the feature history still
+ * holds every version.
+ */
+export function boundConflictSide<T>(side: T): T | { truncated: true; bytes: number; id?: unknown; properties?: unknown } {
+  if (side === null || side === undefined) return side;
+  const bytes = Buffer.byteLength(JSON.stringify(side), 'utf8');
+  if (bytes <= SYNC_CONFLICT_SIDE_MAX_BYTES) return side;
+  const s = side as { id?: unknown; properties?: unknown };
+  const props = s.properties;
+  const propsBytes = props === undefined ? 0 : Buffer.byteLength(JSON.stringify(props), 'utf8');
+  return {
+    truncated: true,
+    bytes,
+    ...(s.id !== undefined ? { id: s.id } : {}),
+    ...(props !== undefined && propsBytes <= SYNC_CONFLICT_SIDE_MAX_BYTES ? { properties: props } : {}),
+  };
+}
+
+/** Drop the oldest conflicts until the list fits its byte budget. */
+export function trimConflictRing<T>(ring: T[]): T[] {
+  const out = ring.slice();
+  let total = Buffer.byteLength(JSON.stringify(out), 'utf8');
+  while (out.length > 1 && total > SYNC_CONFLICT_RING_MAX_BYTES) {
+    const dropped = out.shift();
+    total -= Buffer.byteLength(JSON.stringify(dropped), 'utf8') + 1;
+  }
+  return out;
+}
+

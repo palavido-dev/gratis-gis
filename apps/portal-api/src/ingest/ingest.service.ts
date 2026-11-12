@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  PayloadTooLargeException,
 } from '@nestjs/common';
 import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import { containedPayloadFile, serverUploadName } from './ingest-disk-path.js';
@@ -56,6 +57,7 @@ import {
   assertAllowedGdalDriver,
   assertSafeGdalOpenPath,
 } from './gdal-open-guard.js';
+import { CollectBudget } from './collect-limits.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -268,6 +270,7 @@ export class IngestService {
         // Flatten every layer into one FeatureCollection for v1. A
         // future pass can let the user pick which layer they want.
         const combined: unknown[] = [];
+        const budget = new CollectBudget();
         const fieldMap = new Map<
           string,
           { name: string; type: 'string' | 'number' | 'boolean' | 'date' }
@@ -322,12 +325,19 @@ export class IngestService {
           // Iterate features. `layer.features.forEach` would be nicer
           // but gdal-async's iterator helpers don't always cover every
           // driver; the explicit loop is bulletproof.
+          // An explicit loop rather than forEach, so it can yield and
+          // stop at the collect cap (collect-limits.ts).
           let featureIndex = 0;
-          layer.features.forEach((feature) => {
+          for (
+            let feature = layer.features.first();
+            feature;
+            feature = layer.features.next()
+          ) {
             const extra = kml?.valuesAt(featureIndex);
             featureIndex += 1;
             const geomJson = featureGeomJson(feature, xform);
-            if (!geomJson) return;
+            if (!geomJson) continue;
+            await budget.take();
             const props = remapPropsToSafeNames(
               { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
               fieldRename,
@@ -337,7 +347,7 @@ export class IngestService {
               geometry: geomJson,
               properties: props,
             });
-          });
+          }
         }
 
         return {
@@ -350,7 +360,7 @@ export class IngestService {
         ds.close();
       }
     } catch (err) {
-      if (err instanceof BadRequestException) throw err;
+      if (err instanceof BadRequestException || err instanceof PayloadTooLargeException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(`GDAL could not read that file: ${msg}`);
     }
@@ -573,7 +583,7 @@ export class IngestService {
         ds.close();
       }
     } catch (err) {
-      if (err instanceof BadRequestException) throw err;
+      if (err instanceof BadRequestException || err instanceof PayloadTooLargeException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(`GDAL could not read that file: ${msg}`);
     }
@@ -707,12 +717,18 @@ export class IngestService {
         const target4326 = gdal.SpatialReference.fromEPSG(4326);
         const xform = buildTransform(gdal, layer.srs, target4326);
         const features: unknown[] = [];
+        const budget = new CollectBudget();
         let featureIndex = 0;
-        layer.features.forEach((feature) => {
+        for (
+          let feature = layer.features.first();
+          feature;
+          feature = layer.features.next()
+        ) {
           const extra = kml?.valuesAt(featureIndex);
           featureIndex += 1;
           const geomJson = featureGeomJson(feature, xform);
-          if (!geomJson) return;
+          if (!geomJson) continue;
+          await budget.take();
           const props = remapPropsToSafeNames(
             { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
             fieldRename,
@@ -722,7 +738,7 @@ export class IngestService {
             geometry: geomJson,
             properties: props,
           });
-        });
+        }
         return {
           geojson: { type: 'FeatureCollection', features },
           fields,
@@ -734,7 +750,7 @@ export class IngestService {
         ds.close();
       }
     } catch (err) {
-      if (err instanceof BadRequestException) throw err;
+      if (err instanceof BadRequestException || err instanceof PayloadTooLargeException) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(`GDAL could not read that file: ${msg}`);
     }
