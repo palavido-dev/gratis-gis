@@ -191,6 +191,14 @@ docker run --rm --network none --entrypoint tar \
   -C /data -cf /out/minio-data.tar . \
   || fail 'object store copy failed'
 mv "$STAGE/minio-data.tar" "$STAGE/minio.tar"
+# restore.sh refuses an object archive with more members than this
+# (directories count too; MinIO keeps at least two per object). Say so
+# now, not on the day of a restore.
+DATA_MEMBERS="$(tar -tf "$STAGE/minio.tar" | wc -l | tr -dc '0-9')"
+if [[ "${DATA_MEMBERS:-0}" -gt "${GRATIS_RECOVERY_DATA_MAX_MEMBERS:-1000000}" ]]; then
+  printf 'recovery: WARNING the object archive has %s members, over the restore limit of %s. Set GRATIS_RECOVERY_DATA_MAX_MEMBERS above it when you restore this bundle.\n' \
+    "$DATA_MEMBERS" "${GRATIS_RECOVERY_DATA_MAX_MEMBERS:-1000000}" >&2
+fi
 maybe_fail minio
 
 recovery_images >"$STAGE/images.txt" || fail 'could not list the stack images'

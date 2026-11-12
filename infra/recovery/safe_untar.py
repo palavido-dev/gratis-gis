@@ -18,11 +18,17 @@ def reject(message: str) -> None:
 
 
 def safe_members(tar: tarfile.TarFile, max_bytes: int, max_members: int):
-    members = tar.getmembers()
-    if len(members) > max_members:
-        reject('too many archive members')
+    # Iterate rather than getmembers(): that loaded every header of a
+    # large object archive into memory before the count was checked.
     total = 0
-    for member in members:
+    count = 0
+    for member in tar:
+        count += 1
+        if count > max_members:
+            reject(
+                'too many archive members (raise GRATIS_RECOVERY_DATA_MAX_MEMBERS '
+                'for the object archive if this bundle is genuine)'
+            )
         name = member.name
         parts = name.split('/')
         if name.startswith('/') or name.startswith('\\') or any(part == '..' for part in parts):

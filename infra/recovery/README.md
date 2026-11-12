@@ -118,6 +118,12 @@ infra/recovery/restore.sh \
   --status-file /secure/recovery/status.json
 ```
 
+The object archive may hold at most 1,000,000 tar members
+(directories count too; MinIO keeps at least two per object). A
+larger store needs `GRATIS_RECOVERY_DATA_MAX_MEMBERS` set above its
+count when you restore; capture prints a warning when a bundle is
+over the default.
+
 In order:
 
 1. Check the project as above.
