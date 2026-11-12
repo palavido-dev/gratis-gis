@@ -204,8 +204,10 @@ for name, meta in files.items():
         raise SystemExit(f"checksum mismatch for {name}")
     if size == 0:
         raise SystemExit(f"empty component {name}")
-got = hashlib.sha256(pathlib.Path(key_path).read_bytes()).hexdigest()
-if got != doc["credentialKeySha256"]:
+raw = pathlib.Path(key_path).read_bytes()
+# Trimmed key (current captures) or the raw file (older captures).
+got = {hashlib.sha256(raw.strip()).hexdigest(), hashlib.sha256(raw).hexdigest()}
+if doc["credentialKeySha256"] not in got:
     raise SystemExit("credential key fingerprint does not match this bundle")
 PY
 then

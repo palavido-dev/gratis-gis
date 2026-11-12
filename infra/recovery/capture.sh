@@ -228,7 +228,9 @@ for line in pathlib.Path(images_path).read_text().splitlines():
     if line:
         service, _, image_id = line.partition("|")
         images.append({"service": service, "id": image_id})
-key = pathlib.Path(key_path).read_bytes()
+# Trimmed: the same key written with echo (trailing newline) and with
+# printf must give the same fingerprint.
+key = pathlib.Path(key_path).read_bytes().strip()
 doc = {
     "kind": "gratis-recovery-bundle",
     "format": 4,
@@ -305,7 +307,13 @@ fi
 BUNDLE_NAME="bundle-${TS}.tar.enc"
 SECRETS_NAME="secrets-${TS}.tar.enc"
 publish() {
-  ln "$1" "$OUT/$2" 2>/dev/null || fail "${2} already exists; refusing to replace it"
+  local err
+  if ! err="$(ln "$1" "$OUT/$2" 2>&1)"; then
+    # Only a name that exists is a collision. A file system without
+    # hard links (exFAT, some SMB mounts) fails here too.
+    [[ -e "$OUT/$2" ]] && fail "${2} already exists; refusing to replace it"
+    fail "could not publish ${2}: ${err}"
+  fi
   rm -f "$1"
 }
 sha="$(recovery_sha256 "$TMP_BUNDLE")"

@@ -322,6 +322,13 @@ for svc in "${RUNNING_SERVICES[@]}"; do
   done
   [[ -n "$exempt" ]] || APP_SERVICES+=("$svc")
 done
+# An empty list would make `dc stop` (and the EXIT trap's `dc start`)
+# act on every service, including postgres, caddy and anything an
+# operator stopped on purpose.
+if [[ ${#APP_SERVICES[@]} -eq 0 ]]; then
+  echo "No app services are running; nothing to reset. Start the stack first." >&2
+  exit 1
+fi
 
 # Start only the named services that actually exist here, so the
 # ordered startup below is subject to the same rule as the sweep.
@@ -691,7 +698,7 @@ json.dump({"redirectUris": nxt}, sys.stdout)
   GG_PROFILE="$(KC get users/profile -r gratis-gis 2>/dev/null || true)"
   GG_PROFILE_RC=0
   GG_PATCHED="$(printf '%s' "$GG_PROFILE" \
-    | python3 infra/keycloak/patch-user-profile-via-docker.py --filter 2>/dev/null)" \
+    | python3 "$INFRA_DIR/keycloak/patch-user-profile-via-docker.py" --filter 2>/dev/null)" \
     || GG_PROFILE_RC=$?
   if [[ -z "$GG_PROFILE" ]]; then
     echo "WARN: could not read the user-profile schema." >&2

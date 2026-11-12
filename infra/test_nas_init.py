@@ -204,6 +204,6 @@ class UserProfileFilterTests(unittest.TestCase):
     def test_deploy_and_restore_patch_the_schema(self):
         for name in ("deploy.sh", "restore-golden.sh"):
             text = Path(__file__).with_name(name).read_text()
-            self.assertIn("patch-user-profile-via-docker.py --filter", text, name)
+            self.assertRegex(text, r"patch-user-profile-via-docker\.py\"? --filter", name)
             self.assertIn("--rname \"$GG_DEFAULT_ROLE\" --rolename offline_access", text, name)
             self.assertNotIn('--password "$KEYCLOAK_ADMIN_PASSWORD"', text, name)
