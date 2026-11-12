@@ -123,7 +123,9 @@ export function AnalyzeRandomSampleGuide({
         type="button"
         onClick={() => {
           setOpen(true);
-          setTitle(suggestedTitle);
+          // Empty, not a snapshot: the placeholder and the submit
+          // fallback follow the parameters as they change.
+          setTitle('');
         }}
         title={t('analyzeWorkbench.randomSampleActionTitle')}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
