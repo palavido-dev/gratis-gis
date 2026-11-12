@@ -1024,10 +1024,10 @@ function PreviewModal({
             <p className="text-2xs uppercase tracking-wide text-muted">
               {t('adminNotifications.html')}
             </p>
-            <div
-              className="mt-0.5 max-h-80 overflow-auto rounded border border-border bg-surface-0 p-3 text-sm"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: preview.html }}
+            <EmailHtmlPreview
+              html={preview.html}
+              title={t('adminNotifications.html')}
+              className="mt-0.5 h-80"
             />
           </div>
           <details>
@@ -1109,6 +1109,19 @@ function TemplateEditModal({
   const subjectRef = useRef<HTMLInputElement | null>(null);
   const bodyHtmlRef = useRef<HTMLTextAreaElement | null>(null);
   const bodyTextRef = useRef<HTMLTextAreaElement | null>(null);
+  // The preview request reads the newest field values when its timer
+  // fires. Reading the state variables directly gave the values from
+  // the render the handler ran in, which is before the change it was
+  // reacting to, so the preview was always one edit behind. The timer
+  // lives in a ref so each call really cancels the previous one, and
+  // the sequence number drops a response that was overtaken.
+  const latestDraft = useRef({ type, subject, bodyText, bodyHtml });
+  useEffect(() => {
+    latestDraft.current = { type, subject, bodyText, bodyHtml };
+  }, [type, subject, bodyText, bodyHtml]);
+  const previewTimer = useRef<number | undefined>(undefined);
+  const previewSeq = useRef(0);
+  useEffect(() => () => window.clearTimeout(previewTimer.current), []);
   const lastFocused = useRef<
     'subject' | 'bodyHtml' | 'bodyText' | null
   >(null);
@@ -1287,29 +1300,41 @@ function TemplateEditModal({
   function schedulePreview() {
     if (typeof window === 'undefined') return;
     setPreviewing(true);
-    window.clearTimeout((schedulePreview as unknown as { _t?: number })._t);
-    (schedulePreview as unknown as { _t?: number })._t = window.setTimeout(
+    window.clearTimeout(previewTimer.current);
+    previewTimer.current = window.setTimeout(
       async () => {
+        const seq = ++previewSeq.current;
+        const draft = latestDraft.current;
         try {
           const res = await fetch(
             '/api/portal/admin/notifications/templates/preview',
             {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ type, subject, bodyText, bodyHtml }),
+              body: JSON.stringify({
+                type: draft.type,
+                subject: draft.subject,
+                bodyText: draft.bodyText,
+                bodyHtml: draft.bodyHtml,
+              }),
             },
           );
           if (!res.ok) throw new Error(await apiErrorMessage(res));
-          setPreview(
-            (await res.json()) as { subject: string; text: string; html: string },
-          );
+          const next = (await res.json()) as {
+            subject: string;
+            text: string;
+            html: string;
+          };
+          if (seq !== previewSeq.current) return;
+          setPreview(next);
           setErr(null);
         } catch (e) {
+          if (seq !== previewSeq.current) return;
           setErr(
             e instanceof Error ? e.message : t('adminNotifications.previewFailed'),
           );
         } finally {
-          setPreviewing(false);
+          if (seq === previewSeq.current) setPreviewing(false);
         }
       },
       250,
@@ -1531,10 +1556,10 @@ function TemplateEditModal({
                 <p className="text-2xs uppercase tracking-wide text-muted">
                   {t('adminNotifications.html')}
                 </p>
-                <div
-                  className="mt-0.5 max-h-72 overflow-auto rounded border border-border bg-surface-0 p-3 text-sm"
-                  // eslint-disable-next-line react/no-danger
-                  dangerouslySetInnerHTML={{ __html: preview?.html ?? '' }}
+                <EmailHtmlPreview
+                  html={preview?.html ?? ''}
+                  title={t('adminNotifications.html')}
+                  className="mt-0.5 h-72"
                 />
               </div>
               <details>
@@ -1696,4 +1721,33 @@ function formatRel(iso: string, locale: SupportedLocale = 'en'): string {
   if (ms < 0) return formatDateTime(iso, locale);
   if (ms < 86_400_000) return formatRelativeTime(iso, locale);
   return formatDate(iso, locale);
+}
+
+/**
+ * Renders an email's HTML body for preview.
+ *
+ * Template HTML is written by org admins and the server substitutes
+ * variables without sanitizing it, so putting it into the page with
+ * innerHTML let one admin's saved template run script in the session
+ * of the next admin who opened it (the page CSP allows inline script
+ * elements). A sandboxed frame with no allow-scripts and no
+ * allow-same-origin runs no script and cannot reach the portal page.
+ */
+function EmailHtmlPreview({
+  html,
+  title,
+  className,
+}: {
+  html: string;
+  title: string;
+  className?: string;
+}) {
+  return (
+    <iframe
+      sandbox=""
+      srcDoc={html}
+      title={title}
+      className={`w-full rounded border border-border bg-white ${className ?? ''}`}
+    />
+  );
 }

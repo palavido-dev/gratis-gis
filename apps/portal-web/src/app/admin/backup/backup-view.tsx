@@ -359,6 +359,12 @@ function SettingsCard({
   }, [config]);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
+  // A custom schedule with no expression saved fine and then never
+  // ran, so Save waits for something cron-shaped. The API checks the
+  // expression itself; this only catches the empty or half-typed case.
+  const customCronInvalid =
+    draft.scheduleMode === 'custom' &&
+    !/^\S+(\s+\S+){4}$/.test((draft.customCron ?? '').trim());
 
   async function handleSave() {
     setSaving(true);
@@ -379,7 +385,9 @@ function SettingsCard({
               ? draft.scheduleDayOfMonth ?? 1
               : null,
           customCron:
-            draft.scheduleMode === 'custom' ? draft.customCron : null,
+            draft.scheduleMode === 'custom'
+              ? (draft.customCron ?? '').trim()
+              : null,
           retentionCount: draft.retentionCount,
         }),
       });
@@ -621,7 +629,7 @@ function SettingsCard({
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || saving}
+            disabled={!dirty || saving || customCronInvalid}
             className="inline-flex items-center gap-2 rounded-md border border-accent bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? (

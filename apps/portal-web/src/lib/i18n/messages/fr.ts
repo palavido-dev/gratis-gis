@@ -2017,6 +2017,9 @@ export const fr: Partial<CatalogShape> = {
       'Ouvrez cette application et utilisez-la telle que ses lecteurs la voient.',
     viewAction: "Ouvrir l'application",
   },
+  groupDetail: {
+    rosterHidden: 'Seuls les membres de ce groupe peuvent voir qui en fait partie.',
+  },
   groupItems: {
     title: 'Partagé avec ce groupe',
     empty:
@@ -3760,7 +3763,6 @@ export const fr: Partial<CatalogShape> = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3803,6 +3805,9 @@ export const fr: Partial<CatalogShape> = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "heure du serveur, {zone}",
+    scheduleRunNowUnsaved:
+      "Enregistrez d'abord vos modifications. L'exécution immédiate utilise les réglages enregistrés.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',
@@ -5813,6 +5818,8 @@ export const fr: Partial<CatalogShape> = {
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Ce service demande un mot de passe, donc Sonder lit l'URL enregistrée. Enregistrez d'abord la nouvelle URL, puis sondez à nouveau.",
     connection: "Connexion",
     serviceEndpoint: "Point de terminaison du service",
     probe: "Sonder",

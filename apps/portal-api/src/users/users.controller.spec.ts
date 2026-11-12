@@ -25,7 +25,7 @@ function userWithRole(role: 'viewer' | 'contributor' | 'admin'): AuthUser {
   };
 }
 
-function makeController() {
+function makeController(cfg?: Record<string, string>) {
   const prisma = {
     user: {
       findUnique: jest.fn().mockResolvedValue({
@@ -40,10 +40,22 @@ function makeController() {
   const kc = {
     isConfigured: jest.fn().mockReturnValue(false),
   } as unknown as KeycloakAdminService;
-  return new UsersController(prisma, kc);
+  return new UsersController(
+    prisma,
+    kc,
+    cfg ? ({ get: (k: string) => cfg[k] } as never) : undefined,
+  );
 }
 
 describe('UsersController.me', () => {
+  it('reports the trash retention the purge job uses', async () => {
+    expect((await makeController().me(userWithRole('viewer'))).trashRetentionDays).toBe(30);
+    const out = await makeController({ RECYCLE_BIN_RETENTION_DAYS: '7' }).me(
+      userWithRole('viewer'),
+    );
+    expect(out.trashRetentionDays).toBe(7);
+  });
+
   it('emits capabilities as a sorted array that survives JSON', async () => {
     const out = await makeController().me(userWithRole('contributor'));
     const wire = JSON.parse(JSON.stringify(out)) as {

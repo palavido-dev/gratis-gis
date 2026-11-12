@@ -24,6 +24,10 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+import {
+  DEFAULT_TRASH_RETENTION_DAYS,
+  trashRetentionDays,
+} from '../maintenance/trash-retention.js';
 
 /** How long /users/me reuses a user's Keycloak names. */
 const KC_NAME_CACHE_MS = 5 * 60_000;
@@ -152,6 +156,11 @@ export class UsersController {
       avatarUrl: row?.avatarUrl ?? null,
       orgName: org?.name ?? null,
       orgSlug: org?.slug ?? null,
+      // How long Trash keeps things, for the delete dialogs and the
+      // Recently deleted page.
+      trashRetentionDays:
+        trashRetentionDays(this.cfg?.get<string>('RECYCLE_BIN_RETENTION_DAYS')) ??
+        DEFAULT_TRASH_RETENTION_DAYS,
     };
   }
 

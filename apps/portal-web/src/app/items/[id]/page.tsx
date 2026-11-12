@@ -205,6 +205,7 @@ export default async function ItemDetailPage(props: Props) {
     capabilities: CapabilityKey[];
     fullName?: string | null;
     username?: string | null;
+    trashRetentionDays?: number;
   };
   try {
     [item, me] = await Promise.all([
@@ -223,6 +224,7 @@ export default async function ItemDetailPage(props: Props) {
         capabilities: CapabilityKey[];
         fullName?: string | null;
         username?: string | null;
+        trashRetentionDays?: number;
       }>('/api/users/me'),
     ]);
   } catch (err) {
@@ -869,6 +871,7 @@ export default async function ItemDetailPage(props: Props) {
               itemId={item.id}
               itemTitle={item.title}
               itemType={item.type}
+              retentionDays={me.trashRetentionDays ?? 30}
             />
           </div>
         ) : null}

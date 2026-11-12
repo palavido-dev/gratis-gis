@@ -12,7 +12,11 @@ import { revalidatePath } from 'next/cache';
 import { resolveRouteSession, type CookieWrite } from '@/lib/session-roll';
 import { isSessionStale } from '@/lib/session-state';
 import { mintRequestId } from '@/lib/api-error';
-import { fetchFailureReason, longRunningFetch } from '@/lib/long-running-fetch';
+import {
+  fetchFailureReason,
+  isLongRunningPath,
+  longRunningFetch,
+} from '@/lib/long-running-fetch';
 import {
   hasUnsafePathSegment,
   isCrossOriginMutation,
@@ -40,36 +44,6 @@ function warnStaleSession(method: string, suffix: string): void {
   );
 }
 
-/**
- * Long-running upstream calls (ingest, per-layer import, whole-layer
- * export, backup restore) go through longRunningFetch, which has a
- * 15 min budget instead of the 30 s default, so a county-scale parcel
- * ingest or a GeoParquet export of the same layer can finish. Normal
- * API calls keep the tight defaults and fail fast. See
- * src/lib/long-running-fetch.ts for why it is undici's own fetch.
- *
- * Matches v3 per-layer ingest, v2 ingest, the wizard probe path,
- * the per-layer GeoParquet export, and admin backup restore (#233).
- * Conservative: only widens for endpoints we know can take minutes.
- */
-function isLongRunningPath(suffix: string): boolean {
-  return (
-    /^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
-    /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
-    /^items\/[^/]+\/ingest$/.test(suffix) ||
-    suffix === 'ingest/probe' ||
-    suffix === 'ingest/stage' ||
-    // #573: copies the finished upload out of storage and probes it,
-    // which takes minutes for a multi-GB file.
-    suffix === 'ingest/upload/complete' ||
-    // #573: purging a data layer deletes all of its rows, minutes for
-    // a layer with millions of features.
-    /^items\/[^/]+\/purge$/.test(suffix) ||
-    // #233: pg_restore + full MinIO refill routinely exceeds undici's
-    // 30s default; without this the BFF aborts mid-restore.
-    /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix)
-  );
-}
 
 /**
  * Anonymous-fallback rewrites for #307. When the caller has no
@@ -493,6 +467,11 @@ async function forwardInner(
   if (range) headers.range = range;
   const ifRange = req.headers.get('if-range');
   if (ifRange) headers['if-range'] = ifRange;
+  // The tile handlers answer 304 to a matching If-None-Match. Without
+  // forwarding it every revalidation of a cached tile was sent again
+  // in full.
+  const ifNoneMatch = req.headers.get('if-none-match');
+  if (ifNoneMatch) headers['if-none-match'] = ifNoneMatch;
 
   // Stream-forward the request body instead of buffering the full
   // payload into a single ArrayBuffer. Buffering blew up on large
@@ -632,6 +611,10 @@ async function forwardInner(
   if (acceptRanges) outHeaders.set('accept-ranges', acceptRanges);
   const etag = upstream.headers.get('etag');
   if (etag) outHeaders.set('etag', etag);
+  // Set on the tile handlers' 503 when their cache is saturated, so
+  // the client backs off instead of retrying at once.
+  const retryAfter = upstream.headers.get('retry-after');
+  if (retryAfter) outHeaders.set('retry-after', retryAfter);
   const contentLength = upstream.headers.get('content-length');
   if (contentLength) outHeaders.set('content-length', contentLength);
   // Paged list endpoints report the total row count here so the

@@ -52,7 +52,7 @@ export function DiagnosticsView() {
         </button>
         <button
           type="button"
-          className="rounded-md border border-line px-3 py-2 text-sm disabled:opacity-60"
+          className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-60"
           onClick={download}
           disabled={!bundle}
         >

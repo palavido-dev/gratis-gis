@@ -786,6 +786,13 @@ export async function downloadDeployment(
  * legacy item-level route (which now routes server-side to the
  * first spatial sublayer for v3 items per #194).
  */
+/**
+ * Header the service worker sets on a response served from its cache
+ * (or made up) because the network failed. Lockstep with
+ * SW_FALLBACK_HEADER in public/sw.js.
+ */
+export const SW_FALLBACK_HEADER = 'x-gg-sw-fallback';
+
 export function buildFeatureUrl(
   dataLayerId: string,
   layerKey: string,
@@ -1029,6 +1036,19 @@ async function pullLayerFull(args: {
         failure: {
           code: 'download.layerHttpError',
           params: { layer: layer.layerLabel, status: res.status },
+        },
+      };
+    }
+    // The service worker answers a failed request from its cache when
+    // it can. That copy is an older snapshot whose cursor does not
+    // belong to this walk, so it cannot be used for a download.
+    if (res.headers.get(SW_FALLBACK_HEADER)) {
+      return {
+        kind: 'failed',
+        bytes,
+        failure: {
+          code: 'download.layerHttpError',
+          params: { layer: layer.layerLabel, status: 504 },
         },
       };
     }

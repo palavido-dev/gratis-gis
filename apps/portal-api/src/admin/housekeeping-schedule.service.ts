@@ -56,6 +56,11 @@ export interface HousekeepingConfig {
    *  registered with, or null when mode='off' or both auto-actions
    *  are disabled (nothing to run). */
   effectiveCron: string | null;
+  /** Display-only: the time zone the hour and minute are read in.
+   *  The cron job is registered with no zone, so it fires in the API
+   *  process's zone (UTC in the shipped containers), and the form
+   *  says so. */
+  timeZone: string;
 }
 
 export interface HousekeepingConfigPatch {
@@ -250,6 +255,7 @@ export class HousekeepingScheduleService {
       scheduleDayOfWeek: dow,
       scheduleSummary: summary,
       effectiveCron,
+      timeZone: serverTimeZone(),
     };
   }
 
@@ -651,5 +657,14 @@ export class HousekeepingScheduleService {
       usersDisabled: r.usersDisabled,
       error: r.error,
     };
+  }
+}
+
+/** IANA name of the zone this process runs cron jobs in. */
+export function serverTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
   }
 }

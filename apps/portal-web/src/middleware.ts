@@ -127,5 +127,9 @@ export const config = {
     // missing here while /settings/notifications was the only page,
     // which worked only because apiFetch's redirect is a backstop.
     '/settings/:path*',
+    // /forms/<id>/respond is the link a form hands out. Outside the
+    // matcher, a signed-out respondent hit apiFetch's bare redirect to
+    // /signin and landed on /items after signing in, not on the form.
+    '/forms/:path*',
   ],
 };

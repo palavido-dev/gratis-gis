@@ -533,6 +533,12 @@ export class HousekeepingService {
       where: {
         orgId,
         orgRole: { not: 'admin' },
+        // Same as the scheduled pass: an account already disabled or
+        // gone from Keycloak is not a candidate. Listing them kept the
+        // rows (and the count) on screen after "Disable sign-in", and
+        // every action on a removed user failed with 404.
+        deletedAt: null,
+        disabledAt: null,
         OR: [
           { lastSeenAt: { lt: cutoff } },
           { AND: [{ lastSeenAt: null }, { createdAt: { lt: cutoff } }] },
@@ -1057,6 +1063,9 @@ export class HousekeepingService {
       where: {
         orgId,
         orgRole: { not: 'admin' },
+        // See staleUsers: disabled and removed accounts are done.
+        deletedAt: null,
+        disabledAt: null,
         autoDisableAt: { not: null, lte: horizon },
       },
       select: {
@@ -1170,6 +1179,12 @@ export class HousekeepingService {
       where: {
         orgId,
         orgRole: { not: 'admin' },
+        // Same as the scheduled pass: an account already disabled or
+        // gone from Keycloak is not a candidate. Listing them kept the
+        // rows (and the count) on screen after "Disable sign-in", and
+        // every action on a removed user failed with 404.
+        deletedAt: null,
+        disabledAt: null,
         OR: [
           { lastSeenAt: { lt: cutoff } },
           { AND: [{ lastSeenAt: null }, { createdAt: { lt: cutoff } }] },
@@ -1200,6 +1215,9 @@ export class HousekeepingService {
       where: {
         orgId,
         orgRole: { not: 'admin' },
+        // See staleUsers: disabled and removed accounts are done.
+        deletedAt: null,
+        disabledAt: null,
         autoDisableAt: { not: null, lte: horizon },
       },
     });

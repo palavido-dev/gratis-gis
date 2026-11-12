@@ -82,11 +82,20 @@ export function GroupForm({ mode, initialValues }: Props) {
         : `/api/portal/groups/${mode.groupId}`;
     const method = mode.kind === 'create' ? 'POST' : 'PATCH';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // A dropped connection used to leave the buttons disabled with
+      // the spinner running until a reload.
+      setSubmitting(false);
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
     setSubmitting(false);
     if (!res.ok) {
       setError(

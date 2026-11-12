@@ -322,9 +322,11 @@ export class BackupService implements OnModuleInit {
    */
   async updateConfig(patch: BackupConfigPatch, updatedBy: string | null) {
     // Validate before we touch the DB: nothing worse than committing
-    // half a change and then bailing.
+    // half a change and then bailing. Every refusal here is the
+    // admin's input, so it is a 400 with the sentence shown in the
+    // form, not a plain Error that Nest reports as a 500.
     if (patch.scheduleMode && !this.isScheduleMode(patch.scheduleMode)) {
-      throw new Error(`Unknown scheduleMode: ${patch.scheduleMode}`);
+      throw new BadRequestException(`Unknown scheduleMode: ${patch.scheduleMode}`);
     }
     if (patch.scheduleHour !== undefined) {
       this.requireRange('scheduleHour', patch.scheduleHour, 0, 23);
@@ -345,7 +347,7 @@ export class BackupService implements OnModuleInit {
       // Bare minimum shape check; the cron library is authoritative.
       // We just want to reject obviously-wrong input before saving.
       if (!/^(\S+\s+){4}\S+$/.test(patch.customCron.trim())) {
-        throw new Error(
+        throw new BadRequestException(
           'Custom schedule must be a 5-field cron expression (e.g. "0 2 * * *")',
         );
       }
@@ -359,6 +361,16 @@ export class BackupService implements OnModuleInit {
     }
 
     const row = await this.ensureConfigRow();
+    // Custom mode with no expression saved fine and then scheduled
+    // nothing, so automatic backups silently stopped. Check the mode
+    // and expression the row will end up with, not just the patch.
+    const nextMode = patch.scheduleMode ?? row.scheduleMode;
+    const nextCron = patch.customCron !== undefined ? patch.customCron : row.customCron;
+    if (nextMode === 'custom' && !nextCron?.trim()) {
+      throw new BadRequestException(
+        'Custom schedule must be a 5-field cron expression (e.g. "0 2 * * *")',
+      );
+    }
     const updated = await this.prisma.backupConfig.update({
       where: { id: row.id },
       data: {
@@ -516,7 +528,7 @@ export class BackupService implements OnModuleInit {
 
   private requireRange(field: string, v: number, lo: number, hi: number) {
     if (!Number.isInteger(v) || v < lo || v > hi) {
-      throw new Error(`${field} must be an integer between ${lo} and ${hi}`);
+      throw new BadRequestException(`${field} must be an integer between ${lo} and ${hi}`);
     }
   }
 

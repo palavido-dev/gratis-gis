@@ -36,3 +36,40 @@ describe('backup archiveDirectory is limited to operator roots', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+/**
+ * A custom schedule needs an expression. Saving custom mode without
+ * one used to succeed and then schedule nothing, and a malformed one
+ * came back as a 500.
+ */
+describe('backup custom schedule validation', () => {
+  function svcWithRow(row: Record<string, unknown>) {
+    const update = jest.fn();
+    const prisma = {
+      backupConfig: { findFirst: jest.fn(async () => row), update },
+    } as unknown as PrismaService;
+    return { svc: new BackupService(prisma, new ConfigService({ BACKUP_DIR: '/srv/backups' })), update };
+  }
+
+  it('refuses custom mode with no expression, as a 400, before writing', async () => {
+    const { svc, update } = svcWithRow({ id: 'r', scheduleMode: 'daily', customCron: null });
+    await expect(
+      svc.updateConfig({ scheduleMode: 'custom', customCron: null }, 'u1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed expression as a 400', async () => {
+    const { svc } = svcWithRow({ id: 'r', scheduleMode: 'daily', customCron: null });
+    await expect(
+      svc.updateConfig({ scheduleMode: 'custom', customCron: '0 2 *' }, 'u1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses an out-of-range hour as a 400', async () => {
+    const { svc } = svcWithRow({ id: 'r', scheduleMode: 'daily', customCron: null });
+    await expect(svc.updateConfig({ scheduleHour: 24 }, 'u1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+});

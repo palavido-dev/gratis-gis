@@ -32,8 +32,8 @@ export default async function AdminBackupPage() {
     const org = await apiFetch<{ name: string }>(`/api/admin/branding`);
     orgName = org.name;
   } catch {
-    // Swallow; the restore dialog will still refuse to submit when
-    // the empty name doesn't match the API's own check.
+    // Swallow; the restore dialog keeps its button off while the
+    // name is empty.
   }
 
   // Load config + runs in parallel. If either fails we still render

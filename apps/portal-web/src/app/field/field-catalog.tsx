@@ -21,7 +21,10 @@ import {
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import { useIsOnline } from '@/lib/use-is-online';
 import { formatBytes } from '@/lib/format-bytes';
-import { postQueueManifest } from '@/lib/offline-queue-beacon';
+import {
+  postQueueManifest,
+  postQueueManifestThrottled,
+} from '@/lib/offline-queue-beacon';
 import { syncQueue } from '@/lib/offline-sync';
 
 /**
@@ -53,6 +56,8 @@ interface DeploymentOverlay {
    *  account's to sync, so they are not in the chip, but Remove
    *  destroys them too and its warning has to say so. */
   parkedForOthers: number;
+  /** Why the last Sync tap left edits behind, if it did. */
+  syncNote?: string | null;
 }
 
 /**
@@ -85,9 +90,27 @@ export function FieldCatalog({
   // Two-tap confirmation for the destructive Remove action: first tap
   // sets confirmingId, the affordance morphs to a red Confirm button,
   // the second tap commits. Tap-elsewhere clears the armed state so a
-  // user can back out by just walking away. Cheaper than a full modal
-  // on a phone and matches the runtime More menu's pattern.
+  // user can back out by just walking away (the effect below). Cheaper
+  // than a full modal on a phone and matches the runtime More menu's
+  // pattern.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!confirmingId) return;
+    // Disarm on any tap outside the armed chip, and after a few
+    // seconds regardless. Before this nothing disarmed it, so a single
+    // tap much later deleted the deployment and its unsynced edits.
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Element | null;
+      if (target?.closest(`[data-remove-id="${confirmingId}"]`)) return;
+      setConfirmingId(null);
+    }
+    document.addEventListener('pointerdown', onPointerDown, true);
+    const timer = window.setTimeout(() => setConfirmingId(null), 6000);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      window.clearTimeout(timer);
+    };
+  }, [confirmingId]);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
 
   // Initial load: walk every cached deployment + every queue read
@@ -120,8 +143,15 @@ export function FieldCatalog({
 
   async function syncOne(id: string) {
     setSyncing((prev) => ({ ...prev, [id]: true }));
+    let syncNote: string | null = null;
     try {
-      await syncQueue(id, { currentUserId });
+      // manual: a tap is the user asking now, so rows waiting out the
+      // retry backoff go too, as the runtime's Sync button does.
+      const result = await syncQueue(id, { currentUserId, manual: true });
+      const notSent = result.failed + result.rejected;
+      if (notSent > 0) {
+        syncNote = `${notSent} not sent. Open the deployment to see why.`;
+      }
       // Refresh the row's queue count after the run.
       const remaining = await listQueue(id, currentUserId);
       setOverlays((prev) => ({
@@ -129,6 +159,19 @@ export function FieldCatalog({
         [id]: {
           ...(prev[id] ?? { cached: null, queueCount: 0, parkedForOthers: 0 }),
           queueCount: remaining.length,
+          syncNote,
+        },
+      }));
+      void postQueueManifestThrottled(currentUserId);
+    } catch {
+      // The queue read itself failed (IndexedDB refused). Called with
+      // `void`, so without this it was an unhandled rejection and the
+      // chip just stopped spinning.
+      setOverlays((prev) => ({
+        ...prev,
+        [id]: {
+          ...(prev[id] ?? { cached: null, queueCount: 0, parkedForOthers: 0 }),
+          syncNote: 'Could not read the offline queue on this device.',
         },
       }));
     } finally {
@@ -294,6 +337,7 @@ export function FieldCatalog({
                       {cached ? (
                         <button
                           type="button"
+                          data-remove-id={row.id}
                           disabled={removing[row.id]}
                           onClick={(e) => {
                             e.preventDefault();
@@ -334,6 +378,9 @@ export function FieldCatalog({
                         </button>
                       ) : null}
                     </div>
+                  ) : null}
+                  {overlay.syncNote ? (
+                    <p className="mt-1 text-2xs text-warn">{overlay.syncNote}</p>
                   ) : null}
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted" />

@@ -20,6 +20,10 @@ import { apiErrorMessage } from '@/lib/api-error';
 
 interface Props {
   form: FormSchema;
+  /** The form item id from the route. Responses are queued and sent
+   *  under this, not the schema's own `id`, which only matches the
+   *  item id by convention and is not enforced on save. */
+  formId: string;
   formItemTitle: string;
   /** The signed-in account from the server render, when known. It
    *  wins over the device identity, which the guard may not have
@@ -37,8 +41,9 @@ interface Props {
  *   2. If online, immediately attempt to drain the queue against
  *      the server. The newly-queued row goes through the same
  *      drain path as anything stale.
- *   3. If offline, leave it queued; the periodic check (or the
- *      next online event) will drain.
+ *   3. If offline, leave it queued; the next online event, the
+ *      next submit or "Try again" will drain. A submit during a
+ *      running drain makes that drain go round once more.
  *   4. Every queue write also arms the service worker's one-shot
  *      Background Sync tag, so on Chromium the row still replays if
  *      the tab closes before connectivity returns. The worker's
@@ -68,7 +73,7 @@ async function deviceIdentity(): Promise<string | null> {
   }
 }
 
-export function RespondClient({ form, formItemTitle, userId = null }: Props) {
+export function RespondClient({ form, formId, formItemTitle, userId = null }: Props) {
   // A response is stamped with, listed for and sent as this account.
   // With no account known it is stored as captured anonymously and
   // held (see ANONYMOUS_SUBMISSION_OWNER in form-offline.ts).
@@ -88,53 +93,63 @@ export function RespondClient({ form, formItemTitle, userId = null }: Props) {
   // re-run the mount effect below, and kick off the next drain in
   // an endless loop. The state copy exists purely for the UI.
   const drainingRef = useRef(false);
+  const rerunRef = useRef(false);
 
   const refreshOutbox = useCallback(async () => {
     try {
       const all = await listQueued(await currentIdentity());
-      setOutbox(all.filter((r) => r.formId === form.id && r.status !== 'sent'));
+      setOutbox(all.filter((r) => r.formId === formId && r.status !== 'sent'));
     } catch {
       // IndexedDB unavailable (private browsing, etc); runtime still
       // works for online-only submissions.
     }
-  }, [form.id, currentIdentity]);
+  }, [formId, currentIdentity]);
 
   const drainOnce = useCallback(async () => {
-    if (drainingRef.current) return;
+    if (drainingRef.current) {
+      // drain works from a snapshot taken when it starts, so a row
+      // queued now would wait for some later trigger. Ask the running
+      // drain to go round once more instead.
+      rerunRef.current = true;
+      return;
+    }
     drainingRef.current = true;
     setDraining(true);
     try {
-      await drain(form.id, await currentIdentity(), async (row) => {
-        // Upload any offline-captured attachments before posting (#280).
-        // The walk mutates row.response in place so a partial drain
-        // (some attachments uploaded, some still pending) doesn't have
-        // to redo successful uploads on retry. uploadPendingAttachments
-        // throws on failure; the outer drain marks the row failed and
-        // the queue will retry next online tick.
-        await uploadPendingAttachmentsInResponse(row.response);
-        const res = await fetch(
-          `/api/portal/forms/${form.id}/submissions`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              clientId: row.clientId,
-              schemaVersion: row.schemaVersion,
-              response: row.response,
-              capturedAt: row.capturedAt,
-            }),
-          },
-        );
-        if (!res.ok) {
-          throw new Error(await apiErrorMessage(res));
-        }
-      });
+      do {
+        rerunRef.current = false;
+        await drain(formId, await currentIdentity(), async (row) => {
+          // Upload any offline-captured attachments before posting (#280).
+          // The walk mutates row.response in place so a partial drain
+          // (some attachments uploaded, some still pending) doesn't have
+          // to redo successful uploads on retry. uploadPendingAttachments
+          // throws on failure; the outer drain marks the row failed and
+          // the queue will retry next online tick.
+          await uploadPendingAttachmentsInResponse(row.response);
+          const res = await fetch(
+            `/api/portal/forms/${formId}/submissions`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                clientId: row.clientId,
+                schemaVersion: row.schemaVersion,
+                response: row.response,
+                capturedAt: row.capturedAt,
+              }),
+            },
+          );
+          if (!res.ok) {
+            throw new Error(await apiErrorMessage(res));
+          }
+        });
+      } while (rerunRef.current);
     } finally {
       drainingRef.current = false;
       setDraining(false);
       await refreshOutbox();
     }
-  }, [form.id, refreshOutbox, currentIdentity]);
+  }, [formId, refreshOutbox, currentIdentity]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -154,7 +169,7 @@ export function RespondClient({ form, formItemTitle, userId = null }: Props) {
 
   async function handleSubmit(response: Response) {
     await queueSubmission({
-      formId: form.id,
+      formId,
       schemaVersion: form.schemaVersion,
       ownerUserId: await currentIdentity(),
       response,
