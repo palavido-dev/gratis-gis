@@ -107,6 +107,8 @@ GRID_MAX_CHUNKS = int(_env_num("GRID_MAX_CHUNKS", 512))
 # too; the worker re-checks because jobs could be inserted by
 # future paths that forget.
 VIEWSHED_MAX_CELLS = 12000 * 12000
+# How often an idle worker re-runs the scratch sweep.
+RECLAIM_EVERY_SECONDS = 600
 # Zonal stats reads the whole band into this process (float64 values,
 # an Int32 zone mask and the masked copies: about 30 bytes a cell), in
 # a container capped at 2.5 GB. Refuse above this instead of being
@@ -651,7 +653,9 @@ def reclaim_abandoned_scratch(conn) -> int:
     its own naming.
     """
     removed = 0
-    prefixes = ("job-", "copc-", "mosaic-")
+    # colorize- too: do_colorize works in SCRATCH/colorize-<id>, and an
+    # interrupted one was never cleaned.
+    prefixes = ("job-", "copc-", "mosaic-", "colorize-")
     try:
         entries = [
             p for p in SCRATCH.iterdir()
@@ -2740,11 +2744,26 @@ def do_colorize(conn, s3, job) -> None:
             wkt_file.write_text(crs_wkt)
             warped = work / "imagery-in-cloud-crs.tif"
             log("  warping imagery into the point cloud CRS")
+            # Only the cloud's footprint (plus a small margin): warping
+            # a whole county mosaic for one tile's worth of points
+            # cost tens of GB of scratch and hours for nothing.
+            b = meta.get("bounds") or []
+            clip: list[str] = []
+            if len(b) == 6:
+                pad = max(b[3] - b[0], b[4] - b[1]) * 0.01 + 1.0
+                clip = [
+                    "-te",
+                    str(b[0] - pad),
+                    str(b[1] - pad),
+                    str(b[3] + pad),
+                    str(b[4] + pad),
+                ]
             run_long(
                 [
                     "gdalwarp",
                     "-t_srs",
                     str(wkt_file),
+                    *clip,
                     "-r",
                     "bilinear",
                     "-of",
@@ -3566,10 +3585,17 @@ def main() -> None:
     if reclaimed:
         log(f"scratch reclaim: {reclaimed} abandoned dir(s) removed")
     s3 = s3_client()
+    last_reclaim = time.monotonic()
     while True:
         try:
             job = claim_job(conn)
             if job is None:
+                # Sweep again while idle. At startup the job a restart
+                # just interrupted still has a fresh heartbeat, so its
+                # dir was kept, and nothing swept until the next restart.
+                if time.monotonic() - last_reclaim > RECLAIM_EVERY_SECONDS:
+                    last_reclaim = time.monotonic()
+                    reclaim_abandoned_scratch(conn)
                 time.sleep(POLL_SECONDS)
                 continue
             kind = job["kind"]

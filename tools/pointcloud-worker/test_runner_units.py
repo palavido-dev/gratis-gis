@@ -128,10 +128,11 @@ def test_reclaim_abandoned_scratch():
             (scratch / "job-dead").mkdir()
             (scratch / "copc-dead2").mkdir()
             (scratch / "mosaic-dead3").mkdir()
+            (scratch / "colorize-dead4").mkdir()
             (scratch / "unrelated").mkdir()
             removed = runner.reclaim_abandoned_scratch(Conn())
             left = sorted(p.name for p in scratch.iterdir())
-            assert removed == 3, removed
+            assert removed == 4, removed
             assert left == ["job-alive", "unrelated"], left
         finally:
             runner.SCRATCH = old
