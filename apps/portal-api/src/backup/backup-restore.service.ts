@@ -21,7 +21,11 @@ import { ConfigService } from '@nestjs/config';
 
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BackupService } from './backup.service.js';
+import {
+  BackupService,
+  MINIO_META_MEMBER,
+  type MinioArchiveMeta,
+} from './backup.service.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
 import { extractTarGz, readTarEntry } from './tar-cli.js';
 
@@ -119,6 +123,82 @@ export function parseMigrationsCopy(sql: string): string[] | null {
     if (name) names.push(name);
   }
   return names.sort();
+}
+
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  pdf: 'application/pdf',
+  json: 'application/json',
+  geojson: 'application/geo+json',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  zip: 'application/zip',
+};
+
+/**
+ * A Content-Type guessed from an object key's extension, for archives
+ * made before the backup recorded each object's type. Undefined when
+ * there is no known extension (the store then uses its default).
+ */
+export function contentTypeFromKey(key: string): string | undefined {
+  const m = /\.([a-z0-9]+)$/i.exec(key);
+  return m ? TYPE_BY_EXTENSION[m[1]!.toLowerCase()] : undefined;
+}
+
+/**
+ * pg_restore --clean drops each object before recreating it. On the
+ * partitions of `observation` (PRIMARY KEY (id, tx_time), inherited
+ * from the parent) the per-partition DROP CONSTRAINT fails with
+ * "cannot drop inherited constraint", pg_restore carries on, the
+ * parent's drop then removes the partitions, and everything is
+ * recreated from the dump. The run still exits 1. Those errors are
+ * harmless; any other error is not.
+ */
+const INHERITED_CONSTRAINT_ERROR =
+  /^pg_restore: error: could not execute query: ERROR: {1,2}cannot drop inherited constraint "[^"]+" of relation "[^"]+"$/;
+
+/**
+ * Null when a pg_restore run succeeded, counting only the known
+ * inherited-constraint errors as harmless; otherwise the reason it
+ * failed. Every error line must be a known one, and pg_restore's own
+ * "errors ignored on restore: N" count must match them, so an error
+ * we did not see (or could not parse) still fails.
+ */
+export function pgRestoreFailure(code: number | null, stderr: string): string | null {
+  if (code === 0) return null;
+  const lines = stderr.split(/\r?\n/);
+  const errors = lines.filter((l) => l.startsWith('pg_restore: error:'));
+  const unknown = errors.filter((l) => !INHERITED_CONSTRAINT_ERROR.test(l));
+  const tail = stderr.trim().slice(-500) || '(no output)';
+  if (code !== 1 || errors.length === 0 || unknown.length > 0) {
+    const first = unknown[0] ?? lines.find((l) => l.trim()) ?? '';
+    return `exit code ${code}. ${first ? `${first.slice(0, 300)} ` : ''}Last output: ${tail}`;
+  }
+  const ignored = /errors ignored on restore: (\d+)/.exec(stderr);
+  if (!ignored || Number(ignored[1]) !== errors.length) {
+    return `exit code ${code} with an error count that does not match the known errors. Last output: ${tail}`;
+  }
+  return null;
+}
+
+/**
+ * Bytes a restore needs free on the archive volume: the unpacked
+ * bucket plus the dump (estimated by the archive's size), with 2%
+ * and 64 MB of headroom for tar padding and the filesystem.
+ */
+export function restoreSpaceNeeded(bucketBytes: number, archiveBytes: number): number {
+  return Math.ceil((bucketBytes + archiveBytes) * 1.02) + 64 * 1024 * 1024;
+}
+
+function formatGb(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
 /**
@@ -248,33 +328,37 @@ export class BackupRestoreService {
         'Maintenance mode must be active before runRestore(). The controller is supposed to handle this; refusing as a safety net.',
       );
     }
-    // Re-checked inside maintenance: the other replica can start a
-    // scheduled backup until it sees the flag (one poll interval).
-    const live = await this.backup.liveRun();
-    if (live) {
-      throw new RestoreNotStartedError(
-        `A backup is running (started ${live.startedAt.toISOString()}). Wait for it to finish or cancel it before restoring.`,
-      );
-    }
-
-    const { path: archivePath, filename } = await this.backup.resolveArchivePath(
-      args.runId,
-    );
-    this.log.warn(
-      `RESTORE STARTING: user=${args.startedBy} archive=${filename}`,
-    );
-    const stageDir = path.join(
-      path.dirname(archivePath),
-      `.restore-${Date.now()}`,
-    );
-    await fs.mkdir(stageDir, { recursive: true });
-
     // Set once the hold is in place and pg_restore may have run.
-    // Everything before it changes nothing.
+    // Everything before it changes nothing, so any failure before it
+    // is reported as "not started" (the controller then lifts the
+    // maintenance it raised instead of holding the portal).
     let started = false;
     const notStarted = (msg: string) => new RestoreNotStartedError(msg);
+    let stageDir: string | null = null;
+    let filename = '';
 
     try {
+      // Re-checked inside maintenance: the other replica can start a
+      // scheduled backup until it sees the flag (one poll interval).
+      const live = await this.backup.liveRun();
+      if (live) {
+        throw notStarted(
+          `A backup is running (started ${live.startedAt.toISOString()}). Wait for it to finish or cancel it before restoring.`,
+        );
+      }
+
+      const resolved = await this.backup.resolveArchivePath(args.runId);
+      const archivePath = resolved.path;
+      filename = resolved.filename;
+      this.log.warn(
+        `RESTORE STARTING: user=${args.startedBy} archive=${filename}`,
+      );
+      // Unpacking needs room for the whole bucket plus the dump on the
+      // archive volume, which also holds the retained archives.
+      await this.assertRoomToUnpack(archivePath);
+      stageDir = path.join(path.dirname(archivePath), `.restore-${Date.now()}`);
+      await fs.mkdir(stageDir, { recursive: true });
+
       // 1. Extract the archive into a staging dir. We shell out to
       //    the system tar so we don't carry the npm `tar` dep (#47).
       await extractTarGz(archivePath, stageDir).catch((e: unknown) => {
@@ -356,7 +440,10 @@ export class BackupRestoreService {
       // 6. Rebuild the MinIO bucket. #233: PUT archive objects first
       //    (overwrite in place), then delete keys that were not in
       //    the archive.
-      await this.restoreMinio(path.join(stageDir, 'minio'));
+      await this.restoreMinio(
+        path.join(stageDir, 'minio'),
+        await this.readStagedContentTypes(stageDir),
+      );
 
       // 6b. pg_restore rewrote the observation log without firing the
       //     NOTIFY the tile cache listens for. Drop this replica's
@@ -391,11 +478,45 @@ export class BackupRestoreService {
       if (started) {
         // Keep the marker: the database may be half restored.
         await this.mode.endRestoreHold(false);
+        throw new Error(msg);
       }
+      // Nothing was changed yet (a missing archive, a full disk, a
+      // database blip while reading history): not a failed restore.
       if (e instanceof RestoreNotStartedError) throw e;
-      throw new Error(msg);
+      throw notStarted(msg);
     } finally {
-      await fs.rm(stageDir, { recursive: true, force: true });
+      if (stageDir) await fs.rm(stageDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Refuse before unpacking when the archive volume cannot hold the
+   * unpacked bucket and dump. The archive's own size stands in for
+   * the dump (the dump is already compressed, so it is about its size
+   * inside the archive). Fails open when statfs fails, like the
+   * backup side's check.
+   */
+  private async assertRoomToUnpack(archivePath: string): Promise<void> {
+    const manifest = await this.extractManifest(archivePath);
+    const archiveBytes = (await fs.stat(archivePath)).size;
+    const needed = restoreSpaceNeeded(manifest.minio?.totalBytes ?? 0, archiveBytes);
+    const dir = path.dirname(archivePath);
+    let free: number;
+    try {
+      const st = await fs.statfs(dir);
+      free = Number(st.bavail) * Number(st.bsize);
+    } catch (err) {
+      this.log.warn(
+        `statfs(${dir}) failed: ${err instanceof Error ? err.message : err}. Restoring without a space check.`,
+      );
+      return;
+    }
+    if (needed > free) {
+      throw new RestoreNotStartedError(
+        `Not enough space to unpack this backup. It needs about ${formatGb(needed)} ` +
+          `and the backup folder has ${formatGb(free)} free. Free space or delete ` +
+          'older backups, then try again. Nothing was changed.',
+      );
     }
   }
 
@@ -500,7 +621,8 @@ export class BackupRestoreService {
   /**
    * Invoke pg_restore with --clean --if-exists so every object in
    * the schema is dropped and recreated. Host binary or docker exec,
-   * same switch as pg_dump.
+   * same switch as pg_dump. See pgRestoreFailure() for the errors
+   * this schema always produces and why they are let through.
    */
   private async runPgRestore(dumpPath: string) {
     const raw = this.cfg.get<string>('DATABASE_URL', '');
@@ -528,7 +650,7 @@ export class BackupRestoreService {
       const inContainerPath = `/tmp/gg-restore-${Date.now()}.dump`;
       await this.runCmd('docker', ['cp', dumpPath, `${container}:${inContainerPath}`]);
       try {
-        await this.runCmd('docker', [
+        await this.runPgRestoreCmd('docker', [
           'exec',
           '-e',
           `PG_URL=${url}`,
@@ -549,8 +671,33 @@ export class BackupRestoreService {
         ]).catch(() => {});
       }
     } else {
-      await this.runCmd('pg_restore', [...args, dumpPath]);
+      await this.runPgRestoreCmd('pg_restore', [...args, dumpPath]);
     }
+  }
+
+  /**
+   * Run pg_restore and judge its stderr with pgRestoreFailure(): the
+   * known partition errors are logged and let through, anything else
+   * fails the restore.
+   */
+  private runPgRestoreCmd(bin: string, args: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      const stderr: Buffer[] = [];
+      child.stderr.on('data', (c: Buffer) => stderr.push(c));
+      child.on('error', reject);
+      child.on('close', (code) => {
+        const text = Buffer.concat(stderr).toString('utf8');
+        const why = pgRestoreFailure(code, text);
+        if (why) return reject(new Error(`pg_restore failed: ${why}`));
+        if (code !== 0) {
+          this.log.warn(
+            'pg_restore reported only the known "cannot drop inherited constraint" errors for observation partitions; the restore is complete.',
+          );
+        }
+        resolve();
+      });
+    });
   }
 
   /**
@@ -560,7 +707,29 @@ export class BackupRestoreService {
    * PUT pass, deletes bucket keys that were not in the archive so
    * the live store matches the backup without a pre-empty (#233).
    */
-  private async restoreMinio(srcDir: string) {
+  /**
+   * Content types recorded by the backup, keyed by object key. Empty
+   * for archives made before the backup recorded them; those fall
+   * back to a guess from the file extension.
+   */
+  private async readStagedContentTypes(
+    stageDir: string,
+  ): Promise<Record<string, string>> {
+    try {
+      const raw = await fs.readFile(path.join(stageDir, MINIO_META_MEMBER), 'utf8');
+      const meta = JSON.parse(raw) as Partial<MinioArchiveMeta>;
+      return meta.contentTypes && typeof meta.contentTypes === 'object'
+        ? meta.contentTypes
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private async restoreMinio(
+    srcDir: string,
+    contentTypes: Record<string, string> = {},
+  ) {
     const exists = await fs
       .access(srcDir)
       .then(() => true)
@@ -581,12 +750,14 @@ export class BackupRestoreService {
           await walk(full, rel);
         } else if (e.isFile()) {
           const stat = await fs.stat(full);
+          const contentType = contentTypes[rel] ?? contentTypeFromKey(rel);
           await this.s3.send(
             new PutObjectCommand({
               Bucket: this.bucket,
               Key: rel,
               Body: createReadStream(full),
               ContentLength: stat.size,
+              ...(contentType ? { ContentType: contentType } : {}),
             }),
           );
           restoredKeys.add(rel);

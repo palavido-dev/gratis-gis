@@ -21,6 +21,7 @@ import {
   MaintenanceModeService,
   restoreMarkerPath,
 } from './maintenance-mode.service.js';
+import { isRestoreRoute } from './maintenance-mode.middleware.js';
 import type { TileCacheService } from '../engine/tile-cache.service.js';
 
 const MIGRATIONS = ['20260101000000_a', '20260201000000_b'];
@@ -296,6 +297,40 @@ describe('runRestore', () => {
     expect(t.pgRestore).not.toHaveBeenCalled();
   });
 
+  it('a failure before the hold is "not started", even from Prisma or a missing archive (05-1)', async () => {
+    const t = setup();
+    await t.mode.activate('restore');
+    t.prisma.backupRun.findMany.mockRejectedValueOnce(new Error('connection reset'));
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toBeInstanceOf(
+      RestoreNotStartedError,
+    );
+    expect(t.pgRestore).not.toHaveBeenCalled();
+
+    const u = setup();
+    await u.mode.activate('restore');
+    const backup = (u.svc as unknown as { backup: { resolveArchivePath: jest.Mock } }).backup;
+    backup.resolveArchivePath.mockRejectedValueOnce(new Error('Backup file is missing on disk'));
+    await expect(u.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toBeInstanceOf(
+      RestoreNotStartedError,
+    );
+  });
+
+  it('refuses before unpacking when the volume is too small (05-8)', async () => {
+    const t = setup({
+      manifest: {
+        version: 1,
+        databases: ['gratisgis'],
+        appliedMigrations: MIGRATIONS,
+        minio: { bucket: 'b', objectCount: 1, totalBytes: 1024 ** 5 },
+      },
+    });
+    await t.mode.activate('restore');
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toThrow(
+      /Not enough space to unpack/,
+    );
+    expect(t.pgRestore).not.toHaveBeenCalled();
+  });
+
   it('refuses while a backup is running (API-OPS-04)', async () => {
     const t = setup({ live: { id: 'b1', startedAt: new Date() } });
     await t.mode.activate('restore');
@@ -416,5 +451,73 @@ describe('restore route leaves no false hold when nothing changed', () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(mode.activate).toHaveBeenCalledTimes(1);
     expect(mode.deactivate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a failed restore can be re-run from the portal (05-1)', () => {
+  it('the middleware lets the run list, preview and restore through, not a new backup', () => {
+    expect(isRestoreRoute('GET', '/api/admin/backup/runs')).toBe(true);
+    expect(isRestoreRoute('GET', '/api/admin/backup/runs/abc/restore/preview')).toBe(true);
+    expect(isRestoreRoute('POST', '/api/admin/backup/runs/abc/restore')).toBe(true);
+    expect(isRestoreRoute('POST', '/api/admin/backup/runs')).toBe(false);
+    expect(isRestoreRoute('DELETE', '/api/admin/backup/runs/abc')).toBe(false);
+    expect(isRestoreRoute('GET', '/api/admin/backup/runs/abc/download')).toBe(false);
+  });
+
+  function controller(snapshot: { active: boolean; reason: string | null }, held = false) {
+    const mode = {
+      snapshot: jest.fn(() => ({ ...snapshot, startedAt: null })),
+      isHeldLocally: jest.fn(() => held),
+      activate: jest.fn(async () => {}),
+      deactivate: jest.fn(async () => {}),
+    };
+    const restore = {
+      preflight: jest.fn(async () => {}),
+      runRestore: jest.fn(async () => ({ id: 'audit' })),
+    };
+    const prisma = {
+      organization: { findFirst: jest.fn(async () => ({ name: 'Acme' })) },
+    };
+    const ctl = new BackupController(
+      {} as never,
+      restore as unknown as BackupRestoreService,
+      mode as unknown as MaintenanceModeService,
+      prisma as unknown as PrismaService,
+      {} as never,
+    );
+    return { ctl, mode, restore };
+  }
+  const user = { id: 'u1', orgId: 'o1', username: 'admin' } as never;
+  const failed = 'Restore of backup abcd failed and left the portal in an inconsistent state.';
+
+  it('re-runs a restore during a failed-restore hold and lifts it on success', async () => {
+    const { ctl, mode, restore } = controller({ active: true, reason: failed });
+    await ctl.runRestore(user, 'run-1', { confirmName: 'acme' } as never);
+    expect(restore.runRestore).toHaveBeenCalled();
+    expect(mode.deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts the failed hold back when the re-run stops before changing anything', async () => {
+    const { ctl, mode, restore } = controller({ active: true, reason: failed });
+    restore.runRestore.mockRejectedValueOnce(new RestoreNotStartedError('disk full'));
+    await expect(
+      ctl.runRestore(user, 'run-1', { confirmName: 'acme' } as never),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(mode.deactivate).not.toHaveBeenCalled();
+    expect(mode.activate).toHaveBeenLastCalledWith(failed, { replaceReason: true });
+  });
+
+  it('refuses while a restore is running or maintenance is on for another reason', async () => {
+    for (const [snap, held] of [
+      [{ active: true, reason: 'Restoring backup abcd' }, false],
+      [{ active: true, reason: failed }, true],
+      [{ active: true, reason: 'Turned on by an org admin.' }, false],
+    ] as const) {
+      const { ctl, restore } = controller(snap, held);
+      await expect(
+        ctl.runRestore(user, 'run-1', { confirmName: 'acme' } as never),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(restore.runRestore).not.toHaveBeenCalled();
+    }
   });
 });

@@ -959,6 +959,66 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
         `Could not update MFA (${updated.status}).`,
       );
     }
+    // A default action is only given to accounts created after it is
+    // set. Existing accounts get the action directly, so the switch
+    // means what the screen says: everyone sets up an authenticator
+    // on their next sign-in. Turning it off takes the pending action
+    // back off accounts that have not done it yet.
+    await this.applyMfaToExistingUsers(required, headers);
+  }
+
+  /**
+   * Add CONFIGURE_TOTP to every existing account that has no OTP
+   * credential (required) or remove a still pending one (not
+   * required). Service accounts are left alone: they never sign in
+   * through the browser. Returns how many accounts were changed.
+   */
+  private async applyMfaToExistingUsers(
+    required: boolean,
+    headers: Record<string, string>,
+  ): Promise<number> {
+    const PAGE = 100;
+    let changed = 0;
+    for (let first = 0; ; first += PAGE) {
+      const users = await this.listUsers({ first, max: PAGE });
+      for (const u of users) {
+        if (u.username.startsWith('service-account-')) continue;
+        const actions = u.requiredActions ?? [];
+        const pending = actions.includes('CONFIGURE_TOTP');
+        let next: string[] | null = null;
+        if (required && !pending) {
+          const creds = await fetch(this.adminUrl(`/users/${u.id}/credentials`), {
+            headers,
+          });
+          if (!creds.ok) {
+            throw new BadGatewayException(
+              `MFA was turned on, but existing accounts could not be checked (${creds.status}).`,
+            );
+          }
+          const rows = (await creds.json()) as Array<{ type?: string }>;
+          if (!rows.some((c) => c.type === 'otp')) {
+            next = [...actions, 'CONFIGURE_TOTP'];
+          }
+        } else if (!required && pending) {
+          next = actions.filter((a) => a !== 'CONFIGURE_TOTP');
+        }
+        if (!next) continue;
+        // Keycloak's PUT only changes the fields present in the body.
+        const res = await fetch(this.adminUrl(`/users/${u.id}`), {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ requiredActions: next }),
+        });
+        if (!res.ok && res.status !== 404) {
+          throw new BadGatewayException(
+            `MFA was changed, but account ${u.username} could not be updated (${res.status}).`,
+          );
+        }
+        changed += 1;
+      }
+      if (users.length < PAGE) break;
+    }
+    return changed;
   }
 
   private async addHardcodedMapper(

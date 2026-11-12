@@ -25,6 +25,7 @@ import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
+import { KeycloakAdminService } from './keycloak-admin.service.js';
 import {
   HousekeepingScheduleService,
   type HousekeepingScheduleMode,
@@ -71,7 +72,30 @@ export class HousekeepingController {
     private readonly housekeeping: HousekeepingService,
     private readonly schedule: HousekeepingScheduleService,
     @Optional() private readonly audit?: AdminAuditService,
+    @Optional() private readonly keycloak?: KeycloakAdminService,
   ) {}
+
+  /**
+   * Add each user's Keycloak id. The rows carry the portal's own id,
+   * which is what `items?ownerId=` needs, but PATCH /admin/users/:id
+   * takes the Keycloak id, and the two differ for seeded accounts
+   * and for a username re-created in Keycloak. Looked up by username,
+   * as the scheduled auto-disable does. Falls back to the local id
+   * when Keycloak is not set up or the lookup fails.
+   */
+  private async withKeycloakIds<T extends { id: string; username: string }>(
+    rows: T[],
+  ): Promise<Array<T & { keycloakId: string }>> {
+    const kc = this.keycloak;
+    if (!kc?.isConfigured()) return rows.map((r) => ({ ...r, keycloakId: r.id }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        keycloakId:
+          (await kc.findUserIdByUsername(r.username).catch(() => null)) ?? r.id,
+      })),
+    );
+  }
 
   @Get('summary')
   summary(@CurrentUser() user: AuthUser) {
@@ -94,8 +118,8 @@ export class HousekeepingController {
   }
 
   @Get('stale-users')
-  staleUsers(@CurrentUser() user: AuthUser) {
-    return this.housekeeping.staleUsers(user.orgId);
+  async staleUsers(@CurrentUser() user: AuthUser) {
+    return this.withKeycloakIds(await this.housekeeping.staleUsers(user.orgId));
   }
 
   @Get('large-items')
@@ -161,12 +185,14 @@ export class HousekeepingController {
    * before the schedule fires.
    */
   @Get('expiring-users')
-  expiringUsers(
+  async expiringUsers(
     @CurrentUser() user: AuthUser,
     @Query('within') within?: string,
   ) {
     const days = parseWithin(within, 30);
-    return this.housekeeping.expiringUsers(user.orgId, days);
+    return this.withKeycloakIds(
+      await this.housekeeping.expiringUsers(user.orgId, days),
+    );
   }
 
   // -------------------------------------------------------------

@@ -627,6 +627,9 @@ model Item {
   /// references forever.
   offlinePackages OfflinePackage[]
   formSubmissions FormSubmission[]    @relation("FormSubmissionForm")
+  /// Run history of a script item. Cascade: a purged script takes its
+  /// logs, source snapshots and notebooks with it.
+  scriptRuns      ScriptRun[]
 
   @@index([orgId, access])
   @@index([ownerId])
@@ -1800,6 +1803,8 @@ model ScriptRun {
   /// fails rows whose beat goes stale instead of leaving the UI to
   /// spin forever.
   heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+
+  script Item @relation(fields: [scriptId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   /// Worker poll: oldest queued row first.
   @@index([state, createdAt])

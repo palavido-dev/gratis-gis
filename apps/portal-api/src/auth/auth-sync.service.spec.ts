@@ -7,7 +7,7 @@ import {
   THEME_STARTERS,
 } from '@gratis-gis/shared-types';
 
-import { AuthSyncService } from './auth-sync.service.js';
+import { AuthSyncService, isMasterAdminAccount } from './auth-sync.service.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
@@ -370,5 +370,47 @@ describe('AuthSyncService.upsertFromClaims principal cache', () => {
     expect(prisma.groupMember.findMany).toHaveBeenCalledTimes(before + 1);
     await service.upsertFromClaims(claimsFor(1));
     expect(prisma.groupMember.findMany).toHaveBeenCalledTimes(before + 2);
+  });
+});
+
+describe('master admin protection on sign-in', () => {
+  const ORIGINAL = process.env.PORTAL_MASTER_ADMIN;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.PORTAL_MASTER_ADMIN;
+    else process.env.PORTAL_MASTER_ADMIN = ORIGINAL;
+  });
+
+  const adminClaims = () =>
+    makeClaims({ sub: 'sub-admin', preferred_username: 'admin', org_role: 'admin' });
+
+  it('marks a new "admin" row protected when it is created', async () => {
+    delete process.env.PORTAL_MASTER_ADMIN;
+    const prisma = makePrisma();
+    prisma.user.findUnique.mockResolvedValueOnce(null as never);
+    await svc(prisma).upsertFromClaims(adminClaims());
+    const args = prisma.user.upsert.mock.calls[0]?.[0] as unknown as {
+      create: Record<string, unknown>;
+    };
+    expect(args.create.isProtected).toBe(true);
+  });
+
+  it('protects an existing unprotected "admin" row', async () => {
+    delete process.env.PORTAL_MASTER_ADMIN;
+    const prisma = makePrisma({
+      user: makeUserRow({ username: 'admin', orgRole: 'admin', isProtected: false }),
+    });
+    await svc(prisma).upsertFromClaims(adminClaims());
+    const args = prisma.user.upsert.mock.calls[0]?.[0] as unknown as {
+      update: Record<string, unknown>;
+    };
+    expect(args.update.isProtected).toBe(true);
+  });
+
+  it('leaves other admins and an empty PORTAL_MASTER_ADMIN alone', async () => {
+    expect(isMasterAdminAccount('admin', 'admin', {})).toBe(true);
+    expect(isMasterAdminAccount('sam', 'admin', {})).toBe(false);
+    expect(isMasterAdminAccount('admin', 'contributor', {})).toBe(false);
+    expect(isMasterAdminAccount('admin', 'admin', { PORTAL_MASTER_ADMIN: '' })).toBe(false);
+    expect(isMasterAdminAccount('root', 'admin', { PORTAL_MASTER_ADMIN: 'root' })).toBe(true);
   });
 });

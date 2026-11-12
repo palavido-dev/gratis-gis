@@ -110,3 +110,73 @@ describe('KeycloakAdminService.updateUser email change', () => {
     expect(puts[0]?.requiredActions).toBeUndefined();
   });
 });
+
+describe('KeycloakAdminService.setMfaRequired reaches existing accounts', () => {
+  const realFetch = globalThis.fetch;
+  let svc: KeycloakAdminService;
+  let userPuts: Array<{ url: string; body: Record<string, unknown> }>;
+
+  const users = [
+    { id: 'u-new', username: 'ana', enabled: true, requiredActions: [] },
+    { id: 'u-otp', username: 'ben', enabled: true, requiredActions: [] },
+    { id: 'u-pend', username: 'cy', enabled: true, requiredActions: ['CONFIGURE_TOTP'] },
+    { id: 'u-svc', username: 'service-account-portal-api-admin', enabled: true },
+  ];
+
+  beforeEach(() => {
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = 'portal-api-admin';
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = 'secret';
+    svc = new KeycloakAdminService(
+      {} as SystemSettingsService,
+      {} as LeaderElectionService,
+    );
+    (svc as unknown as { tokenCache: unknown }).tokenCache = {
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    };
+    userPuts = [];
+    globalThis.fetch = (async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      const json = (v: unknown) =>
+        new Response(JSON.stringify(v), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      if (url.endsWith('/authentication/required-actions')) {
+        return json([{ alias: 'CONFIGURE_TOTP', defaultAction: false }]);
+      }
+      if (url.endsWith('/authentication/required-actions/CONFIGURE_TOTP')) {
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes('/users?')) return json(users);
+      const cred = /\/users\/([^/]+)\/credentials$/.exec(url);
+      if (cred) return json(cred[1] === 'u-otp' ? [{ type: 'otp' }] : [{ type: 'password' }]);
+      if (init?.method === 'PUT' && /\/users\/[^/?]+$/.test(url)) {
+        userPuts.push({ url, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+        return new Response(null, { status: 204 });
+      }
+      return new Response('unexpected', { status: 500 });
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('turning it on asks every account without an authenticator', async () => {
+    await svc.setMfaRequired(true);
+    expect(userPuts).toEqual([
+      {
+        url: expect.stringMatching(/\/users\/u-new$/),
+        body: { requiredActions: ['CONFIGURE_TOTP'] },
+      },
+    ]);
+  });
+
+  it('turning it off removes a still pending request', async () => {
+    await svc.setMfaRequired(false);
+    expect(userPuts).toEqual([
+      { url: expect.stringMatching(/\/users\/u-pend$/), body: { requiredActions: [] } },
+    ]);
+  });
+});
