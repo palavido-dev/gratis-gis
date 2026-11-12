@@ -295,7 +295,7 @@ export function LayerAsk() {
           <p className="text-sm text-ink-0">{result.answer}</p>
           <p className="mt-2 text-xs text-muted">
             Sampled {result.sampled} row{result.sampled === 1 ? '' : 's'}.{' '}
-            <Link href={`/items/${itemId}`} className="text-accent underline">
+            <Link href={`/items/${encodeURIComponent(itemId)}`} className="text-accent underline">
               Open the layer
             </Link>
           </p>
