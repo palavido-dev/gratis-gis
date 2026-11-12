@@ -158,6 +158,11 @@ echo "=== Materializing Keycloak realm import ==="
 . infra/lib-env.sh
 gg_load_env_file infra/.env.prod
 gg_require_prod_env
+# The env file of an older install still carries the GG_VERSION that
+# bootstrap.sh wrote at setup time, and loading it just replaced the
+# stamp computed above. The stamp from git wins.
+GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
+export GG_VERSION
 # Derived AUTH_URL the realm template uses for the realm-level
 # frontendUrl. Keep this separate from PUBLIC_URL: the realm has to
 # advertise itself as the AUTH subdomain (otherwise discovery

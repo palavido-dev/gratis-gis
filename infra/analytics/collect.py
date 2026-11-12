@@ -708,8 +708,31 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     gap = SESSION_GAP_MINUTES * 60
     recent = time.time() - SESSION_REBUILD_DAYS * 86400
     last_end = conn.execute("SELECT MAX(ended) e FROM session").fetchone()["e"]
-    cutoff = 0.0 if full else (min(recent, last_end - gap) if last_end else 0.0)
-    conn.execute("DELETE FROM session WHERE ended >= ?", (cutoff,))
+    # Oldest raw request still held. A session that started before it
+    # cannot be rebuilt (its head was pruned), so it is kept as it is:
+    # `full` used to delete every session ever recorded and could only
+    # recreate the last 30 days.
+    floor = conn.execute("SELECT MIN(ts) t FROM request").fetchone()["t"]
+    floor = floor if floor is not None else 0.0
+    cutoff = floor if full else (min(recent, last_end - gap) if last_end else 0.0)
+    # A visit that started before the cutoff and ended after it is
+    # deleted whole below, so it must be rebuilt from its start, not
+    # from the cutoff: reading only from the cutoff kept just its tail.
+    low = conn.execute(
+        "SELECT MIN(started) s FROM session WHERE ended >= ? AND started >= ?",
+        (cutoff, floor),
+    ).fetchone()["s"]
+    low = min(low, cutoff) if low is not None else cutoff
+    kept: dict[tuple[str, str], float] = {
+        (r["ip"], r["ua_hash"]): r["ended"]
+        for r in conn.execute(
+            "SELECT ip, ua_hash, ended FROM session WHERE ended >= ? AND started < ?",
+            (cutoff, floor),
+        )
+    }
+    conn.execute(
+        "DELETE FROM session WHERE ended >= ? AND started >= ?", (cutoff, floor)
+    )
 
     # Addresses that rattled a doorknob, and when. A scanner that
     # rotates user agents lands in several session rows; this is what
@@ -717,7 +740,7 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     probe_ts: dict[str, list[float]] = {}
     for r in conn.execute(
         "SELECT ip, ts FROM request WHERE is_bot = 1 AND ts >= ?",
-        (cutoff - PROBE_HALO_HOURS * 3600,),
+        (low - PROBE_HALO_HOURS * 3600,),
     ):
         probe_ts.setdefault(r["ip"], []).append(r["ts"])
     # Computed from the stored org string rather than read from the
@@ -734,7 +757,7 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
     rows = conn.execute(
         "SELECT ts, ip, ua, is_bot, is_asset, activity, path, status FROM request"
         " WHERE ts >= ? ORDER BY ip, ua, ts",
-        (cutoff,),
+        (low,),
     ).fetchall()
 
     current: dict | None = None
@@ -742,6 +765,14 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
 
     def flush(s: dict | None) -> int:
         if not s:
+            return 0
+        # Ended before the cutoff: that row was not deleted, keep it.
+        if s["end"] < cutoff:
+            return 0
+        # The tail of a kept session whose head was pruned: the kept
+        # row already covers it.
+        k = kept.get((s["ip"], s["ua_hash"]))
+        if k is not None and s["start"] <= k + gap:
             return 0
         tags = [
             t
