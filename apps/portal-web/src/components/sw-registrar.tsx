@@ -78,8 +78,8 @@ export function SwRegistrar() {
     }
 
     // A new worker calls skipWaiting() and clients.claim(), and its
-    // activate handler deletes every cache not carrying the current
-    // CACHE_VERSION. So a deploy pulls the static cache out from under
+    // activate handler deletes its static, shell and page caches from
+    // older deploys. So a deploy pulls the static cache out from under
     // this already-loaded page while it still holds references to
     // chunks that lived there. Reload once when that happens, so the
     // tab is running the build whose assets are actually cached.
