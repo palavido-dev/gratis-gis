@@ -54,7 +54,9 @@ export default async function GroupDetailPage(props: Props) {
     rosterHidden = true;
   }
 
-  const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
+  const me = await apiFetch<{ id: string; orgRole: string; trashRetentionDays?: number }>(
+    '/api/users/me',
+  );
   const locale = await getServerLocale();
   // A member with group role admin may add and remove members (the
   // API allows it), so the roster controls show for them too.
@@ -159,7 +161,11 @@ export default async function GroupDetailPage(props: Props) {
               <Pencil className="h-4 w-4" />
               Edit
             </Link>
-            <DeleteGroupButton groupId={group.id} groupTitle={group.title} />
+            <DeleteGroupButton
+              groupId={group.id}
+              groupTitle={group.title}
+              retentionDays={me.trashRetentionDays ?? 30}
+            />
           </div>
         ) : null}
       </header>
