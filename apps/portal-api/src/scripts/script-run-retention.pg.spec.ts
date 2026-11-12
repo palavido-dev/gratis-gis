@@ -39,7 +39,8 @@ function databaseUrl(base: string, name: string): string {
 }
 
 d('script_run retention on migrated Postgres', () => {
-  const url = databaseUrl(TEST_URL!, DB);
+  // Built lazily: describe.skip still runs this body without a URL.
+  const url = TEST_URL ? databaseUrl(TEST_URL, DB) : '';
   let pool: Pool;
   let client: PrismaClient;
   let worker: ScriptRunnerWorker;

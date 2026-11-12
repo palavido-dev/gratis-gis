@@ -64,6 +64,12 @@ export function restoreMarkerPath(
   return path.join(path.resolve(backupDir), '.restore-in-progress');
 }
 
+/** True when the maintenance reason is a failed-restore hold. */
+export function failedRestore(reason: string | null): boolean {
+  if (!reason) return false;
+  return /restore/i.test(reason) && /fail|inconsistent/i.test(reason);
+}
+
 const POLL_MS = 2_000;
 
 type MaintenanceValue = {
