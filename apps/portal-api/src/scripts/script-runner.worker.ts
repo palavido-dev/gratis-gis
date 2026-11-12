@@ -480,7 +480,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
 
 /** Drop NUL characters, which a Postgres text column refuses. */
 export function stripNul(text: string): string {
-  return text.includes('\u0000') ? text.replace(/\u0000/g, '') : text;
+  return text.includes('\u0000') ? text.split('\u0000').join('') : text;
 }
 
 /** How long past the run timeout the claimer waits for the executor. */
