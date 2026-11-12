@@ -314,3 +314,27 @@ describe('KeycloakAdminService.ensureQgisRedirects', () => {
     await expect(svc.ensureQgisRedirects()).rejects.toThrow(/500/);
   });
 });
+
+describe('KeycloakAdminService user paths', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('encodes the user id so it cannot leave /users/', async () => {
+    process.env.KEYCLOAK_ADMIN_CLIENT_ID = 'portal-api-admin';
+    process.env.KEYCLOAK_ADMIN_CLIENT_SECRET = 'secret';
+    const svc = new KeycloakAdminService({} as SystemSettingsService, {} as LeaderElectionService);
+    (svc as unknown as { tokenCache: unknown }).tokenCache = {
+      accessToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    };
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url);
+      return new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
+    await svc.getUser('../clients').catch(() => undefined);
+    expect(urls[0]).toMatch(/\/users\/\.\.%2Fclients$/);
+  });
+});

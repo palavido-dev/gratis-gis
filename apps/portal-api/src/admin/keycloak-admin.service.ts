@@ -293,7 +293,12 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return json.access_token;
   }
 
-  /** Build an admin endpoint URL inside the target realm. */
+  /**
+   * Build an admin endpoint URL inside the target realm. Callers
+   * encode any id they splice in: the user routes take `:id` from the
+   * request, and a raw `../clients` would reach another admin path
+   * with the service account's token.
+   */
   private adminUrl(path: string): string {
     return `${this.keycloakUrl}/admin/realms/${this.realm}${path}`;
   }
@@ -426,7 +431,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     opts: { timeoutMs?: number } = {},
   ): Promise<KeycloakUserRep> {
     const token = await this.getAccessToken();
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
       headers: { authorization: `Bearer ${token}` },
       ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
@@ -555,7 +560,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
         new Set([...(current.requiredActions ?? []), 'VERIFY_EMAIL']),
       );
     }
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
       method: 'PUT',
       headers: {
         authorization: `Bearer ${token}`,
@@ -576,7 +581,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
 
   async deleteUser(id: string): Promise<void> {
     const token = await this.getAccessToken();
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
       method: 'DELETE',
       headers: { authorization: `Bearer ${token}` },
     });
@@ -597,7 +602,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   ): Promise<void> {
     const token = await this.getAccessToken();
     const res = await fetch(
-      this.adminUrl(`/users/${id}/execute-actions-email`),
+      this.adminUrl(`/users/${encodeURIComponent(id)}/execute-actions-email`),
       {
         method: 'PUT',
         headers: {

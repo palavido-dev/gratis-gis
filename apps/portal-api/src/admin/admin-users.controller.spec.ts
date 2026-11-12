@@ -927,3 +927,27 @@ describe('AdminUsersController.access org gate', () => {
     );
   });
 });
+
+describe('AdminUsersController.remove for a user already gone from Keycloak', () => {
+  function ghostSetup(orgId: string) {
+    const caller = makeAuthUser();
+    const { controller, prisma } = makeController({ caller, targets: [], adminCount: 2 });
+    prisma.user.findUnique.mockImplementation((async (args: { where: { id?: string; username?: string } }) =>
+      args.where.id === 'ghost'
+        ? { id: 'ghost', orgId, isProtected: false, username: 'ghost', orgRole: 'viewer' }
+        : null) as never);
+    return { caller, controller, prisma };
+  }
+
+  it('cleans up the local row of this org', async () => {
+    const { caller, controller, prisma } = ghostSetup('org-1');
+    await controller.remove(caller, 'ghost');
+    expect(prisma.user.delete).toHaveBeenCalled();
+  });
+
+  it('still refuses a local row of another org', async () => {
+    const { caller, controller, prisma } = ghostSetup('org-2');
+    await expect(controller.remove(caller, 'ghost')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+});

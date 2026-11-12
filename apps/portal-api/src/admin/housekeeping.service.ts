@@ -231,7 +231,7 @@ export class HousekeepingService {
         this.countStaleItems(orgId),
         this.countStaleUsers(orgId),
         this.prisma.item.count({ where: { orgId, deletedAt: null } }),
-        this.prisma.user.count({ where: { orgId } }),
+        this.prisma.user.count({ where: { orgId, deletedAt: null } }),
         this.countExpiringShares(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
         this.countExpiringUsers(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
         this.danglingReferences(orgId),

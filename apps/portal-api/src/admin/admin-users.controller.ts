@@ -530,7 +530,20 @@ export class AdminUsersController {
     // gate it through the same self / sole-admin / protected checks.
     // We model delete as "would remove an active admin" so the
     // sole-admin floor catches it the same way demote does.
-    await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    try {
+      await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    } catch (err) {
+      // A user already removed in Keycloak 404s in the guard, which
+      // made the local-only cleanup below unreachable. Allow it for a
+      // local row of this org that is not protected and not the caller.
+      if (!(err instanceof NotFoundException)) throw err;
+      const ghost = await this.prisma.user
+        .findUnique({ where: { id }, select: { id: true, orgId: true, isProtected: true } })
+        .catch(() => null);
+      if (!ghost || ghost.orgId !== me.orgId || ghost.isProtected || ghost.id === me.id) {
+        throw err;
+      }
+    }
 
     // First try to grab the Keycloak record so we know the username
     // for local cleanup. Either the user is there (we'll delete) or
