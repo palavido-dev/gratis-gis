@@ -23,6 +23,7 @@ import { normalizeTileSettingsInData } from '../data-layer/tile-settings.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
+import { assertFormNotifyLimits } from '../forms/form-notify-limits.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
@@ -1613,6 +1614,7 @@ export class ItemsService {
       // never taken from the client.
       resolvedData = stampFormEngineVersion(resolvedData) as Prisma.InputJsonValue;
       assertFormPatternsCompile(resolvedData);
+      assertFormNotifyLimits(resolvedData);
     }
 
     // Same pin as update(): a file / tile_layer / point_cloud item may
@@ -2514,6 +2516,7 @@ export class ItemsService {
       // client-supplied value.
       nextData = stampFormEngineVersion(merged) as Prisma.InputJsonValue;
       assertFormPatternsCompile(nextData);
+      assertFormNotifyLimits(nextData);
     }
 
     // #154 / R3-anonymous-markup: map Save sends the full MapData

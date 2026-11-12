@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 import { getTypeMeta } from './notification-types.js';
 import { isPlainEmailAddress } from './email-address.js';
+import { parseIntEnv } from '../common/env.js';
 
 /**
  * Public entry point for any service that wants to notify a user.
@@ -45,6 +46,15 @@ import { isPlainEmailAddress } from './email-address.js';
  *    notification not being queued is far better than the share
  *    creation failing because the notifications table is locked.
  */
+/**
+ * Direct-address emails (form extra recipients) one user may queue
+ * per hour. NOTIFY_ADDRESS_HOURLY_LIMIT, default 500: about a sixth
+ * of what the worker sends in an hour at its default rate.
+ */
+export function addressHourlyLimit(): number {
+  return parseIntEnv('NOTIFY_ADDRESS_HOURLY_LIMIT', 500, { min: 1 });
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly log = new Logger(NotificationsService.name);
@@ -198,6 +208,30 @@ export class NotificationsService {
       return;
     }
     try {
+      // Hourly budget per sender. These addresses are picked by a form
+      // author, not by the people receiving the mail, so a busy or
+      // abused form could otherwise queue mail without limit and push
+      // everyone else's notifications back behind it.
+      // Rows to the sender's own address (their ordinary
+      // notifications) do not count against it.
+      const limit = addressHourlyLimit();
+      const sender = await this.prisma.user.findUnique({
+        where: { id: actingUserId },
+        select: { email: true },
+      });
+      const sent = await this.prisma.notification.count({
+        where: {
+          userId: actingUserId,
+          createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+          ...(sender?.email ? { NOT: { address: sender.email } } : {}),
+        },
+      });
+      if (sent >= limit) {
+        this.log.warn(
+          `notifyAddress: ${actingUserId} reached ${limit} direct emails this hour; not queueing ${type}`,
+        );
+        return;
+      }
       await this.prisma.notification.create({
         data: {
           userId: actingUserId,
