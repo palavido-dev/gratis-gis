@@ -19,4 +19,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 CREATE SCHEMA IF NOT EXISTS tiles;
-GRANT USAGE ON SCHEMA tiles TO gratisgis;
+-- CURRENT_USER, not a fixed name: POSTGRES_USER is configurable, and a
+-- missing role failed the whole first-boot init (Keycloak's database
+-- was then never created).
+GRANT USAGE ON SCHEMA tiles TO CURRENT_USER;

@@ -109,5 +109,5 @@ sudo systemctl disable --now gg-reset-demo.timer
 - `Restart=no`. A failed reset leaves the unit in `failed` and
   visible via `systemctl status`; next scheduled run does NOT try
   again on top of a broken stack.
-- Downtime ~30 - 60 seconds. Caddy stays up, so users hit a polite
+- Downtime about 20 minutes on the demo (mostly the GIN index rebuild). Caddy stays up, so users hit a polite
   502 page rather than connection-refused.

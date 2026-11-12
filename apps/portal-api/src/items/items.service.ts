@@ -3205,9 +3205,14 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can restore an item');
     }
     if (!item.deletedCohortId) {
+      const clash = await this.seedKindClashes([item]);
       return this.prisma.item.update({
         where: { id },
-        data: { deletedAt: null },
+        // A live starter with the same seedKind (made by "Restore
+        // starters" while this one sat in the trash) would violate
+        // item_org_type_seed_kind_unique and turn the restore into a
+        // 500. The restored copy becomes an ordinary item instead.
+        data: { deletedAt: null, ...(clash.has(id) ? { seedKind: null } : {}) },
       });
     }
 
@@ -3220,19 +3225,49 @@ export class ItemsService {
         deletedAt: { not: null },
       },
     });
-    const restoreIds = cohort
-      .filter((m) => this.sharing.canAdmin(user, m))
-      .map((m) => m.id);
+    const restoreRows = cohort.filter((m) => this.sharing.canAdmin(user, m));
+    const restoreIds = restoreRows.map((m) => m.id);
+    // Same seedKind clash as above, for every row of the cohort.
+    const clash = await this.seedKindClashes(restoreRows);
     // The target is always in restoreIds because canAdmin already
     // passed above; updateMany also clears deletedCohortId so a
     // future redelete starts a fresh cohort.
-    await this.prisma.item.updateMany({
-      where: { id: { in: restoreIds } },
-      data: { deletedAt: null, deletedCohortId: null },
-    });
+    await this.prisma.$transaction([
+      this.prisma.item.updateMany({
+        where: { id: { in: [...clash] } },
+        data: { seedKind: null },
+      }),
+      this.prisma.item.updateMany({
+        where: { id: { in: restoreIds } },
+        data: { deletedAt: null, deletedCohortId: null },
+      }),
+    ]);
     // Return the originally-requested row in its restored state so
     // the caller sees the same shape `update` would have returned.
     return this.prisma.item.findUnique({ where: { id } });
+  }
+
+  /**
+   * Ids of trashed rows whose seedKind is already held by a live item
+   * of the same org and type. Restoring them as they are would break
+   * the partial unique index on (org_id, type, seed_kind).
+   */
+  private async seedKindClashes(
+    rows: ReadonlyArray<Pick<Item, 'id' | 'orgId' | 'type' | 'seedKind'>>,
+  ): Promise<Set<string>> {
+    const seeded = rows.filter((r) => r.seedKind);
+    if (seeded.length === 0) return new Set();
+    const live = await this.prisma.item.findMany({
+      where: {
+        deletedAt: null,
+        OR: seeded.map((r) => ({ orgId: r.orgId, type: r.type, seedKind: r.seedKind })),
+      },
+      select: { orgId: true, type: true, seedKind: true },
+    });
+    const key = (r: Pick<Item, 'orgId' | 'type' | 'seedKind'>) =>
+      `${r.orgId}\u0000${r.type}\u0000${r.seedKind}`;
+    const taken = new Set(live.map(key));
+    return new Set(seeded.filter((r) => taken.has(key(r))).map((r) => r.id));
   }
 
   /**

@@ -6,7 +6,7 @@
  * Grammar (informally, with left-associative binary ops):
  *
  *   expr        := orExpr
- *   orExpr      := andExpr ( ('OR' | '||' (logical, not concat)) andExpr )*
+ *   orExpr      := andExpr ( 'OR' andExpr )*
  *   andExpr     := notExpr ( 'AND' notExpr )*
  *   notExpr     := 'NOT' notExpr
  *                | compareExpr
@@ -197,15 +197,18 @@ export function toSqlSafeFieldName(raw: string, used?: Set<string>): string {
     if (!base || (base.charCodeAt(0) >= 48 && base.charCodeAt(0) <= 57)) {
       base = `f_${base || 'field'}`;
     }
+    // A reserved word gets the prefix here. Checked after the safety
+    // test it never ran: a reserved name already fails that test and
+    // became plain "field".
+    if (RESERVED_SQL_SAFE_FIELD_NAMES.has(base.toLowerCase())) {
+      base = `f_${base}`;
+    }
     if (base.length > MAX_SQL_SAFE_FIELD_NAME_LENGTH) {
       base = base.slice(0, MAX_SQL_SAFE_FIELD_NAME_LENGTH);
     }
     if (!isSqlSafeFieldName(base)) {
       base = 'field';
     }
-  }
-  if (RESERVED_SQL_SAFE_FIELD_NAMES.has(base.toLowerCase())) {
-    base = `f_${base}`;
   }
   if (!used) return base;
   let candidate = base;
@@ -616,7 +619,9 @@ export function validateExpression(
           }
           return 'number';
         }
-        // NOT
+        // NOT: still check the operand (a missing field inside it went
+        // unreported).
+        inferType(e.arg);
         return 'boolean';
       case 'binop': {
         const lt = inferType(e.left);
@@ -675,6 +680,16 @@ export function validateExpression(
       }
       case 'func': {
         const arity = e.args.length;
+        // Every argument is checked, so a missing field or a type error
+        // inside a function is reported. Before, only coalesce and if
+        // looked at one argument each, and an empty argument list threw.
+        const argTypes = e.args.map((a) => inferType(a));
+        const numericArg = () => {
+          const t = argTypes[0];
+          if (t !== undefined && t !== 'number' && t !== 'unknown') {
+            errors.push(`${e.name}() needs a number (got ${shown(t)})`);
+          }
+        };
         switch (e.name) {
           case 'upper':
           case 'lower':
@@ -689,18 +704,19 @@ export function validateExpression(
             if (arity < 2) {
               errors.push('coalesce() takes at least two arguments');
             }
-            return inferType(e.args[0]!) === 'unknown' ? 'unknown' : inferType(e.args[0]!);
+            return argTypes[0] ?? 'unknown';
           case 'abs':
           case 'round':
           case 'floor':
           case 'ceil':
             if (arity !== 1) errors.push(`${e.name}() takes one argument`);
+            numericArg();
             return 'number';
           case 'if':
             if (arity !== 3) {
               errors.push('if(cond, then, else) takes three arguments');
             }
-            return inferType(e.args[1]!);
+            return argTypes[1] ?? 'unknown';
           default:
             errors.push(`Unknown function ${e.name}()`);
             return 'unknown';
@@ -783,9 +799,12 @@ export function compileExpression(
           case '+':
           case '-':
           case '*':
+            return `(${l} ${e.op} ${r})`;
           case '/':
           case '%':
-            return `(${l} ${e.op} ${r})`;
+            // A zero divisor gives null, as the JS evaluator does. A bare
+            // divide raised in Postgres and failed the whole read.
+            return `(${l} ${e.op} NULLIF(${r}, 0))`;
         }
         // exhaustive switch above
         return '';

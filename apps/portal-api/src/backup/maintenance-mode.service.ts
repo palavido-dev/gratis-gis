@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -42,10 +42,14 @@ export function recoveryMaintenanceFileActive(
   file: string | undefined = process.env.GRATIS_RECOVERY_MAINTENANCE_FILE,
 ): boolean {
   if (!file) return false;
+  // statSync, not existsSync: existsSync answers false for EACCES,
+  // ENOTDIR or an unmounted volume, which let a replica serve a
+  // half-restored database. Only "no such file" means no hold.
   try {
-    return existsSync(file);
-  } catch {
+    statSync(file);
     return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ENOENT';
   }
 }
 

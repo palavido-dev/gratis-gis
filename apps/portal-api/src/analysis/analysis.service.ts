@@ -28,6 +28,9 @@ import {
 } from './analysis-target-stamp.js';
 import type { ZonalStatName } from './analysis.dto.js';
 
+/** Largest point cloud colorize accepts (see createColorizeJob). */
+export const COLORIZE_MAX_POINTS = 30_000_000;
+
 const MAX_ZONAL_ZONES = 2000;
 const DEFAULT_ZONAL_STATS: ZonalStatName[] = [
   'mean',
@@ -635,6 +638,14 @@ export class AnalysisService {
     if (!isPointCloudData(data) || !data.storageKey) {
       throw new BadRequestException(
         'This point cloud has no uploaded file yet.',
+      );
+    }
+    // The worker colorizes in PDAL's standard mode, which holds every
+    // point in memory, inside a 2.5 GB container. A large cloud was
+    // downloaded, warped and then OOM-killed; refuse it up front.
+    if (typeof data.pointCount === 'number' && data.pointCount > COLORIZE_MAX_POINTS) {
+      throw new BadRequestException(
+        `This point cloud has ${data.pointCount.toLocaleString('en-US')} points; colorize handles up to ${COLORIZE_MAX_POINTS.toLocaleString('en-US')}. Colorize a smaller part of it.`,
       );
     }
 

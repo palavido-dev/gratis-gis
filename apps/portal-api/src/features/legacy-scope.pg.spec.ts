@@ -177,4 +177,52 @@ d('legacy v2 feature routes honour share scope', () => {
     expect(await controller.history(reader, ITEM, MOVED)).toEqual([]);
     expect(await controller.history(owner, ITEM, MOVED)).toHaveLength(2);
   });
+
+  it('a non-UUID feature id gets a fresh id instead of failing the import', async () => {
+    const before = (await controller.list(owner, ITEM)).features.length;
+    await features.bulkInsert(
+      ITEM,
+      [{ globalId: 'states.12', geometry: { type: 'Point', coordinates: [1, 1] }, properties: {} }],
+      owner,
+    );
+    expect((await controller.list(owner, ITEM)).features).toHaveLength(before + 1);
+  });
+
+  it('an append that fails in a later batch stores nothing', async () => {
+    const before = (await controller.list(owner, ITEM)).features.length;
+    // Row 550 reuses a current feature's id, which the table refuses.
+    const rows = Array.from({ length: 600 }, (_, i) => ({
+      ...(i === 550 ? { globalId: INSIDE } : {}),
+      geometry: { type: 'Point', coordinates: [i / 1000, 0] },
+      properties: { i },
+    }));
+    await expect(features.bulkInsert(ITEM, rows, owner)).rejects.toBeDefined();
+    expect((await controller.list(owner, ITEM)).features).toHaveLength(before);
+  });
+
+  it('related routes refuse layers with no registered relationship', async () => {
+    shares = [];
+    await expect(
+      controller.listRelated(owner, ITEM, INSIDE, ITEM, 'created_by'),
+    ).rejects.toThrow(/no registered relationship/);
+    await expect(
+      controller.createRelated(owner, ITEM, INSIDE, ITEM, { properties: {} }),
+    ).rejects.toThrow(/no registered relationship/);
+  });
+
+  it('a geo-limited append is checked in one pass, inside and outside', async () => {
+    const scope = { geoLimit: DISTRICT } as never;
+    await expect(
+      features.assertGeometriesInsideLimit(scope, [
+        { type: 'Point', coordinates: [0, 0] },
+        { type: 'Point', coordinates: [0.5, 0.5] },
+      ]),
+    ).resolves.toBeUndefined();
+    await expect(
+      features.assertGeometriesInsideLimit(scope, [
+        { type: 'Point', coordinates: [0, 0] },
+        { type: 'Point', coordinates: [50, 50] },
+      ]),
+    ).rejects.toThrow(/outside the area/);
+  });
 });

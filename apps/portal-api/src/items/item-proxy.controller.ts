@@ -209,11 +209,9 @@ export class ItemProxyController {
     }
 
     // Stream the upstream body back with a byte ceiling and
-    // backpressure. Content-length is not forwarded: Node's fetch
-    // transparently decompresses gzip / br, so the upstream count
-    // describes the compressed payload while we emit decompressed
-    // bytes; a forwarded, wrong length truncates the document
-    // mid-parse in the browser.
+    // backpressure. safeFetch does not decode, so any
+    // Content-Encoding is forwarded with the raw bytes (see
+    // streamUpstreamToResponse).
     await streamUpstreamToResponse(upstream, res);
 
     // Stamp lastUsageAt for the stale heuristic (#96). Only on a

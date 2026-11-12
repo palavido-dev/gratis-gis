@@ -92,6 +92,10 @@ body.login-pf,
   transform: translate(-50%, -50%) !important;
   width: calc(100% - 2rem) !important;
   max-width: 30rem !important;
+  /* A fixed card taller than the viewport is cut at the top with no
+   * way to scroll to it (a phone in landscape). Scroll inside it. */
+  max-height: calc(100dvh - 2rem) !important;
+  overflow-y: auto !important;
   margin: 0 !important;
   /* Ensure the card paints above whatever PF5's wrappers laid down. */
   z-index: 1 !important;

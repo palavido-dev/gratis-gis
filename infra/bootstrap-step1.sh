@@ -75,9 +75,14 @@ EOF
 
 step "[8/9] Disabling SSH password auth (key-only from now on)"
 mkdir -p /etc/ssh/sshd_config.d
-cat > /etc/ssh/sshd_config.d/99-gratis-gis.conf <<'EOF'
-# Layered on top of the distro defaults. Key-only access; root may log in
-# with a key but never with a password.
+# sshd keeps the FIRST value it reads for a keyword, and reads the
+# drop-ins in name order. A 99- file lost to cloud-init's
+# 50-cloud-init.conf, which says "PasswordAuthentication yes" on a
+# server created with a root password. 00- is read first.
+rm -f /etc/ssh/sshd_config.d/99-gratis-gis.conf
+cat > /etc/ssh/sshd_config.d/00-gratis-gis.conf <<'EOF'
+# Read before every other drop-in, so these values win. Key-only
+# access; root may log in with a key but never with a password.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
@@ -85,6 +90,11 @@ EOF
 # Validate config before reloading so a typo can never lock us out.
 sshd -t
 systemctl reload ssh
+# Check what sshd will actually do, not just the syntax.
+if ! sshd -T 2>/dev/null | grep -qx 'passwordauthentication no'; then
+  echo "ERROR: sshd still allows password logins. Check /etc/ssh/sshd_config and /etc/ssh/sshd_config.d/." >&2
+  exit 1
+fi
 
 step "[9/9] Verifying"
 echo "--- Docker ---"
@@ -99,5 +109,5 @@ timedatectl | head -5
 echo
 echo "=== Step 1 complete ==="
 echo "BEFORE closing your existing SSH session: open a NEW terminal and run"
-echo "  ssh root@62.238.20.183"
+echo "  ssh root@$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo "to confirm key-only auth still works. If that succeeds you're safe."

@@ -194,3 +194,42 @@ describe('proxied response headers', () => {
     }
   });
 });
+
+describe('proxy stream encoding and disconnects', () => {
+  it('forwards Content-Encoding with the raw bytes', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const { res, state } = fakeRes();
+    await streamUpstreamToResponse(
+      upstream(gzipSync('tile'), { 'content-type': 'application/x-protobuf', 'content-encoding': 'gzip' }),
+      res,
+    );
+    expect(state.headers['content-encoding']).toBe('gzip');
+  });
+
+  it('readUpstreamText decodes a gzip body', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const text = await readUpstreamText(
+      upstream(gzipSync('{"ok":true}'), { 'content-encoding': 'gzip' }),
+      1000,
+    );
+    expect(text).toBe('{"ok":true}');
+  });
+
+  it('cancels the upstream when the client leaves while the upstream is silent', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('a'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const { res } = fakeRes();
+    const done = streamUpstreamToResponse(new Response(body), res);
+    await new Promise((r) => setImmediate(r));
+    (res as unknown as EventEmitter).emit('close');
+    await done;
+    expect(cancelled).toBe(true);
+  });
+});

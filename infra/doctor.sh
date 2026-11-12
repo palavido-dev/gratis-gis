@@ -134,7 +134,14 @@ else
   elif [ "${MEM_MB:-0}" -eq 0 ]; then
     warn "could not read MemTotal; skipped"
   else
-    API_REPLICAS="${API_REPLICAS:-1}"
+    # The compose line reads `replicas: ${GG_API_REPLICAS:-2}`, so the
+    # raw field is not a number. The env file wins, then the default
+    # inside the expression. A non-number broke the arithmetic below
+    # and the whole section printed nothing.
+    ENV_REPLICAS="$(sed -n 's/^GG_API_REPLICAS=//p' "$ENV_FILE" 2>/dev/null | tail -1 | tr -dc '0-9')"
+    DEFAULT_REPLICAS="$(printf '%s' "${API_REPLICAS:-}" | sed -n 's/.*:-\([0-9][0-9]*\)}.*/\1/p')"
+    case "${API_REPLICAS:-}" in ''|*[!0-9]*) API_REPLICAS="${DEFAULT_REPLICAS:-1}" ;; esac
+    [ -n "$ENV_REPLICAS" ] && API_REPLICAS="$ENV_REPLICAS"
     PG_BUDGET_MB=$(( SHM_MB + 512 ))
     TOTAL_MB=$(( API_HEAP_MB * API_REPLICAS + WORKER_HEAP_MB + KC_XMX_MB + PG_BUDGET_MB ))
     DETAIL="api ${API_HEAP_MB}x${API_REPLICAS} + worker ${WORKER_HEAP_MB} + keycloak ${KC_XMX_MB} + postgres ~${PG_BUDGET_MB} = ${TOTAL_MB} MB vs ${MEM_MB} MB MemTotal"
@@ -586,19 +593,22 @@ if [ "$DEEP" -eq 1 ] && command -v docker >/dev/null 2>&1 \
             AND COALESCE(data_json->>'storageKey','') <> ''
           ORDER BY updated_at DESC LIMIT ${SAMPLE_N});
       " 2>/dev/null || true)"
-    HEAD_SCRIPT="$(mktemp --suffix=.mjs)"
-    cat >"$HEAD_SCRIPT" <<'NODE'
+    # Passed with --eval and run from /app: a file under /tmp could
+    # not resolve @aws-sdk/client-s3 (ESM looks next to the script),
+    # and `docker cp` left it unreadable for the app user. Stdin stays
+    # free for the key list. Credentials are the portal-api env names.
+    HEAD_SRC="$(cat <<'NODE'
 import { createInterface } from 'node:readline';
 import { stdin } from 'node:process';
 import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
-const bucket = process.env.S3_BUCKET || 'gratisgis';
+const bucket = process.env.MINIO_BUCKET || 'gratisgis';
 const client = new S3Client({
-  region: process.env.S3_REGION || 'us-east-1',
-  endpoint: process.env.S3_ENDPOINT || 'http://minio:9000',
+  region: process.env.MINIO_REGION || 'us-east-1',
+  endpoint: process.env.MINIO_ENDPOINT || 'http://minio:9000',
   forcePathStyle: true,
   credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY || process.env.MINIO_ROOT_USER || '',
-    secretAccessKey: process.env.S3_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || '',
+    accessKeyId: process.env.MINIO_ACCESS_KEY || '',
+    secretAccessKey: process.env.MINIO_SECRET_KEY || '',
   },
 });
 let checked = 0;
@@ -616,11 +626,9 @@ for await (const line of rl) {
 }
 process.stdout.write(JSON.stringify({ checked, dangling }));
 NODE
-    docker cp "$HEAD_SCRIPT" "${API_CTR}:/tmp/gg-doctor-head.mjs" >/dev/null 2>&1 || true
-    RESULT="$(printf '%s\n' "$KEYS" | docker exec -i "$API_CTR" \
-      node /tmp/gg-doctor-head.mjs 2>/dev/null || echo '{"checked":0,"dangling":[]}')"
-    docker exec "$API_CTR" rm -f /tmp/gg-doctor-head.mjs >/dev/null 2>&1 || true
-    rm -f "$HEAD_SCRIPT"
+)"
+    RESULT="$(printf '%s\n' "$KEYS" | docker exec -i -w /app "$API_CTR" \
+      node --input-type=module --eval "$HEAD_SRC" 2>/dev/null || echo '{"checked":0,"dangling":[]}')"
     CHECKED="$(printf '%s' "$RESULT" | sed -n 's/.*"checked":\([0-9]*\).*/\1/p')"
     CHECKED="${CHECKED:-0}"
     if printf '%s' "$RESULT" | grep -q '"dangling":\[\]'; then

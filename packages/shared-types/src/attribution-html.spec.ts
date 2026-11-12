@@ -447,3 +447,26 @@ describe('safeHttpHref', () => {
     expect(safeHttpHref('data:text/html,hi')).toBeNull();
   });
 });
+
+describe('sanitizer output cap and edge cases', () => {
+  it('is idempotent near the length cap', () => {
+    const link = '<a href="https://example.org/x">x</a>';
+    const input = link.repeat(Math.floor(1900 / link.length));
+    const once = sanitizeAttributionHtml(input);
+    expect(once.length).toBeLessThanOrEqual(2000);
+    expect(sanitizeAttributionHtml(once)).toBe(once);
+    const amps = 'A & B '.repeat(300);
+    const a1 = sanitizeAttributionHtml(amps);
+    expect(sanitizeAttributionHtml(a1)).toBe(a1);
+  });
+
+  it('does not resolve inherited names as entities', () => {
+    expect(sanitizeAttributionHtml('x &constructor; y')).not.toContain('function');
+  });
+
+  it('handles many unclosed < quickly', () => {
+    const started = Date.now();
+    sanitizePopupHtml('<a'.repeat(10000));
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});

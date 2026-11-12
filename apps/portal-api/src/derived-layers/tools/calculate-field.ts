@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
 import {
   compileExpression,
+  fieldRefTypeFor,
   parseExpression,
   validateExpression,
   ExpressionError,
@@ -152,7 +153,9 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     if (ctx?.sourceSchema) {
       const schema = ctx.sourceSchema.map((f) => ({
         name: f.name,
-        type: f.type as 'number' | 'string' | 'boolean' | 'unknown',
+        // Same mapping as filter.ts: the cast carried date and
+        // multi_select through as if they were one of the four types.
+        type: fieldRefTypeFor(f.type),
       }));
       const errors = validateExpression(ast, schema);
       if (errors.length > 0) {

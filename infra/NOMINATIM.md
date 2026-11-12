@@ -18,11 +18,11 @@ Nominatim's resource cost scales with the OSM extract you point it at.
 
 | Tier | Disk (imported DB) | RAM | shm_size | First-boot import | CPU |
 | --- | --- | --- | --- | --- | --- |
-| Dev (Monaco) | 2 GB | 2 GB | 1 GB | 2 min | 2 cores |
+| Dev (Monaco, the default) | 2 GB | 2 GB | 1 GB | 2 min | 2 cores |
 | City (Berlin) | 10 GB | 4 GB | 2 GB | 30 min | 4 cores |
 | State / small country | 40-80 GB | 16 GB | 4 GB | 4-12 hr | 8 cores |
 | Continent (NA/EU) | 250-400 GB | 32 GB | 8 GB | 18-36 hr | 8-16 cores |
-| **Planet** (the default) | **1.1-1.3 TB** | **64 GB+** | **16-32 GB** | **36-72 hr** | **16+ cores** |
+| **Planet** | **1.1-1.3 TB** | **64 GB+** | **16-32 GB** | **36-72 hr** | **16+ cores** |
 
 Disk must be SSD. HDD-class latency makes the import thrash on
 index creation and the ETA balloons past any estimate above.
@@ -38,10 +38,21 @@ The container picks up its region and tuning knobs from env vars.
 Drop them in `infra/.env` (same file the rest of the compose reads)
 or export them in your shell before `docker compose up`.
 
-### Default (planet)
+### Default (Monaco)
 
-Every variable unset; compose defaults apply. Make sure the box has
-the hardware from the table above.
+Every variable unset; compose defaults apply: the Monaco extract,
+no Wikipedia ranking, 1 GB of shm. Enough to develop against.
+
+### Planet
+
+```env
+NOMINATIM_PBF_URL=https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf
+NOMINATIM_REPLICATION_URL=https://planet.openstreetmap.org/replication/minute/
+NOMINATIM_IMPORT_WIKIPEDIA=true
+NOMINATIM_SHM_SIZE=16gb
+```
+
+Make sure the box has the hardware from the table above.
 
 ### Regional / country extract
 
@@ -106,8 +117,8 @@ Expect periodic `Processing [region name]` lines during import, then
 If `REPLICATION_URL` is set (compose default), Nominatim runs a
 background updater that pulls OSM diffs. Minute updates mean your
 geocoder reflects edits to OSM within an hour or so; daily updates
-are lower churn but slightly staler. The planet default is minute
-updates.
+are lower churn but slightly staler. The planet example above uses
+minute updates.
 
 ### Freeze
 

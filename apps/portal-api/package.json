@@ -18,9 +18,7 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio",
-    "engine:round-trip": "tsx scripts/engine-round-trip.ts",
-    "data-layer:round-trip": "tsx scripts/data-layer-round-trip.ts"
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",

@@ -32,7 +32,7 @@ STAGE="$(mktemp -d "${TMPDIR:-/tmp}/gg-secrets.XXXXXX")"
 chmod 700 "$STAGE"
 trap 'rm -rf "$STAGE"' EXIT
 
-NODE="$(recovery_node)"
+NODE="$(recovery_node)" || recovery_die 'node 20 or newer was not found for seal.mjs'
 "$NODE" "$HERE/seal.mjs" dec "$KEY" "$SEALED" "$STAGE/secrets.tar"
 python3 "$HERE/safe_untar.py" "$STAGE/secrets.tar" "$OUT"
 printf 'recovery: secrets unsealed\n'

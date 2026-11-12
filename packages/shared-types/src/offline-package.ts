@@ -129,6 +129,7 @@ export function validateOfflineArea(area: OfflineArea): string | null {
   // Item saves do not check offlineAreas, so a stored area can be any
   // shape. A missing name used to throw here and stop the refresh
   // sweep for every deployment.
+  if (!area || typeof area !== 'object') return 'The area is not valid.';
   if (typeof area.name !== 'string' || !area.name.trim()) return 'Give the area a name.';
   if (!Array.isArray(area.bbox) || area.bbox.length !== 4) {
     return 'The area extent is not a valid set of coordinates.';
