@@ -353,6 +353,12 @@ export interface FolderDeleteCascadePreview {
 export function computeFolderCascade(
   rootId: string,
   folders: Array<{ id: string; title: string; childItemIds: string[] }>,
+  // Folders the caller may delete. Any folder can list any other in
+  // its childItemIds, so without this check a user could list someone
+  // else's folder in their own and trash it with theirs. A folder that
+  // fails it survives, like one that still has a live parent, and is
+  // not named in the preview.
+  canCascade: (folderId: string) => boolean = () => true,
 ): FolderDeleteCascadePreview {
   const folderIdSet = new Set(folders.map((f) => f.id));
   const folderTitleById = new Map(folders.map((f) => [f.id, f.title]));
@@ -399,6 +405,7 @@ export function computeFolderCascade(
     safetyBudget -= 1;
     for (const f of folders) {
       if (cascadeSet.has(f.id)) continue;
+      if (!canCascade(f.id)) continue;
       const parents = parentsByChild.get(f.id);
       if (!parents || parents.size === 0) continue; // unreachable root.
       // Must touch the cascade somewhere.
@@ -3005,8 +3012,12 @@ export class ItemsService {
         type: 'folder',
         deletedAt: null,
       },
-      select: { id: true, title: true, data: true },
     });
+    const deletable = new Set(
+      allFolders
+        .filter((f) => this.sharing.canAdmin(user, f))
+        .map((f) => f.id),
+    );
 
     return computeFolderCascade(
       id,
@@ -3031,6 +3042,7 @@ export class ItemsService {
               : [],
         };
       }),
+      (folderId) => deletable.has(folderId),
     );
   }
 
