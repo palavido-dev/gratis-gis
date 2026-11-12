@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
+  ADDRESS_GEOCODE_LIMITS,
   featuresFromAddresses,
   planAddressGeocode,
   type AddressColumnPlan,
@@ -21,12 +22,15 @@ import {
 import {
   detectCsvColumnPairFromPrefix,
   detectCsvCoordinates,
+  readDelimitedRowsFromFile,
+  readDelimitedSample,
+  sniffDelimiter,
 } from './csv-smart-detect.js';
 import {
-  detectUsGeomatch,
   featuresFromGeomatch,
   planUsGeomatch,
   type GeomatchPlan,
+  type GeomatchResult,
 } from './csv-geomatch.js';
 import {
   geocodeOne,
@@ -418,6 +422,12 @@ export class IngestService {
     const geomatch = await this.tryUsGeomatchPlan(filePath);
     if (geomatch) {
       const built = featuresFromGeomatch(geomatch);
+      // Count over the whole file, not the planning prefix, so the
+      // wizard shows the size the import will have.
+      let matched = 0;
+      for await (const chunk of this.geomatchFeaturesFromFile(geomatch)) {
+        matched += chunk.geojson.features.length;
+      }
       return {
         driver: 'csv-geomatch',
         layers: [
@@ -425,7 +435,7 @@ export class IngestService {
             name: geomatch.layerName,
             geometryType: 'polygon',
             fields: built.fields,
-            featureCount: built.matched,
+            featureCount: matched,
           },
         ],
       };
@@ -1064,11 +1074,18 @@ export class IngestService {
       const lastBreak = text.lastIndexOf('\n');
       text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
     }
-    const detected = detectUsGeomatch(text);
-    if (detected.kind !== 'matched') {
-      this.log.debug(
-        `No US geomatch in ${originalName}: ${detected.reason}`,
-      );
+    const plan = planUsGeomatch(text);
+    if (plan.kind === 'none') {
+      this.log.debug(`No US geomatch in ${originalName}: ${plan.reason}`);
+      return null;
+    }
+    // Plan from the prefix, then join every row of the buffer. The
+    // plan holds at most 5,000 rows of the first 1 MiB, and those were
+    // all that was returned.
+    const all = readDelimitedSample(buffer.toString('utf8'), Number.MAX_SAFE_INTEGER);
+    const detected = featuresFromGeomatch('error' in all ? plan : { ...plan, rows: all.rows });
+    if (detected.matched === 0) {
+      this.log.debug(`No US geomatch in ${originalName}: no row matched`);
       return null;
     }
     this.log.log(
@@ -1087,8 +1104,10 @@ export class IngestService {
   private async tryUsGeomatchPlan(
     filePath: string,
     layerLabel?: string,
-  ): Promise<(GeomatchPlan & { layerName: string }) | null> {
+  ): Promise<FileGeomatchPlan | null> {
     if (!looksLikeTabularText(filePath)) return null;
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) return null;
     const text = await this.readDelimitedPrefix(filePath);
     if (text === null) return null;
     const plan = planUsGeomatch(text);
@@ -1098,17 +1117,38 @@ export class IngestService {
       );
       return null;
     }
+    const source = { sourcePath: safePath, delimiter: sniffDelimiter(text) };
     if (layerLabel) {
-      return { ...plan, layerName: uploadLayerStem(layerLabel) };
+      return { ...plan, ...source, layerName: uploadLayerStem(layerLabel) };
     }
     const dot = basename(filePath).lastIndexOf('.');
     const layerName =
       dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
-    return { ...plan, layerName };
+    return { ...plan, ...source, layerName };
   }
 
+  /**
+   * Join every row of the file to its boundary, a chunk at a time.
+   * The plan is made from the first 1 MiB (at most 5,000 rows); the
+   * import used to stop there and report success.
+   */
+  private async *geomatchFeaturesFromFile(
+    plan: FileGeomatchPlan,
+  ): AsyncGenerator<GeomatchResult> {
+    for await (const chunk of readDelimitedRowsFromFile(
+      plan.sourcePath,
+      IngestService.GEOMATCH_CHUNK_ROWS,
+      plan.delimiter,
+    )) {
+      if (chunk.rows.length === 0) continue;
+      yield featuresFromGeomatch({ ...plan, rows: chunk.rows });
+    }
+  }
+
+  private static readonly GEOMATCH_CHUNK_ROWS = 2_000;
+
   private async streamUsGeomatchLayer(
-    plan: GeomatchPlan & { layerName: string },
+    plan: FileGeomatchPlan,
     onBatch: (
       batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
       progress: { processed: number; total: number },
@@ -1121,32 +1161,39 @@ export class IngestService {
     sourceSrs: string;
     total: number;
   }> {
-    const built = featuresFromGeomatch(plan);
-    if (built.matched === 0) {
+    const fields = featuresFromGeomatch(plan).fields;
+    // Two passes over the file: one to count, so the progress total
+    // is right from the first event, one to emit.
+    let total = 0;
+    for await (const chunk of this.geomatchFeaturesFromFile(plan)) {
+      total += chunk.geojson.features.length;
+    }
+    if (total === 0) {
       throw new BadRequestException(
         'No rows matched a US boundary name for geomatch.',
       );
     }
-    const total = built.geojson.features.length;
     let processed = 0;
     let batch: Array<{ geometry: unknown; properties: Record<string, unknown> }> =
       [];
-    for (const feature of built.geojson.features) {
-      processed += 1;
-      batch.push({
-        geometry: feature.geometry,
-        properties: feature.properties,
-      });
-      if (batch.length >= batchSize) {
-        await onBatch(batch, { processed, total });
-        batch = [];
+    for await (const chunk of this.geomatchFeaturesFromFile(plan)) {
+      for (const feature of chunk.geojson.features) {
+        processed += 1;
+        batch.push({
+          geometry: feature.geometry,
+          properties: feature.properties,
+        });
+        if (batch.length >= batchSize) {
+          await onBatch(batch, { processed, total });
+          batch = [];
+        }
       }
     }
     if (batch.length > 0) {
       await onBatch(batch, { processed, total });
     }
     return {
-      fields: built.fields,
+      fields,
       driver: 'csv-geomatch',
       layerName: plan.layerName,
       sourceSrs: 'EPSG:4326',
@@ -1174,6 +1221,12 @@ export class IngestService {
       );
       return null;
     }
+    if (exceedsAddressRowCap(text, await this.fileSize(filePath))) {
+      this.log.log(
+        `${basename(filePath)} has more than ${ADDRESS_GEOCODE_LIMITS.MAX_ROWS} address rows; importing it as a table instead.`,
+      );
+      return null;
+    }
     const base = localNominatimBase();
     if (!base) {
       this.log.warn(
@@ -1194,6 +1247,13 @@ export class IngestService {
     const layerName =
       dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
     return { ...plan, layerName };
+  }
+
+  private async fileSize(filePath: string): Promise<number> {
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) return 0;
+    const { stat } = await import('node:fs/promises');
+    return (await stat(safePath).catch(() => null))?.size ?? 0;
   }
 
   private async readDelimitedPrefix(filePath: string): Promise<string | null> {
@@ -1235,6 +1295,7 @@ export class IngestService {
     }
     const plan = planAddressGeocode(text);
     if (plan.kind !== 'address') return null;
+    if (exceedsAddressRowCap(text, buffer.length)) return null;
     const base = localNominatimBase();
     if (!base || !(await nominatimAnswers(fetch, base))) return null;
     const looked = await this.lookupAddressPlan(plan, originalName);
@@ -1495,6 +1556,25 @@ export class IngestService {
  * shaped text content. Non-CSV files skip the smart-detect pass
  * and fall straight through to GDAL where they belong.
  */
+/** A geomatch plan plus where to read the full file from. */
+type FileGeomatchPlan = GeomatchPlan & {
+  layerName: string;
+  sourcePath: string;
+  delimiter: string;
+};
+
+/**
+ * True when an address file has more rows than the address geocoder
+ * takes (ADDRESS_GEOCODE_LIMITS.MAX_ROWS), judged from its first 1 MiB
+ * and its size. Such a file goes to the table import with every row,
+ * instead of being cut to the first 200 geocoded points with no word.
+ */
+export function exceedsAddressRowCap(prefix: string, sizeBytes: number): boolean {
+  if (sizeBytes > Buffer.byteLength(prefix, 'utf8') + 1) return true;
+  const sample = readDelimitedSample(prefix, ADDRESS_GEOCODE_LIMITS.MAX_ROWS + 1);
+  return !('error' in sample) && sample.rows.length > ADDRESS_GEOCODE_LIMITS.MAX_ROWS;
+}
+
 function looksLikeTabularText(name: string): boolean {
   const lower = name.toLowerCase();
   return (
