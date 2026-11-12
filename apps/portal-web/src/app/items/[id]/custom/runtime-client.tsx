@@ -105,6 +105,8 @@ import { mobilePlacements, type MobilePlacement } from '@/lib/mobile-canvas';
 import { customBasemapToData } from '@/lib/custom-basemap';
 import {
   exportFeatures,
+  exportFilename,
+  fetchAllFeaturesPaged,
   type ExportFeature,
   // Client-side formats only: the Export widget + tool action build
   // files from features already in the browser. GeoParquet (the one
@@ -4045,14 +4047,26 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
     ? ctx?.states?.[cfg.mapWidgetId] ?? null
     : null;
   const resolved = ctx?.resolvedTargets ?? [];
-  const [targetIndex, setTargetIndex] = useState<number>(
-    cfg.defaultTargetIndex ?? 0,
-  );
+  const order = useContext(AppSourceOrderContext);
+  // The author's default is a position in the app's source list.
+  // resolvedTargets drops sources this viewer cannot read, so map the
+  // position to a source id first, then find that id here.  Indexing
+  // resolvedTargets directly read one layer too far after a gap, and
+  // an index past the end left the picker showing a layer it would
+  // not export.
+  const [targetIndex, setTargetIndex] = useState<number>(() => {
+    const id =
+      typeof cfg.defaultTargetIndex === 'number'
+        ? order[cfg.defaultTargetIndex]
+        : undefined;
+    const i = id !== undefined ? resolved.findIndex((r) => r.sourceId === id) : -1;
+    return i >= 0 ? i : 0;
+  });
   const [format, setFormat] = useState<ClientExportFormat>(cfg.defaultFormat ?? 'xlsx');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function runExport(scope: 'all' | 'selection'): void {
+  async function runExport(scope: 'all' | 'selection'): Promise<void> {
     setError(null);
     const target = resolved[targetIndex];
     if (!target || !boundMap || !boundState) {
@@ -4066,10 +4080,18 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       // is currently loaded into the tile cache around the
       // viewport.  This is the same set the LayerList / popups see,
       // so the export matches what the user is looking at.
-      const sourceId = target.mapLayer.id;
-      const queried = boundMap.querySourceFeatures(sourceId, {
-        sourceLayer: target.mapLayer.id,
-      });
+      //
+      // MapCanvas names every overlay source `gg:<layer id>` and every
+      // vector tile source-layer `features`.  Querying the bare layer
+      // id found no source, so the export always reported an empty
+      // viewport.  A GeoJSON source takes no sourceLayer.
+      const sourceId = `gg:${target.mapLayer.id}`;
+      const isVector =
+        (boundMap.getSource(sourceId)?.type as string | undefined) === 'vector';
+      const queried = boundMap.querySourceFeatures(
+        sourceId,
+        isVector ? { sourceLayer: 'features' } : {},
+      );
       // De-dup by feature id (a single feature can land in multiple
       // tiles when it spans tile boundaries).  MVT promoteId puts
       // the canonical id in `id`; fall back to a stringified
@@ -4111,7 +4133,11 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       // enough for the v1 viewport-export workflow.  A future
       // polish can plumb the layer schema through here so column
       // labels match the layer designer's intent.
-      exportFeatures(
+      //
+      // Tile features carry geometry clipped at tile edges, and the
+      // de-dup above keeps only one fragment, so a WKT column from a
+      // vector source would hold cut-off shapes.  Leave it out there.
+      await exportFeatures(
         working.map((f) => ({
           ...(f.id !== undefined ? { id: String(f.id) } : {}),
           geometry: f.geometry,
@@ -4119,8 +4145,8 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
         })),
         format,
         {
-          filename: sanitizeExportFilename(target.title),
-          includeGeometryWkt: format === 'xlsx',
+          filename: exportFilename(target.title),
+          includeGeometryWkt: format === 'xlsx' && !isVector,
         },
       );
     } catch (err) {
@@ -4192,7 +4218,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           <button
             type="button"
             disabled={busy || noTargets}
-            onClick={() => runExport('all')}
+            onClick={() => void runExport('all')}
             className="inline-flex h-7 items-center gap-1 rounded-md bg-[hsl(var(--app-accent))] px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
@@ -4201,7 +4227,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           <button
             type="button"
             disabled={busy || noTargets}
-            onClick={() => runExport('selection')}
+            onClick={() => void runExport('selection')}
             className="inline-flex h-7 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
           >
             Export selection
@@ -4216,11 +4242,6 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       </div>
     </WidgetFrame>
   );
-}
-
-function sanitizeExportFilename(raw: string): string {
-  const s = raw.trim().replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
-  return (s.slice(0, 60) || 'export').replace(/^_+|(?<!_)_+$/g, '');
 }
 
 // ---- Splash Screen widget (#111) ------------------------------------------
@@ -6290,7 +6311,14 @@ function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
   }`;
   const text = label || t('customRuntime.common.button');
   if ((linkKind ?? 'url') === 'tool') {
-    return <ToolButtonRender toolId={toolId} text={text} className={className} />;
+    return (
+      <ToolButtonRender
+        toolId={toolId}
+        text={text}
+        textIsDefault={!label}
+        className={className}
+      />
+    );
   }
   if ((linkKind ?? 'url') === 'page') {
     // Page-link path. Resolves to setActivePageIdx via the runtime
@@ -6395,6 +6423,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
     <ToolButtonRender
       toolId={toolId}
       text={label?.trim() || t('customRuntime.common.tool')}
+      textIsDefault={!label?.trim()}
       className={className}
       {...(iconHtml ? { iconHtml } : {})}
       hideText={hideText}
@@ -6414,6 +6443,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
 function ToolButtonRender({
   toolId,
   text,
+  textIsDefault = false,
   className,
   iconHtml,
   hideText,
@@ -6421,6 +6451,11 @@ function ToolButtonRender({
 }: {
   toolId: string | undefined;
   text: string;
+  /** True when `text` is a placeholder rather than the author's own
+   *  label, so the tool's title may replace it once loaded.  Passed
+   *  explicitly: comparing `text` with one translated placeholder
+   *  missed the other ("Tool" vs "Button"). */
+  textIsDefault?: boolean;
   className: string;
   /** #144: optional pre-rendered icon SVG markup. When provided,
    *  rendered alongside (or in place of) the text inside the
@@ -6466,6 +6501,9 @@ function ToolButtonRender({
   // selection has been applied.  Local state lives on the button
   // because each button independently triggers its own run.
   const [recipePanelOpen, setRecipePanelOpen] = useState(false);
+  // Error from the last direct action (export-layer), shown on the
+  // button's tooltip and under it.
+  const [actionError, setActionError] = useState<string | null>(null);
   // Active OSM overlay produced by the latest tool run, if any.
   // Reset on a fresh run; stays mounted on the host map until the
   // user dismisses it via the attribution chip's close button or
@@ -6550,25 +6588,21 @@ function ToolButtonRender({
       // is what differentiates the tool action from the Export
       // widget: tools are "give me everything", widget is "give
       // me what I'm looking at".
+      //
+      // Reads through the paged route: the unpaged read is refused on
+      // installs that require paging, and the button then did nothing.
+      // Failures show on the button instead of only in the console.
+      setActionError(null);
       void (async () => {
         try {
-          const res = await fetch(
+          const rows = await fetchAllFeaturesPaged(
             `/api/portal/items/${encodeURIComponent(action.targetItemId)}/layers/${encodeURIComponent(action.layerKey)}/features`,
-            { cache: 'no-store' },
           );
-          if (!res.ok) {
-            console.warn('[tool:export-layer] HTTP', res.status);
-            return;
-          }
-          const body = (await res.json()) as
-            | { features?: Array<{ id?: string; geometry?: unknown; properties?: Record<string, unknown> | null }> }
-            | Array<{ id?: string; geometry?: unknown; properties?: Record<string, unknown> | null }>;
-          const rows = Array.isArray(body) ? body : body.features ?? [];
           if (rows.length === 0) {
-            console.info('[tool:export-layer] no features');
+            setActionError(t('customRuntime.errors.exportNoFeatures'));
             return;
           }
-          exportFeatures(
+          await exportFeatures(
             rows.map((f) => ({
               ...(f.id !== undefined ? { id: String(f.id) } : {}),
               geometry: f.geometry,
@@ -6578,12 +6612,16 @@ function ToolButtonRender({
             })),
             action.format,
             {
-              filename: sanitizeExportFilename(tool.title || 'export'),
+              filename: exportFilename(tool.title || 'export'),
               includeGeometryWkt: action.format === 'xlsx',
             },
           );
         } catch (err) {
-          console.warn('[tool:export-layer] failed', err);
+          setActionError(
+            t('customRuntime.errors.exportFailed', {
+              message: err instanceof Error ? err.message : String(err),
+            }),
+          );
         }
       })();
       return;
@@ -6595,8 +6633,7 @@ function ToolButtonRender({
   // fall back to the tool's title once we've loaded it.  Loading
   // state keeps the existing text so the runtime doesn't flash a
   // placeholder.
-  const visibleText =
-    text && text !== t('customRuntime.common.button') ? text : tool?.title ?? text;
+  const visibleText = text && !textIsDefault ? text : tool?.title ?? text;
   const disabled = status !== 'ok' || !tool?.data?.action;
 
   // In-bar: edge-to-edge wrapper that the button fills with h-full,
@@ -6627,7 +6664,7 @@ function ToolButtonRender({
         title={
           status === 'missing'
             ? t('customRuntime.errors.toolUnavailable')
-            : tool?.title ?? t('customRuntime.common.tool')
+            : actionError ?? tool?.title ?? t('customRuntime.common.tool')
         }
         aria-label={hideText ? visibleText : undefined}
         className={`${className} ${
@@ -6645,6 +6682,14 @@ function ToolButtonRender({
           <span className={labelClass}>{visibleText}</span>
         ) : null}
       </button>
+      {actionError ? (
+        <span role="alert" className="sr-only">
+          {actionError}
+        </span>
+      ) : null}
+      {actionError && !inAppBar ? (
+        <p className="ml-2 text-2xs text-[hsl(var(--app-danger))]">{actionError}</p>
+      ) : null}
       {recipePanelOpen &&
       tool &&
       (tool.data?.action?.kind === 'recipe' ||
