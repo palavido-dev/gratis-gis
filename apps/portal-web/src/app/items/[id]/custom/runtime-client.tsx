@@ -8291,7 +8291,6 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
     // changes on any map update (a layer toggle, a selection), which
     // ran the cleanup: the pending preview vanished and a result still
     // in flight was dropped.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, active]);
 
   // Drop any pending preview when the tool turns off.

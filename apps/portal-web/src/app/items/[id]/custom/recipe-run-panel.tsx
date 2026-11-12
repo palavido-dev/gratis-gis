@@ -278,7 +278,6 @@ export function RecipeRunPanel({
     onDrawingChange?.(drawMap);
     return () => onDrawingChange?.(null);
     // The host passes a fresh arrow each render; key on the map only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawMap]);
 
   function patch(name: string, next: unknown) {
