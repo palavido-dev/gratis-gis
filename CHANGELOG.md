@@ -8,6 +8,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- An attribute edit made in the field app while offline (or when the
+  connection dropped) no longer replaces the feature's shape with the
+  clipped, simplified copy drawn on the map. Attribute edits send no
+  geometry, as they already did online.
+- A correction made to a field capture after the app had already sent
+  it, but before the sync finished, is no longer lost. Such edits are
+  now queued on their own instead of being merged into a capture the
+  server had already accepted.
+
+### Fixed
+
 - The hourly OSM cache cleanup no longer deletes rows of user data
   layers. It removed expired cache rows by physical row position,
   which is only unique inside one monthly partition of the feature

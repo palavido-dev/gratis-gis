@@ -60,6 +60,7 @@ import { PwaInstallButton } from '@/components/pwa-install-button';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
   enqueueEdit,
+  getCachedFeature,
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
@@ -4333,26 +4334,34 @@ function FormModal({
     // network-failure fallback). Enqueues the operation, writes the
     // feature into IndexedDB so it's visible on the map immediately,
     // and bumps the runtime's refresh counter via the callback.
-    const applyLocally = async (): Promise<void> => {
+    const applyLocally = async (opts: { afterSend?: boolean } = {}): Promise<void> => {
       // enqueueEdit, not a raw put. The queue can hold an earlier
       // unsynced edit for this same feature, and folding the two
       // inside one transaction is what keeps an offline capture that
       // the user then corrects from being replaced by an update
       // against a globalId the server has never seen. A raw put here
       // is the original data-loss bug.
+      // An edit never changes geometry (the form has no geometry
+      // control in edit mode), and the geometry it holds came from the
+      // tapped map feature: tile geometry, clipped to the tile and
+      // simplified for the zoom. Queuing it made the drain PATCH that
+      // fragment over the real shape. Attribute-only edits queue no
+      // geometry, as the online PATCH already sends none.
+      const isEdit = modal.mode !== 'add';
       const enqueued = await enqueueEdit({
         dataCollectionId,
-        op: modal.mode === 'add' ? 'insert' : 'update',
+        op: isEdit ? 'update' : 'insert',
         dataLayerId: modal.layer.dataLayerId,
         layerKey: modal.layer.layerKey,
         globalId: featureId,
-        geometry: activeGeometry,
+        geometry: isEdit ? null : activeGeometry,
         properties,
         schemaHash,
         // Who captured it, so only this account's session ever sends
         // it. The server stamps submitted_by from the caller.
         ownerUserId: currentUserId,
         ...(baseObservationId ? { baseObservationId } : {}),
+        ...(opts.afterSend ? { mayHaveReachedServer: true } : {}),
       });
       // The fold keeps the original capture time, so the cached
       // feature's timestamps must come from the surviving row rather
@@ -4367,6 +4376,17 @@ function FormModal({
       // updates it overwrites the prior cached copy under the same
       // composite key. The properties carry _global_id so the popup
       // and the existing feature-id resolution paths keep working.
+      // Same rule for the device copy: keep the geometry already cached
+      // for an edited feature and use the form's geometry only when the
+      // device has none (a feature edited online after a failed send).
+      const prior = isEdit
+        ? await getCachedFeature(
+            dataCollectionId,
+            modal.layer.dataLayerId,
+            modal.layer.layerKey,
+            featureId,
+          )
+        : null;
       const cachedFeature: CachedFeature = {
         dataCollectionId,
         dataLayerId: modal.layer.dataLayerId,
@@ -4375,7 +4395,7 @@ function FormModal({
         feature: {
           type: 'Feature',
           id: featureId,
-          geometry: activeGeometry as GeoJSON.Geometry,
+          geometry: (prior?.feature.geometry ?? activeGeometry) as GeoJSON.Geometry,
           properties: {
             ...properties,
             _global_id: featureId,
@@ -4446,8 +4466,9 @@ function FormModal({
           } catch {
             // Likely network failure during a transient blip. Stash
             // it in the queue so it doesn't get lost; auto-sync will
-            // retry as soon as the radio comes back.
-            await applyLocally();
+            // retry as soon as the radio comes back. The POST may have
+            // landed with only the answer lost.
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
@@ -4471,7 +4492,7 @@ function FormModal({
               },
             );
           } catch {
-            await applyLocally();
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
