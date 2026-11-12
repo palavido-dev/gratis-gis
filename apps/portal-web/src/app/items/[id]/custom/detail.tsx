@@ -8199,7 +8199,14 @@ function FilterWidgetConfigEditor({
         appTargets={appTargets}
         canEdit={canEdit}
         onChange={(i, id) =>
-          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+          onChangeConfig({
+            targetIndex: i,
+            ...(id ? { sourceId: id } : {}),
+            // A field from the old layer matches no option here, so
+            // the select showed the first option while the saved
+            // config still named the old field.
+            ...(layerChanged(target, appTargets[i]?.layer) ? { field: undefined } : {}),
+          })
         }
       />
       <Field
@@ -8614,6 +8621,11 @@ function ChartWidgetConfigEditor({
       : appTargets.indexOf(src) === config.targetIndex,
   )?.layer;
   const { fields, loading } = useTargetFields(target);
+  // The runtime ignores `bin` for a pie and groups by `groupBy`, and
+  // the bin editor is hidden for a pie.  So only a non-pie chart that
+  // bins turns Group by off; otherwise a binned bar switched to a pie
+  // had no control on screen to set what it groups by.
+  const binning = Boolean(config.bin) && config.chartType !== 'pie';
   const aggregate = config.aggregate ?? 'count';
   const numeric = numericCandidates(fields);
   return (
@@ -8651,7 +8663,16 @@ function ChartWidgetConfigEditor({
         appTargets={appTargets}
         canEdit={canEdit}
         onChange={(i, id) =>
-          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+          onChangeConfig({
+            targetIndex: i,
+            ...(id ? { sourceId: id } : {}),
+            // Fields from the old layer match no option here, so the
+            // selects showed their first option while the saved
+            // config still named the old fields and the query failed.
+            ...(layerChanged(target, appTargets[i]?.layer)
+              ? { groupBy: undefined, valueField: undefined, bin: undefined }
+              : {}),
+          })
         }
       />
       <Field label="Chart type">
@@ -8674,14 +8695,14 @@ function ChartWidgetConfigEditor({
             ? 'Reading the layer schema…'
             : fields.length === 0
               ? 'Bind a target layer to choose a field.'
-              : config.bin
-                ? `Turned off: the chart is binning ${config.bin.field} into ranges instead.`
+              : binning
+                ? `Turned off: the chart is binning ${config.bin!.field} into ranges instead.`
                 : 'One bar or slice per distinct value of this field.'
         }
       >
         <select
-          value={config.bin ? '' : (config.groupBy ?? '')}
-          disabled={!canEdit || fields.length === 0 || Boolean(config.bin)}
+          value={binning ? '' : (config.groupBy ?? '')}
+          disabled={!canEdit || fields.length === 0 || binning}
           onChange={(e) =>
             onChangeConfig({ groupBy: e.target.value || undefined })
           }
@@ -8814,7 +8835,14 @@ function IndicatorWidgetConfigEditor({
         appTargets={appTargets}
         canEdit={canEdit}
         onChange={(i, id) =>
-          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+          onChangeConfig({
+            targetIndex: i,
+            ...(id ? { sourceId: id } : {}),
+            // The old layer's field matches no option on the new one.
+            ...(layerChanged(target, appTargets[i]?.layer)
+              ? { valueField: undefined }
+              : {}),
+          })
         }
       />
       <Field label="Measure">
@@ -9078,6 +9106,15 @@ const WIDGETS_BIND_MAP_ID = new Set<CustomWidgetKind>([
   'create-feature',
   'edit-feature',
   'delete-feature',
+  // These follow a map too and are stamped with an empty
+  // mapWidgetId; without auto-binding they showed "bind a map" while
+  // Legend or Search dropped the same way worked at once.
+  'export',
+  'bookmark',
+  'coordinates',
+  'my-location',
+  'elevation-profile',
+  'magic-outline',
 ]);
 
 /**
@@ -9098,6 +9135,17 @@ function autoBindMapWidgetId(
       mapWidgetId,
     } as CustomWidget['config'],
   };
+}
+
+/** True when the newly picked layer is a different layer (not just a
+ *  different source over the same layer), so field picks no longer
+ *  apply. */
+function layerChanged(
+  current: { dataLayerId: string; layerKey: string } | undefined,
+  next: { dataLayerId: string; layerKey: string } | undefined,
+): boolean {
+  if (!current || !next) return true;
+  return current.dataLayerId !== next.dataLayerId || current.layerKey !== next.layerKey;
 }
 
 /**
@@ -9287,6 +9335,10 @@ const TOOL_MODE_KINDS: ReadonlySet<CustomWidgetKind> = new Set([
   'search',
   'print',
   'select',
+  // Stamped as a tool and drawn as one by the runtime
+  // (TOOL_DISPLAY_KINDS); missing here, the canvas drew it as a panel
+  // and the inspector hid its Display mode section.
+  'export',
   'basemap-gallery',
   'bookmark',
   'coordinates',
