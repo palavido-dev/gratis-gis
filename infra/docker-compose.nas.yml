@@ -340,8 +340,13 @@ services:
             ]
             for key, value in values.items():
                 lines.append(f"{key}={sh_quote(value)}")
-            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            path.chmod(0o644)
+            # Temp file and rename: other services source this file while this
+            # one may be rewriting it, and an in-place rewrite could hand them
+            # half a file.
+            tmp = path.with_name(f".{path.name}.tmp")
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            tmp.chmod(0o644)
+            os.replace(tmp, path)
 
 
         # Services that handle untrusted input get only the variables they read.
