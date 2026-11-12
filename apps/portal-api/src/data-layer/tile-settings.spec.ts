@@ -232,6 +232,17 @@ describe('tileCacheControl', () => {
 });
 
 describe('buildTileJson', () => {
+  it('never advertises a maxzoom below the minzoom', () => {
+    const doc = buildTileJson({
+      name: 'Detail',
+      tileUrl: 'https://portal.example/t/{z}/{x}/{y}.mvt',
+      settings: { minZoom: 23 },
+      fields: [],
+    });
+    expect(doc.minzoom).toBe(23);
+    expect(doc.maxzoom).toBe(23);
+  });
+
   it('emits TileJSON 3.0.0 with only the tile fields', () => {
     const doc = buildTileJson({
       name: 'Parcels',

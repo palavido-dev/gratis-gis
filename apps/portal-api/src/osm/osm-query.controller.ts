@@ -12,6 +12,8 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { OsmService } from './osm.service.js';
 import {
   OSM_QUERY_MAX_CONDITIONS,
+  OSM_QUERY_MAX_DISTANCE_METERS,
+  OSM_QUERY_MAX_NEGATIONS,
   OSM_QUERY_MAX_PRESETS,
   validateOsmQueryBounds,
 } from './osm-query.limits.js';
@@ -109,7 +111,10 @@ export class OsmQueryController {
           'The OSM query was too large or complex for Overpass to finish. Try a smaller bbox, fewer presets or conditions, or a lower limit.',
         );
       }
-      throw new BadRequestException(msg);
+      // Anything else is a server fault (database, network, a private
+      // endpoint's address in the message). It goes out as a plain
+      // 500, not a 400 carrying the raw text.
+      throw err;
     }
   }
 
@@ -286,6 +291,11 @@ function parseConditions(raw?: string): RelationalCondition[] {
         'Each condition needs a positive distanceMeters.',
       );
     }
+    if (dist > OSM_QUERY_MAX_DISTANCE_METERS) {
+      throw new BadRequestException(
+        `A condition distance may be at most ${OSM_QUERY_MAX_DISTANCE_METERS} meters.`,
+      );
+    }
     const cond: RelationalCondition = {
       presetId: presetId.trim(),
       distanceMeters: dist,
@@ -337,7 +347,17 @@ function parseNegations(
         'Each negation needs a positive distanceMeters.',
       );
     }
+    if (dist > OSM_QUERY_MAX_DISTANCE_METERS) {
+      throw new BadRequestException(
+        `A negation distance may be at most ${OSM_QUERY_MAX_DISTANCE_METERS} meters.`,
+      );
+    }
     out.push({ presetId: presetId.trim(), distanceMeters: dist });
+    if (out.length > OSM_QUERY_MAX_NEGATIONS) {
+      throw new BadRequestException(
+        `At most ${OSM_QUERY_MAX_NEGATIONS} negations per query.`,
+      );
+    }
   }
   return out.length > 0 ? out : undefined;
 }

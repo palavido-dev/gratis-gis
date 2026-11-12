@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync } from 'node:fs';
+import { BadRequestException } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -112,7 +113,7 @@ export async function getOsmPreset(id: string): Promise<OsmPreset> {
   if (!cached) await loadOsmPresetCatalog();
   const preset = cachedById?.get(id);
   if (!preset) {
-    throw new Error(`Unknown OSM preset id: ${id}`);
+    throw new BadRequestException(`Unknown OSM preset id: ${id}`);
   }
   return preset;
 }
@@ -131,7 +132,8 @@ export async function getOsmPresets(ids: string[]): Promise<OsmPreset[]> {
     else missing.push(id);
   }
   if (missing.length > 0) {
-    throw new Error(`Unknown OSM preset ids: ${missing.join(', ')}`);
+    // A caller's mistake, not a server fault: 400, not 500.
+    throw new BadRequestException(`Unknown OSM preset ids: ${missing.join(', ')}`);
   }
   return out;
 }

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { BadRequestException } from '@nestjs/common';
+
 import type { OsmPreset, OsmPresetTag } from './preset-catalog.js';
 
 /**
@@ -69,7 +71,7 @@ export function escapeOverpassTagValue(raw: string): string {
   for (let i = 0; i < raw.length; i++) {
     const c = raw.charCodeAt(i);
     if (c < 0x20) {
-      throw new Error('OSM tag value contains control characters');
+      throw new BadRequestException('OSM tag value contains control characters');
     }
   }
   return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -81,7 +83,7 @@ export function escapeOverpassTagValue(raw: string): string {
  *  weirdness. */
 export function escapeOverpassTagKey(raw: string): string {
   if (!/^[a-zA-Z0-9_:.-]+$/.test(raw)) {
-    throw new Error(`OSM tag key contains unsupported characters: ${raw}`);
+    throw new BadRequestException(`OSM tag key contains unsupported characters: ${raw}`);
   }
   return raw;
 }
@@ -163,6 +165,14 @@ function combinedTags(
 }
 
 /**
+ * Overpass `maxsize`: the server's memory budget for a query, not a
+ * cap on what it returns. It used to be the feature limit times 1 KiB,
+ * so a small limit gave a budget of a few KiB and Overpass aborted
+ * queries it could easily run. The result count is capped by slicing.
+ */
+export const OVERPASS_MAXSIZE_BYTES = 256 * 1024 * 1024;
+
+/**
  * Build the full QL string.  Throws when:
  *   - the presets array is empty (nothing to query)
  *   - bbox is malformed (south >= north or west >= east, or values
@@ -176,19 +186,19 @@ export function buildOverpassQl(input: OverpassQlInput): string {
   }
   const [w, s, e, n] = input.bbox;
   if (![w, s, e, n].every((x) => Number.isFinite(x))) {
-    throw new Error('buildOverpassQl: bbox values must be finite numbers');
+    throw new BadRequestException('buildOverpassQl: bbox values must be finite numbers');
   }
   if (w >= e || s >= n) {
-    throw new Error(
+    throw new BadRequestException(
       `buildOverpassQl: bbox is degenerate (west=${w} >= east=${e} or south=${s} >= north=${n})`,
     );
   }
   if (w < -180 || e > 180 || s < -90 || n > 90) {
-    throw new Error('buildOverpassQl: bbox is outside the geographic range');
+    throw new BadRequestException('buildOverpassQl: bbox is outside the geographic range');
   }
 
   const timeout = input.timeoutSeconds ?? 25;
-  const maxsize = (input.maxFeatures ?? 50000) * 1024; // bytes; rough
+  const maxsize = OVERPASS_MAXSIZE_BYTES;
   // Overpass bbox order is (south,west,north,east).
   const bbox = `(${s},${w},${n},${e})`;
 
@@ -237,14 +247,14 @@ export function buildReverseGeocodeOverpassQl(input: {
 }): string {
   const { lng, lat } = input;
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-    throw new Error('buildReverseGeocodeOverpassQl: lng/lat must be finite numbers');
+    throw new BadRequestException('buildReverseGeocodeOverpassQl: lng/lat must be finite numbers');
   }
   if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-    throw new Error('buildReverseGeocodeOverpassQl: lng/lat out of geographic range');
+    throw new BadRequestException('buildReverseGeocodeOverpassQl: lng/lat out of geographic range');
   }
   const radius = Math.max(1, Math.round(input.radiusMeters));
   const timeout = input.timeoutSeconds ?? 30;
-  const maxsize = (input.maxFeatures ?? 5000) * 1024;
+  const maxsize = OVERPASS_MAXSIZE_BYTES;
   return [
     `[out:json][timeout:${timeout}][maxsize:${maxsize}];`,
     `(`,
@@ -326,18 +336,18 @@ export function buildRelationalOverpassQl(
   }
   const [w, s, e, n] = input.bbox;
   if (![w, s, e, n].every((x) => Number.isFinite(x))) {
-    throw new Error('buildRelationalOverpassQl: bbox values must be finite numbers');
+    throw new BadRequestException('buildRelationalOverpassQl: bbox values must be finite numbers');
   }
   if (w >= e || s >= n) {
-    throw new Error(
+    throw new BadRequestException(
       `buildRelationalOverpassQl: bbox is degenerate (west=${w} >= east=${e} or south=${s} >= north=${n})`,
     );
   }
   if (w < -180 || e > 180 || s < -90 || n > 90) {
-    throw new Error('buildRelationalOverpassQl: bbox is outside the geographic range');
+    throw new BadRequestException('buildRelationalOverpassQl: bbox is outside the geographic range');
   }
   const timeout = input.timeoutSeconds ?? 60;
-  const maxsize = (input.maxFeatures ?? 50000) * 1024; // rough byte budget
+  const maxsize = OVERPASS_MAXSIZE_BYTES;
   const bbox = `(${s},${w},${n},${e})`;
 
   // Emit the standard "(node|way|relation)<tag-block><filter>" trio
@@ -398,9 +408,20 @@ export function buildRelationalOverpassQl(
   const preNegLabel = input.negations && input.negations.length > 0
     ? '.survivorsPreNeg'
     : '.survivors';
+  // Taken from .anchors, not searched again by tag: a fresh search
+  // has no bbox, so it also returned anchor-type features outside the
+  // AOI that happened to sit near a condition feature.
+  const fromSet = (set: string, filterBlock: string): string =>
+    input.anchor.geometries
+      .map((geom) => {
+        const keyword =
+          geom === 'node' ? 'node' : geom === 'way' ? 'way' : 'relation';
+        return `    ${keyword}.${set}${filterBlock};`;
+      })
+      .join('\n');
   lines.push(`// Surviving anchors: pass all condition distance checks`);
   lines.push(`(`);
-  lines.push(stanza(input.anchor, survivorFilter));
+  lines.push(fromSet('anchors', survivorFilter));
   lines.push(`)->${preNegLabel};`);
 
   // Negation predicates (#153): for each negation preset, find
@@ -422,7 +443,7 @@ export function buildRelationalOverpassQl(
       lines.push(`)->.neg${i};`);
       lines.push(`// Survivors near negation ${i} (will be removed)`);
       lines.push(`(`);
-      lines.push(stanza(input.anchor, `(around.neg${i}:${d})`));
+      lines.push(fromSet('survivorsPreNeg', `(around.neg${i}:${d})`));
       lines.push(`)->.survivorsNearNeg${i};`);
     }
     // Chain set-differences: start from survivorsPreNeg and
@@ -445,12 +466,14 @@ export function buildRelationalOverpassQl(
     lines.push(stanza(c.preset, `(around.survivors:${d})`, c.tagFilters));
     lines.push(`)->.supporting${i};`);
   }
-  // Single output statement per labeled set so the caller can
-  // distinguish the three groups by either parsing the @id ranges
-  // or (more robustly) re-classifying via tag-selector match
-  // against the preset definitions.
+  // One output per set, each preceded by `out count`. The count
+  // element marks where a set starts, so the caller can tell the sets
+  // apart even when one feature matches several presets or two
+  // conditions share a preset. Tag matching could not.
+  lines.push(`.survivors out count;`);
   lines.push(`.survivors out body geom tags;`);
   for (let i = 0; i < input.conditions.length; i++) {
+    lines.push(`.supporting${i} out count;`);
     lines.push(`.supporting${i} out body geom tags;`);
   }
   return lines.join('\n');

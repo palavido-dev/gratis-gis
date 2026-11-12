@@ -195,12 +195,13 @@ export class OsmService {
     const ttlMs = input.ttlMs ?? DEFAULT_TTL_MS;
     const maxFeatures = input.maxFeatures ?? 50000;
 
-    const hash = hashQuery(input, endpoint);
+    const hash = hashQuery(input, endpoint, maxFeatures);
 
     // #101: a recipe author can request ttlMs=0 to mean "always
-    // fresh" -- skip the cache hit entirely. The cache row itself
-    // still gets upserted on miss so concurrent callers within the
-    // same Overpass response window see a single materialisation.
+    // fresh" -- skip the cache hit entirely. The cache row is still
+    // upserted on a miss. There is no single-flight: two callers that
+    // miss at the same time both call Overpass and both write the
+    // scope (the rows are keyed by entity, so they converge).
     const cached = ttlMs > 0
       ? await this.prisma.osmQueryCache.findUnique({ where: { hash } })
       : null;
@@ -224,15 +225,21 @@ export class OsmService {
       ...(input.tagFilters ? { tagFilters: input.tagFilters } : {}),
       bbox: input.bbox,
       maxFeatures,
+      timeoutSeconds: RESOLVE_QL_TIMEOUT_SECONDS,
     });
     this.logger.log(
       `OSM resolve (cache miss): presets=${input.presetIds.join(',')} bbox=${input.bbox.join(',')} -> Overpass`,
     );
-    const response = await this.client.run({ endpoint, ql });
+    const response = await this.client.run({
+      endpoint,
+      ql,
+      timeoutMs: clientTimeoutMs(RESOLVE_QL_TIMEOUT_SECONDS),
+    });
     const collection = osmToGeoJson(response);
     // Pre-slice count so callers can set truncated when Overpass (or
-    // our soft cap) returned more than we keep. Cache stores the
-    // persisted slice length; the return value keeps the raw count.
+    // our soft cap) returned more than we keep. The cache row keeps
+    // this raw count too, so a cache hit reports truncation the same
+    // way a miss does.
     const rawCount = collection.features.length;
     const features = collection.features.slice(0, maxFeatures);
 
@@ -251,7 +258,7 @@ export class OsmService {
           ? { tagFilters: input.tagFilters as unknown as object }
           : {}),
         bbox: input.bbox as unknown as object,
-        featureCount: features.length,
+        featureCount: rawCount,
         endpoint,
         fetchedAt: new Date(),
         expiresAt,
@@ -263,7 +270,7 @@ export class OsmService {
           ? { tagFilters: input.tagFilters as unknown as object }
           : { tagFilters: undefined as unknown as object }),
         bbox: input.bbox as unknown as object,
-        featureCount: features.length,
+        featureCount: rawCount,
         endpoint,
         fetchedAt: new Date(),
         expiresAt,
@@ -325,13 +332,17 @@ export class OsmService {
       lat: input.lat,
       radiusMeters: radius,
       maxFeatures,
-      timeoutSeconds: 30,
+      timeoutSeconds: AT_POINT_QL_TIMEOUT_SECONDS,
     });
     this.logger.log(
       `OSM resolveAtPoint: lng=${input.lng} lat=${input.lat} radius=${radius}m`,
     );
 
-    const response = await this.client.run({ endpoint, ql });
+    const response = await this.client.run({
+      endpoint,
+      ql,
+      timeoutMs: clientTimeoutMs(AT_POINT_QL_TIMEOUT_SECONDS),
+    });
     const collection = osmToGeoJson(response);
     return {
       features: collection.features.slice(0, maxFeatures),
@@ -433,7 +444,7 @@ export class OsmService {
       ...(negationPresets.length > 0 ? { negations: negationPresets } : {}),
       bbox: input.bbox,
       maxFeatures,
-      timeoutSeconds: 60,
+      timeoutSeconds: RELATIONAL_QL_TIMEOUT_SECONDS,
     });
     this.logger.log(
       `OSM resolveRelational: anchor=${input.anchorPresetId} conditions=${input.conditions
@@ -441,32 +452,57 @@ export class OsmService {
         .join(',')} bbox=${input.bbox.join(',')}`,
     );
 
-    const response = await this.client.run({ endpoint, ql });
+    const response = await this.client.run({
+      endpoint,
+      ql,
+      timeoutMs: clientTimeoutMs(RELATIONAL_QL_TIMEOUT_SECONDS),
+    });
     const collection = osmToGeoJson(response);
 
-    // Classify by tag-selector match: Overpass emits all output
-    // statements concatenated without set-membership markers, so
-    // we re-check the preset's tag clauses against each feature
-    // to assign it back to its source set.  Anchor classification
-    // wins ties; conditions are checked in declaration order.
     const survivingAnchors: OsmGeoJsonFeature[] = [];
     const supportingByCondition: OsmGeoJsonFeature[][] = input.conditions.map(
       () => [],
     );
-    const supportingSeen = new Set<string>();
-    for (const feat of collection.features) {
-      if (featureMatchesPreset(feat, anchorPreset)) {
-        survivingAnchors.push(feat);
-        continue;
-      }
-      for (let i = 0; i < conditionPresets.length; i++) {
-        if (featureMatchesPreset(feat, conditionPresets[i]!.preset)) {
-          const key = `${i}:${feat.id ?? `${i}-${supportingByCondition[i]!.length}`}`;
-          if (!supportingSeen.has(key)) {
-            supportingSeen.add(key);
-            supportingByCondition[i]!.push(feat);
+    const groups = splitOutputSets(response.elements ?? []);
+    if (groups && groups.length === conditionPresets.length + 1) {
+      // The query writes `out count` before each set (survivors, then
+      // each condition's supporting set), so set membership is known
+      // exactly. A feature that matches several presets lands only in
+      // the sets Overpass put it in.
+      groups.forEach((elements, g) => {
+        const feats = osmToGeoJson({ ...response, elements }).features;
+        const target = g === 0 ? survivingAnchors : supportingByCondition[g - 1]!;
+        const seen = new Set<string>();
+        for (const feat of feats) {
+          const key = String(feat.id ?? '');
+          if (key && seen.has(key)) continue;
+          seen.add(key);
+          target.push(feat);
+        }
+      });
+    } else {
+      // A server that does not echo the count markers: fall back to
+      // matching tags. Anchors win ties; each id is kept once.
+      const anchorSeen = new Set<string>();
+      const supportingSeen = new Set<string>();
+      for (const feat of collection.features) {
+        if (featureMatchesPreset(feat, anchorPreset)) {
+          const key = String(feat.id ?? '');
+          if (!key || !anchorSeen.has(key)) {
+            anchorSeen.add(key);
+            survivingAnchors.push(feat);
           }
-          break;
+          continue;
+        }
+        for (let i = 0; i < conditionPresets.length; i++) {
+          if (featureMatchesPreset(feat, conditionPresets[i]!.preset)) {
+            const key = `${i}:${feat.id ?? `${i}-${supportingByCondition[i]!.length}`}`;
+            if (!supportingSeen.has(key)) {
+              supportingSeen.add(key);
+              supportingByCondition[i]!.push(feat);
+            }
+            break;
+          }
         }
       }
     }
@@ -499,23 +535,18 @@ export class OsmService {
    *
    * The observation table is huge in prod (multi-million-row
    * data_layer scopes share the partition set), and a
-   * `DELETE WHERE scope = $1` on a brand-new scope would still
-   * scan partitions and bump into the per-request
-   * statement_timeout (#OSM hotfix 2026-05-25).  Skip the
-   * defensive clean-up; rely on the read path's
-   * `DISTINCT ON (entity) ORDER BY valid_from DESC, tx_time DESC`
-   * to ensure the latest observation wins.  Re-resolutions
-   * under the same hash mint fresh UUIDv7 entity ids, so any
-   * leftover rows from an expired-and-re-fetched scope sort
-   * older and fall out naturally; the (future) scrub job that
-   * trims expired cache rows is responsible for reclaiming the
-   * storage.
+   * `DELETE WHERE scope = $1` would bump into the per-request
+   * statement_timeout (#OSM hotfix 2026-05-25), so old rows are not
+   * deleted here. Entity ids are deterministic per OSM feature, so a
+   * re-resolve overwrites the features it still returns. A feature
+   * that dropped out of the result gets a `delete` observation, or
+   * it would stay the latest row for its entity and cache hits would
+   * keep serving it. The scrub job reclaims the storage.
    */
   private async writeFeaturesToScope(
     scope: string,
     features: OsmGeoJsonFeature[],
   ): Promise<void> {
-    if (features.length === 0) return;
 
     // The osm-bot principal carries every OSM-derived observation.
     // Real users never write to OSM scopes; the engine's writeable
@@ -523,29 +554,49 @@ export class OsmService {
     // `osm:*`.
     const author = { sub: 'osm-bot', displayName: 'OpenStreetMap import' };
     const now = new Date();
+    const source = { kind: 'osm-overpass', queryScope: scope };
 
-    for (const feat of features) {
-      // Deterministic entity id derived from (scope, feature.id).
-      // Same OSM feature in the same scope across two resolves -> same
-      // entity -> the read path's `DISTINCT ON (entity) ORDER BY
-      // valid_from DESC` keeps the newer observation.  Different OSM
-      // features -> different entity -> both surface.  Without this,
-      // a re-resolve after TTL expiry would double-count features
-      // because UUIDv7 mints a fresh id every time.
-      const entity = osmEntityIdFor(scope, String(feat.id ?? ''));
-      await this.engine.write({
+    // Deterministic entity id derived from (scope, feature.id). Same
+    // OSM feature in the same scope across two resolves -> same entity
+    // -> the read path's `DISTINCT ON (entity) ORDER BY valid_from
+    // DESC` keeps the newer observation. Different OSM features ->
+    // different entity -> both surface.
+    const rows = features.map((feat) => ({
+      scope,
+      entity: osmEntityIdFor(scope, String(feat.id ?? '')),
+      kind: 'create',
+      validFrom: now,
+      validTo: null,
+      geom: (feat.geometry as unknown) ?? null,
+      attrs: (feat.properties as Record<string, unknown> | null) ?? null,
+      author,
+      source,
+      parents: [],
+    }));
+    const keep = new Set(rows.map((r) => r.entity));
+    const previous = await this.prisma.$queryRaw<Array<{ entity: string }>>`
+      SELECT DISTINCT entity::text AS entity FROM observation WHERE scope = ${scope}
+    `;
+    const tombstones = previous
+      .filter((p) => !keep.has(p.entity))
+      .map((p) => ({
         scope,
-        entity,
-        kind: 'create',
+        entity: p.entity,
+        kind: 'delete',
         validFrom: now,
         validTo: null,
-        geom: (feat.geometry as unknown) ?? null,
-        attrs: (feat.properties as Record<string, unknown> | null) ?? null,
+        geom: null,
+        attrs: null,
         author,
-        source: { kind: 'osm-overpass', queryScope: scope },
+        source,
         parents: [],
-      } as unknown as Parameters<EngineService['write']>[0]);
-    }
+      }));
+    // One batched insert path instead of one round trip per feature,
+    // which took about a minute at the 50,000 feature cap.
+    await this.engine.writeMany([
+      ...rows,
+      ...tombstones,
+    ] as unknown as Parameters<EngineService['writeMany']>[0]);
   }
 
   /**
@@ -573,7 +624,12 @@ export class OsmService {
     `;
     return rows.map((r) => ({
       type: 'Feature' as const,
-      id: r.entity,
+      // The same `node/123` id a cache miss returns. The entity uuid
+      // is internal, and clients key features by id.
+      id:
+        typeof r.attrs?.osmType === 'string' && r.attrs?.osmId != null
+          ? `${r.attrs.osmType}/${String(r.attrs.osmId)}`
+          : r.entity,
       geometry: r.geom ? (JSON.parse(r.geom) as OsmGeoJsonGeometry) : (null as unknown as OsmGeoJsonGeometry),
       properties: r.attrs ?? {},
     }));
@@ -587,7 +643,11 @@ export class OsmService {
  * filters so the call-site iteration order doesn't fragment the
  * cache key.
  */
-function hashQuery(input: OsmSourceResolveInput, endpoint: string): string {
+function hashQuery(
+  input: OsmSourceResolveInput,
+  endpoint: string,
+  maxFeatures: number,
+): string {
   const rounded = input.bbox.map((x) => Math.round(x * 1e5) / 1e5);
   const sortedFilters = (input.tagFilters ?? [])
     .slice()
@@ -601,8 +661,44 @@ function hashQuery(input: OsmSourceResolveInput, endpoint: string): string {
     t: sortedFilters,
     b: rounded,
     e: endpoint,
+    // A miss stores only the first maxFeatures rows, so a call with a
+    // larger limit must not hit a smaller call's row.
+    m: maxFeatures,
   });
   return createHash('sha256').update(tuple).digest('hex').slice(0, 32);
+}
+
+/** Overpass QL [timeout:N] for each kind of query, in seconds. */
+const RESOLVE_QL_TIMEOUT_SECONDS = 25;
+const AT_POINT_QL_TIMEOUT_SECONDS = 30;
+const RELATIONAL_QL_TIMEOUT_SECONDS = 60;
+
+/**
+ * Client abort for a query that tells Overpass it may run
+ * `qlSeconds`: a little longer, so the server's own timeout answers
+ * first. The client default of 30 s cut relational queries off while
+ * Overpass kept running them for 60 s.
+ */
+function clientTimeoutMs(qlSeconds: number): number {
+  return (qlSeconds + 5) * 1000;
+}
+
+/**
+ * Split a relational response at its `out count` markers. Returns one
+ * element list per output set, or null when the response carries no
+ * markers.
+ */
+function splitOutputSets<E>(elements: readonly E[]): E[][] | null {
+  const groups: E[][] = [];
+  for (const el of elements) {
+    if ((el as { type?: unknown }).type === 'count') {
+      groups.push([]);
+      continue;
+    }
+    if (groups.length === 0) return null;
+    groups[groups.length - 1]!.push(el);
+  }
+  return groups.length > 0 ? groups : null;
 }
 
 /**
