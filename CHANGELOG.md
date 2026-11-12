@@ -15,6 +15,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   older months. Rows lost this way can only come back from a backup
   taken before the cleanup ran. The cleanup now matches rows by key
   and scope and refuses any scope that is not an OSM cache scope.
+### Security
+
+- Item references saved in maps and apps must be plain ids. Pages that
+  build API addresses from saved item data now check those ids before
+  any request is sent, and the API refuses to store a reference that is
+  not a plain id.
 
 ## [1.4.2] - 2026-11-11
 

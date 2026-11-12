@@ -137,6 +137,17 @@ import {
   AreaScaleControl,
   scaleUnitForAreaUnit,
 } from './area-scale-control';
+import { isUnsafeApiUrl, isUuid } from '@/lib/api-path-guard';
+
+/**
+ * An id from saved map JSON, safe to put in an API path. Anything that
+ * is not a UUID becomes the nil UUID, which the API answers with 404,
+ * so a crafted id cannot steer the viewer's request to another route.
+ */
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+function pathId(id: unknown): string {
+  return isUuid(id) ? id : NIL_UUID;
+}
 
 /**
  * MapLibre 6 types the style setters per property key
@@ -1281,7 +1292,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (layer.filter && layer.filter.clauses.length > 0) {
           body.filter = layer.filter;
         }
-        fetch(`/api/portal/postgis-live/${pg.serviceItemId}/features`, {
+        fetch(`/api/portal/postgis-live/${pathId(pg.serviceItemId)}/features`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
@@ -1370,8 +1381,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         const controller = new AbortController();
         dataLayerControllers.current[layer.id] = controller;
         const base = dataSource.layerKey
-          ? `/api/portal/items/${dataSource.itemId}/layers/${encodeURIComponent(dataSource.layerKey)}/geojson`
-          : `/api/portal/items/${dataSource.itemId}/geojson`;
+          ? `/api/portal/items/${pathId(dataSource.itemId)}/layers/${encodeURIComponent(dataSource.layerKey)}/geojson`
+          : `/api/portal/items/${pathId(dataSource.itemId)}/geojson`;
         const params = new URLSearchParams({ bbox });
         if (layer.boundaryFilterItemId) {
           params.set('clip', layer.boundaryFilterItemId);
@@ -1725,8 +1736,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         } else {
           const dataSource = layer.source;
           const url = dataSource.layerKey
-            ? `/api/portal/items/${dataSource.itemId}/layers/${encodeURIComponent(dataSource.layerKey)}/features?entity=${encodeURIComponent(String(featureId))}`
-            : `/api/portal/items/${dataSource.itemId}/features?entity=${encodeURIComponent(String(featureId))}`;
+            ? `/api/portal/items/${pathId(dataSource.itemId)}/layers/${encodeURIComponent(dataSource.layerKey)}/features?entity=${encodeURIComponent(String(featureId))}`
+            : `/api/portal/items/${pathId(dataSource.itemId)}/features?entity=${encodeURIComponent(String(featureId))}`;
           fetch(url, { cache: 'no-store' })
             .then((res) => (res.ok ? res.json() : null))
             .then((fc: { features?: Array<{ properties?: Record<string, unknown> }> } | null) => {
@@ -2695,11 +2706,11 @@ function applyTerrain(
       let signature: string;
       let desired: maplibregl.SourceSpecification;
       if (stack.length === 1) {
-        const demUrl = `${stack[0]!.tileUrl}#dem`;
+        const demUrl = `${isUnsafeApiUrl(stack[0]!.tileUrl) ? '' : stack[0]!.tileUrl}#dem`;
         signature = demUrl;
         desired = { type: 'raster-dem', url: demUrl, tileSize: 256 };
       } else {
-        const ids = stack.map((e) => e.itemId).join(',');
+        const ids = stack.map((e) => pathId(e.itemId)).join(',');
         const tileUrl = `/api/portal/elevation-mosaic/{z}/{x}/{y}.png?stack=${ids}`;
         signature = tileUrl;
         // Beyond the finest stamped native zoom MapLibre upscales
@@ -2809,8 +2820,8 @@ function dataLayerTileUrl(
   include: string[] = [],
 ): string {
   const base = source.layerKey
-    ? `/api/portal/items/${source.itemId}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
-    : `/api/portal/items/${source.itemId}/tile/{z}/{x}/{y}.mvt`;
+    ? `/api/portal/items/${pathId(source.itemId)}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
+    : `/api/portal/items/${pathId(source.itemId)}/tile/{z}/{x}/{y}.mvt`;
   // #79: the per-layer boundary wins over the map-level clip so a
   // layer can opt into a tighter scope.
   const effectiveClip = boundaryFilterItemId ?? mapClipBoundaryId ?? null;
@@ -4302,8 +4313,8 @@ function sourceData(
     // arcgis-rest) are out of our control and would need a client-
     // side MapLibre filter for the same effect.
     const base = layer.source.layerKey
-      ? `/api/portal/items/${layer.source.itemId}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
-      : `/api/portal/items/${layer.source.itemId}/geojson`;
+      ? `/api/portal/items/${pathId(layer.source.itemId)}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
+      : `/api/portal/items/${pathId(layer.source.itemId)}/geojson`;
     // #79: per-layer boundary wins over the map-level clip; if the
     // layer didn't set one, fall back to the map's clipBoundaryId
     // so every layer reads through the same view-scope polygon.

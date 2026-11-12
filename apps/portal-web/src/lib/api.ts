@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { authOptions, type SessionWithToken } from './auth';
 import { apiErrorMessage } from './api-error';
 import { isSessionStale } from './session-state';
+import { assertSafeApiUrl } from './api-path-guard';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -42,6 +43,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     // default provider picker (we have only one provider).
     redirect('/signin');
   }
+  // Server-side fetch normalizes dot segments too, with the user's
+  // bearer attached. See lib/api-path-guard.ts.
+  assertSafeApiUrl(path);
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
@@ -90,6 +94,7 @@ export async function publicApiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  assertSafeApiUrl(path);
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
