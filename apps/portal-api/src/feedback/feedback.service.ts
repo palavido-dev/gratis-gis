@@ -169,7 +169,9 @@ export class FeedbackService {
     // the logs, which are shipped and retained differently.
     this.log.log(
       `feedback stored id=${row.id} from=${input.email ?? '(anonymous)'} ` +
-        `page="${truncate(input.pageUrl ?? '', 80)}" len=${input.message.length}` +
+        // Control characters stripped: pageUrl comes from anonymous
+        // callers, and a newline in it could forge a whole log line.
+        `page="${truncate((input.pageUrl ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '), 80)}" len=${input.message.length}` +
         `${screenshotKey ? ' +screenshot' : ''}`,
     );
 

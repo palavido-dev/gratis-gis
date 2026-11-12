@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { pipeline } from 'node:stream/promises';
 import {
   BadRequestException,
   Body,
@@ -143,7 +144,15 @@ export class FeedbackAdminController {
     // Never cached by a shared cache: this is another person's
     // screenshot behind an admin check.
     res.setHeader('cache-control', 'private, no-store');
-    upstream.body.pipe(res);
+    // pipeline closes both ends: a storage error mid-body no longer
+    // goes uncaught with the response left open, and a client that
+    // leaves releases the storage socket.
+    try {
+      await pipeline(upstream.body, res);
+    } catch {
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy();
+    }
   }
 
   @Patch(':id')

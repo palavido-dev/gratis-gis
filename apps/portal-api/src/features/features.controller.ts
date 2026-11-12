@@ -354,8 +354,9 @@ export class FeaturesController {
     const child = await this.requireReadAccess(user, childItemId);
     // The parent must be visible to the caller, and the children are
     // clipped to the caller's scope on the child layer.
+    const fk = relationshipFk(parent, childItemId, fkColumn);
     const parentScope = await this.scopeFor(user, parent, 'read');
-    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    await this.features.getFeature(id, fid, undefined, parentScope);
     const childScope = await this.scopeFor(user, child, 'read');
 
     const opts: Parameters<typeof this.features.getRelatedFeatures>[3] = {
@@ -368,7 +369,7 @@ export class FeaturesController {
     const feats = await this.features.getRelatedFeatures(
       childItemId,
       fid,
-      fkColumn ?? 'parent_global_id',
+      fk,
       opts,
     );
     return { type: 'FeatureCollection', features: feats };
@@ -397,8 +398,11 @@ export class FeaturesController {
   ) {
     const parent = await this.requireReadAccess(user, id);
     const child = await this.requireEditAccess(user, childItemId);
+    const fk = relationshipFk(parent, childItemId, body.fkColumn);
+    // The parent feature must exist (and be visible), whether or not
+    // the caller is scope-limited.
     const parentScope = await this.scopeFor(user, parent, 'read');
-    if (parentScope) await this.features.getFeature(id, fid, undefined, parentScope);
+    await this.features.getFeature(id, fid, undefined, parentScope);
     const childScope = await this.scopeFor(user, child, 'edit');
     if (childScope) {
       await this.features.assertGeometriesInsideLimit(childScope, [body.geometry]);
@@ -421,7 +425,7 @@ export class FeaturesController {
     const result = await this.features.createRelatedFeature(
       childItemId,
       fid,
-      body.fkColumn ?? 'parent_global_id',
+      fk,
       input,
       user,
     );
@@ -496,4 +500,30 @@ export class FeaturesController {
       console.warn('syncItemMeta failed for %s: %s', itemId, msg);
     }
   }
+}
+
+/**
+ * The FK column of the registered relationship from `parent` to the
+ * child layer. The routes used to take any column name from the
+ * caller, so a child row could point at a layer that is not its
+ * parent, and names like `properties` or `created_by` reached SQL.
+ */
+function relationshipFk(
+  parent: { data: unknown },
+  childItemId: string,
+  requested: string | undefined,
+): string {
+  const rels = (parent.data as { relationships?: unknown } | null)?.relationships;
+  const rel = Array.isArray(rels)
+    ? (rels as Array<{ relatedItemId?: unknown; fkColumn?: unknown }>).find(
+        (r) => r?.relatedItemId === childItemId,
+      )
+    : undefined;
+  if (!rel || typeof rel.fkColumn !== 'string') {
+    throw new BadRequestException('These layers have no registered relationship');
+  }
+  if (requested !== undefined && requested !== rel.fkColumn) {
+    throw new BadRequestException(`fkColumn must be "${rel.fkColumn}" for this relationship`);
+  }
+  return rel.fkColumn;
 }

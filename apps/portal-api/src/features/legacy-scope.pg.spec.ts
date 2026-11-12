@@ -199,4 +199,14 @@ d('legacy v2 feature routes honour share scope', () => {
     await expect(features.bulkInsert(ITEM, rows, owner)).rejects.toBeDefined();
     expect((await controller.list(owner, ITEM)).features).toHaveLength(before);
   });
+
+  it('related routes refuse layers with no registered relationship', async () => {
+    shares = [];
+    await expect(
+      controller.listRelated(owner, ITEM, INSIDE, ITEM, 'created_by'),
+    ).rejects.toThrow(/no registered relationship/);
+    await expect(
+      controller.createRelated(owner, ITEM, INSIDE, ITEM, { properties: {} }),
+    ).rejects.toThrow(/no registered relationship/);
+  });
 });
