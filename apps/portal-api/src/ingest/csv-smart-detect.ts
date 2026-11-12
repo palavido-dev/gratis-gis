@@ -36,6 +36,7 @@ import {
   isSqlSafeFieldName,
   toSqlSafeFieldName,
 } from '@gratis-gis/shared-types';
+import { isCodeLikeNumber } from './csv-codes.js';
 
 export interface SmartDetectResult {
   kind: 'detected';
@@ -465,7 +466,7 @@ function inferFieldTypes(
       const t = v.trim();
       if (t.length === 0) continue;
       nonEmpty += 1;
-      if (!/^-?\d+(\.\d+)?$/.test(t)) allNumber = false;
+      if (!/^-?\d+(\.\d+)?$/.test(t) || isCodeLikeNumber(t)) allNumber = false;
       if (!/^(true|false|yes|no|0|1)$/i.test(t)) allBool = false;
     }
     if (nonEmpty === 0) return { name, type: 'string' };

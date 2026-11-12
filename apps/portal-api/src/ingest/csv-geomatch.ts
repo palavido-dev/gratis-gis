@@ -26,6 +26,7 @@ import {
   detectCsvColumnPair,
   readDelimitedSample,
 } from './csv-smart-detect.js';
+import { isCodeLikeNumber } from './csv-codes.js';
 
 export const GEOMATCH_LIMITS = {
   MAX_ROWS: 5_000,
@@ -381,6 +382,9 @@ function inferFieldType(
     const raw = (row[idx] ?? '').trim();
     if (!raw) continue;
     seen += 1;
+    // One code-like value (ZIP 02134, FIPS 01001) keeps the column
+    // text, or every leading zero in it is lost.
+    if (isCodeLikeNumber(raw)) return 'string';
     if (/^-?\d+(\.\d+)?$/.test(raw)) numeric += 1;
   }
   if (seen > 0 && numeric / seen >= 0.8) return 'number';
@@ -523,7 +527,8 @@ export function planUsStateGeomatch(text: string): GeomatchDetect {
   const safeNames = sanitizeHeaderNames(header);
   const fields = header.map((_, idx) => ({
     name: safeNames[idx] ?? `col_${idx}`,
-    type: inferFieldType(rows, idx),
+    // The join column is a key (state, FIPS, ZIP): always text.
+    type: idx === col.idx ? ('string' as const) : inferFieldType(rows, idx),
   }));
 
   return {
@@ -576,7 +581,8 @@ export function planUsCountyGeomatch(text: string): GeomatchDetect {
   const safeNames = sanitizeHeaderNames(header);
   const fields = header.map((_, idx) => ({
     name: safeNames[idx] ?? `col_${idx}`,
-    type: inferFieldType(rows, idx),
+    // The join column is a key (state, FIPS, ZIP): always text.
+    type: idx === col.idx ? ('string' as const) : inferFieldType(rows, idx),
   }));
 
   return {
@@ -632,7 +638,8 @@ export function planUsZctaGeomatch(text: string): GeomatchDetect {
   const safeNames = sanitizeHeaderNames(header);
   const fields = header.map((_, idx) => ({
     name: safeNames[idx] ?? `col_${idx}`,
-    type: inferFieldType(rows, idx),
+    // The join column is a key (state, FIPS, ZIP): always text.
+    type: idx === col.idx ? ('string' as const) : inferFieldType(rows, idx),
   }));
 
   return {
@@ -689,7 +696,8 @@ export function planCountryGeomatch(text: string): GeomatchDetect {
   const safeNames = sanitizeHeaderNames(header);
   const fields = header.map((_, idx) => ({
     name: safeNames[idx] ?? `col_${idx}`,
-    type: inferFieldType(rows, idx),
+    // The join column is a key (state, FIPS, ZIP): always text.
+    type: idx === col.idx ? ('string' as const) : inferFieldType(rows, idx),
   }));
 
   return {
@@ -718,6 +726,7 @@ export function featuresFromUsStateGeomatch(
   if (plan.kind === 'us-zctas') return featuresFromUsZctaGeomatch(plan);
   if (plan.kind === 'countries') return featuresFromCountryGeomatch(plan);
   loadUsStateBoundaries();
+  const [stateNameF, stateAbbrF] = appendedFieldNames(plan.header, ['state_name', 'state_abbr']);
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
   for (const row of plan.rows) {
@@ -730,8 +739,8 @@ export function featuresFromUsStateGeomatch(
     features.push({
       type: 'Feature',
       properties: rowProperties(plan, row, [
-        ['state_name', state.name],
-        ['state_abbr', state.abbr],
+        [stateNameF, state.name],
+        [stateAbbrF, state.abbr],
       ]),
       geometry: state.geometry,
     });
@@ -742,8 +751,8 @@ export function featuresFromUsStateGeomatch(
     geojson: { type: 'FeatureCollection', features },
     fields: [
       ...plan.fields,
-      { name: 'state_name', type: 'string' },
-      { name: 'state_abbr', type: 'string' },
+      { name: stateNameF, type: 'string' },
+      { name: stateAbbrF, type: 'string' },
     ],
     column: plan.column,
     matched: features.length,
@@ -755,6 +764,12 @@ export function featuresFromUsCountyGeomatch(
   plan: UsCountyGeomatchPlan,
 ): GeomatchResult {
   loadUsCountyBoundaries();
+  const [countyNameF, stateNameF, stateAbbrF, geoidF] = appendedFieldNames(plan.header, [
+    'county_name',
+    'state_name',
+    'state_abbr',
+    'county_geoid',
+  ]);
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
   for (const row of plan.rows) {
@@ -771,10 +786,10 @@ export function featuresFromUsCountyGeomatch(
     features.push({
       type: 'Feature',
       properties: rowProperties(plan, row, [
-        ['county_name', county.name],
-        ['state_name', county.stateName],
-        ['state_abbr', county.stateAbbr],
-        ['county_geoid', county.geoid],
+        [countyNameF, county.name],
+        [stateNameF, county.stateName],
+        [stateAbbrF, county.stateAbbr],
+        [geoidF, county.geoid],
       ]),
       geometry: county.geometry,
     });
@@ -785,10 +800,10 @@ export function featuresFromUsCountyGeomatch(
     geojson: { type: 'FeatureCollection', features },
     fields: [
       ...plan.fields,
-      { name: 'county_name', type: 'string' },
-      { name: 'state_name', type: 'string' },
-      { name: 'state_abbr', type: 'string' },
-      { name: 'county_geoid', type: 'string' },
+      { name: countyNameF, type: 'string' },
+      { name: stateNameF, type: 'string' },
+      { name: stateAbbrF, type: 'string' },
+      { name: geoidF, type: 'string' },
     ],
     column: plan.column,
     matched: features.length,
@@ -800,6 +815,7 @@ export function featuresFromUsZctaGeomatch(
   plan: UsZctaGeomatchPlan,
 ): GeomatchResult {
   loadUsZctaBoundaries();
+  const [zctaF] = appendedFieldNames(plan.header, ['zcta']);
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
   for (const row of plan.rows) {
@@ -812,7 +828,7 @@ export function featuresFromUsZctaGeomatch(
     }
     features.push({
       type: 'Feature',
-      properties: rowProperties(plan, row, [['zcta', zcta.zcta]]),
+      properties: rowProperties(plan, row, [[zctaF, zcta.zcta]]),
       geometry: zcta.geometry,
     });
   }
@@ -820,7 +836,7 @@ export function featuresFromUsZctaGeomatch(
     kind: 'matched',
     boundary: 'us-zctas',
     geojson: { type: 'FeatureCollection', features },
-    fields: [...plan.fields, { name: 'zcta', type: 'string' }],
+    fields: [...plan.fields, { name: zctaF, type: 'string' }],
     column: plan.column,
     matched: features.length,
     unmatched,
@@ -831,6 +847,11 @@ export function featuresFromCountryGeomatch(
   plan: CountryGeomatchPlan,
 ): GeomatchResult {
   loadCountryBoundaries();
+  const [countryNameF, iso2F, iso3F] = appendedFieldNames(plan.header, [
+    'country_name',
+    'country_iso2',
+    'country_iso3',
+  ]);
   const features: GeomatchResult['geojson']['features'] = [];
   let unmatched = 0;
   for (const row of plan.rows) {
@@ -845,9 +866,9 @@ export function featuresFromCountryGeomatch(
     features.push({
       type: 'Feature',
       properties: rowProperties(plan, row, [
-        ['country_name', country.name],
-        ['country_iso2', country.iso2],
-        ['country_iso3', country.iso3],
+        [countryNameF, country.name],
+        [iso2F, country.iso2],
+        [iso3F, country.iso3],
       ]),
       geometry: country.geometry,
     });
@@ -858,9 +879,9 @@ export function featuresFromCountryGeomatch(
     geojson: { type: 'FeatureCollection', features },
     fields: [
       ...plan.fields,
-      { name: 'country_name', type: 'string' },
-      { name: 'country_iso2', type: 'string' },
-      { name: 'country_iso3', type: 'string' },
+      { name: countryNameF, type: 'string' },
+      { name: iso2F, type: 'string' },
+      { name: iso3F, type: 'string' },
     ],
     column: plan.column,
     matched: features.length,
@@ -886,6 +907,20 @@ function safePropertyName(raw: string, used?: Set<string>): string | null {
     return null;
   }
   return toSqlSafeFieldName(name, used);
+}
+
+/**
+ * Names for the columns a geomatch appends, made unique against the
+ * user's own headers. A file with a `zcta` or `county_name` column
+ * otherwise got that name twice (the wizard refused it as a duplicate)
+ * and the user's value was overwritten by the canonical one.
+ */
+function appendedFieldNames<const T extends readonly string[]>(
+  header: string[],
+  names: T,
+): { [K in keyof T]: string } {
+  const used = new Set(sanitizeHeaderNames(header).filter((n): n is string => n !== null));
+  return names.map((n) => toSqlSafeFieldName(n, used)) as { [K in keyof T]: string };
 }
 
 /** One allowlisted name per header column (null = skip that column). */

@@ -11,6 +11,7 @@ import {
   detectCsvColumnPair,
   readDelimitedSample,
 } from './csv-smart-detect.js';
+import { isCodeLikeNumber } from './csv-codes.js';
 
 export const ADDRESS_GEOCODE_LIMITS = {
   /** First rows of a spreadsheet that are sent to the local geocoder.
@@ -228,7 +229,7 @@ function inferFields(
       const trimmed = (row[idx] ?? '').trim();
       if (trimmed.length === 0) continue;
       nonEmpty += 1;
-      if (!/^-?\d+(\.\d+)?$/.test(trimmed)) allNumber = false;
+      if (!/^-?\d+(\.\d+)?$/.test(trimmed) || isCodeLikeNumber(trimmed)) allNumber = false;
       if (!/^(true|false|yes|no|0|1)$/i.test(trimmed)) allBool = false;
     }
     if (nonEmpty === 0) return { name, type: 'string' };
