@@ -255,6 +255,11 @@ export function AttributeTable({
   const [editingCell, setEditingCell] = useState<{
     layerId: string;
     idx: number;
+    /** The record being edited. The row index is only where it was
+     *  drawn: a refetch (pan, auto-zoom) can put another feature at
+     *  that index while the editor is open, so the commit and the
+     *  cell match on this id, never on idx. */
+    featureId: string;
     field: string;
   } | null>(null);
   const [draftValue, setDraftValue] = useState<string>('');
@@ -262,6 +267,7 @@ export function AttributeTable({
   const [savingCell, setSavingCell] = useState<{
     layerId: string;
     idx: number;
+    featureId: string;
     field: string;
   } | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -1114,7 +1120,10 @@ export function AttributeTable({
     if (!activeLayer) return;
     if (!canInlineEditField(field, idx)) return;
     setEditError(null);
-    setEditingCell({ layerId: activeLayer.id, idx, field });
+    const startProps = (activeFeatures[idx]?.properties ?? {}) as Record<string, unknown>;
+    const startId = startProps['_global_id'];
+    if (typeof startId !== 'string') return;
+    setEditingCell({ layerId: activeLayer.id, idx, featureId: startId, field });
     setOriginalValue(current);
     // Render the value as a string the user can edit. JSON-stringify
     // objects so they round-trip; primitives go through String().
@@ -1147,17 +1156,7 @@ export function AttributeTable({
    */
   async function commitEditCell() {
     if (!editingCell || !activeLayer || !onPatchFeature) return;
-    const feature = activeFeatures[editingCell.idx];
-    if (!feature) return;
-    const props = (feature.properties ?? {}) as Record<string, unknown>;
-    const featureId =
-      typeof props['_global_id'] === 'string'
-        ? (props['_global_id'] as string)
-        : null;
-    if (!featureId) {
-      setEditError(t('mapAttributeTable.missingFeatureId'));
-      return;
-    }
+    const featureId = editingCell.featureId;
     const coerced = coerceDraft(
       draftValue,
       originalValue,
@@ -1172,18 +1171,13 @@ export function AttributeTable({
     setSavingCell({ ...editingCell });
     setEditError(null);
     try {
-      // Build the merged full properties bag the server expects.
-      // The v3 PATCH endpoint replaces `properties` wholesale, so
-      // we send everything-except-underscore-keys plus the new
-      // value for the edited field. The server stamps _edited_*
-      // on its own side.
-      const next: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (k.startsWith('_')) continue;
-        next[k] = v;
-      }
-      next[editingCell.field] = coerced;
-      await onPatchFeature(activeLayer.id, featureId, next);
+      // The v3 PATCH merges `properties` into the stored row, so send
+      // only the edited field. Sending the whole row put back any
+      // value another editor changed since this page loaded, and was
+      // refused outright on targets that allow only some fields.
+      await onPatchFeature(activeLayer.id, featureId, {
+        [editingCell.field]: coerced,
+      });
       // Success: drop edit state. Parent's refresh will repaint
       // the new value once the geojson re-fetch lands. Until then
       // the cell briefly shows the stale value, which is fine
@@ -1238,6 +1232,16 @@ export function AttributeTable({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayerId]);
+  // A refetch that drops the record being edited ends the edit, so a
+  // half-typed value is never left with nowhere to show.
+  useEffect(() => {
+    if (!editingCell) return;
+    const stillHere = activeFeatures.some(
+      (f) => (f.properties as Record<string, unknown> | null)?.['_global_id'] === editingCell.featureId,
+    );
+    if (!stillHere) cancelEditCell();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFeatures]);
 
   function selectionToFilter() {
     if (!activeLayer || activeSelection.size === 0) return;
@@ -1690,15 +1694,16 @@ export function AttributeTable({
                     </td>
                     {activeFields.map((field) => {
                       const v = props[field];
+                      const rowId = props['_global_id'];
                       const isEditing =
                         editingCell !== null &&
                         editingCell.layerId === activeLayer.id &&
-                        editingCell.idx === idx &&
+                        editingCell.featureId === rowId &&
                         editingCell.field === field;
                       const isSaving =
                         savingCell !== null &&
                         savingCell.layerId === activeLayer.id &&
-                        savingCell.idx === idx &&
+                        savingCell.featureId === rowId &&
                         savingCell.field === field;
                       const editable = canInlineEditField(field, idx);
                       return (
