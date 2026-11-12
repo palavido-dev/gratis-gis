@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import {
-  sanitizeOfflineMessage,
-  type OfflineMessageEnvelope,
-} from '@gratis-gis/shared-types';
+import { sanitizeOfflineMessage, type OfflineMessageEnvelope } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -46,6 +43,16 @@ export interface ManifestEntry {
 /** Cap on the JSONB blob so a stuck or malicious client cannot fill the
  *  table. Beyond this we truncate the queuedRecords array. */
 const MAX_RECORDS_PER_DEPLOYMENT = 500;
+/** Across all entries of one manifest; the per-entry cap alone let
+ *  one row hold 100 x 500 records. */
+const MAX_RECORDS_PER_MANIFEST = 2000;
+/** Ids and timestamps are short. An uncapped string let one row
+ *  reach the 10 MB body limit. */
+const MAX_FIELD_LENGTH = 128;
+/** Devices kept per user. The fingerprint is any client string, so
+ *  without a cap one user could create rows without end. The oldest
+ *  report is dropped to make room. */
+export const MAX_DEVICES_PER_USER = 20;
 
 export interface UpsertManifestInput {
   userId: string;
@@ -76,6 +83,27 @@ export class FieldQueueService {
     const usage = toBigInt(input.storageUsage);
     const quota = toBigInt(input.storageQuota);
     const userAgent = input.userAgent?.slice(0, 512) ?? null;
+
+    const known = await this.prisma.fieldQueueManifest.findUnique({
+      where: {
+        userId_deviceFingerprint: {
+          userId: input.userId,
+          deviceFingerprint: input.deviceFingerprint,
+        },
+      },
+      select: { id: true },
+    });
+    if (!known) {
+      const devices = await this.prisma.fieldQueueManifest.findMany({
+        where: { userId: input.userId },
+        orderBy: [{ reportedAt: 'desc' }],
+        select: { id: true },
+      });
+      const evict = devices.slice(MAX_DEVICES_PER_USER - 1).map((d) => d.id);
+      if (evict.length > 0) {
+        await this.prisma.fieldQueueManifest.deleteMany({ where: { id: { in: evict } } });
+      }
+    }
 
     await this.prisma.fieldQueueManifest.upsert({
       where: {
@@ -118,7 +146,9 @@ export class FieldQueueService {
     return this.prisma.fieldQueueManifest.findMany({
       where: { user: { orgId } },
       orderBy: [{ reportedAt: 'desc' }],
-      take: 500,
+      // Each row can still hold a couple of MB of records; 200 keeps
+      // one page load well inside the API heap.
+      take: 200,
       include: {
         user: {
           select: {
@@ -153,31 +183,30 @@ export class FieldQueueService {
  */
 export function sanitizeManifest(input: ManifestEntry[] | null | undefined): ManifestEntry[] {
   if (!Array.isArray(input)) return [];
+  const cut = (v: unknown) => String(v ?? '').slice(0, MAX_FIELD_LENGTH);
+  let budget = MAX_RECORDS_PER_MANIFEST;
   return input.slice(0, 100).map((entry) => ({
-    dataCollectionId: String(entry?.dataCollectionId ?? ''),
-    cachedAt: entry?.cachedAt ? String(entry.cachedAt) : null,
+    dataCollectionId: cut(entry?.dataCollectionId),
+    cachedAt: entry?.cachedAt ? cut(entry.cachedAt) : null,
     queuedRecords: Array.isArray(entry?.queuedRecords)
-      ? entry.queuedRecords.slice(0, MAX_RECORDS_PER_DEPLOYMENT).map((r) => {
-          const out: ManifestEntry['queuedRecords'][number] = {
-            id: String(r?.id ?? ''),
-            op:
-              r?.op === 'insert' || r?.op === 'update' || r?.op === 'delete'
-                ? r.op
-                : 'insert',
-            layerId: String(r?.layerId ?? ''),
-            queuedAt: r?.queuedAt ? String(r.queuedAt) : '',
-            status:
-              r?.status === 'failed' || r?.status === 'rejected'
-                ? r.status
-                : 'pending',
-            lastError: sanitizeOfflineMessage(r?.lastError),
-          };
-          // Only include `attempts` when the client sent a number;
-          // exactOptionalPropertyTypes refuses `undefined` for an
-          // optional-with-no-undefined type.
-          if (typeof r?.attempts === 'number') out.attempts = r.attempts;
-          return out;
-        })
+      ? entry.queuedRecords
+          .slice(0, Math.min(MAX_RECORDS_PER_DEPLOYMENT, Math.max(0, budget)))
+          .map((r) => {
+            budget--;
+            const out: ManifestEntry['queuedRecords'][number] = {
+              id: cut(r?.id),
+              op: r?.op === 'insert' || r?.op === 'update' || r?.op === 'delete' ? r.op : 'insert',
+              layerId: cut(r?.layerId),
+              queuedAt: r?.queuedAt ? cut(r.queuedAt) : '',
+              status: r?.status === 'failed' || r?.status === 'rejected' ? r.status : 'pending',
+              lastError: sanitizeOfflineMessage(r?.lastError),
+            };
+            // Only include `attempts` when the client sent a number;
+            // exactOptionalPropertyTypes refuses `undefined` for an
+            // optional-with-no-undefined type.
+            if (typeof r?.attempts === 'number') out.attempts = r.attempts;
+            return out;
+          })
       : [],
   }));
 }
