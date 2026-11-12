@@ -122,6 +122,7 @@ import {
 import {
   aggKey,
   binFilterFor,
+  clampDigits,
   defaultIndicatorLabel,
   fetchAggregate,
   fetchFilteredExtent,
@@ -8360,7 +8361,9 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   const { mapWidgetId, format, precision, showZoom } = widget.config;
   const map = ctx?.maps[mapWidgetId] ?? null;
   const fmt = format ?? 'dd';
-  const prec = precision ?? (fmt === 'dd' ? 5 : 0);
+  // Clamped: toFixed throws a RangeError outside 0..100, and a bad
+  // saved value crashed the app on the first mouse move.
+  const prec = clampDigits(precision ?? (fmt === 'dd' ? 5 : 0));
   const [pos, setPos] = useState<{ lng: number; lat: number } | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
 

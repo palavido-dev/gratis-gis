@@ -1060,6 +1060,11 @@ export function CustomAppDetail({
   // properties (default map, targets, page title, etc.).
   const rightPanelContent = selectedWidget ? (
     <WidgetProperties
+      // Keyed by widget so every piece of local inspector state
+      // (draft text boxes such as the chart's range edges) starts
+      // fresh for the newly selected widget instead of carrying the
+      // previous widget's text into it.
+      key={selectedWidget.id}
       widget={selectedWidget}
       canEdit={canEdit}
       pageWidgets={activePage.widgets}
@@ -8389,24 +8394,19 @@ function ChartBinEditor({
               label="How many ranges"
               hint="The portal measures the field and splits its range evenly."
             >
-              <input
-                type="number"
+              {/* Typed into a draft and clamped on blur: clamping each
+                  keystroke turned the "1" of "15" into 2. */}
+              <NumberInput
                 min={2}
                 max={200}
                 value={bin.count}
+                normalize={(n) => Math.min(200, Math.max(2, Math.round(n)))}
                 disabled={!canEdit}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (!Number.isFinite(n)) return;
+                onChange={(count) =>
                   onChangeConfig({
-                    bin: {
-                      field: bin.field,
-                      mode: 'count',
-                      count: Math.min(200, Math.max(2, Math.round(n))),
-                    },
-                  });
-                }}
-                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                    bin: { field: bin.field, mode: 'count', count },
+                  })
+                }
               />
             </Field>
           ) : bin.mode === 'width' ? (
@@ -8414,20 +8414,19 @@ function ChartBinEditor({
               label="Range size"
               hint="In the field's own units, e.g. 0.5 for half a milligram per litre."
             >
-              <input
-                type="number"
+              {/* Draft until blur: rejecting "0" on the way to
+                  "0.5" snapped the box back to the old value. */}
+              <NumberInput
                 min={0}
                 step="any"
                 value={bin.width}
+                normalize={(w) => (w > 0 ? w : null)}
                 disabled={!canEdit}
-                onChange={(e) => {
-                  const w = Number(e.target.value);
-                  if (!Number.isFinite(w) || w <= 0) return;
+                onChange={(width) =>
                   onChangeConfig({
-                    bin: { field: bin.field, mode: 'width', width: w },
-                  });
-                }}
-                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                    bin: { field: bin.field, mode: 'width', width },
+                  })
+                }
               />
             </Field>
           ) : (
@@ -8436,6 +8435,9 @@ function ChartBinEditor({
               hint="Ascending, comma separated. Use the same numbers as your map's classes and the chart will cut where the legend does."
             >
               <input
+                // Remounts when the saved edges change, so the box
+                // shows the sorted, de-duplicated list that was kept.
+                key={bin.edges.join(',')}
                 type="text"
                 defaultValue={bin.edges.join(', ')}
                 disabled={!canEdit}
@@ -8450,6 +8452,7 @@ function ChartBinEditor({
                   // error about thresholds.
                   const sorted = [...new Set(edges)].sort((a, b) => a - b);
                   if (sorted.length === 0) return;
+                  if (sorted.join(',') === bin.edges.join(',')) return;
                   onChangeConfig({
                     bin: { field: bin.field, mode: 'edges', edges: sorted },
                   });
@@ -8908,8 +8911,12 @@ function IndicatorWidgetConfigEditor({
           disabled={!canEdit}
           onChange={(e) =>
             patchFormat({
+              // Clamped: a typed -1 or 200 used to reach
+              // Intl.NumberFormat and throw on the live canvas.
               decimals:
-                e.target.value === '' ? undefined : Number(e.target.value),
+                e.target.value === '' || !Number.isFinite(Number(e.target.value))
+                  ? undefined
+                  : Math.min(6, Math.max(0, Math.floor(Number(e.target.value)))),
             })
           }
           className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
@@ -8996,25 +9003,56 @@ function NumberInput({
   value,
   min,
   max,
+  step,
+  normalize,
   disabled,
   onChange,
 }: {
   value: number;
   min?: number;
   max?: number;
+  step?: string;
+  /** Turns a typed number into the value to save, or null to reject
+   *  it.  Defaults to clamping into min..max. */
+  normalize?: (n: number) => number | null;
   disabled?: boolean;
   onChange: (v: number) => void;
 }) {
+  // The box holds the text being typed.  An in-range number is
+  // written as it is typed; anything else waits for blur, where it is
+  // clamped.  min/max on the element only stop the spinner, so a
+  // typed -1 used to be saved and crash the runtime; clamping on
+  // every keystroke instead would turn the "1" of "15" into the min.
+  const [draft, setDraft] = useState<string | null>(null);
+  const clamp = (n: number): number | null => {
+    let v = n;
+    if (min !== undefined) v = Math.max(min, v);
+    if (max !== undefined) v = Math.min(max, v);
+    return v;
+  };
+  const norm = normalize ?? clamp;
   return (
     <input
       type="number"
-      value={value}
+      value={draft ?? value}
       min={min}
       max={max}
+      step={step}
       disabled={disabled}
       onChange={(e) => {
+        setDraft(e.target.value);
         const n = Number(e.target.value);
-        if (Number.isFinite(n)) onChange(n);
+        if (e.target.value !== '' && Number.isFinite(n) && norm(n) === n) {
+          onChange(n);
+        }
+      }}
+      onBlur={() => {
+        if (draft !== null) {
+          const n = Number(draft);
+          const v = draft !== '' && Number.isFinite(n) ? norm(n) : null;
+          if (v !== null && v !== value) onChange(v);
+        }
+        setDraft(null);
       }}
       className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
     />

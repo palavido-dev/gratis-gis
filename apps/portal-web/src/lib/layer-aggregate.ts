@@ -216,12 +216,19 @@ export function formatAggregateValue(
   }
   const grouping = fmt?.grouping !== false;
   const opts: Intl.NumberFormatOptions = { useGrouping: grouping };
+  // A saved value outside 0..20 (typed past the input's min/max, or
+  // written through the API) makes Intl throw a RangeError, and with
+  // no error boundary that took down the whole app page.
+  const decimals =
+    fmt?.decimals !== undefined && Number.isFinite(fmt.decimals)
+      ? clampDigits(fmt.decimals)
+      : undefined;
   if (fmt?.compact) {
     opts.notation = 'compact';
-    opts.maximumFractionDigits = fmt.decimals ?? 1;
-  } else if (fmt?.decimals !== undefined) {
-    opts.minimumFractionDigits = fmt.decimals;
-    opts.maximumFractionDigits = fmt.decimals;
+    opts.maximumFractionDigits = decimals ?? 1;
+  } else if (decimals !== undefined) {
+    opts.minimumFractionDigits = decimals;
+    opts.maximumFractionDigits = decimals;
   } else if (Number.isInteger(value) || Math.abs(value) >= 1000) {
     // Integers print bare, and so does anything past a thousand: a
     // summed deck area rendering as "798,587.58" spends two digits
@@ -234,6 +241,12 @@ export function formatAggregateValue(
   }
   const body = new Intl.NumberFormat(locale, opts).format(value);
   return `${fmt?.prefix ?? ''}${body}${fmt?.suffix ?? ''}`;
+}
+
+/** A digit count Intl.NumberFormat and toFixed both accept. */
+export function clampDigits(n: number, max = 20): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(max, Math.max(0, Math.floor(n)));
 }
 
 /** Default caption when the author has not written one. */
