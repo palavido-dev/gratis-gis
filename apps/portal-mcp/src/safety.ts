@@ -128,3 +128,39 @@ export function wrapUntrusted(
     `</untrusted-data boundary="${boundary}">`,
   ].join('\n');
 }
+
+/**
+ * A portal call that answered with an error status. The body is kept
+ * apart from the message because portal errors echo text other people
+ * wrote (a shared tool's parameter names, item titles).
+ */
+export class PortalHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+    readonly hint?: string,
+  ) {
+    super(`GratisGIS ${status}`);
+    this.name = 'PortalHttpError';
+  }
+}
+
+/**
+ * Text for a failed tool call. Only the status code and our own hint
+ * sit outside the envelope; the portal's error body goes inside it,
+ * like every other piece of portal content.
+ */
+export function formatToolError(
+  err: unknown,
+  nonce?: () => string,
+): string {
+  if (err instanceof PortalHttpError) {
+    return [
+      `Error: GratisGIS returned HTTP ${err.status}.`,
+      ...(err.hint ? [err.hint] : []),
+      wrapUntrusted('gratisgis:error', { status: err.status, body: err.body }, nonce),
+    ].join('\n');
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return `Error: ${message}`;
+}

@@ -114,7 +114,10 @@ describe('UsersController.updateMe identity fields', () => {
   it('still lets an API key set the avatar', async () => {
     const { controller, updateUser } = build();
     const user = { ...userWithRole('contributor'), authKind: 'api_key' as const };
-    await controller.updateMe(user, { avatarUrl: 'https://example.test/a.png' });
+    await controller.updateMe(user, {
+      // The default MinIO public base and bucket when nothing is configured.
+      avatarUrl: 'http://localhost:9000/gratisgis/user-avatar/00000000-0000-4000-8000-000000000001',
+    });
     expect(updateUser).not.toHaveBeenCalled();
   });
 
@@ -127,5 +130,62 @@ describe('UsersController.updateMe identity fields', () => {
     await expect(
       controller.updateMe(userWithRole('viewer'), { firstName: 'P' }),
     ).rejects.toMatchObject({ status: 503 });
+  });
+});
+
+describe('UsersController avatar and Keycloak lookups', () => {
+  const cfg = {
+    get: (k: string) =>
+      ({ MINIO_PUBLIC_BASE: 'https://files.example.org', MINIO_BUCKET: 'gg' })[k],
+  };
+
+  function controllerWith(kcGetUser = jest.fn().mockResolvedValue({ firstName: 'Pat', lastName: 'E' })) {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ avatarUrl: null, fullName: 'Pat E' }),
+        update,
+      },
+      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }) },
+    } as unknown as PrismaService;
+    const kc = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      getUser: kcGetUser,
+    } as unknown as KeycloakAdminService;
+    return { controller: new UsersController(prisma, kc, cfg as never), update, kcGetUser };
+  }
+
+  it('refuses an avatar URL that is not one of the portal uploads', async () => {
+    const { controller, update } = controllerWith();
+    await expect(
+      controller.updateMe(userWithRole('contributor'), {
+        avatarUrl: 'https://tracker.example/p.gif?u=1',
+      }),
+    ).rejects.toThrow(/uploaded to this portal/);
+    await expect(
+      controller.updateMe(userWithRole('contributor'), {
+        avatarUrl: 'https://tracker.example/gg/user-avatar/00000000-0000-4000-8000-000000000001',
+      }),
+    ).rejects.toThrow(/uploaded to this portal/);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('accepts its own upload URL and null', async () => {
+    const { controller, update } = controllerWith();
+    await controller.updateMe(userWithRole('contributor'), {
+      avatarUrl: 'https://files.example.org/gg/user-avatar/00000000-0000-4000-8000-000000000001',
+    });
+    await controller.updateMe(userWithRole('contributor'), { avatarUrl: null });
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks Keycloak for names once, with a timeout, not on every /me', async () => {
+    const { controller, kcGetUser } = controllerWith();
+    const u = userWithRole('contributor');
+    const first = await controller.me(u);
+    await controller.me(u);
+    expect(first.firstName).toBe('Pat');
+    expect(kcGetUser).toHaveBeenCalledTimes(1);
+    expect(kcGetUser.mock.calls[0][1]).toEqual({ timeoutMs: expect.any(Number) });
   });
 });

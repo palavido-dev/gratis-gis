@@ -14,6 +14,8 @@ import {
 } from './updates-logic.js';
 
 const CACHE_MS = 6 * 60 * 60 * 1000;
+/** A failed check is retried after this long instead of after CACHE_MS. */
+const FAILED_CACHE_MS = 5 * 60 * 1000;
 const REPO = process.env.GITHUB_REPOSITORY || 'palavido-dev/gratis-gis';
 
 export interface UpdateReport {
@@ -38,6 +40,8 @@ export interface UpdateReport {
 
 interface CacheEntry {
   at: number;
+  /** How long this entry is reused. */
+  ttl: number;
   report: UpdateReport;
 }
 
@@ -80,10 +84,11 @@ export class UpdatesService {
       return this.localOnly(id);
     }
     const now = Date.now();
-    if (this.cache && now - this.cache.at < CACHE_MS) {
+    if (this.cache && now - this.cache.at < this.cache.ttl) {
       return this.cache.report;
     }
     let report: UpdateReport;
+    let ttl = CACHE_MS;
     try {
       report = await this.fetchReport(id);
     } catch (err) {
@@ -91,8 +96,11 @@ export class UpdatesService {
         `Update check failed quietly: ${err instanceof Error ? err.message : String(err)}`,
       );
       report = this.localOnly(id, true);
+      // A timeout or rate limit is usually brief. Keeping "offline"
+      // for the full six hours hid updates long after GitHub was back.
+      ttl = FAILED_CACHE_MS;
     }
-    this.cache = { at: now, report };
+    this.cache = { at: now, ttl, report };
     return report;
   }
 

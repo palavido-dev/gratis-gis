@@ -396,10 +396,14 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return rows[0]?.id ?? null;
   }
 
-  async getUser(id: string): Promise<KeycloakUserRep> {
+  async getUser(
+    id: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<KeycloakUserRep> {
     const token = await this.getAccessToken();
     const res = await fetch(this.adminUrl(`/users/${id}`), {
       headers: { authorization: `Bearer ${token}` },
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
     if (res.status === 404) {
       throw new NotFoundException(`Keycloak user ${id} not found`);
