@@ -124,7 +124,9 @@ describe('IngestService with GDAL date fields', () => {
   const buffer = Buffer.from(JSON.stringify(collection), 'utf8');
 
   it('classifies the layer by the first row that has a geometry', async () => {
-    const probe = await new IngestService().probeFile(buffer, 'setores.geojson');
+    const ingest = new IngestService();
+    const tmp = await ingest.materializeBufferToTemp(buffer, 'setores.geojson');
+    const probe = await ingest.probeFileFromPath(tmp.filePath).finally(() => tmp.cleanup());
     const layer = probe.layers[0]!;
     expect(layer.geometryType).toBe('polygon');
     const types = Object.fromEntries(layer.fields.map((f) => [f.name, f.type]));
@@ -133,7 +135,7 @@ describe('IngestService with GDAL date fields', () => {
   });
 
   it('emits date values as strings the validator accepts', async () => {
-    const out = await new IngestService().fileLayerToGeoJson(buffer, 'setores.geojson', undefined);
+    const out = await new IngestService().fileToGeoJson(buffer, 'setores.geojson');
     const props = (out.geojson.features as Array<{ properties: Record<string, unknown> }>).map(
       (f) => f.properties,
     );

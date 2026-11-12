@@ -258,8 +258,10 @@ export class IngestService {
     this.assertGdalOpen(openPath, originalName, buffer);
 
     try {
-      const ds = gdal.open(openPath);
-      this.assertGdalDriver(ds);
+      // openVector, not gdal.open: it finds lat / lng columns in a CSV
+      // too large for the in-memory detector. Plain GDAL gave such a
+      // file no geometry, so every row was skipped below.
+      const ds = await this.openVector(gdal, openPath, filePath);
       try {
         const layers = ds.layers;
         const layerCount = layers.count();
@@ -268,6 +270,7 @@ export class IngestService {
             'GDAL opened the file but found no vector layers inside.',
           );
         }
+        let skippedNoGeometry = 0;
         // Flatten every layer into one FeatureCollection for v1. A
         // future pass can let the user pick which layer they want.
         const combined: unknown[] = [];
@@ -337,7 +340,10 @@ export class IngestService {
             const extra = kml?.valuesAt(featureIndex);
             featureIndex += 1;
             const geomJson = featureGeomJson(feature, xform);
-            if (!geomJson) continue;
+            if (!geomJson) {
+              skippedNoGeometry += 1;
+              continue;
+            }
             await budget.take();
             const props = remapPropsToSafeNames(
               { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
@@ -351,6 +357,14 @@ export class IngestService {
           }
         }
 
+        if (combined.length === 0 && skippedNoGeometry > 0) {
+          // Said plainly instead of answering an empty collection,
+          // which the editors showed as a successful import of nothing.
+          throw new BadRequestException(
+            `None of the ${skippedNoGeometry} rows in this file has a location. ` +
+              'Add coordinate columns (latitude and longitude) or import it as a table.',
+          );
+        }
         return {
           geojson: { type: 'FeatureCollection', features: combined },
           fields: [...fieldMap.values()],
@@ -376,48 +390,8 @@ export class IngestService {
    * A GDB archive typically has many layers; shapefile zips can too
    * (one per .shp inside the zip). KML/KMZ often has a single layer
    * but sometimes multiple. GeoJSON is always one layer.
-   */
-  async probeFile(
-    buffer: Buffer,
-    originalName: string,
-  ): Promise<{
-    driver: string;
-    layers: Array<{
-      name: string;
-      geometryType: 'point' | 'line' | 'polygon' | null;
-      fields: Array<{
-        name: string;
-        type: 'string' | 'number' | 'boolean' | 'date';
-      }>;
-      featureCount: number;
-    }>;
-  }> {
-    if (!buffer.length) {
-      throw new BadRequestException('Uploaded file is empty.');
-    }
-    if (buffer.length > this.maxBytes) {
-      throw new BadRequestException(
-        `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
-      );
-    }
-    // mkdtemp: atomic + 0700, vs mkdir-after-join which races.
-    const dirPath = await mkdtemp(join(tmpdir(), 'gg-probe-'));
-    const filePath = join(dirPath, safeFilename(originalName));
-    await writeFile(filePath, buffer);
-    try {
-      return await this.probeFileFromPath(filePath);
-    } finally {
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
-    }
-  }
-
-  /**
-   * Path variant of probeFile. Used by the staged-upload path: the
-   * file already lives on disk under /tmp/gg-staging/<id>/, so we
-   * skip the buffer-write step entirely. The cleanup of the staging
-   * dir is the staging service's problem, not this method's.
+   *
+   * Reads a file already on disk. The caller owns and removes it.
    */
   async probeFileFromPath(filePath: string): Promise<{
     driver: string;
@@ -591,173 +565,6 @@ export class IngestService {
   }
 
   /**
-   * Extract features from a single named layer inside an uploaded
-   * archive. If `sourceLayer` is omitted and the file has exactly one
-   * layer, that single layer is used. Used by the v3 per-layer import
-   * endpoint so authors can target, say, one table inside a GDB.
-   */
-  async fileLayerToGeoJson(
-    buffer: Buffer,
-    originalName: string,
-    sourceLayer: string | undefined,
-  ): Promise<{
-    geojson: { type: 'FeatureCollection'; features: unknown[] };
-    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
-    driver: string;
-    layerName: string;
-    /** Canonical auth-name:code string for the source SRS, if the
-     *  layer declared one. See fileToGeoJson for rationale. */
-    sourceSrs: string | null;
-  }> {
-    if (!buffer.length) {
-      throw new BadRequestException('Uploaded file is empty.');
-    }
-    if (buffer.length > this.maxBytes) {
-      throw new BadRequestException(
-        `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
-      );
-    }
-    // mkdtemp: atomic + 0700, vs mkdir-after-join which races.
-    const dirPath = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
-    const filePath = join(dirPath, safeFilename(originalName));
-    await writeFile(filePath, buffer);
-    try {
-      return await this.fileLayerToGeoJsonFromPath(filePath, sourceLayer);
-    } finally {
-      await rm(dirPath, { recursive: true, force: true }).catch(() => {
-        this.log.warn(`Failed to remove temp dir ${dirPath}`);
-      });
-    }
-  }
-
-  /**
-   * Path variant of fileLayerToGeoJson. Used by the staged-upload
-   * path: the file is already on disk under the staging dir, so we
-   * skip the buffer-write step. Cleanup of the staging dir is the
-   * staging service's problem; callers must NOT delete `filePath` --
-   * a single staging is consumed by N per-layer ingests.
-   */
-  async fileLayerToGeoJsonFromPath(
-    filePath: string,
-    sourceLayer: string | undefined,
-  ): Promise<{
-    geojson: { type: 'FeatureCollection'; features: unknown[] };
-    fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
-    driver: string;
-    layerName: string;
-    sourceSrs: string | null;
-  }> {
-    // GeoParquet branch: collect through the DuckDB reader. The
-    // buffer variant (fileLayerToGeoJson) lands here via its temp
-    // write, same as the GDAL path.
-    if (isParquetPath(filePath)) {
-      try {
-        return await collectParquetFromPath(filePath, sourceLayer);
-      } catch (err) {
-        throw mapParquetError(err);
-      }
-    }
-    const gdal = await this.loadGdal();
-    const openPath = await this.resolveGdalOpenPath(filePath);
-    this.assertGdalOpen(openPath, basename(filePath));
-    try {
-      const ds = gdal.open(openPath);
-      this.assertGdalDriver(ds);
-      try {
-        const layers = ds.layers;
-        const count = layers.count();
-        if (count === 0) {
-          throw new BadRequestException(
-            'GDAL opened the file but found no vector layers inside.',
-          );
-        }
-        // Resolve which layer to read.
-        let targetIdx = -1;
-        if (sourceLayer) {
-          for (let i = 0; i < count; i += 1) {
-            if (layers.get(i).name === sourceLayer) {
-              targetIdx = i;
-              break;
-            }
-          }
-          if (targetIdx === -1) {
-            throw new BadRequestException(
-              `File has no layer named "${sourceLayer}".`,
-            );
-          }
-        } else if (count === 1) {
-          targetIdx = 0;
-        } else {
-          throw new BadRequestException(
-            `File has ${count} layers. Specify which one via the "sourceLayer" query parameter.`,
-          );
-        }
-
-        const layer = layers.get(targetIdx);
-        const fields: Array<{
-          name: string;
-          type: 'string' | 'number' | 'boolean' | 'date';
-        }> = [];
-        const usedFieldNames = new Set<string>();
-        const fieldRename = new Map<string, string>();
-        const defCount = layer.fields.count();
-        for (let f = 0; f < defCount; f += 1) {
-          const def = layer.fields.get(f);
-          fields.push({
-            name: registerSafeFieldName(def.name, usedFieldNames, fieldRename),
-            type: gdalTypeToSimple(def.type),
-          });
-        }
-        const kml = kmlAugmentFor(await this.kmlExtendedFor(ds, filePath), targetIdx, layer);
-        for (const extra of kml?.fields ?? []) {
-          fields.push({
-            name: registerSafeFieldName(extra.name, usedFieldNames, fieldRename),
-            type: extra.type,
-          });
-        }
-        const target4326 = gdal.SpatialReference.fromEPSG(4326);
-        const xform = buildTransform(gdal, layer.srs, target4326);
-        const features: unknown[] = [];
-        const budget = new CollectBudget();
-        let featureIndex = 0;
-        for (
-          let feature = layer.features.first();
-          feature;
-          feature = layer.features.next()
-        ) {
-          const extra = kml?.valuesAt(featureIndex);
-          featureIndex += 1;
-          const geomJson = featureGeomJson(feature, xform);
-          if (!geomJson) continue;
-          await budget.take();
-          const props = remapPropsToSafeNames(
-            { ...(feature.fields.toObject() as Record<string, unknown>), ...extra },
-            fieldRename,
-          );
-          features.push({
-            type: 'Feature',
-            geometry: geomJson,
-            properties: props,
-          });
-        }
-        return {
-          geojson: { type: 'FeatureCollection', features },
-          fields,
-          driver: ds.driver.description,
-          layerName: layer.name,
-          sourceSrs: srsAuthCode(layer.srs),
-        };
-      } finally {
-        ds.close();
-      }
-    } catch (err) {
-      if (err instanceof BadRequestException || err instanceof PayloadTooLargeException) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new BadRequestException(`GDAL could not read that file: ${msg}`);
-    }
-  }
-
-  /**
    * Write a multipart upload buffer to a fresh temp dir and return
    * the on-disk path plus a cleanup hook. Used by callers that have
    * a Buffer in hand but want to feed the streaming GDAL reader,
@@ -790,7 +597,7 @@ export class IngestService {
   }
 
   /**
-   * Streaming variant of fileLayerToGeoJsonFromPath. Walks features
+   * Streaming read of one layer. Walks features
    * in order, invoking `onBatch` every `batchSize` features so the
    * caller can insert rows incrementally instead of buffering the
    * whole layer in JS memory.

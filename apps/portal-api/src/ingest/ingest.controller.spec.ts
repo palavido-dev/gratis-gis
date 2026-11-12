@@ -209,8 +209,18 @@ describe('IngestController publish gate', () => {
 });
 
 describe('IngestController v3 layer import', () => {
-  function fakeRes() {
-    const res = {
+  interface FakeRes {
+    statusCode: number;
+    headersSent: boolean;
+    body: string;
+    setHeader: jest.Mock;
+    flushHeaders: jest.Mock;
+    status: jest.Mock;
+    write: jest.Mock;
+    end: jest.Mock;
+  }
+  function fakeRes(): FakeRes {
+    const res: FakeRes = {
       statusCode: 200,
       headersSent: false,
       body: '',
