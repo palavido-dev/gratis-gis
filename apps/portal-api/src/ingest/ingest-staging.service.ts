@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { sweepStaleIngestTempDirs } from './disk-upload.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   copyFile,
@@ -134,6 +135,17 @@ export class IngestStagingService implements OnModuleInit {
     await this.cleanupStaleSync().catch(() => {
       // Already logged inside; swallow so a bad disk doesn't block boot.
     });
+    // Per-request upload dirs live in this container's own temp dir,
+    // so every process sweeps its own (not just the leader).
+    const sweep = (): void => {
+      void sweepStaleIngestTempDirs(INGEST_TEMP_MAX_AGE_MS)
+        .then((n) => {
+          if (n > 0) this.log.log(`Removed ${n} stale ingest upload dir(s).`);
+        })
+        .catch(() => undefined);
+    };
+    sweep();
+    setInterval(sweep, 60 * 60 * 1000).unref();
   }
 
   /**
@@ -536,6 +548,9 @@ export class IngestStagingService implements OnModuleInit {
 
 /** Exported for the spec. */
 export const STAGING_SWEEP_KEEPS_JOB_STATES = ['queued', 'running'] as const;
+
+/** An upload dir untouched this long belongs to no live request. */
+const INGEST_TEMP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 /** Per-layer feature counts next to meta.json, as [name, count] pairs.
  *  The leading dot keeps it apart from any stored upload name, which

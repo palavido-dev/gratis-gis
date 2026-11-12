@@ -52,7 +52,11 @@ import {
 } from './ingest-staging.service.js';
 import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
-import { INGEST_COLLECT_UPLOAD, INGEST_DISK_UPLOAD } from './disk-upload.js';
+import {
+  INGEST_COLLECT_UPLOAD,
+  INGEST_DISK_UPLOAD,
+  INGEST_PUBLISH_UPLOAD,
+} from './disk-upload.js';
 import {
   discardDiskUpload,
   takeContainedDiskUpload,
@@ -198,7 +202,7 @@ export class IngestController {
    * user fills in details and creates the item.
    */
   @Post('ingest/probe')
-  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
+  @UseInterceptors(FileInterceptor('file', INGEST_PUBLISH_UPLOAD))
   async probe(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
@@ -299,7 +303,7 @@ export class IngestController {
    * to re-upload, which we accept as the trade for bounded disk.
    */
   @Post('ingest/stage')
-  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
+  @UseInterceptors(FileInterceptor('file', INGEST_PUBLISH_UPLOAD))
   async stage(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
