@@ -1272,7 +1272,19 @@ export class ItemsService {
       r as unknown as Item,
       r.shares ?? [],
     );
-    return { ...r, data: redactItemData(r.type, r.data, { canEdit }) } as T;
+    return {
+      ...r,
+      data: redactItemData(r.type, r.data, {
+        canEdit,
+        readsAllFeatures: (policy) =>
+          this.sharing.readsAllFeatures(
+            user,
+            r as unknown as Item,
+            r.shares ?? [],
+            policy,
+          ),
+      }),
+    } as T;
   }
 
   /**

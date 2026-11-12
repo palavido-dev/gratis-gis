@@ -36,6 +36,7 @@ import {
   isClosedGeoLimit,
 } from '../common/closed-geo-limit.js';
 import { EngineService } from './engine.service.js';
+import { featureWriteLocksSql } from './feature-locks.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LensPolicyService } from '../policy/lens-policy.service.js';
 import {
@@ -203,7 +204,11 @@ export interface ListFeaturesArgs {
    */
   isTable?: boolean;
   /**
-   * Optional row-level policy filter (Cedar Phase D). When set,
+   * Optional row-level policy filter (Cedar Phase D). No caller in
+   * the API passes this today, so lens policies are not enforced on
+   * ANY read path (features, tiles, table, search, aggregates,
+   * paging, delta), not only on tiles. Do not rely on it for access
+   * control until it is wired into every read. When set,
    * every feature returned by the SQL query is evaluated against
    * `lensPolicy.policy` via LensPolicyService.checkFeature; rows
    * that fail are dropped from the FeatureCollection.
@@ -1278,6 +1283,18 @@ export class DataLayerEngine {
       [scope, next],
     );
     if (removed.length > 0) {
+      // A replace physically deleted every earlier row of these
+      // entities, so a restricted delta client (own rows or a geo
+      // limit) has nothing left to prove it ever saw them, and the
+      // tombstone would be filtered out: its device would keep the old
+      // features forever. Mark replace tombstones so listDeltaSince
+      // sends them to every client as payload-free deletes.
+      const tombstoneSource = args.replace
+        ? {
+            ...syncVersionSource(next),
+            details: { syncVersion: next, replaced: true },
+          }
+        : syncVersionSource(next);
       const ids = removed.map(() => uuidv7());
       await writer.query(
         `INSERT INTO observation (
@@ -1290,7 +1307,7 @@ export class DataLayerEngine {
         [
           scope,
           args.authorSub,
-          JSON.stringify(syncVersionSource(next)),
+          JSON.stringify(tombstoneSource),
           ids,
           removed,
         ],
@@ -1350,8 +1367,8 @@ export class DataLayerEngine {
    * Bulk variant of `writeFeatureCreate`. Used by the v3 ingest path
    * and by anything else that produces many features at once. Routes
    * through `EngineService.writeMany`, so all rows land in batched
-   * INSERTs (500 per statement) and a 100k-row import stays under
-   * the BFF timeout.
+   * INSERTs (WRITE_BATCH_SIZE, 2000 per statement) and a 100k-row
+   * import stays under the BFF timeout.
    *
    * Each input gets a fresh UUIDv7 entity id. The returned array is
    * order-aligned with the input array.
@@ -1408,7 +1425,8 @@ export class DataLayerEngine {
    * own: under READ COMMITTED two concurrent retries each take a
    * snapshot before the other commits, both pass the NOT EXISTS, and
    * both insert. So we serialise per (scope, entity) with a
-   * transaction-scoped advisory lock: the second retry blocks on
+   * transaction-scoped advisory lock (per entity bucket, see
+   * featureWriteLocksSql): the second retry blocks on
    * `pg_advisory_xact_lock` until the first commits, then its
    * NOT EXISTS probe (a fresh statement snapshot) sees the committed
    * row and skips the insert. The guarded INSERT is kept as well so
@@ -1463,12 +1481,18 @@ export class DataLayerEngine {
       // rows for the same entity in one INSERT would both pass it.
       // First occurrence wins; later ones report deduplicated.
       const firstByEntity = new Map<string, number>();
+      // Input position of each key's first occurrence, so the result
+      // pass below is one lookup per row instead of a rescan of the
+      // batch (quadratic: seconds of blocked event loop at 5,000 rows,
+      // inside the transaction that holds the item row lock).
+      const firstInputIndex = new Map<string, number>();
       const uniqueRows: Array<{ args: CreateFeatureArgs; obs: Observation }> = [];
       for (const w of withId) {
         const scope = this.scope(w.args.itemId, w.args.layerId);
         const key = `${scope}|${w.entity}`;
         if (firstByEntity.has(key)) continue;
         firstByEntity.set(key, uniqueRows.length);
+        firstInputIndex.set(key, w.index);
         // Fill bookkeeping and validate exactly like EngineService
         // .write() would, so this path rejects the same malformed
         // input the plain path rejects.
@@ -1490,12 +1514,6 @@ export class DataLayerEngine {
         validateObservation(obs);
         uniqueRows.push({ args: w.args, obs });
       }
-
-      // Sorted advisory-lock keys: global ordering prevents
-      // deadlocks between concurrent overlapping batches.
-      const lockKeys = uniqueRows
-        .map(({ obs }) => `${obs.scope}|${obs.entity}`)
-        .sort();
 
       const ids = uniqueRows.map(({ obs }) => requireId(obs.id));
       const txTimes = uniqueRows.map(({ obs }) => obs.txTime as Date);
@@ -1526,10 +1544,7 @@ export class DataLayerEngine {
         // OSM save-as-layer, AGO import, sample seeding) on Prisma 7.8.
         // We discard the result anyway, so ask for a row count instead
         // of rows. Do not "simplify" this back to $queryRaw.
-        await tx.$executeRaw`
-          SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
-          FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
-        `;
+        await tx.$executeRaw(featureWriteLocksSql(scopes, entities));
         // Set-based guarded insert: one row per unnest element,
         // skipped when the entity's latest observation is live.
         // `parents` is the constant empty array on the create path
@@ -1593,10 +1608,7 @@ export class DataLayerEngine {
           insertedKeys.has(key) &&
           // A same-batch duplicate is a dedupe even though its first
           // occurrence inserted.
-          withId.find(
-            (x) =>
-              `${this.scope(x.args.itemId, x.args.layerId)}|${x.entity}` === key,
-          ) === w;
+          firstInputIndex.get(key) === w.index;
         results[w.index] = {
           globalId: w.entity,
           observationId: inserted ? requireId(row.obs.id) : null,
@@ -1755,10 +1767,15 @@ export class DataLayerEngine {
     applied: Array<{ globalId: string; observationId: string }>;
     conflicts: Array<{ globalId: string; headObservationId: string | null }>;
   }> {
+    // One row per (scope, entity). A later row for the same entity is
+    // not written; it is reported as a conflict below rather than
+    // vanishing from both lists.
     const firstByEntity = new Map<string, UpdateFeatureArgs>();
+    const duplicates: UpdateFeatureArgs[] = [];
     for (const args of inputs) {
       const key = `${this.scope(args.itemId, args.layerId)}|${args.globalId}`;
       if (!firstByEntity.has(key)) firstByEntity.set(key, args);
+      else duplicates.push(args);
     }
     const rows = [...firstByEntity.values()];
     const prepared = rows.map((args) => {
@@ -1778,14 +1795,18 @@ export class DataLayerEngine {
         cell: cellForGeometry(args.geometry ?? null),
       };
       validateObservation(obs);
-      return { args, obs, expected: args.expectedHeadObservationId ?? '' };
+      // No expected head means last writer wins for that row (the
+      // UpdateFeatureArgs contract). It used to be sent as '' and the
+      // ::uuid cast failed the whole statement in a mixed batch.
+      return { args, obs, expected: args.expectedHeadObservationId ?? null };
     });
-    const lockKeys = prepared.map(({ obs }) => `${obs.scope}|${obs.entity}`).sort();
-    await tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
-      FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
-    `;
-    const inserted = await tx.$queryRaw<Array<{ id: string; entity: string }>>`
+    await tx.$executeRaw(
+      featureWriteLocksSql(
+        prepared.map(({ obs }) => obs.scope),
+        prepared.map(({ obs }) => obs.entity),
+      ),
+    );
+    const inserted = await tx.$queryRaw<Array<{ id: string; scope: string; entity: string }>>`
       INSERT INTO observation (
         id, tx_time, valid_from, valid_to, scope, entity, kind,
         attrs, geom, cell, author_sub, source, parents
@@ -1810,39 +1831,55 @@ export class DataLayerEngine {
         ${prepared.map((p) => p.expected)}::uuid[]
       ) AS t(id, tx_time, valid_from, scope, entity, attrs,
              geom_json, cell, author_sub, source, expected_head)
-      WHERE (
+      WHERE t.expected_head IS NULL
+         OR (
         SELECT o.id
         FROM observation o
         WHERE o.scope = t.scope AND o.entity = t.entity
         ORDER BY o.valid_from DESC, o.tx_time DESC, o.id DESC
         LIMIT 1
       ) = t.expected_head
-      RETURNING id, entity
+      RETURNING id, scope, entity
     `;
-    const insertedIds = new Map(inserted.map((r) => [r.entity, r.id]));
-    const missed = prepared.filter((p) => !insertedIds.has(p.obs.entity));
+    // Keyed by scope AND entity: the same entity id in two layers of
+    // one batch must not read the other layer's result.
+    const keyOf = (scope: string, entity: string) => `${scope}|${entity}`;
+    const insertedIds = new Map(inserted.map((r) => [keyOf(r.scope, r.entity), r.id]));
+    const missed = prepared.filter((p) => !insertedIds.has(keyOf(p.obs.scope, p.obs.entity)));
     let heads = new Map<string, string>();
     if (missed.length > 0) {
-      const headRows = await tx.$queryRaw<Array<{ entity: string; id: string }>>`
-        SELECT DISTINCT ON (entity) entity::text AS entity, id::text AS id
-        FROM observation
-        WHERE entity = ANY(${missed.map((p) => p.obs.entity)}::uuid[])
-          AND scope = ANY(${missed.map((p) => p.obs.scope)}::text[])
-        ORDER BY entity, valid_from DESC, tx_time DESC, observation.id DESC
+      const headRows = await tx.$queryRaw<Array<{ scope: string; entity: string; id: string }>>`
+        SELECT DISTINCT ON (o.scope, o.entity)
+          o.scope, o.entity::text AS entity, o.id::text AS id
+        FROM unnest(
+          ${missed.map((p) => p.obs.scope)}::text[],
+          ${missed.map((p) => p.obs.entity)}::uuid[]
+        ) AS m(scope, entity)
+        JOIN observation o ON o.scope = m.scope AND o.entity = m.entity
+        ORDER BY o.scope, o.entity, o.valid_from DESC, o.tx_time DESC, o.id DESC
       `;
-      heads = new Map(headRows.map((r) => [r.entity, r.id]));
+      heads = new Map(headRows.map((r) => [keyOf(r.scope, r.entity), r.id]));
     }
     return {
       applied: prepared
-        .filter((p) => insertedIds.has(p.obs.entity))
+        .filter((p) => insertedIds.has(keyOf(p.obs.scope, p.obs.entity)))
         .map((p) => ({
           globalId: p.obs.entity,
-          observationId: insertedIds.get(p.obs.entity)!,
+          observationId: insertedIds.get(keyOf(p.obs.scope, p.obs.entity))!,
         })),
-      conflicts: missed.map((p) => ({
-        globalId: p.obs.entity,
-        headObservationId: heads.get(p.obs.entity) ?? null,
-      })),
+      conflicts: [
+        ...missed.map((p) => ({
+          globalId: p.obs.entity,
+          headObservationId: heads.get(keyOf(p.obs.scope, p.obs.entity)) ?? null,
+        })),
+        ...duplicates.map((args) => {
+          const key = keyOf(this.scope(args.itemId, args.layerId), args.globalId);
+          return {
+            globalId: args.globalId,
+            headObservationId: insertedIds.get(key) ?? heads.get(key) ?? null,
+          };
+        }),
+      ],
     };
   }
 
@@ -1955,8 +1992,15 @@ export class DataLayerEngine {
     } else {
       filters.push(Prisma.sql`${sv} > ${args.since}`);
     }
+    // Tombstones written by a replace import (see commitCopiedLayer).
+    // Nothing earlier of the entity survives, so the own-rows and
+    // geo-limit checks below cannot see that the caller held it. They
+    // go to every caller as bare deletes; that reveals only an id.
+    const replacedTombstone = Prisma.sql`(o.kind = 'delete' AND (o.source->'details'->>'replaced') = 'true')`;
     if (args.ownRowsOnly !== undefined) {
-      filters.push(Prisma.sql`cr.author_sub = ${args.ownRowsOnly.userId}`);
+      filters.push(
+        Prisma.sql`(cr.author_sub = ${args.ownRowsOnly.userId} OR ${replacedTombstone})`,
+      );
     }
     let insideSql: Prisma.Sql = Prisma.sql`true`;
     if (args.isTable !== true && args.geoLimit !== undefined) {
@@ -1973,7 +2017,7 @@ export class DataLayerEngine {
         // else (a feature created and deleted outside the clip) is
         // never sent, so neither its id nor its creator leaks.
         insideSql = Prisma.sql`(o.kind <> 'delete' AND (o.geom IS NULL OR ST_Intersects(o.geom, ${clip})))`;
-        filters.push(Prisma.sql`(${insideSql} OR EXISTS (
+        filters.push(Prisma.sql`(${insideSql} OR ${replacedTombstone} OR EXISTS (
           SELECT 1 FROM observation p
           WHERE p.scope = o.scope
             AND p.entity = o.entity
@@ -1985,8 +2029,8 @@ export class DataLayerEngine {
     }
 
     const where = Prisma.join(filters, ' AND ');
-    const createJoin =
-      args.ownRowsOnly !== undefined ? Prisma.sql`JOIN LATERAL` : Prisma.sql`LEFT JOIN LATERAL`;
+    // Always a LEFT join: a replace tombstone has no create row left.
+    const createJoin = Prisma.sql`LEFT JOIN LATERAL`;
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -2128,10 +2172,6 @@ export class DataLayerEngine {
     // (by creates + the outer SELECT) so Postgres materializes
     // the full DISTINCT ON otherwise.
     const usesCandidateCte = candidateFilters.length > 0;
-    const canPushCandidateLimit =
-      usesCandidateCte &&
-      currentFilters.length === 0 &&
-      contentFilters.length === 0;
     // Inner LIMIT must be >= the outer LIMIT to satisfy the user's
     // request, plus a small buffer so the kind='delete' filter in the
     // outer SELECT doesn't leave us short. The previous floor of 100
@@ -2148,13 +2188,15 @@ export class DataLayerEngine {
     if (contentFilters.length === 0) {
       // No content predicates: the DISTINCT ON collapse over the
       // scope IS the correct read (the canonical unfiltered shape).
-      // This branch's SQL is unchanged from before the ghost-feature
-      // fix so the hot map-render path keeps its plan and its cache
-      // behaviour.
-      const candidateLimit = canPushCandidateLimit
-        ? Prisma.sql`ORDER BY entity LIMIT ${innerLimit}`
-        : Prisma.empty;
-      const currentsLimit = Prisma.sql`LIMIT ${innerLimit}`;
+      //
+      // Tombstones are dropped BELOW the limit. The limit used to sit
+      // on the collapse and the `kind <> 'delete'` filter only in the
+      // outer SELECT, so more than 10 deleted entities early in uuid
+      // order made a limited read come back short or empty (after a
+      // replace import, `limit=1` returned nothing). The collapse
+      // still streams in entity order, so the limit still stops the
+      // scan early. For the same reason the candidate set is not
+      // limited either: its first rows may all be deleted entities.
       const candidateCte = usesCandidateCte
         ? Prisma.sql`
         candidate_entities AS (
@@ -2163,7 +2205,6 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             ${candidateExtras}
-          ${candidateLimit}
         ),`
         : Prisma.empty;
       const currentsCandidateFilter = usesCandidateCte
@@ -2172,21 +2213,33 @@ export class DataLayerEngine {
       rows = await this.prisma.$queryRaw<FeatureRow[]>`
       WITH ${candidateCte}
       currents AS (
-        SELECT DISTINCT ON (entity)
-          id AS observation_id,
-          entity,
-          attrs,
-          ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
-          kind,
-          author_sub AS edited_by,
-          tx_time AS edited_at
-        FROM observation
-        WHERE scope = ${scope}
-          AND valid_from <= ${asOf}
-          ${currentsCandidateFilter}
-          ${currentExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
-        ${currentsLimit}
+        SELECT
+          latest.observation_id,
+          latest.entity,
+          latest.attrs,
+          ST_AsGeoJSON(latest.geom)::jsonb AS geom_geojson,
+          latest.kind,
+          latest.edited_by,
+          latest.edited_at
+        FROM (
+          SELECT DISTINCT ON (entity)
+            id AS observation_id,
+            entity,
+            attrs,
+            geom,
+            kind,
+            author_sub AS edited_by,
+            tx_time AS edited_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND valid_from <= ${asOf}
+            ${currentsCandidateFilter}
+            ${currentExtras}
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+        ) latest
+        WHERE latest.kind <> 'delete'
+        ORDER BY latest.entity
+        LIMIT ${innerLimit}
       ),
       creates AS (
         -- One create per entity. A resurrected entity (a create
@@ -2459,11 +2512,8 @@ export class DataLayerEngine {
 
     if (args.parentFkFilter !== undefined) {
       // Column name is caller-validated against the layer schema in
-      // the v3 controller. Quote-safe by virtue of the schema regex
-      // matching only [a-z0-9_]+; we still wrap in a JSONB key
-      // expression that uses single quotes so the column name lives
-      // inside the SQL string, not as a bound parameter (JSONB key
-      // operators do not bind via $params).
+      // the v3 controller, and reaches SQL as a bound parameter of
+      // the `->>` operator like every other attribute name here.
       const col = sanitizeJsonbKey(args.parentFkFilter.column);
       contentFilters.push(
         Prisma.sql`AND attrs->>${col} = ${args.parentFkFilter.parentId}`,
@@ -2471,28 +2521,28 @@ export class DataLayerEngine {
     }
 
     if (args.timeFilter !== undefined) {
-      // Same sanitize / interpolation discipline as parentFkFilter:
-      // the column is validated against the layer schema upstream
-      // and the value is rendered into the SQL string via the
-      // sanitizeJsonbKey helper (PostgreSQL doesn't bind JSONB key
-      // operators through $params).
+      // The column is validated against the layer schema upstream and
+      // reaches SQL as a bound parameter, as in parentFkFilter.
       //
-      // The regex guard `~` filters to ISO-8601-shaped strings
-      // before the ::timestamptz cast so a single malformed row
-      // (`attrs->>field = "n/a"`) can't 500 the whole query. The
-      // pattern matches `YYYY-MM-DD` plus an optional time tail; any
-      // value that doesn't start with a date drops to NULL via the
-      // CASE expression and naturally fails the comparison.
+      // Only values that start like a date AND parse as a timestamp
+      // are cast; anything else is NULL and fails the comparison. The
+      // date-shape check alone let `0000-00-00`, `2024-02-30` or
+      // `2024-05-01 approx` reach the cast and fail the whole read
+      // with a 500. The shape check stays so words Postgres accepts
+      // as timestamps ('today', 'epoch') do not count as dates.
       const col = sanitizeJsonbKey(args.timeFilter.column);
       const dateRe = '^[0-9]{4}-[0-9]{2}-[0-9]{2}';
+      const value = Prisma.sql`(CASE WHEN attrs->>${col} ~ ${dateRe}
+          AND pg_input_is_valid(attrs->>${col}, 'timestamptz')
+        THEN (attrs->>${col})::timestamptz END)`;
       if (args.timeFilter.from !== undefined) {
         contentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) >= ${args.timeFilter.from}::timestamptz`,
+          Prisma.sql`AND ${value} >= ${args.timeFilter.from}::timestamptz`,
         );
       }
       if (args.timeFilter.to !== undefined) {
         contentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) <= ${args.timeFilter.to}::timestamptz`,
+          Prisma.sql`AND ${value} <= ${args.timeFilter.to}::timestamptz`,
         );
       }
     }
@@ -2978,14 +3028,10 @@ export class DataLayerEngine {
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
       const pattern = `%${escaped}%`;
-      // Cast the entire JSONB to text and ILIKE over it. This
-      // searches every attribute value in one comparison. It's a
-      // single per-row predicate so the planner doesn't fan out
-      // per-column. Returns false negatives on values stored as
-      // numbers/booleans (their text repr matches) which is
-      // acceptable -- the user is doing a free-text search, they
-      // expect "contains" semantics.
-      contentFilters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+      // Match attribute VALUES only. ILIKE over `attrs::text` also
+      // matched the key names, so typing "status" or "name" returned
+      // every row of a layer that merely has such a column.
+      contentFilters.push(Prisma.sql`AND ${attrValuesIlike(pattern)}`);
     }
     if (args.where !== undefined && args.where.clauses.length > 0) {
       // A CONTENT filter, never a collapse filter. An attribute
@@ -3052,11 +3098,39 @@ export class DataLayerEngine {
     // would be another version-dependent filter waiting to
     // resurrect rows if valid_to ever were maintained.
     //
-    // The CALLER's sort is applied as a JS pass over the bounded
-    // result; with limit+1 capped at 5001 the JS sort cost is
-    // negligible.
+    // The caller's sort runs in SQL, before the LIMIT. It used to be
+    // a JS pass over the first limit+1 rows in entity order, so on a
+    // truncated page "largest first" meant the largest of the oldest
+    // 5,000 features, not of the layer. Sorting the collapsed set is
+    // the honest answer and costs a sort of the whole (filtered)
+    // layer; the table's default "extent only" keeps that bounded.
+    // Numbers sort as numbers, then any non-number values as text, so
+    // a column holding both still has one consistent order.
     const sortCol = args.sort;
-    const sortDirDesc = args.dir === 'desc';
+    const dirSql = Prisma.raw(args.dir === 'desc' ? 'DESC' : 'ASC');
+    const orderBy = (alias: string): Prisma.Sql => {
+      const a = Prisma.raw(alias);
+      if (!sortCol || sortCol === '_global_id') {
+        return Prisma.sql`ORDER BY ${a}.entity ${dirSql}`;
+      }
+      if (sortCol === '_edited_at') {
+        return Prisma.sql`ORDER BY ${a}.edited_at ${dirSql}, ${a}.entity`;
+      }
+      if (sortCol === '_created_at') {
+        return Prisma.sql`ORDER BY (
+          SELECT c.tx_time FROM observation c
+          WHERE c.scope = ${scope} AND c.entity = ${a}.entity AND c.kind = 'create'
+          ORDER BY c.valid_from DESC, c.tx_time DESC, c.id DESC
+          LIMIT 1
+        ) ${dirSql} NULLS LAST, ${a}.entity`;
+      }
+      return Prisma.sql`ORDER BY
+        CASE WHEN jsonb_typeof(${a}.attrs->${sortCol}) = 'number'
+             THEN (${a}.attrs->>${sortCol})::numeric END ${dirSql} NULLS LAST,
+        CASE WHEN jsonb_typeof(${a}.attrs->${sortCol}) NOT IN ('number', 'null')
+             THEN ${a}.attrs->>${sortCol} END ${dirSql} NULLS LAST,
+        ${a}.entity`;
+    };
 
     interface Row {
       entity: string;
@@ -3087,6 +3161,7 @@ export class DataLayerEngine {
         ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) latest
       WHERE kind <> 'delete'
+      ${orderBy('latest')}
       LIMIT ${fetchN}
     `
         : // Content predicates: candidate-then-collapse-then-filter,
@@ -3121,30 +3196,9 @@ export class DataLayerEngine {
       ) l
       WHERE l.kind <> 'delete'
         ${Prisma.join(contentFilters, ' ')}
-      ORDER BY l.entity
+      ${orderBy('l')}
       LIMIT ${fetchN}
     `;
-    const sortKey: (r: Row) => string | number = (() => {
-      if (sortCol === '_global_id' || !sortCol) {
-        return (r: Row) => r.entity;
-      }
-      if (sortCol === '_edited_at') {
-        return (r: Row) => r.edited_at.getTime();
-      }
-      const col = sortCol;
-      return (r: Row) => {
-        const v = r.attrs?.[col] as unknown;
-        if (v === null || v === undefined) return '';
-        return typeof v === 'number' ? v : String(v);
-      };
-    })();
-    rows.sort((a, b) => {
-      const va = sortKey(a);
-      const vb = sortKey(b);
-      if (va < vb) return sortDirDesc ? 1 : -1;
-      if (va > vb) return sortDirDesc ? -1 : 1;
-      return 0;
-    });
 
     const truncated = rows.length > limit;
     const kept = truncated ? rows.slice(0, limit) : rows;
@@ -3656,7 +3710,8 @@ export class DataLayerEngine {
    * the same query so the caller needs no second round-trip.
    *
    * Matching is two-layered:
-   *   1. `attrs::text ILIKE '%q%'` matches across every attribute.
+   *   1. With no `fields`, every attribute VALUE is matched (not the
+   *      key names, see attrValuesIlike).
    *      No index backs this whole-blob predicate and none should:
    *      the trigram index over the full attrs JSON that briefly
    *      existed (`observation_attrs_trgm`) was dropped by migration
@@ -3733,8 +3788,15 @@ export class DataLayerEngine {
     const pattern = `%${escaped}%`;
 
     const filters: Prisma.Sql[] = [];
-    filters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
     const fields = (args.fields ?? []).filter((f) => f.length > 0);
+    if (fields.length === 0) {
+      // No configured fields: search every value, but only values.
+      // The whole-blob `attrs::text` match also hit key names.
+      filters.push(Prisma.sql`AND ${attrValuesIlike(pattern)}`);
+    } else {
+      // Cheap whole-blob prefilter; the per-field arms below decide.
+      filters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+    }
     if (fields.length > 0) {
       // Each field name is a bound parameter to `->>`, so an arbitrary
       // attribute key can't be smuggled into the SQL text. The caller
@@ -4162,10 +4224,9 @@ export class DataLayerEngine {
    *
    * Authz model is the same as listFeatures: the caller has already
    * passed the canRead check via the controller. We do NOT plumb
-   * lens-policy row filters through MVT yet; if a layer's lens
-   * policy filters rows out, those rows would still leak in the
-   * tile. Acceptable for v1 (lens policies aren't widely used);
-   * tracked as a Phase-D follow-up. Geo-limit and boundary clip,
+   * lens-policy row filters through MVT (nor through any other read:
+   * see ListFeaturesArgs.lensPolicy, which no caller sets). Geo-limit
+   * and boundary clip,
    * which are the much more common scoping mechanisms, ARE honored
    * via ST_Intersects clauses.
    *
@@ -4392,9 +4453,18 @@ export class DataLayerEngine {
     // path should have caught it upstream.
     const SAFE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
     const fieldProjections: Prisma.Sql[] = [];
+    // Column names the tile query already uses. A declared field with
+    // one of these names (a CSV's WKT column called `geom` kept as an
+    // attribute) made two columns of the same name, and every tile of
+    // the layer failed as ambiguous. Such a field is left out of the
+    // tile; GeoJSON reads still carry it. A field declared twice is
+    // projected once for the same reason.
+    const projected = new Set<string>(['geom', '_global_id', '_label_point']);
     if (Array.isArray(args.fields)) {
       for (const f of args.fields) {
         if (!SAFE_NAME.test(f.name)) continue;
+        if (projected.has(f.name)) continue;
+        projected.add(f.name);
         // `attrs` is the JSONB column on observation; `->>'name'`
         // extracts as text, then we cast where the schema declares
         // a numeric type so MapLibre's typed expressions (e.g.
@@ -4766,6 +4836,17 @@ export class DataLayerEngine {
  * validation, so this is belt-and-suspenders against an upstream miss.
  * Replaces every character that is not `[a-zA-Z0-9_]` with `_`.
  */
+/**
+ * True when any top-level attribute VALUE matches the ILIKE pattern.
+ * Attribute rows are JSON objects; anything else falls back to the
+ * text match so jsonb_each_text never sees a non-object.
+ */
+function attrValuesIlike(pattern: string): Prisma.Sql {
+  return Prisma.sql`(CASE WHEN jsonb_typeof(attrs) = 'object'
+    THEN EXISTS (SELECT 1 FROM jsonb_each_text(attrs) kv WHERE kv.value ILIKE ${pattern})
+    ELSE attrs::text ILIKE ${pattern} END)`;
+}
+
 function sanitizeJsonbKey(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_]/g, '_');
 }

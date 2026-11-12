@@ -359,6 +359,45 @@ export class SharingService {
     return { geoLimit, rowScope, userId: user.id };
   }
 
+  /**
+   * True when the caller certainly reads every feature of a layer
+   * with this editing policy: no row scope and no geo limit. Sync, so
+   * read paths that only hold the item row can use it. It errs toward
+   * false: a boundary reference counts as a limit even if the
+   * boundary has since been deleted.
+   */
+  readsAllFeatures(
+    user: AuthUser,
+    item: Item,
+    shares: ItemShare[] = [],
+    layerPolicy: 'all-rows' | 'own-rows-only' = 'all-rows',
+  ): boolean {
+    if (item.ownerId === user.id) return true;
+    if (user.orgRole === 'admin' && item.orgId === user.orgId) return true;
+    if (this.effectiveRowScope(user, item, shares, layerPolicy, 'read') !== 'all') {
+      return false;
+    }
+    const withTiers = item as Item & {
+      publicGeoBoundaryId?: string | null;
+      orgGeoBoundaryId?: string | null;
+    };
+    if (item.access === 'public' && !withTiers.publicGeoBoundaryId) return true;
+    if (
+      item.access === 'org' &&
+      item.orgId === user.orgId &&
+      !withTiers.orgGeoBoundaryId
+    ) {
+      return true;
+    }
+    return this.matchingShares(user, shares, 'read').some((s) => {
+      const share = s as ItemShare & {
+        geoBoundaryId?: string | null;
+        geoLimit?: unknown;
+      };
+      return !share.geoBoundaryId && !(share.geoLimit && typeof share.geoLimit === 'object');
+    });
+  }
+
   private shareMatches(user: AuthUser, share: ItemShare): boolean {
     // Expired shares grant nothing (#84). The cron sweep eventually
     // deletes them, but request-time enforcement here means even a

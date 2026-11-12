@@ -38,14 +38,25 @@ function makePrisma(state: {
   invalid?: string[];
   allGgs?: string[];
   items?: Array<{ id: string; data: unknown }>;
+  /** Throw from any statement containing this text. */
+  failOn?: string;
 }) {
   const executed: string[] = [];
+  // The interactive transaction's client: the same stub.
+  let tx: unknown;
   const prisma = {
     executed,
     $executeRawUnsafe: jest.fn(async (sql: string) => {
-      executed.push(sql);
+      if (state.failOn && sql.includes(state.failOn)) {
+        throw new Error('canceling statement due to statement timeout');
+      }
+      // The per-build timeout is not part of the DDL contract.
+      if (!sql.startsWith('SET LOCAL')) executed.push(sql);
       return 0;
     }),
+    $transaction: jest.fn(
+      async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(tx),
+    ),
     $queryRaw: jest.fn(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const text = strings.join('$');
@@ -73,6 +84,7 @@ function makePrisma(state: {
       findMany: jest.fn(async () => state.items ?? []),
     },
   };
+  tx = prisma;
   return prisma as unknown as PrismaService & typeof prisma;
 }
 
@@ -284,6 +296,35 @@ describe('reconcileItem', () => {
       },
     ]);
     expect(res.created).toEqual([`idx_ggs_${SCOPE_HASH}_${OWNER_HASH}`]);
+  });
+});
+
+describe('index build failures', () => {
+  it('reports a failed build and still builds the other fields', async () => {
+    // One build cancelled by the timeout used to abort the whole pass.
+    const prisma = makePrisma({ existing: [], failOn: "'OWNER'" });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const res = await svc.reconcileItem(ITEM_ID, [
+      layer([
+        { name: 'OWNER', searchable: true },
+        { name: 'APN', searchable: true },
+      ]),
+    ]);
+    expect(res.created).toEqual([`idx_ggs_${SCOPE_HASH}_${APN_HASH}`]);
+    expect(res.skippedFields).toEqual([
+      expect.objectContaining({ scope: SCOPE, field: 'OWNER' }),
+    ]);
+    expect(res.skippedFields[0]!.reason).toMatch(/statement timeout/);
+  });
+
+  it('runs each build with its own statement timeout', async () => {
+    const prisma = makePrisma({ existing: [] });
+    const svc = new DataLayerSearchIndexService(prisma);
+    await svc.reconcileItem(ITEM_ID, [layer([{ name: 'OWNER', searchable: true }])]);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringMatching(/^SET LOCAL statement_timeout = \d+$/),
+    );
   });
 });
 

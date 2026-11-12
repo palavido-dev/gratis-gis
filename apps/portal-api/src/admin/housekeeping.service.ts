@@ -1508,7 +1508,13 @@ export class HousekeepingService {
       if (it.type === 'data_layer') {
         const layers = readV3Layers(it.data);
         if (layers !== null) {
-          next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          try {
+            next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          } catch {
+            // The extent read failed (logged inside). Keep the stored
+            // bbox rather than overwrite it with an empty one.
+            continue;
+          }
           // Same maintenance pass keeps per-layer featureCount
           // honest; this is also the backfill for items created
           // before the field was maintained (the QGIS plugin's

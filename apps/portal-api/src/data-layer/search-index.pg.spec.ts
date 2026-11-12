@@ -94,6 +94,22 @@ function prismaBridge(q: Pool | PoolClient) {
       const res = await q.query({ text, values });
       return res.rowCount ?? 0;
     },
+    // Interactive transaction on one connection, so SET LOCAL holds
+    // for the statement after it, as it does under Prisma.
+    async $transaction(fn: (tx: unknown) => Promise<unknown>) {
+      const client = await (q as Pool).connect();
+      try {
+        await client.query('BEGIN');
+        const out = await fn(prismaBridge(client));
+        await client.query('COMMIT');
+        return out;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
   };
   return bridge as unknown as PrismaService & { captured: typeof captured };
 }

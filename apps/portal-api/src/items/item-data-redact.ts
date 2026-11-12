@@ -11,7 +11,8 @@
  *     full copies of both sides of a conflicted feature, including
  *     rows a row-scoped or geo-limited viewer may not read. Only
  *     callers who can edit the layer (and so resolve the conflicts)
- *     get them.
+ *     AND read every feature of that layer get them. An edit share
+ *     limited to own rows or to an area still passes canEdit.
  *
  * Every read path that returns `data` (item detail, list with full
  * data, the public item endpoint) runs through this one function.
@@ -19,7 +20,13 @@
 export function redactItemData(
   type: string,
   data: unknown,
-  opts: { canEdit: boolean },
+  opts: {
+    canEdit: boolean;
+    /** Whether the reader sees every feature of a layer with this
+     *  editing policy. Absent means yes (callers that only pass
+     *  canEdit: false never keep conflicts anyway). */
+    readsAllFeatures?: (layerPolicy: 'all-rows' | 'own-rows-only') => boolean;
+  },
 ): unknown {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
   const obj = data as Record<string, unknown>;
@@ -34,11 +41,18 @@ export function redactItemData(
       }),
     };
   }
-  if (type === 'data_layer' && !opts.canEdit && Array.isArray(obj.layers)) {
+  if (type === 'data_layer' && Array.isArray(obj.layers)) {
     return {
       ...obj,
       layers: obj.layers.map((layer: unknown) => {
         if (!layer || typeof layer !== 'object') return layer;
+        const policy =
+          (layer as { editingPolicy?: unknown }).editingPolicy === 'own-rows-only'
+            ? 'own-rows-only'
+            : 'all-rows';
+        if (opts.canEdit && (opts.readsAllFeatures?.(policy) ?? true)) {
+          return layer;
+        }
         const { syncConflicts: _conflicts, ...rest } = layer as Record<string, unknown>;
         void _conflicts;
         return rest;

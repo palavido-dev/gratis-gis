@@ -128,6 +128,53 @@ function makeItems(rows: Record<string, ReturnType<typeof row>>) {
   return { svc, prisma };
 }
 
+describe('sync conflicts for a scoped editor', () => {
+  function editShare(over: Record<string, unknown>) {
+    return {
+      id: 's1',
+      itemId: 'L',
+      principalType: 'user',
+      principalId: 'viewer-1',
+      permission: 'edit',
+      rowScope: 'all',
+      editRowScope: null,
+      geoBoundaryId: null,
+      geoLimit: null,
+      expiresAt: null,
+      ...over,
+    };
+  }
+  const shown = async (share: Record<string, unknown>, data = layerData()) => {
+    const { svc } = makeItems({
+      L: row('L', { type: 'data_layer', access: 'private', data, shares: [share] }),
+    });
+    return (await svc.getForReader(user(), 'L')).data as ReturnType<typeof layerData>;
+  };
+
+  it('keeps them for an editor who reads every feature', async () => {
+    expect((await shown(editShare({}))).layers[0]!.syncConflicts).toHaveLength(1);
+  });
+
+  it('removes them for an editor limited to own rows', async () => {
+    // The artifacts hold other people's rows, which /features hides
+    // from this editor.
+    const out = await shown(editShare({ rowScope: 'own' }));
+    expect(out.layers[0]).not.toHaveProperty('syncConflicts');
+  });
+
+  it('removes them for an editor limited to an area', async () => {
+    const out = await shown(editShare({ geoBoundaryId: '00000000-0000-4000-8000-0000000000cc' }));
+    expect(out.layers[0]).not.toHaveProperty('syncConflicts');
+  });
+
+  it('removes them on a layer whose policy is own rows only', async () => {
+    const data = layerData();
+    (data.layers[0] as Record<string, unknown>).editingPolicy = 'own-rows-only';
+    const out = await shown(editShare({}), data);
+    expect(out.layers[0]).not.toHaveProperty('syncConflicts');
+  });
+});
+
 describe('ItemsService reads', () => {
   it('getForReader strips markup tokens for the map owner while get() keeps them for update()', async () => {
     const { svc } = makeItems({ [MAP_ID]: row(MAP_ID, { data: mapData(), ownerId: 'viewer-1' }) });

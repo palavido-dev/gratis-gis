@@ -66,7 +66,9 @@ export class DataLayerTablesService {
    * skipped. Returns null when no layer in the set yields a usable
    * extent: the caller stores that as `bbox = []` so the area
    * filter correctly excludes the item from "what's in this area?"
-   * results until features land.
+   * results until features land. A failed read throws: answering
+   * null would make the caller store an empty extent for a layer
+   * that has features, which drops it out of area search.
    */
   async aggregateBbox(
     itemId: string,
@@ -121,11 +123,12 @@ export class DataLayerTablesService {
           any = true;
         }
       } catch (err) {
-        this.log.debug(
+        this.log.warn(
           `aggregateBbox: could not read scope ${scope}: ${
             err instanceof Error ? err.message : err
           }`,
         );
+        throw err;
       }
     }
     return any ? [w, s, e, n] : null;
@@ -205,8 +208,13 @@ export class DataLayerTablesService {
     for (const layer of data.layers) {
       const layerId = (layer as { id?: unknown }).id;
       if (typeof layerId !== 'string' || layerId === '') continue;
-      counts.set(layerId, await this.countLiveEntities(itemId, layerId));
+      // A failed count is left out, so the layer keeps its last known
+      // featureCount. Writing 0 would tell the QGIS plugin a huge
+      // layer is empty and safe to download whole.
+      const count = await this.readLiveCount(itemId, layerId);
+      if (count !== null) counts.set(layerId, count);
     }
+    if (counts.size === 0) return false;
     // Then write only featureCount, against the row as it is now and
     // under the same row lock commitLayerSync takes. Writing back the
     // `data` read above would put a stale syncVersion back if an edit
@@ -246,6 +254,14 @@ export class DataLayerTablesService {
     itemId: string,
     layerId: string,
   ): Promise<number> {
+    return (await this.readLiveCount(itemId, layerId)) ?? 0;
+  }
+
+  /** Live entity count, or null when the count query failed. */
+  private async readLiveCount(
+    itemId: string,
+    layerId: string,
+  ): Promise<number | null> {
     const scope = `data_layer:${itemId}:${layerId}`;
     try {
       const rows = await this.prisma.$queryRawUnsafe<
@@ -268,7 +284,7 @@ export class DataLayerTablesService {
           err instanceof Error ? err.message : err
         }`,
       );
-      return 0;
+      return null;
     }
   }
 }

@@ -339,7 +339,9 @@ export class OgcTilesController {
       z < 0 ||
       z > 24 ||
       x < 0 ||
-      y < 0
+      y < 0 ||
+      x >= 2 ** z ||
+      y >= 2 ** z
     ) {
       throw new BadRequestException(
         'Invalid tile coordinates. Expect non-negative integers; z <= 24.',

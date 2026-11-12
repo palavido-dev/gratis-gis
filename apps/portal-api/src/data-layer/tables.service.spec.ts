@@ -114,6 +114,33 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
       .data.data.layers;
     expect(written[0]).toMatchObject({ syncVersion: 5, featureCount: 9 });
   });
+
+  it('keeps the last known count when the count query fails', async () => {
+    // A timed-out count used to be stored as featureCount 0.
+    const { svc, prisma } = service({
+      data: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', featureCount: 1400000 }],
+      },
+    });
+    prisma.$queryRawUnsafe.mockRejectedValue(new Error('statement timeout'));
+    expect(await svc.stampFeatureCounts('item-1')).toBe(false);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('DataLayerTablesService.aggregateBbox', () => {
+  it('throws when the extent read fails instead of reporting no extent', async () => {
+    // null means "no features" and is stored as bbox []. A failed read
+    // must not look like that.
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockRejectedValue(new Error('statement timeout')),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(
+      svc.aggregateBbox('item-1', [{ id: 'a', geometryType: 'point', fields: [] }]),
+    ).rejects.toThrow('statement timeout');
+  });
 });
 
 /**

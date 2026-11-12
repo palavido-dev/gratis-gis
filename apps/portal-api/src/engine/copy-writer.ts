@@ -80,6 +80,10 @@ export class CopyWriter {
       max: 1,
       min: 0,
     });
+    // An idle client that loses its connection emits on the pool. An
+    // 'error' event with no listener is thrown as an uncaught
+    // exception, and the worker process has no handler for that.
+    this.pool.on('error', () => {});
   }
 
   /**
@@ -100,6 +104,15 @@ export class CopyWriter {
    *  the transaction (see `deleteScope`). Pair with `beginCopy()`. */
   async begin(): Promise<void> {
     this.client = await this.pool.connect();
+    // pg-pool drops its own error listener while a client is checked
+    // out, and this one is held for the whole import. Without a
+    // listener a Postgres restart or a terminated backend mid-COPY
+    // throws "Connection terminated unexpectedly" as an uncaught
+    // exception and kills the whole worker process, every other job
+    // with it. Record it instead so the job fails on its own.
+    this.client.on('error', (err: unknown) => {
+      this.streamError ??= err instanceof Error ? err : new Error(String(err));
+    });
     // synchronous_commit stays ON. Turning it off let COMMIT return
     // before the WAL flush, so a power loss could drop a load the
     // job row later called succeeded, or leave rows behind a job
@@ -209,7 +222,6 @@ export class CopyWriter {
     // error, often while nothing is waiting on it. Without this the
     // next write returned false and writeBatch waited for a drain that
     // never came: an import sat at its first batch forever (#573).
-    this.streamError = null;
     this.stream.on('error', (err: unknown) => {
       this.streamError ??= err instanceof Error ? err : new Error(String(err));
     });

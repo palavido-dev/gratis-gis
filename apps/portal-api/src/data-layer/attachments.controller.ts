@@ -29,6 +29,7 @@ import {
 } from './attachments-access.js';
 import { DataLayerEngine } from '../engine/data-layer.js';
 import { DataLayerAttachmentsService } from './attachments.service.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 class RegisterAttachmentDto implements RegisterFeatureAttachmentInput {
   @IsString() @MaxLength(500) fileName!: string;
@@ -143,12 +144,15 @@ export class DataLayerAttachmentsController {
       row.storageKey,
       rangeHeader,
     );
+    // Registered before any header is set: if anything below threw,
+    // the open S3 stream would otherwise hold its socket until the
+    // SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     const servedType = (upstream.contentType ?? '')
       .split(';')[0]!
       .trim()
       .toLowerCase();
     const inlineSafe = /^image\/(png|jpeg|webp|gif|avif)$/.test(servedType);
-    const safeName = row.fileName.replace(/["\\\r\n]/g, '');
 
     res.status(upstream.statusCode);
     if (upstream.contentType) {
@@ -164,11 +168,10 @@ export class DataLayerAttachmentsController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      `${inlineSafe ? 'inline' : 'attachment'}; filename="${safeName}"`,
+      contentDisposition(inlineSafe ? 'inline' : 'attachment', row.fileName),
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
-    res.on('close', () => upstream.body.destroy());
     upstream.body.pipe(res);
   }
 
