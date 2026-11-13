@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Item } from '@prisma/client';
 import {
@@ -15,6 +15,13 @@ import {
   dataLayerSourceSqlFragment,
 } from '../engine/data-layer.js';
 import { getGeneratorForStep } from './tools/registry.js';
+import {
+  DerivedResultCache,
+  queryHash,
+  scopeVersions,
+  scopesInSql,
+  type DerivedRow,
+} from './result-cache.js';
 import type { ToolEnrichContext } from './tools/types.js';
 
 /**
@@ -98,6 +105,10 @@ function isRowLocalStep(step: ToolStep): boolean {
  */
 @Injectable()
 export class DerivedLayersService {
+  private readonly log = new Logger(DerivedLayersService.name);
+  /** Recent read results; see result-cache.ts (07-7). */
+  private readonly resultCache = new DerivedResultCache();
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ---------------------------------------------------------------
@@ -549,15 +560,28 @@ export class DerivedLayersService {
       LIMIT $${limitParam}
     `;
 
-    type RawRow = {
-      global_id: string;
-      geom: string | null;
-      properties: Record<string, unknown> | null;
-    };
-    const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
-      sql,
-      ...queryParams,
-    );
+    // Serve a recent result when no source layer has been written
+    // since (07-7). If the version probe fails, compute without the
+    // cache rather than fail the read.
+    let cacheKey: string | null = null;
+    try {
+      const versions = await scopeVersions(this.prisma, scopesInSql(sql));
+      cacheKey = `${queryHash(sql, queryParams)}|${versions}`;
+    } catch (err) {
+      this.log.debug(
+        `derived-layer cache: version probe failed, reading uncached: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    let rows = cacheKey ? this.resultCache.get(cacheKey) : undefined;
+    if (!rows) {
+      rows = await this.prisma.$queryRawUnsafe<DerivedRow[]>(
+        sql,
+        ...queryParams,
+      );
+      if (cacheKey) this.resultCache.set(cacheKey, rows);
+    }
 
     return {
       type: 'FeatureCollection',
