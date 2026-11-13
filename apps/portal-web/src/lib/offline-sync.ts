@@ -316,6 +316,9 @@ export async function syncQueue(
         // the attempt bookkeeping alone.
         await updateQueueRecord({
           ...before,
+          // Form attachments that did upload are kept (see
+          // uploadPendingInProperties); everything else as it was.
+          properties: claimed.properties,
           syncStatus: before.syncStatus === 'failed' ? 'failed' : 'pending',
           // The request may have landed with only the answer lost.
           mayHaveReachedServer: true,
@@ -455,18 +458,25 @@ export async function discardRejected(record: QueueRecord): Promise<void> {
  * The record's properties with any form attachment still pending
  * (a photo or signature answer saved as `{ dataUrl }` while offline)
  * uploaded to storage and swapped for its `{ url, key }` descriptor,
- * so the row stores descriptors, not base64. Works on a copy: the
- * queue row keeps its pending shape until the write succeeds, so a
- * failed replay retries the upload. A network failure here is the
- * radio, not the row (ReplayUnreachable), like replayFetch.
+ * so the row stores descriptors, not base64. A network failure here is
+ * the radio, not the row (ReplayUnreachable), like replayFetch.
+ *
+ * Every upload that lands is written back to the queue row at once,
+ * before the feature write and even when a later upload fails. The row
+ * used to keep its pending shape until the write succeeded, so each
+ * failed attempt uploaded the same bytes again under a new key, and a
+ * retried update no longer matched what had landed, so the server's
+ * echo of this device's own write read as a conflict.
  */
 async function uploadPendingInProperties(
-  properties: Record<string, unknown> | null,
+  r: QueueRecord,
 ): Promise<Record<string, unknown>> {
-  const copy = structuredClone(properties ?? {});
+  const before = JSON.stringify(r.properties ?? {});
+  const copy = structuredClone(r.properties ?? {});
   try {
     await uploadPendingAttachmentsInResponse(copy);
   } catch (err) {
+    await keepUploadedAttachments(r, copy, before);
     if (err instanceof TypeError) {
       throw new ReplayUnreachable(
         err.message
@@ -476,7 +486,21 @@ async function uploadPendingInProperties(
     }
     throw err;
   }
+  await keepUploadedAttachments(r, copy, before);
   return copy;
+}
+
+/** Store the uploaded descriptors on the claimed row (and on `r`, so
+ *  the drain's own write-back after a failure carries them too). The
+ *  row is claimed while this runs, so no edit can be folded into it. */
+async function keepUploadedAttachments(
+  r: QueueRecord,
+  properties: Record<string, unknown>,
+  before: string,
+): Promise<void> {
+  if (JSON.stringify(properties) === before) return;
+  r.properties = structuredClone(properties);
+  await updateQueueRecord(r);
 }
 
 async function replayRecord(
@@ -487,7 +511,7 @@ async function replayRecord(
     r.layerKey,
   )}/features`;
   if (r.op === 'insert') {
-    const properties = await uploadPendingInProperties(r.properties);
+    const properties = await uploadPendingInProperties(r);
     // POST has no checkOnly on the API; creates go straight through.
     const res = await replayFetch(layerPath, {
       method: 'POST',
@@ -515,7 +539,7 @@ async function replayRecord(
     return;
   }
   if (r.op === 'update') {
-    const properties = await uploadPendingInProperties(r.properties);
+    const properties = await uploadPendingInProperties(r);
     const patchBody: Record<string, unknown> = {
       properties,
       ...(r.geometry !== null ? { geometry: r.geometry } : {}),
