@@ -95,6 +95,7 @@ import {
 } from './layer-delta.js';
 import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
+import { deriveExportFields } from './export-fields.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 import { linkedDataCollection } from './data-collection-link.js';
 import { assertGeometryFamilies } from './geometry-family.js';
@@ -1399,7 +1400,9 @@ export class DataLayerFeaturesController {
     };
     if (at) iterOpts.at = at;
 
-    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
+    const fields = await this.exportFields(layer, () =>
+      this.v3.iterateFeatures(itemId, layerId, iterOpts),
+    );
 
     // Geometry-mode opts. `auto` (default) uses lon/lat for point layers
     // and WKT for everything else; explicit modes force the shape.
@@ -1554,8 +1557,6 @@ export class DataLayerFeaturesController {
     } = { ...opts };
     if (at) iterOpts.at = at;
 
-    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
-
     if (geoParquetExportsRunning >= GEOPARQUET_EXPORT_SLOTS) {
       res.setHeader('Retry-After', '30');
       throw new HttpException(
@@ -1570,6 +1571,9 @@ export class DataLayerFeaturesController {
     // dirs (CodeQL js/insecure-temporary-file).
     let workDir: string | undefined;
     try {
+      const fields = await this.exportFields(layer, () =>
+        untilAborted(this.v3.iterateFeatures(itemId, layerId, iterOpts), signal),
+      );
       workDir = await mkdtemp(join(tmpdir(), 'gg-export-'));
       let result: { path: string; rows: number };
       try {
@@ -1833,6 +1837,21 @@ export class DataLayerFeaturesController {
       });
     }
     return result;
+  }
+
+  /**
+   * Export columns for a layer. Declared fields when the layer has
+   * any; otherwise one extra pass over the same rows to find the keys
+   * the features carry, so a schema-less layer does not export as
+   * geometry only (06-16).
+   */
+  private async exportFields(
+    layer: { fields?: unknown } | undefined,
+    rows: () => AsyncIterable<Array<{ properties?: unknown }>>,
+  ): Promise<FeatureField[]> {
+    const declared = (layer?.fields ?? []) as FeatureField[];
+    if (declared.length > 0) return declared;
+    return deriveExportFields(rows());
   }
 
   /**

@@ -207,6 +207,38 @@ describe('DataLayerFeaturesController.csv error handling', () => {
   });
 });
 
+describe('DataLayerFeaturesController.csv on a layer with no declared fields', () => {
+  it('derives the columns from the rows instead of writing geometry only', async () => {
+    const { controller, items, iterateFeatures } = makeController({
+      canDownload: true,
+    });
+    const item = await items.get();
+    (item.data.layers[0] as { fields: unknown[] }).fields = [];
+    items.get.mockResolvedValue(item);
+    iterateFeatures.mockImplementation(async function* () {
+      yield [
+        { id: 'a', properties: { kind: 'oak', height: 12 }, geometry: null },
+        { id: 'b', properties: { kind: 'elm' }, geometry: null },
+      ];
+    });
+    let body = '';
+    const res = {
+      destroyed: false,
+      setHeader: jest.fn(),
+      write: jest.fn((chunk: string) => {
+        body += chunk;
+        return true;
+      }),
+      end: jest.fn(),
+      destroy: jest.fn(),
+    } as unknown as Response;
+    await controller.csv(res, makeUser(), ITEM_ID, LAYER_ID, undefined, undefined, undefined, undefined, undefined, 'none');
+    expect(body.split('\r\n')).toEqual(['kind,height', 'oak,12', 'elm,']);
+    // One pass to find the columns, one to write the rows.
+    expect(iterateFeatures).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('DataLayerFeaturesController.geoparquet limits', () => {
   afterEach(() => writeExport.mockReset());
 
