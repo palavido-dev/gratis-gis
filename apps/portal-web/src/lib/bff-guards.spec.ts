@@ -129,7 +129,7 @@ describe('PAGE_CSP_SOURCE', () => {
     // Jest here is CommonJS and cannot load the .mjs, so read the
     // constant from source.
     const source = readFileSync(join(__dirname, 'content-security-policy.mjs'), 'utf8');
-    const PAGE_CSP_SOURCE = /PAGE_CSP_SOURCE = '([^']+)'/.exec(source)![1]!;
+    const PAGE_CSP_SOURCE = /PAGE_CSP_SOURCE =\s*'([^']+)'/.exec(source)![1]!;
     const { getPathMatch } = jest.requireActual<{
       getPathMatch: (
         path: string,
@@ -144,6 +144,13 @@ describe('PAGE_CSP_SOURCE', () => {
     expect(Boolean(match('/items/abc'))).toBe(true);
     expect(Boolean(match('/api/auth/session'))).toBe(true);
     expect(Boolean(match('/api/portal/items/x/proxy/a'))).toBe(false);
+    // The app runtime's policy comes from the middleware (28b-5).
+    const app = '/items/11111111-1111-4111-8111-111111111111';
+    expect(Boolean(match(`${app}/custom/run`))).toBe(false);
+    expect(Boolean(match(`${app}/custom/run/`))).toBe(false);
+    expect(Boolean(match(`${app}/custom`))).toBe(true);
+    expect(Boolean(match(`${app}/custom/runner`))).toBe(true);
+    expect(Boolean(match(`${app}/viewer/run`))).toBe(true);
   });
 });
 

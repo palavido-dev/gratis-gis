@@ -1012,6 +1012,7 @@ export const es: Partial<CatalogShape> = {
     moreAddOptions: 'Más opciones de añadir',
     addGroup: 'Añadir grupo',
     emptyNoLayers: 'Aún no hay capas.',
+    tablesHeading: 'Tablas',
     emptyCanEdit: 'Añade una desde una URL, el portal o el catálogo curado.',
     emptyViewer: 'El propietario no ha añadido ninguna capa.',
     newGroupDefaultTitle: 'Grupo nuevo',
@@ -1223,6 +1224,7 @@ export const es: Partial<CatalogShape> = {
     noIconsMatch: 'Ningún icono coincide.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Solo las {count} entidades elegidas en la tabla de atributos',
     clauses: 'Cláusulas',
     noFilter: 'Sin filtro',
     matchAll: 'coincidir TODAS',
@@ -2284,8 +2286,6 @@ export const es: Partial<CatalogShape> = {
     loadingMaps: 'Cargando mapas...',
     noMaps: 'Aún no hay mapas',
     layerGone: '{item} ya no tiene una capa "{layerKey}".',
-    tableNoShapes:
-      '{layer} es una tabla sin formas, así que no hay nada que dibujar.',
   },
   mapAddLayer: {
     title: 'Añadir capa',
@@ -2427,6 +2427,9 @@ export const es: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Oculta',
+    hiddenLayerHint:
+      'Esta capa está desactivada. Al elegir el resultado se activa.',
     geocoderUnavailable:
       'La búsqueda de lugares no está disponible ahora mismo ({reason}). Los resultados de capas de arriba no se ven afectados.',
     noPlaces:
@@ -2906,6 +2909,7 @@ export const es: Partial<CatalogShape> = {
     moreNotShown: '+{count} más no mostrados.',
   },
   mapComments: {
+    loadOlder: 'Cargar hilos anteriores',
     title: 'Comentarios',
     panelAria: 'Comentarios del mapa',
     closeAria: 'Cerrar panel de comentarios',
@@ -3484,6 +3488,18 @@ export const es: Partial<CatalogShape> = {
       'Conserva los volúmenes. El siguiente arranque actualiza Keycloak. Para HTTPS con Tailscale, usa el nombre MagicDNS con https:// y Tailscale Serve. Una IP de la tailnet sigue en http:// con el puerto.',
   },
   adminSecurity: {
+    embedTitle:
+      'Sitios que las apps pueden incrustar',
+    embedIntro:
+      'El widget Incrustar de las apps personalizadas puede mostrar páginas de estos sitios. Escribe una dirección por línea, por ejemplo https://dashboards.example.org. Usa https://*.example.org para todos los subdominios. Las demás páginas del portal siguen sin incrustar nada externo.',
+    embedSave:
+      'Guardar sitios',
+    embedSaving:
+      'Guardando…',
+    embedSaved:
+      'Guardado.',
+    embedErr:
+      'No se pudieron guardar los sitios.',
     pageIntro:
       'Añade una cuenta de trabajo que la gente ya tenga y decide si el próximo inicio de sesión debe configurar un autenticador.',
     errLoad: 'No se pudieron cargar los ajustes de inicio de sesión.',

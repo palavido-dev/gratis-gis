@@ -524,7 +524,26 @@ export type MapFilterOp =
   | '<='
   | 'contains'
   | 'is-null'
-  | 'is-not-null';
+  | 'is-not-null'
+  // Membership in a list of feature ids. Only on the hidden
+  // `_global_id` of a current-format data layer, with the ids comma
+  // separated in `value` (see FILTER_IN_FIELD). Written by the
+  // attribute table's "Use as filter" so the filter matches exactly
+  // the selected features.
+  | 'in';
+
+/** The one field the `in` operator may name. */
+export const FILTER_IN_FIELD = '_global_id';
+/** Most ids one `in` clause may list; the server refuses more. */
+export const FILTER_IN_MAX_VALUES = 1000;
+
+/** The ids an `in` clause lists, blanks dropped. */
+export function filterInValues(value: string): string[] {
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
 
 /**
  * A single where-clause. Stays string-typed so the editor stores a
@@ -546,6 +565,23 @@ export interface MapLayerFilterClause {
 export interface MapLayerFilter {
   combinator: 'all' | 'any';
   clauses: MapLayerFilterClause[];
+}
+
+/**
+ * A filter with a second filter ANDed beside it. Runtime and wire
+ * only; nothing saves this shape (a saved layer or source filter is
+ * always a plain MapLayerFilter).
+ *
+ * A reader's cross-filter click narrows the author's filter. When the
+ * author wrote "match any" over two or more clauses, the flat shape
+ * cannot say "(A or B) and selection", and merging the clauses
+ * turned it into "A and B and selection". The selection rides in
+ * `and` instead, and every evaluator (MapLibre expression, in-memory
+ * matcher, server SQL) ANDs it with the outer filter. `and` itself
+ * never carries another `and`.
+ */
+export interface ScopedLayerFilter extends MapLayerFilter {
+  and?: MapLayerFilter;
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   parseAggregateQuery,
   parseVia,
   parseWhere,
+  whereFieldNames,
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
@@ -55,6 +56,7 @@ import {
 } from '../data-layer/tile-settings.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
+import { readEmbedOrigins } from '../admin/embed-origins.js';
 import { ItemsService } from '../items/items.service.js';
 import { redactItemData } from '../items/item-data-redact.js';
 import {
@@ -306,11 +308,32 @@ export class PublicController {
   }
 
   /**
+   * Sites the Embed widget may frame on app runtime pages (review
+   * 28b-5). portal-web's middleware reads this to build `frame-src`
+   * for /items/:id/custom/run, so it must answer without a session.
+   * The list is site addresses an admin chose to allow; it holds
+   * nothing private.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @Get('embed-origins')
+  async embedOrigins(): Promise<{ origins: string[] }> {
+    return { origins: await readEmbedOrigins(this.prisma) };
+  }
+
+  /**
    * Anonymous list of items, intended for the viewer runtime to
    * pull a list of public basemaps without a session. Limited to
-   * type=basemap today; callers asking for any other type get an
-   * empty list rather than the full public catalog (the dedicated
-   * landing / catalog feeds are the right surface for that).
+   * type=basemap and type=theme; callers asking for any other type
+   * get an empty list rather than the full public catalog (the
+   * dedicated landing / catalog feeds are the right surface for
+   * that).
+   *
+   * type=theme lets an anonymous viewer of a public app get the
+   * admin's customised starter theme ('forest') instead of the stock
+   * colours. Only themes shared publicly are served. `?orgId=` scopes
+   * the list to the app's organization, so one org's "forest" never
+   * colours another org's app.
    *
    * Mirrors the authed list's paging contract so the runtime pages
    * can swap one for the other without branching: data_json is
@@ -329,17 +352,23 @@ export class PublicController {
     @Query('full') full?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('orgId') orgId?: string,
   ) {
-    if (type !== 'basemap') {
+    if (type !== 'basemap' && type !== 'theme') {
       // Keep the header present on the refusal path too so a pager
       // that trusts it never mistakes "not allowed" for "more pages".
       res.setHeader('X-Total-Count', '0');
       return [];
     }
+    // A malformed orgId would make Postgres reject the uuid cast, so
+    // it is treated as "no org filter" rather than a 500.
+    const orgFilter =
+      orgId && isUuidShape(orgId) ? { orgId } : {};
     const where = {
-      type: 'basemap',
+      type,
       access: 'public',
       deletedAt: null,
+      ...orgFilter,
     } as const;
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const take =
@@ -666,7 +695,7 @@ export class PublicController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
-      ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.where),
       ...(parsed.via ? [parsed.via.myField] : []),
       ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
@@ -791,7 +820,7 @@ export class PublicController {
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
     for (const name of [
-      ...(parsedWhere?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsedWhere),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -895,7 +924,7 @@ export class PublicController {
     } = {};
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
-    for (const name of (parsedWhere?.clauses ?? []).map((c) => c.field)) {
+    for (const name of whereFieldNames(parsedWhere)) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
           `"${name}" is not a field on this layer.`,
@@ -971,7 +1000,7 @@ export class PublicController {
     const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
     for (const name of [
       parsed.parentField,
-      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.parentWhere),
     ]) {
       if (!parentAllowed.has(name)) {
         throw new BadRequestException(
@@ -1099,10 +1128,10 @@ export class PublicController {
     const where = parseWhere(whereRaw);
     if (where) {
       const allowed = new Set(layer.fields.map((f) => f.name));
-      for (const c of where.clauses) {
-        if (!allowed.has(c.field)) {
+      for (const name of whereFieldNames(where)) {
+        if (!allowed.has(name)) {
           throw new BadRequestException(
-            `"${c.field}" is not a field on this layer.`,
+            `"${name}" is not a field on this layer.`,
           );
         }
       }

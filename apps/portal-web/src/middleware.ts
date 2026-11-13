@@ -7,12 +7,62 @@
  * The `matcher` below is the list of routes that require a session. Public
  * pages (the home page, the /api/auth/* routes) are intentionally excluded.
  */
-import { withAuth } from 'next-auth/middleware';
+import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
+import { NextResponse } from 'next/server';
 
-// No handler of its own: an authorized request goes through unchanged.
-// (It used to stamp an x-gratis-pathname header for AppShell, which
-// now reads the path on the client; see components/app-shell.tsx.)
+import { APP_RUNTIME_PATH_RE, appRuntimeCsp } from './lib/app-runtime-csp';
+
+const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
+/** How long this server trusts its copy of the embed allow-list. An
+ *  admin's change shows up on app pages within this long. */
+const EMBED_ORIGINS_TTL_MS = 30_000;
+let embedOrigins: { list: string[]; at: number } | null = null;
+
+/** The admin's embed allow-list, cached. A failed read keeps the last
+ *  good list, or none, so the page always gets a policy. */
+async function loadEmbedOrigins(): Promise<string[]> {
+  if (embedOrigins && Date.now() - embedOrigins.at < EMBED_ORIGINS_TTL_MS) {
+    return embedOrigins.list;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/public/embed-origins`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { origins?: unknown };
+      const list = Array.isArray(body.origins)
+        ? body.origins.filter((o): o is string => typeof o === 'string')
+        : [];
+      embedOrigins = { list, at: Date.now() };
+      return list;
+    }
+  } catch {
+    /* fall through to the last good list */
+  }
+  return embedOrigins?.list ?? [];
+}
+
+// Authorized requests go through unchanged, except the custom app
+// runtime, which gets its Content-Security-Policy here: the page
+// policy plus the admin's allowed embed sites in frame-src (review
+// 28b-5). next.config skips that path so its header cannot win.
 export default withAuth(
+  async function middleware(req: NextRequestWithAuth) {
+    if (!APP_RUNTIME_PATH_RE.test(req.nextUrl.pathname)) {
+      return NextResponse.next();
+    }
+    // Loaded here rather than at the top: the policy lives in an .mjs
+    // shared with next.config, and the CommonJS jest runner that
+    // imports this module for its matcher cannot load ESM.
+    const { PAGE_CSP } = await import('./lib/content-security-policy.mjs');
+    const res = NextResponse.next();
+    res.headers.set(
+      'Content-Security-Policy',
+      appRuntimeCsp(PAGE_CSP, await loadEmbedOrigins()),
+    );
+    return res;
+  },
   {
     pages: {
       // Mirror authOptions.pages.signIn so middleware redirects skip

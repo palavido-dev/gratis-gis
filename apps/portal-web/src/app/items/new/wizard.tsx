@@ -105,6 +105,10 @@ import { BasemapConfigSection } from '../_components/basemap-config-section';
 import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
 import { updateFolderChildren } from '@/lib/folder-update';
 import {
+  isLegacyServiceTypeParam,
+  wizardTypeFromParam,
+} from '@/lib/wizard-type-param';
+import {
   DataLayerBuilder,
   type PendingFileImport,
 } from './data-layer-builder';
@@ -381,18 +385,19 @@ export function NewItemWizard({
   // ('viewer', 'custom') so deep-links like "Use this template"
   // (?type=custom&template=<id>) can skip the picker.  The legacy
   // 'survey' sentinel was retired in #91 (folded onto Form).
-  const querySentinel = (
-    ['viewer', 'custom'] as const
-  ).find((s) => s === (searchParams?.get('type') ?? ''));
+  // The deprecated arcgis_service / wms_service / wfs_service values
+  // open the Connected service flow instead of their old panes.
+  const rawQueryType = searchParams?.get('type') ?? null;
   const queryType: ItemType | 'viewer' | 'custom' | null =
-    querySentinel
-      ? querySentinel
-      : searchParams &&
-          (ITEM_TYPES as readonly string[]).includes(
-            searchParams.get('type') ?? '',
-          )
-        ? (searchParams.get('type') as ItemType)
-        : null;
+    wizardTypeFromParam(rawQueryType, ITEM_TYPES as readonly ItemType[]);
+  // Rewrite the address too, so a reload or a copied link says
+  // `type=service` and not the deprecated value.
+  useEffect(() => {
+    if (!isLegacyServiceTypeParam(rawQueryType) || !searchParams) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('type', 'service');
+    router.replace(`?${next.toString()}`);
+  }, [rawQueryType, searchParams, router]);
   const [step, setStep] = useState<Step>(queryType ? 'details' : 'pick');
   const [showMoreTypes, setShowMoreTypes] = useState(false);
   // #259: 'viewer' is a wizard-only sentinel that maps to web_app +

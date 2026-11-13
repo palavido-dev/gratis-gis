@@ -824,6 +824,30 @@ d('observation-log read paths against real PostGIS', () => {
       expect(tileContains(mvt, kid2)).toBe(false);
     });
 
+    // Review 37-4: "Use as filter" writes one `in` clause on the
+    // hidden _global_id, which must match exactly the named features
+    // in the tile, the table page and the aggregate alike.
+    it('an id list on _global_id narrows the tile, the page and the count', async () => {
+      const engine = makeEngine();
+      const where = {
+        combinator: 'all' as const,
+        clauses: [{ field: '_global_id', op: 'in', value: `${kid2}` }],
+      };
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await engine.mvtTile({ itemId, layerId, z: 14, x, y, where });
+      expect(tileContains(mvt, kid1)).toBe(false);
+      expect(tileContains(mvt, kid2)).toBe(true);
+      const page = await engine.pageFeatures({ itemId, layerId, limit: 100, where });
+      expect(page.features.map((f) => f.id)).toEqual([kid2]);
+      const both = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: { ...where, clauses: [{ ...where.clauses[0]!, value: `${kid1},${kid2}` }] },
+      });
+      expect(both.groups[0]!.values.count).toBe(2);
+    });
+
     it('where applies to the latest version, not to any version', async () => {
       // Move kid2 from s2 to s1, then ask for s2. A predicate applied
       // before the collapse would find the superseded row and put a
@@ -2107,6 +2131,30 @@ d('observation-log read paths against real PostGIS', () => {
         },
       });
       expect(either.groups[0]!.values.count).toBe(2);
+    });
+
+    // Review 64-1: a reader's cross-filter click rides in `and`
+    // beside the author's "match any". Flattening it into the
+    // author's clauses would ask for ACRES >= 12 AND ACRES <= 5,
+    // which nothing satisfies.
+    it('ANDs a carried selection beside an "any" filter', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'any',
+          clauses: [
+            { field: 'ACRES', op: '>=', value: '12' },
+            { field: 'ACRES', op: '<=', value: '5' },
+          ],
+          and: {
+            combinator: 'all',
+            clauses: [{ field: 'ACRES', op: '<', value: '10' }],
+          },
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
     });
 
     it('a numeric comparison skips rows whose value is not a number', async () => {

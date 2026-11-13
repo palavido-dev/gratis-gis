@@ -83,8 +83,12 @@ function layersFor(item: MetaUiItemInput): MetaUiLayer[] {
 function dataLayerLayers(item: MetaUiItemInput): MetaUiLayer[] {
   const subs = resolveDataSublayers(item);
   if (subs && subs.length > 0) {
+    // Tables (no geometryType) are included, so "Add to map" adds the
+    // same sublayers as the Add Layer dialog. A table carries
+    // geometryType null; the map lists it under Tables and draws
+    // nothing for it. Clients that only draw should skip entries
+    // whose geometryType is null.
     return subs
-      .filter((s) => s.geometryType)
       .map((s) => ({
         title: subs.length === 1 ? item.title : s.label || s.id,
         source: {

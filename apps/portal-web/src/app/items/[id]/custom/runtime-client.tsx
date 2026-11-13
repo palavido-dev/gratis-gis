@@ -165,6 +165,7 @@ import {
 } from '@/lib/geolocation-context';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
 import {
   Dialog,
   DialogContent,
@@ -3618,6 +3619,15 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
           geocodingEnabled={geocodingEnabled}
           {...(geocoderItemId ? { geocoderItemId } : {})}
           viewportBbox={viewportBbox}
+          onShowLayer={(id) =>
+            ctx?.update(mapWidgetId, (cur) => ({
+              ...cur,
+              mapData: {
+                ...cur.mapData,
+                layers: showLayerAndParents(cur.mapData.layers ?? [], id),
+              },
+            }))
+          }
           onPick={(r) => {
             if (!ctx) return;
             if (r.bbox) {

@@ -65,6 +65,7 @@ import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
 import { useT } from '@/lib/i18n/locale-context';
 import { scaleDenominator } from '@/lib/web-mercator';
 import { toTreeOrder } from '@/lib/layer-tree-order';
+import { splitTableLayers } from '@/lib/table-layers';
 import { layerExtentUrl } from '@/lib/layer-extent-url';
 
 interface Props {
@@ -591,8 +592,14 @@ export function LayerPanel({
             for (const l of layers) {
               if (l.source.kind === 'group') headerIds.add(l.id);
             }
+            // Tables draw nothing, so they leave the tree and get
+            // their own section below it (see lib/table-layers).
+            const { tree, tables } = splitTableLayers(
+              layers,
+              (id) => metadata[id]?.isTable === true,
+            );
             const childrenByGroup = new Map<string, MapLayer[]>();
-            for (const l of layers) {
+            for (const l of tree) {
               if (l.groupId && headerIds.has(l.groupId)) {
                 const arr = childrenByGroup.get(l.groupId) ?? [];
                 arr.push(l);
@@ -736,10 +743,22 @@ export function LayerPanel({
 
             // Roots = layers with no parent group (or whose groupId
             // points at something we don't recognise as a header).
-            const roots = layers.filter(
+            const roots = tree.filter(
               (l) => !l.groupId || !headerIds.has(l.groupId),
             );
-            return renderRows(roots, 0);
+            const rows = renderRows(roots, 0);
+            if (tables.length > 0) {
+              rows.push(
+                <li
+                  key="__tables-heading"
+                  className="border-t border-border px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted"
+                >
+                  {t('mapLayerPanel.tablesHeading')}
+                </li>,
+              );
+              for (const node of renderRows(tables, 0)) rows.push(node);
+            }
+            return rows;
           })()}
         </ul>
       )}

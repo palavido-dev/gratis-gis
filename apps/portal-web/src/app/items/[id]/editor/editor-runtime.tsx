@@ -79,6 +79,7 @@ import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
 import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
 import { editorTargetsExtent, serverSublayerOf } from '@/lib/server-sublayer';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -3530,6 +3531,12 @@ export function EditorRuntime({
               layers={mapData.layers}
               featuresByLayer={featuresByLayer}
               geocodingEnabled={mapData.search?.geocoding !== false}
+              onShowLayer={(id) =>
+                setMapData((cur) => ({
+                  ...cur,
+                  layers: showLayerAndParents(cur.layers, id),
+                }))
+              }
               onPick={(r) => {
                 canvasRef.current?.flyAndHighlight({
                   bbox: r.bbox,

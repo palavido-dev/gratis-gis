@@ -382,13 +382,13 @@ export default async function CustomAppRuntimePage(props: Props) {
   // (for the themePresetId resolution below) in parallel.
   //
   // Anonymous viewers: fetchItemList sends both list queries to the
-  // public list (/api/public/items). That serves public basemaps and
-  // an empty array for every other type, so anonymous viewers get no
-  // theme items from the list. A theme saved by id (a UUID) is
-  // fetched directly below through the public per-id route, which
-  // works when that theme item is public. A theme saved by starter
-  // kind ('forest') resolves to the built-in starter tokens for them,
-  // even when an admin has customised that starter's theme item.
+  // public list (/api/public/items), which serves public basemaps and
+  // public theme items. The theme list is scoped to the app's org, so
+  // a starter kind ('forest') that an admin customised and shared
+  // publicly resolves to the admin's colours for anonymous viewers
+  // too. A theme that is not shared publicly still falls back to the
+  // built-in starter tokens for them. A theme saved by id (a UUID) is
+  // also fetched directly below through the public per-id route.
   // full=1 on both lists: the runtime renders basemaps from each
   // row's data payload and resolves theme tokens from the theme
   // item's data, and the list strips data_json by default now.
@@ -399,7 +399,9 @@ export default async function CustomAppRuntimePage(props: Props) {
       '/api/items?type=basemap&full=1',
     ).catch(() => [] as Array<Item<BasemapData>>),
     fetchItemList<Array<Item<ThemeItemData> & { seedKind?: string | null }>>(
-      '/api/items?type=theme&full=1',
+      isAnonymous
+        ? `/api/items?type=theme&full=1&orgId=${encodeURIComponent(item.orgId)}`
+        : '/api/items?type=theme&full=1',
     ).catch(
       () => [] as Array<Item<ThemeItemData> & { seedKind?: string | null }>,
     ),
@@ -407,8 +409,8 @@ export default async function CustomAppRuntimePage(props: Props) {
 
   // Anon-safe per-id theme fetch. When the app's themePresetId is a
   // UUID (a saved theme item ref, as opposed to a built-in starter
-  // kind like 'forest') AND the list did not return it (anonymous
-  // viewers get an empty theme list), fetch that theme item directly.
+  // kind like 'forest') AND the list did not return it (for example
+  // a theme item that is not public), fetch that theme item directly.
   // The per-id path goes through the public/items/:id rewrite for
   // anonymous callers, so a publicly-shared app whose theme item is
   // also public renders with the right tokens instead of falling

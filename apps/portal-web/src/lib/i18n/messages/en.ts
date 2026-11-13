@@ -1058,6 +1058,7 @@ export const en = {
     moreAddOptions: 'More add options',
     addGroup: 'Add group',
     emptyNoLayers: 'No layers yet.',
+    tablesHeading: 'Tables',
     emptyCanEdit: 'Add one from a URL, the portal, or the curated catalog.',
     emptyViewer: 'The owner has not added any layers.',
     newGroupDefaultTitle: 'New group',
@@ -1270,6 +1271,7 @@ export const en = {
     noIconsMatch: 'No icons match.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Only the {count} features picked in the attribute table',
     /** Filter tab controls (#162). */
     clauses: 'Clauses',
     noFilter: 'No filter',
@@ -2427,8 +2429,6 @@ export const en = {
     loadingMaps: 'Loading maps...',
     noMaps: 'No maps yet',
     layerGone: '{item} no longer has a layer "{layerKey}".',
-    tableNoShapes:
-      '{layer} is a table with no shapes, so there is nothing to draw.',
   },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {
@@ -2572,6 +2572,9 @@ export const en = {
   },
   // The map builder's search bar: place results from the geocoder.
   mapSearch: {
+    hiddenLayer: 'Hidden',
+    hiddenLayerHint:
+      'This layer is turned off. Picking the result turns it on.',
     geocoderUnavailable:
       'Place search is unavailable right now ({reason}). Layer results above are unaffected.',
     noPlaces:
@@ -3042,6 +3045,7 @@ export const en = {
     moreNotShown: '+{count} more not shown.',
   },
   mapComments: {
+    loadOlder: 'Load older threads',
     title: 'Comments',
     panelAria: 'Map comments',
     closeAria: 'Close comments panel',
@@ -3624,6 +3628,18 @@ export const en = {
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {
+    embedTitle:
+      'Sites apps may embed',
+    embedIntro:
+      'The Embed widget in custom apps can show pages from these sites. Enter one site address per line, such as https://dashboards.example.org. Use https://*.example.org for every subdomain. Other pages of the portal still embed nothing from outside.',
+    embedSave:
+      'Save sites',
+    embedSaving:
+      'Saving…',
+    embedSaved:
+      'Saved.',
+    embedErr:
+      'Could not save the sites.',
     pageIntro:
       'Add a work account people already have, and decide whether the next sign-in must set up an authenticator.',
     errLoad: 'Could not load sign-in settings.',

@@ -29,10 +29,16 @@ export const PAGE_CSP = [
 
 /**
  * next.config `headers()` source for PAGE_CSP: every path except the
- * BFF under /api/portal/. Next drops a route handler's header when the
- * config already set one of the same name, so a config CSP on the BFF
- * would silently replace the stricter policy portal-api sends with a
- * proxied document. The BFF applies PAGE_CSP itself whenever the
- * upstream sends none.
+ * BFF under /api/portal/ and the custom app runtime. Next drops a
+ * route handler's header when the config already set one of the same
+ * name, so a config CSP on the BFF would silently replace the
+ * stricter policy portal-api sends with a proxied document. The BFF
+ * applies PAGE_CSP itself whenever the upstream sends none.
+ *
+ * The app runtime (/items/:id/custom/run) gets its policy from the
+ * middleware instead: PAGE_CSP plus the admin's allowed embed sites in
+ * frame-src (lib/app-runtime-csp.ts). A config header there would
+ * win over it and block every Embed widget.
  */
-export const PAGE_CSP_SOURCE = '/:path((?!api/portal/).*)';
+export const PAGE_CSP_SOURCE =
+  '/:path((?!api/portal/|items/[0-9a-fA-F-]+/custom/run(?:/|$)).*)';

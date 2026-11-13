@@ -329,10 +329,9 @@ export function layersFromMetaUi(
         'layerKey' in l.source &&
         l.source.layerKey === opts.layerKey,
     );
-    // meta.ui lists only sublayers with geometry, so a missing key may
-    // be a table rather than a deleted layer. Fall through to the
-    // local builder, which tells "this table has no shapes" apart
-    // from "this layer no longer exists".
+    // meta.ui lists every sublayer, tables included. A missing key
+    // still falls through to the local builder, which reads the item
+    // data and reports "this layer no longer exists".
     if (!match) return null;
     return { layers: [makeLayer(match.title, match.source)] };
   }
@@ -457,11 +456,8 @@ export async function layersForPortalItem(
             }),
           };
         }
-        if (!sub.geometryType) {
-          return {
-            error: t('addToMap.tableNoShapes', { layer: sub.label || sub.id }),
-          };
-        }
+        // A table key adds the table, as the meta.ui path and the Add
+        // Layer dialog do. The layer list shows it under Tables.
         const title =
           sublayers.length === 1 ? input.title : sub.label || sub.id;
         return {

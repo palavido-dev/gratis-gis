@@ -59,6 +59,7 @@ interface FakePrisma {
   groupMember: { findMany: jest.Mock };
   commentThread: {
     findMany: jest.Mock;
+    findFirst: jest.Mock;
     findUnique: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
@@ -90,6 +91,7 @@ function makePrisma(): FakePrisma {
     groupMember: { findMany: jest.fn().mockResolvedValue([]) },
     commentThread: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -129,7 +131,72 @@ describe('CommentsService', () => {
       prisma.item.findFirst.mockResolvedValue(makeItem({ access: 'public' }));
       prisma.commentThread.findMany.mockResolvedValue([]);
       const svc = makeService(prisma);
-      await expect(svc.list(null, 'item-1')).resolves.toEqual([]);
+      await expect(svc.list(null, 'item-1')).resolves.toEqual({
+        threads: [],
+        nextCursor: null,
+      });
+    });
+
+    // Review 12-10: the public list returned every thread at once.
+    it('returns the newest page oldest first, with a cursor when more exist', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(makeItem({ access: 'public' }));
+      const at = (n: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, n));
+      const row = (n: number) => ({
+        id: `t${n}`,
+        itemId: 'item-1',
+        parentKind: 'map',
+        parentId: 'item-1',
+        resolved: false,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdBy: 'u1',
+        createdAt: at(n),
+        updatedAt: at(n),
+        comments: [],
+      });
+      // Newest first, one more than the limit.
+      prisma.commentThread.findMany.mockResolvedValue([row(5), row(4), row(3)]);
+      const svc = makeService(prisma);
+      const page = await svc.list(null, 'item-1', { limit: 2 });
+      expect(page.threads.map((t) => t.id)).toEqual(['t4', 't5']);
+      expect(page.nextCursor).toBe('t4');
+      const args = prisma.commentThread.findMany.mock.calls[0][0];
+      expect(args.take).toBe(3);
+      expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+    });
+
+    it('caps the page at 200 and pages older threads by cursor', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(makeItem({ access: 'public' }));
+      const when = new Date('2026-01-01T00:00:00Z');
+      prisma.commentThread.findFirst.mockResolvedValue({ id: 'c1', createdAt: when });
+      prisma.commentThread.findMany.mockResolvedValue([]);
+      const svc = makeService(prisma);
+      await svc.list(null, 'item-1', { limit: 5000, before: 'c1' });
+      expect(prisma.commentThread.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'c1',
+        itemId: 'item-1',
+      });
+      const args = prisma.commentThread.findMany.mock.calls[0][0];
+      expect(args.take).toBe(201);
+      expect(args.where).toEqual({
+        itemId: 'item-1',
+        OR: [
+          { createdAt: { lt: when } },
+          { createdAt: when, id: { lt: 'c1' } },
+        ],
+      });
+    });
+
+    it('refuses a cursor that is not a thread of this item', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(makeItem({ access: 'public' }));
+      prisma.commentThread.findFirst.mockResolvedValue(null);
+      const svc = makeService(prisma);
+      await expect(
+        svc.list(null, 'item-1', { before: 'other' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('refuses anonymous read on a private item', async () => {

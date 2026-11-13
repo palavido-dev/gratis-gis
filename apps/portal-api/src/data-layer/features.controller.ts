@@ -52,6 +52,7 @@ import {
   parseAggregateQuery,
   parseVia,
   parseWhere,
+  whereFieldNames,
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from './aggregate-params.js';
@@ -986,7 +987,7 @@ export class DataLayerFeaturesController {
       // Filter fields get the same treatment. A predicate on a
       // misspelled column matches nothing, and "0 of 625" reads as a
       // finding rather than as a typo.
-      ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.where),
       ...(parsed.via ? [parsed.via.myField] : []),
       // The binned field too. A misspelled one would produce a single
       // NULL bucket, which renders as one unlabelled bar: a histogram
@@ -2162,7 +2163,7 @@ export class DataLayerFeaturesController {
     );
     for (const name of [
       parsed.parentField,
-      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.parentWhere),
     ]) {
       if (!schemaHasField(parent.layer, name)) {
         throw new BadRequestException(
@@ -2386,9 +2387,9 @@ function assertWhereFields(
   layer: { fields?: Array<{ name: string }> },
   where: MapLayerFilter | null | undefined,
 ): void {
-  for (const c of where?.clauses ?? []) {
-    if (!schemaHasField(layer, c.field)) {
-      throw new BadRequestException(`"${c.field}" is not a field on this layer.`);
+  for (const name of whereFieldNames(where)) {
+    if (!schemaHasField(layer, name)) {
+      throw new BadRequestException(`"${name}" is not a field on this layer.`);
     }
   }
 }

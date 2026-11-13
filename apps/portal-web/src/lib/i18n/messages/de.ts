@@ -1011,6 +1011,7 @@ export const de: Partial<CatalogShape> = {
     moreAddOptions: 'Weitere Hinzufügen-Optionen',
     addGroup: 'Gruppe hinzufügen',
     emptyNoLayers: 'Noch keine Ebenen.',
+    tablesHeading: 'Tabellen',
     emptyCanEdit: 'Fügen Sie eine per URL, Portal oder Katalog hinzu.',
     emptyViewer: 'Der Eigentümer hat keine Ebenen hinzugefügt.',
     newGroupDefaultTitle: 'Neue Gruppe',
@@ -1222,6 +1223,7 @@ export const de: Partial<CatalogShape> = {
     noIconsMatch: 'Keine Symbole passen.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Nur die {count} in der Attributtabelle gewählten Features',
     clauses: 'Klauseln',
     noFilter: 'Kein Filter',
     matchAll: 'ALLE erfüllen',
@@ -2288,8 +2290,6 @@ export const de: Partial<CatalogShape> = {
     loadingMaps: 'Karten werden geladen...',
     noMaps: 'Noch keine Karten',
     layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
-    tableNoShapes:
-      '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
   },
   mapAddLayer: {
     title: 'Ebene hinzufügen',
@@ -2431,6 +2431,9 @@ export const de: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Ausgeblendet',
+    hiddenLayerHint:
+      'Diese Ebene ist ausgeblendet. Die Auswahl des Treffers blendet sie ein.',
     geocoderUnavailable:
       'Die Ortssuche ist gerade nicht verfügbar ({reason}). Die Layer-Ergebnisse oben sind davon nicht betroffen.',
     noPlaces:
@@ -2922,6 +2925,7 @@ export const de: Partial<CatalogShape> = {
     moreNotShown: '+{count} weitere nicht angezeigt.',
   },
   mapComments: {
+    loadOlder: 'Ältere Threads laden',
     title: 'Kommentare',
     panelAria: 'Kartenkommentare',
     closeAria: 'Kommentarfenster schließen',
@@ -3501,6 +3505,18 @@ export const de: Partial<CatalogShape> = {
       'Behalten Sie die Volumes. Der nächste Start aktualisiert Keycloak. Für Tailscale-HTTPS nutzen Sie den MagicDNS-Namen mit https:// und Tailscale Serve. Eine Tailnet-IP bleibt bei http:// mit Port.',
   },
   adminSecurity: {
+    embedTitle:
+      'Websites, die Apps einbetten dürfen',
+    embedIntro:
+      'Das Einbetten-Widget in eigenen Apps kann Seiten dieser Websites anzeigen. Geben Sie pro Zeile eine Adresse ein, z. B. https://dashboards.example.org. Mit https://*.example.org sind alle Subdomains erlaubt. Andere Seiten des Portals betten weiterhin nichts von außen ein.',
+    embedSave:
+      'Websites speichern',
+    embedSaving:
+      'Wird gespeichert…',
+    embedSaved:
+      'Gespeichert.',
+    embedErr:
+      'Die Websites konnten nicht gespeichert werden.',
     pageIntro:
       'Fügen Sie ein Arbeitskonto hinzu, das die Nutzer bereits haben, und legen Sie fest, ob bei der nächsten Anmeldung ein Authenticator eingerichtet werden muss.',
     errLoad: 'Anmeldeeinstellungen konnten nicht geladen werden.',

@@ -1009,6 +1009,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreAddOptions: 'Mais opções de adicionar',
     addGroup: 'Adicionar grupo',
     emptyNoLayers: 'Ainda não há camadas.',
+    tablesHeading: 'Tabelas',
     emptyCanEdit: 'Adicione uma por URL, portal ou catálogo.',
     emptyViewer: 'O proprietário não adicionou camadas.',
     newGroupDefaultTitle: 'Novo grupo',
@@ -1220,6 +1221,7 @@ export const ptBR: Partial<CatalogShape> = {
     noIconsMatch: 'Nenhum ícone corresponde.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Somente as {count} feições escolhidas na tabela de atributos',
     clauses: 'Cláusulas',
     noFilter: 'Sem filtro',
     matchAll: 'corresponder a TODAS',
@@ -2278,8 +2280,6 @@ export const ptBR: Partial<CatalogShape> = {
     loadingMaps: 'Carregando mapas...',
     noMaps: 'Nenhum mapa ainda',
     layerGone: '{item} não tem mais uma camada "{layerKey}".',
-    tableNoShapes:
-      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
   },
   mapAddLayer: {
     title: 'Adicionar camada',
@@ -2421,6 +2421,9 @@ export const ptBR: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Oculta',
+    hiddenLayerHint:
+      'Esta camada está desligada. Escolher o resultado a liga.',
     geocoderUnavailable:
       'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',
     noPlaces:
@@ -2903,6 +2906,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreNotShown: '+{count} a mais não exibidos.',
   },
   mapComments: {
+    loadOlder: 'Carregar tópicos anteriores',
     title: 'Comentários',
     panelAria: 'Comentários do mapa',
     closeAria: 'Fechar painel de comentários',
@@ -3483,6 +3487,18 @@ export const ptBR: Partial<CatalogShape> = {
       'Mantenha os volumes. A próxima inicialização atualiza o Keycloak. Para HTTPS no Tailscale, use o nome MagicDNS com https:// e o Tailscale Serve. Um IP da tailnet continua em http:// com a porta.',
   },
   adminSecurity: {
+    embedTitle:
+      'Sites que os apps podem incorporar',
+    embedIntro:
+      'O widget Incorporar dos apps personalizados pode mostrar páginas destes sites. Digite um endereço por linha, por exemplo https://dashboards.example.org. Use https://*.example.org para todos os subdomínios. As outras páginas do portal continuam sem incorporar nada externo.',
+    embedSave:
+      'Salvar sites',
+    embedSaving:
+      'Salvando…',
+    embedSaved:
+      'Salvo.',
+    embedErr:
+      'Não foi possível salvar os sites.',
     pageIntro:
       'Adicione uma conta de trabalho que as pessoas já tenham e decida se o próximo login deve configurar um autenticador.',
     errLoad: 'Não foi possível carregar as configurações de login.',

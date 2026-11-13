@@ -20,6 +20,45 @@ describe('map layer expressions', () => {
     ]);
   });
 
+  // Review 64-1: a cross-filter click beside an author's "match any"
+  // filter is its own operand, so the OR survives.
+  it('ANDs a carried selection beside an "any" filter', () => {
+    const geom = ['==', ['geometry-type'], 'Point'];
+    const out = combineFilter(geom, {
+      combinator: 'any',
+      clauses: [
+        { field: 'status', op: '==', value: 'open' },
+        { field: 'status', op: '==', value: 'pending' },
+      ],
+      and: {
+        combinator: 'all',
+        clauses: [{ field: 'county', op: '==', value: 'Marion' }],
+      },
+    }) as unknown as unknown[];
+    expect(out[0]).toBe('all');
+    expect(out[1]).toEqual(geom);
+    expect((out[2] as unknown[])[0]).toBe('any');
+    expect((out[2] as unknown[]).length).toBe(3);
+    expect((out[3] as unknown[])[0]).toBe('all');
+    expect((out[3] as unknown[]).length).toBe(2);
+  });
+
+  it('turns an id list into a MapLibre in expression', () => {
+    const geom = ['==', ['geometry-type'], 'Point'];
+    const out = combineFilter(geom, {
+      combinator: 'all',
+      clauses: [{ field: '_global_id', op: 'in', value: 'a,b' }],
+    }) as unknown as unknown[];
+    expect(out[2]).toEqual([
+      'all',
+      [
+        'all',
+        ['!=', ['get', '_global_id'], null],
+        ['in', ['to-string', ['get', '_global_id']], ['literal', ['a', 'b']]],
+      ],
+    ]);
+  });
+
   it('builds time bins as a case chain, never a string step', () => {
     const expr = timeBinsColorExpression({
       kind: 'time-bins',

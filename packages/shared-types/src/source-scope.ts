@@ -25,7 +25,7 @@
  * beside it.
  */
 import type { AppDataSource, CrossFilterSelection } from './custom-app';
-import type { MapLayerFilter } from './map';
+import type { MapLayerFilter, ScopedLayerFilter } from './map';
 
 export type Bbox = [number, number, number, number];
 
@@ -36,14 +36,14 @@ export interface ResolvedVia {
   parentItemId: string;
   parentLayerId: string;
   parentBbox?: Bbox;
-  parentWhere?: MapLayerFilter;
+  parentWhere?: ScopedLayerFilter;
 }
 
 export interface SourceScope {
   /** Viewport, when the source follows a map. */
   bbox?: Bbox;
   /** Author predicate ANDed with the reader's selection. */
-  where?: MapLayerFilter;
+  where?: ScopedLayerFilter;
   /** Relate, when the source declares one and the parent resolves. */
   via?: ResolvedVia;
   /**
@@ -79,6 +79,85 @@ export function selectionClauses(
 }
 
 /**
+ * `author` narrowed by `extra` (a reader's selection), without ever
+ * widening it or changing what the author's clauses mean.
+ *
+ * When the author's filter is "match all" (or has one clause), the
+ * selection's clauses join it in one flat `all`, which is exact. When
+ * it is "match any" over two or more clauses, the flat shape cannot
+ * say "(A or B) and selection", so the selection is carried beside it
+ * in `and` (see ScopedLayerFilter). Merging used to turn the author's
+ * "A or B" into "A and B and selection".
+ */
+export function narrowFilter(
+  author: ScopedLayerFilter | null | undefined,
+  extra: MapLayerFilter['clauses'],
+): ScopedLayerFilter | undefined {
+  const own = author?.clauses ?? [];
+  if (extra.length === 0) {
+    return author && (own.length > 0 || author.and) ? author : undefined;
+  }
+  if (!author || own.length === 0) {
+    // Nothing of the author's to keep but a carried selection, which
+    // a new click narrows further.
+    const carried = author?.and?.clauses ?? [];
+    return { combinator: 'all', clauses: [...carried, ...extra] };
+  }
+  if (author.combinator === 'all' || own.length === 1) {
+    const merged: ScopedLayerFilter = {
+      combinator: 'all',
+      clauses: [...own, ...extra],
+    };
+    if (author.and) merged.and = author.and;
+    return merged;
+  }
+  return {
+    combinator: author.combinator,
+    clauses: own,
+    and: {
+      combinator: 'all',
+      clauses: [...(author.and?.clauses ?? []), ...extra],
+    },
+  };
+}
+
+/**
+ * Two filters ANDed into one, in the shape every evaluator reads.
+ *
+ * Each filter is a conjunction of groups (the outer clauses, and its
+ * `and` when present). "Match all" groups and single clauses merge
+ * into one `all` list. A "match any" group of two or more clauses
+ * must stay whole. Up to two groups fit (outer plus `and`); when more
+ * than that are needed, null is returned and the caller decides
+ * (the attribute table then falls back to one flat `all`, which can
+ * only show fewer rows, never more).
+ */
+export function andFilters(
+  a: ScopedLayerFilter | null | undefined,
+  b: ScopedLayerFilter | null | undefined,
+): ScopedLayerFilter | null | undefined {
+  const groups: MapLayerFilter[] = [];
+  for (const f of [a, b]) {
+    if (!f) continue;
+    if (f.clauses.length > 0) groups.push({ combinator: f.combinator, clauses: f.clauses });
+    if (f.and && f.and.clauses.length > 0) groups.push(f.and);
+  }
+  if (groups.length === 0) return undefined;
+  const all: MapLayerFilter['clauses'] = [];
+  const anys: MapLayerFilter[] = [];
+  for (const g of groups) {
+    if (g.combinator === 'any' && g.clauses.length > 1) anys.push(g);
+    else all.push(...g.clauses);
+  }
+  const allGroup: MapLayerFilter | null =
+    all.length > 0 ? { combinator: 'all', clauses: all } : null;
+  const parts = [...anys, ...(allGroup ? [allGroup] : [])];
+  if (parts.length === 1) return parts[0]!;
+  if (parts.length === 2) return { ...parts[0]!, and: parts[1]! };
+  return null;
+}
+
+/**
  * The selection projected onto a map's layers.
  *
  * A map does not read a `SourceScope`: it draws tiles and narrows
@@ -108,7 +187,7 @@ export function applySelectionToLayers<
     // `kind` is here so this is not a weak type. Without a property
     // every source member shares, TypeScript rejects the whole union
     // as having nothing in common with `{ via?: ... }`.
-    source?: { kind: string; via?: { parentWhere?: MapLayerFilter } } | null;
+    source?: { kind: string; via?: { parentWhere?: ScopedLayerFilter } } | null;
   },
 >(args: {
   layers: readonly L[];
@@ -140,14 +219,11 @@ export function applySelectionToLayers<
     if (l.id === targetLayerId) {
       hit = true;
       // Keep any filter the author already set: a selection narrows
-      // what is on screen, it never widens it.
-      const existing = l.filter?.clauses ?? [];
+      // what is on screen, it never widens it, and it never changes
+      // what the author's "match any" means (narrowFilter).
       out = {
         ...out,
-        filter: {
-          combinator: 'all' as const,
-          clauses: [...existing, ...clauses],
-        },
+        filter: narrowFilter(l.filter, clauses) ?? null,
       };
     }
     // A layer can be both, in principle. Order does not matter: the
@@ -155,17 +231,14 @@ export function applySelectionToLayers<
     // (an early return in the branch above dropped this one).
     if (related.has(l.id) && out.source?.via) {
       hit = true;
-      const existing = out.source.via.parentWhere?.clauses ?? [];
+      const parentWhere = narrowFilter(out.source.via.parentWhere, clauses);
       out = {
         ...out,
         source: {
           ...out.source,
           via: {
             ...out.source.via,
-            parentWhere: {
-              combinator: 'all' as const,
-              clauses: [...existing, ...clauses],
-            },
+            ...(parentWhere ? { parentWhere } : {}),
           },
         },
       };
@@ -235,48 +308,33 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
   const parentSelecting =
     selection && parent && appliesTo(parent) ? selection : null;
 
-  const clauses: MapLayerFilter['clauses'] = [
-    ...(source?.where?.clauses ?? []),
-  ];
-  if (selecting) clauses.push(...selectionClauses(selecting));
-
   const out: SourceScope = { spatial: Boolean(bbox) };
   if (bbox) out.bbox = bbox;
-  if (clauses.length > 0) {
-    // With no selection the author's filter goes through as written,
-    // combinator included: flattening it to `all` turned an author's
-    // "A or B" into "A and B" from the first render. With a selection,
-    // the author's clauses are ANDed with it: a reader's click narrows
-    // what the author published, it never widens it.
-    out.where =
-      !selecting && source?.where
-        ? { combinator: source.where.combinator, clauses }
-        : { combinator: 'all', clauses };
-  }
+  // With no selection the author's filter goes through as written,
+  // combinator included. With one, it is ANDed beside the author's
+  // filter (narrowFilter): a reader's click narrows what the author
+  // published, it never widens it or turns "A or B" into "A and B".
+  const where = narrowFilter(
+    source?.where,
+    selecting ? selectionClauses(selecting) : [],
+  );
+  if (where) out.where = where;
 
   // A relate needs BOTH a declaration and a parent that resolved. A
   // source whose via points at a deleted source falls back to being
   // unrelated rather than silently scoping to nothing.
   if (source?.via && parent) {
-    const parentClauses: MapLayerFilter['clauses'] = [
-      ...(parent.where?.clauses ?? []),
-    ];
-    if (parentSelecting) parentClauses.push(...selectionClauses(parentSelecting));
+    const parentWhere = narrowFilter(
+      parent.where,
+      parentSelecting ? selectionClauses(parentSelecting) : [],
+    );
     out.via = {
       myField: source.via.myField,
       parentField: source.via.parentField,
       parentItemId: parent.layer.dataLayerId,
       parentLayerId: parent.layer.layerKey,
       ...(parentBbox ? { parentBbox } : {}),
-      ...(parentClauses.length > 0
-        ? {
-            parentWhere: {
-              combinator:
-                !parentSelecting && parent.where ? parent.where.combinator : ('all' as const),
-              clauses: parentClauses,
-            },
-          }
-        : {}),
+      ...(parentWhere ? { parentWhere } : {}),
     };
     if (parentSelecting && !selecting) out.note = parentSelecting.label;
   }

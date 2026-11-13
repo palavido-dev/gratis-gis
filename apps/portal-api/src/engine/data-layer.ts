@@ -376,10 +376,7 @@ export interface AggregateVia {
   parentItemId: string;
   parentLayerId: string;
   parentBbox?: [number, number, number, number];
-  parentWhere?: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  };
+  parentWhere?: AttrFilterGroup & { and?: AttrFilterGroup };
   parentGeoLimit?: GeoJsonGeometry;
 }
 
@@ -503,6 +500,9 @@ export function binRangeFor(
  */
 // eslint-disable-next-line no-control-regex
 const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
+/** An id in the shape Postgres accepts for a uuid column. */
+const UUID_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Compile an attribute predicate into content-filter SQL.
@@ -710,11 +710,29 @@ async function compileViaFilter(
 /** What `compileViaFilter` stores in the tile cache, as JSON. */
 type CachedViaKeys = { keys: string[] } | { tooMany: true };
 
+type AttrFilterGroup = {
+  combinator: 'all' | 'any';
+  clauses: Array<{ field: string; op: string; value: string }>;
+};
+
+/**
+ * Compiles a filter to `AND (...)`, or null when nothing applies. A
+ * filter may carry a reader's cross-filter selection in `and`
+ * (ScopedLayerFilter in shared-types); that compiles to a second
+ * `AND (...)`, so the author's "match any" stays an OR.
+ */
 function compileAttrFilter(
-  filter: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  },
+  filter: AttrFilterGroup & { and?: AttrFilterGroup },
+  alias?: 'p',
+): Prisma.Sql | null {
+  const own = compileAttrGroup(filter, alias);
+  const extra = filter.and ? compileAttrGroup(filter.and, alias) : null;
+  if (own && extra) return Prisma.sql`${own} ${extra}`;
+  return own ?? extra;
+}
+
+function compileAttrGroup(
+  filter: AttrFilterGroup,
   /**
    * Table alias to read `attrs` from. Defaults to unqualified, which
    * is what every caller but the relate's semi-join wants; that one
@@ -777,6 +795,32 @@ function compileAttrFilter(
       case 'is-not-null':
         parts.push(Prisma.sql`(${text} IS NOT NULL)`);
         break;
+      case 'in': {
+        // A list of feature ids ("Use as filter" in the attribute
+        // table). `_global_id` is the row's entity id, not an
+        // attribute, so it matches the entity column. parseWhere has
+        // already checked the field and that every id is a uuid; the
+        // checks here keep a direct engine caller just as safe. The
+        // reads that join a candidate list name its column
+        // cand_entity, so a bare "entity" here is never ambiguous.
+        if (c.field !== '_global_id') {
+          throw new Error(`"in" applies only to _global_id, not ${c.field}`);
+        }
+        const ids = c.value
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0);
+        if (ids.length === 0 || !ids.every((v) => UUID_SHAPE_RE.test(v))) {
+          throw new Error('"in" needs feature ids separated by commas');
+        }
+        const entity = alias === 'p' ? Prisma.raw('p.entity') : Prisma.raw('entity');
+        parts.push(
+          Prisma.sql`(${entity} = ANY(ARRAY[${Prisma.join(
+            ids.map((id) => Prisma.sql`${id}::uuid`),
+          )}]))`,
+        );
+        break;
+      }
       default:
         throw new Error(`Unsupported filter op: ${c.op}`);
     }
@@ -940,10 +984,7 @@ export interface AggregateFeaturesArgs {
      * against the layer schema; this applies it as a content filter,
      * which is the only place a predicate on row content is safe.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     /**
      * Bin a numeric attribute into ranges and add it as the LAST group
@@ -2365,7 +2406,7 @@ export class DataLayerEngine {
           l.kind,
           l.edited_by,
           l.edited_at
-        FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+        FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
         CROSS JOIN LATERAL (
           SELECT
             id AS observation_id,
@@ -2378,7 +2419,7 @@ export class DataLayerEngine {
             tx_time AS edited_at
           FROM observation
           WHERE scope = ${scope}
-            AND entity = cand.entity
+            AND entity = cand.cand_entity
             AND valid_from <= ${asOf}
           ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
@@ -2752,7 +2793,7 @@ export class DataLayerEngine {
             l.edited_by,
             l.edited_at,
             (TRUE ${contentExtras}) AS content_match
-          FROM content_candidates cand
+          FROM (SELECT entity AS cand_entity FROM content_candidates) cand
           CROSS JOIN LATERAL (
             SELECT
               id AS observation_id,
@@ -2765,7 +2806,7 @@ export class DataLayerEngine {
               tx_time AS edited_at
             FROM observation
             WHERE scope = ${scope}
-              AND entity = cand.entity
+              AND entity = cand.cand_entity
               AND valid_from <= ${asOf}
             ORDER BY valid_from DESC, tx_time DESC, id DESC
             LIMIT 1
@@ -2947,10 +2988,7 @@ export class DataLayerEngine {
      * button was the sharpest version, since it wrote a filter the
      * table then ignored.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /** Share row-scope (#40). See the collapseFilters push below for
      *  why this is entity-level rather than a content predicate. */
     ownRowsOnly?: { userId: string };
@@ -3202,7 +3240,7 @@ export class DataLayerEngine {
           ${Prisma.join(contentFilters, ' ')}
       )
       SELECT l.entity, l.attrs, l.edited_by, l.edited_at
-      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
       CROSS JOIN LATERAL (
         SELECT
           entity,
@@ -3213,7 +3251,7 @@ export class DataLayerEngine {
           tx_time AS edited_at
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
+          AND entity = cand.cand_entity
           AND valid_from <= ${asOf}
         ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
@@ -3929,12 +3967,12 @@ export class DataLayerEngine {
         CASE WHEN geom IS NOT NULL THEN ST_YMin(geom) END AS miny,
         CASE WHEN geom IS NOT NULL THEN ST_XMax(geom) END AS maxx,
         CASE WHEN geom IS NOT NULL THEN ST_YMax(geom) END AS maxy
-      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
       CROSS JOIN LATERAL (
         SELECT entity, attrs, geom, kind
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
+          AND entity = cand.cand_entity
         ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
@@ -4115,10 +4153,7 @@ export class DataLayerEngine {
   async filteredExtent(args: {
     itemId: string;
     layerId: string;
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
@@ -4222,12 +4257,12 @@ export class DataLayerEngine {
         ST_YMin(ST_Extent(l.geom)) AS ymin,
         ST_XMax(ST_Extent(l.geom)) AS xmax,
         ST_YMax(ST_Extent(l.geom)) AS ymax
-      FROM (SELECT entity FROM content_candidates) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates) cand
       CROSS JOIN LATERAL (
         SELECT entity, attrs, geom, kind
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
+          AND entity = cand.cand_entity
           AND valid_from <= ${asOf}
         ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
@@ -4325,10 +4360,7 @@ export class DataLayerEngine {
      * is for pushing an author's static filter down, where the saving
      * is bytes on the wire rather than correctness.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /**
      * Relate. This one IS correctness: a semi-join against the keys
      * surviving on a parent layer cannot be expressed client side,
@@ -4424,10 +4456,7 @@ export class DataLayerEngine {
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
       labelPoints?: boolean;
-      where?: {
-        combinator: 'all' | 'any';
-        clauses: Array<{ field: string; op: string; value: string }>;
-      };
+      where?: AttrFilterGroup & { and?: AttrFilterGroup };
       via?: AggregateVia;
     },
     scope: string,
@@ -4746,7 +4775,10 @@ export class DataLayerEngine {
     const rows = await this.prisma.$queryRaw<TileRow[]>`
       WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} ${ownerCte}
       tile_candidates AS (
-        SELECT entity
+        -- Named cand_entity so the predicates re-checked in currents
+        -- below see one "entity" column (the latest row's), not two:
+        -- an id-list filter on _global_id reads it.
+        SELECT entity AS cand_entity
         FROM observation
         WHERE scope = ${scope}
           ${ownerFilter}
@@ -4796,7 +4828,7 @@ export class DataLayerEngine {
           SELECT entity, geom, kind${currentsAttrs}
           FROM observation
           WHERE scope = ${scope}
-            AND entity = cand.entity
+            AND entity = cand.cand_entity
           ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
         ) l
