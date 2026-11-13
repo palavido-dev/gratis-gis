@@ -16,8 +16,7 @@
 
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { parseApiError } from '@/lib/api-error';
-import { formatNumber } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { renderLabelTemplate } from '@/lib/label-template';
 import { geometryBbox } from '@/lib/geo-bbox';
 
 export type SearchResult =
@@ -105,7 +104,7 @@ export function searchLayers(
       if (!matched) continue;
 
       const label = layer.search.labelTemplate
-        ? renderTemplate(layer.search.labelTemplate, props)
+        ? renderLabelTemplate(layer.search.labelTemplate, props)
         : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
       out.push({
         kind: 'feature',
@@ -237,7 +236,7 @@ export async function searchArcgisLayers(
           (f): SearchResult => {
             const props = (f.properties ?? {}) as Record<string, unknown>;
             const label = layer.search!.labelTemplate
-              ? renderTemplate(layer.search!.labelTemplate, props)
+              ? renderLabelTemplate(layer.search!.labelTemplate, props)
               : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
             return {
               kind: 'feature',
@@ -347,7 +346,7 @@ export async function searchV3Layers(
         return body.results.map((row): SearchResult => {
           const props = row.properties ?? {};
           const label = layer.search!.labelTemplate
-            ? renderTemplate(layer.search!.labelTemplate, props)
+            ? renderLabelTemplate(layer.search!.labelTemplate, props)
             : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
           // The canvas highlight does a best-effort property match, so
           // carry the attrs on a minimal feature. Geometry is null when
@@ -426,12 +425,22 @@ export async function geocodeViaItem(
   const url = `/api/portal/geocode/${encodeURIComponent(geocoderItemId)}?${params.toString()}`;
   const init: RequestInit = { headers: { Accept: 'application/json' } };
   if (signal) init.signal = signal;
+  // Same rule as geocode() below: "could not ask" is not "nothing
+  // matched". A timeout or a 5xx used to read as "No places found",
+  // and the user reworded a query that was never answered. A 403 or
+  // 404 stays an empty list, so a geocoder the viewer may not use
+  // does not announce itself.
   let res: Response;
   try {
     res = await fetch(url, init);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return [];
-    return [];
+    throw new GeocoderUnavailableError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (res.status >= 500) {
+    throw new GeocoderUnavailableError(await parseApiError(res, 'HTTP error'));
   }
   if (!res.ok) return [];
   const body = (await res.json()) as {
@@ -566,28 +575,3 @@ function firstNonEmpty(vs: unknown[]): string | null {
   return null;
 }
 
-function renderTemplate(
-  template: string,
-  props: Record<string, unknown>,
-): string {
-  return template.replace(
-    /\{\{\s*([\w.-]+)\s*(?:\|\s*([\w.-]+))?\s*\}\}/g,
-    (_, key: string, formatter?: string) => {
-      const raw = props[key];
-      if (raw === undefined || raw === null) return '';
-      const str = String(raw);
-      switch (formatter?.toLowerCase()) {
-        case 'upper':
-          return str.toUpperCase();
-        case 'lower':
-          return str.toLowerCase();
-        case 'number': {
-          const n = Number(str);
-          return Number.isNaN(n) ? str : formatNumber(n, DEFAULT_LOCALE);
-        }
-        default:
-          return str;
-      }
-    },
-  );
-}

@@ -72,56 +72,36 @@ export function CommentPinsOverlay({
       type: 'FeatureCollection',
       features,
     };
-    const existing = map.getSource(SOURCE_ID) as
-      | maplibregl.GeoJSONSource
-      | undefined;
     if (features.length === 0) {
       if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
       if (map.getLayer(HALO_ID)) map.removeLayer(HALO_ID);
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
       return;
     }
-    if (existing) {
-      existing.setData(fc);
-    } else {
-      map.addSource(SOURCE_ID, { type: 'geojson', data: fc });
-    }
-    if (!map.getLayer(HALO_ID)) {
-      map.addLayer({
-        id: HALO_ID,
-        type: 'circle',
-        source: SOURCE_ID,
-        paint: {
-          'circle-radius': 11,
-          'circle-color': '#ffffff',
-          'circle-stroke-color': '#111827',
-          'circle-stroke-width': 1,
-        },
-      });
-    }
-    if (!map.getLayer(LAYER_ID)) {
-      map.addLayer({
-        id: LAYER_ID,
-        type: 'circle',
-        source: SOURCE_ID,
-        paint: {
-          'circle-radius': [
-            'case',
-            ['==', ['get', 'focused'], 1],
-            8,
-            6,
-          ],
-          'circle-color': [
-            'case',
-            ['==', ['get', 'resolved'], 1],
-            '#94a3b8',
-            '#2563eb',
-          ],
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 1.5,
-        },
-      });
-    }
+    const existing = map.getSource(SOURCE_ID) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (existing) existing.setData(fc);
+    addPins(map, fc);
+    // A basemap switch replaces the style, which drops every source
+    // and layer this overlay added. Put the pins back when the new
+    // style is in. The layer-bound click handlers below are keyed by
+    // layer id on the map, so they apply again once the layer exists.
+    const restore = () => {
+      try {
+        if (map.isStyleLoaded() && !map.getSource(SOURCE_ID)) addPins(map, fc);
+      } catch {
+        /* style still loading; the next event retries */
+      }
+    };
+    // styledata can arrive while sources are still loading; idle
+    // always follows once the new style has settled.
+    map.on('styledata', restore);
+    map.on('idle', restore);
+    return () => {
+      map.off('styledata', restore);
+      map.off('idle', restore);
+    };
   }, [map, features]);
 
   useEffect(() => {
@@ -173,4 +153,50 @@ export function CommentPinsOverlay({
   }, [map, onSelectThreadId, features.length]);
 
   return null;
+}
+
+/**
+ * Add the pin source and its two layers when they are missing. Safe to
+ * call again: anything already on the map is left alone.
+ */
+function addPins(map: maplibregl.Map, fc: GeoJSON.FeatureCollection): void {
+  if (!map.getSource(SOURCE_ID)) {
+    map.addSource(SOURCE_ID, { type: 'geojson', data: fc });
+  }
+  if (!map.getLayer(HALO_ID)) {
+    map.addLayer({
+      id: HALO_ID,
+      type: 'circle',
+      source: SOURCE_ID,
+      paint: {
+        'circle-radius': 11,
+        'circle-color': '#ffffff',
+        'circle-stroke-color': '#111827',
+        'circle-stroke-width': 1,
+      },
+    });
+  }
+  if (!map.getLayer(LAYER_ID)) {
+    map.addLayer({
+      id: LAYER_ID,
+      type: 'circle',
+      source: SOURCE_ID,
+      paint: {
+        'circle-radius': [
+          'case',
+          ['==', ['get', 'focused'], 1],
+          8,
+          6,
+        ],
+        'circle-color': [
+          'case',
+          ['==', ['get', 'resolved'], 1],
+          '#94a3b8',
+          '#2563eb',
+        ],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1.5,
+      },
+    });
+  }
 }

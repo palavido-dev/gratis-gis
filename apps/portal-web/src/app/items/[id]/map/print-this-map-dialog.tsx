@@ -11,7 +11,7 @@
  *      into an iframe so the author can confirm before downloading.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Loader2, Plus, Printer } from 'lucide-react';
 
@@ -117,8 +117,23 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
     };
   }, [step]);
 
+  // The render in flight. Back, close and a newer pick abort it, so a
+  // slow earlier render can no longer replace the preview the user is
+  // looking at, or throw them out of it with its error.
+  const renderCtlRef = useRef<AbortController | null>(null);
+  const cancelRender = useCallback(() => {
+    renderCtlRef.current?.abort();
+    renderCtlRef.current = null;
+  }, []);
+  useEffect(() => {
+    if (!open) cancelRender();
+  }, [open, cancelRender]);
+
   const renderPreview = useCallback(
     async (templateId: string, title: string) => {
+      cancelRender();
+      const ctl = new AbortController();
+      renderCtlRef.current = ctl;
       setError(null);
       setStep({
         kind: 'preview',
@@ -139,6 +154,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             locale,
           }),
+          signal: ctl.signal,
         });
         if (!res.ok) {
           throw new Error(
@@ -146,6 +162,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
           );
         }
         const blob = await res.blob();
+        if (ctl.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         setStep({
           kind: 'preview',
@@ -155,11 +172,14 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
           rendering: false,
         });
       } catch (e) {
+        if (ctl.signal.aborted) return;
         setError(e instanceof Error ? e.message : 'Failed to render');
         setStep({ kind: 'pick' });
+      } finally {
+        if (renderCtlRef.current === ctl) renderCtlRef.current = null;
       }
     },
-    [mapId, locale],
+    [mapId, cancelRender, locale],
   );
 
   function downloadPreview() {
@@ -173,6 +193,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
   }
 
   function backToPick() {
+    cancelRender();
     if (step.kind === 'preview' && step.blobUrl) {
       URL.revokeObjectURL(step.blobUrl);
     }
@@ -189,6 +210,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
       open={open}
       onOpenChange={(next) => {
         if (!next) {
+          cancelRender();
           if (step.kind === 'preview' && step.blobUrl) {
             URL.revokeObjectURL(step.blobUrl);
           }

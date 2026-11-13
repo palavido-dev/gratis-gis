@@ -178,6 +178,63 @@ describe('DrawingsService', () => {
     });
   });
 
+  describe('appends and the item version', () => {
+    const pin = (id: string, x: number) => ({
+      id,
+      kind: 'pin' as const,
+      geometry: { type: 'Point', coordinates: [x, 0] },
+    });
+
+    it('appends to the features stored under the lock, so a concurrent pin survives', async () => {
+      const prisma = makePrisma();
+      const mine = { id: 'mine', authorId: 'author-1', color: '#00ff00', title: 'Mine', features: [] };
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', data: { drawings: [mine] } as never }),
+      );
+      // Pin 1 landed between this caller's read and its write.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: { drawings: [{ ...mine, features: [pin('p1', 1)] }] },
+          updated_at_ms: 1_700_000_000_123,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      const out = await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', {
+        appendFeatures: [pin('p2', 2) as never],
+      });
+      expect(out.features.map((f) => f.id)).toEqual(['p1', 'p2']);
+      // Appending the same feature again (a retry) does not double it.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: { drawings: [{ ...mine, features: out.features }] },
+          updated_at_ms: 1_700_000_000_123,
+        },
+      ]);
+      const again = await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', {
+        appendFeatures: [pin('p2', 2) as never],
+      });
+      expect(again.features.map((f) => f.id)).toEqual(['p1', 'p2']);
+    });
+
+    it('writes markup without moving the item updatedAt', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public', data: { drawings: [] } as never }),
+      );
+      prisma.$queryRaw.mockResolvedValue([
+        { data: { drawings: [] }, updated_at_ms: 1_700_000_000_123 },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.create({ kind: 'user', user: makeUser() }, 'map-1', {});
+      const args = prisma.item.update.mock.calls[0]![0] as {
+        data: { updatedAt?: Date };
+      };
+      expect(args.data.updatedAt).toEqual(new Date(1_700_000_000_123));
+    });
+  });
+
   describe('create', () => {
     it('stamps a new set with an auto-assigned color and the user display name', async () => {
       const prisma = makePrisma();

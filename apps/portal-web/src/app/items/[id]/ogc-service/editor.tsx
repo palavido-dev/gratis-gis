@@ -60,10 +60,15 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   const fallback = (
     kind === 'wms' ? DEFAULT_WMS_SERVICE : DEFAULT_WFS_SERVICE
   ) as WmsServiceData | WfsServiceData;
-  const [data, setData] = useState<WmsServiceData | WfsServiceData>({
+  // `data` is the draft the option controls edit; `stored` is what the
+  // server holds. The option controls used to write straight into the
+  // only copy, so the draft always equalled the baseline: no Save bar
+  // appeared, Discard could not undo, and the edit was lost on reload.
+  const [stored, setStored] = useState<WmsServiceData | WfsServiceData>({
     ...fallback,
     ...initial,
   });
+  const [data, setData] = useState<WmsServiceData | WfsServiceData>(stored);
   const [urlDraft, setUrlDraft] = useState(data.url);
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<OgcCapabilities | null>(null);
@@ -123,14 +128,17 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
     .filter((i) => i >= 0);
 
   // Coerce stored ids to numbers for the diff (ArcGIS-compat shape
-  // allows string|number).
-  const storedSelectedIdsAsNums: number[] = (data.selectedLayerIds ?? []).map(
-    (id) => (typeof id === 'number' ? id : Number(id)),
-  );
+  // allows string|number). No stored list means "all", as at load,
+  // so an older item does not show unsaved changes from the start.
+  const storedSelectedIdsAsNums: number[] = stored.selectedLayerIds
+    ? stored.selectedLayerIds.map((id) =>
+        typeof id === 'number' ? id : Number(id),
+      )
+    : stored.layers.map((_, i) => i);
   const hasChanges =
     probeResult !== null ||
     arraysDiffer(stagedSelectedIds, storedSelectedIdsAsNums) ||
-    formatsDiffer(staged, data);
+    formatsDiffer(staged, stored);
 
   async function runProbe() {
     if (!canEdit) return;
@@ -189,17 +197,18 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   function discardProbe() {
     setProbeResult(null);
     setProbeError(null);
-    setUrlDraft(data.url);
+    setData(stored);
+    setUrlDraft(stored.url);
     // Reset selection to the saved set. Same string|number coercion
     // as the initial state computation.
-    const resetIndices: number[] = data.selectedLayerIds
-      ? data.selectedLayerIds
+    const resetIndices: number[] = stored.selectedLayerIds
+      ? stored.selectedLayerIds
           .map((id) => (typeof id === 'number' ? id : Number(id)))
           .filter((n) => Number.isInteger(n))
-      : data.layers.map((_, i) => i);
+      : stored.layers.map((_, i) => i);
     const reset = new Set<string>(
       resetIndices
-        .map((i) => data.layers[i]?.name ?? '')
+        .map((i) => stored.layers[i]?.name ?? '')
         .filter((n) => n.length > 0),
     );
     setSelectedNames(reset);
@@ -225,6 +234,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
         return;
       }
       setData(payload);
+      setStored(payload);
       setProbeResult(null);
       setProbeError(null);
       setSaved(true);

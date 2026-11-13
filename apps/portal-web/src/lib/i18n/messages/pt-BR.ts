@@ -2177,6 +2177,7 @@ export const ptBR: Partial<CatalogShape> = {
     truncatedBanner: 'Mostrando 5.000+ linhas{extent}. Aproxime{extentHint} ou filtre para ver mais.',
     truncatedInExtent: ' nesta extensão',
     truncatedEnableExtent: ', ative "Na extensão",',
+    showSelectedCapped: 'Mostrando as primeiras {max} linhas selecionadas. Selecione menos para ver o restante.',
     noLayer: 'Nenhuma camada selecionada.',
     loadingFeatures: 'Carregando feições...',
     loadFailed: 'Falha ao carregar: {error}',
@@ -2326,6 +2327,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Nenhum serviço corresponde. Envie dados vetoriais como serviço de feições ou salve uma URL REST do ArcGIS como item de serviço ArcGIS para escolher aqui.',
     portalFootnote:
       'Serviços de feições vêm do PostGIS; serviços ArcGIS consultam a origem ao vivo conforme você move e amplia.',
+    listTruncated: 'Mostrando os primeiros {count} de {total}. Pesquise para refinar a lista.',
     sublayerBadge: '+{count} camadas',
     sublayerBadgeTitle:
       'Este serviço expõe {count} subcamadas; ao clicar, todas são adicionadas.',
@@ -2438,6 +2440,7 @@ export const ptBR: Partial<CatalogShape> = {
     drawContinue:
       'Clique para adicionar pontos. Clique duplo (ou Enter) para terminar.',
     drawAgain: 'Desenhar de novo',
+    emptyHint: 'Desenhe uma linha no mapa para ver a elevação do terreno ao longo dela.',
     reading: 'Lendo a elevação do terreno...',
     fromSource: 'de {title}',
     distance: 'Distância',
@@ -3063,6 +3066,9 @@ export const ptBR: Partial<CatalogShape> = {
     clearSelection: 'Limpar seleção',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Acesso às camadas',
     description:
       'Ajuste o que cada usuário ou grupo compartilhado vê neste mapa. A matriz restringe o acesso; um aviso aparece quando um principal não tem acesso em nível de item aos dados de origem de uma camada.',
@@ -4341,7 +4347,7 @@ export const ptBR: Partial<CatalogShape> = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -4594,6 +4600,7 @@ export const ptBR: Partial<CatalogShape> = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -4662,6 +4669,8 @@ export const ptBR: Partial<CatalogShape> = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -4687,6 +4696,7 @@ export const ptBR: Partial<CatalogShape> = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4899,6 +4909,8 @@ export const ptBR: Partial<CatalogShape> = {
     available: "Disponíveis",
     rankingEmpty: "Nenhum item classificado ainda. Toque em um item abaixo para adicionar.",
     removeFromRankingAria: "Remover da classificação",
+    rankUpAria: "Subir na classificação",
+    rankDownAria: "Descer na classificação",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

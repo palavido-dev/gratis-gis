@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n/locale-context';
 import { Check, Sparkles } from 'lucide-react';
+import { REGEX_PRESET_DEFS, type RegexPresetId } from '@/lib/regex-presets';
 import {
   Dialog,
   DialogContent,
@@ -135,24 +136,6 @@ export function RegexQuestionFields({
  * and an example value the live-preview seeds with so the author
  * can see immediately whether the pattern matches what they expect.
  */
-type RegexPresetId =
-  | 'email'
-  | 'url'
-  | 'usPhone'
-  | 'e164Phone'
-  | 'usZip'
-  | 'caPostal'
-  | 'ukPostcode'
-  | 'isoDate'
-  | 'time24h'
-  | 'lettersOnly'
-  | 'alphanumeric'
-  | 'digitsOnly'
-  | 'positiveInt'
-  | 'decimal'
-  | 'uuid'
-  | 'hexColor';
-
 interface RegexPreset {
   id: RegexPresetId;
   name: string;
@@ -161,94 +144,6 @@ interface RegexPreset {
   flags?: string;
   sample: string;
 }
-
-const REGEX_PRESET_DEFS: Array<
-  Pick<RegexPreset, 'id' | 'pattern' | 'flags' | 'sample'> & { flags?: string }
-> = [
-  {
-    id: 'email',
-    pattern: '[^\\s@]+@[^\\s@]+\\.[^\\s@]+',
-    sample: 'me@example.com',
-  },
-  {
-    id: 'url',
-    pattern: 'https?://[^\\s/$.?#].[^\\s]*',
-    sample: 'https://example.com/path?x=1',
-  },
-  {
-    id: 'usPhone',
-    pattern: '\\+?1?[\\s.-]?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}',
-    sample: '(555) 867-5309',
-  },
-  {
-    id: 'e164Phone',
-    pattern: '\\+?\\d{7,15}',
-    sample: '+14155552671',
-  },
-  {
-    id: 'usZip',
-    pattern: '\\d{5}(-\\d{4})?',
-    sample: '94110-1234',
-  },
-  {
-    id: 'caPostal',
-    pattern: '[A-Za-z]\\d[A-Za-z][\\s-]?\\d[A-Za-z]\\d',
-    flags: 'i',
-    sample: 'K1A 0B1',
-  },
-  {
-    id: 'ukPostcode',
-    pattern: '[A-Za-z]{1,2}\\d[A-Za-z\\d]?\\s*\\d[A-Za-z]{2}',
-    flags: 'i',
-    sample: 'SW1A 1AA',
-  },
-  {
-    id: 'isoDate',
-    pattern: '\\d{4}-\\d{2}-\\d{2}',
-    sample: '2026-04-28',
-  },
-  {
-    id: 'time24h',
-    pattern: '[01]\\d|2[0-3]:[0-5]\\d(:[0-5]\\d)?',
-    sample: '14:30',
-  },
-  {
-    id: 'lettersOnly',
-    pattern: '[A-Za-z\\s]+',
-    sample: 'Maria Sanchez',
-  },
-  {
-    id: 'alphanumeric',
-    pattern: '[A-Za-z0-9]+',
-    sample: 'GIS2026Alpha',
-  },
-  {
-    id: 'digitsOnly',
-    pattern: '\\d+',
-    sample: '40291',
-  },
-  {
-    id: 'positiveInt',
-    pattern: '[1-9]\\d*',
-    sample: '12345',
-  },
-  {
-    id: 'decimal',
-    pattern: '-?\\d+(\\.\\d+)?',
-    sample: '-3.14',
-  },
-  {
-    id: 'uuid',
-    pattern:
-      '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
-    sample: '550e8400-e29b-41d4-a716-446655440000',
-  },
-  {
-    id: 'hexColor',
-    pattern: '#?([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})',
-    sample: '#1a73e8',
-  },
-];
 
 function regexPresetsFromT(
   t: (key: string) => string,

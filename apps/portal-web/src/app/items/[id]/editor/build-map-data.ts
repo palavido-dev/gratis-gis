@@ -53,7 +53,9 @@ import type {
  *   that is no longer the reason. The Editor's forms, inline table
  *   edits and undo read attributes from the source's own features,
  *   which only a GeoJSON source has (see map-canvas, isEditorTarget).
- *   The cost is that each target is downloaded whole. The read-only
+ *   The canvas fills that source with the rows in view (a bbox read
+ *   of up to 5,000 rows per settled move), not the whole layer; the
+ *   url below names the sublayer it reads. The read-only
  *   Viewer has no such need, so its synthesized layers use the
  *   `data-layer` source and render from vector tiles with a
  *   server-paged table.

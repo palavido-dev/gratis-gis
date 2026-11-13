@@ -2187,6 +2187,7 @@ export const de: Partial<CatalogShape> = {
     truncatedBanner: 'Es werden 5.000+ Zeilen{extent} angezeigt. Zoomen Sie hinein{extentHint} oder filtern Sie, um mehr zu sehen.',
     truncatedInExtent: ' in diesem Ausschnitt',
     truncatedEnableExtent: ', aktivieren Sie „Im Ausschnitt“,',
+    showSelectedCapped: 'Es werden die ersten {max} ausgewählten Zeilen angezeigt. Wählen Sie weniger aus, um den Rest zu sehen.',
     noLayer: 'Keine Ebene ausgewählt.',
     loadingFeatures: 'Features werden geladen...',
     loadFailed: 'Laden fehlgeschlagen: {error}',
@@ -2336,6 +2337,7 @@ export const de: Partial<CatalogShape> = {
       'Keine passenden Dienste. Laden Sie Vektordaten als Feature-Service hoch oder speichern Sie eine ArcGIS-REST-URL als ArcGIS-Service-Element, um sie hier zu wählen.',
     portalFootnote:
       'Feature-Services streamen aus PostGIS; ArcGIS-Dienste fragen die Quelle live ab, wenn Sie schwenken und zoomen.',
+    listTruncated: 'Es werden die ersten {count} von {total} angezeigt. Suchen Sie, um die Liste einzugrenzen.',
     sublayerBadge: '+{count} Ebenen',
     sublayerBadgeTitle:
       'Dieser Dienst stellt {count} Unterebenen bereit; ein Klick fügt alle hinzu.',
@@ -2448,6 +2450,7 @@ export const de: Partial<CatalogShape> = {
     drawContinue:
       'Klicken Sie, um Punkte hinzuzufügen. Doppelklick (oder Enter) zum Beenden.',
     drawAgain: 'Erneut zeichnen',
+    emptyHint: 'Zeichnen Sie eine Linie auf der Karte, um die Geländehöhe entlang der Linie zu sehen.',
     reading: 'Geländehöhe wird gelesen...',
     fromSource: 'von {title}',
     distance: 'Distanz',
@@ -3082,6 +3085,9 @@ export const de: Partial<CatalogShape> = {
     clearSelection: 'Auswahl löschen',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Ebenenzugriff',
     description:
       'Legen Sie fest, was jeder freigegebene Benutzer oder jede Gruppe auf dieser Karte sieht. Die Matrix schränkt den Zugriff ein; ein Warnabzeichen erscheint, wenn ein Principal keinen Elementzugriff auf die Quelldaten einer Ebene hat.',
@@ -4359,7 +4365,7 @@ export const de: Partial<CatalogShape> = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -4612,6 +4618,7 @@ export const de: Partial<CatalogShape> = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -4680,6 +4687,8 @@ export const de: Partial<CatalogShape> = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -4705,6 +4714,7 @@ export const de: Partial<CatalogShape> = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4917,6 +4927,8 @@ export const de: Partial<CatalogShape> = {
     available: "Verfügbar",
     rankingEmpty: "Noch keine Einträge in der Rangfolge. Tippen Sie unten auf einen Eintrag.",
     removeFromRankingAria: "Aus der Rangfolge entfernen",
+    rankUpAria: "In der Rangfolge nach oben",
+    rankDownAria: "In der Rangfolge nach unten",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

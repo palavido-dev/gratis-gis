@@ -2183,6 +2183,7 @@ export const es: Partial<CatalogShape> = {
     truncatedBanner: 'Mostrando 5.000+ filas{extent}. Acércate{extentHint} o filtra para ver más.',
     truncatedInExtent: ' en esta extensión',
     truncatedEnableExtent: ', activa "En la extensión",',
+    showSelectedCapped: 'Se muestran las primeras {max} filas seleccionadas. Selecciona menos para ver el resto.',
     noLayer: 'Ninguna capa seleccionada.',
     loadingFeatures: 'Cargando entidades...',
     loadFailed: 'Error al cargar: {error}',
@@ -2332,6 +2333,7 @@ export const es: Partial<CatalogShape> = {
       'No hay servicios que coincidan. Sube datos vectoriales como servicio de entidades o guarda una URL REST de ArcGIS como elemento de servicio ArcGIS para elegirla aquí.',
     portalFootnote:
       'Los servicios de entidades se transmiten desde PostGIS; los servicios ArcGIS consultan el origen en vivo al desplazarte y hacer zoom.',
+    listTruncated: 'Se muestran los primeros {count} de {total}. Busca para acotar la lista.',
     sublayerBadge: '+{count} capas',
     sublayerBadgeTitle:
       'Este servicio expone {count} subcapas; al hacer clic se añaden todas.',
@@ -2444,6 +2446,7 @@ export const es: Partial<CatalogShape> = {
     drawContinue:
       'Haz clic para añadir puntos. Doble clic (o Enter) para terminar.',
     drawAgain: 'Dibujar de nuevo',
+    emptyHint: 'Dibuja una línea en el mapa para ver la elevación del terreno a lo largo de ella.',
     reading: 'Leyendo la elevación del terreno...',
     fromSource: 'de {title}',
     distance: 'Distancia',
@@ -3066,6 +3069,9 @@ export const es: Partial<CatalogShape> = {
     clearSelection: 'Borrar selección',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Acceso a las capas',
     description:
       'Ajusta lo que ve cada usuario o grupo compartido en este mapa. La matriz reduce el acceso; aparece una advertencia cuando un principal no tiene acceso a nivel de elemento a los datos de origen de una capa.',
@@ -4342,7 +4348,7 @@ export const es: Partial<CatalogShape> = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -4595,6 +4601,7 @@ export const es: Partial<CatalogShape> = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -4663,6 +4670,8 @@ export const es: Partial<CatalogShape> = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -4688,6 +4697,7 @@ export const es: Partial<CatalogShape> = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4900,6 +4910,8 @@ export const es: Partial<CatalogShape> = {
     available: "Disponibles",
     rankingEmpty: "Aún no hay elementos clasificados. Toca un elemento abajo para añadirlo.",
     removeFromRankingAria: "Quitar de la clasificación",
+    rankUpAria: "Subir en la clasificación",
+    rankDownAria: "Bajar en la clasificación",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",
