@@ -29,7 +29,8 @@ export interface OgcLayerSnapshot {
 
 export interface WmsCapabilities {
   kind: 'wms';
-  /** GetCapabilities URL the user provided (without query string). */
+  /** Service base URL: what the user provided, minus the OGC request
+   *  parameters. Vendor parameters such as `map=` stay on it. */
   url: string;
   /** WMS protocol version reported by the server. */
   protocolVersion: '1.1.1' | '1.3.0';
@@ -51,16 +52,54 @@ export interface WfsCapabilities {
 
 export type OgcCapabilities = WmsCapabilities | WfsCapabilities;
 
-/** Normalize the user-supplied URL: strip query string + trailing slash
- *  + a "?" so we can append our own ?service= consistently. */
-function normalizeBaseUrl(raw: string): string {
+/**
+ * Query keys the OGC request owns. Everything else on a pasted URL is
+ * the server's own (MapServer's `map=`, a vendor `key=` or token) and
+ * has to travel with every request, or the server cannot answer.
+ */
+const OGC_REQUEST_KEYS = new Set(['service', 'request', 'version', 'acceptversions']);
+
+function splitQuery(raw: string): { path: string; parts: string[] } {
+  const noHash = raw.split('#')[0] ?? '';
+  const idx = noHash.indexOf('?');
+  if (idx < 0) return { path: noHash, parts: [] };
+  return {
+    path: noHash.slice(0, idx),
+    parts: noHash.slice(idx + 1).split('&').filter((p) => p.length > 0),
+  };
+}
+
+function queryKey(part: string): string {
+  const key = part.split('=')[0] ?? '';
+  try {
+    return decodeURIComponent(key).toLowerCase();
+  } catch {
+    return key.toLowerCase();
+  }
+}
+
+/**
+ * Normalize the user-supplied URL into the base every OGC request is
+ * built on: trailing slash dropped, the OGC request keys (service,
+ * request, version) removed, and any other query parameter kept as
+ * it was typed.
+ */
+export function ogcBaseUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error('Service URL is required.');
-  // Drop any existing query string -- GetCapabilities owns the params.
-  const idx = trimmed.indexOf('?');
-  let base = idx >= 0 ? trimmed.slice(0, idx) : trimmed;
-  base = base.replace(/(?<!\/)\/+$/, '');
-  return base;
+  const { path, parts } = splitQuery(trimmed);
+  const base = path.replace(/(?<!\/)\/+$/, '');
+  const kept = parts.filter((p) => !OGC_REQUEST_KEYS.has(queryKey(p)));
+  return kept.length > 0 ? `${base}?${kept.join('&')}` : base;
+}
+
+/** Append OGC request parameters to a base from ogcBaseUrl, after
+ *  whatever vendor parameters it already carries. */
+export function ogcRequestUrl(base: string, params: Record<string, string>): string {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  return `${base}${base.includes('?') ? '&' : '?'}${qs}`;
 }
 
 /** Probe a WMS endpoint. Returns the layer list + service metadata. */
@@ -68,11 +107,15 @@ export async function probeWms(
   rawUrl: string,
   signal?: AbortSignal,
 ): Promise<WmsCapabilities> {
-  const base = normalizeBaseUrl(rawUrl);
+  const base = ogcBaseUrl(rawUrl);
   // Prefer 1.3.0 (current); fall back to 1.1.1 if the server objects.
   // Many older deployments only speak 1.1.1 and ignore version=1.3.0
   // by returning their default; the parser tolerates either.
-  const url = `${base}?service=WMS&request=GetCapabilities&version=1.3.0`;
+  const url = ogcRequestUrl(base, {
+    service: 'WMS',
+    request: 'GetCapabilities',
+    version: '1.3.0',
+  });
   const xml = await fetchXml(url, signal);
   return parseWmsCapabilities(base, xml);
 }
@@ -82,10 +125,14 @@ export async function probeWfs(
   rawUrl: string,
   signal?: AbortSignal,
 ): Promise<WfsCapabilities> {
-  const base = normalizeBaseUrl(rawUrl);
+  const base = ogcBaseUrl(rawUrl);
   // Prefer 2.0.0 -- it's the OGC standard since 2010 and widely
   // supported. Servers stuck on 1.1.0 still return parseable XML.
-  const url = `${base}?service=WFS&request=GetCapabilities&version=2.0.0`;
+  const url = ogcRequestUrl(base, {
+    service: 'WFS',
+    request: 'GetCapabilities',
+    version: '2.0.0',
+  });
   const xml = await fetchXml(url, signal);
   return parseWfsCapabilities(base, xml);
 }

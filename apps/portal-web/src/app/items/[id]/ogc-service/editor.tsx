@@ -23,6 +23,8 @@ import {
   DEFAULT_WMS_SERVICE,
 } from '@gratis-gis/shared-types';
 import {
+  ogcBaseUrl,
+  ogcRequestUrl,
   probeWfs,
   probeWms,
   type OgcCapabilities,
@@ -274,7 +276,14 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
             className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-2 font-mono text-sm"
           />
           <a
-            href={`${data.url}?service=${protocolLabel}&request=GetCapabilities`}
+            href={
+              data.url.trim()
+                ? ogcRequestUrl(ogcBaseUrl(data.url), {
+                    service: protocolLabel,
+                    request: 'GetCapabilities',
+                  })
+                : undefined
+            }
             target="_blank"
             rel="noreferrer"
             className="inline-flex h-9 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 hover:bg-surface-2"
