@@ -32,10 +32,12 @@ response `syncVersion` of the last page of a completed walk.
 ## Delta request and response
 
 ```
-GET /api/items/{id}/layers/{layerKey}/delta?since=N[&after=OBS][&limit=L]
+GET /api/items/{id}/layers/{layerKey}/delta?since=N[&after=OBS][&limit=L][&bbox=W,S,E,N]
 ```
 
-`limit` defaults to 1000 and is at most 10000.
+`limit` defaults to 1000 and is at most 10000. `bbox` is the area the
+client caches, in WGS84 degrees; leave it out for the whole layer.
+Send the same `bbox` on every page of one walk.
 
 ```json
 {
@@ -134,6 +136,8 @@ read:
   leaves the device. An entity the caller could never see is never
   returned, tombstones included, so its id and creator do not leak.
   A closed clip returns nothing.
+- Bbox: the same rule as the geo limit, with the bbox as the clip.
+  With both, an observation is inside only when it is inside both.
 
 ## Sending edits back
 

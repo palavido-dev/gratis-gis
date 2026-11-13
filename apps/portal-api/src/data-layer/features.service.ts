@@ -2062,6 +2062,8 @@ export class DataLayerFeaturesService {
       limit?: number;
       after?: string;
       geoLimit?: GeoJsonGeometry;
+      /** WGS84 [w, s, e, n] area the client caches; see listDeltaSince. */
+      bbox?: [number, number, number, number];
       ownRowsOnly?: boolean;
       isTable?: boolean;
       userId?: string;
@@ -2094,6 +2096,7 @@ export class DataLayerFeaturesService {
       ...(opts.after !== undefined ? { after: opts.after } : {}),
       limit: limit + 1, // probe one past so we can set truncated
       ...(opts.geoLimit !== undefined ? { geoLimit: opts.geoLimit } : {}),
+      ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.ownRowsOnly === true && opts.userId
         ? { ownRowsOnly: { userId: opts.userId } }
         : {}),
