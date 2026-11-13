@@ -167,6 +167,18 @@ describe('form linkedLayerId on update', () => {
     expect(written.linkedLayerId).toBe(OWN_LAYER);
   });
 
+  it('removes the link when the client sends linkedLayerId null (Unlink)', async () => {
+    const { svc, prisma } = makeService();
+    await svc.update(makeUser(), FORM_ID, {
+      data: { schemaVersion: 1, questions: [], linkedLayerId: null, linkedLayerKey: null },
+    } as never);
+    const written = (
+      prisma.item.update.mock.calls[0] as unknown as [{ data: { data: Record<string, unknown> } }]
+    )[0].data.data;
+    expect('linkedLayerId' in written).toBe(false);
+    expect('linkedLayerKey' in written).toBe(false);
+  });
+
   it('accepts re-sending the same link without a layer check', async () => {
     const { svc, prisma } = makeService();
     await svc.update(makeUser(), FORM_ID, { data: formData(OWN_LAYER) } as never);

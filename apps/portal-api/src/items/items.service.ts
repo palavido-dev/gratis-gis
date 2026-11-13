@@ -2599,17 +2599,26 @@ export class ItemsService {
       ) {
         await this.assertFormLinkTarget(user, item.orgId, merged.linkedLayerId);
       }
-      if (
-        typeof prevData.linkedLayerId === 'string' &&
-        typeof merged.linkedLayerId !== 'string'
-      ) {
-        merged.linkedLayerId = prevData.linkedLayerId;
-      }
-      if (
-        typeof prevData.linkedLayerKey === 'string' &&
-        typeof merged.linkedLayerKey !== 'string'
-      ) {
-        merged.linkedLayerKey = prevData.linkedLayerKey;
+      // `linkedLayerId: null` is the designer's Unlink. Omitting the
+      // field keeps the stored link, so without an explicit value the
+      // link could never be removed: the designer showed the form as
+      // unlinked while every submission was still mirrored.
+      if (merged.linkedLayerId === null) {
+        delete merged.linkedLayerId;
+        delete merged.linkedLayerKey;
+      } else {
+        if (
+          typeof prevData.linkedLayerId === 'string' &&
+          typeof merged.linkedLayerId !== 'string'
+        ) {
+          merged.linkedLayerId = prevData.linkedLayerId;
+        }
+        if (
+          typeof prevData.linkedLayerKey === 'string' &&
+          typeof merged.linkedLayerKey !== 'string'
+        ) {
+          merged.linkedLayerKey = prevData.linkedLayerKey;
+        }
       }
       // And the engine version the form needs, recomputed from what
       // is being saved so a native client never trusts a stale or
