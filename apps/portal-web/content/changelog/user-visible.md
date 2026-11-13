@@ -21,6 +21,11 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.6.0] - 2026-11-13
+
+## 2026-11-13 - A new look, and tighter sharing
+GratisGIS has a new logo and brand colour. Printed maps now include your private and organization layers. Turning off editing on a layer now really stops shared editors, share lists are visible only to owners and admins, and dozens of smaller improvements land across forms, maps, apps and the Android app.
+
 ## [1.5.0] - 2026-11-12
 
 ## 2026-11-12 - A tighter, more reliable GratisGIS

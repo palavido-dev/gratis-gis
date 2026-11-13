@@ -6,6 +6,98 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-13
+
+Decisions release. Every review finding that was held back for a
+product decision is now built as decided, plus a new logo and brand
+colour. Several changes refuse things that used to be allowed; each is
+marked `Breaking:`. The ones on the public surface are security fixes
+shipped under the security exception in docs/VERSIONING.md (the
+comments list paging closes an unbounded public read). Read these
+before upgrading:
+
+- Turning "Editing enabled" off on a layer now blocks edits from
+  people it is shared with and from Editor apps.
+- An item's share list is shown only to its owner and org admins.
+- PostGIS Live connections to the portal server's own addresses are
+  refused unless listed in `POSTGIS_LIVE_ALLOW_HOSTS`.
+- On the Android app, signed-out devices no longer list cached
+  collections, and each person sees only their own drafts and edits.
+
+### Added
+
+- New setting `GRATIS_DISABLE_BACKUP_UI=1` turns off backup, restore
+  and maintenance controls in the portal and the API, for installs
+  with a shared admin login. The public demo sets it.
+- New settings `POSTGIS_LIVE_DENY_HOSTS` and `POSTGIS_LIVE_ALLOW_HOSTS`
+  for PostGIS Live connection targets.
+- The map layer access matrix has an "Everyone else" column for org
+  members and public viewers the map is not shared with by name.
+- Admins can list sites the Embed widget may show (Admin, Security,
+  "Sites apps may embed"). Only app pages allow them.
+- Folders have an "A to Z / Custom" sort switch.
+- "Add to map" on a data layer adds its tables too; the layer list
+  shows them in a "Tables" section.
+- Map comments load the newest 200 threads first, with "Load older
+  threads".
+- Uploading a .zip of XYZ tiles now works.
+
+### Changed
+
+- New GratisGIS logo (a G drawn as two contour rings around a point)
+  in the portal, sign-in page, browser tab, home screen icon and
+  Android app. Buttons, links and the sign-in page use the new brand
+  teal.
+- Printed maps include layers shared privately or with your
+  organization, not only public ones.
+- Bulk feature creates send the owner one summary email when more
+  than 10 features are added, instead of one per feature.
+- Building search indexes runs in the background.
+- Derived layers load much faster on repeat views; results refresh
+  when a source layer changes, and at least every 10 minutes.
+- AGO imports run at most two at a time per server; later ones wait.
+- Importing a form from JSON or XLSForm keeps the form's own
+  notification and Responses page settings.
+- Map search marks results from hidden layers "Hidden", and picking
+  one turns that layer on.
+- Signed-out viewers of a public app see the admin's customised theme
+  when that theme is shared publicly.
+- PDF file items show an inline preview.
+- Android: for a layer with more than 50,000 features, taking a
+  collection offline caches only the features inside its offline
+  areas. The download summary names those layers.
+- Android: refreshing a collection removes cached features of layers
+  taken off its map.
+- Breaking: turning "Editing enabled" off on a layer blocks edits from
+  share holders and Editor apps, not only in the browser. Owners and
+  admins can still edit.
+- Breaking: an item's share list is shown only to its owner and org
+  admins. On a group's page, the share level is shown only for items
+  you manage.
+- Breaking: PostGIS Live connections to the portal server's own
+  addresses are refused. List a database on the same machine in
+  `POSTGIS_LIVE_ALLOW_HOSTS` on host-network installs.
+- Breaking: the comments list API returns at most 200 threads per
+  request; older threads need `?before=` with the `X-Next-Cursor`
+  value.
+- Breaking: the SMTP "Send test" button always mails your own account
+  address.
+- Breaking: a form linked to an existing layer cannot be saved with a
+  repeat group that has no related table in that layer. The designer
+  names the group to fix.
+- Breaking: at most 8 fields per layer and 100 per organization get a
+  search index. Others still search, more slowly, and are listed as
+  skipped.
+- Breaking: each person can have at most 5 script runs queued or
+  running at once.
+- Breaking: a housekeeping schedule that is not Off now always runs
+  the account end-date check and the Keycloak user sync.
+- Breaking: a hand-typed `?type=arcgis_service`, `wms_service` or
+  `wfs_service` in the New item wizard opens Connected service.
+- Breaking (Android): signed out, the app no longer lists collections
+  cached on the device. Each person sees only the collections, drafts
+  and unsynced edits they made on that portal.
+
 ### Fixed
 
 - Self-hosted deploys now run the deploy script of the release being
@@ -17,6 +109,36 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   about 25 seconds.
 - Deploys no longer warn that offline_access could not be added to
   the default role when it is already there.
+- Forms made with "Start from a data layer" save repeat group answers
+  into the matching related table of that layer.
+- The field collect form's Submit button is disabled while saving.
+- Offline form responses no longer upload the same photos again after
+  a failed sync.
+- Photos and clips added to an online form show their preview and clip
+  length before you submit.
+- Clicking a chart in a custom app no longer empties a layer whose
+  filter uses "match any".
+- "Use as filter" in the attribute table filters to exactly the
+  selected features (up to 1,000), including ones not on the loaded
+  page.
+- CSV and GeoParquet exports of a layer with no defined fields include
+  the attributes.
+- A housekeeping run interrupted by a restart no longer shows as
+  running and no longer blocks Run now.
+- NAS installs: after an upgrade or a settings change, services wait
+  for the new boot to finish.
+- A built-in starter you delete and purge no longer comes back.
+- Changing the backup folder no longer hides older backups.
+- Images uploaded through an app's image picker are deleted when their
+  File item is purged.
+- Android: an edit whose send may have reached the server is checked
+  on the server before it is sent again.
+
+### Removed
+
+- The "New user invited" notification toggle and template, which
+  never sent anything. Invite emails still come from the sign-in
+  service.
 
 ### Correction to 1.5.0
 
