@@ -117,7 +117,6 @@ export function BasemapPreview({
     });
     // `data` is read through styleKey, which changes exactly when its
     // content does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styleKey]);
 
   // Recenter / rezoom on prop change (rare; preview pane keeps its
