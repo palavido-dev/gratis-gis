@@ -268,6 +268,12 @@ export interface ItemsListOptions {
    */
   ownerId?: string;
   /**
+   * Only items whose `data.source.itemId` equals this id: the derived
+   * layers built from one source item. Narrows a list, never widens
+   * it, like ownerId.
+   */
+  sourceItemId?: string;
+  /**
    * Optional spatial filter. When set, the list is restricted to
    * items whose cached `bbox_geom` (set by ItemsService on save
    * via itemBbox()) intersects the given envelope. EPSG:4326,
@@ -899,6 +905,9 @@ export class ItemsService {
     // broke smart folders filtered by owner for everyone but that
     // owner and admins.
     if (opts.ownerId) where.ownerId = opts.ownerId;
+    if (opts.sourceItemId) {
+      where.data = { path: ['source', 'itemId'], equals: opts.sourceItemId };
+    }
     // sharedWithGroupId (#100): restrict to items whose shares
     // include a row for the given group. Layered on top of the
     // existing visibleWhere so a user only sees items the group has

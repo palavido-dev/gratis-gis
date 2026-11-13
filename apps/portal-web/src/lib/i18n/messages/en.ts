@@ -2356,6 +2356,8 @@ export const en = {
     bundleLoadingSchema: 'Loading layer schema…',
     bundleDone:
       'Done -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} attachments could not be downloaded and are not in the ZIP. Try the export again.',
     calculateModalTitle: 'Calculate Field',
     calculateUpdatesPrefix: 'Updates',
     calculateUpdatesSuffix: 'across every row in scope.',

@@ -157,9 +157,7 @@ export async function describeArcgisService(
   const out: ArcgisServiceDescription = {
     url: serviceUrl,
     serviceType,
-    name: String(
-      obj.mapName ?? obj.serviceDescription ?? inferName(serviceUrl),
-    ),
+    name: serviceName(obj, serviceUrl),
     layers,
     bbox,
   };
@@ -352,7 +350,7 @@ async function fetchBBoxPage(
   }
   return {
     features: Array.isArray(json.features) ? (json.features as GeoJSON.Feature[]) : [],
-    exceededTransferLimit: json.exceededTransferLimit === true,
+    exceededTransferLimit: exceededTransferLimit(json),
   };
 }
 
@@ -418,7 +416,7 @@ function appendQuery(url: string, params: Record<string, string>): string {
   return u.toString();
 }
 
-function extentToBbox(
+export function extentToBbox(
   extent: unknown,
 ): [number, number, number, number] | null {
   if (!extent || typeof extent !== 'object') return null;
@@ -439,15 +437,77 @@ function extentToBbox(
   // servers commonly emit Web Mercator extents (wkid 3857/102100);
   // rather than reproject in the browser, we drop the extent in that
   // case: the layer will still render once the user zooms to it.
-  const sr = (e.spatialReference as { wkid?: number } | undefined)?.wkid;
-  if (sr && sr !== 4326) return null;
+  //
+  // A spatial reference with no wkid (only `wkt`, as custom and some
+  // state plane services send, or none at all) used to pass as WGS84,
+  // so projected metres came back as a lng/lat bbox. With a wkid or
+  // latestWkid, it must be 4326. Without either, accept the extent
+  // only when it actually fits in lng/lat range.
+  const sr = e.spatialReference as
+    | { wkid?: unknown; latestWkid?: unknown }
+    | undefined;
+  const wkid = Number(sr?.wkid);
+  const latest = Number(sr?.latestWkid);
+  const hasWkid = Number.isFinite(wkid) && wkid > 0;
+  const hasLatest = Number.isFinite(latest) && latest > 0;
+  if (hasWkid || hasLatest) {
+    if (wkid !== 4326 && latest !== 4326) return null;
+  } else if (
+    xmin < -180 || xmax > 180 || ymin < -90 || ymax > 90
+  ) {
+    return null;
+  }
   return [xmin, ymin, xmax, ymax];
 }
 
-function inferName(serviceUrl: string): string {
+/**
+ * The paging flag from a `f=geojson` query. ArcGIS Online and recent
+ * ArcGIS Server put it under `properties` on the FeatureCollection,
+ * older servers at the top level. Reading only the top level stopped
+ * the loop after the first page on the newer ones.
+ */
+export function exceededTransferLimit(json: unknown): boolean {
+  if (!json || typeof json !== 'object') return false;
+  const j = json as {
+    exceededTransferLimit?: unknown;
+    properties?: { exceededTransferLimit?: unknown } | null;
+  };
+  return (
+    j.exceededTransferLimit === true ||
+    j.properties?.exceededTransferLimit === true
+  );
+}
+
+/**
+ * Display name for a service: `mapName` when the server sends one,
+ * else the service's own name from the URL. `serviceDescription` is a
+ * long free text description and FeatureServers usually send it as an
+ * empty string, so it is only a last resort, and only when non-empty.
+ */
+export function serviceName(
+  obj: { mapName?: unknown; serviceDescription?: unknown },
+  serviceUrl: string,
+): string {
+  const nonEmpty = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+  return (
+    nonEmpty(obj.mapName) ??
+    inferName(serviceUrl) ??
+    nonEmpty(obj.serviceDescription) ??
+    'ArcGIS layer'
+  );
+}
+
+function inferName(serviceUrl: string): string | null {
   const parts = serviceUrl.split('/').filter(Boolean);
   // …/services/<folder>/<name>/MapServer  →  name
-  const idx = parts.lastIndexOf('MapServer') || parts.lastIndexOf('FeatureServer');
-  if (idx > 0) return parts[idx - 1] ?? 'ArcGIS layer';
-  return 'ArcGIS layer';
+  // lastIndexOf answers -1 when absent, and -1 is truthy, so `a || b`
+  // never looked for FeatureServer. Take the last of any of them.
+  const idx = Math.max(
+    parts.lastIndexOf('MapServer'),
+    parts.lastIndexOf('FeatureServer'),
+    parts.lastIndexOf('GeocodeServer'),
+  );
+  if (idx > 0) return parts[idx - 1] ?? null;
+  return null;
 }

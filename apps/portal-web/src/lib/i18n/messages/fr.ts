@@ -2221,6 +2221,8 @@ export const fr: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Chargement du schéma de la couche…',
     bundleDone:
       'Terminé -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} pièces jointes n’ont pas pu être téléchargées et ne sont pas dans le ZIP. Relancez l’export.',
     calculateModalTitle: 'Calculer le champ',
     calculateUpdatesPrefix: 'Met à jour',
     calculateUpdatesSuffix: 'sur chaque ligne de la portée.',

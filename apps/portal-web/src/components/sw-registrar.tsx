@@ -50,12 +50,20 @@ export function SwRegistrar() {
     //
     // In dev, also proactively unregister any SW that a previous session
     // left behind so the user doesn't need to hunt through DevTools to
-    // recover. Prod builds are unaffected.
+    // recover.
+    //
+    // A dev build is detected by the build itself (Next inlines
+    // NODE_ENV). The loopback names stay as well, so a production
+    // build run on localhost behaves as before. `.local` is NOT a dev
+    // signal: it is the mDNS suffix real LAN installs use (a NAS at
+    // truenas.local), and treating it as dev unregistered the worker
+    // and wiped its caches on every load there, so offline field mode
+    // and the installable app silently never worked.
     const hostname = window.location.hostname;
     const isDev =
+      process.env.NODE_ENV !== 'production' ||
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
-      hostname.endsWith('.local') ||
       hostname.endsWith('.localhost');
 
     if (isDev) {
@@ -95,7 +103,17 @@ export function SwRegistrar() {
       reloading = true;
       window.location.reload();
     };
+    // A page loaded with no controller (the first visit from this
+    // browser) gets one when the new worker claims it. That is not a
+    // deploy, nothing was pulled out from under the page, and a reload
+    // would only refetch the map and data and lose anything typed. So
+    // the first change on such a page is just recorded.
+    let hadController = navigator.serviceWorker.controller !== null;
     const onControllerChange = () => {
+      if (!hadController) {
+        hadController = true;
+        return;
+      }
       if (!isReloadHeld()) {
         doReload();
         return;

@@ -107,8 +107,8 @@ describe('analyze-run-history', () => {
   });
 
   it('builds the mine+full list URL', () => {
-    expect(pastRunsListUrl(50)).toBe(
-      '/api/portal/items?type=derived_layer&full=1&mine=true&limit=50',
+    expect(pastRunsListUrl('11111111-1111-4111-8111-111111111111', 50)).toBe(
+      '/api/portal/items?type=derived_layer&full=1&mine=true&sourceItemId=11111111-1111-4111-8111-111111111111&limit=50',
     );
   });
 });
