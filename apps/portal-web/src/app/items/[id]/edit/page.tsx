@@ -47,7 +47,7 @@ export default async function EditItemPage(props: Props) {
       </header>
 
       <ItemForm
-        mode={{ kind: 'edit', itemId: item.id }}
+        itemId={item.id}
         initialValues={{
           type: item.type,
           title: item.title,

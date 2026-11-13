@@ -97,11 +97,57 @@ export class ElevationMosaicService {
   }
 
   /**
+   * Resolved stacks, keyed by viewer and stack, kept for a few
+   * seconds. A terrain map asks for about 30 tiles per view, each with
+   * the same stack, and every one used to re-read every item of the
+   * stack in series before it could even check the tile cache. The
+   * pending promise is stored, so a burst of tiles shares one
+   * resolution. Short-lived so a revoked share stops counting within
+   * seconds; bounded because keys are per viewer.
+   */
+  private readonly stackMemo = new Map<
+    string,
+    { at: number; value: Promise<ResolvedDem[]> }
+  >();
+  private static readonly STACK_MEMO_MS = 5_000;
+  private static readonly STACK_MEMO_MAX = 1_000;
+
+  private resolveStack(
+    user: AuthUser | null,
+    stackItemIds: string[],
+  ): Promise<ResolvedDem[]> {
+    const key = `${user?.id ?? 'anon'}|${stackItemIds.join(',')}`;
+    const now = Date.now();
+    const hit = this.stackMemo.get(key);
+    if (hit && now - hit.at < ElevationMosaicService.STACK_MEMO_MS) {
+      return hit.value;
+    }
+    if (this.stackMemo.size >= ElevationMosaicService.STACK_MEMO_MAX) {
+      for (const [k, v] of this.stackMemo) {
+        if (now - v.at >= ElevationMosaicService.STACK_MEMO_MS) {
+          this.stackMemo.delete(k);
+        }
+      }
+      if (this.stackMemo.size >= ElevationMosaicService.STACK_MEMO_MAX) {
+        const oldest = this.stackMemo.keys().next().value;
+        if (oldest !== undefined) this.stackMemo.delete(oldest);
+      }
+    }
+    const value = this.resolveStackUncached(user, stackItemIds);
+    this.stackMemo.set(key, { at: now, value });
+    // A failure (database down) must not be served from the memo.
+    value.catch(() => {
+      if (this.stackMemo.get(key)?.value === value) this.stackMemo.delete(key);
+    });
+    return value;
+  }
+
+  /**
    * Per-viewer ACL pass over the requested stack, preserving order.
    * NotFound / Forbidden entries drop out (see class doc); anything
    * else (DB down, malformed data) propagates.
    */
-  private async resolveStack(
+  private async resolveStackUncached(
     user: AuthUser | null,
     stackItemIds: string[],
   ): Promise<ResolvedDem[]> {

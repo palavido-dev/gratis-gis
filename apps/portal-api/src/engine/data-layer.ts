@@ -1961,6 +1961,12 @@ export class DataLayerEngine {
     after?: string;
     limit?: number;
     geoLimit?: GeoJsonGeometry;
+    /**
+     * WGS84 [w, s, e, n] area the client caches. Applied like the geo
+     * limit (both when both are set): a row outside it is sent only as
+     * a delete for a feature the client held inside it.
+     */
+    bbox?: [number, number, number, number];
     ownRowsOnly?: { userId: string };
     isTable?: boolean;
   }): Promise<DeltaChange[]> {
@@ -2007,29 +2013,43 @@ export class DataLayerEngine {
       );
     }
     let insideSql: Prisma.Sql = Prisma.sql`true`;
-    if (args.isTable !== true && args.geoLimit !== undefined) {
-      if (isClosedGeoLimit(args.geoLimit)) {
-        // A closed clip matches nothing, tombstones included.
-        filters.push(Prisma.sql`false`);
-      } else {
-        const clip = Prisma.sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(args.geoLimit)}::text), 4326)`;
-        // A row is visible when it is not a delete and its geometry is
-        // null (unlocated, same rule as reads) or inside the clip. A
-        // delete, or a row outside the clip, is sent only when an
-        // earlier non-delete observation of the entity was visible:
-        // the caller then holds the feature and must drop it. Anything
-        // else (a feature created and deleted outside the clip) is
-        // never sent, so neither its id nor its creator leaks.
-        insideSql = Prisma.sql`(o.kind <> 'delete' AND (o.geom IS NULL OR ST_Intersects(o.geom, ${clip})))`;
-        filters.push(Prisma.sql`(${insideSql} OR ${replacedTombstone} OR EXISTS (
-          SELECT 1 FROM observation p
-          WHERE p.scope = o.scope
-            AND p.entity = o.entity
-            AND p.kind <> 'delete'
-            AND (p.tx_time, p.id) < (o.tx_time, o.id)
-            AND (p.geom IS NULL OR ST_Intersects(p.geom, ${clip}))
-        ))`);
+    if (args.isTable !== true && args.geoLimit !== undefined && isClosedGeoLimit(args.geoLimit)) {
+      // A closed clip matches nothing, tombstones included.
+      filters.push(Prisma.sql`false`);
+    } else if (args.isTable !== true && (args.geoLimit !== undefined || args.bbox !== undefined)) {
+      const clips: Prisma.Sql[] = [];
+      if (args.geoLimit !== undefined) {
+        clips.push(
+          Prisma.sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(args.geoLimit)}::text), 4326)`,
+        );
       }
+      if (args.bbox !== undefined) {
+        const [w, s, e, n] = args.bbox;
+        clips.push(
+          Prisma.sql`ST_MakeEnvelope(${w}::float8, ${s}::float8, ${e}::float8, ${n}::float8, 4326)`,
+        );
+      }
+      const inClips = (geom: Prisma.Sql) =>
+        Prisma.join(
+          clips.map((c) => Prisma.sql`ST_Intersects(${geom}, ${c})`),
+          ' AND ',
+        );
+      // A row is visible when it is not a delete and its geometry is
+      // null (unlocated, same rule as reads) or inside the clip. A
+      // delete, or a row outside the clip, is sent only when an
+      // earlier non-delete observation of the entity was visible:
+      // the caller then holds the feature and must drop it. Anything
+      // else (a feature created and deleted outside the clip) is
+      // never sent, so neither its id nor its creator leaks.
+      insideSql = Prisma.sql`(o.kind <> 'delete' AND (o.geom IS NULL OR (${inClips(Prisma.sql`o.geom`)})))`;
+      filters.push(Prisma.sql`(${insideSql} OR ${replacedTombstone} OR EXISTS (
+        SELECT 1 FROM observation p
+        WHERE p.scope = o.scope
+          AND p.entity = o.entity
+          AND p.kind <> 'delete'
+          AND (p.tx_time, p.id) < (o.tx_time, o.id)
+          AND (p.geom IS NULL OR (${inClips(Prisma.sql`p.geom`)}))
+      ))`);
     }
 
     const where = Prisma.join(filters, ' AND ');

@@ -156,6 +156,15 @@ describe('buildFeatureUrl / buildDeltaUrl', () => {
     );
   });
 
+  it('carries the cached area on delta so the server sends only its changes', () => {
+    const url = new URL(
+      buildDeltaUrl('dl-1', 'main', 4, 10, undefined, [-117.5, 33.5, -117, 34]),
+      'https://example.test',
+    );
+    expect(url.searchParams.get('bbox')).toBe('-117.5,33.5,-117,34');
+    expect(new URL(buildDeltaUrl('dl-1', 'main', 4), 'https://example.test').searchParams.has('bbox')).toBe(false);
+  });
+
   it('adds keyset paging to the GeoJSON pull', () => {
     const url = new URL(
       buildFeatureUrl('dl-1', 'sites', undefined, {
@@ -749,8 +758,17 @@ describe('downloadDeployment: what a refresh can trust its cursor for', () => {
       { v: 802, row: { id: 'a1', x: 0.55, y: 0.5 } },
     );
     server.head = 802;
+    fetchMock.mockClear();
     await run(SITE_A);
     expect(await cachedIds()).toEqual(['a1', 'a2']);
+    // The delta asked the server for the cached area only.
+    const deltaUrls = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes('/delta?') && !u.includes('limit=1&') && !u.endsWith('limit=1'));
+    expect(deltaUrls.length).toBeGreaterThan(0);
+    for (const u of deltaUrls) {
+      expect(new URL(u, 'https://example.test').searchParams.get('bbox')).toBe(SITE_A.join(','));
+    }
   });
 
   it('keeps the cached size across an incremental refresh (53-4)', async () => {

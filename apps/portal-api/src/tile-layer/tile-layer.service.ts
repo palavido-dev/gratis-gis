@@ -33,6 +33,7 @@ import {
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { assertServerHeavyTier } from '../analysis/analysis-tiers.js';
 import {
+  MOSAIC_MAX_SOURCES,
   estimateMosaic,
   mosaicCostModel,
   validateMosaicSources,
@@ -93,28 +94,25 @@ const PMTILES_ARCHIVE_CACHE_SIZE = 32;
  *
  *   1. After a browser uploads a .pmtiles file directly to MinIO
  *      via the presigned PUT minted by StorageService, the client
- *      calls finalizeUpload(). We read the file header via HTTP
- *      range requests against the MinIO public URL, extract the
- *      metadata (min/max zoom, bbox, center, tile type,
- *      attribution, name, description), and persist it on the
- *      item's data_json. Subsequent renders read from item.data
- *      without re-parsing the header.
+ *      calls finalizeUpload(). We read the file header by storage
+ *      key through the S3 SDK, extract the metadata (min/max zoom,
+ *      bbox, center, tile type, attribution, name, description),
+ *      and persist it on the item's data_json. Subsequent renders
+ *      read from item.data without re-parsing the header.
  *
- *   2. proxyTileRequest() serves the bytes for the API's pmtiles
- *      proxy endpoint. MapLibre's pmtiles plugin range-reads this
- *      URL, so we have to honor the Range header. We do that by
- *      passing it through to MinIO's presigned GET; MinIO returns
- *      a 206 with the requested byte range and we stream it back
- *      to the caller. Zero per-tile compute on our side; the cost
- *      is one S3-API hop per range request.
+ *   2. resolveStorageKey() gives the controller's file proxy the
+ *      key to stream. MapLibre's pmtiles plugin range-reads that
+ *      URL, so the controller forwards the Range header to an SDK
+ *      GetObject with portal-api's credentials and streams the 206
+ *      back. Zero per-tile compute on our side; the cost is one
+ *      S3-API hop per range request.
  *
  * Why a proxy endpoint instead of letting the browser hit MinIO
- * directly: the MinIO bucket is anonymous-read by design for
- * stable URLs, but a static URL stored on the item baked into a
- * map would leak across orgs once shared. Proxying through the
- * API lets us apply the item's read ACL (the same gate as every
- * other item endpoint), and gives us an obvious spot to add
- * caching or hot-tile prefetching later.
+ * directly: the item-tile-layer prefix is private (the bucket
+ * policy grants anonymous read only to thumbnails, avatars, hero
+ * images and map icons), so the bytes are only reachable through
+ * the API, which applies the item's read ACL (the same gate as
+ * every other item endpoint) on every request.
  */
 @Injectable()
 export class TileLayerService {
@@ -471,35 +469,12 @@ export class TileLayerService {
   }
 
   /**
-   * Resolve the storageUrl for a tile_layer item the caller has
-   * read access to. Used by the proxy endpoint to know where to
-   * forward range requests. NotFound when the caller can't read
-   * the item; that's the ACL gate.
-   */
-  async resolveStorageUrl(user: AuthUser, itemId: string): Promise<string> {
-    const item = await this.items.get(user, itemId);
-    if (item.type !== 'tile_layer') {
-      throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
-    }
-    const data: unknown = item.data;
-    if (!isTileLayerData(data)) {
-      throw new NotFoundException(
-        'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
-      );
-    }
-    if (!data.storageUrl) {
-      throw new NotFoundException('Tile layer file URL is missing.');
-    }
-    return data.storageUrl;
-  }
-
-  /**
    * Resolve the MinIO storage KEY for the active tile-layer file.
-   * Used by the range-proxy controller after the bucket policy was
-   * tightened to deny anonymous GET on `item-tile-layer/*`: the
-   * controller uses the key to fetch via the SDK with portal-api's
-   * credentials instead of hitting the public URL.  Performs the
-   * same ACL check as resolveStorageUrl.
+   * Used by the range-proxy controller: the bucket policy denies
+   * anonymous GET on `item-tile-layer/*`, so the controller fetches
+   * by key via the SDK with portal-api's credentials. The item's
+   * read ACL is checked here; NotFound when the caller can't read
+   * the item.
    */
   async resolveStorageKey(
     user: AuthUser | null,
@@ -804,6 +779,7 @@ export class TileLayerService {
       sources.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
+    await this.useStoredMosaicSizes(sources);
     // A rebuild over already-registered sources (the failed-build
     // retry path) keeps each source's original addedAt instead of
     // restamping history.
@@ -839,6 +815,7 @@ export class TileLayerService {
       added.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
+    await this.useStoredMosaicSizes(added);
     const prev = isTileLayerData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding images to a layer that was a single-file upload: fold
@@ -877,7 +854,55 @@ export class TileLayerService {
         );
       }
     }
-    return this.enqueueMosaic(user, item, [...existingSources, ...added]);
+    // The per-call cap alone let repeated adds grow the list without
+    // limit; the worker builds over the whole list.
+    const merged = [...existingSources, ...added];
+    if (merged.length > MOSAIC_MAX_SOURCES) {
+      throw new BadRequestException(
+        `A mosaic can hold at most ${MOSAIC_MAX_SOURCES} images, and this ` +
+          `one already has ${existingSources.length}. Start a new imagery ` +
+          'layer for the rest.',
+      );
+    }
+    return this.enqueueMosaic(user, item, merged);
+  }
+
+  /**
+   * Replace each declared source size with the size storage reports.
+   * The time ceiling in enqueueMosaic is computed from these, and the
+   * body's numbers are the client's: `sizeBytes: 1` on multi-GB images
+   * got a 4 hour build past it.
+   */
+  private async useStoredMosaicSizes(sources: TileLayerSource[]): Promise<void> {
+    for (const s of sources) {
+      const size = await this.storage.headObjectSize(s.storageKey);
+      if (size === null) {
+        throw new BadRequestException(
+          `The image ${s.fileName} has not finished uploading.`,
+        );
+      }
+      s.sizeBytes = size;
+    }
+  }
+
+  /**
+   * One mosaic build at a time per layer. Each call queued another
+   * long job for the same item, and the later one overwrote the
+   * earlier one's result anyway.
+   */
+  private async assertNoMosaicInFlight(itemId: string): Promise<void> {
+    const running = await this.prisma.analysisJob.count({
+      where: {
+        kind: 'imagery-mosaic',
+        targetItemId: itemId,
+        state: { in: ['queued', 'running', 'cancel_requested'] },
+      },
+    });
+    if (running > 0) {
+      throw new ConflictException(
+        'This mosaic is already being built. Wait for it to finish, or cancel it, and try again.',
+      );
+    }
   }
 
   /** Shared guards for both mosaic entry points. */
@@ -925,6 +950,7 @@ export class TileLayerService {
     item: { id: string; data: unknown },
     sources: TileLayerSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    await this.assertNoMosaicInFlight(item.id);
     const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
     const estimate = estimateMosaic(totalBytes, sources.length);
     if (estimate.overCeiling) {

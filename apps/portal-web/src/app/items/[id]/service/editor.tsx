@@ -19,6 +19,7 @@ import type {
   ServiceProtocol,
 } from '@gratis-gis/shared-types';
 import { serviceProtocolLabel } from '@gratis-gis/shared-types';
+import { ogcBaseUrl, ogcRequestUrl } from '@/lib/ogc-rest';
 import {
   probeService as autoProbeService,
 } from '@/lib/service-probe';
@@ -660,7 +661,7 @@ function layerWordFor(p: ServiceProtocol): string {
  *  in a new tab. ArcGIS uses ?f=json on the service root; OGC trio
  *  uses GetCapabilities. */
 function capabilitiesUrlFor(d: ServiceData): string | null {
-  if (!d.url) return null;
+  if (!d.url || !d.url.trim()) return null;
   const base = d.url.replace(/\?.*$/, '').replace(/(?<!\/)\/+$/, '');
   if (
     d.protocol === 'arcgis_map' ||
@@ -670,14 +671,28 @@ function capabilitiesUrlFor(d: ServiceData): string | null {
   ) {
     return `${base}?f=json`;
   }
+  // OGC services keep their vendor parameters (MapServer's `map=`).
+  const ogcBase = ogcBaseUrl(d.url);
   if (d.protocol === 'wms') {
-    return `${base}?service=WMS&request=GetCapabilities&version=${d.protocolVersion}`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WMS',
+      request: 'GetCapabilities',
+      version: d.protocolVersion,
+    });
   }
   if (d.protocol === 'wfs') {
-    return `${base}?service=WFS&request=GetCapabilities&version=${d.protocolVersion}`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WFS',
+      request: 'GetCapabilities',
+      version: d.protocolVersion,
+    });
   }
   if (d.protocol === 'wmts') {
-    return `${base}?service=WMTS&request=GetCapabilities&version=1.0.0`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WMTS',
+      request: 'GetCapabilities',
+      version: '1.0.0',
+    });
   }
   return null;
 }

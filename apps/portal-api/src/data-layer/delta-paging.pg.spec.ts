@@ -13,6 +13,8 @@
 // - A geo limit is decided per entity: a feature moved out of the
 //   clip arrives as a delete, and a feature never inside stays
 //   invisible.
+// - The optional bbox (the area a device cached) works the same way,
+//   alone or together with the geo limit.
 
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -76,7 +78,12 @@ d('delta sync protocol on migrated PostGIS', () => {
     layerId: string,
     since: number,
     limit: number,
-    opts: { ownRowsOnly?: boolean; userId?: string; geoLimit?: unknown } = {},
+    opts: {
+      ownRowsOnly?: boolean;
+      userId?: string;
+      geoLimit?: unknown;
+      bbox?: [number, number, number, number];
+    } = {},
   ): Promise<{ changes: DeltaChange[]; head: number; pages: number }> {
     const changes: DeltaChange[] = [];
     let after: string | undefined;
@@ -89,6 +96,7 @@ d('delta sync protocol on migrated PostGIS', () => {
         ...(opts.geoLimit !== undefined
           ? { geoLimit: opts.geoLimit as never }
           : {}),
+        ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       });
       changes.push(...body.changes);
       if (!body.truncated) return { changes, head: body.syncVersion, pages };
@@ -376,6 +384,67 @@ d('delta sync protocol on migrated PostGIS', () => {
     expect(rows[0]!.kind).toBe('delete');
     expect(rows[0]!.geometry).toBeNull();
     expect(rows[0]!.properties).toBeNull();
+  });
+
+  it('bbox: only changes in the cached area, and a move out arrives as a delete', async () => {
+    const made = await service.insertFeatures(
+      ITEM,
+      SCOPED,
+      [
+        { geometry: point(-5, -5), properties: { value: 1 } },
+        { geometry: point(-7, -7), properties: { value: 2 } },
+        { geometry: point(-70, -70), properties: { value: 3 } },
+      ],
+      worker,
+    );
+    const [stays, leaves, far] = made.globalIds;
+    const seeded = (await service.listDelta(ITEM, SCOPED, 0, { limit: 1 })).syncVersion;
+    const principal = { sub: SUPERVISOR, displayName: 'boss' };
+    await engine.commitLayerSync(ITEM, SCOPED, async ({ tx, source }) => {
+      for (const [globalId, x] of [[stays!, -6], [leaves!, -40], [far!, -71]] as const) {
+        await engine.writeFeatureUpdate(
+          {
+            itemId: ITEM,
+            layerId: SCOPED,
+            globalId,
+            principal,
+            source,
+            properties: { value: x },
+            geometry: point(x, x),
+          },
+          tx,
+        );
+      }
+      return { wrote: true, value: null };
+    });
+    const area: [number, number, number, number] = [-10, -10, -1, -1];
+
+    const kinds = (changes: DeltaChange[]) =>
+      new Map(
+        changes
+          .filter((c) => c.entity === stays || c.entity === leaves || c.entity === far)
+          .map((c) => [c.entity, c.kind]),
+      );
+    const boxed = kinds((await walk(SCOPED, seeded, 1_000, { bbox: area })).changes);
+    expect(boxed.get(stays!)).toBe('update');
+    expect(boxed.get(leaves!)).toBe('delete');
+    expect(boxed.has(far!)).toBe(false);
+
+    // Without a bbox every change comes back, as before.
+    const whole = kinds((await walk(SCOPED, seeded, 1_000)).changes);
+    expect([...whole.values()]).toEqual(['update', 'update', 'update']);
+
+    // With a geo limit as well, a row has to be inside both.
+    const clip = {
+      type: 'Polygon',
+      coordinates: [[[-6.5, -6.5], [0, -6.5], [0, 0], [-6.5, 0], [-6.5, -6.5]]],
+    };
+    const both = kinds(
+      (await walk(SCOPED, seeded, 1_000, { bbox: area, geoLimit: clip })).changes,
+    );
+    expect(both.get(stays!)).toBe('update');
+    expect(both.has(leaves!)).toBe(false);
+    expect(both.has(far!)).toBe(false);
   });
 
   it('geo limit: a tombstone of a feature the caller never saw is not sent', async () => {

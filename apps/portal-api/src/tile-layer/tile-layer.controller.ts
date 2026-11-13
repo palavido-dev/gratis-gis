@@ -101,9 +101,9 @@ export function parseTileCoords(
  *
  *   GET /tile-layer/:itemId/file
  *     Proxy endpoint MapLibre's pmtiles plugin range-reads.
- *     Forwards the Range header to the file's public MinIO URL
- *     and streams the response back. Item-level ACL applies via
- *     ItemsService.get inside resolveStorageUrl().
+ *     Forwards the Range header to an SDK read of the file's
+ *     storage key and streams the response back. Item-level ACL
+ *     applies inside resolveStorageKey().
  *
  *   GET /tile-layer/:itemId/tiles/:z/:x/:y[.png]
  *     Server-side XYZ tiles read out of the same PMTiles archive,
@@ -221,13 +221,13 @@ export class TileLayerController {
   /**
    * Range-request proxy. MapLibre's pmtiles plugin issues many
    * range requests as the user pans / zooms; this endpoint
-   * forwards each one to the underlying MinIO public URL. We
-   * resolve the file URL on every call so a revoked item access
+   * forwards each one to an SDK read of the item's storage key.
+   * We resolve the key on every call so a revoked item access
    * stops working immediately (no client-side URL caching to
    * worry about for ACL purposes).
    *
-   * Implementation: do a server-side fetch with the same Range
-   * header, then mirror the response status + Content-Range +
+   * Implementation: an SDK GetObject with the same Range header,
+   * then mirror the response status + Content-Range +
    * Content-Length headers and pipe the body through. This is
    * less efficient than a redirect would be, but a redirect to
    * a presigned URL would expire mid-session, and proxying lets

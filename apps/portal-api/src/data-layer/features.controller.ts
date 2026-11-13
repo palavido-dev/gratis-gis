@@ -86,11 +86,17 @@ import {
   csvHeaderRow,
   type CsvExportOptions,
 } from './csv-export.js';
-import { parseDeltaAfterParam, parseDeltaLimit, parseSinceParam } from './layer-delta.js';
+import {
+  parseDeltaAfterParam,
+  parseDeltaBboxParam,
+  parseDeltaLimit,
+  parseSinceParam,
+} from './layer-delta.js';
 import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 import { linkedDataCollection } from './data-collection-link.js';
+import { assertGeometryFamilies } from './geometry-family.js';
 import {
   buildTileJson,
   declaredTileFields,
@@ -1253,6 +1259,10 @@ export class DataLayerFeaturesController {
    * then store the response `syncVersion` as the next `since`. Do not
    * advance `since` to the last change's syncVersion without `after`:
    * one write batch shares one syncVersion and can span pages.
+   * Optional `bbox=w,s,e,n` limits the changes to an area the same way
+   * the share geo limit does: a feature that leaves the area arrives
+   * as a delete, one that was never in it is not sent. Keep the same
+   * bbox for every page of a walk.
    * Protocol: docs/sync-protocol.md.
    */
   @Get('delta')
@@ -1263,10 +1273,12 @@ export class DataLayerFeaturesController {
     @Query('since') sinceParam?: string,
     @Query('limit') limitParam?: string,
     @Query('after') afterParam?: string,
+    @Query('bbox') bboxParam?: string,
   ) {
     const since = parseSinceParam(sinceParam);
     const limit = parseDeltaLimit(limitParam);
     const after = parseDeltaAfterParam(afterParam);
+    const bbox = parseDeltaBboxParam(bboxParam);
     const { geoLimit, rowScope, isTable } = await this.assertV3Layer(
       user,
       itemId,
@@ -1277,6 +1289,7 @@ export class DataLayerFeaturesController {
       limit,
       ...(after !== undefined ? { after } : {}),
       ...(geoLimit ? { geoLimit: geoLimit as GeoJsonGeometry } : {}),
+      ...(bbox ? { bbox } : {}),
       ...(rowScope === 'own'
         ? { ownRowsOnly: true, userId: user.id }
         : {}),
@@ -1734,11 +1747,16 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
     @Headers('x-data-collection-id') dataCollectionId?: string,
   ) {
-    const { isTable, geoLimit } = await this.assertV3Layer(
+    const { isTable, geoLimit, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
       'write',
+    );
+    // A Point posted to a polygon layer used to be stored as is.
+    assertGeometryFamilies(
+      layer.geometryType,
+      body.features.map((f) => f.geometry),
     );
     await this.assertGeometriesInsideLimit(
       geoLimit,
@@ -1992,12 +2010,15 @@ export class DataLayerFeaturesController {
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
-    const { scope: shareScope, isTable, geoLimit } = await this.assertV3Layer(
+    const { scope: shareScope, isTable, geoLimit, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
       'write',
     );
+    if (body.geometry !== undefined) {
+      assertGeometryFamilies(layer.geometryType, [body.geometry]);
+    }
     let scope = shareScope;
     if (editorId) {
       const policy = await this.editorPolicy.assertAllows({
