@@ -95,9 +95,10 @@ const FORM = { id: 'form-1', orgId: 'org-1', ownerId: 'owner-1' };
 
 describe('form mirror repair re-registers photos after the presign grant expires', () => {
   // The repair pass runs up to seven days after a submission, but a
-  // presign grant is pruned after two. The keys come from the saved
-  // submission, so they must not need a grant.
-  function setup() {
+  // presign grant is pruned after two. Keys submit checked against the
+  // submitter's grants (verifiedAttachmentKeys) must not need one
+  // again; any other key the stored answers name still does.
+  function setup(verified: string[] = ['feature-attachment/photo-1']) {
     const key = 'feature-attachment/photo-1';
     const response = {
       photo: [
@@ -117,6 +118,7 @@ describe('form mirror repair re-registers photos after the presign grant expires
           response,
           submittedBy: 'submitter',
           capturedAt: new Date(0),
+          verifiedAttachmentKeys: verified,
         })),
       },
       item: {
@@ -172,6 +174,15 @@ describe('form mirror repair re-registers photos after the presign grant expires
     await expect(t.svc.reconcileFormMirrors()).resolves.toBe(1);
     expect(t.created).toHaveLength(1);
     expect(t.warn).not.toHaveBeenCalled();
+  });
+
+  it('the repair pass does not register a key submit did not verify', async () => {
+    const t = setup([]);
+    await expect(t.svc.reconcileFormMirrors()).resolves.toBe(1);
+    expect(t.created).toHaveLength(0);
+    expect(t.warn).toHaveBeenCalledWith(
+      expect.stringContaining('attachment register failed'),
+    );
   });
 
   it('a live submit still needs a grant for the key', async () => {

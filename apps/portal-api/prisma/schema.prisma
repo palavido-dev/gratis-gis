@@ -1253,6 +1253,10 @@ model FormSubmission {
   submittedBy   String?  @map("submitted_by") @db.Uuid
   capturedAt    DateTime @map("captured_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Attachment storage keys the submitter was issued, checked when the
+  /// submission was stored. The mirror repair pass re-registers only
+  /// these without a live grant (finding 10-2).
+  verifiedAttachmentKeys String[] @default([]) @map("verified_attachment_keys")
 
   // The migration created these foreign keys; declaring them keeps a
   // future `migrate diff` from proposing to drop them. Deleting a form

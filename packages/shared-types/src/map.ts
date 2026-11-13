@@ -398,9 +398,15 @@ export interface MapLayer {
  * id; the layer is visible to that principal only when `view` is
  * true. `query` gates popups / attribute-table / search; `edit`
  * reserves future feature-editing once that pillar ships.
+ *
+ * `principalType: 'everyone'` (principalId EVERYONE_PRINCIPAL_ID) is
+ * the "Everyone else" column: it applies to any viewer no user or
+ * group entry matches, which covers org members reaching the map
+ * through org-wide sharing and anonymous viewers of a public map.
+ * Without it a custom layer was hidden from all of them.
  */
 export interface MapLayerAccessEntry {
-  principalType: 'user' | 'group';
+  principalType: 'user' | 'group' | 'everyone';
   principalId: string;
   view: boolean;
   query: boolean;
@@ -411,8 +417,8 @@ export interface MapLayerAccess {
   /**
    * `'inherit'`: no per-layer restriction beyond item-level sharing.
    * `'custom'`: apply `entries`: a principal not listed (and not a
-   * member of a listed group) defaults to the layer being hidden for
-   * them. Authors flip to `'custom'` the first time they adjust the
+   * member of a listed group) gets the 'everyone' entry, or has the
+   * layer hidden when there is none. Authors flip to `'custom'` the first time they adjust the
    * matrix; until then, everyone who can see the webmap can see
    * every layer they have item access to.
    */
@@ -1224,6 +1230,9 @@ export const DEFAULT_LAYER_SCALE: MapLayerScale = {
   labelsMinZoom: null,
   labelsMaxZoom: null,
 };
+
+/** principalId of the 'everyone' layer access entry. */
+export const EVERYONE_PRINCIPAL_ID = '*';
 
 export const DEFAULT_LAYER_ACCESS: MapLayerAccess = {
   policy: 'inherit',

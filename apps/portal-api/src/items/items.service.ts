@@ -1531,7 +1531,7 @@ export class ItemsService {
           access?: {
             policy?: 'inherit' | 'custom';
             entries?: Array<{
-              principalType: 'user' | 'group';
+              principalType: 'user' | 'group' | 'everyone';
               principalId: string;
               view: boolean;
               query: boolean;
@@ -1543,18 +1543,23 @@ export class ItemsService {
 
       let effective = { view: true, query: true, edit: false };
       if (access?.policy === 'custom') {
-        // Anonymous readers match no entry, so a custom-access layer
-        // is hidden from them, as it is from a signed-in reader who
-        // is not on its list.
+        // A user or group entry for the viewer decides. A viewer no
+        // entry names (an org member reaching the map through org-wide
+        // sharing, or an anonymous reader of a public map) gets the
+        // "Everyone else" entry, and with none the layer is hidden.
         const entries = Array.isArray(access.entries) ? access.entries : [];
-        const entry = entries.find((e) => {
-          if (!viewer || !e || typeof e !== 'object') return false;
-          if (e.principalType === 'user') return e.principalId === viewer.id;
-          if (e.principalType === 'group') {
-            return viewer.groupIds.includes(e.principalId);
-          }
-          return false;
-        });
+        const entry =
+          entries.find((e) => {
+            if (!viewer || !e || typeof e !== 'object') return false;
+            if (e.principalType === 'user') return e.principalId === viewer.id;
+            if (e.principalType === 'group') {
+              return viewer.groupIds.includes(e.principalId);
+            }
+            return false;
+          }) ??
+          entries.find(
+            (e) => !!e && typeof e === 'object' && e.principalType === 'everyone',
+          );
         if (!entry || !entry.view) continue;
         effective = {
           view: !!entry.view,
