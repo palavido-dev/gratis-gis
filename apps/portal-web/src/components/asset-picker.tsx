@@ -12,9 +12,13 @@
  *      paths can embed without a fresh fetch.
  *   3. Upload new: file input that uploads to MinIO via the
  *      existing presign endpoint AND creates a File item so the
- *      asset is governed (provenance, sharing, lifecycle) instead
+ *      asset shows up in the items list with provenance instead
  *      of being a floating URL. Emits a file-item AssetRef pointing
- *      at the newly-created item.
+ *      at the newly-created item. Caveat: the bytes go to a public
+ *      image prefix (uploadKind), so anyone holding the URL can read
+ *      them whatever the File item's sharing says, and purging the
+ *      item does not delete them. That is what lets an image show in
+ *      a publicly shared app today.
  *
  * Why always create a File item on upload: floating asset URLs are
  * impossible to govern. You can't tell which apps depend on a
@@ -493,12 +497,28 @@ function FileItemPicker({
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // The list endpoint returns one page (500 rows by default), so a
+  // search that only filtered the loaded page could never find an
+  // older file. The search box is sent to the server instead,
+  // debounced so each keystroke does not refetch every data blob.
+  const [serverQuery, setServerQuery] = useState('');
+  useEffect(() => {
+    const handle = setTimeout(() => setServerQuery(query.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [query]);
+  // Callers pass an inline array, a new identity every render. Key the
+  // fetch on its content so a parent re-render does not reload it.
+  const acceptKey = acceptMimePrefixes.join(',');
 
   useEffect(() => {
     let cancelled = false;
+    const prefixes = acceptKey.split(',').filter((p) => p.length > 0);
     void (async () => {
       try {
-        const res = await fetch(FILE_LIST_ENDPOINT);
+        const url = serverQuery
+          ? `${FILE_LIST_ENDPOINT}&q=${encodeURIComponent(serverQuery)}`
+          : FILE_LIST_ENDPOINT;
+        const res = await fetch(url);
         if (!res.ok) {
           if (!cancelled)
             setError(
@@ -515,12 +535,12 @@ function FileItemPicker({
         const filtered = raw.filter((it) => {
           const data = it.data as FileData | undefined;
           const mime = data?.mimeType ?? '';
-          if (mime && acceptMimePrefixes.some((p) => mime.startsWith(p))) {
+          if (mime && prefixes.some((p) => mime.startsWith(p))) {
             return true;
           }
           // Best-effort fallback when mimeType isn't in the lite
           // payload. For images, recognize common extensions.
-          if (acceptMimePrefixes.includes('image/')) {
+          if (prefixes.includes('image/')) {
             const name = (data?.fileName ?? it.title ?? '').toLowerCase();
             return /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/.test(name);
           }
@@ -539,7 +559,7 @@ function FileItemPicker({
     return () => {
       cancelled = true;
     };
-  }, [acceptMimePrefixes, t]);
+  }, [acceptKey, serverQuery, t]);
 
   const filtered = items?.filter((it) =>
     query ? it.title.toLowerCase().includes(query.toLowerCase()) : true,

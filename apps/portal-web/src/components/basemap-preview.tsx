@@ -21,7 +21,7 @@
  * `interactive` flips MapLibre's nav handlers back on for the
  * config-page case.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { BasemapData } from '@gratis-gis/shared-types';
 import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap';
@@ -62,51 +62,62 @@ export function BasemapPreview({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
-  // Mount the instance once.  Don't include data in deps so we don't
-  // tear the canvas down on every keystroke while the user types a
-  // URL; setStyle below handles updates.
+  // Camera and interactivity for the map we create. Read through a
+  // ref so the create path below always sees the current props
+  // without listing them as deps.
+  const initRef = useRef({ center, zoom, interactive });
+  initRef.current = { center, zoom, interactive };
+
+  // Callers often pass a fresh `data` object every render (the custom
+  // app gallery builds it inline). Keying on its content stops each
+  // render from calling setStyle, which refetches a style URL.
+  const styleKey = useMemo(() => JSON.stringify(data ?? null), [data]);
+
+  // Tear the instance down on unmount only.
   useEffect(() => {
-    if (!containerRef.current) return;
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Create the map the first time there is a usable style, and after
+  // that apply style changes to the same instance so the canvas does
+  // not flicker or get torn down on every keystroke while the user
+  // types a URL. Creating it here, rather than in a mount-only effect,
+  // matters when the component first renders with an empty source:
+  // the map then appears as soon as a valid URL is typed.
+  useEffect(() => {
     const style = basemapDataToStyle(data);
     if (!style) return; // empty data: leave the placeholder visible
+    const m = mapRef.current;
+    if (m) {
+      try {
+        m.setStyle(style.kind === 'url' ? style.url : style.style);
+      } catch {
+        /* swallow: malformed URL during typing, preview just stays
+           on the previous valid style until the next keystroke that
+           parses. */
+      }
+      return;
+    }
+    if (!containerRef.current) return;
     ensureRasterProtocols(); // pmtiles/cog basemaps need the schemes registered (#209)
     ensureMapLibreWorker();
-    const m = new maplibregl.Map({
+    const init = initRef.current;
+    mapRef.current = new maplibregl.Map({
       container: containerRef.current,
       style: style.kind === 'url' ? style.url : style.style,
-      center,
-      zoom,
-      interactive,
+      center: init.center,
+      zoom: init.zoom,
+      interactive: init.interactive,
       attributionControl: false,
       pitchWithRotate: false,
       dragRotate: false,
     });
-    mapRef.current = m;
-    return () => {
-      m.remove();
-      mapRef.current = null;
-    };
-    // We intentionally only mount once; updates flow through the
-    // setStyle effect below.  Listing every prop here would tear the
-    // instance down on every keystroke during URL editing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Apply style updates on data change.  Re-uses the same instance
-  // so the canvas doesn't flicker.
-  useEffect(() => {
-    const m = mapRef.current;
-    if (!m) return;
-    const style = basemapDataToStyle(data);
-    if (!style) return;
-    try {
-      m.setStyle(style.kind === 'url' ? style.url : style.style);
-    } catch {
-      /* swallow: malformed URL during typing, preview just stays
-         on the previous valid style until the next keystroke that
-         parses. */
-    }
-  }, [data]);
+    // `data` is read through styleKey, which changes exactly when its
+    // content does.
+  }, [styleKey]);
 
   // Recenter / rezoom on prop change (rare; preview pane keeps its
   // own camera once mounted).

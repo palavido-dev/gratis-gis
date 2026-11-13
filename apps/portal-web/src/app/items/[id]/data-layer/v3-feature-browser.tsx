@@ -711,6 +711,7 @@ function ExportMenu({
             ...(f.label && f.label !== f.name ? { label: f.label } : {}),
           })),
           ...(l.parentLayerId ? { parentLayerId: l.parentLayerId } : {}),
+          ...(l.parentFkColumn ? { parentFkColumn: l.parentFkColumn } : {}),
         })),
         includeRelatedTables: bundleIncludeRelated && relatedLayerCount > 0,
         includeAttachments: bundleIncludeAttachments,
@@ -725,6 +726,17 @@ function ExportMenu({
       setBundleProgress(
         `Done: ${result.layerCount} layer${result.layerCount === 1 ? '' : 's'} · ${result.featureCount} feature${result.featureCount === 1 ? '' : 's'} · ${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'} · ${formatBytes(result.bytes)}`,
       );
+      if (result.attachmentFailures > 0) {
+        // Keep the dialog open: a ZIP missing photos must not read
+        // as a complete export.
+        setBundleError(
+          t('mapAttributeTable.bundleAttachmentsMissing', {
+            count: result.attachmentFailures,
+          }),
+        );
+        setBundleRunning(false);
+        return;
+      }
       // Close the modal after a short delay so the user sees the
       // "Done" confirmation; their browser is in the middle of the
       // download dialog at this point.

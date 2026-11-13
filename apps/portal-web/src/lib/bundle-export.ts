@@ -39,6 +39,7 @@
 import { ZipWriter } from './zip-writer';
 import { writeXlsx, type XlsxSheet } from './xlsx';
 import { parseApiError } from './api-error';
+import { fetchRetrying } from './request-pool';
 
 export interface BundleExportOptions {
   /** Root data_layer item id. */
@@ -102,6 +103,10 @@ export interface BundleSublayer {
   /** When set, this is a related table whose rows reference the
    *  parent by `id`. */
   parentLayerId?: string;
+  /** Column on this related table holding the parent's global id.
+   *  When absent the cascade falls back to "any string property
+   *  equal to a surviving parent id". */
+  parentFkColumn?: string;
 }
 
 interface BundleFeature {
@@ -118,42 +123,89 @@ interface AttachmentRow {
   storageUrl: string;
 }
 
+/** Features per page when reading a layer. */
+const FEATURE_PAGE_LIMIT = 5_000;
+
 /**
- * Pull features for one layer via the existing API.  Accepts both
- * shapes the endpoint returns: a bare array and a `{ features }`
- * envelope.
+ * Pull every feature of one layer via the existing API, a keyset
+ * page at a time. The unpaged read can be switched off per install
+ * (GRATIS_FEATURE_QUERY_PAGE=required), which failed every bundle
+ * export there, so this pages the way offline-download does: `limit`
+ * plus `cursor`, with the first page's `asOf` sent back as `at` so
+ * every page reads the same snapshot. Accepts both shapes the
+ * endpoint returns: a bare array and a `{ features }` envelope.
  */
 async function fetchLayerFeatures(
   itemId: string,
   layerKey: string,
 ): Promise<BundleFeature[]> {
-  const res = await fetch(
-    `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerKey)}/features`,
+  const base = `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerKey)}/features`;
+  const out: BundleFeature[] = [];
+  let cursor: string | undefined;
+  let at: string | undefined;
+  const seen = new Set<string>();
+  for (;;) {
+    const qs = new URLSearchParams({ limit: String(FEATURE_PAGE_LIMIT) });
+    if (cursor) qs.set('cursor', cursor);
+    if (at) qs.set('at', at);
+    const res = await fetchRetrying(`${base}?${qs.toString()}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      throw new Error(
+        await parseApiError(res, 'Layer features fetch failed'),
+      );
+    }
+    const body = (await res.json()) as
+      | BundleFeature[]
+      | { features?: BundleFeature[]; nextCursor?: unknown; asOf?: unknown };
+    if (Array.isArray(body)) {
+      out.push(...body);
+      break;
+    }
+    out.push(...(body.features ?? []));
+    if (!at && typeof body.asOf === 'string') at = body.asOf;
+    const next = typeof body.nextCursor === 'string' ? body.nextCursor : null;
+    // A repeated cursor would loop forever; treat it as the end.
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    cursor = next;
+  }
+  return out;
+}
+
+/**
+ * Every attachment on one layer, by feature id, in one request
+ * (`?all=1`). It used to be one request per feature, which ran into
+ * the API's 300 a minute limit on a layer of a few hundred features;
+ * the 429s then read as "no attachments" and the ZIP came out short
+ * with no warning. A failure here now throws, so the export stops
+ * instead of quietly leaving the photos out.
+ */
+async function fetchLayerAttachments(
+  itemId: string,
+  layerKey: string,
+): Promise<Map<string, AttachmentRow[]>> {
+  const res = await fetchRetrying(
+    `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerKey)}/attachments?all=1`,
     { cache: 'no-store' },
   );
   if (!res.ok) {
     throw new Error(
-      await parseApiError(res, 'Layer features fetch failed'),
+      await parseApiError(res, 'Attachment list fetch failed'),
     );
   }
-  const body = (await res.json()) as
-    | BundleFeature[]
-    | { features?: BundleFeature[] };
-  return Array.isArray(body) ? body : body.features ?? [];
-}
-
-/** Pull the attachment rows for one feature. */
-async function fetchAttachmentList(
-  itemId: string,
-  layerKey: string,
-  featureId: string,
-): Promise<AttachmentRow[]> {
-  const res = await fetch(
-    `/api/portal/items/${encodeURIComponent(itemId)}/layers/${encodeURIComponent(layerKey)}/features/${encodeURIComponent(featureId)}/attachments`,
-    { cache: 'no-store' },
-  );
-  if (!res.ok) return [];
-  return (await res.json()) as AttachmentRow[];
+  const groups = (await res.json()) as Array<{
+    featureId: string;
+    attachments: AttachmentRow[];
+  }>;
+  const out = new Map<string, AttachmentRow[]>();
+  for (const g of Array.isArray(groups) ? groups : []) {
+    if (g && typeof g.featureId === 'string' && Array.isArray(g.attachments)) {
+      out.set(g.featureId, g.attachments);
+    }
+  }
+  return out;
 }
 
 /**
@@ -298,10 +350,26 @@ function planLayers(
   return out;
 }
 
-/** Truncate + sanitize sheet names to the XLSX 31-char limit. */
-function sheetName(layer: BundleSublayer): string {
-  const raw = (layer.label || layer.name || 'sheet').replace(/[/\\?*[\]:]/g, '');
-  return raw.slice(0, 31) || 'sheet';
+/**
+ * Truncate + sanitize sheet names to the XLSX 31-char limit, and keep
+ * them unique. Excel compares sheet names case-insensitively and
+ * treats a duplicate as a corrupt workbook; two long labels that
+ * share their first 31 characters used to collide. A collision gets
+ * a `~2`, `~3`... suffix, trimmed to stay within 31.
+ */
+export function sheetNames(layers: BundleSublayer[]): string[] {
+  const used = new Set<string>();
+  return layers.map((layer) => {
+    const raw = (layer.label || layer.name || 'sheet').replace(/[/\\?*[\]:]/g, '');
+    const base = raw.slice(0, 31) || 'sheet';
+    let name = base;
+    for (let n = 2; used.has(name.toLowerCase()); n += 1) {
+      const suffix = `~${n}`;
+      name = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  });
 }
 
 /** Trigger a browser download of a Blob. */
@@ -326,6 +394,9 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
   layerCount: number;
   featureCount: number;
   attachmentCount: number;
+  /** Attachments listed for an exported feature that could not be
+   *  downloaded and so are not in the ZIP. */
+  attachmentFailures: number;
   bytes: number;
 }> {
   const progress = opts.onProgress ?? (() => undefined);
@@ -345,20 +416,26 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
   // streams sheet-at-a-time instead.
   const featuresByLayer = new Map<string, BundleFeature[]>();
   let totalFeatures = 0;
-  // First-pass: fetch every layer's features, apply parent scope
-  // filter, build a "surviving parent id set" so related-table
-  // rows can be filtered to those that still reference a surviving
-  // parent.
-  const parentSurvivingIds = new Set<string>();
+  // Only cascade when the root was actually narrowed. With no
+  // selection and no bbox every row of every layer belongs in the
+  // export, and the cascade's FK guess could only lose rows.
+  const scoped =
+    (opts.featureIdsAllowlist !== undefined && opts.featureIdsAllowlist.size > 0) ||
+    opts.bbox !== undefined;
+  // Surviving feature ids per layer. Each related table is filtered
+  // against its OWN parent's survivors. Filling this from the root
+  // only emptied every table two or more levels down, because a
+  // grandchild's FK holds a child's id, never a root id. The plan
+  // lists parents before children, so the parent's set is ready.
+  const survivingIds = new Map<string, Set<string>>();
   for (let i = 0; i < plan.length; i += 1) {
     const layer = plan[i]!;
     progress(`Fetching ${layer.label || layer.id}…`);
     let features = await fetchLayerFeatures(opts.itemId, layer.id);
     // Parent-layer scope: applies only to the root layer (i===0).
-    // Related tables get their own filter pass below based on
-    // surviving parent ids -- that's the "selection cascade" the
-    // user actually wants when picking 12 parcels for a handoff
-    // bundle.
+    // Related tables follow whatever rows reference a surviving
+    // parent; that's the "selection cascade" the user actually wants
+    // when picking 12 parcels for a handoff bundle.
     if (i === 0) {
       if (opts.featureIdsAllowlist && opts.featureIdsAllowlist.size > 0) {
         features = features.filter(
@@ -371,29 +448,28 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
           geometryIntersectsBbox(f.geometry, minX, minY, maxX, maxY),
         );
       }
-      for (const f of features) {
-        if (f.id) parentSurvivingIds.add(f.id);
-      }
-    } else if (parentSurvivingIds.size > 0) {
-      // Related-table cascade: drop rows whose FK doesn't point at
-      // a surviving parent.  We don't know the exact FK column at
-      // this layer level (it's per-related-table config we don't
-      // surface in BundleSublayer today), so we use a heuristic:
-      // any property value that matches a surviving parent id.
-      // This is intentionally permissive -- a stale match keeps
-      // an extra related row rather than dropping a legitimate one.
-      // A future revision can plumb the explicit FK column name
-      // through BundleSublayer.
+    } else if (scoped && layer.parentLayerId) {
+      const parentIds = survivingIds.get(layer.parentLayerId) ?? new Set<string>();
+      const fk = layer.parentFkColumn;
       features = features.filter((f) => {
         const props = f.properties ?? {};
+        if (fk) {
+          const v = props[fk];
+          return typeof v === 'string' && parentIds.has(v);
+        }
+        // No FK column known: any property value that matches a
+        // surviving parent id. Intentionally permissive; a stale
+        // match keeps an extra related row rather than dropping a
+        // legitimate one.
         for (const v of Object.values(props)) {
-          if (typeof v === 'string' && parentSurvivingIds.has(v)) {
-            return true;
-          }
+          if (typeof v === 'string' && parentIds.has(v)) return true;
         }
         return false;
       });
     }
+    const ids = new Set<string>();
+    for (const f of features) if (f.id) ids.add(f.id);
+    survivingIds.set(layer.id, ids);
     featuresByLayer.set(layer.id, features);
     totalFeatures += features.length;
   }
@@ -402,10 +478,11 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
   // writer (#51) takes an array of { name, rows } sheets and
   // emits a Blob directly.
   progress('Building data.xlsx…');
-  const xlsxSheets: XlsxSheet[] = plan.map((layer) => {
+  const names = sheetNames(plan);
+  const xlsxSheets: XlsxSheet[] = plan.map((layer, i) => {
     const features = featuresByLayer.get(layer.id) ?? [];
     const rows = buildSheetRows(features, layer.fields ?? []);
-    return { name: sheetName(layer), rows };
+    return { name: names[i]!, rows };
   });
   const xlsxBlob = await writeXlsx(xlsxSheets);
 
@@ -420,21 +497,25 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
   await zip.file(`${rootName}/data.xlsx`, xlsxBlob);
 
   let attachmentCount = 0;
+  let attachmentFailures = 0;
   if (opts.includeAttachments) {
-    // For each layer, for each feature, fetch attachments + bundle.
-    // Errors fetching one attachment don't fail the whole bundle:
-    // they're logged + counted as a soft warning so a single
-    // permission error doesn't kill an otherwise-good export.
+    // For each layer, list every attachment in one request, then
+    // fetch + bundle the files of the features being exported.
+    // Errors fetching one file don't fail the whole bundle: they are
+    // counted and returned, so the caller can say how many are
+    // missing instead of reporting a complete export.
     let processed = 0;
     for (const layer of plan) {
       const features = featuresByLayer.get(layer.id) ?? [];
+      progress(`Listing attachments for ${layer.label || layer.id}…`);
+      const byFeature = await fetchLayerAttachments(opts.itemId, layer.id);
       for (const f of features) {
         processed += 1;
         if (processed % 25 === 0) {
           progress(`Fetching attachments ${processed} / ${totalFeatures}…`);
         }
         if (!f.id) continue;
-        const list = await fetchAttachmentList(opts.itemId, layer.id, f.id);
+        const list = byFeature.get(f.id) ?? [];
         if (list.length === 0) continue;
 
         // Resolve the per-feature filename prefix.  Prefer the
@@ -478,9 +559,12 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
 
         for (const att of list) {
           try {
-            const r = await fetch(att.storageUrl, { cache: 'no-store' });
+            // Retries a 429 or 5xx: a long run of downloads can still
+            // reach the API's per-minute limit.
+            const r = await fetchRetrying(att.storageUrl, { cache: 'no-store' });
             if (!r.ok) {
               console.warn('[bundle] attachment fetch failed', att.id, r.status);
+              attachmentFailures += 1;
               continue;
             }
             const blob = await r.blob();
@@ -492,6 +576,7 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
             attachmentCount += 1;
           } catch (err) {
             console.warn('[bundle] attachment error', att.id, err);
+            attachmentFailures += 1;
           }
         }
       }
@@ -507,6 +592,7 @@ export async function exportBundle(opts: BundleExportOptions): Promise<{
     layerCount: plan.length,
     featureCount: totalFeatures,
     attachmentCount,
+    attachmentFailures,
     bytes: zipBlob.size,
   };
 }

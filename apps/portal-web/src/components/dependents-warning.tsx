@@ -9,6 +9,10 @@ import {
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
 import { useT } from '@/lib/i18n/locale-context';
+import { fetchRetrying, mapWithConcurrency } from '@/lib/request-pool';
+
+/** /dependents requests in flight at once for a bulk selection. */
+const DEPENDENTS_CONCURRENCY = 4;
 
 /**
  * Lightweight projection of /items/:id/dependents responses. The
@@ -57,18 +61,21 @@ export function DependentsWarning({
     setLoading(true);
     setError(null);
 
-    // Fan out one /dependents request per id. The endpoint already
-    // walks the transitive graph server-side, so we just merge the
-    // results client-side. Failures on individual ids are
-    // non-fatal: a 404 / 403 yields an empty contribution.
+    // One /dependents request per id, a few at a time. The endpoint
+    // already walks the transitive graph server-side, so we just
+    // merge the results client-side. A 404 / 403 yields an empty
+    // contribution. Anything else (429, 5xx, offline) fails the check
+    // so the panel says so, instead of reading as "nothing uses this".
     const inSelection = new Set(ids);
-    Promise.all(
-      ids.map((id) =>
-        fetch(`/api/portal/items/${id}/dependents?transitive=true`)
-          .then((r) => (r.ok ? (r.json() as Promise<DependentRow[]>) : []))
-          .catch(() => [] as DependentRow[]),
-      ),
-    )
+    mapWithConcurrency(ids, DEPENDENTS_CONCURRENCY, async (id) => {
+      const r = await fetchRetrying(
+        `/api/portal/items/${encodeURIComponent(id)}/dependents?transitive=true`,
+        undefined,
+      );
+      if (r.ok) return (await r.json()) as DependentRow[];
+      if (r.status === 403 || r.status === 404) return [] as DependentRow[];
+      throw new Error(`HTTP ${r.status}`);
+    })
       .then((lists) => {
         if (cancelled) return;
         // Flatten + dedupe by id, then drop any dependent that's

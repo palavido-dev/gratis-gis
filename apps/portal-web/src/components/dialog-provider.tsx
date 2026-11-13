@@ -147,6 +147,11 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         // text inputs Enter accepts so it's fine.
         const tag = (e.target as HTMLElement | null)?.tagName ?? '';
         if (tag === 'TEXTAREA') return;
+        // A focused button or link handles Enter itself. Without this,
+        // tabbing to Cancel and pressing Enter would confirm, because
+        // preventDefault also swallows Cancel's own click. The primary
+        // button is autofocused, so Enter on it still confirms.
+        if (tag === 'BUTTON' || tag === 'A') return;
         e.preventDefault();
         if (pendingRef.current?.kind === 'confirm') closeConfirm(true);
         else if (pendingRef.current?.kind === 'alert') closeAlert();

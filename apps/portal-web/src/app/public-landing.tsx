@@ -33,6 +33,7 @@ import {
 } from '@/lib/item-type-icon';
 import { portalUrl } from '@/lib/portal-url';
 import { serializeJsonLd } from '@/lib/json-ld';
+import { cssUrl } from '@/lib/css-url';
 
 function GithubMark({ className }: { className?: string }) {
   return (
@@ -112,10 +113,10 @@ interface Props {
   isAuthenticated?: boolean;
   /**
    * Session cookie present but its Keycloak tokens are dead (#195).
-   * The shell keeps rendering (so the TopBar stays suppressed and we
-   * don't stack two headers), but the hero CTA has to say Sign in:
-   * "Open my items" leads to an items page the API will answer as
-   * anonymous.
+   * AppShellChrome renders bare for a stale session, so the public
+   * TopBar has to show again (or the page has no header and no Sign
+   * in), and the hero CTA has to say Sign in: "Open my items" leads
+   * to an items page the API will answer as anonymous.
    */
   sessionStale?: boolean;
   /**
@@ -162,10 +163,10 @@ export async function PublicLanding({
           For authenticated visitors the AppShell's left rail and
           top bar already cover both, so showing the public TopBar
           here renders a redundant "Sign in" button next to the
-          shell's signed-in badge. Hide it when isAuthenticated;
-          unauthenticated visitors still see it as their only
-          surface for the org name + sign-in entry. */}
-      {!isAuthenticated ? <TopBar orgName={org.name} locale={locale} /> : null}
+          shell's signed-in badge. Hide it only for a usable
+          session: the shell steps aside for a stale one, and then
+          this is the only surface for the org name + sign-in entry. */}
+      {!usableSession ? <TopBar orgName={org.name} locale={locale} /> : null}
 
       {/* #141: public-testing banner. Rendered when the deploy is
           in public-testing mode (NEXT_PUBLIC_PUBLIC_TESTING=1) so
@@ -183,7 +184,7 @@ export async function PublicLanding({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: serializeJsonLd(buildLandingJsonLd(data)),
+          __html: serializeJsonLd(buildLandingJsonLd(data, items)),
         }}
       />
 
@@ -611,7 +612,7 @@ function Hero({
   return (
     <section
       className="relative flex min-h-[220px] items-end bg-surface-2 bg-cover bg-center px-6 py-10"
-      style={{ backgroundImage: `url(${heroImageUrl})` }}
+      style={{ backgroundImage: cssUrl(heroImageUrl) }}
     >
       <div className="absolute inset-0 bg-black/45" aria-hidden="true" />
       <div className="relative z-1 mx-auto w-full max-w-6xl">
@@ -700,13 +701,16 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
  * single JSON-LD blob the page injects via a server-rendered
  * <script type="application/ld+json"> tag.
  *
- * The portal does not have public item detail pages today, so the
- * URLs point at /items/<id>. Once the public detail surface lands,
- * the same shape can be lifted onto each item's own page (one
- * Dataset per page) without regenerating the structure here.
+ * Built from the same filtered list the grid shows, with the same
+ * link each card uses (getItemHref). Items without an anonymous
+ * runtime are left out: their /items/<id> detail page sends a
+ * visitor to sign in, so advertising it describes content that is
+ * not on this page. Once the public detail surface lands (#76) they
+ * can come back, one Dataset per page.
  */
 function buildLandingJsonLd(
   data: LandingData,
+  items: LandingData['items'],
 ): Record<string, unknown> {
   const dataLayerLike = new Set<ItemType>([
     'data_layer',
@@ -732,9 +736,11 @@ function buildLandingJsonLd(
     url: portalUrl('/'),
   } as const;
 
-  const elements = data.items.map((item, index) => {
+  const elements = items.map((item, index) => {
     const isDataset = dataLayerLike.has(item.type);
-    const itemAbsoluteUrl = portalUrl(`/items/${item.id}`);
+    const itemAbsoluteUrl = portalUrl(
+      getItemHref(item as Parameters<typeof getItemHref>[0]),
+    );
     const node: Record<string, unknown> = {
       '@type': isDataset ? 'Dataset' : 'CreativeWork',
       name: item.title,
@@ -779,7 +785,7 @@ function buildLandingJsonLd(
     publisher,
     mainEntity: {
       '@type': 'ItemList',
-      numberOfItems: data.items.length,
+      numberOfItems: items.length,
       itemListElement: elements,
     },
   };

@@ -2209,6 +2209,8 @@ export const ptBR: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Carregando esquema da camada…',
     bundleDone:
       'Concluído -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} anexos não puderam ser baixados e não estão no ZIP. Exporte novamente.',
     calculateModalTitle: 'Calcular campo',
     calculateUpdatesPrefix: 'Atualiza',
     calculateUpdatesSuffix: 'em todas as linhas do escopo.',

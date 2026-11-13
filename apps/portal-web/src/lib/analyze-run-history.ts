@@ -199,12 +199,18 @@ export function buildRerunDerivedLayerCreatePayload(args: {
   };
 }
 
-/** List URL for the caller's recent derived layers (full payloads). */
-export function pastRunsListUrl(limit = 50): string {
+/**
+ * List URL for the caller's recent derived layers built from one
+ * source item (full payloads). The server filters by source, so runs
+ * for this layer are found however many other derived layers the
+ * caller has touched since; the layerKey match stays client side.
+ */
+export function pastRunsListUrl(sourceItemId: string, limit = 50): string {
   const params = new URLSearchParams({
     type: 'derived_layer',
     full: '1',
     mine: 'true',
+    sourceItemId,
     limit: String(Math.max(1, Math.min(limit, 100))),
   });
   return `/api/portal/items?${params.toString()}`;
