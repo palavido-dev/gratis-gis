@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * The GratisGIS brand mark (#173): a "G" drawn as nested elevation
- * contours. Server-safe; no client hooks.
+ * The GratisGIS brand mark: a "G" drawn as two contour rings around a
+ * point. Server-safe; no client hooks.
  *
- * Colors resolve through the --brand-* tokens defined in
- * globals.css (chart blue, topographic umber, index slate), so the
- * mark adapts to light/dark automatically and stays in lockstep
- * with the app palette.
+ * The mark is one colour, --brand-chart (teal), so it adapts to light
+ * and dark mode with the app palette. The inner ring is the same
+ * colour at reduced opacity.
  *
  * Two variants:
- * - full (default): three contours; use at >= 20px.
- * - small: a single heavier contour + crossbar that survives 16px
- *   favicons, badges, and low-DPI trays. Prefer it below 20px.
+ * - full (default): outer G, inner ring and point; use at >= 20px.
+ * - small: a heavier outer G and point, no inner ring, which stays
+ *   legible at 16px. Prefer it below 20px.
  *
- * Static exports of the same geometry live in public/icon.svg (PWA
- * icon) and app/opengraph-image.tsx (social card); keep the three
- * in sync when the geometry changes.
+ * Static copies of the same geometry: public/icon.svg (PWA icon),
+ * app/favicon.ico and app/apple-icon.png, app/opengraph-image.tsx,
+ * the Keycloak login logo and the Android launcher icon. Keep them in
+ * sync when the geometry changes.
  */
 
 interface BrandMarkProps {
@@ -26,11 +26,12 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ size = 24, variant = 'full', className }: BrandMarkProps) {
+  const color = 'hsl(var(--brand-chart))';
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
+      viewBox="0 0 48 48"
       fill="none"
       aria-hidden="true"
       className={className}
@@ -38,31 +39,32 @@ export function BrandMark({ size = 24, variant = 'full', className }: BrandMarkP
       {variant === 'full' ? (
         <>
           <path
-            d="M34 8 C16 8 8 20 8 32 C8 46 19 56 34 56 C45 56 53 49 55 40 L37 40"
-            stroke="hsl(var(--brand-chart))"
-            strokeWidth={5}
+            d="M36.73 11.27A18 18 0 1 0 42 24H32"
+            stroke={color}
+            strokeWidth={3.6}
             strokeLinecap="round"
+            strokeLinejoin="round"
           />
           <path
-            d="M34 18 C22 18 17 24 17 32 C17 40 24 46 34 46"
-            stroke="hsl(var(--brand-contour))"
-            strokeWidth={4}
+            d="M32.49 15.51A12 12 0 1 0 36 24"
+            stroke={color}
+            strokeWidth={3.6}
             strokeLinecap="round"
+            opacity={0.55}
           />
-          <path
-            d="M34 27 C29 27 26 29 26 32 C26 35 29 37 34 37"
-            stroke="hsl(var(--brand-index))"
-            strokeWidth={3.5}
-            strokeLinecap="round"
-          />
+          <circle cx="24" cy="24" r="3.4" fill={color} />
         </>
       ) : (
-        <path
-          d="M34 10 C18 10 10 21 10 32 C10 45 20 54 34 54 C44 54 51 48 53 40 L36 40"
-          stroke="hsl(var(--brand-chart))"
-          strokeWidth={8}
-          strokeLinecap="round"
-        />
+        <>
+          <path
+            d="M36.73 11.27A18 18 0 1 0 42 24H32"
+            stroke={color}
+            strokeWidth={5.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="24" cy="24" r="4.4" fill={color} />
+        </>
       )}
     </svg>
   );
@@ -70,7 +72,7 @@ export function BrandMark({ size = 24, variant = 'full', className }: BrandMarkP
 
 /**
  * Mark + name lockup used by the app shell, landing chrome, and
- * auth-adjacent pages. The "GIS" tail takes the chart blue;
+ * auth-adjacent pages. The "GIS" tail takes the brand teal;
  * "Gratis" stays ink so the lockup works on any surface.
  */
 export function BrandWordmark({
