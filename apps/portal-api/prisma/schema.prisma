@@ -88,12 +88,6 @@ enum NotificationType {
   /// An editor target had a feature added. Phase 2 trigger
   /// (replaces the original Survey123-gap ask).
   editor_feature_created          @map("editor-feature-created")
-  /// An admin has invited a new user to the org. Sent to the
-  /// invitee with the realm-managed invite link. Replaces the
-  /// hand-rolled invite email body that used to live in the
-  /// admin-invite path so all transactional email goes through one
-  /// renderer.
-  user_invited                    @map("user-invited")
   /// A field deployment ('data_collection' item) had a feature
   /// added through the field runtime. Mirrors editor_feature_created
   /// but covers the field-deployment write path, which doesn't
