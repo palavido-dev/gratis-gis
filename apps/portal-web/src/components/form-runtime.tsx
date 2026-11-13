@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   geolocationBlock,
   isInsecureGeolocationMessage,
@@ -10,8 +18,10 @@ import { useT } from '@/lib/i18n/locale-context';
 import {
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   GripVertical,
   Loader2,
   MapPin,
@@ -36,19 +46,25 @@ import {
   type Response,
   type ValidationError,
 } from '@gratis-gis/form-schema';
-import { uploadFormAttachment } from '@/lib/form-attachment-upload';
+import {
+  attachmentSizeProblem,
+  isRetryableUploadError,
+  uploadFormAttachment,
+} from '@/lib/form-attachment-upload';
 import { GeoPointMapPicker } from './form-inputs/geopoint-map-picker';
 import { SignatureInput } from './form-inputs/signature-input';
 import { useFormat } from '@/lib/i18n/format';
 import {
   addRepeatInstance,
   applyValueUpdate,
+  moveRankedItem,
   removeRepeatInstance,
   updateGroupAnswer,
   updateRepeatInstance,
 } from '@/lib/form-value-update';
 import { formatBytes } from '@/lib/format-bytes';
 import { packIntoRows } from '@/lib/form-layout-rows';
+import { parseManualPoint } from '@/lib/form-coordinates';
 
 /**
  * Mobile-first runtime that renders any FormSchema and captures a
@@ -150,19 +166,30 @@ export function FormRuntime({
   // `value` may be an updater (see applyValueUpdate) so that a write
   // that lands after an await (an upload finishing) builds on the
   // latest answers rather than the ones from when it started.
+  // True from a valid submit until it fails or the form is reset. A
+  // late write (a signature or photo upload resolving) is ignored in
+  // that window: it belonged to the response being sent, and after
+  // "Submit another" it would land in the next person's answers. The
+  // ref also stops a double tap on an external Submit button (the
+  // field modal's header) from sending the same answers twice.
+  const lockedRef = useRef(false);
+
   function setValue(id: string, value: unknown) {
+    if (lockedRef.current) return;
     setResponse((prev) => ({ ...prev, [id]: applyValueUpdate(value, prev[id]) }));
   }
 
   async function handleSubmit() {
-    if (readOnly) return;
+    if (readOnly || lockedRef.current) return;
     const result = validate(form, response);
     if (!result.ok) {
       setErrors(result.errors);
-      // Jump to the first page with an error.
+      // Jump to the first page with an error. An error inside a repeat
+      // instance is reported as `<group>[i].<child>`; its page is the
+      // group's.
       for (let i = 0; i < pages.length; i += 1) {
         const ids = collectIdsOnPage(pages[i]!);
-        if (result.errors.some((e) => ids.has(e.questionId))) {
+        if (result.errors.some((e) => ids.has(topLevelId(e.questionId)))) {
           setPageIndex(i);
           break;
         }
@@ -194,10 +221,12 @@ export function FormRuntime({
     setErrors([]);
     setSubmitError(null);
     setSubmitting(true);
+    lockedRef.current = true;
     try {
       await onSubmit(pruneHidden(form, response));
       setSubmitted(true);
     } catch (err) {
+      lockedRef.current = false;
       setSubmitError(
         err instanceof Error ? err.message : t('formRuntime.submitFailed'),
       );
@@ -221,6 +250,7 @@ export function FormRuntime({
         <button
           type="button"
           onClick={() => {
+            lockedRef.current = false;
             setResponse(applyCalculations(form, {}));
             setPageIndex(0);
             setSubmitted(false);
@@ -351,6 +381,20 @@ export function FormRuntime({
 
 // ---- Per-question rendering -------------------------------------
 
+/**
+ * Where the questions being rendered sit in the response: '' at the
+ * top level, `<group>[<i>].` inside repeat instance i. It matches the
+ * ids validate() reports, so an error inside an instance finds its
+ * field, and it scopes element ids and radio names, which repeated per
+ * instance and made one instance's radios clear another's.
+ */
+const FieldPathContext = createContext('');
+
+/** The id a question's control and label use, unique in the form. */
+function useFieldId(q: Question): string {
+  return useContext(FieldPathContext) + q.id;
+}
+
 function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
@@ -362,6 +406,7 @@ function QuestionField({
   readOnly,
   onChange,
   setValue,
+  errorByQuestion,
 }: {
   q: Question;
   response: Response;
@@ -376,8 +421,11 @@ function QuestionField({
    * is its own response object passed in.
    */
   setValue?: (id: string, v: unknown) => void;
+  /** Errors by validate()'s question path, for questions inside a group. */
+  errorByQuestion?: Map<string, string> | undefined;
 }) {
   const t = useT();
+  const path = useContext(FieldPathContext);
   if (!isVisible(q, response)) return null;
 
   if (q.type === 'page') return null;
@@ -403,6 +451,7 @@ function QuestionField({
         error={error}
         readOnly={readOnly}
         onChange={onChange}
+        errorByQuestion={errorByQuestion}
         {...(setValue ? { setValue } : {})}
       />
     );
@@ -410,6 +459,7 @@ function QuestionField({
 
   const value = response[q.id];
   const required = isRequired(q, response);
+  const fieldId = path + q.id;
   const requiredMark = required ? (
     <span className="ml-0.5 text-danger" aria-hidden>
       *
@@ -421,10 +471,10 @@ function QuestionField({
     // failed validation. Marked on the wrapper rather than the control
     // because a question can render several inputs (a matrix, a
     // select-many) and the label is the part worth bringing into view.
-    <div className="space-y-1" data-question-id={q.id}>
+    <div className="space-y-1" data-question-id={fieldId}>
       <label
         className="block text-sm font-medium text-ink-0"
-        htmlFor={q.id}
+        htmlFor={fieldId}
       >
         {q.label}
         {requiredMark}
@@ -451,14 +501,14 @@ function QuestionField({
           real fix and is still owed. */}
       <div
         {...(error
-          ? { 'aria-invalid': true, 'aria-describedby': `${q.id}-error` }
+          ? { 'aria-invalid': true, 'aria-describedby': `${fieldId}-error` }
           : {})}
       >
         <Input q={q} value={value} readOnly={readOnly} onChange={onChange} />
       </div>
       {error ? (
         <p
-          id={`${q.id}-error`}
+          id={`${fieldId}-error`}
           className="text-xs font-medium text-danger"
           role="alert"
         >
@@ -475,6 +525,7 @@ function GroupField({
   readOnly,
   onChange,
   setValue,
+  errorByQuestion,
 }: {
   q: Extract<Question, { type: 'group' }>;
   response: Response;
@@ -482,8 +533,17 @@ function GroupField({
   readOnly: boolean;
   onChange: (v: unknown) => void;
   setValue?: (id: string, v: unknown) => void;
+  errorByQuestion?: Map<string, string> | undefined;
 }) {
   const t = useT();
+  const path = useContext(FieldPathContext);
+  // A stable key per repeat instance. Keyed by index, a removed
+  // instance handed its component state to the next one, and an upload
+  // that resolved after an earlier instance was removed wrote into the
+  // wrong instance (or a new phantom one). Writes look the instance up
+  // by key when they land, and are dropped if it is gone.
+  const keysRef = useRef<number[]>([]);
+  const nextKeyRef = useRef(0);
   // Non-repeating group is purely a visual container. Children's
   // responses live at the TOP LEVEL of `response`, keyed by their
   // question id (matching pruneHidden + walkQuestions which only
@@ -505,6 +565,7 @@ function GroupField({
           <PackedRows
             questions={q.children}
             response={response}
+            errorByQuestion={errorByQuestion}
             readOnly={readOnly}
             onSet={setValue}
           />
@@ -535,12 +596,20 @@ function GroupField({
   const instances = (Array.isArray(response[q.id])
     ? (response[q.id] as Response[])
     : []) as Response[];
+  const keys = keysRef.current;
+  while (keys.length < instances.length) {
+    keys.push(nextKeyRef.current);
+    nextKeyRef.current += 1;
+  }
+  if (keys.length > instances.length) keys.length = instances.length;
   return (
     <fieldset className="rounded-md border border-border bg-surface-2/30 p-3">
       <legend className="px-2 text-sm font-medium text-ink-0">{q.label}</legend>
       <div className="space-y-3">
-        {instances.map((inst, idx) => (
-          <div key={idx} className="rounded-md border border-border bg-surface-1 p-3">
+        {instances.map((inst, idx) => {
+          const key = keys[idx]!;
+          return (
+          <div key={key} className="rounded-md border border-border bg-surface-1 p-3">
             <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted">
               <span>
                 {t('formRuntime.instanceLabel', { index: idx + 1 })}
@@ -550,7 +619,10 @@ function GroupField({
                   type="button"
                   className="inline-flex items-center gap-1 text-danger"
                   onClick={() => {
-                    onChange((prev: unknown) => removeRepeatInstance(prev, idx));
+                    const at = keysRef.current.indexOf(key);
+                    if (at < 0) return;
+                    keysRef.current.splice(at, 1);
+                    onChange((prev: unknown) => removeRepeatInstance(prev, at));
                   }}
                 >
                   <Trash2 className="h-3 w-3" />
@@ -558,22 +630,27 @@ function GroupField({
                 </button>
               ) : null}
             </div>
-            <PackedRows
-              questions={q.children}
-              response={inst}
-              readOnly={readOnly}
-              onSet={(id, v) => {
-                // Built from the latest array, not the render-time
-                // `instances`: a photo upload that resolves after the
-                // collector typed in another instance used to put the
-                // whole pre-upload array back.
-                onChange((prev: unknown) =>
-                  updateRepeatInstance(prev, idx, id, v),
-                );
-              }}
-            />
+            <FieldPathContext.Provider value={`${path}${q.id}[${idx}].`}>
+              <PackedRows
+                questions={q.children}
+                response={inst}
+                errorByQuestion={errorByQuestion}
+                readOnly={readOnly}
+                onSet={(id, v) => {
+                  // Built from the latest array, not the render-time
+                  // `instances`: a photo upload that resolves after the
+                  // collector typed in another instance used to put the
+                  // whole pre-upload array back.
+                  onChange((prev: unknown) => {
+                    const at = keysRef.current.indexOf(key);
+                    return at < 0 ? prev : updateRepeatInstance(prev, at, id, v);
+                  });
+                }}
+              />
+            </FieldPathContext.Provider>
           </div>
-        ))}
+          );
+        })}
         {!readOnly &&
         (q.repeat.max === undefined || instances.length < q.repeat.max) ? (
           <button
@@ -607,10 +684,11 @@ function PackedRows({
 }: {
   questions: Question[];
   response: Response;
-  errorByQuestion?: Map<string, string>;
+  errorByQuestion?: Map<string, string> | undefined;
   readOnly: boolean;
   onSet: (id: string, v: unknown) => void;
 }) {
+  const path = useContext(FieldPathContext);
   return (
     <div className="space-y-5 sm:space-y-4">
       {packIntoRows(questions).map((row, rowIdx) => (
@@ -626,10 +704,11 @@ function PackedRows({
               <QuestionField
                 q={q}
                 response={response}
-                error={errorByQuestion?.get(q.id) ?? null}
+                error={errorByQuestion?.get(path + q.id) ?? null}
                 readOnly={readOnly || isReadOnly(q, response)}
                 onChange={(v) => onSet(q.id, v)}
                 setValue={onSet}
+                errorByQuestion={errorByQuestion}
               />
             </div>
           ))}
@@ -712,6 +791,7 @@ function Input({
   onChange: (v: unknown) => void;
 }) {
   const t = useT();
+  const fid = useFieldId(q);
   const baseClass =
     'block w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-base text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
@@ -719,7 +799,7 @@ function Input({
     case 'text':
       return (
         <input
-          id={q.id}
+          id={fid}
           type={q.obscured ? 'password' : 'text'}
           inputMode="text"
           value={(value as string) ?? ''}
@@ -733,7 +813,7 @@ function Input({
     case 'multiline':
       return (
         <textarea
-          id={q.id}
+          id={fid}
           rows={q.rows ?? 3}
           value={(value as string) ?? ''}
           maxLength={q.maxLength}
@@ -746,7 +826,7 @@ function Input({
     case 'email':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="email"
           inputMode="email"
           autoComplete="email"
@@ -761,7 +841,7 @@ function Input({
     case 'url':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="url"
           inputMode="url"
           autoComplete="url"
@@ -776,7 +856,7 @@ function Input({
     case 'phone':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="tel"
           inputMode="tel"
           autoComplete="tel"
@@ -790,7 +870,7 @@ function Input({
     case 'regex':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="text"
           value={(value as string) ?? ''}
           maxLength={q.maxLength}
@@ -803,7 +883,7 @@ function Input({
     case 'number':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="number"
           inputMode="decimal"
           value={value === null || value === undefined ? '' : (value as number | string)}
@@ -828,7 +908,7 @@ function Input({
     case 'integer':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="number"
           inputMode="numeric"
           step={1}
@@ -870,7 +950,7 @@ function Input({
       if (q.appearance === 'dropdown') {
         return (
           <select
-            id={q.id}
+            id={fid}
             value={(value as string) ?? ''}
             disabled={readOnly}
             onChange={(e) => onChange(e.target.value || null)}
@@ -898,7 +978,7 @@ function Input({
             >
               <input
                 type="radio"
-                name={q.id}
+                name={fid}
                 value={c.value}
                 checked={value === c.value}
                 disabled={readOnly}
@@ -989,7 +1069,7 @@ function Input({
     case 'date':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="date"
           value={(value as string) ?? ''}
           min={q.min}
@@ -1002,7 +1082,7 @@ function Input({
     case 'time':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="time"
           value={(value as string) ?? ''}
           min={q.min}
@@ -1015,7 +1095,7 @@ function Input({
     case 'datetime':
       return (
         <input
-          id={q.id}
+          id={fid}
           type="datetime-local"
           value={(value as string) ?? ''}
           disabled={readOnly}
@@ -1214,7 +1294,7 @@ function Input({
       return (
         <div>
           <input
-            id={q.id}
+            id={fid}
             type="range"
             min={q.min}
             max={q.max}
@@ -1401,26 +1481,33 @@ function PhotoInput({
                 // change again. Without this, picking-then-removing-
                 // then-re-picking the same photo silently no-ops.
                 e.target.value = '';
+                // Too large to ever upload: refuse it here rather than
+                // keep it inline for a drain that can never send it.
+                const tooBig = attachmentSizeProblem(file.size, q.maxBytes);
+                if (tooBig) {
+                  setErr(tooBig);
+                  return;
+                }
                 setBusy(true);
                 setErr(null);
                 try {
                   // Online path: upload directly to MinIO so the
                   // submission JSON stays small. Falls through to the
-                  // pending-dataUrl path on any failure (no network,
-                  // 5xx, MinIO down): the queue drain will retry.
+                  // pending-dataUrl path when the failure may pass (no
+                  // network, 5xx, MinIO down): the queue drain retries.
                   if (typeof navigator !== 'undefined' && navigator.onLine) {
                     try {
                       const uploaded = await uploadFormAttachment(file);
                       onChange((prev: unknown) => [...normalizePhotoValue(prev), uploaded]);
                       return;
                     } catch (upErr) {
-                      // Surface the error briefly but still queue the
-                      // photo offline so the user doesn't lose it.
                       setErr(
                         upErr instanceof Error
                           ? upErr.message
                           : t('formRuntime.uploadFailedOffline'),
                       );
+                      // Refused for good: keeping it would fail again.
+                      if (!isRetryableUploadError(upErr)) return;
                     }
                   }
                   const dataUrl = await fileToDataUrl(file);
@@ -1549,7 +1636,16 @@ function MediaCaptureInput({
     return new Promise((resolve) => {
       const el = document.createElement(kind);
       el.preload = 'metadata';
+      // Neither event is guaranteed for a detached element (data
+      // saver, a stalled request), and the clip was only attached once
+      // this resolved, so the input stayed busy for ever. The length
+      // is optional; give up on it after a few seconds.
+      const timer = window.setTimeout(() => {
+        cleanup();
+        resolve(undefined);
+      }, PROBE_TIMEOUT_MS);
       const cleanup = () => {
+        window.clearTimeout(timer);
         el.removeEventListener('loadedmetadata', loaded);
         el.removeEventListener('error', errored);
       };
@@ -1629,12 +1725,17 @@ function MediaCaptureInput({
               const file = e.target.files?.[0];
               if (!file) return;
               e.target.value = '';
+              const tooBig = attachmentSizeProblem(file.size, q.maxBytes);
+              if (tooBig) {
+                setErr(tooBig);
+                return;
+              }
               setBusy(true);
               setErr(null);
               try {
-                // Online: upload to MinIO, store url. Offline or
-                // failed upload: fall back to dataUrl, queue uploads
-                // it on drain. Same pattern as PhotoInput.
+                // Online: upload to MinIO, store url. Offline or a
+                // failure that may pass: fall back to dataUrl, queue
+                // uploads it on drain. Same pattern as PhotoInput.
                 if (typeof navigator !== 'undefined' && navigator.onLine) {
                   try {
                     const uploaded = await uploadFormAttachment(file);
@@ -1655,6 +1756,7 @@ function MediaCaptureInput({
                         ? upErr.message
                         : t('formRuntime.uploadFailedOffline'),
                     );
+                    if (!isRetryableUploadError(upErr)) return;
                   }
                 }
                 const dataUrl = await fileToDataUrl(file);
@@ -1713,6 +1815,7 @@ function BarcodeInput({
   onChange: (v: unknown) => void;
 }) {
   const t = useT();
+  const fid = useFieldId(q);
   const v = typeof value === 'string' ? value : '';
   const formats = q.formats?.length
     ? q.formats.join(' / ')
@@ -1720,7 +1823,7 @@ function BarcodeInput({
   return (
     <div className="space-y-1.5">
       <input
-        id={q.id}
+        id={fid}
         type="text"
         inputMode="text"
         autoComplete="off"
@@ -1770,7 +1873,12 @@ function SketchInput({
     el: HTMLCanvasElement | null;
     drawing: boolean;
     last: { x: number; y: number } | null;
-  }>(() => ({ el: null, drawing: false, last: null }), []);
+    /** The data URL this canvas last emitted. */
+    emitted: string | null;
+    /** Bumped per repaint so a slow image load from an older one
+     *  cannot paint over a newer one. */
+    paint: number;
+  }>(() => ({ el: null, drawing: false, last: null, emitted: null, paint: 0 }), []);
   const aspect = q.aspectRatio ?? 16 / 9;
   const initial = typeof value === 'string' ? value : null;
 
@@ -1783,23 +1891,36 @@ function SketchInput({
     if (!c) return;
     const ctx = c.getContext('2d');
     if (!ctx) return;
+    // Our own stroke coming back as the value: the canvas already
+    // shows it. Repainting cleared the canvas after every stroke and
+    // reloaded it asynchronously, so a stroke begun meanwhile was
+    // painted over and could be lost from the next export.
+    if (initial !== null && initial === canvasRef.emitted) return;
+    canvasRef.paint += 1;
+    const paint = canvasRef.paint;
+    const current = () => canvasRef.paint === paint;
+    const drawSaved = () => {
+      if (!initial || !current()) return;
+      const img = new Image();
+      img.onload = () => {
+        if (current()) ctx.drawImage(img, 0, 0, c.width, c.height);
+      };
+      img.src = initial;
+    };
     ctx.clearRect(0, 0, c.width, c.height);
     if (q.backgroundImageUrl) {
       const bg = new Image();
       bg.crossOrigin = 'anonymous';
       bg.onload = () => {
+        if (!current()) return;
         ctx.drawImage(bg, 0, 0, c.width, c.height);
-        if (initial) {
-          const img = new Image();
-          img.onload = () => ctx.drawImage(img, 0, 0, c.width, c.height);
-          img.src = initial;
-        }
+        drawSaved();
       };
+      // A background that fails to load must not hide the sketch.
+      bg.onerror = drawSaved;
       bg.src = q.backgroundImageUrl;
-    } else if (initial) {
-      const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, c.width, c.height);
-      img.src = initial;
+    } else {
+      drawSaved();
     }
     // The element ref is stable across renders; we explicitly want
     // to re-init only when the saved value or the background URL
@@ -1854,7 +1975,9 @@ function SketchInput({
     canvasRef.last = null;
     const c = canvasRef.el;
     if (!c) return;
-    onChange(c.toDataURL('image/png'));
+    const url = c.toDataURL('image/png');
+    canvasRef.emitted = url;
+    onChange(url);
   }
 
   function clear() {
@@ -2036,17 +2159,24 @@ function FileInput({
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     if (readOnly) return;
-    const picked = e.target.files;
-    if (!picked || picked.length === 0) return;
+    // Copy the list before resetting the input: clearing `value`
+    // empties the live FileList, and nothing was ever attached.
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
     e.target.value = '';
     setBusy(true);
     setErr(null);
     try {
       const next: Attachment[] = files.slice();
-      for (const f of Array.from(picked)) {
+      for (const f of picked) {
         if (next.length >= max) break;
-        // Online: upload to MinIO and store URL. Offline or upload
-        // failure: queue with dataUrl; drain will retry the upload.
+        const tooBig = attachmentSizeProblem(f.size, q.maxBytes);
+        if (tooBig) {
+          setErr(tooBig);
+          continue;
+        }
+        // Online: upload to MinIO and store URL. Offline or a failure
+        // that may pass: queue with dataUrl; drain retries the upload.
         let added = false;
         if (typeof navigator !== 'undefined' && navigator.onLine) {
           try {
@@ -2060,6 +2190,7 @@ function FileInput({
                 ? upErr.message
                 : t('formRuntime.uploadFailedOffline'),
             );
+            if (!isRetryableUploadError(upErr)) continue;
           }
         }
         if (!added) {
@@ -2605,24 +2736,63 @@ function GeoPointInput({
         <p className="text-xs text-muted">{t('formRuntime.mapPickerFailed')}</p>
       ) : null}
       {!readOnly && (q.capture === 'manual' || mapOnlyFailed) ? (
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            type="number"
-            placeholder={t('formRuntime.latitude')}
-            value={point?.lat ?? ''}
-            onChange={(e) => onChange({ ...(point ?? { lng: 0 }), lat: Number(e.target.value) })}
-            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-          <input
-            type="number"
-            placeholder={t('formRuntime.longitude')}
-            value={point?.lng ?? ''}
-            onChange={(e) => onChange({ ...(point ?? { lat: 0 }), lng: Number(e.target.value) })}
-            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-        </div>
+        <ManualCoordinates point={point} onChange={onChange} />
       ) : null}
       {err ? <p className="text-xs text-danger">{err}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Typed latitude and longitude. The text of each field is kept as
+ * typed, and a point is written only when both parse (null otherwise);
+ * see parseManualPoint for what went wrong when each keystroke wrote
+ * Number(text). A point set elsewhere (GPS, the map) refills them.
+ */
+function ManualCoordinates({
+  point,
+  onChange,
+}: {
+  point: { lat: number; lng: number } | null;
+  onChange: (v: unknown) => void;
+}) {
+  const t = useT();
+  const [lat, setLat] = useState(point ? String(point.lat) : '');
+  const [lng, setLng] = useState(point ? String(point.lng) : '');
+  const pointLat = point?.lat;
+  const pointLng = point?.lng;
+  useEffect(() => {
+    if (pointLat === undefined || pointLng === undefined) return;
+    setLat((cur) => (Number(cur) === pointLat && cur.trim() !== '' ? cur : String(pointLat)));
+    setLng((cur) => (Number(cur) === pointLng && cur.trim() !== '' ? cur : String(pointLng)));
+  }, [pointLat, pointLng]);
+  const emit = (nextLat: string, nextLng: string) => {
+    onChange(parseManualPoint(nextLat, nextLng));
+  };
+  const cls =
+    'block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <input
+        type="number"
+        placeholder={t('formRuntime.latitude')}
+        value={lat}
+        onChange={(e) => {
+          setLat(e.target.value);
+          emit(e.target.value, lng);
+        }}
+        className={cls}
+      />
+      <input
+        type="number"
+        placeholder={t('formRuntime.longitude')}
+        value={lng}
+        onChange={(e) => {
+          setLng(e.target.value);
+          emit(lat, e.target.value);
+        }}
+        className={cls}
+      />
     </div>
   );
 }
@@ -2645,6 +2815,7 @@ function MatrixSingleInput({
   readOnly: boolean;
   onChange: (v: unknown) => void;
 }) {
+  const fid = useFieldId(q);
   const map: Record<string, string> =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, string>)
@@ -2679,6 +2850,7 @@ function MatrixSingleInput({
           {q.rows.map((row, idx) => (
             <MatrixSingleRow
               key={row.id}
+              groupName={fid}
               row={row}
               columns={q.columns}
               selected={map[row.id] ?? null}
@@ -2711,7 +2883,7 @@ function MatrixSingleInput({
                   >
                     <input
                       type="radio"
-                      name={`${q.id}__${row.id}`}
+                      name={`${fid}__${row.id}`}
                       value={c.value}
                       checked={selected}
                       disabled={readOnly}
@@ -2730,6 +2902,7 @@ function MatrixSingleInput({
 }
 
 function MatrixSingleRow({
+  groupName,
   row,
   columns,
   selected,
@@ -2737,6 +2910,10 @@ function MatrixSingleRow({
   readOnly,
   onChange,
 }: {
+  /** Scopes the row's radio name to its question (and instance). Every
+   *  matrix starts with rows row_1, row_2..., so a name built from the
+   *  row alone joined two matrices into one radio group. */
+  groupName: string;
   row: { id: string; label: string };
   columns: { value: string; label: string }[];
   selected: string | null;
@@ -2758,7 +2935,7 @@ function MatrixSingleRow({
         >
           <input
             type="radio"
-            name={`__matrix_${row.id}`}
+            name={`${groupName}__${row.id}`}
             value={c.value}
             checked={selected === c.value}
             disabled={readOnly}
@@ -3139,12 +3316,7 @@ function RankingInput({
     if (!raw) return;
     const fromIdx = Number(raw);
     if (Number.isNaN(fromIdx) || fromIdx === dropIdx) return;
-    const next = ranked.slice();
-    const [moved] = next.splice(fromIdx, 1);
-    if (moved === undefined) return;
-    const insertAt = dropIdx > fromIdx ? dropIdx - 1 : dropIdx;
-    next.splice(insertAt, 0, moved);
-    onChange(next);
+    onChange(moveRankedItem(ranked, fromIdx, dropIdx));
     e.preventDefault();
   }
 
@@ -3183,6 +3355,30 @@ function RankingInput({
                 ) : null}
                 <span className="w-5 text-xs tabular-nums text-muted">{i + 1}.</span>
                 <span className="flex-1 truncate">{labelFor(v)}</span>
+                {/* Drag and drop does not work on touch screens, so
+                    these are the way to reorder on a phone. */}
+                {!readOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={i === 0}
+                      onClick={() => onChange(moveRankedItem(ranked, i, i - 1))}
+                      className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-30"
+                      aria-label={t('formRuntime.rankUpAria')}
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={i === ranked.length - 1}
+                      onClick={() => onChange(moveRankedItem(ranked, i, i + 1))}
+                      className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-30"
+                      aria-label={t('formRuntime.rankDownAria')}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : null}
                 {!readOnly ? (
                   <button
                     type="button"
@@ -3225,6 +3421,9 @@ function RankingInput({
 
 // ---- helpers ----------------------------------------------------
 
+/** How long to wait for a clip's length before attaching it without one. */
+const PROBE_TIMEOUT_MS = 3000;
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -3252,6 +3451,12 @@ function splitIntoPages(form: FormSchema): Page[] {
   }
   pages.push(current);
   return pages;
+}
+
+/** The top-level question an error path such as `insp[1].result` is under. */
+function topLevelId(path: string): string {
+  const cut = path.search(/[[.]/);
+  return cut < 0 ? path : path.slice(0, cut);
 }
 
 function collectIdsOnPage(page: Page): Set<string> {

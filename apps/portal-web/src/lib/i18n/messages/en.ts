@@ -5024,6 +5024,8 @@ export const en = {
     available: "Available",
     rankingEmpty: "No items ranked yet. Tap an item below to add it.",
     removeFromRankingAria: "Remove from ranking",
+    rankUpAria: "Move up in the ranking",
+    rankDownAria: "Move down in the ranking",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

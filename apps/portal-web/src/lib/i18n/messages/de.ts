@@ -4896,6 +4896,8 @@ export const de: Partial<CatalogShape> = {
     available: "Verfügbar",
     rankingEmpty: "Noch keine Einträge in der Rangfolge. Tippen Sie unten auf einen Eintrag.",
     removeFromRankingAria: "Aus der Rangfolge entfernen",
+    rankUpAria: "In der Rangfolge nach oben",
+    rankDownAria: "In der Rangfolge nach unten",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

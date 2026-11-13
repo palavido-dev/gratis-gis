@@ -4888,6 +4888,8 @@ export const fr: Partial<CatalogShape> = {
     available: "Disponibles",
     rankingEmpty: "Aucun élément classé. Touchez un élément ci-dessous pour l'ajouter.",
     removeFromRankingAria: "Retirer du classement",
+    rankUpAria: "Monter dans le classement",
+    rankDownAria: "Descendre dans le classement",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

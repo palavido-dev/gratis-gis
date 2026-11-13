@@ -4878,6 +4878,8 @@ export const ptBR: Partial<CatalogShape> = {
     available: "Disponíveis",
     rankingEmpty: "Nenhum item classificado ainda. Toque em um item abaixo para adicionar.",
     removeFromRankingAria: "Remover da classificação",
+    rankUpAria: "Subir na classificação",
+    rankDownAria: "Descer na classificação",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Globe2, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
@@ -84,6 +84,12 @@ export function PublicCascadeDialog({
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // The parent passes a new onClose on every render. As an effect
+  // dependency it re-ran the fetch on any parent re-render while the
+  // dialog was open, reloading the list and re-checking items the
+  // author had unchecked. Read it through a ref instead.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Pull the transitive dependency list once when the dialog mounts.
   // The parent owns the open/closed gate; once it sets open=true we
@@ -117,7 +123,7 @@ export function PublicCascadeDialog({
         setDeps(private_or_org);
         setSelected(new Set(private_or_org.map((r) => r.id)));
         // Empty list -> close the modal silently. Nothing to do.
-        if (private_or_org.length === 0) onClose();
+        if (private_or_org.length === 0) onCloseRef.current();
       } catch (err) {
         if (abort) return;
         setError(
@@ -130,7 +136,7 @@ export function PublicCascadeDialog({
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose, t]);
+  }, [open, parentId, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {

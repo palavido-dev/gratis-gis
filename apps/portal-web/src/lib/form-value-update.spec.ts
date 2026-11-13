@@ -2,6 +2,7 @@
 import {
   addRepeatInstance,
   applyValueUpdate,
+  moveRankedItem,
   removeRepeatInstance,
   updateGroupAnswer,
   updateRepeatInstance,
@@ -46,6 +47,15 @@ describe('late writes inside a repeat group', () => {
     expect(trees.get()).toEqual([{ a: 1, b: 'x' }, {}]);
   });
 
+  it('drops a write for an instance that no longer exists', () => {
+    const trees = store<unknown>([{ a: 1 }, { a: 2 }]);
+    // Instance 1 had an upload in flight; instance 0 is removed, so
+    // the old index 1 is past the end of the array.
+    trees.set((p: unknown) => removeRepeatInstance(p, 0));
+    trees.set((p: unknown) => updateRepeatInstance(p, 1, 'photo', 'u1'));
+    expect(trees.get()).toEqual([{ a: 2 }]);
+  });
+
   it('keeps both photos when two uploads finish back to back', () => {
     const answer = store<unknown>([]);
     const append = (photo: unknown) => (prev: unknown) => [
@@ -62,5 +72,17 @@ describe('late writes inside a repeat group', () => {
     expect(updateGroupAnswer(undefined, 'y', (p: unknown) => (p ?? 0) as number)).toEqual({
       y: 0,
     });
+  });
+});
+
+describe('moveRankedItem', () => {
+  it('moves down by one, to the end, and up', () => {
+    expect(moveRankedItem(['A', 'B', 'C'], 0, 1)).toEqual(['B', 'A', 'C']);
+    expect(moveRankedItem(['A', 'B', 'C'], 0, 2)).toEqual(['B', 'C', 'A']);
+    expect(moveRankedItem(['A', 'B', 'C'], 2, 0)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('ignores a move out of range', () => {
+    expect(moveRankedItem(['A', 'B'], 1, 2)).toEqual(['A', 'B']);
   });
 });

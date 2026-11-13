@@ -100,6 +100,11 @@ interface OfflineIdentityRow {
    *  stamps into `submitted_by`). */
   userId: string;
   updatedAt: string;
+  /** Set when the identity changed from another account and that
+   *  account's cached reads have not been purged yet. Written in the
+   *  same put as the new identity and cleared only after the purge, so
+   *  a purge that fails is run again on the next load. */
+  purgePending?: boolean;
 }
 
 /** Cached feature row stored in the `features` object store. */
@@ -745,11 +750,32 @@ export async function getOfflineIdentity(): Promise<string | null> {
   });
 }
 
-export async function setOfflineIdentity(userId: string): Promise<void> {
+/** The device identity and whether a purge of the previous account's
+ *  cached reads is still owed. */
+export async function getOfflineIdentityState(): Promise<{
+  userId: string | null;
+  purgePending: boolean;
+}> {
+  return withStore(STORES.meta, 'readonly', async (s) => {
+    const r = (await reqAsPromise(s.get(OFFLINE_IDENTITY_KEY))) as
+      | OfflineIdentityRow
+      | undefined;
+    return {
+      userId: typeof r?.userId === 'string' && r.userId ? r.userId : null,
+      purgePending: r?.purgePending === true,
+    };
+  });
+}
+
+export async function setOfflineIdentity(
+  userId: string,
+  opts: { purgePending?: boolean } = {},
+): Promise<void> {
   const row: OfflineIdentityRow = {
     key: OFFLINE_IDENTITY_KEY,
     userId,
     updatedAt: new Date().toISOString(),
+    ...(opts.purgePending ? { purgePending: true } : {}),
   };
   await withStore(STORES.meta, 'readwrite', (s) => {
     s.put(row);

@@ -132,7 +132,16 @@ export function SignatureInput({ value, readOnly, onChange, labels }: Props) {
     }
   }
 
-  useEffect(() => cancelUpload, []);
+  // On unmount, also drop an upload already running: its result
+  // belongs to a response that has been submitted or discarded, and
+  // writing it later put the last signer's image into the next form.
+  useEffect(
+    () => () => {
+      cancelUpload();
+      version.current += 1;
+    },
+    [],
+  );
 
   /** Upload the pad's image once the pen has rested; online only. */
   function scheduleUpload(dataUrl: string) {

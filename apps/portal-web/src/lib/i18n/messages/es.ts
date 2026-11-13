@@ -4879,6 +4879,8 @@ export const es: Partial<CatalogShape> = {
     available: "Disponibles",
     rankingEmpty: "Aún no hay elementos clasificados. Toca un elemento abajo para añadirlo.",
     removeFromRankingAria: "Quitar de la clasificación",
+    rankUpAria: "Subir en la clasificación",
+    rankDownAria: "Bajar en la clasificación",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",
