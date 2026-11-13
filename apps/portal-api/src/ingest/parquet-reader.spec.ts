@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
@@ -8,6 +10,7 @@ import {
   parquetLayerName,
   probeParquetFromPath,
   streamParquetFromPath,
+  withSpatialConnection,
 } from './parquet-reader.js';
 
 /**
@@ -137,6 +140,53 @@ describe('streamParquetFromPath', () => {
     await expect(
       streamParquetFromPath(FIXTURE, 'nope', async () => {}),
     ).rejects.toThrow('File has no layer named "nope".');
+  });
+
+  it('table mode reads a Parquet file that has no geometry column', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pq-table-'));
+    const path = join(dir, 'plain.parquet');
+    try {
+      await withSpatialConnection(async (connection) => {
+        await connection.run(
+          `COPY (SELECT * FROM (VALUES ('a', 2), ('b', 5)) t(kind, n)) TO '${path}' (FORMAT PARQUET)`,
+        );
+      });
+      // A spatial target still refuses it, as before.
+      await expect(
+        streamParquetFromPath(path, undefined, async () => {}),
+      ).rejects.toThrow(ParquetUserError);
+      const rows: Array<{ geometry: unknown; properties: Record<string, unknown> }> = [];
+      const meta = await streamParquetFromPath(
+        path,
+        undefined,
+        async (batch) => {
+          rows.push(...batch);
+        },
+        { isTable: true },
+      );
+      expect(meta.total).toBe(2);
+      expect(meta.fields.map((f) => f.name)).toEqual(['kind', 'n']);
+      expect(rows).toEqual([
+        { geometry: null, properties: { kind: 'a', n: 2 } },
+        { geometry: null, properties: { kind: 'b', n: 5 } },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('table mode drops the geometry of a GeoParquet file', async () => {
+    const rows: Array<{ geometry: unknown; properties: Record<string, unknown> }> = [];
+    await streamParquetFromPath(
+      FIXTURE,
+      undefined,
+      async (batch) => {
+        rows.push(...batch);
+      },
+      { isTable: true },
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.geometry === null)).toBe(true);
   });
 
   it('accepts the stem itself as sourceLayer', async () => {

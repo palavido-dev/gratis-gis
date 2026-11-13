@@ -78,6 +78,8 @@ export function AddTargetDialog({
   const [selected, setSelected] = useState<Item | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The data layer list request failed (as opposed to matching nothing).
+  const [listError, setListError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const reset = useCallback(() => {
@@ -107,11 +109,15 @@ export function AddTargetDialog({
           signal: controller.signal,
         });
         if (!res.ok) {
-          if (!cancelled) setItems([]);
+          if (!cancelled) {
+            setItems([]);
+            setListError(`Couldn't load data layers: ${res.status}`);
+          }
           return;
         }
         const list = (await res.json()) as Item[];
         if (cancelled) return;
+        setListError(null);
         list.sort((a, b) => {
           const at = new Date(a.updatedAt ?? 0).getTime();
           const bt = new Date(b.updatedAt ?? 0).getTime();
@@ -120,8 +126,7 @@ export function AddTargetDialog({
         setItems(list);
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
-        // eslint-disable-next-line no-console
-        console.warn('[editor:add-target] fetch failed', err);
+        if (!cancelled) setListError("Couldn't load data layers.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -139,13 +144,17 @@ export function AddTargetDialog({
     setSelectedLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/items/${item.id}`);
+      const res = await fetch(`/api/portal/items/${encodeURIComponent(item.id)}`);
       if (!res.ok) {
         setError(`Couldn't load layers: ${res.status}`);
         return;
       }
       const full = (await res.json()) as Item;
       setSelected(full);
+    } catch (err) {
+      setError(
+        `Couldn't load layers: ${err instanceof Error ? err.message : 'network error'}`,
+      );
     } finally {
       setSelectedLoading(false);
     }
@@ -214,6 +223,21 @@ export function AddTargetDialog({
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
+              {/* While a picked item loads, and when it fails, the list
+                  stays up; these lines are what says so. They used to
+                  live only in the picked-item view, which never showed
+                  before the item had loaded. */}
+              {selectedLoading ? (
+                <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading layers...
+                </div>
+              ) : null}
+              {error ? (
+                <p className="border-b border-border px-4 py-2 text-sm text-danger" role="alert">
+                  {error}
+                </p>
+              ) : null}
               {loading && items.length === 0 ? (
                 <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -221,7 +245,7 @@ export function AddTargetDialog({
                 </div>
               ) : items.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted">
-                  No data layers match &quot;{q}&quot;.
+                  {listError ?? <>No data layers match &quot;{q}&quot;.</>}
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
@@ -278,7 +302,10 @@ export function AddTargetDialog({
                 {v3Layers.map((layer) => {
                   const key = `${selected.id}:${layer.id}`;
                   const already = existingTargets.has(key);
-                  const editable = layer.editingEnabled;
+                  // Same test as the runtime and "Add from map": only an
+                  // explicit false turns editing off. A sublayer saved
+                  // without the flag was blocked here and allowed there.
+                  const editable = layer.editingEnabled !== false;
                   // Viewer (#259) passes allowNonEditable=true: the
                   // app reads, never writes, so the layer's
                   // editing toggle is irrelevant.

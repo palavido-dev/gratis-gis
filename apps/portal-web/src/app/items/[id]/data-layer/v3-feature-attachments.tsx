@@ -235,8 +235,11 @@ export function V3FeatureAttachments({
                 key={a.id}
                 className="group relative overflow-hidden rounded border border-border bg-surface-1"
               >
+                {/* The id-keyed download route, not the stored
+                    storageUrl: older rows carry whatever URL the
+                    uploading client sent. */}
                 <a
-                  href={a.storageUrl}
+                  href={`${basePath}/${encodeURIComponent(a.id)}/download`}
                   target="_blank"
                   rel="noreferrer"
                   className="block"
@@ -245,7 +248,7 @@ export function V3FeatureAttachments({
                   {isImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={a.storageUrl}
+                      src={`${basePath}/${encodeURIComponent(a.id)}/download`}
                       alt={a.fileName}
                       className="h-20 w-full object-cover"
                     />

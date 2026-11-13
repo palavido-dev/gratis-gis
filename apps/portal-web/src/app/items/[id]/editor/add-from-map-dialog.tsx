@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Loader2 } from 'lucide-react';
 import type {
   DataLayerData,
@@ -17,6 +17,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { PickMapDialog } from './pick-map-dialog';
+
+/** `/api/portal/items/<id>/layers/<key>/geojson`, with nothing after. */
+const SUBLAYER_GEOJSON_URL =
+  /^\/api\/portal\/items\/([0-9a-fA-F-]{36})\/layers\/([^/?#]+)\/geojson$/;
 
 interface Props {
   open: boolean;
@@ -109,6 +113,12 @@ export function AddFromMapDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Data layers the map references that could not be read.
+  const [skipped, setSkipped] = useState(0);
+  // Set between a pick in PickMapDialog and its onClose, which the
+  // picker calls right after onPick. `map` is still null then, so
+  // the close used to read as a cancel and shut the whole dialog.
+  const pickInFlightRef = useRef(false);
 
   // When the dialog opens, decide step 1 vs step 2:
   //   - If defaultMapId is set, fetch that map and skip the picker.
@@ -119,6 +129,7 @@ export function AddFromMapDialog({
     setMap(null);
     setCandidates(null);
     setPicked(new Set());
+    setSkipped(0);
     if (defaultMapId) {
       void loadMap(defaultMapId);
     } else {
@@ -131,7 +142,7 @@ export function AddFromMapDialog({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/items/${mapId}`);
+      const res = await fetch(`/api/portal/items/${encodeURIComponent(mapId)}`);
       if (!res.ok) {
         setError(`Couldn't load map: ${res.status}`);
         return;
@@ -139,6 +150,10 @@ export function AddFromMapDialog({
       const item = (await res.json()) as Item;
       setMap(item);
       await buildCandidates(item);
+    } catch (err) {
+      setError(
+        `Couldn't load map: ${err instanceof Error ? err.message : 'network error'}`,
+      );
     } finally {
       setLoading(false);
     }
@@ -154,34 +169,55 @@ export function AddFromMapDialog({
       setCandidates([]);
       return;
     }
-    const refIds = Array.from(
-      new Set(
-        (data.layers ?? [])
-          .filter((l) => l.source.kind === 'data-layer')
-          .map((l) =>
-            l.source.kind === 'data-layer' ? l.source.itemId : '',
-          )
-          .filter((id): id is string => Boolean(id)),
-      ),
-    );
+    // Which sublayers the map draws, per data layer item. A
+    // `data-layer` source with a layerKey draws that one sublayer, as
+    // does a per-sublayer geojson URL (the shape buildEditorMapData
+    // also recognises); one without a layerKey is a whole v1/v2 item.
+    const drawn = new Map<string, Set<string> | 'all'>();
+    const note = (itemId: string, layerKey: string | null) => {
+      const cur = drawn.get(itemId);
+      if (layerKey === null || cur === 'all') {
+        drawn.set(itemId, 'all');
+        return;
+      }
+      const set = cur ?? new Set<string>();
+      set.add(layerKey);
+      drawn.set(itemId, set);
+    };
+    for (const l of data.layers ?? []) {
+      const src = l.source;
+      if (src.kind === 'data-layer' && src.itemId) {
+        note(src.itemId, src.layerKey ?? null);
+      } else if (src.kind === 'geojson-url') {
+        const m = SUBLAYER_GEOJSON_URL.exec(src.url);
+        if (m) note(m[1]!, m[2]!);
+      }
+    }
+    const refIds = Array.from(drawn.keys());
     if (refIds.length === 0) {
       setCandidates([]);
       return;
     }
     const fetched = await Promise.all(
       refIds.map((id) =>
-        fetch(`/api/portal/items/${id}`)
+        fetch(`/api/portal/items/${encodeURIComponent(id)}`)
           .then((r) => (r.ok ? (r.json() as Promise<Item>) : null))
           .catch(() => null),
       ),
     );
     const out: Candidate[] = [];
+    let failed = 0;
     for (let i = 0; i < refIds.length; i += 1) {
       const dl = fetched[i];
-      if (!dl) continue;
+      if (!dl) {
+        failed += 1;
+        continue;
+      }
       const dlData = dl.data as DataLayerData | undefined;
       if (!dlData || dlData.version !== 3) continue;
+      const only = drawn.get(refIds[i]!);
       for (const sub of dlData.layers) {
+        if (only instanceof Set && !only.has(sub.id)) continue;
         const key = `${dl.id}:${sub.id}`;
         out.push({
           key,
@@ -198,6 +234,7 @@ export function AddFromMapDialog({
         });
       }
     }
+    setSkipped(failed);
     setCandidates(out);
     // Default-check everything that's both editable and not already
     // a target. Users can untick anything they don't want.
@@ -270,11 +307,16 @@ export function AddFromMapDialog({
         open
         onClose={() => {
           setPickerOpen(false);
+          if (pickInFlightRef.current) {
+            pickInFlightRef.current = false;
+            return;
+          }
           // If we never got a map and the user cancelled, exit
           // entirely instead of stranding them on an empty step 2.
           if (!map) handleClose();
         }}
         onPick={(pickedMap) => {
+          pickInFlightRef.current = true;
           setPickerOpen(false);
           void loadMap(pickedMap.id);
         }}
@@ -307,7 +349,9 @@ export function AddFromMapDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          {loading || candidates === null ? (
+          {/* A failed load shows only its error (below), not the
+              spinner it used to leave running above it. */}
+          {error && !loading ? null : loading || candidates === null ? (
             <div className="flex items-center justify-center px-4 py-8 text-sm text-muted">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Walking map layers...
@@ -404,6 +448,13 @@ export function AddFromMapDialog({
           {error ? (
             <p className="px-4 py-2 text-sm text-danger" role="alert">
               {error}
+            </p>
+          ) : null}
+          {skipped > 0 && !loading ? (
+            <p className="px-4 py-2 text-xs text-warn" role="status">
+              {skipped === 1
+                ? '1 data layer on this map could not be loaded and is not listed.'
+                : `${skipped} data layers on this map could not be loaded and are not listed.`}
             </p>
           ) : null}
         </div>

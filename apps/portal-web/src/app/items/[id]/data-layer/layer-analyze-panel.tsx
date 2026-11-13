@@ -51,10 +51,20 @@ import {
   getDuckDb,
   isSpatialAvailable,
   registerParquetView,
+  releaseParquetFile,
   runQuery,
   RESULT_ROW_CAP,
   type QueryResultTable,
 } from '@/lib/duckdb-wasm';
+import {
+  quoteSqlIdent,
+  sanitizeFieldName,
+  uniqueFieldNames,
+} from '@/lib/analyze-save-columns';
+import {
+  importStreamErrorText,
+  readImportStreamResult,
+} from '@/lib/import-stream-result';
 import {
   analyzeToolDeepLink,
   type AnalyzeToolId,
@@ -138,29 +148,51 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
     try {
       // Trailing semicolons would terminate the COPY's inner SELECT.
       const inner = sql.trim().replace(/;+\s*$/, '');
-      await conn.query(
-        `COPY (${inner}) TO '${outFile}' (FORMAT PARQUET)`,
-      );
       const described = await runQuery(
         conn,
-        `DESCRIBE SELECT * FROM read_parquet('${outFile}')`,
+        `DESCRIBE SELECT * FROM (${inner}) AS q`,
       );
-      const fields: FeatureField[] = [];
-      let hasGeometry = false;
+      const attrCols: Array<{ name: string; type: string }> = [];
+      let geometryCol: string | null = null;
       for (const row of described.rows) {
         const colName = String(row[0] ?? '');
         const colType = String(row[1] ?? '');
-        if (isGeometryColumn(colName, colType)) {
-          hasGeometry = true;
+        if (geometryCol === null && isGeometryColumn(colName, colType)) {
+          geometryCol = colName;
           continue;
         }
-        fields.push({
-          name: sanitizeFieldName(colName),
-          label: colName,
-          type: duckdbTypeToFieldType(colType),
-          nullable: true,
-        });
+        // A second geometry column has no place in the one-geometry
+        // layer model; leave it out rather than store a blob.
+        if (isGeometryColumn(colName, colType)) continue;
+        attrCols.push({ name: colName, type: colType });
       }
+      const hasGeometry = geometryCol !== null;
+      // The import keeps only properties whose key is a schema field
+      // name, so the file is written with the sanitized names the
+      // schema declares. Without this, `count(*)` or "Total" became
+      // an empty column.
+      const fieldNames = uniqueFieldNames(
+        attrCols.map((c) => c.name),
+        geometryCol !== null ? [geometryCol] : [],
+      );
+      const fields: FeatureField[] = attrCols.map((c, i) => ({
+        name: fieldNames[i]!,
+        label: c.name,
+        type: duckdbTypeToFieldType(c.type),
+        nullable: true,
+      }));
+      const selectList = [
+        ...attrCols.map(
+          (c, i) => `${quoteSqlIdent(c.name)} AS ${quoteSqlIdent(fieldNames[i]!)}`,
+        ),
+        ...(geometryCol !== null ? [quoteSqlIdent(geometryCol)] : []),
+      ];
+      if (selectList.length === 0) {
+        throw new Error('The result has no columns to save.');
+      }
+      await conn.query(
+        `COPY (SELECT ${selectList.join(', ')} FROM (${inner}) AS q) TO '${outFile}' (FORMAT PARQUET)`,
+      );
       const db = await getDuckDb();
       const bytes = await db.copyFileToBuffer(outFile);
 
@@ -207,11 +239,25 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
         `/api/portal/items/${created.id}/layers/layer-1/import?mode=replace`,
         { method: 'POST', body: form },
       );
+      // The import answers NDJSON and reports a failure after the
+      // first line only as an `error` event under status 200, so the
+      // status alone cannot say the rows loaded.
+      const importText = await importRes.text().catch(() => '');
+      let importError: string | null = null;
       if (!importRes.ok) {
+        importError = importStreamErrorText(importRes.status, importText);
+      } else {
+        try {
+          readImportStreamResult(importText);
+        } catch (err) {
+          importError = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (importError !== null) {
         // The empty item exists at this point; say so instead of
         // silently deleting work the user may want to retry into.
         throw new Error(
-          `The layer was created but loading the rows failed (${importRes.status}). Open the new item to retry the import.`,
+          `The layer was created but loading the rows failed: ${importError} Open the new item to retry the import.`,
         );
       }
       toast.success(`Layer "${title}" created`);
@@ -246,6 +292,9 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
   useEffect(() => {
     let cancelled = false;
     let conn: AsyncDuckDBConnection | null = null;
+    // A name per open, so a reopened panel downloads the current rows
+    // and this open's copy can be dropped when it closes.
+    const fileName = `layer-${itemId}-${layer.id}-${Date.now()}.parquet`;
     (async () => {
       try {
         setPhase({
@@ -253,7 +302,7 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
           step: t('analyzeWorkbench.bootStartingEngine'),
         });
         conn = await registerParquetView({
-          fileName: `layer-${itemId}-${layer.id}.parquet`,
+          fileName,
           viewName,
           bytes: async () => {
             if (!cancelled) {
@@ -275,7 +324,13 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
             return new Uint8Array(await res.arrayBuffer());
           },
         });
-        if (cancelled) return;
+        if (cancelled) {
+          // The cleanup already ran while this was downloading, with
+          // no connection to close. Close the one opened since.
+          void conn.close().catch(() => undefined);
+          void releaseParquetFile(fileName);
+          return;
+        }
         connRef.current = conn;
         setPhase({ kind: 'ready' });
         // Kick off the preview so the panel opens showing data, not
@@ -295,6 +350,7 @@ export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) 
       connRef.current = null;
       // Close asynchronously; nothing depends on the teardown.
       void conn?.close().catch(() => undefined);
+      if (conn) void releaseParquetFile(fileName);
     };
     // execute is stable (useCallback with no deps).
   }, [itemId, layer.id, viewName, execute, t]);
@@ -779,16 +835,4 @@ function duckdbTypeToFieldType(t: string): FeatureField['type'] {
     return 'date';
   }
   return 'string';
-}
-
-/** Field names must satisfy the schema validator ([a-z0-9_], not
- *  starting with a digit). Derived from whatever the user aliased
- *  their result columns to, so normalize hard and keep it stable. */
-function sanitizeFieldName(name: string): string {
-  const cleaned = name
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|(?<!_)_+$/g, '')
-    .replace(/^(\d)/, 'f_$1');
-  return cleaned.length > 0 ? cleaned : 'field';
 }

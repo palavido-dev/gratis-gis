@@ -20,7 +20,9 @@ import {
   exportLayerGeoParquet,
   EXPORT_FORMAT_LABEL_KEY,
   type ClientExportFormat,
+  type ExportFeature,
 } from '@/lib/layer-export';
+import { fetchLayerFeaturesForExport } from '@/lib/layer-export-fetch';
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
@@ -41,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { formatBytes } from '@/lib/format-bytes';
+import { changedProperties } from '@/lib/changed-properties';
 
 /**
  * Inline feature browser + editor for a single v3 layer.
@@ -173,6 +176,17 @@ export function V3FeatureBrowser({
 
   async function saveEdit() {
     if (!editingId) return;
+    // Only the keys the user changed. The server merges the body over
+    // the live row, so a whole-row body put back any value another
+    // editor had changed since this table loaded.
+    const original =
+      features.find((f) => f.id === editingId)?.properties ?? {};
+    const changed = changedProperties(original, draft);
+    if (Object.keys(changed).length === 0) {
+      setEditingId(null);
+      setDraft({});
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -181,7 +195,7 @@ export function V3FeatureBrowser({
         {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ properties: draft }),
+          body: JSON.stringify({ properties: changed }),
         },
       );
       if (!res.ok) {
@@ -337,7 +351,7 @@ export function V3FeatureBrowser({
           <span>
             Showing the first {fmt.number(PAGE_LIMIT)} rows. This layer
             has more than that; open it in the map editor for the full feature
-            set or use the Export button for the complete table.
+            set or use the Export button for the complete layer.
           </span>
         </div>
       ) : null}
@@ -531,19 +545,13 @@ export function V3FeatureBrowser({
 // ---------------------------------------------------------------------------
 
 /**
- * #107: Export-this-layer dropdown.  CSV + XLSX are built client-
- * side from the already-loaded feature set.  Geometry rides along
- * as a `geometry_wkt` column on XLSX so the user can round-trip
- * into desktop GIS without losing shape; CSV stays text-only by
- * convention.
- *
- * Why "what's loaded" instead of always re-fetching: the feature
- * browser loads the whole layer on open (capped at whatever the
- * features endpoint returns), so the table view IS the canonical
- * dataset for this layer.  Exporting that exact set means "what
- * you see is what you get" -- if the cap matters the table also
- * shows it.  Bundle export (related tables + attachments) is the
- * follow-up that needs a server-side ZIP endpoint.
+ * #107: Export-this-layer dropdown.  CSV, XLSX and GeoJSON are built
+ * client-side from a full paged read of the layer with geometry
+ * (lib/layer-export-fetch.ts), not from the table's rows: those come
+ * from `features-page`, which carries no geometry and stops at the
+ * table's row limit.  Geometry rides along as a `geometry_wkt`
+ * column on XLSX so the user can round-trip into desktop GIS
+ * without losing shape; CSV stays text-only by convention.
  *
  * GeoParquet (#174) is the exception to the client-side rule: the
  * server walks the FULL layer (no table cap) and writes a typed
@@ -581,6 +589,8 @@ function ExportMenu({
   // Server round-trip in flight for the GeoParquet entry; used to
   // debounce re-clicks while the layer is being written.
   const [parquetRunning, setParquetRunning] = useState(false);
+  // Full layer read for a CSV, Excel or GeoJSON export in flight.
+  const [clientRunning, setClientRunning] = useState(false);
 
   // Related tables = sibling layers whose parentLayerId points at
   // THIS layer.  Used to gate the "Include related" toggle so the
@@ -614,7 +624,7 @@ function ExportMenu({
     }
   }
 
-  function run(format: ClientExportFormat): void {
+  async function run(format: ClientExportFormat): Promise<void> {
     setOpen(false);
     // Silent no-op on an empty layer was indistinguishable from a
     // silent success, which is the same complaint as below.
@@ -622,13 +632,25 @@ function ExportMenu({
       toast.error(t('layerExport.nothingLoaded'));
       return;
     }
+    if (clientRunning) return;
     const filename = sanitizeFilename(layer.label || layer.name || 'layer');
-    exportFeatures(
-      features.map((f) => ({
-        id: f.id,
-        geometry: f.geometry,
-        properties: f.properties ?? null,
-      })),
+    // The table's rows have no geometry and stop at its row limit,
+    // so the file is built from a full read of the layer instead.
+    setClientRunning(true);
+    let rows: ExportFeature[];
+    try {
+      rows = await fetchLayerFeaturesForExport(itemId, layer.id);
+    } catch (err) {
+      setClientRunning(false);
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t('layerExport.failed', { format: t(EXPORT_FORMAT_LABEL_KEY[format]) }),
+      );
+      return;
+    }
+    await exportFeatures(
+      rows,
       format,
       {
         filename,
@@ -651,7 +673,7 @@ function ExportMenu({
         // again because they could not tell which they had.
         toast.success(
           t('layerExport.exported', {
-            count: features.length,
+            count: rows.length,
             format: t(EXPORT_FORMAT_LABEL_KEY[format]),
           }),
         );
@@ -662,7 +684,8 @@ function ExportMenu({
             ? err.message
             : t('layerExport.failed', { format: t(EXPORT_FORMAT_LABEL_KEY[format]) }),
         );
-      });
+      })
+      .finally(() => setClientRunning(false));
   }
 
   async function runBundle(): Promise<void> {
@@ -741,15 +764,17 @@ function ExportMenu({
           <div className="absolute right-0 top-8 z-40 w-56 rounded-md border border-border bg-surface-0 py-1 text-xs shadow-lg">
             <button
               type="button"
-              onClick={() => run('xlsx')}
-              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
+              onClick={() => void run('xlsx')}
+              disabled={clientRunning}
+              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:opacity-50"
             >
               {t('featureBrowser.exportExcel')}
             </button>
             <button
               type="button"
-              onClick={() => run('csv')}
-              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
+              onClick={() => void run('csv')}
+              disabled={clientRunning}
+              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:opacity-50"
             >
               {t('featureBrowser.exportCsv')}
             </button>
@@ -761,8 +786,9 @@ function ExportMenu({
                 my geometry back". */}
             <button
               type="button"
-              onClick={() => run('geojson')}
-              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
+              onClick={() => void run('geojson')}
+              disabled={clientRunning}
+              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:opacity-50"
             >
               {t('featureBrowser.exportGeoJson')}
             </button>
@@ -865,15 +891,11 @@ function BundleExportModal({
   // Pickable string-ish fields on the parent layer.  Used for the
   // attachment-prefix and attachment-split dropdowns.  Numeric
   // fields are allowed too since IDs are often numeric.
-  const pickableFields = (layer.fields ?? []).filter((f) => {
-    const fieldType = (f as { type?: string }).type ?? 'text';
-    return (
-      fieldType === 'text' ||
-      fieldType === 'integer' ||
-      fieldType === 'double' ||
-      fieldType === 'bigint'
-    );
-  });
+  // The type names are FeatureFieldType's; a filter on SQL names
+  // (text, integer) matched nothing and left both pickers empty.
+  const pickableFields = (layer.fields ?? []).filter(
+    (f) => f.type === 'string' || f.type === 'number',
+  );
   return (
     <Dialog
       open
