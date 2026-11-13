@@ -23,7 +23,18 @@ export interface SourceZoom {
 
 export const DEFAULT_SOURCE_ZOOM: SourceZoom = { minzoom: 0, maxzoom: 22 };
 
-const cache = new Map<string, SourceZoom>();
+/**
+ * A read range is kept for a minute, then read again the next time a
+ * map asks: an owner who changes a layer's tile zooms and opens a map
+ * by client-side navigation should not keep the old range until a hard
+ * reload. A failed read is not cached as the default; it is retried
+ * after a short pause, so one 429 or 502 at map load does not hide the
+ * layer past its built zoom for the life of the page.
+ */
+const FRESH_MS = 60_000;
+const RETRY_FAILED_MS = 15_000;
+const cache = new Map<string, { zoom: SourceZoom; at: number }>();
+const failedAt = new Map<string, number>();
 const inFlight = new Set<string>();
 
 function keyOf(itemId: string, layerKey: string): string {
@@ -48,7 +59,7 @@ export function dataLayerSourceZoom(source: {
   layerKey?: string;
 }): SourceZoom {
   if (!source.layerKey) return DEFAULT_SOURCE_ZOOM;
-  return cache.get(keyOf(source.itemId, source.layerKey)) ?? DEFAULT_SOURCE_ZOOM;
+  return cache.get(keyOf(source.itemId, source.layerKey))?.zoom ?? DEFAULT_SOURCE_ZOOM;
 }
 
 /**
@@ -66,20 +77,30 @@ export function ensureSourceZooms(
   for (const s of sources) {
     if (!s.layerKey) continue;
     const key = keyOf(s.itemId, s.layerKey);
-    if (cache.has(key) || inFlight.has(key)) continue;
+    const now = Date.now();
+    const known = cache.get(key);
+    if (inFlight.has(key)) continue;
+    if (known && now - known.at < FRESH_MS) continue;
+    const failed = failedAt.get(key);
+    if (failed !== undefined && now - failed < RETRY_FAILED_MS) continue;
     inFlight.add(key);
     void fetchImpl(
       `/api/portal/items/${encodeURIComponent(s.itemId)}/layers/${encodeURIComponent(s.layerKey)}/tilejson.json`,
     )
-      .then(async (res) => (res.ok ? tileJsonSourceZoom(await res.json()) : DEFAULT_SOURCE_ZOOM))
-      .catch(() => DEFAULT_SOURCE_ZOOM)
+      .then(async (res) => (res.ok ? tileJsonSourceZoom(await res.json()) : null))
+      .catch(() => null)
       .then((zoom) => {
         inFlight.delete(key);
-        cache.set(key, zoom);
-        if (
-          zoom.minzoom !== DEFAULT_SOURCE_ZOOM.minzoom ||
-          zoom.maxzoom !== DEFAULT_SOURCE_ZOOM.maxzoom
-        ) {
+        if (zoom === null) {
+          // Keep whatever range was known (or the default) and try
+          // again later rather than remembering the failure.
+          failedAt.set(key, Date.now());
+          return;
+        }
+        failedAt.delete(key);
+        const before = cache.get(key)?.zoom ?? DEFAULT_SOURCE_ZOOM;
+        cache.set(key, { zoom, at: Date.now() });
+        if (zoom.minzoom !== before.minzoom || zoom.maxzoom !== before.maxzoom) {
           onChange();
         }
       });
@@ -89,6 +110,7 @@ export function ensureSourceZooms(
 /** Test hook: forget every cached range. */
 export function resetSourceZoomCache(): void {
   cache.clear();
+  failedAt.clear();
   inFlight.clear();
 }
 

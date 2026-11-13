@@ -39,7 +39,7 @@ function u32(n: number): Buffer {
 }
 
 export interface ZipEntry {
-  /** Forward-slash path. No leading slash, no `..`. */
+  /** Forward-slash path. No leading slash, no `.` or `..` segment. */
   name: string;
   data: Uint8Array;
 }
@@ -49,7 +49,12 @@ export function zipStore(entries: readonly ZipEntry[]): Uint8Array {
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const entry of entries) {
-    if (entry.name.startsWith('/') || entry.name.includes('..')) {
+    // Refuse only a path that could climb out of the folder it is
+    // unpacked into: a leading slash, or a segment that is exactly `.`
+    // or `..`. A file name like `site..north.jpg` is fine, and refusing
+    // it failed the whole recovery export.
+    const segments = entry.name.split('/');
+    if (entry.name.startsWith('/') || segments.some((p) => p === '..' || p === '.')) {
       throw new Error(`Refusing zip path ${entry.name}`);
     }
     const name = Buffer.from(entry.name, 'utf8');

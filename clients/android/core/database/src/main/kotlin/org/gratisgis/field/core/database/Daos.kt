@@ -44,11 +44,13 @@ interface FeatureDao {
       "AND layerKey = :layerKey AND cachedAt != :keepCachedAt",
   )
   suspend fun deleteStaleForLayer(collectionId: String, dataLayerId: String, layerKey: String, keepCachedAt: String)
+  /** One statement; callers go through [deleteByGlobalIds], which keeps
+   *  the id list under SQLite's bind variable limit. */
   @Query(
     "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
       "AND layerKey = :layerKey AND globalId IN (:globalIds)",
   )
-  suspend fun deleteByGlobalIds(
+  suspend fun deleteByGlobalIdsChunk(
     collectionId: String,
     dataLayerId: String,
     layerKey: String,
@@ -69,6 +71,26 @@ interface FeatureDao {
     expected: String,
     next: String,
   ): Int
+}
+
+/** Ids per DELETE. Room binds one variable per id, and the platform
+ *  SQLite on Android 9 to 11 (minSdk is 28) allows at most 999. */
+const val DELETE_IDS_PER_STATEMENT = 500
+
+/**
+ * Delete features by global id in chunks. A delta page can carry up to
+ * 10,000 deletes; as one statement that threw on older devices and
+ * sent the downloader to a full re-pull every time.
+ */
+suspend fun FeatureDao.deleteByGlobalIds(
+  collectionId: String,
+  dataLayerId: String,
+  layerKey: String,
+  globalIds: List<String>,
+) {
+  for (chunk in globalIds.chunked(DELETE_IDS_PER_STATEMENT)) {
+    deleteByGlobalIdsChunk(collectionId, dataLayerId, layerKey, chunk)
+  }
 }
 
 @Dao
@@ -138,5 +160,28 @@ interface QueueDao {
   suspend fun replaceChain(collectionId: String, removeIds: List<String>, keep: QueueEntity?) {
     for (id in removeIds) delete(collectionId, id)
     if (keep != null) upsert(keep)
+  }
+
+  /**
+   * [replaceChain], but only when every row of the chain is still
+   * exactly as the caller read it (status and last attempt). A fold is
+   * read, worked out and then written; if a drain claimed one of those
+   * rows in between, writing the fold would reset a row that is being
+   * sent, and the drain's delete on success would then drop the newer
+   * edit. Returns false, changing nothing, when any row moved on.
+   */
+  @Transaction
+  suspend fun replaceChainIfUnchanged(
+    collectionId: String,
+    readRows: List<QueueEntity>,
+    removeIds: List<String>,
+    keep: QueueEntity?,
+  ): Boolean {
+    for (read in readRows) {
+      val now = get(collectionId, read.id) ?: return false
+      if (now.syncStatus != read.syncStatus || now.lastAttemptAt != read.lastAttemptAt) return false
+    }
+    replaceChain(collectionId, removeIds, keep)
+    return true
   }
 }

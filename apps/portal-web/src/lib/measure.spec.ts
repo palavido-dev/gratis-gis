@@ -150,6 +150,30 @@ describe('terrainSurfaceAreaSquareMeters', () => {
     expect(surface! / planar).toBeLessThan(expectedRatio * 1.05);
   });
 
+  it('is never below the flat area on level ground, whatever the outline (53-7)', () => {
+    // A right triangle: the grid's edge cells used to leave it about 3%
+    // short of its own flat area.
+    const ring: Array<[number, number]> = [
+      [-80.07, 38.75],
+      [-80.06, 38.75],
+      [-80.07, 38.76],
+      [-80.07, 38.75],
+    ];
+    const planar = ringAreaSquareMeters(ring);
+    const surface = terrainSurfaceAreaSquareMeters(ring, () => 800);
+    expect(surface! / planar).toBeCloseTo(1, 9);
+  });
+
+  it('is not pulled down by cells with no elevation (53-7)', () => {
+    const ring = squareRingAcres(-80.07, 38.75, 10);
+    const planar = ringAreaSquareMeters(ring);
+    // Half the area has no DEM coverage.
+    const surface = terrainSurfaceAreaSquareMeters(ring, (lng) =>
+      lng < -80.0695 ? 800 : null,
+    );
+    expect(surface! / planar).toBeCloseTo(1, 9);
+  });
+
   it('returns null when elevation is unavailable', () => {
     const ring = squareRingAcres(-80.07, 38.75, 1);
     expect(terrainSurfaceAreaSquareMeters(ring, () => null)).toBeNull();

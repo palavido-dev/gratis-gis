@@ -108,22 +108,14 @@ async function buildManifest(
   // Walk every cached deployment + the queue scoped to it. A
   // deployment with no queued records still gets reported so the
   // admin sees the cached-only devices.
+  // A queue row whose deployment has no manifest is not reported: the
+  // queue is listed per deployment, so a deployment id we do not know
+  // about shows up once the user caches it again.
   const entries: ManifestEntry[] = [];
-  const seen = new Set<string>();
   for (const dep of cached) {
-    seen.add(dep.dataCollectionId);
     const queue = await listQueue(dep.dataCollectionId, currentUserId);
     entries.push(toEntry(dep.dataCollectionId, dep.cachedAt, queue));
   }
-
-  // It's possible (though rare) for a queue row to exist without a
-  // cached deployment -- e.g. the user cleared the cache while
-  // records were queued. Surface those too so the admin sees the
-  // stuck records rather than them disappearing from the beacon.
-  // We can't enumerate every queue scope without a deployment list,
-  // so this codepath is best-effort: a deployment id we don't know
-  // about won't be reported until the user re-caches it.
-
   return entries;
 
   function toEntry(
@@ -185,8 +177,10 @@ export async function postQueueManifest(
       // getStorageEstimate() returns null on Safari < 15.4 and any
       // other browser without the StorageManager API; the server
       // treats missing as null.
-      ...(estimate ? { storageUsage: estimate.usage } : {}),
-      ...(estimate ? { storageQuota: estimate.quota } : {}),
+      // Rounded: the server takes whole numbers only, and one browser
+      // reporting a fraction would turn the whole beacon into a 400.
+      ...(estimate ? { storageUsage: Math.round(estimate.usage) } : {}),
+      ...(estimate ? { storageQuota: Math.round(estimate.quota) } : {}),
       userAgent: navigator.userAgent,
     };
 
@@ -194,9 +188,11 @@ export async function postQueueManifest(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      // Use 'low' priority so the beacon never starves a real sync
-      // request on a constrained connection.
-      keepalive: true,
+      // No `keepalive`. Browsers refuse a keepalive request whose body
+      // is over 64 KiB, which a device with a large stuck queue easily
+      // reaches, so the beacon failed exactly when the admin most
+      // needed it. No caller fires during page unload, so keepalive
+      // bought nothing.
     });
     return res.ok;
   } catch {
@@ -210,16 +206,39 @@ export async function postQueueManifest(
  * Throttled wrapper. Multiple call sites (mount, sync, online flip)
  * can fire postQueueManifest() at once; we want at most one beacon
  * per ~10s window so a chatty page doesn't hammer the server.
+ *
+ * Trailing, not leading: a call inside the window schedules one post
+ * at the end of it instead of being dropped. The later call carries
+ * the newer state (typically "the queue just drained to zero"), so it
+ * is the one that must go out. A post that fails does not hold the
+ * window shut for the next one.
  */
 let lastBeaconAt = 0;
+let trailing: ReturnType<typeof setTimeout> | null = null;
+let trailingUserId = '';
 const BEACON_MIN_INTERVAL_MS = 10_000;
 
 export async function postQueueManifestThrottled(
   currentUserId: string,
 ): Promise<void> {
-  const now = Date.now();
-  if (now - lastBeaconAt < BEACON_MIN_INTERVAL_MS) return;
-  lastBeaconAt = now;
-  // Don't await; fire-and-forget keeps the call site clean.
-  void postQueueManifest(currentUserId);
+  trailingUserId = currentUserId;
+  if (trailing) return; // the scheduled post will use the newest user
+  const wait = lastBeaconAt + BEACON_MIN_INTERVAL_MS - Date.now();
+  if (wait <= 0) {
+    // Don't await; fire-and-forget keeps the call site clean.
+    void sendThrottled(currentUserId);
+    return;
+  }
+  trailing = setTimeout(() => {
+    trailing = null;
+    void sendThrottled(trailingUserId);
+  }, wait);
+}
+
+async function sendThrottled(currentUserId: string): Promise<void> {
+  const previous = lastBeaconAt;
+  // Stamped before the post so calls made while it is in flight wait.
+  lastBeaconAt = Date.now();
+  const ok = await postQueueManifest(currentUserId);
+  if (!ok) lastBeaconAt = previous;
 }

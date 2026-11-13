@@ -31,6 +31,11 @@ export interface ItemCardProps {
    * card falls back to the legacy colored-initials EntityBadge tile.
    */
   fallbackIcon?: ReactNode;
+  /** Classes for the coloured tile behind `fallbackIcon`. The palette
+   *  for every item type lives with the icons in portal-web
+   *  (getItemTypeTileClasses); this package keeps no second copy, which
+   *  had drifted to 13 of the 29 types. */
+  fallbackTileClassName?: string;
   /** Optional trailing slot rendered at the top of the card (above the
    *  thumbnail area): used for things like sharing indicators. */
   headerExtra?: ReactNode;
@@ -53,27 +58,6 @@ export interface ItemCardProps {
   className?: string;
 }
 
-/**
- * Per-type tile background colors. Kept in the ui package so every
- * render shares the same palette; the icon itself is injected by the
- * caller via `fallbackIcon` so this package stays free of lucide.
- */
-const typeTileBg: Record<string, string> = {
-  map: 'bg-[#5c6b58]/95 text-[#f8f6f0]',
-  data_layer: 'bg-[#55677a]/95 text-[#f8f6f0]',
-  derived_layer: 'bg-[#4c5f45]/95 text-[#f8f6f0]',
-  arcgis_service: 'bg-[#4e6e69]/95 text-[#f8f6f0]',
-  form: 'bg-[#7d5a64]/95 text-[#f8f6f0]',
-  form_submission_collection: 'bg-[#8d6a74]/95 text-[#f8f6f0]',
-  web_app: 'bg-[#9c7648]/95 text-[#f8f6f0]',
-  report_template: 'bg-[#8a5252]/95 text-[#f8f6f0]',
-  dashboard: 'bg-[#8f7440]/95 text-[#f8f6f0]',
-  file: 'bg-[#6e675e]/95 text-[#f8f6f0]',
-  layer_package: 'bg-[#6f6b3f]/95 text-[#f8f6f0]',
-  tool: 'bg-[#85683f]/95 text-[#f8f6f0]',
-  widget_package: 'bg-[#74573b]/95 text-[#f8f6f0]',
-};
-
 // Type badges are deliberately neutral (#173): the tile and
 // thumbnail carry the type hue; a second colored chip per card
 // added noise without adding information.
@@ -92,6 +76,7 @@ export function ItemCard({
   href,
   openInNewTab,
   fallbackIcon,
+  fallbackTileClassName,
   headerExtra,
   onTagClick,
   activeTags,
@@ -131,7 +116,7 @@ export function ItemCard({
       </div>
     );
   } else if (fallbackIcon) {
-    const tileBg = typeTileBg[item.type] ?? 'bg-muted text-surface-0';
+    const tileBg = fallbackTileClassName ?? 'bg-muted text-surface-0';
     thumbnail = (
       <div
         className={cn(

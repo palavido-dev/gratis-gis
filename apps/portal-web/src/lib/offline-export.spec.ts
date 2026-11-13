@@ -85,4 +85,21 @@ describe('buildOfflineRecoveryZip', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('packs a file whose name has repeated dots (55-6)', async () => {
+    const input = (fileName: string) => ({
+      dataCollectionId: 'dc-1',
+      deploymentTitle: 'Maple Street',
+      userId: 'ada',
+      exportedAt: '2026-11-08T15:00:00.000Z',
+      records: [record()],
+      blobs: [{ ...photo(), fileName }],
+    });
+    const text = (b: Uint8Array) => Buffer.from(b).toString('latin1');
+    const { bytes } = await buildOfflineRecoveryZip(input('site..north.png'));
+    expect(text(bytes)).toContain('files/blob-1/site..north.png');
+    // A name that is only dots still cannot become a `..` segment.
+    const dots = await buildOfflineRecoveryZip(input('..'));
+    expect(text(dots.bytes)).toContain('files/blob-1/file');
+  });
 });

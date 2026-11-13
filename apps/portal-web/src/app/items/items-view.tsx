@@ -40,6 +40,7 @@ import {
   getItemDisplayIcon,
   getItemDisplayLabel,
   getItemTypeLabel,
+  getItemTypeTileClasses,
   hasRuntime,
 } from '@/lib/item-type-icon';
 import { FilterPopover } from './filter-popover';
@@ -2474,6 +2475,7 @@ function ItemGrid({
                 // keeps the portal tab as a back-nav anchor (#314).
                 openInNewTab={hasRuntime(item)}
                 fallbackIcon={<Icon />}
+                fallbackTileClassName={getItemTypeTileClasses(item.type)}
                 {...(onTagClick ? { onTagClick } : {})}
                 {...(activeTags ? { activeTags } : {})}
                 headerExtra={

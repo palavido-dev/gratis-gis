@@ -39,6 +39,7 @@ import {
   type ArcgisServiceDescription,
 } from './arcgis-rest';
 import {
+  byLocalName,
   probeWms,
   probeWfs,
   type WmsCapabilities,
@@ -82,14 +83,25 @@ export async function probeService(rawUrl: string): Promise<ServiceProbeResult> 
   // whichever one responds with parseable capabilities for the
   // expected service. Promise.any returns the first fulfilled
   // result; if all reject we bail with a unified error.
-  const ogcAttempts: Array<Promise<ServiceProbeResult>> = [
-    probeWms(url)
-      .then((c) => ({ data: wmsToServiceData(c, probedAt), protocolLabel: 'WMS' })),
-    probeWfs(url)
-      .then((c) => ({ data: wfsToServiceData(c, probedAt), protocolLabel: 'WFS' })),
-    probeWmts(url)
-      .then((d) => ({ data: d, protocolLabel: 'WMTS' })),
-  ];
+  // A pasted GetCapabilities URL already says which service it is
+  // (`?service=WFS&request=GetCapabilities`). The query is dropped
+  // before probing, so read it first and try only that service;
+  // otherwise whichever probe answered first won, often WMS.
+  const asked = requestedOgcService(url);
+  const ogcAttempts: Array<Promise<ServiceProbeResult>> = [];
+  if (!asked || asked === 'WMS') {
+    ogcAttempts.push(
+      probeWms(url).then((c) => ({ data: wmsToServiceData(c, probedAt), protocolLabel: 'WMS' })),
+    );
+  }
+  if (!asked || asked === 'WFS') {
+    ogcAttempts.push(
+      probeWfs(url).then((c) => ({ data: wfsToServiceData(c, probedAt), protocolLabel: 'WFS' })),
+    );
+  }
+  if (!asked || asked === 'WMTS') {
+    ogcAttempts.push(probeWmts(url).then((d) => ({ data: d, protocolLabel: 'WMTS' })));
+  }
   try {
     const result = await Promise.any(ogcAttempts);
     return result;
@@ -98,6 +110,20 @@ export async function probeService(rawUrl: string): Promise<ServiceProbeResult> 
       "Couldn't identify that URL as a known service (ArcGIS REST, WMS, WFS, or WMTS). Check the URL and that the server's GetCapabilities is reachable from this browser.",
     );
   }
+}
+
+/** The OGC service named by a `service=` parameter already in the
+ *  pasted URL, if it is one we probe. */
+export function requestedOgcService(rawUrl: string): 'WMS' | 'WFS' | 'WMTS' | null {
+  const q = rawUrl.indexOf('?');
+  if (q < 0) return null;
+  const params = new URLSearchParams(rawUrl.slice(q + 1));
+  for (const [key, value] of params) {
+    if (key.toLowerCase() !== 'service') continue;
+    const v = value.trim().toUpperCase();
+    if (v === 'WMS' || v === 'WFS' || v === 'WMTS') return v;
+  }
+  return null;
 }
 
 /** Try ArcGIS REST -- fetch ?f=json and detect the service shape. */
@@ -272,40 +298,47 @@ async function probeWmts(rawUrl: string): Promise<ServiceData> {
   if (doc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('WMTS server returned non-XML.');
   }
+  return parseWmtsCapabilities(base, doc);
+}
+
+/** Exported for tests. Matches elements by local name, since servers
+ *  write the OWS parts with a prefix (`ows:Title`, `ows:LowerCorner`). */
+export function parseWmtsCapabilities(base: string, doc: Document): ServiceData {
   const root = doc.documentElement;
-  // WMTS Capabilities root local name should be "Capabilities". Other
-  // OGC services also use "Capabilities" as their root in some
-  // namespaces, so also gate on a present <Contents>/<Layer> element.
-  const layerEls = doc.getElementsByTagName('Layer');
+  // WMTS Capabilities root local name is "Capabilities". Other OGC
+  // services also use that name in some namespaces, so also require
+  // <Contents> and at least one <Layer>.
+  if (root.localName !== 'Capabilities' || byLocalName(root, 'Contents').length === 0) {
+    throw new Error(`Not WMTS capabilities (root element ${root.localName}).`);
+  }
+  const layerEls = byLocalName(root, 'Layer');
   if (layerEls.length === 0) {
     throw new Error('No WMTS Layer elements found.');
   }
   const protocolVersion = (root.getAttribute('version') ?? '1.0.0') as '1.0.0';
   const serviceTitle = directDescendantText(
-    doc.getElementsByTagName('ServiceIdentification')[0] ?? null,
+    byLocalName(root, 'ServiceIdentification')[0] ?? null,
     'Title',
   );
 
   const layers: ServiceLayerSnapshot[] = [];
-  for (const lEl of Array.from(layerEls)) {
+  for (const lEl of layerEls) {
     const name = directDescendantText(lEl, 'Identifier');
     const title = directDescendantText(lEl, 'Title') || name;
     if (!name) continue;
-    const formatEl = lEl.getElementsByTagName('Format')[0];
+    const formatEl = byLocalName(lEl, 'Format')[0];
     const format = formatEl?.textContent?.trim() ?? 'image/png';
-    const matrixEl = lEl.getElementsByTagName('TileMatrixSet')[0];
+    const matrixEl = byLocalName(lEl, 'TileMatrixSet')[0];
     const tileMatrixSet = matrixEl?.textContent?.trim() ?? '';
     const styleId = directDescendantText(
-      lEl.getElementsByTagName('Style')[0] ?? null,
+      byLocalName(lEl, 'Style')[0] ?? null,
       'Identifier',
     );
-    const bboxEl =
-      lEl.getElementsByTagName('WGS84BoundingBox')[0] ??
-      lEl.getElementsByTagName('ows:WGS84BoundingBox')[0];
+    const bboxEl = byLocalName(lEl, 'WGS84BoundingBox')[0];
     let bbox: [number, number, number, number] | undefined;
     if (bboxEl) {
-      const lower = bboxEl.getElementsByTagName('LowerCorner')[0]?.textContent ?? '';
-      const upper = bboxEl.getElementsByTagName('UpperCorner')[0]?.textContent ?? '';
+      const lower = byLocalName(bboxEl, 'LowerCorner')[0]?.textContent ?? '';
+      const upper = byLocalName(bboxEl, 'UpperCorner')[0]?.textContent ?? '';
       const lo = lower.trim().split(/\s+/).map(Number);
       const up = upper.trim().split(/\s+/).map(Number);
       if (lo.length === 2 && up.length === 2 && [...lo, ...up].every(Number.isFinite)) {
