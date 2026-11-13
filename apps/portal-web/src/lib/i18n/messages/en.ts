@@ -3169,6 +3169,9 @@ export const en = {
     clearSelection: 'Clear selection',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Layer access',
     description:
       'Refine what each shared user or group sees on this map. The matrix narrows access; a warning badge appears when a principal has no item-level access to a layer\'s source data.',

@@ -3054,6 +3054,9 @@ export const de: Partial<CatalogShape> = {
     clearSelection: 'Auswahl löschen',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Ebenenzugriff',
     description:
       'Legen Sie fest, was jeder freigegebene Benutzer oder jede Gruppe auf dieser Karte sieht. Die Matrix schränkt den Zugriff ein; ein Warnabzeichen erscheint, wenn ein Principal keinen Elementzugriff auf die Quelldaten einer Ebene hat.',

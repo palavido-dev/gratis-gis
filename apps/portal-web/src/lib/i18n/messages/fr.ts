@@ -3046,6 +3046,9 @@ export const fr: Partial<CatalogShape> = {
     clearSelection: 'Effacer la sélection',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Accès aux couches',
     description:
       "Affinez ce que chaque utilisateur ou groupe partagé voit sur cette carte. La matrice restreint l'accès ; un badge d'avertissement apparaît lorsqu'un principal n'a pas d'accès au niveau de l'élément aux données source d'une couche.",

@@ -3038,6 +3038,9 @@ export const es: Partial<CatalogShape> = {
     clearSelection: 'Borrar selección',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
     title: 'Acceso a las capas',
     description:
       'Ajusta lo que ve cada usuario o grupo compartido en este mapa. La matriz reduce el acceso; aparece una advertencia cuando un principal no tiene acceso a nivel de elemento a los datos de origen de una capa.',
