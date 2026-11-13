@@ -1489,9 +1489,16 @@ export default async function ItemDetailPage(props: Props) {
           itemId={item.id}
           updatedAt={item.updatedAt}
           initialBlueprint={
-            (item.data && typeof item.data === 'object'
-              ? item.data
-              : DEFAULT_PRINT_TEMPLATE) as PrintTemplateData
+            // Spread over the defaults like the other editors do. A
+            // blueprint written through the API without paper,
+            // elements or parameters would otherwise crash the
+            // designer on render.
+            {
+              ...DEFAULT_PRINT_TEMPLATE,
+              ...(item.data && typeof item.data === 'object'
+                ? (item.data as Partial<PrintTemplateData>)
+                : {}),
+            } as PrintTemplateData
           }
           seedKind={(item as { seedKind?: string | null }).seedKind ?? null}
           canEdit={itemCanEdit}
