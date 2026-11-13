@@ -106,6 +106,7 @@ import { DataCollectionBuilder } from './data-collection-builder';
 import { PostgisConnectionBuilder } from './postgis-connection-builder';
 import { BasemapConfigSection } from '../_components/basemap-config-section';
 import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
+import { updateFolderChildren } from '@/lib/folder-update';
 import {
   DataLayerBuilder,
   type PendingFileImport,
@@ -607,9 +608,9 @@ export function NewItemWizard({
   // (GDB, shapefile-zip, GeoPackage); the server keeps the bytes
   // under /tmp/gg-staging/<id>/ and we hold the stagingId here so
   // submit() can fan out POST /items/:id/layers/:layerId/import
-  // for each detected layer AFTER the item is created. Cleared on
-  // type switch so a half-typed wizard doesn't carry a stale
-  // staging across to a different item type.
+  // for each detected layer AFTER the item is created. Only used
+  // when the item is a data layer, and pruned at submit to the
+  // layers still in the schema.
   const [pendingFileImports, setPendingFileImports] = useState<
     PendingFileImport[]
   >([]);
@@ -1546,44 +1547,21 @@ export function NewItemWizard({
       // step the new folder is a sibling at top-level and the
       // parent's contents look unchanged. We do it client-side as a
       // follow-up PATCH rather than baking it into POST /items so
-      // the API surface stays simple. Failure is surfaced inline
-      // (the new item still exists; the user can manually drag it
-      // into the parent later).
+      // the API surface stays simple. The helper keeps the rest of
+      // the parent's data (a smart folder's saved query) and refuses
+      // to write over a concurrent change. A failure is reported:
+      // the new item still exists and can be dragged in later.
       const parentFolderId = searchParams?.get('parentFolderId') ?? null;
+      let parentError: string | null = null;
       if (parentFolderId) {
         try {
-          const pr = await fetch(`/api/portal/items/${parentFolderId}`);
-          if (pr.ok) {
-            const parent = (await pr.json()) as {
-              type: string;
-              data: { childItemIds?: unknown } | null;
-            };
-            if (parent.type === 'folder') {
-              const existing = Array.isArray(parent.data?.childItemIds)
-                ? (parent.data!.childItemIds as unknown[]).filter(
-                    (x): x is string => typeof x === 'string',
-                  )
-                : [];
-              if (!existing.includes(saved.id)) {
-                const next = {
-                  version: 1,
-                  childItemIds: [...existing, saved.id],
-                };
-                await fetch(`/api/portal/items/${parentFolderId}`, {
-                  method: 'PATCH',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({ data: next }),
-                });
-              }
-            }
-          }
+          await updateFolderChildren(parentFolderId, (existing) =>
+            existing.includes(saved.id) ? null : [...existing, saved.id],
+          );
         } catch (parentErr) {
-          console.error('Could not append to parent folder:', parentErr);
+          parentError =
+            parentErr instanceof Error ? parentErr.message : String(parentErr);
         }
-        // Land the user back on the parent folder detail page so the
-        // new subfolder is visible in its parent's contents.
-        startTransition(() => router.push(`/items/${parentFolderId}`));
-        return;
       }
 
       // data_layer with staged file uploads: fan out per-layer ingest
@@ -1611,9 +1589,23 @@ export function NewItemWizard({
       // itself. Surface those inline; the user can retry per-layer
       // from the detail page. Per-layer-import-while-running errors
       // surface in the detail-page banner from the import_job row.
+      // Only layers still in the schema get an import. The list only
+      // grows while the builder is open, so a layer imported and then
+      // removed would otherwise be reported as a failed import.
+      const liveLayerIds = new Set(
+        featureServiceData.layers.map((layer) => layer.id),
+      );
+      const livePending = pendingFileImports
+        .map((entry) => ({
+          ...entry,
+          layers: entry.layers.filter((layer) =>
+            liveLayerIds.has(layer.layerId),
+          ),
+        }))
+        .filter((entry) => entry.layers.length > 0);
       const ingestErrors =
-        type === 'data_layer' && pendingFileImports.length > 0
-          ? await enqueueStagedLayerImports(saved.id, pendingFileImports)
+        type === 'data_layer' && livePending.length > 0
+          ? await enqueueStagedLayerImports(saved.id, livePending)
           : [];
       if (type === 'data_layer' && pendingFileImports.length > 0) {
         setPendingFileImports([]);
@@ -1622,20 +1614,31 @@ export function NewItemWizard({
       // arcgis_service no longer needs #configure-arcgis because we baked
       // the probed config into dataJson above.
       const anchor = type === 'data_layer' ? '#add-data' : '';
-      const targetUrl = `/items/${saved.id}${anchor}`;
+      // From inside a folder, land back on the parent so the new
+      // item is visible in its contents.
+      const targetUrl =
+        parentFolderId && !parentError
+          ? `/items/${parentFolderId}`
+          : `/items/${saved.id}${anchor}`;
 
+      const problems: string[] = [];
+      if (parentError) {
+        problems.push(
+          `Item created, but it could not be added to the folder (${parentError}). You can drag it into the folder from the items page.`,
+        );
+      }
       if (ingestErrors.length > 0) {
-        // Don't auto-navigate when any layer's enqueue failed. The
-        // user just watched a row flip to red and needs the chance to
-        // read what went wrong before being kicked to the detail page.
-        // Stash the destination on the overlay state and let the user
-        // dismiss with the Continue button (handler in the overlay
-        // JSX) -- that's where the navigation actually fires now.
-        setError(
+        problems.push(
           `Item created, but feature import failed for ${ingestErrors.length} layer(s). ` +
             `Use the per-layer Import button on the detail page to retry. Details: ` +
             ingestErrors.join('; ').slice(0, 500),
         );
+      }
+      if (problems.length > 0) {
+        // Don't auto-navigate when something failed. The user needs
+        // the chance to read what went wrong before being moved on;
+        // the Continue button in the error banner does the navigation.
+        setError(problems.join(' '));
         setIngestNavTarget(targetUrl);
       } else {
         startTransition(() => router.push(targetUrl));

@@ -27,7 +27,6 @@ import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import { DependentsWarning } from '@/components/dependents-warning';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
-  FolderData,
   ItemAccess,
   ItemType,
   ItemWithShares,
@@ -53,6 +52,7 @@ import { DataPreviewDrawer } from './data-preview-drawer';
 import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 import { useT } from '@/lib/i18n/locale-context';
+import { updateFolderChildren } from '@/lib/folder-update';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 /**
@@ -728,39 +728,15 @@ export function ItemsView({
     setFolderSaving(true);
     setBulkError(null);
     try {
-      // Fetch the current folder so we know the existing childItemIds
-      // and don't have to trust the rail snapshot to be up to date.
-      const fres = await fetch(`/api/portal/items/${folderId}`);
-      if (!fres.ok) {
-        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
-      }
-      const folder = (await fres.json()) as { data: FolderData | null };
-      const existing = Array.isArray(folder.data?.childItemIds)
-        ? folder.data!.childItemIds
-        : [];
-      const seen = new Set(existing);
-      const toAdd = Array.from(selected).filter((id) => !seen.has(id));
-      if (toAdd.length === 0) {
-        setShowAddToFolder(false);
-        setSelected(new Set());
-        return;
-      }
-      const next: FolderData = {
-        version: 1,
-        childItemIds: [...existing, ...toAdd],
-      };
-      const pres = await fetch(`/api/portal/items/${folderId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
+      // Read the folder fresh rather than trusting the rail snapshot,
+      // and keep the rest of its data. Rebuilding data here dropped a
+      // smart folder's saved query.
+      const picked = Array.from(selected);
+      await updateFolderChildren(folderId, (existing) => {
+        const seen = new Set(existing);
+        const toAdd = picked.filter((id) => !seen.has(id));
+        return toAdd.length === 0 ? null : [...existing, ...toAdd];
       });
-      if (!pres.ok) {
-        const body = await pres.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${pres.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
-      }
       setShowAddToFolder(false);
       setSelected(new Set());
       // In targeted add-to-folder mode, send the user back to the
@@ -790,36 +766,14 @@ export function ItemsView({
     if (!activeFolder) return;
     setBulkError(null);
     try {
-      const fres = await fetch(`/api/portal/items/${activeFolder.id}`);
-      if (!fres.ok) {
-        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
-      }
-      const folder = (await fres.json()) as { data: FolderData | null };
-      const existing = Array.isArray(folder.data?.childItemIds)
-        ? folder.data!.childItemIds
-        : [];
-      if (!existing.includes(itemId)) {
-        // Already not in the folder; refresh anyway in case the
-        // server has a different view than our row state.
-        router.refresh();
-        return;
-      }
-      const next: FolderData = {
-        version: 1,
-        childItemIds: existing.filter((id) => id !== itemId),
-      };
-      const pres = await fetch(`/api/portal/items/${activeFolder.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
-      });
-      if (!pres.ok) {
-        const body = await pres.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${pres.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
-      }
+      // Same read-modify-write as handleAddToFolder. If the item is
+      // already gone nothing is written; refresh anyway in case the
+      // server has a different view than our row state.
+      await updateFolderChildren(activeFolder.id, (existing) =>
+        existing.includes(itemId)
+          ? existing.filter((id) => id !== itemId)
+          : null,
+      );
       router.refresh();
     } catch (e) {
       setBulkError(
