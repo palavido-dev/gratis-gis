@@ -84,7 +84,10 @@ describe('postQueueManifest (53-3)', () => {
     const [, init] = fetchMock.mock.calls[0]!;
     expect(String(init?.body).length).toBeGreaterThan(64 * 1024);
     expect(init?.keepalive).toBeUndefined();
-  });
+    // 400 queued rows through fake-indexeddb is the point of this case
+    // (the manifest must pass 64 KiB), and it can take over the 5 s
+    // default on a busy CI runner.
+  }, 30_000);
 });
 
 describe('postQueueManifestThrottled (53-6)', () => {
