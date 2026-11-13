@@ -308,9 +308,16 @@ export class PublicController {
   /**
    * Anonymous list of items, intended for the viewer runtime to
    * pull a list of public basemaps without a session. Limited to
-   * type=basemap today; callers asking for any other type get an
-   * empty list rather than the full public catalog (the dedicated
-   * landing / catalog feeds are the right surface for that).
+   * type=basemap and type=theme; callers asking for any other type
+   * get an empty list rather than the full public catalog (the
+   * dedicated landing / catalog feeds are the right surface for
+   * that).
+   *
+   * type=theme lets an anonymous viewer of a public app get the
+   * admin's customised starter theme ('forest') instead of the stock
+   * colours. Only themes shared publicly are served. `?orgId=` scopes
+   * the list to the app's organization, so one org's "forest" never
+   * colours another org's app.
    *
    * Mirrors the authed list's paging contract so the runtime pages
    * can swap one for the other without branching: data_json is
@@ -329,17 +336,23 @@ export class PublicController {
     @Query('full') full?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('orgId') orgId?: string,
   ) {
-    if (type !== 'basemap') {
+    if (type !== 'basemap' && type !== 'theme') {
       // Keep the header present on the refusal path too so a pager
       // that trusts it never mistakes "not allowed" for "more pages".
       res.setHeader('X-Total-Count', '0');
       return [];
     }
+    // A malformed orgId would make Postgres reject the uuid cast, so
+    // it is treated as "no org filter" rather than a 500.
+    const orgFilter =
+      orgId && isUuidShape(orgId) ? { orgId } : {};
     const where = {
-      type: 'basemap',
+      type,
       access: 'public',
       deletedAt: null,
+      ...orgFilter,
     } as const;
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const take =
