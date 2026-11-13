@@ -146,9 +146,13 @@ class PortalClient(
     since: Long,
     limit: Int? = null,
     after: String? = null,
+    /** Only changes inside this box, `[west, south, east, north]`;
+     *  used for a layer whose cache is limited to the offline areas. */
+    bbox: List<Double>? = null,
   ): LayerDeltaResponse =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/delta") {
       parameter("since", since)
+      if (bbox != null) parameter("bbox", bbox.joinToString(","))
       if (after != null) parameter("after", after)
       if (limit != null) parameter("limit", limit)
     }.body()
