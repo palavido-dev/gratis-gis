@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -116,25 +116,34 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
   const [maxZoom, setMaxZoom] = useState(OFFLINE_PACKAGE_DEFAULT_MAX_ZOOM);
   const [refreshDays, setRefreshDays] = useState<number | undefined>(undefined);
   const [maxTiles, setMaxTiles] = useState(25_000);
-  // Held in a ref so the poll effect can read the current areas
-  // without re-subscribing every render and restarting its timer.
-  const areasRef = useRef<OfflineAreaWithPackage[]>([]);
-  areasRef.current = areas;
+  // True only while the list on screen came from a load that worked.
+  // Add and Delete write the whole area list back, and the server
+  // deletes the built package of every area missing from it. A failed
+  // load (a 429, a deploy, a dropped request) leaves an empty or stale
+  // list, so saving from it would wipe areas nobody meant to touch.
+  const [listOk, setListOk] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/items/${itemId}/offline-areas`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        setListOk(false);
+        return;
+      }
       const body = (await res.json()) as {
         areas: OfflineAreaWithPackage[];
         maxTiles: number;
       };
       setAreas(body.areas);
       setMaxTiles(body.maxTiles);
+      setListOk(true);
+    } catch {
+      setListOk(false);
     } finally {
       setLoading(false);
     }
   }, [itemId]);
+  const canWrite = canEdit && listOk;
 
   useEffect(() => {
     void load();
@@ -194,7 +203,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
   }
 
   async function addArea() {
-    if (!mapBbox) return;
+    if (!mapBbox || !listOk) return;
     const area: OfflineArea = {
       id: clientUuid(),
       name: name.trim(),
@@ -209,20 +218,35 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
       return;
     }
     setBusy(area.id);
+    let saved = false;
     try {
       const existing = areas.map((a) => a.area);
       if (!(await saveAreas([...existing, area]))) return;
+      saved = true;
       // Build straight away. An area with no package is not a thing
       // anyone wanted; making the author press a second button just
       // adds a state where the feature looks broken.
-      await fetch(
+      const res = await fetch(
         `/api/portal/items/${itemId}/offline-areas/${area.id}/build`,
         { method: 'POST' },
       );
-      setAdding(false);
-      setName('');
-      await load();
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        toast.error(
+          text || t('offlineAreas.buildStartFailed', { status: res.status }),
+        );
+      }
+    } catch {
+      toast.error(t('offlineAreas.buildNotStarted'));
     } finally {
+      // Once the area is saved the form must close, whatever the build
+      // did. Leaving it open invites a second Add, which saves a
+      // second area with a new id and the same name.
+      if (saved) {
+        setAdding(false);
+        setName('');
+        await load();
+      }
       setBusy(null);
     }
   }
@@ -254,7 +278,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
       confirmLabel: t('common.delete'),
       variant: 'danger',
     });
-    if (!ok) return;
+    if (!ok || !listOk) return;
     setBusy(areaId);
     try {
       const next = areas.map((a) => a.area).filter((a) => a.id !== areaId);
@@ -277,7 +301,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
           </h3>
           <p className="mt-1 text-xs text-muted">{t('offlineAreas.intro')}</p>
         </div>
-        {canEdit && !adding && mapBbox ? (
+        {canWrite && !adding && mapBbox ? (
           <button
             type="button"
             onClick={() => setAdding(true)}
@@ -296,7 +320,22 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
         </div>
       ) : null}
 
-      {!loading && areas.length === 0 && !adding ? (
+      {!loading && !listOk ? (
+        <div className="flex items-center gap-2 py-2 text-xs text-danger">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>{t('offlineAreas.loadFailed')}</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
+          >
+            <RefreshCw className="h-3 w-3" />
+            {t('offlineAreas.retry')}
+          </button>
+        </div>
+      ) : null}
+
+      {!loading && listOk && areas.length === 0 && !adding ? (
         <p className="py-2 text-xs text-muted">
           {t('offlineAreas.noneYet')}{' '}
           {mapBbox === null
@@ -384,7 +423,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                   <button
                     type="button"
                     onClick={() => void remove(area.id, area.name)}
-                    disabled={busy === area.id}
+                    disabled={busy === area.id || !listOk}
                     title={t('offlineAreas.deleteArea')}
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-1 text-muted transition-colors hover:bg-surface-2 hover:text-danger disabled:opacity-40"
                   >
@@ -397,7 +436,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
         </ul>
       ) : null}
 
-      {adding && mapBbox ? (
+      {adding && mapBbox && listOk ? (
         <div className="mt-3 space-y-3 rounded-md border border-border bg-surface-2 p-3">
           <div>
             <label
@@ -492,7 +531,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
             <button
               type="button"
               onClick={() => void addArea()}
-              disabled={!name.trim() || overCap || busy !== null}
+              disabled={!name.trim() || overCap || busy !== null || !listOk}
               className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
               {busy ? (

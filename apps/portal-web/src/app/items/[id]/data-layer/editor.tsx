@@ -287,6 +287,11 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           {currentBbox ? (
             <div className="mt-3">
               <DataLayerBboxPreview
+                // The preview fetches features once on mount, and an
+                // import only refreshes the route, which keeps client
+                // state. Keying on what an import changes remounts it,
+                // so Replace data does not leave the old features drawn.
+                key={`${currentUpdatedAt ?? ''}:${currentFeatureCount}:${currentBbox.join(',')}`}
                 bbox={currentBbox}
                 {...(previewSources.length > 0
                   ? { featureSources: previewSources }

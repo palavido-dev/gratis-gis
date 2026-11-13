@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   geolocationBlock,
+  geolocationErrorOutcome,
   isInsecureGeolocationMessage,
 } from './geolocation-context';
 
@@ -29,5 +30,25 @@ describe('isInsecureGeolocationMessage', () => {
 
   it('does not treat a timeout as an insecure origin', () => {
     expect(isInsecureGeolocationMessage('Timeout expired')).toBe(false);
+  });
+});
+
+describe('geolocationErrorOutcome', () => {
+  it('keeps watching through a timeout or a lost signal', () => {
+    expect(geolocationErrorOutcome(3, 'Timeout expired')).toMatchObject({
+      status: 'error',
+      keepWatching: true,
+    });
+    expect(geolocationErrorOutcome(2, 'Position unavailable')).toMatchObject({
+      status: 'unavailable',
+      keepWatching: true,
+    });
+  });
+
+  it('ends the watch on a refusal', () => {
+    expect(geolocationErrorOutcome(1, 'User denied')).toMatchObject({
+      status: 'denied',
+      keepWatching: false,
+    });
   });
 });
