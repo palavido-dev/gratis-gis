@@ -3203,6 +3203,7 @@ export const de: Partial<CatalogShape> = {
     done: 'Fertig',
   },
   sharing: {
+    networkError: "Das Portal war nicht erreichbar. Es wurde nichts geändert.",
     sharing: 'Freigabe',
     dialogLabel: 'Freigabe für {title}',
     whoCanSee: 'Wer kann das sehen',

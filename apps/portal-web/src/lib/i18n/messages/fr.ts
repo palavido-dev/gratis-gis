@@ -3195,6 +3195,7 @@ export const fr: Partial<CatalogShape> = {
     done: 'Terminé',
   },
   sharing: {
+    networkError: "Impossible de joindre le portail. Rien n'a été modifié.",
     sharing: 'Partage',
     dialogLabel: 'Partage de {title}',
     whoCanSee: 'Qui peut voir ceci',

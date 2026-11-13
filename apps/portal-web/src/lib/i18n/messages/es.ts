@@ -3187,6 +3187,7 @@ export const es: Partial<CatalogShape> = {
     done: 'Hecho',
   },
   sharing: {
+    networkError: "No se pudo contactar con el portal. No se cambió nada.",
     sharing: 'Compartir',
     dialogLabel: 'Compartición de {title}',
     whoCanSee: 'Quién puede ver esto',

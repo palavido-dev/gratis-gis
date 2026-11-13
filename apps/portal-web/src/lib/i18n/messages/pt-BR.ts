@@ -3184,6 +3184,7 @@ export const ptBR: Partial<CatalogShape> = {
     done: 'Concluído',
   },
   sharing: {
+    networkError: "Não foi possível acessar o portal. Nada foi alterado.",
     sharing: 'Compartilhamento',
     dialogLabel: 'Compartilhamento de {title}',
     whoCanSee: 'Quem pode ver isto',

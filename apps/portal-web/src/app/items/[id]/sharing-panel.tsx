@@ -166,15 +166,15 @@ export function SharingPanel({
     const prev = access;
     setAccess(next); // optimistic
     setAccessSaveState('saving');
-    const res = await fetch(`/api/portal/items/${itemId}`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ access: next }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setAccess(prev); // revert
       setAccessSaveState('error');
-      setError(await parseApiError(res, 'Visibility update failed'));
+      setError(res ? await parseApiError(res, 'Visibility update failed') : t('sharing.networkError'));
       return;
     }
     setAccessSaveState('saved');
@@ -224,16 +224,16 @@ export function SharingPanel({
       tier === 'public'
         ? { publicGeoBoundaryId: next }
         : { orgGeoBoundaryId: next };
-    const res = await fetch(`/api/portal/items/${itemId}`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       if (tier === 'public') setPublicBoundaryId(prev);
       else setOrgBoundaryId(prev);
       setBoundarySaveState('error');
-      setError(await parseApiError(res, 'Boundary update failed'));
+      setError(res ? await parseApiError(res, 'Boundary update failed') : t('sharing.networkError'));
       return;
     }
     setBoundarySaveState('saved');
@@ -380,6 +380,18 @@ export function SharingPanel({
         .join(','),
     [shares],
   );
+  // Every principal, groups included. The chain's own share lists
+  // change when "Share + grant" grants a group view on the
+  // dependencies, so keying the reload on user ids alone left the gap
+  // badge counting gaps that had just been closed.
+  const allPrincipalKey = useMemo(
+    () =>
+      shares
+        .map((s) => `${s.principalType}:${s.principalId}`)
+        .sort()
+        .join(','),
+    [shares],
+  );
   useEffect(() => {
     if (itemType !== 'editor') return;
     let cancelled = false;
@@ -424,7 +436,7 @@ export function SharingPanel({
     return () => {
       cancelled = true;
     };
-  }, [itemId, itemType, userPrincipalKey]);
+  }, [itemId, itemType, userPrincipalKey, allPrincipalKey]);
 
   // Pre-built principal list for the matrix. One row per share on
   // the editor; the principal's display name comes from
@@ -534,7 +546,7 @@ export function SharingPanel({
         keyOf(s) === k ? { ...s, permission: nextPermission } : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -543,7 +555,7 @@ export function SharingPanel({
         permission: nextPermission,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       // Revert optimistic change
       setShares((cur) =>
@@ -551,7 +563,7 @@ export function SharingPanel({
           keyOf(s) === k ? { ...s, permission: share.permission } : s,
         ),
       );
-      setError(await parseApiError(res, 'Update failed'));
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -585,7 +597,7 @@ export function SharingPanel({
           : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -595,7 +607,7 @@ export function SharingPanel({
         expiresAt: nextExpiresAt,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       setShares((cur) =>
         cur.map((s) =>
@@ -604,7 +616,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(await parseApiError(res, 'Update failed'));
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -637,7 +649,7 @@ export function SharingPanel({
           : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -647,7 +659,7 @@ export function SharingPanel({
         rowScope: nextRowScope,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       setShares((cur) =>
         cur.map((s) =>
@@ -656,7 +668,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(await parseApiError(res, 'Update failed'));
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -1262,11 +1274,15 @@ export function SharingPanel({
                     <option value="admin">{t('sharing.canAdmin')}</option>
                   </select>
                   {/* Row scope (#40). Narrows the share to features
-                      the principal themselves created. Hidden for
-                      'admin' permission since admins always see
-                      everything anyway and the picker would be
-                      misleading. */}
-                  {share.permission !== 'admin' ? (
+                      the principal themselves created. Hidden for an
+                      'admin' share left at "all features", where it
+                      has nothing to say. The server still applies a
+                      stored "only theirs" to admin shares, so in that
+                      case it stays visible; otherwise raising a scoped
+                      share to Admin left a restriction nobody could
+                      see or change. */}
+                  {share.permission !== 'admin' ||
+                  (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope === 'own' ? (
                     <select
                       value={
                         (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope ?? 'all'
@@ -1570,4 +1586,22 @@ export function SharingPanel({
       />
     </div>
   );
+}
+
+/**
+ * fetch() that resolves null instead of rejecting when the request
+ * never got an answer (connection dropped, BFF restarting). The
+ * optimistic sharing handlers revert on null exactly as on a failed
+ * response; with a plain fetch the rejection skipped the revert and
+ * left the control on a value the server never stored.
+ */
+async function fetchOrNull(
+  input: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    return null;
+  }
 }

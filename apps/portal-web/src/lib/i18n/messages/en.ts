@@ -3318,6 +3318,7 @@ export const en = {
     done: 'Done',
   },
   sharing: {
+    networkError: "Could not reach the portal. Nothing was changed.",
     sharing: 'Sharing',
     dialogLabel: 'Sharing for {title}',
     whoCanSee: 'Who can see this',
