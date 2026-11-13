@@ -2201,6 +2201,8 @@ export const de: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Ebenenschema wird geladen…',
     bundleDone:
       'Fertig -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} Anhänge konnten nicht heruntergeladen werden und fehlen in der ZIP-Datei. Exportieren Sie erneut.',
     calculateModalTitle: 'Feld berechnen',
     calculateUpdatesPrefix: 'Aktualisiert',
     calculateUpdatesSuffix: 'über alle Zeilen im Umfang.',

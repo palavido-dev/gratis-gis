@@ -2197,6 +2197,8 @@ export const es: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Cargando esquema de la capa…',
     bundleDone:
       'Listo -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      'No se pudieron descargar {count} adjuntos y no están en el ZIP. Vuelva a exportar.',
     calculateModalTitle: 'Calcular campo',
     calculateUpdatesPrefix: 'Actualiza',
     calculateUpdatesSuffix: 'en todas las filas del alcance.',
