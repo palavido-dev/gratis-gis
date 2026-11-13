@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Globe2, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
@@ -89,6 +89,13 @@ export function PublicCascadeDialog({
   // The parent owns the open/closed gate; once it sets open=true we
   // always re-fetch to make sure stale data from a previous open
   // doesn't leak in.
+  // The load effect reads onClose through a ref. Parents pass a fresh
+  // closure on every render, and with onClose in the deps each parent
+  // re-render reloaded the list and re-ticked every row, undoing what
+  // the user had unticked. Loading is keyed on open and parentId only.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
     let abort = false;
@@ -117,7 +124,7 @@ export function PublicCascadeDialog({
         setDeps(private_or_org);
         setSelected(new Set(private_or_org.map((r) => r.id)));
         // Empty list -> close the modal silently. Nothing to do.
-        if (private_or_org.length === 0) onClose();
+        if (private_or_org.length === 0) onCloseRef.current();
       } catch (err) {
         if (abort) return;
         setError(
@@ -130,7 +137,7 @@ export function PublicCascadeDialog({
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose, t]);
+  }, [open, parentId, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {

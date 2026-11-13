@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
@@ -89,6 +89,13 @@ export function PublicCascadeRevertDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
+  // The load effect reads onClose through a ref. Parents pass a fresh
+  // closure on every render, and with onClose in the deps each parent
+  // re-render reloaded the list and re-ticked every row, undoing what
+  // the user had unticked. Loading is keyed on open and parentId only.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
     let abort = false;
@@ -110,7 +117,7 @@ export function PublicCascadeRevertDialog({
         // Empty candidate list -> close the modal silently. Either
         // there are no public deps, or every public dep is still
         // needed by some other public consumer.
-        if (json.length === 0) onClose();
+        if (json.length === 0) onCloseRef.current();
       } catch (err) {
         if (abort) return;
         setError(
@@ -123,7 +130,7 @@ export function PublicCascadeRevertDialog({
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose, t]);
+  }, [open, parentId, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {

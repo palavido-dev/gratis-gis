@@ -167,7 +167,6 @@ export function ScriptPanel({
   useEffect(() => {
     if (wasLive.current && !live && openRun) void loadDetail(openRun);
     wasLive.current = live;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live]);
 
   // The run whose detail is open now. A response for any other run
