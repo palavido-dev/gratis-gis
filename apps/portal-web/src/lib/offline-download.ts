@@ -395,10 +395,10 @@ export async function downloadDeployment(
     const schemaKey = `${layer.dataLayerId}:${layer.layerKey}`;
     const schema = layerSchemas[schemaKey]!;
     const cursor = schema.syncVersion;
-    // The area the cursor is good for. The delta endpoint cannot be
-    // asked for an area, so a cursor seeded for site A says nothing
-    // about the unchanged features at site B. When the area asked for
-    // now is not inside it, pull the new area in full first.
+    // The area the cursor is good for. A delta only reports changes,
+    // so a cursor seeded for site A says nothing about the unchanged
+    // features at site B. When the area asked for now is not inside
+    // it, pull the new area in full first.
     const covered = cursor !== undefined ? (schema.syncBbox ?? null) : undefined;
     const useDelta =
       typeof cursor === 'number' &&
@@ -875,10 +875,15 @@ export function buildDeltaUrl(
   since: number,
   limit?: number,
   after?: string,
+  bbox?: [number, number, number, number],
 ): string {
   const qs = new URLSearchParams({ since: String(since) });
   if (after) qs.set('after', after);
   if (limit !== undefined) qs.set('limit', String(limit));
+  // The cached area, so the server sends only the changes inside it
+  // (and deletes for rows that left it). A server too old to know
+  // the parameter ignores it, and keepInsideArea still trims.
+  if (bbox) qs.set('bbox', bbox.join(','));
   return `/api/portal/items/${dataLayerId}/layers/${encodeURIComponent(layerKey)}/delta?${qs.toString()}`;
 }
 
@@ -982,6 +987,7 @@ async function pullLayerDelta(args: {
       since,
       DELTA_PAGE_LIMIT,
       after,
+      args.area ?? undefined,
     );
     const res = await fetch(url, { signal: args.signal ?? null });
     if (!res.ok) {
@@ -1038,9 +1044,10 @@ async function pullLayerDelta(args: {
 const DELTA_MAX_PAGES = 100;
 
 /**
- * Turn upserts outside the cached area into deletes. The delta
- * endpoint has no area filter, so a bulk rewrite of a statewide layer
- * would otherwise land every row of the state on the device. A row
+ * Turn upserts outside the cached area into deletes. The delta request
+ * carries the area, but a server older than that parameter ignores it,
+ * and a bulk rewrite of a statewide layer would then land every row of
+ * the state on the device. A row
  * that has moved out of the area is dropped, as a full pull of the
  * area would drop it. Rows with no geometry (tables) are kept.
  */

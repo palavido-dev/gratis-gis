@@ -40,6 +40,8 @@ import {
 } from './arcgis-rest';
 import {
   byLocalName,
+  ogcBaseUrl,
+  ogcRequestUrl,
   probeWms,
   probeWfs,
   type WmsCapabilities,
@@ -84,7 +86,7 @@ export async function probeService(rawUrl: string): Promise<ServiceProbeResult> 
   // expected service. Promise.any returns the first fulfilled
   // result; if all reject we bail with a unified error.
   // A pasted GetCapabilities URL already says which service it is
-  // (`?service=WFS&request=GetCapabilities`). The query is dropped
+  // (`?service=WFS&request=GetCapabilities`). The OGC keys are dropped
   // before probing, so read it first and try only that service;
   // otherwise whichever probe answered first won, often WMS.
   const asked = requestedOgcService(url);
@@ -287,8 +289,12 @@ function wfsToServiceData(
  * in the wild). If a future WMTS 2.0 ships we'll add the variant.
  */
 async function probeWmts(rawUrl: string): Promise<ServiceData> {
-  const base = rawUrl.trim().replace(/\?.*$/, '').replace(/(?<!\/)\/+$/, '');
-  const url = `${base}?service=WMTS&request=GetCapabilities&version=1.0.0`;
+  const base = ogcBaseUrl(rawUrl);
+  const url = ogcRequestUrl(base, {
+    service: 'WMTS',
+    request: 'GetCapabilities',
+    version: '1.0.0',
+  });
   const res = await fetch(url, {
     headers: { Accept: 'application/xml, text/xml, */*' },
   });
