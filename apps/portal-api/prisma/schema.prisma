@@ -245,6 +245,13 @@ model Organization {
   /// { "completed": string[], "dismissed": string[] }.
   onboarding Json @default("{}")
 
+  /// Built-in starters (basemaps, app templates, themes, print
+  /// templates) this org purged, as "<item type>/<seed kind>". The
+  /// sign-in seeders skip these so a purged starter does not come
+  /// back on the next start. A trigger on item deletes fills it
+  /// (2026-11 review, 04-8).
+  dismissedSeedKinds String[] @default([]) @map("dismissed_seed_kinds")
+
   users                 User[]
   groups                Group[]
   items                 Item[]
