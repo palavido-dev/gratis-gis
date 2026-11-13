@@ -6,6 +6,233 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-12
+
+Reliability release. It finishes the full code review that 1.4.3
+started: every remaining significant and minor finding is fixed or
+tracked. Upgrade every install. Read these before upgrading:
+
+- Some requests that used to be accepted are now refused (see
+  Changed): uploads of map icons, tile layers and point clouds need
+  the contributor or admin role; a feature whose geometry type does
+  not match its layer gets a 400; inline share area limits must be
+  closed WGS84 polygons; unsafe theme tokens are dropped on save.
+- Changing the SMTP server, port or user now needs the SMTP password
+  again, and the password is only sent over TLS unless
+  `SMTP_ALLOW_PLAINTEXT_AUTH=true` is set for a trusted local relay.
+- Browsers drop their offline tile and map data caches once after
+  this upgrade; field devices re-download offline areas on next sync.
+  From now on these caches survive updates.
+- Editor apps now load the features in view (up to 5,000 per layer)
+  instead of each editable layer whole.
+
+### Security
+
+- A disabled account is signed out of the API at once.
+- Notification template previews render in a sandboxed frame.
+- A link from another site to the sign-out route no longer signs you
+  out silently.
+- Item thumbnails are no longer kept in the browser cache after
+  sign-out.
+- Listing a PostGIS Live database's tables needs edit rights on the
+  connection.
+- Profile pictures must be uploaded through the portal.
+- A boundary clip can no longer use a private boundary from another
+  organization, and editors limited to their own rows or an area no
+  longer see other people's rows in sync conflicts.
+- Records searches refuse a filter they cannot apply instead of
+  returning everything.
+- Markup co-editing drops people whose access was removed.
+- Large uploads are checked for permission and disk space before
+  they are received.
+- Sign-in provider settings are locked in public-testing mode.
+- Outbound fetches time out after 30 seconds by default, including
+  the body.
+- People with edit access to an item can no longer make it public or
+  remove its geographic limit; only the owner or an admin can. If the
+  boundary behind a share or an organization-wide limit is deleted,
+  the people it limited see nothing until it points at a live
+  boundary.
+- An Editor target set to "Only rows they authored" is now enforced
+  on update and delete.
+
+### Changed
+
+- Breaking: uploading map icons, tile layers and point clouds needs
+  the contributor or admin role.
+- Breaking: a local or private AI endpoint can only be configured by
+  admins of the operator organization.
+- Breaking (API): a feature whose geometry type does not match a
+  layer declared as point, line or polygon is refused with 400
+  `geometry_type_mismatch`. Multi forms of the same type, null
+  geometry and undeclared layers are still accepted.
+- Breaking (API): sharing with an inline area restriction
+  (`geoLimit`) needs a closed WGS84 Polygon, MultiPolygon or a
+  collection of them.
+- Breaking (API): theme items no longer store tokens that are not
+  `--app-*` CSS values or that could load a URL.
+- Breaking: changing the SMTP server, port or user requires entering
+  the SMTP password again. The SMTP password is only sent over TLS;
+  set `SMTP_ALLOW_PLAINTEXT_AUTH=true` for a trusted local relay.
+- Breaking: a form can send submission copies to at most 10 extra
+  addresses.
+- The backup folder must be inside the deployment's backup folder or
+  one listed in `BACKUP_ALLOWED_DIRS`.
+- Queued emails that wait more than 48 hours for the mail server are
+  dropped.
+- Each user can have at most 5 analysis jobs waiting or running, and
+  each organization 20.
+- Old script runs are cleaned up: the newest 100 finished runs per
+  script are kept.
+- Editor apps load only the features in view (up to 5,000 per layer
+  per view). At low zoom on very large layers, not every feature is
+  drawn at once. Viewer apps draw target layers from map tiles.
+- The Add feature widget no longer offers line and polygon layers,
+  which it could only fill with a point.
+- Export widget Excel files from vector-tile layers no longer include
+  a WKT column.
+- Adding markup no longer changes a map's "updated" time.
+- Toggles that had no effect are hidden: Attribute table and Legend in
+  the viewer builder, Query and Legend in form Responses settings, and
+  "Default look-back" and "Hide submitter" are disabled until the
+  Responses page uses them.
+- The basemap Probe tab is shown only to org admins.
+- Feedback opens on New items only.
+- Offline mode and the installable app work on portals served at a
+  `.local` address.
+- Map icons uploaded by users are publicly readable, like the
+  built-in icons, so they show on public maps.
+- An out-of-range `GRATIS_SESSION_IDLE_SECONDS` is clamped with a
+  warning instead of turning the idle timeout off.
+
+### Added
+
+- Derived layers: Filter, Calculate field and Group by + aggregate
+  can be added from the builder.
+- The offline delta endpoint takes an optional `bbox`; the field app
+  sends the area it downloaded.
+- The items list API takes a `sourceItemId` filter.
+- Python client: `find_items` takes `offset`; new `iter_items` walks
+  every match; `add_features` returns the portal's real counts and
+  feature ids.
+- Admin Field Device Queues reports large queues.
+
+### Fixed
+
+#### Data, sharing and items
+
+- Feature lists and OGC paging no longer come back short or empty
+  after features are deleted or a layer is replaced.
+- Deleting a folder no longer moves other people's folders to the
+  trash. Folder edits no longer drop items you cannot see or items in
+  the trash, and smart folders keep their saved search.
+- Bulk "Share with org" and "Make public" keep each item's geographic
+  scope. Apply folder sharing keeps each share's end date.
+- People with an edit share can edit forms, pick lists, viewers, web
+  apps, print templates, scripts and services from the item page.
+- Importing features reports the real result. CSV, Excel and GeoJSON
+  exports from the Attributes tab contain the whole layer with
+  shapes. CSV exports that hit an error fail visibly.
+- Saving a row in the Attributes tab or Editor form changes only the
+  fields you edited.
+- Sorting and searching the attribute table work on the whole layer,
+  and "Use as filter" filters to exactly the selected rows.
+- Files with non-Latin names download again.
+- GeoParquet export works with field names that differ only by case.
+- Derived layers with number filters, calculations, calculate
+  geometry, aggregate, spatial join or contour load. Buffer by a
+  field works on chained layers. Searches by distance no longer miss
+  results to the east and west.
+- PostGIS Live tables with more than 50 columns load and show their
+  fields in pickers.
+- ArcGIS imports keep date fields, copy attachments, keep same-named
+  layers apart and report an expired token. CSV imports matched to
+  places import every row, and codes with leading zeros stay text.
+- Bundle export includes every related table level, keeps photos on
+  large layers and opens in Excel. XLSX import works again.
+- Deleting a user who still owns items or groups is refused with a
+  clear message. The Users page shows every user.
+- In-portal restore completes and restored files keep their type.
+- Scheduled cleanup no longer trashes built-in basemaps, themes,
+  templates or org and public items.
+- The Keycloak user sync no longer soft-deletes client service
+  accounts.
+
+#### Maps, apps and printing
+
+- "Zoom to extent" works for hosted data layers in maps and Editor
+  apps. Selection tools work on rotated maps.
+- The legend matches the map; class breaks and categories no longer
+  produce styles the map rejects.
+- Basemap switches no longer move the camera back; search has no
+  stuck spinner or false "No places found".
+- Saving a map no longer overwrites markup others added; markup pins
+  are no longer lost.
+- In the app designer, drag and drop inside containers works, layer
+  pickers handle removed layers, and Edit mode no longer uses CPU
+  continuously. The Export widget exports what is on screen.
+- Printed PDFs draw layers in the map's order, honor filters and
+  time-bin colours, use your time zone and size the scale bar for
+  the printed scale.
+- OGC API clients such as QGIS page through large public layers
+  quickly; CSW harvesters page past 50 records; WebMap export and
+  import keep hidden layers and opacity.
+- Uploaded SVG map icons draw correctly and show on maps again.
+- 4-band images such as NAIP draw as XYZ tiles; mosaics hold at most
+  500 images and one build runs at a time.
+- MapServer services whose URL needs its own query parameters can be
+  added.
+
+#### Forms
+
+- Responses with checkbox, ranking or multi image-choice answers
+  reach the results layer. File, audio and video questions attach
+  and submit; hidden sections no longer block a submission.
+- Dragging a question onto another no longer deletes it; conditions
+  work as labelled and follow renames.
+- Form submissions sent twice at once no longer send emails twice.
+  Calculated answers that depend on other calculated answers are
+  stored correctly.
+- Receipt PDFs show accented letters; the submissions list pages
+  past the newest 500.
+
+#### Field app and offline
+
+- An edit saved while a sync is running is no longer lost or sent
+  with old values. Signature and photo answers upload once.
+- Editing a feature no longer overwrites a colleague's newer changes.
+  View-only layers cannot be edited from the field map.
+- Offline areas are no longer wiped when the area list fails to load,
+  and an interrupted download is reported as incomplete.
+- Edits saved offline in an earlier session sync when the app opens
+  with signal.
+- Refreshing an offline area downloads only the changes for that
+  area.
+- Android: editing a feature twice with a sync in between no longer
+  makes a conflict; one failing edit no longer stops a sync; large
+  basemaps download on slow links; refreshing large layers uses far
+  less memory and never leaves a layer empty; large server deletes
+  apply on Android 9 to 11.
+
+#### Admin and operations
+
+- Release builds are no longer blocked when a later push cancels the
+  release commit's CI.
+- The API no longer logs a 403 at startup about QGIS plugin
+  redirects; deploy sets those redirects.
+- Fresh installs protect the master admin account at first sign-in,
+  and "Require an authenticator" applies to existing accounts.
+- Housekeeping, backup schedule and restore dialogs behave as
+  documented. Creating a backup from the Updates page no longer
+  times out.
+- NAS installs: public domains, TLS changes and admin edits behave as
+  documented.
+- Invalid query values return clear 400 errors instead of server
+  errors.
+
+Several hundred smaller fixes are listed in the pull requests for
+this release (#704 to #724).
+
 ## [1.4.3] - 2026-11-12
 
 Security and data-safety release, from a full review of the code.
@@ -4611,6 +4838,7 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[1.5.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.5.0
 [1.4.3]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.3
 [1.4.2]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.2
 [1.4.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v1.4.1
