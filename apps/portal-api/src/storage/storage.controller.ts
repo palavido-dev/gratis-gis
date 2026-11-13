@@ -10,6 +10,7 @@ import {
   Headers,
   NotFoundException,
   Param,
+  Query,
   Post,
   Req,
   Res,
@@ -184,6 +185,7 @@ export class StorageController {
     @Param('kind') kindParam: string,
     @Param('key') key: string,
     @Headers('range') rangeHeader: string | undefined,
+    @Query('inline') inlineParam: string | undefined,
     @Req() _req: Request,
     @Res() res: Response,
   ): Promise<void> {
@@ -332,6 +334,12 @@ export class StorageController {
       .trim()
       .toLowerCase();
     const inlineSafe = /^image\/(png|jpeg|webp|gif|avif)$/.test(servedType);
+    // `?inline=1` asks for a PDF to open in the page (the file item's
+    // preview frame) instead of downloading. A PDF can carry script
+    // and forms, so it is served under a sandbox CSP: no script, no
+    // same-origin access, nothing loaded from elsewhere. The browser's
+    // own PDF viewer still renders it. Other types ignore the flag.
+    const inlinePdf = inlineParam === '1' && servedType === 'application/pdf';
 
     res.status(upstream.statusCode);
     if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
@@ -343,13 +351,19 @@ export class StorageController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      contentDisposition(inlineSafe ? 'inline' : 'attachment', filename),
+      contentDisposition(inlineSafe || inlinePdf ? 'inline' : 'attachment', filename),
     );
+    if (inlinePdf) {
+      res.setHeader('Content-Security-Policy', INLINE_PDF_CSP);
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
     upstream.body.pipe(res);
   }
 }
+
+/** Policy for a PDF served inline; see getPrivateAsset. */
+export const INLINE_PDF_CSP = "sandbox; default-src 'none'";
 
 /**
  * The live item that references `storageKey`, oldest first, or null.

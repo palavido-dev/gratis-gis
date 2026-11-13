@@ -11,12 +11,23 @@ import type {
   MapLayerAccess,
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_LAYER_ACCESS } from '@gratis-gis/shared-types';
+import { DEFAULT_LAYER_ACCESS, EVERYONE_PRINCIPAL_ID } from '@gratis-gis/shared-types';
 
 export interface MatrixPrincipalRef {
-  type: 'user' | 'group';
+  type: 'user' | 'group' | 'everyone';
   id: string;
 }
+
+/**
+ * The "Everyone else" column: viewers no user or group entry names,
+ * which means org members reaching the map through org-wide sharing
+ * and anonymous viewers of a public map. The server applies its entry
+ * to them (filterMapForViewer).
+ */
+export const EVERYONE_ELSE: MatrixPrincipalRef = {
+  type: 'everyone',
+  id: EVERYONE_PRINCIPAL_ID,
+};
 
 /** Who can reach a backing item without an explicit share. */
 export interface ItemReach {
@@ -46,6 +57,15 @@ export function matrixEntryFor(
   );
   if (found) return found;
   if (acc.policy === 'custom') {
+    // A user or group with no entry of its own gets the Everyone else
+    // entry on the server, so show that.
+    const everyone =
+      p.type === 'everyone'
+        ? undefined
+        : acc.entries.find((e) => e.principalType === 'everyone');
+    if (everyone) {
+      return { ...everyone, principalType: p.type, principalId: p.id };
+    }
     return {
       principalType: p.type,
       principalId: p.id,
@@ -62,6 +82,8 @@ export function matrixEntryFor(
  * inherit to custom first gets an entry for every principal in the
  * matrix with what they inherited, so changing one person's cell does
  * not take the layer away from everyone else the map is shared with.
+ * Pass EVERYONE_ELSE among `principals` so org-wide and public viewers
+ * keep the layer too.
  */
 export function writeMatrixEntry(
   access: MapLayerAccess | undefined,
@@ -101,6 +123,9 @@ export function principalHasItemAccess(
 ): boolean {
   if (!shares) return true;
   if (reach?.access === 'public' || reach?.access === 'org') return true;
+  // Viewers without a share reach the item only through its access
+  // level, checked above; no share can be granted to them.
+  if (p.type === 'everyone') return false;
   if (p.type === 'user') {
     if (reach?.ownerId === p.id) return true;
     if (shares.some((s) => s.principalType === 'user' && s.principalId === p.id)) {

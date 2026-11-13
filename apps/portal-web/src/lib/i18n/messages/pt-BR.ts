@@ -1474,6 +1474,10 @@ export const ptBR: Partial<CatalogShape> = {
     applyFolderSharing: 'Aplicar compartilhamento da pasta',
     applyFolderSharingTitle:
       'Aplica o compartilhamento desta pasta a cada item dentro dela. Cada item termina com as mesmas linhas de compartilhamento que a pasta.',
+    sortLabel: 'Ordenação',
+    sortAz: 'A a Z',
+    sortCustom: 'Personalizada',
+    sortCustomTitle: 'Sua ordem salva. Arraste as linhas para alterá-la.',
     newSubfolder: 'Nova subpasta',
     newSubfolderTitle: 'Criar uma nova subpasta dentro desta pasta',
     addItems: 'Adicionar itens',
@@ -3069,7 +3073,10 @@ export const ptBR: Partial<CatalogShape> = {
   mapLayerAccess: {
     resetToInherit: "Reset to inherit",
     customOnlyListed:
-      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Todos os outros',
+    everyoneElseType: 'organização e público',
+    everyoneElseHint: 'Membros da organização e visitantes públicos com quem o mapa não é compartilhado nominalmente.',
     title: 'Acesso às camadas',
     description:
       'Ajuste o que cada usuário ou grupo compartilhado vê neste mapa. A matriz restringe o acesso; um aviso aparece quando um principal não tem acesso em nível de item aos dados de origem de uma camada.',
@@ -4312,6 +4319,8 @@ export const ptBR: Partial<CatalogShape> = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",

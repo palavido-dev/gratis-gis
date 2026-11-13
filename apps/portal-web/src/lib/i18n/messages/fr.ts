@@ -1477,6 +1477,10 @@ export const fr: Partial<CatalogShape> = {
     applyFolderSharing: 'Appliquer le partage du dossier',
     applyFolderSharingTitle:
       'Appliquez le partage de ce dossier à chaque élément qu’il contient. Chaque élément se retrouve avec les mêmes lignes de partage que le dossier.',
+    sortLabel: 'Tri',
+    sortAz: 'A à Z',
+    sortCustom: 'Personnalisé',
+    sortCustomTitle: 'Votre ordre enregistré. Faites glisser les lignes pour le modifier.',
     newSubfolder: 'Nouveau sous-dossier',
     newSubfolderTitle: 'Créer un nouveau sous-dossier dans ce dossier',
     addItems: 'Ajouter des éléments',
@@ -3080,7 +3084,10 @@ export const fr: Partial<CatalogShape> = {
   mapLayerAccess: {
     resetToInherit: "Reset to inherit",
     customOnlyListed:
-      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Tous les autres',
+    everyoneElseType: 'organisation et public',
+    everyoneElseHint: 'Membres de l’organisation et visiteurs publics avec qui la carte n’est pas partagée nommément.',
     title: 'Accès aux couches',
     description:
       "Affinez ce que chaque utilisateur ou groupe partagé voit sur cette carte. La matrice restreint l'accès ; un badge d'avertissement apparaît lorsqu'un principal n'a pas d'accès au niveau de l'élément aux données source d'une couche.",
@@ -4322,6 +4329,8 @@ export const fr: Partial<CatalogShape> = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",
