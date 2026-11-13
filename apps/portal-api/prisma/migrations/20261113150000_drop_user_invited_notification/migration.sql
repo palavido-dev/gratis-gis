@@ -4,6 +4,8 @@
 -- Postgres cannot drop an enum value, so the type is rebuilt without
 -- it. Rows for the removed type (preferences, defaults, templates,
 -- queued notifications) are deleted first.
+-- notification_type_default.type is TEXT, not the enum (see
+-- prisma/drift-baseline.sql), so only its rows are deleted.
 
 DELETE FROM "notification_preference" WHERE "type" = 'user-invited';
 DELETE FROM "notification_type_default" WHERE "type" = 'user-invited';
@@ -25,8 +27,6 @@ CREATE TYPE "NotificationType" AS ENUM (
   'backup-failed'
 );
 ALTER TABLE "notification_preference"
-  ALTER COLUMN "type" TYPE "NotificationType" USING ("type"::text::"NotificationType");
-ALTER TABLE "notification_type_default"
   ALTER COLUMN "type" TYPE "NotificationType" USING ("type"::text::"NotificationType");
 ALTER TABLE "notification_template"
   ALTER COLUMN "type" TYPE "NotificationType" USING ("type"::text::"NotificationType");
