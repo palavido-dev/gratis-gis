@@ -233,7 +233,13 @@ export default async function ItemDetailPage(props: Props) {
     if (err instanceof Error && err.message.includes('404')) notFound();
     throw err;
   }
-  const canManage = me.id === item.ownerId || me.orgRole === 'admin';
+  // Owner, or an admin of the item's own org. The org check matters on
+  // public items, which signed-in users of every org can read: an
+  // admin of another org has no management rights here, and the
+  // server's own owner-or-admin check includes the org too.
+  const canManage =
+    me.id === item.ownerId ||
+    (me.orgRole === 'admin' && me.orgId === item.orgId);
   // #296 + #32: client-side approximation of the download tier
   // (owner/admin, public access, or same-org access). Kept only as
   // the FALLBACK for the real permissions fetch in the parallel
@@ -279,8 +285,7 @@ export default async function ItemDetailPage(props: Props) {
     geoBoundaries,
     groups,
     themeItems,
-    canDownload,
-    mapItemCanEdit,
+    itemPermissions,
     layerPermissions,
   ] = await Promise.all([
     // Web map basemap library. full=1: the list default strips
@@ -365,21 +370,18 @@ export default async function ItemDetailPage(props: Props) {
     // user's group memberships). Owners and org admins skip the
     // round-trip; a failed fetch falls back to the approximation so
     // the page still renders.
-    !canManage && (item.type === 'file' || item.type === 'data_layer')
-      ? apiFetch<{ canDownload: boolean }>(`/api/items/${item.id}/permissions`)
-          .then((p) => p.canDownload)
-          .catch(() => viewerCanDownload)
-      : Promise.resolve(true),
-    // Map-builder editing: the map item's REAL edit permission. `canManage` is
-    // owner-or-admin, so the map builder silently hid its write
-    // affordances from anyone holding an explicit edit share, which
-    // no share tier could ever satisfy. Owners and admins skip the
-    // round-trip because the answer cannot be no.
-    isMap && !canManage
-      ? apiFetch<{ canEdit: boolean }>(`/api/items/${item.id}/permissions`)
-          .then((p) => p.canEdit)
-          .catch(() => false)
-      : Promise.resolve(canManage),
+    // The item's REAL edit permission comes from the same call.
+    // `canManage` is owner-or-admin, so gating editors on it hid every
+    // write affordance from anyone holding an explicit edit share,
+    // which no share tier could ever satisfy, while the server accepts
+    // their PATCH. Owners and admins skip the round-trip because
+    // neither answer can be no. null on failure: no edit controls, and
+    // the download gate falls back to the approximation.
+    !canManage
+      ? apiFetch<{ canEdit: boolean; canDownload: boolean }>(
+          `/api/items/${item.id}/permissions`,
+        ).catch(() => null)
+      : Promise.resolve(null),
     // Map-builder editing: and the per-LAYER answer, which is a different question:
     // this permission is about the map item, while every edit target
     // is a separate data_layer item with its own sharing. One batch
@@ -393,6 +395,17 @@ export default async function ItemDetailPage(props: Props) {
         ).catch(() => null)
       : Promise.resolve({} as Record<string, { canEdit: boolean }>),
   ]);
+
+  const canDownload =
+    canManage || (item.type !== 'file' && item.type !== 'data_layer')
+      ? true
+      : (itemPermissions?.canDownload ?? viewerCanDownload);
+  // Edit shares count here; share, reassign and delete stay on
+  // canManage. Editors whose server routes need admin on the item
+  // (tile layer, point cloud, geocoding, stored credentials) also stay
+  // on canManage so they do not offer controls that would be refused.
+  const itemCanEdit = canManage || itemPermissions?.canEdit === true;
+  const mapItemCanEdit = itemCanEdit;
 
   // Ids of the data_layers this viewer may actually write to. Passed
   // to the map builder so an edit control appears only where an edit
@@ -529,7 +542,7 @@ export default async function ItemDetailPage(props: Props) {
           data={item.data as DataLayerData | null}
           userNames={userNamesForProvenance}
         />
-        <VersionHistoryPanel itemId={item.id} canEdit={canManage} />
+        <VersionHistoryPanel itemId={item.id} canEdit={itemCanEdit} />
       </>
     ) : null;
   const dataLayerDataPanels =
@@ -541,7 +554,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <V3DataSection
             itemId={item.id}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             canDownload={canDownload}
           />
         </section>
@@ -563,7 +576,7 @@ export default async function ItemDetailPage(props: Props) {
                       ...((item.data ?? {}) as Partial<DataLayerData>),
                     } as DataLayerData)
               }
-              canEdit={canManage}
+              canEdit={itemCanEdit}
             />
           </section>
         </>
@@ -577,7 +590,7 @@ export default async function ItemDetailPage(props: Props) {
     <>
       <DataLayerSchema data={item.data as DataLayerData | null} />
       <section className="mb-6">
-        <V3StructureSection itemId={item.id} canEdit={canManage} />
+        <V3StructureSection itemId={item.id} canEdit={itemCanEdit} />
       </section>
     </>
   ) : null;
@@ -1040,7 +1053,8 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
-                  canEdit={canManage}
+                  updatedAt={item.updatedAt}
+                  canEdit={itemCanEdit}
                 />
               );
             }
@@ -1051,7 +1065,8 @@ export default async function ItemDetailPage(props: Props) {
                   ...DEFAULT_ARCGIS_SERVICE,
                   ...((item.data ?? {}) as Partial<ArcgisServiceData>),
                 }}
-                canEdit={canManage}
+                canEdit={itemCanEdit}
+                canAdmin={canManage}
               />
             );
           })()}
@@ -1068,7 +1083,8 @@ export default async function ItemDetailPage(props: Props) {
           <ToolDetail
             itemId={item.id}
             initial={(item.data ?? null) as ToolItemData | null}
-            canEdit={canManage}
+            updatedAt={item.updatedAt}
+            canEdit={itemCanEdit}
           />
         </section>)
       ) : item.type === 'pick_list' ? (
@@ -1080,7 +1096,7 @@ export default async function ItemDetailPage(props: Props) {
               ...DEFAULT_PICK_LIST,
               ...((item.data ?? {}) as Partial<PickListData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : item.type === 'geo_boundary' ? (
@@ -1090,7 +1106,7 @@ export default async function ItemDetailPage(props: Props) {
             ...DEFAULT_GEO_BOUNDARY,
             ...((item.data ?? {}) as Partial<GeoBoundaryData>),
           }}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'folder' ? (
         <section className="mb-6">
@@ -1103,7 +1119,7 @@ export default async function ItemDetailPage(props: Props) {
             updatedAt={item.updatedAt}
             initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
             breadcrumb={folderBreadcrumb}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             canCreate={hasCapability(me, 'can_publish_items')}
             folderShares={item.shares}
             folderAccess={item.access}
@@ -1118,7 +1134,7 @@ export default async function ItemDetailPage(props: Props) {
               ...DEFAULT_EDITOR,
               ...((readEditorData(item) ?? {}) as Partial<EditorData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : isViewerItem(item) ? (
@@ -1134,7 +1150,7 @@ export default async function ItemDetailPage(props: Props) {
               ...DEFAULT_VIEWER,
               ...((readViewerData(item) ?? {}) as Partial<ViewerData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : isCustomAppItem(item) && isBuilderView ? (
@@ -1146,7 +1162,7 @@ export default async function ItemDetailPage(props: Props) {
             ...DEFAULT_CUSTOM_APP,
             ...((readCustomAppData(item) ?? {}) as Partial<CustomAppData>),
           }}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
           themeItems={themeItems}
         />
       ) : isCustomAppItem(item) && !isBuilderView ? (
@@ -1161,30 +1177,30 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-[min(100%,14rem)] flex-1">
             <p className="text-sm font-medium text-ink-0">
-              {canManage
+              {itemCanEdit
                 ? t('appCard.editTitle', undefined, locale)
                 : t('appCard.viewTitle', undefined, locale)}
             </p>
             <p className="mt-0.5 text-xs text-muted">
-              {canManage
+              {itemCanEdit
                 ? t('appCard.editBody', undefined, locale)
                 : t('appCard.viewBody', undefined, locale)}
             </p>
           </div>
           <Link
             href={
-              canManage
+              itemCanEdit
                 ? `/items/${item.id}?view=configure`
                 : getItemHref(item)
             }
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
           >
-            {canManage ? (
+            {itemCanEdit ? (
               <Pencil className="h-4 w-4" />
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {canManage
+            {itemCanEdit
               ? t('appCard.editAction', undefined, locale)
               : t('appCard.viewAction', undefined, locale)}
           </Link>
@@ -1193,7 +1209,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <DataCollectionDetail
             itemId={item.id}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             initial={
               // The wizard always writes a complete DataCollectionData,
               // but tolerate partial shapes the same way the other
@@ -1243,7 +1259,7 @@ export default async function ItemDetailPage(props: Props) {
                 ? ((item.data as unknown) as FormSchema)
                 : null
             }
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : item.type === 'wms_service' || item.type === 'wfs_service' ? (
@@ -1261,7 +1277,8 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
-                  canEdit={canManage}
+                  updatedAt={item.updatedAt}
+                  canEdit={itemCanEdit}
                 />
               );
             }
@@ -1272,7 +1289,7 @@ export default async function ItemDetailPage(props: Props) {
                 initial={
                   (item.data ?? {}) as WmsServiceData | WfsServiceData
                 }
-                canEdit={canManage}
+                canEdit={itemCanEdit}
               />
             );
           })()}
@@ -1295,7 +1312,8 @@ export default async function ItemDetailPage(props: Props) {
               <ServiceEditor
                 itemId={item.id}
                 initial={sd}
-                canEdit={canManage}
+                updatedAt={item.updatedAt}
+                canEdit={itemCanEdit}
               />
             );
           })()}
@@ -1404,7 +1422,9 @@ export default async function ItemDetailPage(props: Props) {
                 ? item.data
                 : { version: 1, source: '' }) as ScriptData
             }
-            canEdit={canManage}
+            updatedAt={item.updatedAt}
+            ownerId={item.ownerId}
+            canEdit={itemCanEdit}
             canSchedule={me.id === item.ownerId}
           />
         </section>
@@ -1442,7 +1462,8 @@ export default async function ItemDetailPage(props: Props) {
                 ? item.data
                 : { version: 1, kind: 'tile-url' }) as BasemapData
             }
-            canEdit={canManage}
+            canEdit={itemCanEdit}
+            canProbe={me.orgRole === 'admin' && me.orgId === item.orgId}
           />
         </section>
       ) : item.type === 'app_template' ? (
@@ -1469,19 +1490,26 @@ export default async function ItemDetailPage(props: Props) {
             }
           }
           seedKind={(item as { seedKind?: string | null }).seedKind ?? null}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'print_template' && isBuilderView ? (
         <PrintTemplateDetail
           itemId={item.id}
           updatedAt={item.updatedAt}
           initialBlueprint={
-            (item.data && typeof item.data === 'object'
-              ? item.data
-              : DEFAULT_PRINT_TEMPLATE) as PrintTemplateData
+            // Spread over the defaults like the other editors do. A
+            // blueprint written through the API without paper,
+            // elements or parameters would otherwise crash the
+            // designer on render.
+            {
+              ...DEFAULT_PRINT_TEMPLATE,
+              ...(item.data && typeof item.data === 'object'
+                ? (item.data as Partial<PrintTemplateData>)
+                : {}),
+            } as PrintTemplateData
           }
           seedKind={(item as { seedKind?: string | null }).seedKind ?? null}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'print_template' && !isBuilderView ? (
         // Metadata-first landing for print templates -- same shape as
@@ -1499,7 +1527,7 @@ export default async function ItemDetailPage(props: Props) {
               {t('itemDetail.printTemplateDesignerBody', undefined, locale)}
             </p>
           </div>
-          {canManage ? (
+          {itemCanEdit ? (
             <Link
               href={`/items/${item.id}?view=configure`}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90"

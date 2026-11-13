@@ -20,12 +20,18 @@ import {
 } from 'lucide-react';
 import { NotebookView } from './notebook-view';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import {
+  scriptDraftDirty,
+  storedScriptSource,
+  type ScriptDraft,
+} from '@/lib/script-draft';
 import {
   SCRIPT_DEFAULT_TIMEOUT_SECONDS,
   SCRIPT_MAX_TIMEOUT_SECONDS,
   looksLikeNotebook,
   normalizeScriptSchedule,
-  stripNotebookOutputs,
   summarizeScriptSchedule,
   type ScriptData,
   type ScriptRunDetail,
@@ -49,17 +55,26 @@ const LIVE_STATES = new Set(['queued', 'running', 'cancel_requested']);
 export function ScriptPanel({
   itemId,
   initial,
+  updatedAt,
+  ownerId,
   canEdit,
   canSchedule = canEdit,
 }: {
   itemId: string;
   initial: ScriptData;
+  /** The item's updatedAt at load, for the stale-save guard. */
+  updatedAt?: string | null;
+  /** The script's owner. Used to tell whether the stored code is
+   *  already owner-approved for scheduled runs. */
+  ownerId?: string;
   canEdit: boolean;
   /** Only the owner may set a schedule, since scheduled runs carry the
    *  owner's permissions. The server enforces this too. */
   canSchedule?: boolean;
 }) {
   const fmt = useFormat();
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const [source, setSource] = useState(initial.source ?? '');
   const [notes, setNotes] = useState(initial.notes ?? '');
   const [timeout, setTimeoutSeconds] = useState(
@@ -68,7 +83,22 @@ export function ScriptPanel({
   const [schedule, setSchedule] = useState<ScriptSchedule>(
     normalizeScriptSchedule(initial.schedule) ?? { mode: 'off' },
   );
-  const [savedSource, setSavedSource] = useState(initial.source ?? '');
+  // What the server holds, field by field. Save is enabled when any of
+  // them differs, not only the code: a schedule or time limit changed
+  // on its own is an unsaved change too.
+  const [saved, setSaved] = useState<ScriptDraft>(() => ({
+    source: initial.source ?? '',
+    notes: initial.notes ?? '',
+    timeoutSeconds: initial.timeoutSeconds ?? SCRIPT_DEFAULT_TIMEOUT_SECONDS,
+    schedule: normalizeScriptSchedule(initial.schedule) ?? { mode: 'off' },
+  }));
+  // Scheduled runs skip code that the owner has not saved. The server
+  // stamps who last changed the code; when that is not the owner, the
+  // owner's way to approve it is to save again, so Save stays enabled
+  // for the owner until they do.
+  const [ownerApproved, setOwnerApproved] = useState(
+    (initial as { sourceEditedBy?: unknown }).sourceEditedBy === ownerId,
+  );
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +106,14 @@ export function ScriptPanel({
   const [openRun, setOpenRun] = useState<string | null>(null);
   const [detail, setDetail] = useState<ScriptRunDetail | null>(null);
 
-  const dirty = source !== savedSource;
+  const draft: ScriptDraft = { source, notes, timeoutSeconds: timeout, schedule };
+  const dirty = scriptDraftDirty(saved, draft);
+  const needsApproval =
+    canSchedule &&
+    !ownerApproved &&
+    saved.schedule.mode !== 'off' &&
+    source.trim().length > 0;
+  const canSave = dirty || needsApproval;
   const live = runs.some((r) => LIVE_STATES.has(r.state));
   const isNotebook = looksLikeNotebook(source);
 
@@ -115,19 +152,36 @@ export function ScriptPanel({
   // a second monitor is rude.
   useEffect(() => {
     if (!live) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       void loadRuns();
       if (openRun) void loadDetail(openRun);
     }, POLL_MS);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, openRun, loadRuns]);
+
+  // Polling stops the moment the list shows no live run, so a detail
+  // fetched just before the run finished would stay half-written. One
+  // last fetch when `live` goes false picks up the final log.
+  const wasLive = useRef(false);
+  useEffect(() => {
+    if (wasLive.current && !live && openRun) void loadDetail(openRun);
+    wasLive.current = live;
+  }, [live]);
+
+  // The run whose detail is open now. A response for any other run
+  // arrived late (the user clicked another row) and is dropped, so a
+  // row never shows another run's log.
+  const openRunRef = useRef<string | null>(null);
+  openRunRef.current = openRun;
 
   async function loadDetail(runId: string) {
     try {
       const res = await fetch(`/api/portal/scripts/runs/${runId}`);
       if (!res.ok) return;
-      setDetail((await res.json()) as ScriptRunDetail);
+      const body = (await res.json()) as ScriptRunDetail;
+      if (openRunRef.current !== runId) return;
+      setDetail(body);
     } catch {
       // Same: transient.
     }
@@ -140,11 +194,13 @@ export function ScriptPanel({
       return;
     }
     setOpenRun(runId);
+    openRunRef.current = runId;
     setDetail(null);
     await loadDetail(runId);
   }
 
-  async function save() {
+  /** Save the editor. Resolves true when the server stored it. */
+  async function save(): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
@@ -155,21 +211,27 @@ export function ScriptPanel({
       const isNotebook = looksLikeNotebook(source);
       const body: ScriptData = {
         version: 1,
-        source: isNotebook ? stripNotebookOutputs(source) : source,
+        source: storedScriptSource(source),
         format: isNotebook ? 'notebook' : 'python',
         timeoutSeconds: timeout,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         schedule,
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: body }),
-      });
+      // Guarded: without the version check the later of two saves
+      // silently reverts the other, and an owner saving from an old
+      // tab would also mark the overwritten code as approved.
+      const res = await patchItem({ data: body });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return false;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setSavedSource(source);
+      setSaved(draft);
+      if (canSchedule) setOwnerApproved(true);
+      return true;
     } catch {
       setError('Could not save the script.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -183,7 +245,8 @@ export function ScriptPanel({
       // snapshot taken at enqueue, so running with a dirty editor
       // would run the PREVIOUS code while showing the new code, which
       // is the most confusing thing this page could do.
-      if (dirty) await save();
+      // A failed save must stop the run for the same reason.
+      if (dirty && !(await save())) return;
       const res = await fetch(`/api/portal/scripts/${itemId}/run`, {
         method: 'POST',
       });
@@ -229,7 +292,12 @@ export function ScriptPanel({
               <button
                 type="button"
                 onClick={() => void save()}
-                disabled={saving || !dirty}
+                disabled={saving || !canSave}
+                title={
+                  needsApproval && !dirty
+                    ? 'Save to approve this code for scheduled runs'
+                    : undefined
+                }
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 {saving ? (
@@ -237,7 +305,7 @@ export function ScriptPanel({
                 ) : (
                   <Save className="h-3.5 w-3.5" />
                 )}
-                {dirty ? 'Save' : 'Saved'}
+                {canSave ? 'Save' : 'Saved'}
               </button>
               <button
                 type="button"
@@ -626,7 +694,7 @@ export function ScriptPanel({
                               : 'This run produced no output.'}
                         </pre>
                         {detail.sourceSnapshot &&
-                        detail.sourceSnapshot !== source ? (
+                        detail.sourceSnapshot !== storedScriptSource(source) ? (
                           <p className="mt-2 text-2xs text-muted">
                             The script has been edited since this run. The
                             code above ran against the earlier version.

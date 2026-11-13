@@ -28,13 +28,9 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   applicationName: 'GratisGIS',
   manifest: '/manifest.json',
-  // Canonical link tag.  Self-host deployments that set
-  // NEXT_PUBLIC_PORTAL_URL produce a correct canonical for their
-  // own origin; the demo.gratisgis.org default keeps the public preview
-  // canonical.
-  alternates: {
-    canonical: '/',
-  },
+  // No canonical here: a layout's alternates are inherited by every
+  // child page, which made each page claim to be a copy of /. Pages
+  // that want one set their own (home, /help, /credits, /whats-new).
   // Open Graph card.  /opengraph-image is auto-generated at the
   // app/opengraph-image.tsx route; Next.js injects it as the
   // og:image URL.  Twitter card piggybacks on the same image.

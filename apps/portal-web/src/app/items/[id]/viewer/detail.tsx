@@ -64,11 +64,9 @@ interface Props {
  *      reading shouldn't be blocked by an editing toggle on the
  *      data_layer.
  *
- *   3. Tool palette: subset of the read-side toolbar
- *      (select / query / measure / attribute-table / legend / print).
- *      Authors trim to a narrower app if the workflow doesn't need
- *      all six. Print is the new tool for #259; everything else is
- *      already implemented in the runtime.
+ *   3. Tool palette: the read-side tools the runtime can switch off
+ *      (select / measure / print). See ALL_TOOLS for why the others
+ *      are not offered.
  *
  * Persistence: PATCH /api/portal/items/<id> with `{ data: viewer }`.
  * Same shape and dirty/save flow as MapEditor and EditorDetail.
@@ -76,16 +74,16 @@ interface Props {
 export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
   const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
-  // Working copy. Seed `tools` from the default palette when the
-  // persisted item is older than the tools field landing (matches
-  // EditorDetail's pattern).
-  const [viewer, setViewer] = useState<ViewerData>(() => ({
-    ...initial,
-    tools:
-      initial.tools && initial.tools.length > 0
-        ? initial.tools
-        : DEFAULT_VIEWER_TOOLS,
-  }));
+  // What the server holds now. Seeded from the page load and moved
+  // forward on every successful save, so Discard returns to the last
+  // save rather than to the page-load state. Restoring `initial` after
+  // a save left the builder showing older data that the next save
+  // then wrote back over the newer save.
+  const [lastSaved, setLastSaved] = useState<ViewerData>(() =>
+    seedViewer(initial),
+  );
+  // Working copy.
+  const [viewer, setViewer] = useState<ViewerData>(() => seedViewer(initial));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -324,6 +322,7 @@ export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
         setError(await parseApiError(res, 'Save failed'));
         return;
       }
+      setLastSaved(viewer);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -333,13 +332,7 @@ export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
   }
 
   function cancel() {
-    setViewer({
-      ...initial,
-      tools:
-        initial.tools && initial.tools.length > 0
-          ? initial.tools
-          : DEFAULT_VIEWER_TOOLS,
-    });
+    setViewer(lastSaved);
     setDirty(false);
     setError(null);
   }
@@ -645,10 +638,23 @@ export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
 }
 
 /**
+ * Seed `tools` from the default palette only when the persisted item
+ * predates the tools field. An empty list is a real choice (no tools),
+ * which the runtime honours, so it is kept as is.
+ */
+function seedViewer(v: ViewerData): ViewerData {
+  return { ...v, tools: v.tools ?? DEFAULT_VIEWER_TOOLS };
+}
+
+/**
  * `query` is not offered. Nothing in the runtime reads it, so the
  * checkbox promised a filter control that has never existed. It stays
  * in ViewerTool for viewers that already have it saved; when the
  * control ships, add the row back here and to DEFAULT_VIEWER_TOOLS.
+ *
+ * `attribute-table` and `legend` are not offered for the same reason:
+ * the runtime shows both as always-on chrome (viewer/run/page.tsx), so
+ * unticking them changed nothing. Saved values are kept untouched.
  */
 const ALL_TOOLS: Array<{ key: ViewerTool; label: string; hint: string }> = [
   { key: 'select', label: 'Select', hint: 'Pick features to inspect.' },
@@ -657,12 +663,6 @@ const ALL_TOOLS: Array<{ key: ViewerTool; label: string; hint: string }> = [
     label: 'Measure',
     hint: 'Distance and area readouts on the canvas.',
   },
-  {
-    key: 'attribute-table',
-    label: 'Attribute table',
-    hint: 'Browse layer rows in a sortable table.',
-  },
-  { key: 'legend', label: 'Legend', hint: 'Symbology key for the visible layers.' },
   {
     key: 'print',
     label: 'Print',

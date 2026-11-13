@@ -187,6 +187,9 @@ export class PrintRenderService {
       templateId: string;
       mapId: string;
       parameterValues?: Record<string, string>;
+      /** Requester's IANA time zone and locale, for date tokens. */
+      timeZone?: string;
+      locale?: string;
     },
   ): Promise<Buffer> {
     // 1. Load + permission-check both items via the items service.
@@ -252,7 +255,9 @@ export class PrintRenderService {
       `${previewBase}/print-preview/${encodeURIComponent(args.templateId)}` +
       `?map=${encodeURIComponent(args.mapId)}` +
       `&renderToken=${encodeURIComponent(token)}` +
-      `&p=${paramsBlob}`;
+      `&p=${paramsBlob}` +
+      (args.timeZone ? `&tz=${encodeURIComponent(args.timeZone)}` : '') +
+      (args.locale ? `&lc=${encodeURIComponent(args.locale)}` : '');
 
     // 5. Connect, navigate, page.pdf, return bytes.
     // Renders hold a Chromium page for up to 45 s and buffer the
@@ -299,13 +304,11 @@ export class PrintRenderService {
           waitUntil: 'networkidle0',
           timeout: 30_000,
         });
-        // #159 Phase 2.2: the inline MapLibre snapshot signals
-        // readiness by setting body[data-map-ready="true"] once
-        // tiles + layers settle. Wait up to 15s so the captured
-        // PDF contains the rendered map rather than a blank
-        // canvas. Templates without a Map element resolve this
-        // check from the MapSnapshot's 12s hard-ceiling fallback,
-        // which is harmless when no map is rendered.
+        // The preview page sets body[data-map-ready="true"] once
+        // every map snapshot on the sheet has settled, and at once
+        // for a template with no Map element. Wait up to 15s so the
+        // captured PDF contains the rendered map rather than a
+        // blank canvas; each snapshot reports by 12s at the latest.
         try {
           await page.waitForSelector('body[data-map-ready="true"]', {
             timeout: 15_000,

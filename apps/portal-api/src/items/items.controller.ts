@@ -766,6 +766,7 @@ export class ItemsController {
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
+    @Query('limit') limit?: string,
   ) {
     // Use conditional spread (not `undefined` values) to play nicely
     // with exactOptionalPropertyTypes; the destructure also narrows
@@ -775,7 +776,11 @@ export class ItemsController {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      limit?: number;
     } = {};
+    // Optional row cap; the service bounds it to its own maximum.
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
+    if (Number.isFinite(parsedLimit) && parsedLimit > 0) opts.limit = parsedLimit;
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {

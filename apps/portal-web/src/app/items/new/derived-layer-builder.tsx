@@ -32,7 +32,6 @@ import {
   ExpressionError,
   LENGTH_UNITS,
   MAX_BUFFER_DISTANCE_METERS,
-  METERS_PER_UNIT,
   UNIT_LABELS,
   fieldRefTypeFor,
   parseExpression,
@@ -50,6 +49,8 @@ import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { useDerivedLayerCatalog } from './use-derived-layer-catalog';
 import { StableKeys } from '@/lib/stable-keys';
+import { clampBufferDistance } from '@/lib/analyze-buffer-derived';
+import { stepInputSchemas } from '@/lib/derived-step-schema';
 
 /**
  * Inline builder for derived layers.
@@ -170,7 +171,19 @@ export function DerivedLayerBuilder({
   // every freshly-added step starts in a coherent state.
   const insertStepAt = useCallback(
     (index: number, kind: ToolStep['tool']) => {
-      const fresh = DEFAULT_STEPS[kind];
+      let fresh = DEFAULT_STEPS[kind];
+      // Roll the sample's seed here so it is saved with the step. The
+      // default is 0, which the server reads as 1, so every new sample
+      // used to pick the same subset.
+      if (fresh.tool === 'random-sample') {
+        fresh = {
+          ...fresh,
+          params: {
+            ...fresh.params,
+            seed: Math.floor(Math.random() * 2147483646) + 1,
+          },
+        };
+      }
       const pipeline = [
         ...value.pipeline.slice(0, index),
         fresh,
@@ -418,7 +431,9 @@ function SourceLayerPicker({
                 ...(l.geometryType ? { geometryType: l.geometryType } : {}),
               });
             }
-          } else {
+          } else if (layers.length === 0) {
+            // v2 only. A v3 item whose layers are all tables has no
+            // geometry to feed a tool; it is counted as hidden below.
             flattened.push({ key: item.id, item, sourceKind: 'data_layer' });
           }
         }
@@ -453,7 +468,9 @@ function SourceLayerPicker({
         if ((e as Error)?.name === 'AbortError') return;
         if (!cancelled) {
           setErr(
-            e instanceof Error ? e.message : 'Could not load data layers',
+            e instanceof Error
+              ? e.message
+              : t('derivedLayerBuilder.loadDataLayersFailed'),
           );
           setRows([]);
         }
@@ -477,25 +494,41 @@ function SourceLayerPicker({
       ? `${selectedRef.itemId}#${selectedRef.layerKey}`
       : selectedRef.itemId
     : null;
+  // Keyed on the ref's value, not its object: the parent builds a new
+  // object every render, so depending on it refetched on every
+  // keystroke while the GET kept failing. A key that failed once is
+  // not asked for again.
+  const selectedKind = selectedRef?.kind;
+  const selectedItemId = selectedRef?.itemId;
+  const selectedLayerKey = selectedRef?.layerKey;
+  const failedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!selectedRef || cachedSelection?.key === selectedRefKey) return;
+    if (!selectedKind || !selectedItemId || !selectedRefKey) return;
+    if (cachedSelection?.key === selectedRefKey) return;
+    if (failedKeyRef.current === selectedRefKey) return;
     let cancelled = false;
-    fetch(`/api/portal/items/${selectedRef.itemId}?lite=1`)
+    fetch(`/api/portal/items/${encodeURIComponent(selectedItemId)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = (await r.json()) as ItemWithLite;
         if (cancelled) return;
-        // Locate the matching sublayer label when the ref points at
-        // one; for v2 sources the sublayerLabel stays absent.
+        // The single-item read carries the layers in data.layers (the
+        // `_layers` summary only comes from the list endpoint). For v2
+        // sources the sublayerLabel stays absent.
+        const dataLayers = (body.data as { layers?: unknown } | null)?.layers;
         const sub =
-          selectedRef.layerKey && Array.isArray(body._layers)
-            ? body._layers.find((l) => l.id === selectedRef.layerKey)
+          selectedLayerKey && Array.isArray(dataLayers)
+            ? (dataLayers as Array<{
+                id?: string;
+                label?: string;
+                geometryType?: string | null;
+              }>).find((l) => l.id === selectedLayerKey)
             : undefined;
         setCachedSelection({
-          key: selectedRefKey ?? body.id,
+          key: selectedRefKey,
           item: body,
-          sourceKind: selectedRef.kind,
-          ...(selectedRef.layerKey ? { layerKey: selectedRef.layerKey } : {}),
+          sourceKind: selectedKind,
+          ...(selectedLayerKey ? { layerKey: selectedLayerKey } : {}),
           ...(sub?.label ? { sublayerLabel: sub.label } : {}),
           ...(typeof sub?.geometryType === 'string'
             ? { geometryType: sub.geometryType }
@@ -506,11 +539,18 @@ function SourceLayerPicker({
         // Best-effort: leave the trigger showing the bare id if the
         // resolve fails. Probably means the item was deleted or
         // un-shared between save and re-render.
+        if (!cancelled) failedKeyRef.current = selectedRefKey;
       });
     return () => {
       cancelled = true;
     };
-  }, [selectedRef, selectedRefKey, cachedSelection?.key]);
+  }, [
+    selectedKind,
+    selectedItemId,
+    selectedLayerKey,
+    selectedRefKey,
+    cachedSelection?.key,
+  ]);
 
   // Close on click outside.
   useEffect(() => {
@@ -774,6 +814,28 @@ function UnitSelect({
  * recipe (see docs/derived-layers.md). That cap drives bbox padding
  * and per-row clamping in SQL.
  */
+/**
+ * A select whose value names a field that is not in its list shows
+ * the first option instead, so a field left over from another source
+ * looked like a valid pick while state still held the old name and
+ * the save failed. This option makes the stale value visible.
+ */
+function MissingFieldOption({
+  field,
+  fields,
+}: {
+  field: string;
+  fields: FeatureField[];
+}) {
+  const { t } = useDerivedLayerCatalog();
+  if (field === '' || fields.some((f) => f.name === field)) return null;
+  return (
+    <option value={field} disabled>
+      {t('derivedLayerBuilder.missingFieldOption', { field })}
+    </option>
+  );
+}
+
 function FieldModeControls({
   sourceFields,
   field,
@@ -811,6 +873,7 @@ function FieldModeControls({
                   : t('derivedLayerBuilder.pickNumericField')}
             </option>
           ) : null}
+          <MissingFieldOption field={field} fields={numericFields} />
           {numericFields.map((f) => (
             <option key={f.name} value={f.name}>
               {f.label || f.name}
@@ -922,6 +985,12 @@ function PipelineSection({
   // step card's preview state stays with its step.
   const [stepKeys] = useState(() => new StableKeys());
   const keys = stepKeys.for(pipeline.length);
+  // Each step edits against the schema coming out of the step before
+  // it, as the server validates it, not against the source's fields.
+  const inputSchemas = useMemo(
+    () => stepInputSchemas(sourceFields, pipeline),
+    [sourceFields, pipeline],
+  );
   return (
     <section className="space-y-2">
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -947,7 +1016,7 @@ function PipelineSection({
               step={step}
               pipeline={pipeline}
               source={source}
-              sourceFields={sourceFields}
+              sourceFields={inputSchemas[idx] ?? sourceFields}
               sourcePicked={sourcePicked}
               onChange={(next) => onReplaceStep(idx, next)}
               onRemove={() => {
@@ -1632,17 +1701,27 @@ function DataLayerPicker({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/portal/items?type=data_layer', {
-          cache: 'no-store',
-        });
-        if (!res.ok) {
-          if (!cancelled) setAvailable([]);
-          return;
+        // The list endpoint returns one page (500 by default), so page
+        // through it. Without this, layers past the first page could
+        // not be chosen at all. Bounded so a huge org cannot spin.
+        const PAGE = 1000;
+        const rows: Array<{ id: string; title: string }> = [];
+        for (let page = 0; page < 10; page += 1) {
+          const res = await fetch(
+            `/api/portal/items?type=data_layer&limit=${PAGE}&offset=${page * PAGE}`,
+            { cache: 'no-store' },
+          );
+          if (!res.ok) {
+            if (!cancelled) setAvailable([]);
+            return;
+          }
+          const batch = (await res.json()) as Array<{
+            id: string;
+            title: string;
+          }>;
+          rows.push(...batch);
+          if (batch.length < PAGE || cancelled) break;
         }
-        const rows = (await res.json()) as Array<{
-          id: string;
-          title: string;
-        }>;
         if (!cancelled) {
           setAvailable(
             rows
@@ -1670,11 +1749,14 @@ function DataLayerPicker({
         <select
           value={itemId}
           disabled={available === null}
+          // A sublayer key belongs to one item, so a new item starts
+          // without one rather than carrying the old item's key.
           onChange={(e) =>
-            onChange({
-              itemId: e.target.value,
-              ...(layerKey ? { layerKey } : {}),
-            })
+            onChange(
+              e.target.value === itemId && layerKey
+                ? { itemId, layerKey }
+                : { itemId: e.target.value },
+            )
           }
           className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-hidden"
         >
@@ -1765,7 +1847,13 @@ function BufferStepEditor({
 
   const setUnit = (unit: LengthUnit) => {
     if (params.mode === 'fixed') {
-      onChange({ mode: 'fixed', distance: params.distance, unit });
+      // Re-apply the cap in the new unit: 100000 meters switched to
+      // miles must not become 100000 miles.
+      onChange({
+        mode: 'fixed',
+        distance: clampBufferDistance(params.distance, unit),
+        unit,
+      });
     } else {
       onChange({
         mode: 'field',
@@ -1776,18 +1864,14 @@ function BufferStepEditor({
     }
   };
 
+  // The shared clamp hands a value under the cap back untouched.
+  // Converting to meters and back on every keystroke turned 7 ft into
+  // 6.999999999999999, and the box then showed that.
   const setDistance = (raw: number) => {
     if (params.mode !== 'fixed') return;
-    const meters = Number.isFinite(raw)
-      ? raw * METERS_PER_UNIT[params.unit]
-      : 0;
-    const cappedMeters = Math.max(
-      0,
-      Math.min(meters, MAX_BUFFER_DISTANCE_METERS),
-    );
     onChange({
       mode: 'fixed',
-      distance: cappedMeters / METERS_PER_UNIT[params.unit],
+      distance: clampBufferDistance(raw, params.unit),
       unit: params.unit,
     });
   };
@@ -1998,7 +2082,7 @@ function TopNStepEditor({
   return (
     <div className="space-y-2">
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Numeric field</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.numericField')}</span>
         <select
           value={params.field}
           onChange={(e) => onChange({ ...params, field: e.target.value })}
@@ -2008,12 +2092,13 @@ function TopNStepEditor({
           {params.field === '' ? (
             <option value="">
               {!sourcePicked
-                ? 'Pick a source layer first'
+                ? t('derivedLayerBuilder.pickSourceFirst')
                 : numericFields.length === 0
-                  ? 'No numeric fields on the source'
-                  : 'Pick a numeric field…'}
+                  ? t('derivedLayerBuilder.noNumericFields')
+                  : t('derivedLayerBuilder.pickNumericField')}
             </option>
           ) : null}
+          <MissingFieldOption field={params.field} fields={numericFields} />
           {numericFields.map((f) => (
             <option key={f.name} value={f.name}>
               {f.label || f.name}
@@ -2075,11 +2160,10 @@ function RandomSampleStepEditor({
 }) {
   const { t } = useDerivedLayerCatalog();
 
-  // Persist a stable seed once the user inserts the step. The
-  // generator's validate() also subs a default for seed=0, so the
-  // wizard never needs to ship a fresh random integer; preserving
-  // whatever seed lands here keeps the sample stable across edits.
-  const seed = params.seed || Math.floor(Math.random() * 2147483646) + 1;
+  // The seed is rolled when the step is inserted. A recipe saved
+  // with seed 0 runs as seed 1 on the server, so show that rather
+  // than a number that is not in state.
+  const seed = params.seed || 1;
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('derivedLayerBuilder.sampleModeAria')}>
@@ -2262,19 +2346,19 @@ function CalculateGeometryStepEditor({
             role="radio"
             aria-checked={params.measurement === m}
             onClick={() => setMeasurement(m)}
-            className={`flex items-center justify-center rounded-md border p-2 text-sm capitalize transition-colors ${
+            className={`flex items-center justify-center rounded-md border p-2 text-sm transition-colors ${
               params.measurement === m
                 ? 'border-accent bg-accent/5 ring-2 ring-accent/30 text-ink-0'
                 : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
             }`}
           >
-            {m}
+            {t(MEASUREMENT_LABEL_KEYS[m])}
           </button>
         ))}
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-1">Unit</span>
+        <span className="text-ink-1">{t('derivedLayerBuilder.unit')}</span>
         {params.measurement === 'area' ? (
           <select
             value={params.unit}
@@ -2711,7 +2795,7 @@ function ContourStepEditor({
                   v === '' ? rest : { ...rest, maxLevel: Number(v) },
                 );
               }}
-              placeholder="auto from data"
+              placeholder={t('derivedLayerBuilder.autoFromData')}
               className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </label>
@@ -2721,28 +2805,24 @@ function ContourStepEditor({
           <span className="text-2xs uppercase tracking-wide text-muted">
             {t('derivedLayerBuilder.levelsCsv')}
           </span>
-          <input
-            type="text"
-            value={(params.levels ?? []).join(', ')}
-            onChange={(e) => {
-              const parts = e.target.value
-                .split(',')
-                .map((s) => s.trim())
-                .filter((s) => s.length > 0);
+          <ListTextInput
+            value={params.levels}
+            format={(levels) => (levels ?? []).join(', ')}
+            parse={(text) => {
               const nums: number[] = [];
-              let bad = false;
-              for (const p of parts) {
+              for (const p of splitList(text)) {
                 const n = Number(p);
-                if (!Number.isFinite(n)) {
-                  bad = true;
-                  break;
-                }
+                // A half-typed "-" or "1." keeps the last good list;
+                // the box still shows what was typed.
+                if (p === '-' || !Number.isFinite(n)) return null;
                 nums.push(n);
               }
-              const next = bad ? params.levels : nums;
+              return nums;
+            }}
+            onValue={(next) => {
               const { levels: _drop, ...rest } = params;
               void _drop;
-              onChange(next === undefined ? rest : { ...rest, levels: next });
+              onChange(next.length === 0 ? rest : { ...rest, levels: next });
             }}
             placeholder={t('derivedLayerBuilder.levelsPlaceholder')}
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
@@ -2978,7 +3058,6 @@ function SpatialJoinStepEditor({
   const { t } = useDerivedLayerCatalog();
 
   const prefix = params.attrPrefix ?? 'joined_';
-  const attrsText = (params.attrsToKeep ?? []).join(', ');
   return (
     <div className="space-y-3">
       <DataLayerPicker
@@ -3006,13 +3085,13 @@ function SpatialJoinStepEditor({
               role="radio"
               aria-checked={params.predicate === p}
               onClick={() => onChange({ ...params, predicate: p })}
-              className={`flex items-center justify-center rounded-md border p-2 text-xs capitalize transition-colors ${
+              className={`flex items-center justify-center rounded-md border p-2 text-xs transition-colors ${
                 params.predicate === p
                   ? 'border-accent bg-accent/5 text-ink-0 ring-2 ring-accent/30'
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
               }`}
             >
-              {p}
+              {t(PREDICATE_LABEL_KEYS[p])}
             </button>
           ))}
         </div>
@@ -3058,7 +3137,7 @@ function SpatialJoinStepEditor({
               role="radio"
               aria-checked={params.attributeStrategy === s}
               onClick={() => onChange({ ...params, attributeStrategy: s })}
-              className={`flex items-center justify-center rounded-md border p-2 text-xs capitalize transition-colors ${
+              className={`flex items-center justify-center rounded-md border p-2 text-xs transition-colors ${
                 params.attributeStrategy === s
                   ? 'border-accent bg-accent/5 text-ink-0 ring-2 ring-accent/30'
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -3075,18 +3154,11 @@ function SpatialJoinStepEditor({
           <span className="text-2xs uppercase tracking-wide text-muted">
             {t('derivedLayerBuilder.attrsToKeep')}
           </span>
-          <input
-            type="text"
-            value={attrsText}
-            onChange={(e) =>
-              onChange({
-                ...params,
-                attrsToKeep: e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
-            }
+          <ListTextInput
+            value={params.attrsToKeep}
+            format={(attrs) => (attrs ?? []).join(', ')}
+            parse={splitList}
+            onValue={(next) => onChange({ ...params, attrsToKeep: next })}
             placeholder={t('derivedLayerBuilder.attrsToKeepPlaceholder')}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
           />
@@ -3251,13 +3323,13 @@ function SpatialFilterStepEditor({
               role="radio"
               aria-checked={fixedPredicate === p}
               onClick={() => setPredicate(p)}
-              className={`flex items-center justify-center rounded-md border p-2 text-xs capitalize transition-colors ${
+              className={`flex items-center justify-center rounded-md border p-2 text-xs transition-colors ${
                 fixedPredicate === p
                   ? 'border-accent bg-accent/5 text-ink-0 ring-2 ring-accent/30'
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
               }`}
             >
-              {p}
+              {t(PREDICATE_LABEL_KEYS[p])}
             </button>
           ))}
         </div>
@@ -3290,5 +3362,81 @@ function SpatialFilterStepEditor({
         </label>
       ) : null}
     </div>
+  );
+}
+
+const MEASUREMENT_LABEL_KEYS = {
+  length: 'derivedLayerBuilder.measureLength',
+  perimeter: 'derivedLayerBuilder.measurePerimeter',
+  area: 'derivedLayerBuilder.measureArea',
+} as const;
+
+const PREDICATE_LABEL_KEYS = {
+  intersects: 'derivedLayerBuilder.predicateIntersects',
+  within: 'derivedLayerBuilder.predicateWithin',
+  nearest: 'derivedLayerBuilder.predicateNearest',
+  contains: 'derivedLayerBuilder.predicateContains',
+  touches: 'derivedLayerBuilder.predicateTouches',
+  near: 'derivedLayerBuilder.predicateNear',
+} as const;
+
+function splitList(text: string): string[] {
+  return text
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+/**
+ * A comma-separated list box that keeps the text as typed.
+ *
+ * Rendering the box from the parsed list dropped a just-typed comma,
+ * decimal point or minus sign before the next key arrived, so only
+ * one value could ever be entered. The typed text lives here; the
+ * parsed list goes up on every change, and the box is reformatted
+ * from the stored list on blur or when the list changes from outside.
+ */
+function ListTextInput<T>({
+  value,
+  format,
+  parse,
+  onValue,
+  placeholder,
+  className,
+}: {
+  value: T;
+  format: (value: T) => string;
+  /** null keeps the stored value (the text is not a valid list yet). */
+  parse: (text: string) => NonNullable<T> | null;
+  onValue: (next: NonNullable<T>) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const formatted = format(value);
+  const [text, setText] = useState(formatted);
+  // The formatted form of the last value this box sent up, so its own
+  // echo is not mistaken for an outside change.
+  const sentRef = useRef(formatted);
+  useEffect(() => {
+    if (formatted !== sentRef.current) {
+      sentRef.current = formatted;
+      setText(formatted);
+    }
+  }, [formatted]);
+  return (
+    <input
+      type="text"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const parsed = parse(e.target.value);
+        if (parsed === null) return;
+        sentRef.current = format(parsed);
+        onValue(parsed);
+      }}
+      onBlur={() => setText(formatted)}
+      placeholder={placeholder}
+      className={className}
+    />
   );
 }

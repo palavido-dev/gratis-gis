@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Loader2, Plus, Printer } from 'lucide-react';
 
-import { useT } from '@/lib/i18n/locale-context';
+import { useLocale, useT } from '@/lib/i18n/locale-context';
 import type { PrintTemplateData } from '@gratis-gis/shared-types';
 import {
   Dialog,
@@ -50,6 +50,7 @@ type Step =
 
 export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
   const t = useT();
+  const locale = useLocale();
   const [templates, setTemplates] = useState<PrintTemplateSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +146,14 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
         const res = await fetch('/api/portal/print/render', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ templateId, mapId }),
+          // The PDF renders on the server; send this browser's zone
+          // and locale so dates on the sheet are the user's own.
+          body: JSON.stringify({
+            templateId,
+            mapId,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            locale,
+          }),
           signal: ctl.signal,
         });
         if (!res.ok) {
@@ -171,7 +179,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
         if (renderCtlRef.current === ctl) renderCtlRef.current = null;
       }
     },
-    [mapId, cancelRender],
+    [mapId, cancelRender, locale],
   );
 
   function downloadPreview() {
