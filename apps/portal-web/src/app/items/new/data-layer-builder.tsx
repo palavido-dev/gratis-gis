@@ -148,6 +148,12 @@ export function DataLayerBuilder({
     },
     [onChange, value],
   );
+  // The latest value and onChange, for the import panel. Its upload
+  // can take minutes and ends by calling the callback it started
+  // with; reading this ref keeps edits made meanwhile instead of
+  // writing back the snapshot from before the upload.
+  const latestRef = useRef({ value, onChange });
+  latestRef.current = { value, onChange };
 
   const addLayer = useCallback(
     (geometryType: LayerGeometryType) => {
@@ -281,7 +287,11 @@ export function DataLayerBuilder({
             // Append rather than replace: authors can import into an
             // already-seeded builder without losing manually-defined
             // layers.
-            updateLayers([...layers, ...imported]);
+            const latest = latestRef.current;
+            latest.onChange({
+              ...latest.value,
+              layers: [...latest.value.layers, ...imported],
+            });
             // Forward the staged file so Create item, or Save schema
             // on an existing data layer, can load the features.
             if (pending && onPendingFileImport) {
@@ -1847,6 +1857,15 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
   // ref is how the cancel path knows whether anything is in flight
   // (handles double-clicks on Cancel gracefully).
   const uploadAbortRef = useRef<AbortController | null>(null);
+  // Closing the panel mid-upload cancels the upload, so it cannot
+  // finish later and write layers into the builder behind the user.
+  useEffect(
+    () => () => {
+      uploadAbortRef.current?.abort();
+      uploadAbortRef.current = null;
+    },
+    [],
+  );
   function cancelUpload() {
     uploadAbortRef.current?.abort();
     uploadAbortRef.current = null;
@@ -1910,6 +1929,8 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       // from the wizard list below before clicking Create item. Same
       // behaviour the single-layer branch has always had, extended to
       // multi-layer files.
+      // Closed or cancelled while the probe answered: drop it.
+      if (controller.signal.aborted) return;
       addProbedLayers(file.name, out.layers, undefined, out.stagingId);
     } catch (err) {
       // Cancellations come through here too; don't show "Probe failed"

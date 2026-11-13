@@ -53,6 +53,7 @@ import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 import { useT } from '@/lib/i18n/locale-context';
 import { updateFolderChildren } from '@/lib/folder-update';
+import { fetchWithThrottleRetry } from '@/lib/throttle-retry';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 /**
@@ -884,9 +885,11 @@ export function ItemsView({
     try {
       for (const id of selected) {
         try {
-          const res = await fetch(`/api/portal/items/${id}`, {
-            method: 'DELETE',
-          });
+          // A 429 is the API's rate limit, not a permission skip;
+          // wait and retry so a big selection finishes.
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}`, { method: 'DELETE' }),
+          );
           if (res.ok || res.status === 204) {
             done += 1;
           } else {
@@ -935,16 +938,18 @@ export function ItemsView({
     try {
       for (const id of selected) {
         try {
-          const res = await fetch(`/api/portal/items/${id}/share`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              principalType,
-              principalId,
-              permission,
-              ...(expiresAt !== null ? { expiresAt } : {}),
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}/share`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                principalType,
+                principalId,
+                permission,
+                ...(expiresAt !== null ? { expiresAt } : {}),
+              }),
             }),
-          });
+          );
           if (res.ok) {
             done += 1;
           } else {
@@ -994,10 +999,8 @@ export function ItemsView({
     setBulkError(null);
     let done = 0;
     let skipped = 0;
-    // Capture before clearing -- the cascade prompt for next='public'
-    // walks each id's dependencies after the bulk flip, and `selected`
-    // gets reset to empty at the end of this handler.
-    const targetIds = Array.from(selected);
+    // Only items that actually went public get the cascade prompt.
+    const updatedIds: string[] = [];
     try {
       for (const id of selected) {
         try {
@@ -1009,13 +1012,16 @@ export function ItemsView({
             if (next === 'public') body.publicGeoBoundaryId = boundaryId;
             else body.orgGeoBoundaryId = boundaryId;
           }
-          const res = await fetch(`/api/portal/items/${id}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          });
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            }),
+          );
           if (res.ok) {
             done += 1;
+            updatedIds.push(id);
           } else {
             skipped += 1;
           }
@@ -1037,8 +1043,8 @@ export function ItemsView({
       // dependency public manually. The dialog walks dependencies,
       // hides the no-deps case silently, and runs sequentially per
       // parent.
-      if (next === 'public' && done > 0) {
-        setBulkCascadeIds(targetIds);
+      if (next === 'public' && updatedIds.length > 0) {
+        setBulkCascadeIds(updatedIds);
       }
       router.refresh();
     } finally {
