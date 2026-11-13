@@ -26,7 +26,8 @@ import { useT } from '@/lib/i18n/locale-context';
  *   - New subfolder       -> inline edit row in the rail (#90)
  *   - Move to trash       -> DELETE /api/portal/items/<folderId>
  *
- * Trash is gated by canEdit; everything else is always visible.
+ * New subfolder and Trash are gated by canEdit; the rest is always
+ * visible.
  */
 interface Props {
   folderId: string;
@@ -197,6 +198,7 @@ export function FolderRowMenu({
           e.stopPropagation();
           openAtPos(e.clientX, e.clientY);
         }}
+        data-folder-menu-trigger=""
         aria-label={t('folderMenu.actionsFor', { folder: folderTitle })}
         title={t('folderMenu.moreActions')}
         className="inline-flex h-5 w-5 items-center justify-center rounded text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-1 hover:text-ink-1"
@@ -244,7 +246,9 @@ export function FolderRowMenu({
             <Share2 className="h-3.5 w-3.5 text-muted" />
             {t('folderMenu.share')}
           </Link>
-          {onCreateSubfolder ? (
+          {/* A subfolder is filed by updating this folder, so the entry
+              is only offered when the user can edit it. */}
+          {!canEdit ? null : onCreateSubfolder ? (
             <button
               type="button"
               onClick={() => {

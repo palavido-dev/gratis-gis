@@ -41,7 +41,12 @@ import {
   type FeatureScope,
 } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
-import { bboxWriteForData, hasDerivedExtent, itemBbox } from './item-bbox.js';
+import {
+  bboxWriteForData,
+  hasDerivedExtent,
+  itemBbox,
+  searchEnvelopes,
+} from './item-bbox.js';
 import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
 import {
   carryLayerSyncVersionsFrom,
@@ -114,6 +119,9 @@ const UUID_RE =
  * geodesic computation. 1 degree of latitude is roughly 111 km;
  * longitude varies with latitude so we err on the wide side.
  */
+/** Most rows the legacy item-level GeoJSON read returns. */
+const LEGACY_GEOJSON_MAX_ROWS = 10_000;
+
 function degreesFromKm(km: number): number {
   return Math.min(Math.max(km, 0), 100_000) / 111;
 }
@@ -920,8 +928,18 @@ export class ItemsService {
     // computed yet (seeded fixtures, pre-#24 rows) will be hidden
     // here until something writes an extent into item.bbox.
     if (opts.bbox) {
-      const buf = degreesFromKm(opts.bufferKm ?? 0);
-      const [w, s, e, n] = opts.bbox;
+      // One envelope, or two when the box crosses the antimeridian.
+      const boxes = searchEnvelopes(
+        opts.bbox,
+        degreesFromKm(opts.bufferKm ?? 0),
+      );
+      const inArea = Prisma.join(
+        boxes.map(
+          ([bw, bs, be, bn]) =>
+            Prisma.sql`"bbox_geom" && ST_MakeEnvelope(${bw}, ${bs}, ${be}, ${bn}, 4326)`,
+        ),
+        ' OR ',
+      );
       // Filter trashed items out of the spatial id set up front. The
       // visibleWhere AND clause already excludes deletedAt != null
       // for the non-mine path, but $queryRaw runs against the bare
@@ -946,9 +964,7 @@ export class ItemsService {
             OR "access" = 'public'
             OR EXISTS (SELECT 1 FROM "item_share" s WHERE s."item_id" = "item"."id")
           )
-          AND "bbox_geom" && ST_MakeEnvelope(
-            ${w - buf}, ${s - buf}, ${e + buf}, ${n + buf}, 4326
-          )
+          AND (${inArea})
       `;
       const idSet = ids.map((r) => r.id);
       // visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
@@ -3568,8 +3584,15 @@ export class ItemsService {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      /** Row cap below the built-in 10000, for previews that show a
+       *  few hundred rows and should not read the whole table. */
+      limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
+    const rowCap = Math.min(
+      LEGACY_GEOJSON_MAX_ROWS,
+      Math.max(1, Math.floor(opts.limit ?? LEGACY_GEOJSON_MAX_ROWS)),
+    );
     const item = await this.get(user, id);
 
     if (item.type === 'derived_layer') {
@@ -3773,6 +3796,8 @@ export class ItemsService {
         edited_by: string | null;
         edited_at: Date | string | null;
       };
+      params.push(rowCap);
+      const limitParam = params.length;
       const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
         `SELECT global_id,
                 ST_AsGeoJSON(geom) AS geom,
@@ -3784,7 +3809,7 @@ export class ItemsService {
            FROM "${tbl}"
           ${where}
           ORDER BY gid
-          LIMIT 10000`,
+          LIMIT $${limitParam}`,
         ...params,
       );
 
@@ -3859,7 +3884,7 @@ export class ItemsService {
       }
       features = kept;
     }
-    return { type: 'FeatureCollection', features };
+    return { type: 'FeatureCollection', features: features.slice(0, rowCap) };
   }
 
   /**

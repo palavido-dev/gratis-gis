@@ -27,6 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: t('whatsNewPage.metaTitle', undefined, locale),
     description: t('whatsNewPage.metaDescription', undefined, locale),
+    alternates: { canonical: '/whats-new' },
   };
 }
 

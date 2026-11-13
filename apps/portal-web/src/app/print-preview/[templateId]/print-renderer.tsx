@@ -10,25 +10,22 @@
  * what the chromium sidecar captures matches what the print
  * designer's WYSIWYG showed.
  *
- * Phase 2.1 scope:
+ * Elements:
  *   - Text elements render with the same font / color / align /
  *     border / background rules as the designer.
  *   - Image elements render via plain <img>.
  *   - Line + Rectangle elements render via styled divs.
- *   - Legend / Scalebar / North arrow elements render simplified
- *     visual stand-ins (real map-bound versions land in Phase
- *     2.2 alongside the in-page MapLibre snapshot).
- *   - Map element renders an iframe pointing at the
- *     /items/:mapId?view=embed surface so the chromium sidecar
- *     captures a real map. The same-network call stays cheap
- *     (portal-web hits portal-api over the docker bridge).
+ *   - Legend lists the bound map's visible layers; Scalebar and
+ *     North arrow follow the map as printed.
+ *   - Map element renders an inline MapLibre snapshot
+ *     (map-snapshot.tsx), and PrintReadySignal tells the pipeline
+ *     when every map on the sheet has finished.
  *
  * Token resolution: text segments referencing parameter tokens
  * resolve to the runtime-supplied value or the parameter's
  * declared defaultValue. Dynamic tokens (today_date, etc.)
- * resolve to the obvious computed value; map_extent_bbox stays
- * a string placeholder until Phase 2.2 wires the real map
- * extent through.
+ * resolve to the computed value in the requester's locale and time
+ * zone; the map_* tokens follow the map as printed.
  */
 import type { JSX } from 'react';
 import type {
@@ -52,6 +49,7 @@ import { resolvePaperInches } from '@gratis-gis/shared-types';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
 import { MapSnapshot } from './map-snapshot';
+import { PrintReadySignal } from './print-ready-signal';
 import {
   PRINT_FONT,
   PRINT_INK as INK,
@@ -65,7 +63,12 @@ import {
 } from '@/lib/print-theme';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
-import { metersPerPixel, scaleBar } from '@/lib/web-mercator';
+import {
+  metersPerPixel,
+  scaleBar,
+  scaleDenominator,
+  zoomForScale,
+} from '@/lib/web-mercator';
 
 const DESIGN_DPI = 96;
 
@@ -73,23 +76,79 @@ const DYNAMIC_RESOLVERS: Record<
   DynamicTokenId,
   (ctx: RenderContext) => string
 > = {
-  today_date: (ctx) => formatDate(new Date(), ctx.locale),
-  today_datetime: (ctx) => formatDateTime(new Date(), ctx.locale),
+  // This renders on the server, whose clock zone is UTC. The zone
+  // and locale of the person who asked for the PDF come with the
+  // request, so the sheet shows their date and time.
+  today_date: (ctx) => formatDate(new Date(), ctx.locale, dateOpts(ctx, { dateStyle: 'medium' })),
+  today_datetime: (ctx) =>
+    formatDateTime(
+      new Date(),
+      ctx.locale,
+      dateOpts(ctx, { dateStyle: 'medium', timeStyle: 'short' }),
+    ),
   now_time: (ctx) =>
-    new Intl.DateTimeFormat(ctx.locale, { timeStyle: 'short' }).format(
+    new Intl.DateTimeFormat(ctx.locale, dateOpts(ctx, { timeStyle: 'short' })).format(
       new Date(),
     ),
-  map_scale: () => '',
-  map_extent_bbox: () => '',
-  map_center_latlon: () => '',
+  // The map_* tokens follow the map as printed, including the Map
+  // element's scale override, and match the browser print path.
+  map_scale: (ctx) => {
+    if (!ctx.mapData || ctx.mapZoom === null) return '';
+    const denom = Math.round(
+      scaleDenominator(ctx.mapData.center?.[1] ?? 0, ctx.mapZoom),
+    );
+    return `1:${formatNumber(denom, ctx.locale)}`;
+  },
+  map_extent_bbox: (ctx) => {
+    if (!ctx.mapData?.center || ctx.mapZoom === null) return '';
+    const [lng, lat] = ctx.mapData.center;
+    return `center ${lat.toFixed(5)}, ${lng.toFixed(5)} z${ctx.mapZoom.toFixed(1)}`;
+  },
+  map_center_latlon: (ctx) => {
+    if (!ctx.mapData?.center) return '';
+    const [lng, lat] = ctx.mapData.center;
+    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  },
   user_display_name: (ctx) => ctx.userDisplayName,
   org_name: () => '',
   app_name: () => 'GratisGIS',
   page_number: () => '1',
 };
 
+function dateOpts(
+  ctx: RenderContext,
+  base: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormatOptions {
+  return ctx.timeZone ? { ...base, timeZone: ctx.timeZone } : base;
+}
+
+/**
+ * The zoom the map is printed at: the first Map element's scale
+ * override when it has one, else the map's saved zoom. The scale bar
+ * used the saved zoom even when the map was drawn at the override,
+ * so distances read off the bar were wrong.
+ */
+function printZoom(
+  template: PrintTemplateData,
+  mapData: MapData | null,
+): number | null {
+  if (!mapData) return null;
+  const mapEl = (template.elements ?? []).find(
+    (el): el is PrintMapElement => el.kind === 'map',
+  );
+  const override = mapEl?.scaleOverride;
+  if (typeof override === 'number' && override > 0) {
+    return zoomForScale(override, mapData.center?.[1] ?? 0);
+  }
+  return mapData.zoom;
+}
+
 interface RenderContext {
   locale: SupportedLocale;
+  /** IANA zone of the person who asked for the PDF, when known. */
+  timeZone: string | null;
+  /** Zoom the map is printed at; see printZoom. */
+  mapZoom: number | null;
   mapId: string;
   mapData: MapData | null;
   /** Resolved basemap blob for `mapData.basemap`. Null when the
@@ -115,6 +174,9 @@ interface Props {
   basemapData: BasemapData | null;
   parameterValues: Record<string, string>;
   userDisplayName: string;
+  /** Requester's locale and time zone, already validated. */
+  locale?: SupportedLocale;
+  timeZone?: string | null;
 }
 
 export function PrintRenderer({
@@ -124,6 +186,8 @@ export function PrintRenderer({
   basemapData,
   parameterValues,
   userDisplayName,
+  locale = DEFAULT_LOCALE,
+  timeZone = null,
 }: Props): JSX.Element {
   const inches = resolvePaperInches(template.paper);
   const pageStyle: React.CSSProperties = {
@@ -134,7 +198,9 @@ export function PrintRenderer({
     overflow: 'hidden',
   };
   const ctx: RenderContext = {
-    locale: DEFAULT_LOCALE,
+    locale,
+    timeZone,
+    mapZoom: printZoom(template, mapData),
     mapId,
     mapData,
     basemapData,
@@ -142,11 +208,16 @@ export function PrintRenderer({
     parameters: template.parameters,
     userDisplayName,
   };
+  // MapBody draws a snapshot only when map data is bound.
+  const mapCount = mapData
+    ? (template.elements ?? []).filter((el) => el.kind === 'map').length
+    : 0;
   return (
     <div style={pageStyle}>
       {(template.elements ?? []).map((el) => (
         <ElementBlock key={el.id} element={el} ctx={ctx} />
       ))}
+      <PrintReadySignal mapCount={mapCount} />
     </div>
   );
 }
@@ -446,7 +517,7 @@ function ScalebarBody({
   // The bar segment width is fixed at 80px on paper; we pick
   // the largest nice round number that fits within that width.
   const lat = ctx.mapData?.center?.[1] ?? 0;
-  const zoom = ctx.mapData?.zoom ?? 0;
+  const zoom = ctx.mapZoom ?? 0;
   // Up to 80 px of bar; the bar is then drawn at the length of the
   // round distance it is labelled with, so it stays to scale.
   const bar = scaleBar(

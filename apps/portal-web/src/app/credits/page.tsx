@@ -24,6 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
     // they double up in the rendered <title>.
     title: t('credits.metaTitle', undefined, locale),
     description: t('credits.metaDescription', undefined, locale),
+    alternates: { canonical: '/credits' },
   };
 }
 

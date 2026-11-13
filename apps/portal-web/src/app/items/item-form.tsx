@@ -2,7 +2,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import {
   Building2,
   Check,
@@ -229,7 +229,11 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
     : DEFAULT_DERIVED_LAYER;
   const [derivedLayerData, setDerivedLayerData] =
     useState<DerivedLayerData>(initialDerivedLayer);
-  const initialDerivedLayerJson = JSON.stringify(initialDerivedLayer);
+  // The recipe as last saved from this form. Compared against local
+  // state, not against initialData: after a save and refresh the
+  // server's enriched blob never equals the local recipe again, so
+  // every later metadata-only save sent `data` and re-ran enrichment.
+  const savedDerivedLayerJsonRef = useRef(JSON.stringify(initialDerivedLayer));
 
   function parseTags(raw: string): string[] {
     return raw
@@ -287,7 +291,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       // currently inaccessible (a metadata-only save would otherwise
       // 400 on enrichment for no good reason).
       const nextJson = JSON.stringify(derivedLayerData);
-      if (nextJson !== initialDerivedLayerJson) {
+      if (nextJson !== savedDerivedLayerJsonRef.current) {
         // Mirror the wizard's create-time guards. Catching this on
         // the client gives a friendlier error than the backend's
         // "derived_layer.source.itemId is required" 400.
@@ -314,11 +318,26 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
         : `/api/portal/items/${mode.itemId}`;
     const method = mode.kind === 'create' ? 'POST' : 'PATCH';
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      // A network failure used to leave `submitting` set and both
+      // buttons disabled until a reload.
+      setSubmitting(false);
+      setError(
+        t('itemForm.saveFailed', {
+          method,
+          status: 'network',
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      return;
+    }
     setSubmitting(false);
     if (!res.ok) {
       setError(
@@ -331,6 +350,9 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       return;
     }
     const saved = (await res.json()) as Item;
+    if (payload.data !== undefined && type === 'derived_layer') {
+      savedDerivedLayerJsonRef.current = JSON.stringify(payload.data);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
 

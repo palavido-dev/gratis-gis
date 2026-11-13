@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { unstable_rethrow } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, Layers, ChevronRight, Folder as FolderIcon, Map as MapIcon } from 'lucide-react';
 import type { CapabilityKey, ItemWithShares } from '@gratis-gis/shared-types';
@@ -103,7 +104,11 @@ export default async function ItemsPage(props: Props) {
       ]);
       activeFolder = folder.type === 'folder' ? folder : null;
       items = contents;
-    } catch {
+    } catch (err) {
+      // A redirect to sign-in must get through. Anything else (the
+      // folder was deleted, unshared, or the id is wrong) leaves
+      // folderMissing set below.
+      unstable_rethrow(err);
       items = [];
       activeFolder = null;
     }
@@ -161,6 +166,7 @@ export default async function ItemsPage(props: Props) {
   }
 
   const isMine = scope === 'mine';
+  const folderMissing = Boolean(folderId) && !activeFolder;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -278,7 +284,24 @@ export default async function ItemsPage(props: Props) {
                     : t('itemsPage.scopeSharedWithYou', undefined, locale),
                 query: searchParams.q,
               }, locale)}
-            />) : isMine && !activeFolder && canPublish ? (
+            />) : folderMissing ? (
+              // A stale ?folder= link. Without this branch it fell
+              // through to the first-run welcome panel, as if the
+              // user had no items at all.
+              <EmptyState
+                icon={<Layers className="h-5 w-5" />}
+                title={t('itemsPage.folderMissingTitle', undefined, locale)}
+                description={t('itemsPage.folderMissingDescription', undefined, locale)}
+                action={
+                  <Link
+                    href="/items"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
+                  >
+                    {t('itemsPage.backToItems', undefined, locale)}
+                  </Link>
+                }
+              />
+            ) : isMine && !activeFolder && canPublish ? (
               // #147 Phase 1: publishers with an empty workspace get
               // three concrete starting points (including the sample
               // data seeder) instead of a gray dashed box. Viewers

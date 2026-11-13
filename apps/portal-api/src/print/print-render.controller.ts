@@ -15,6 +15,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
 import type { Response } from 'express';
@@ -30,6 +31,13 @@ class RenderDto {
   @IsUUID() templateId!: string;
   @IsUUID() mapId!: string;
   @IsOptional() @IsObject() parameterValues?: Record<string, string>;
+  // The requester's IANA zone and locale, so dates on the sheet are
+  // theirs rather than the server's UTC. portal-web checks both again
+  // before using them; these bounds keep the preview URL small.
+  @IsOptional() @IsString() @MaxLength(64) @Matches(/^[A-Za-z0-9_+/-]+$/)
+  timeZone?: string;
+  @IsOptional() @IsString() @MaxLength(16) @Matches(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/)
+  locale?: string;
 }
 
 class ConsumeTokenDto {
@@ -59,6 +67,8 @@ export class PrintRenderController {
       templateId: dto.templateId,
       mapId: dto.mapId,
       ...(dto.parameterValues ? { parameterValues: dto.parameterValues } : {}),
+      ...(dto.timeZone ? { timeZone: dto.timeZone } : {}),
+      ...(dto.locale ? { locale: dto.locale } : {}),
     });
     res.setHeader('content-type', 'application/pdf');
     res.setHeader('content-length', String(pdf.byteLength));

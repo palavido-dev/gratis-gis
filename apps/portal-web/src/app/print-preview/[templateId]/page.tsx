@@ -15,8 +15,9 @@
  *      the token AND returns the resolved template + map items
  *      under the original requesting user's permissions.
  *   3. We mount PrintRenderer at the template's paper size.
- *   4. The inline MapSnapshot client component sets
- *      body[data-map-ready="true"] once tiles + layers settle.
+ *   4. PrintReadySignal sets body[data-map-ready="true"] once every
+ *      MapSnapshot on the sheet has settled (at once when there is
+ *      no map).
  *   5. Puppeteer's page.pdf captures the rendered HTML.
  *
  * Deliberately does NOT emit its own <html>/<body>: the root
@@ -34,6 +35,7 @@ import type {
 import { resolvePaperInches } from '@gratis-gis/shared-types';
 
 import { PrintRenderer } from './print-renderer';
+import { printLocale, printTimeZone } from '@/lib/print-request-context';
 
 const PRIVATE_API_BASE =
   process.env.PORTAL_API_INTERNAL_URL ?? 'http://portal-api:4000';
@@ -44,6 +46,9 @@ interface Props {
     map?: string;
     renderToken?: string;
     p?: string;
+    /** Requester's IANA time zone and locale (see print-request-context). */
+    tz?: string;
+    lc?: string;
   }>;
 }
 
@@ -64,7 +69,7 @@ interface JobBundle {
 
 export default async function PrintPreviewPage(props: Props) {
   const { templateId } = await props.params;
-  const { map: mapId, renderToken, p } = await props.searchParams;
+  const { map: mapId, renderToken, p, tz, lc } = await props.searchParams;
 
   if (!templateId || !mapId || !renderToken) notFound();
 
@@ -119,6 +124,8 @@ export default async function PrintPreviewPage(props: Props) {
         basemapData={bundle.basemap}
         parameterValues={parameterValues}
         userDisplayName={bundle.userDisplayName}
+        locale={printLocale(lc)}
+        timeZone={printTimeZone(tz)}
       />
     </>
   );

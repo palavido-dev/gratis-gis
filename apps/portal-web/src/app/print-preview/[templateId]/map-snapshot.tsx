@@ -18,10 +18,9 @@
  * redline markup survives export (saved visibility only).
  *
  * Loads MapLibre on mount, points it at the map item's data blob,
- * and signals readiness by setting `document.body.dataset.mapReady`
- * once every layer has loaded. The Puppeteer pipeline waits on this
- * flag (via `page.waitForSelector body[data-map-ready="true"]`)
- * before calling page.pdf.
+ * and reports to PrintReadySignal once every layer has loaded. That
+ * sets `body[data-map-ready]` when every map on the sheet is done,
+ * which the Puppeteer pipeline waits on before calling page.pdf.
  *
  * Basemap raster tiles still rasterize (PDF can't carry slippy tile
  * vector data), but vector data layers paint as path primitives.
@@ -29,7 +28,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { MapData } from '@gratis-gis/shared-types';
+import type { MapData, MapLayer } from '@gratis-gis/shared-types';
+import { effectiveLayerScale } from '@gratis-gis/shared-types';
 // ensureRasterProtocols registers the pmtiles:// + cog:// MapLibre
 // protocols so pmtiles- or cog-backed basemaps render through the
 // same handler the canvas uses. Called explicitly before the map is
@@ -45,6 +45,7 @@ import {
   addPaintForLayer,
   scaleToZoom,
 } from './snapshot-paint';
+import { reportPrintMapReady } from './print-ready-signal';
 
 interface Props {
   mapData: MapData;
@@ -124,6 +125,18 @@ export function MapSnapshot({
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
 
+    // Tell the page this map has finished (PrintReadySignal counts
+    // these). The ceiling starts at mount, not on load, so a basemap
+    // style that never loads cannot hold the render to the API's own
+    // timeout.
+    let reported = false;
+    const done = () => {
+      if (reported || disposed) return;
+      reported = true;
+      reportPrintMapReady();
+    };
+    const ceiling = window.setTimeout(done, 12_000);
+
     map.on('load', async () => {
       // Per-source-kind handlers. Each adds a GeoJSON source and
       // the matching paint layers via the shared addPaintForLayer
@@ -141,124 +154,82 @@ export function MapSnapshot({
       // user sees the gap and reloads); a print cannot, because the
       // gap ships inside a PDF that looks complete.
       const failures: string[] = [];
-      const tasks: Array<Promise<void>> = [];
-      for (const layer of mapData.layers ?? []) {
-        if (!layer.visible) continue;
-        const sourceId = `pg:${layer.id}`;
-        if (layer.source.kind === 'data-layer') {
-          const src = layer.source;
-          const base = src.layerKey
-            ? `/api/portal/items/${src.itemId}/layers/${encodeURIComponent(src.layerKey)}/geojson`
-            : `/api/portal/items/${src.itemId}/geojson`;
-          // Scope the fetch the way the canvas does for its
-          // editor-target GeoJSON reads: bbox-clip to the print
-          // viewport so a county-scale layer doesn't trip the
-          // server row cap with rows that aren't even on the
-          // sheet, and forward the boundary clip (layer-level
-          // first, then the map-wide default view scope) so the
-          // print shows the same subset the bound map shows.
-          const params = new URLSearchParams({ bbox: bbox.join(',') });
-          const clip = layer.boundaryFilterItemId ?? mapData.clipBoundaryId;
-          if (clip) params.set('clip', clip);
-          tasks.push(
-            fetchLayerGeoJson(`${base}?${params.toString()}`)
-              .then((data) => {
-                if (disposed) return;
-                addGeoJsonSourceFromData(map, sourceId, data);
-                addPaintForLayer(map, sourceId, layer.id, layer);
-                addLabelLayer(map, sourceId, layer.id, layer);
-              })
-              .catch(() => {
-                failures.push(layer.title);
-              }),
-          );
-        } else if (layer.source.kind === 'arcgis-rest') {
-          const src = layer.source;
-          const params = new URLSearchParams({
-            where: '1=1',
-            geometry: bbox.join(','),
-            geometryType: 'esriGeometryEnvelope',
-            inSR: '4326',
-            spatialRel: 'esriSpatialRelIntersects',
-            outFields: '*',
-            outSR: '4326',
-            f: 'geojson',
-            resultRecordCount: '2000',
-          });
-          const baseUrl = src.proxyUrl ?? src.url;
-          const queryUrl = `${baseUrl}/${src.layerId}/query?${params.toString()}`;
-          tasks.push(
-            fetchLayerGeoJson(queryUrl)
-              .then((data) => {
-                if (disposed) return;
-                addGeoJsonSourceFromData(map, sourceId, data);
-                addPaintForLayer(map, sourceId, layer.id, layer);
-                addLabelLayer(map, sourceId, layer.id, layer);
-              })
-              .catch(() => {
-                failures.push(layer.title);
-              }),
-          );
-        } else if (layer.source.kind === 'postgis-live') {
-          const src = layer.source;
-          tasks.push(
-            fetchLayerGeoJson(
-              `/api/portal/postgis-live/${src.serviceItemId}/features`,
-              {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  tableName: src.tableName,
-                  bbox,
-                  ...(src.whereClause ? { whereClause: src.whereClause } : {}),
-                  ...(layer.filter && layer.filter.clauses.length > 0
-                    ? { filter: layer.filter }
-                    : {}),
-                }),
-              },
-            )
-              .then((data) => {
-                if (disposed) return;
-                addGeoJsonSourceFromData(map, sourceId, data);
-                addPaintForLayer(map, sourceId, layer.id, layer);
-                addLabelLayer(map, sourceId, layer.id, layer);
-              })
-              .catch(() => {
-                failures.push(layer.title);
-              }),
-          );
+      const allLayers = mapData.layers ?? [];
+      const printZoom = map.getZoom();
+      // Fetch every layer at once, but add them to the map only after
+      // all have answered and in the map's own order (first = bottom),
+      // so the stacking matches the canvas instead of whichever fetch
+      // finished last.
+      const loads: Array<
+        Promise<{ layer: MapLayer; data: GeoJSON.FeatureCollection } | null>
+      > = [];
+      for (const layer of allLayers) {
+        if (!layer.visible || layer.source.kind === 'group') continue;
+        // A layer the canvas hides at this zoom stays off the print.
+        const scale = effectiveLayerScale(layer, allLayers);
+        if (scale.minZoom != null && printZoom < scale.minZoom) continue;
+        if (scale.maxZoom != null && printZoom >= scale.maxZoom) continue;
+        const url = layerRequest(layer, bbox, mapData);
+        if (!url) {
+          // Tile, point-cloud and inline / URL GeoJSON layers are not
+          // drawn by the print yet. Say so on the sheet rather than
+          // leave them out silently.
+          failures.push(layer.title);
+          continue;
         }
-        // geojson-url / geojson-inline / group fall through:
-        //   - group is a UI-only grouping marker, not a real source
-        //   - geojson-url + geojson-inline don't appear on saved maps
-        //     in practice; the editor turns inline GeoJSON into a
-        //     data_layer on save
+        loads.push(
+          fetchLayerGeoJson(url.href, url.init)
+            .then((data) => {
+              // ArcGIS stops at resultRecordCount and says so; a print
+              // that drew only part of a layer is incomplete.
+              if ((data as { exceededTransferLimit?: unknown }).exceededTransferLimit) {
+                failures.push(layer.title);
+              }
+              return { layer, data };
+            })
+            .catch(() => {
+              failures.push(layer.title);
+              return null;
+            }),
+        );
       }
-      await Promise.all(tasks);
+      const loaded = (await Promise.all(loads)).filter(
+        (r): r is { layer: MapLayer; data: GeoJSON.FeatureCollection } =>
+          r !== null,
+      );
       if (disposed) return;
+      for (const { layer, data } of loaded) {
+        const sourceId = `pg:${layer.id}`;
+        addGeoJsonSourceFromData(map, sourceId, data);
+        if (!addPaintForLayer(map, sourceId, layer.id, layer)) {
+          failures.push(layer.title);
+        }
+      }
+      // Labels go on top of every layer's paint, as on the canvas.
+      for (const { layer } of loaded) {
+        const scale = effectiveLayerScale(layer, allLayers);
+        if (scale.labelsMinZoom != null && printZoom < scale.labelsMinZoom) continue;
+        if (scale.labelsMaxZoom != null && printZoom >= scale.labelsMaxZoom) continue;
+        if (!addLabelLayer(map, `pg:${layer.id}`, layer.id, layer)) {
+          failures.push(layer.title);
+        }
+      }
       if (failures.length > 0) {
-        setFailedLayers(failures);
+        setFailedLayers(Array.from(new Set(failures)));
       }
       // #159 Phase 3: paint markup overlays from map.data.drawings
       // (already on the print job bundle). Honors saved per-set
       // visibility; no extra drawings API fetch.
       syncDrawings(map, mapData.drawings ?? []);
-      // Signal readiness once tiles + data sources have idled.
-      // Puppeteer waitForSelector picks this up. We mark ready even
-      // when layers failed: the pipeline still has to finish the
-      // PDF, and the visible notice above keeps the sheet honest
-      // about what is missing.
-      const markReady = () => {
-        document.body.dataset.mapReady = 'true';
-      };
-      map.once('idle', markReady);
-      // Hard ceiling so a stuck source doesn't keep Puppeteer
-      // waiting forever; 12 s is well within the 30 s navigation
-      // timeout the render service uses.
-      setTimeout(markReady, 12_000);
+      // Report done once tiles + data sources have idled. We report
+      // even when layers failed: the pipeline still has to finish the
+      // PDF, and the visible notice keeps the sheet honest about what
+      // is missing.
+      map.once('idle', done);
     });
     return () => {
       disposed = true;
+      window.clearTimeout(ceiling);
       map.remove();
     };
   }, [mapData, basemapData, scaleOverride]);
@@ -301,6 +272,62 @@ export function MapSnapshot({
 }
 
 /**
+ * The feature request for one layer, or null for a source kind the
+ * print does not draw. The data-layer read is bbox-clipped to the
+ * print viewport and carries the boundary clip (layer first, then the
+ * map-wide default) so the print shows the subset the map shows.
+ */
+function layerRequest(
+  layer: MapLayer,
+  bbox: [number, number, number, number],
+  mapData: MapData,
+): { href: string; init?: RequestInit } | null {
+  const src = layer.source;
+  if (src.kind === 'data-layer') {
+    const base = src.layerKey
+      ? `/api/portal/items/${encodeURIComponent(src.itemId)}/layers/${encodeURIComponent(src.layerKey)}/geojson`
+      : `/api/portal/items/${encodeURIComponent(src.itemId)}/geojson`;
+    const params = new URLSearchParams({ bbox: bbox.join(',') });
+    const clip = layer.boundaryFilterItemId ?? mapData.clipBoundaryId;
+    if (clip) params.set('clip', clip);
+    return { href: `${base}?${params.toString()}` };
+  }
+  if (src.kind === 'arcgis-rest') {
+    const params = new URLSearchParams({
+      where: '1=1',
+      geometry: bbox.join(','),
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: '*',
+      outSR: '4326',
+      f: 'geojson',
+      resultRecordCount: '2000',
+    });
+    const baseUrl = src.proxyUrl ?? src.url;
+    return { href: `${baseUrl}/${src.layerId}/query?${params.toString()}` };
+  }
+  if (src.kind === 'postgis-live') {
+    return {
+      href: `/api/portal/postgis-live/${encodeURIComponent(src.serviceItemId)}/features`,
+      init: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tableName: src.tableName,
+          bbox,
+          ...(src.whereClause ? { whereClause: src.whereClause } : {}),
+          ...(layer.filter && layer.filter.clauses.length > 0
+            ? { filter: layer.filter }
+            : {}),
+        }),
+      },
+    };
+  }
+  return null;
+}
+
+/**
  * Fetch one layer's GeoJSON for the snapshot, strictly. Throws on
  * non-2xx responses, non-JSON bodies (an HTML error page would
  * otherwise slip through), and the ArcGIS 200-with-error envelope,
@@ -309,7 +336,7 @@ export function MapSnapshot({
  */
 async function fetchLayerGeoJson(
   url: string,
-  init?: RequestInit,
+  init: RequestInit | undefined,
 ): Promise<GeoJSON.FeatureCollection> {
   const res = await fetch(url, init);
   if (!res.ok) {
