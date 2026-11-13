@@ -7,11 +7,13 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -159,7 +161,13 @@ class PortalClient(
     onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> },
   ): Long {
     var received = 0L
-    http.prepareGet("items/$itemId/offline-packages/$packageId/file").execute { response ->
+    http.prepareGet("items/$itemId/offline-packages/$packageId/file") {
+      // The client-wide request timeout covers reading the body too,
+      // so a package that takes more than a minute would be cut off
+      // part way, every time. No overall limit here; the socket
+      // timeout still ends a download that stops moving.
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
+    }.execute { response ->
       val total = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
       val channel = response.bodyAsChannel()
       val buffer = ByteArray(64 * 1024)
@@ -201,7 +209,12 @@ class PortalClient(
    *  `baseObservationId` the server refuses a stale edit with a 409
    *  (`PortalError.Conflict` carrying `current`). Pass `checkOnly =
    *  true` for a dry run that validates without writing (portal-web
-   *  offline-sync does the same before a real transfer). */
+   *  offline-sync does the same before a real transfer).
+   *
+   *  Returns the feature as the server now has it, or null when the
+   *  response carries no JSON object (an older server). The drain
+   *  reads its `_observation_id` to move later queued edits of the
+   *  same feature onto the head this write created. */
   suspend fun patchFeature(
     dataLayerId: String,
     layerKey: String,
@@ -210,17 +223,18 @@ class PortalClient(
     geometry: kotlinx.serialization.json.JsonElement?,
     baseObservationId: String? = null,
     checkOnly: Boolean = false,
-  ) {
+  ): JsonObject? {
     val body = buildJsonObject {
       put("properties", properties)
       if (geometry != null && geometry !is kotlinx.serialization.json.JsonNull) put("geometry", geometry)
       if (baseObservationId != null) put("baseObservationId", baseObservationId)
       if (checkOnly) put("checkOnly", true)
     }
-    http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
+    val text = http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
       contentType(ContentType.Application.Json)
       setBody(body)
-    }
+    }.bodyAsText()
+    return runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull()
   }
 
   /** `DELETE .../features/{globalId}`, with the same optional guard

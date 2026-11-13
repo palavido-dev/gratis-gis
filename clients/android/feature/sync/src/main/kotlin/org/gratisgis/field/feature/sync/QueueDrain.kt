@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package org.gratisgis.field.feature.sync
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -47,6 +49,12 @@ data class SyncError(val recordId: String, val op: String, val layerKey: String,
  *  - A 409 on an update whose `current` already holds the queued
  *    values is this device's own earlier write whose response was
  *    lost (`sync.isOwnEditEcho`): the row is done, not a conflict.
+ *  - After an update lands, the same account's later queued rows of
+ *    that feature, and its cached copy, move to the head the PATCH
+ *    wrote (`FeatureHeadRebase`, web `rebaseFeatureHead`).
+ *  - Anything else thrown while replaying one row parks that row as
+ *    failed with `sync.unexpected` and the drain moves on, so one bad
+ *    row cannot stop the rest or sit in 'syncing'.
  */
 class QueueDrain(
   private val db: FieldDatabase,
@@ -81,9 +89,10 @@ class QueueDrain(
       val outcome = replay(record)
       processed += 1
       when (outcome) {
-        Replay.Done -> {
+        is Replay.Done -> {
           db.queue().delete(collectionId, record.id)
           synced += 1
+          if (outcome.head != null) rebaseAfterUpdate(record, outcome.head)
         }
         is Replay.Unreachable -> {
           // Not the row's fault: restore the pre-claim status and leave
@@ -127,7 +136,9 @@ class QueueDrain(
   }
 
   private sealed interface Replay {
-    data object Done : Replay
+    /** `head` is the `_observation_id` an update just wrote, when the
+     *  server named it. */
+    data class Done(val head: String? = null) : Replay
     data class Unreachable(val reason: JsonObject) : Replay
     data class Refused(val reason: JsonObject, val terminal: Boolean) : Replay
     /** A 409 from the concurrency guard: parked with the server's
@@ -135,10 +146,36 @@ class QueueDrain(
     data class Conflict(val reason: JsonObject, val current: kotlinx.serialization.json.JsonElement) : Replay
   }
 
-  private suspend fun replay(r: QueueEntity): Replay {
+  /**
+   * Replay one row. Anything this build did not expect (a stored row
+   * that no longer parses, an engine call that fails, a response that
+   * does not convert) parks the row as failed with the error text, as
+   * the web drain does. Not terminal, so a fix on either side lets it
+   * through later.
+   *
+   * The one thing that escapes is the drain itself being cancelled.
+   * The edit may have reached the server, so the row is left
+   * 'syncing' on purpose: a later edit cannot fold into a 'syncing'
+   * row (a correction folded behind an insert that already landed
+   * would be lost to the server's dedupe), and the stale-claim rule in
+   * `queue.chainHeads` hands it to the next drain.
+   */
+  private suspend fun replay(r: QueueEntity): Replay =
+    try {
+      replayOnce(r)
+    } catch (t: Throwable) {
+      // Rethrows only when this coroutine was cancelled. A
+      // CancellationException from inside a call while we are still
+      // active is that call failing, and is parked like any other.
+      currentCoroutineContext().ensureActive()
+      Replay.Refused(message("sync.unexpected", "error" to JsonPrimitive(t.message ?: t.toString())), terminal = false)
+    }
+
+  private suspend fun replayOnce(r: QueueEntity): Replay {
     val geometry = r.geometryJson?.let(json::parseToJsonElement)
     val properties = r.propertiesJson?.let { json.parseToJsonElement(it) as? JsonObject } ?: JsonObject(emptyMap())
     return try {
+      var head: String? = null
       when (r.op) {
         "insert" -> portal.insertFeatures(
           r.dataLayerId, r.layerKey,
@@ -152,10 +189,11 @@ class QueueDrain(
             baseObservationId = r.baseObservationId,
             checkOnly = true,
           )
-          portal.patchFeature(
+          val written = portal.patchFeature(
             r.dataLayerId, r.layerKey, r.globalId, properties, geometry,
             baseObservationId = r.baseObservationId,
           )
+          head = FeatureHeadRebase.headFromResponse(written)
         }
         "delete" -> {
           portal.deleteFeature(
@@ -170,12 +208,12 @@ class QueueDrain(
         }
         else -> return Replay.Refused(message("sync.unknownOp", "op" to JsonPrimitive(r.op)), terminal = true)
       }
-      Replay.Done
+      Replay.Done(head)
     } catch (e: PortalError.Conflict) {
       if (e.code == "feature-conflict" && r.op == "update" && isOwnEcho(geometry, properties, e.current)) {
         // The PATCH committed earlier and its response was lost (a
         // timeout in poor coverage), so the head is our own write.
-        return Replay.Done
+        return Replay.Done()
       }
       if (e.code == "feature-conflict") {
         // Somebody else's edit landed between our read and this replay.
@@ -192,7 +230,7 @@ class QueueDrain(
         buildJsonObject { put("status", JsonPrimitive(e.status)); put("op", JsonPrimitive(r.op)) },
       ).jsonPrimitive.content
       when (outcome) {
-        "done" -> Replay.Done
+        "done" -> Replay.Done()
         "rejected" -> Replay.Refused(message("sync.serverRefused", "serverMessage" to JsonPrimitive(e.message ?: "")), terminal = true)
         else -> Replay.Refused(
           message("sync.serverRefusedWithStatus", "serverMessage" to JsonPrimitive(e.message ?: ""), "status" to JsonPrimitive(e.status)),
@@ -201,6 +239,37 @@ class QueueDrain(
       }
     } catch (e: IOException) {
       Replay.Unreachable(message("sync.networkUnavailableDetail", "error" to JsonPrimitive(e.message ?: e.toString())))
+    }
+  }
+
+  /**
+   * Move the guard of what this device queued on top of `landed` to
+   * the head it just wrote. Best effort: the row is already done, and
+   * if this fails the worst case is a later edit parked as a conflict
+   * for review, which is what happened before this step existed.
+   */
+  private suspend fun rebaseAfterUpdate(landed: QueueEntity, head: String) {
+    try {
+      val sameFeature = db.queue().forFeature(landed.collectionId, landed.dataLayerId, landed.layerKey, landed.globalId)
+      val before = sameFeature.associateBy { it.id }
+      for (row in FeatureHeadRebase.rowsToRebase(landed, sameFeature, head)) {
+        // A conditional UPDATE of the base column only, so a row that
+        // a drain claimed or an edit folded since the read keeps its
+        // content; it moves only if it is still pending / failed with
+        // the base we read.
+        db.queue().rebase(row.collectionId, row.id, before.getValue(row.id).baseObservationId, head)
+      }
+      val cached = db.features().get(landed.collectionId, landed.dataLayerId, landed.layerKey, landed.globalId)
+      if (cached != null) {
+        val next = FeatureHeadRebase.rebasedFeatureJson(cached.featureJson, landed.baseObservationId, head)
+        // Compare and set: a newer copy that a download wrote in the
+        // meantime is left as it is.
+        if (next != null) db.features().replaceJsonIf(cached.collectionId, cached.dataLayerId, cached.layerKey, cached.globalId, cached.featureJson, next)
+      }
+    } catch (_: Throwable) {
+      // See above: leaving the old base is the safe failure. Only a
+      // cancelled drain stops here.
+      currentCoroutineContext().ensureActive()
     }
   }
 

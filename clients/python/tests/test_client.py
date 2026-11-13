@@ -55,26 +55,34 @@ class TestConstruction:
         assert gg.portal_url == "https://portal.example"
         gg.close()
 
-    def test_sends_the_key_as_a_bearer_token(self):
+    def test_sends_the_key_as_a_bearer_token(self, monkeypatch):
         seen = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen["auth"] = request.headers.get("authorization")
+            seen["url"] = str(request.url)
+            seen["accept"] = request.headers.get("accept")
+            seen["user_agent"] = request.headers.get("user-agent")
             return httpx.Response(200, json={"id": "u1"})
 
-        # Build without injecting a client so the real headers apply.
+        # Build without injecting a client so the headers GratisGIS
+        # sets itself are the ones under test. Only the transport is
+        # swapped, by wrapping httpx.Client's constructor.
         transport = httpx.MockTransport(handler)
-        gg = GratisGIS(
-            "https://portal.example",
-            api_key="ggk_secret",
-            client=httpx.Client(
-                base_url="https://portal.example/api",
-                transport=transport,
-                headers={"Authorization": "Bearer ggk_secret"},
-            ),
-        )
+        real_client = httpx.Client
+
+        def with_mock_transport(*args, **kwargs):
+            kwargs["transport"] = transport
+            return real_client(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "Client", with_mock_transport)
+        gg = GratisGIS("https://portal.example", api_key="ggk_secret")
         gg.whoami()
+        gg.close()
         assert seen["auth"] == "Bearer ggk_secret"
+        assert seen["url"] == "https://portal.example/api/users/me"
+        assert seen["accept"] == "application/json"
+        assert seen["user_agent"]
 
 
 class TestItems:
@@ -96,6 +104,46 @@ class TestItems:
         assert seen["params"]["limit"] == "5"
         assert seen["params"]["full"] == "1"
         assert items == [{"id": "i1"}]
+
+    def test_find_items_pages_past_the_portal_cap(self):
+        # The portal clamps limit to 1000; a larger limit must not come
+        # back silently cut at 1000.
+        total = 1800
+        seen = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            limit = int(request.url.params["limit"])
+            offset = int(request.url.params.get("offset", "0"))
+            seen.append((limit, offset))
+            n = max(0, min(limit, 1000, total - offset))
+            return httpx.Response(
+                200, json=[{"id": f"i{offset + k}"} for k in range(n)]
+            )
+
+        items = make_client(handler).find_items(type="data_layer", limit=5000)
+        assert len(items) == total
+        assert items[-1]["id"] == "i1799"
+        assert seen == [(1000, 0), (1000, 1000)]
+
+    def test_find_items_passes_offset(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(dict(request.url.params))
+            return httpx.Response(200, json=[])
+
+        make_client(handler).find_items(limit=10, offset=20)
+        assert seen["offset"] == "20"
+        assert seen["limit"] == "10"
+
+    def test_iter_items_walks_every_page(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            offset = int(request.url.params.get("offset", "0"))
+            n = max(0, min(int(request.url.params["limit"]), 5 - offset))
+            return httpx.Response(200, json=[{"id": offset + k} for k in range(n)])
+
+        ids = [i["id"] for i in make_client(handler).iter_items(page_size=2)]
+        assert ids == [0, 1, 2, 3, 4]
 
     def test_find_items_tolerates_a_wrapped_envelope(self):
         def handler(_r):
@@ -231,13 +279,40 @@ class TestFeatures:
         calls = []
 
         def handler(request: httpx.Request) -> httpx.Response:
-            calls.append(len(json.loads(request.content)["features"]))
-            return httpx.Response(201, json={"inserted": 0})
+            n = len(json.loads(request.content)["features"])
+            calls.append(n)
+            return httpx.Response(201, json={"inserted": n, "deduplicated": 0})
 
         feats = [{"type": "Feature", "properties": {"n": i}} for i in range(2500)]
         result = make_client(handler).add_features("i", "l", feats, batch_size=1000)
         assert calls == [1000, 1000, 500]
-        assert result == {"appended": 2500, "batches": 3}
+        assert result["appended"] == 2500
+        assert result["batches"] == 3
+
+    def test_add_features_reports_the_portals_counts_not_what_was_sent(self):
+        # A re-run with the same globalIds writes nothing; reporting
+        # what was sent as "appended" would hide that.
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent = json.loads(request.content)["features"]
+            return httpx.Response(
+                201,
+                json={
+                    "inserted": 1,
+                    "deduplicated": len(sent) - 1,
+                    "globalIds": [f["properties"]["globalId"] for f in sent],
+                },
+            )
+
+        feats = [
+            {"type": "Feature", "properties": {"globalId": f"g{i}"}} for i in range(4)
+        ]
+        result = make_client(handler).add_features("i", "l", feats, batch_size=2)
+        assert result == {
+            "appended": 2,
+            "deduplicated": 2,
+            "globalIds": ["g0", "g1", "g2", "g3"],
+            "batches": 2,
+        }
 
     def test_add_features_accepts_a_generator_without_materializing(self):
         calls = []
@@ -1129,6 +1204,36 @@ class TestImportFile:
 
         with pytest.raises(PortalError, match="Unsupported driver"):
             make_client(handler).import_file("itm", "parcels", src, mode="replace")
+
+    def test_an_error_event_with_a_status_raises_the_matching_class(self, tmp_path):
+        src = tmp_path / "x.gpkg"
+        src.write_bytes(b"x")
+
+        def not_found(request):
+            return httpx.Response(
+                200,
+                content=self._ndjson(
+                    {"event": "error", "status": 404,
+                     "message": "That layer is not part of this item."},
+                ),
+            )
+
+        with pytest.raises(NotFoundError, match="not part of this item") as err:
+            make_client(not_found).import_file("itm", "parcels", src, mode="append")
+        assert err.value.status == 404
+
+        def invalid(request):
+            return httpx.Response(
+                200,
+                content=self._ndjson(
+                    {"event": "error", "status": 400, "message": "No layer named x."},
+                ),
+            )
+
+        with pytest.raises(ValidationError):
+            make_client(invalid).import_file(
+                "itm", "parcels", src, mode="append", source_layer="x"
+            )
 
     def test_a_stream_with_no_terminal_event_is_not_a_success(self, tmp_path):
         src = tmp_path / "x.gpkg"

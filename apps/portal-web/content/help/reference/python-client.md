@@ -62,6 +62,10 @@ for item in layers:
     print(item["id"], item["title"])
 ```
 
+`find_items` returns up to `limit` items (50 by default). To walk every
+match, for an inventory or a cleanup script, use
+`gg.iter_items(type="data_layer")`, which pages until the end.
+
 A data layer holds one or more **layers**, each with its own id. That
 id is what every call below wants, and it is not the same as the
 layer's display name.
@@ -268,16 +272,19 @@ print(result["inserted"], "features")
 ```
 
 `mode="replace"` empties the layer first, which is what a refresh
-usually means. **It truncates before it inserts**, so a failure part way
-through leaves the layer empty rather than rolling back to yesterday's
-data. If the source is something you cannot fetch again, export first.
+usually means. It is all or nothing: the old rows are removed and the
+new ones written in one transaction, so a failure part way through
+leaves yesterday's data in place.
 
 `mode` is required: `"replace"` empties the layer first, `"append"` adds
 to what is there. There is no default, because the two are one word
 apart and the wrong one either doubles a layer or wipes it.
 
 For a multi-layer archive like a `.gdb`, name the one you want with
-`source_layer=`. Files are capped at 1 GB.
+`source_layer=`. There is no small file size cap; the portal's real
+limit is its free disk space. A refusal raises the same error class as
+any other call, so `except ValidationError` catches a bad
+`source_layer`.
 
 ## Compute a field for every feature
 
