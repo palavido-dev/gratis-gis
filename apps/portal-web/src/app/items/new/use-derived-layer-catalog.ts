@@ -42,10 +42,7 @@ const TOOL_GROUP_IDS = [
 
 type ToolGroupId = (typeof TOOL_GROUP_IDS)[number];
 
-const TOOL_GROUP_DEFS: Array<{
-  id: ToolGroupId;
-  tools: ToolStep['tool'][];
-}> = [
+const TOOL_GROUP_DEFS = [
   {
     id: 'reshape',
     tools: ['buffer', 'simplify', 'densify', 'convex-hull', 'bbox'],
@@ -54,19 +51,32 @@ const TOOL_GROUP_DEFS: Array<{
     id: 'extract',
     tools: ['centroid', 'vertices'],
   },
-  { id: 'combine', tools: ['dissolve'] },
+  { id: 'combine', tools: ['dissolve', 'aggregate'] },
   {
     id: 'measure',
-    tools: ['calculate-geometry', 'nearest-neighbor'],
+    tools: ['calculate-geometry', 'calculate-field', 'nearest-neighbor'],
   },
-  { id: 'filter', tools: ['top-n', 'random-sample'] },
+  { id: 'filter', tools: ['filter', 'top-n', 'random-sample'] },
   { id: 'generate', tools: ['fishnet'] },
   { id: 'interpolate', tools: ['contour'] },
   {
     id: 'compare',
     tools: ['spatial-join', 'spatial-filter', 'clip', 'erase'],
   },
-];
+] as const satisfies ReadonlyArray<{
+  id: ToolGroupId;
+  tools: ReadonlyArray<ToolStep['tool']>;
+}>;
+
+// The toolbox is the only way to add a step in the builder, so a tool
+// in no group cannot be added at all (filter, calculate-field and
+// aggregate were missing for a while). This fails to compile when a
+// tool is left out.
+type GroupedTool = (typeof TOOL_GROUP_DEFS)[number]['tools'][number];
+type AssertEveryToolGrouped<T extends never> = T;
+export type EveryToolGrouped = AssertEveryToolGrouped<
+  Exclude<ToolStep['tool'], GroupedTool>
+>;
 
 const NO_PARAM_TOOLS = [
   'dissolve',
@@ -97,7 +107,7 @@ export function useDerivedLayerCatalog() {
     const toolGroups: DerivedLayerToolGroup[] = TOOL_GROUP_DEFS.map((g) => ({
       label: t(`derivedLayerBuilder.toolGroups.${g.id}.label`),
       description: t(`derivedLayerBuilder.toolGroups.${g.id}.desc`),
-      tools: g.tools,
+      tools: [...g.tools],
     }));
 
     const noParamBodies: Record<(typeof NO_PARAM_TOOLS)[number], string> = {

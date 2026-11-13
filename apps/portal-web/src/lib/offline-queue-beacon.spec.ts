@@ -29,7 +29,9 @@ beforeEach(() => {
     configurable: true,
     value: { onLine: true, userAgent: 'jest' },
   });
-  fetchMock = jest.fn(async () => new Response('{}', { status: 200 }));
+  fetchMock = jest.fn<Promise<Response>, [string, RequestInit?]>(
+    async () => new Response('{}', { status: 200 }),
+  );
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   // Fresh module state (the throttle window) for every case.
   jest.isolateModules(() => {
