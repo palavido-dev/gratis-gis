@@ -1413,6 +1413,8 @@ export default async function ItemDetailPage(props: Props) {
                 ? item.data
                 : { version: 1, source: '' }) as ScriptData
             }
+            updatedAt={item.updatedAt}
+            ownerId={item.ownerId}
             canEdit={itemCanEdit}
             canSchedule={me.id === item.ownerId}
           />
