@@ -2,6 +2,8 @@
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { prefetchUserNames } from '@/lib/user-name-cache';
 import { isUuid } from '@/lib/api-path-guard';
+import { v3SublayerOf } from '@/lib/layer-extent-url';
+import { isEditorTargetSublayer } from '@/lib/server-sublayer';
 
 export type GeometryFamily = 'point' | 'line' | 'polygon';
 
@@ -77,6 +79,18 @@ export async function discoverLayerMetadata(
   signal?: AbortSignal,
 ): Promise<LayerMetadata> {
   let raw: unknown;
+  // The v3 sublayer to describe from its schema alone. Editor targets
+  // are `geojson-url` sources pointing at a sublayer; they used to
+  // fall into the generic branch below and download the whole layer
+  // (37 MB for a 24k-row parcels layer) on every open and every save.
+  const v3 =
+    layer.source.kind === 'data-layer' &&
+    typeof layer.source.layerKey === 'string' &&
+    layer.source.layerKey.length > 0
+      ? { itemId: layer.source.itemId, layerKey: layer.source.layerKey }
+      : isEditorTargetSublayer(layer)
+        ? v3SublayerOf(layer.source)
+        : null;
   try {
     if (layer.source.kind === 'group') {
       // Group layers are pure UI markers; nothing to discover.
@@ -176,11 +190,7 @@ export async function discoverLayerMetadata(
         return { ...EMPTY, error: `ArcGIS service returned ${res.status}` };
       }
       raw = await res.json();
-    } else if (
-      layer.source.kind === 'data-layer' &&
-      typeof layer.source.layerKey === 'string' &&
-      layer.source.layerKey.length > 0
-    ) {
+    } else if (v3 !== null) {
       // v3 sublayer. Three changes from the v1/v2 path:
       //
       // 1. Skip the /geojson feature sample entirely (see below);
@@ -197,8 +207,7 @@ export async function discoverLayerMetadata(
       //    field list in their item data, so the labels editor and
       //    search-bar field-inserter dropdowns work without any
       //    feature sample (see #145).
-      const itemId = layer.source.itemId;
-      const layerKey = layer.source.layerKey;
+      const { itemId, layerKey } = v3;
       let declaredGeometry: 'point' | 'line' | 'polygon' | null | undefined;
       // Schema-direct fields. Captured here, applied to fieldSet
       // before the (slower, optional) geojson sample. Empty for
@@ -207,7 +216,7 @@ export async function discoverLayerMetadata(
       try {
         const descInit: RequestInit = {};
         if (signal) descInit.signal = signal;
-        const descRes = await fetch(`/api/portal/items/${itemId}`, descInit);
+        const descRes = await fetch(`/api/portal/items/${encodeURIComponent(itemId)}`, descInit);
         if (descRes.ok) {
           const item = (await descRes.json()) as {
             data?: {

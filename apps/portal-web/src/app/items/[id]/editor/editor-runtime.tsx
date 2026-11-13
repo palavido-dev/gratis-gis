@@ -78,6 +78,7 @@ import type { AreaUnit, DistanceUnit } from '@/lib/measure';
 import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
 import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
+import { editorTargetsExtent, serverSublayerOf } from '@/lib/server-sublayer';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -167,6 +168,12 @@ interface Props {
   /** Sublayer key (e.g. 'submissions') paired with
    *  surveyAttachmentsLayerItemId. */
   surveyAttachmentsLayerKey?: string | null;
+  /**
+   * Fit the camera to the union of the target layers' extents once
+   * the map is ready. The Editor sets it when it has no reference
+   * map; other runtimes frame the camera themselves.
+   */
+  fitTargetsOnOpen?: boolean;
 }
 
 /**
@@ -219,6 +226,7 @@ export function EditorRuntime({
   tableOpenDefault = false,
   surveyAttachmentsLayerItemId = null,
   surveyAttachmentsLayerKey = null,
+  fitTargetsOnOpen = false,
 }: Props) {
   const t = useT();
   const toolLabels: Record<EditorTool, string> = {
@@ -377,11 +385,10 @@ export function EditorRuntime({
   const probeAbortsRef = useRef<Record<string, AbortController>>({});
   // Per-layer last-probed source key. The probe effect re-fetches a
   // layer whenever its current source key differs from the entry
-  // here, which captures both initial mount AND
-  // refreshTarget-driven URL bumps (`_ts=` cache-buster). Without
-  // this tracking, the previous "skip if loaded" check would short-
-  // circuit the re-probe after refreshTarget, leaving the
-  // attribute-table cache stale after a save.
+  // here, which captures initial mount and any later source swap.
+  // Editor targets are described from their schema only (no feature
+  // download), and refreshTarget no longer changes their source, so
+  // a save does not re-probe them.
   const probedSourceKeyRef = useRef<Record<string, string>>({});
   const sourceKeysJoined = mapData.layers
     .map((l) => `${l.id}|${JSON.stringify(l.source)}`)
@@ -447,8 +454,7 @@ export function EditorRuntime({
       }
     };
     // The joined source-key string changes when a layer is added /
-    // removed / has its source swapped (including the _ts=
-    // cache-buster bump from refreshTarget). The per-layer
+    // removed / has its source swapped. The per-layer
     // probedSourceKeyRef captures the "do we already have data for
     // THIS source URL" check that the effect needs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -722,31 +728,45 @@ export function EditorRuntime({
     setMapData((cur) => ({ ...cur, basemap: id }));
   }, []);
 
-  // Refresh a target layer's source by appending a fresh _ts param
-  // to its geojson URL. MapCanvas's blunt sync tears down + rebuilds
-  // any layer whose URL changes, which forces a re-fetch and
-  // re-renders the new feature without flicker on the basemap.
+  // Bumped after every save, undo and redo. The attribute table and
+  // the survey form view refetch what they show when it changes.
+  const [targetReloadToken, setTargetReloadToken] = useState(0);
+
+  // Show a target's new state after a write. The canvas re-runs its
+  // viewport read for the target (the bounded bbox fetch that fills
+  // it), and the token above refetches the table page.
+  //
+  // This used to append a fresh `_ts` param to the target's URL.
+  // That changed the source key, which made the canvas rebuild the
+  // source and the metadata probe download the whole layer again,
+  // twice per edit.
   const refreshTarget = useCallback(
     (dataLayerId: string, layerKey: string) => {
-      const id = editorTargetLayerId(dataLayerId, layerKey);
-      const ts = Date.now();
-      setMapData((cur) => ({
-        ...cur,
-        layers: cur.layers.map((l) => {
-          if (l.id !== id) return l;
-          if (l.source.kind !== 'geojson-url') return l;
-          // Strip any prior _ts param so the URL stays clean.
-          const baseUrl = l.source.url.replace(/[?&]_ts=\d+/, '');
-          const sep = baseUrl.includes('?') ? '&' : '?';
-          return {
-            ...l,
-            source: { ...l.source, url: `${baseUrl}${sep}_ts=${ts}` },
-          };
-        }),
-      }));
+      canvasRef.current?.refreshLayerSource(
+        editorTargetLayerId(dataLayerId, layerKey),
+      );
+      setTargetReloadToken((n) => n + 1);
     },
     [],
   );
+
+  // An Editor with no reference map opens at DEFAULT_MAP, a continent
+  // view. Fit the camera once to the union of the targets' extents,
+  // as EditorData.mapId promises. Marked done only after a fit lands,
+  // so an effect cancelled by a remount tries again.
+  const fittedToTargetsRef = useRef(false);
+  useEffect(() => {
+    if (!fitTargetsOnOpen || !mapInstance || fittedToTargetsRef.current) return;
+    let cancelled = false;
+    void editorTargetsExtent(initialMapData.layers).then((bbox) => {
+      if (cancelled || !bbox) return;
+      fittedToTargetsRef.current = true;
+      canvasRef.current?.zoomTo(bbox);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fitTargetsOnOpen, mapInstance, initialMapData.layers]);
 
   // terra-draw lives in the shared hook (map/use-terra-draw.ts): one
   // instance on the same MapLibre map the canvas created, imported
@@ -2108,8 +2128,8 @@ export function EditorRuntime({
   // back to its (dataLayerId, layerKey) pair, hits the v3 PATCH
   // endpoint with the x-editor-id header so EditorPolicyService can
   // re-validate the write against the editor's per-target rules,
-  // then bumps the layer's URL so MapCanvas and the metadata probe
-  // pick up the new value. AttributeTable handles its own error
+  // then refreshes the target so the map and the table page pick up
+  // the new value. AttributeTable handles its own error
   // surfacing; we re-throw so it can show the server message.
   const onInlineEditFeature = useCallback(
     async (
@@ -2128,7 +2148,7 @@ export function EditorRuntime({
       const dataLayerId = stripped.slice(0, sep);
       const layerKey = stripped.slice(sep + 1);
       const res = await fetch(
-        `/api/portal/items/${dataLayerId}/layers/${layerKey}/features/${featureId}`,
+        `/api/portal/items/${encodeURIComponent(dataLayerId)}/layers/${encodeURIComponent(layerKey)}/features/${encodeURIComponent(featureId)}`,
         {
           method: 'PATCH',
           headers: {
@@ -2185,35 +2205,78 @@ export function EditorRuntime({
     setFormViewIndex(0);
   }, [surveyKeysJoined]);
 
-  const surveyActiveFeature = useMemo<GeoJSON.Feature | null>(() => {
-    if (!surveyTargetLayerId) return null;
-    if (surveyKeys.length === 0) return null;
-    const idx = Math.min(formViewIndex, surveyKeys.length - 1);
-    const key = surveyKeys[idx];
-    const fc = featuresByLayer[surveyTargetLayerId];
-    if (!fc) return null;
-    if (typeof key === 'number') {
-      // Numeric index into the original collection. Used by non-v3
-      // sources whose features have no stable id we can promote.
-      return fc.features[key] ?? null;
-    }
-    // String key = _global_id; v3 collections always carry it on
-    // properties (the form mirror writes it when seeding the row).
-    const hit = fc.features.find(
-      (f) => (f.properties as Record<string, unknown> | null)?.['_global_id'] === key,
-    );
-    return hit ?? null;
-  }, [surveyTargetLayerId, surveyKeys, formViewIndex, featuresByLayer]);
-
-  const surveyActiveProperties = useMemo<Record<string, unknown> | null>(() => {
-    if (!surveyActiveFeature) return null;
-    return (surveyActiveFeature.properties ?? {}) as Record<string, unknown>;
-  }, [surveyActiveFeature]);
-
   const surveyTargetLayer = useMemo(() => {
     if (!surveyTargetLayerId) return null;
     return mapData.layers.find((l) => l.id === surveyTargetLayerId) ?? null;
   }, [surveyTargetLayerId, mapData.layers]);
+
+  const surveyActiveKey: number | string | null =
+    surveyKeys.length === 0
+      ? null
+      : (surveyKeys[Math.min(formViewIndex, surveyKeys.length - 1)] ?? null);
+
+  // The survey target is a v3 sublayer, and the browser only holds the
+  // rows in view, so the active response is fetched by its _global_id.
+  // It used to be looked up in a full download of the layer.
+  const surveyServerSub = serverSublayerOf(surveyTargetLayer);
+  const surveyServerItemId = surveyServerSub?.itemId ?? null;
+  const surveyServerLayerKey = surveyServerSub?.layerKey ?? null;
+  const [surveyFetched, setSurveyFetched] = useState<{
+    key: string;
+    properties: Record<string, unknown> | null;
+  } | null>(null);
+  useEffect(() => {
+    if (
+      !surveyServerItemId ||
+      !surveyServerLayerKey ||
+      typeof surveyActiveKey !== 'string'
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const key = surveyActiveKey;
+    fetchFeatureFromServer(surveyServerItemId, surveyServerLayerKey, key)
+      .then((f) => {
+        if (!cancelled) setSurveyFetched({ key, properties: f?.properties ?? null });
+      })
+      .catch(() => {
+        if (!cancelled) setSurveyFetched({ key, properties: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // targetReloadToken: show the saved values after an edit.
+  }, [surveyServerItemId, surveyServerLayerKey, surveyActiveKey, targetReloadToken]);
+
+  const surveyActiveProperties = useMemo<Record<string, unknown> | null>(() => {
+    if (!surveyTargetLayerId || surveyActiveKey === null) return null;
+    if (surveyServerItemId) {
+      // Only a fetch for the key on screen counts; a stale one from
+      // the previous response would show the wrong record.
+      return surveyFetched && surveyFetched.key === surveyActiveKey
+        ? surveyFetched.properties
+        : null;
+    }
+    // Layers that are not v3 keep reading the collection the probe
+    // loaded. Numeric keys index into it.
+    const fc = featuresByLayer[surveyTargetLayerId];
+    if (!fc) return null;
+    const hit =
+      typeof surveyActiveKey === 'number'
+        ? fc.features[surveyActiveKey]
+        : fc.features.find(
+            (f) =>
+              (f.properties as Record<string, unknown> | null)?.['_global_id'] ===
+              surveyActiveKey,
+          );
+    return hit ? ((hit.properties ?? {}) as Record<string, unknown>) : null;
+  }, [
+    surveyTargetLayerId,
+    surveyActiveKey,
+    surveyServerItemId,
+    surveyFetched,
+    featuresByLayer,
+  ]);
 
   return (
     <div className="flex h-full min-h-[calc(100dvh-3.5rem)] flex-col bg-surface-0">
@@ -3514,7 +3577,9 @@ export function EditorRuntime({
               floating bar was removed per user feedback. */}
 
           {/* AttributeTable bottom-overlay. Same component the map
-              editor uses; pulls from the same featuresByLayer
+              editor uses. Target layers page from the server
+              (features-page), as data-layer sources do in the
+              Viewer; reference layers keep the featuresByLayer
               cache. Open via the layer-panel kebab's "Open
               attribute table" item; close with the panel's X.
               onPatchLayer mutates the layer client-side (used for
@@ -3561,6 +3626,7 @@ export function EditorRuntime({
             editableFieldsByLayer={inlineEditableFieldsByLayer}
             fieldsByLayer={inlineFieldsByLayer}
             pickLists={pickLists}
+            reloadToken={targetReloadToken}
           />
         </div>
       </div>

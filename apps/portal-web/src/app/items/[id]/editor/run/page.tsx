@@ -231,6 +231,9 @@ export default async function EditorRuntimePage(props: Props) {
       targetLayerIds={targetLayerIds}
       basemaps={basemaps}
       canEdit={canEdit}
+      // No reference map means the canvas starts at DEFAULT_MAP's
+      // continent view; the runtime fits it to the targets instead.
+      fitTargetsOnOpen={!referencedMap}
     />
   );
 }
