@@ -37,17 +37,39 @@ interface FeatureDao {
   suspend fun firstForLayer(collectionId: String, dataLayerId: String, layerKey: String): FeatureEntity?
   @Query("DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey")
   suspend fun deleteForLayer(collectionId: String, dataLayerId: String, layerKey: String)
+  /** One statement; callers go through [deleteByGlobalIds], which keeps
+   *  the id list under SQLite's bind variable limit. */
   @Query(
     "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
       "AND layerKey = :layerKey AND globalId IN (:globalIds)",
   )
-  suspend fun deleteByGlobalIds(
+  suspend fun deleteByGlobalIdsChunk(
     collectionId: String,
     dataLayerId: String,
     layerKey: String,
     globalIds: List<String>,
   )
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)
+}
+
+/** Ids per DELETE. Room binds one variable per id, and the platform
+ *  SQLite on Android 9 to 11 (minSdk is 28) allows at most 999. */
+const val DELETE_IDS_PER_STATEMENT = 500
+
+/**
+ * Delete features by global id in chunks. A delta page can carry up to
+ * 10,000 deletes; as one statement that threw on older devices and
+ * sent the downloader to a full re-pull every time.
+ */
+suspend fun FeatureDao.deleteByGlobalIds(
+  collectionId: String,
+  dataLayerId: String,
+  layerKey: String,
+  globalIds: List<String>,
+) {
+  for (chunk in globalIds.chunked(DELETE_IDS_PER_STATEMENT)) {
+    deleteByGlobalIdsChunk(collectionId, dataLayerId, layerKey, chunk)
+  }
 }
 
 @Dao

@@ -7,11 +7,13 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -119,6 +121,10 @@ class PortalClient(
     at: String? = null,
   ): String =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/geojson") {
+      // A large page on a slow link can take longer than the client's
+      // 60 s whole-request limit; the socket timeout still catches a
+      // stalled transfer.
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
       if (bbox != null) parameter("bbox", bbox.joinToString(","))
       if (limit != null) parameter("limit", limit)
       if (cursor != null) parameter("cursor", cursor)
@@ -159,7 +165,13 @@ class PortalClient(
     onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> },
   ): Long {
     var received = 0L
-    http.prepareGet("items/$itemId/offline-packages/$packageId/file").execute { response ->
+    // The client's 60 s request timeout covers reading the body, so a
+    // package that takes longer than a minute to stream was cancelled
+    // every time. Only the socket timeout applies here: it fires when
+    // the transfer stalls, not when it is merely long.
+    http.prepareGet("items/$itemId/offline-packages/$packageId/file") {
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
+    }.execute { response ->
       val total = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
       val channel = response.bodyAsChannel()
       val buffer = ByteArray(64 * 1024)

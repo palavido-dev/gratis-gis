@@ -56,9 +56,24 @@ class AuthSession(
 
   val isSignedIn: Boolean get() = _tokens.value != null
 
-  /** Fetch and cache the issuer's discovery document. */
-  suspend fun discover(issuer: String): OidcConfig =
-    http.get(issuer.trimEnd('/') + "/.well-known/openid-configuration").body()
+  private val discovered = java.util.concurrent.ConcurrentHashMap<String, OidcConfig>()
+
+  /**
+   * Fetch and cache the issuer's discovery document. Only a successful
+   * read is cached. A failed one throws [java.io.IOException] rather
+   * than a parse error from an HTML error page.
+   */
+  suspend fun discover(issuer: String): OidcConfig {
+    val key = issuer.trimEnd('/')
+    discovered[key]?.let { return it }
+    val response = http.get("$key/.well-known/openid-configuration")
+    if (response.status.value >= 400) {
+      throw java.io.IOException("Discovery returned HTTP ${response.status.value}")
+    }
+    val config = response.body<OidcConfig>()
+    discovered[key] = config
+    return config
+  }
 
   /**
    * Build the URL to open in the browser and persist what the redirect
@@ -127,17 +142,35 @@ class AuthSession(
   override suspend fun accessToken(): String? {
     val current = _tokens.value ?: return null
     if (current.isFresh(clock())) return current.accessToken
-    return refreshAccessToken()
+    return refresh(rejected = null)
   }
 
-  override suspend fun refreshAccessToken(): String? = refreshLock.withLock {
+  /**
+   * Called by the HTTP client after a 401: the server refused the token
+   * it was just sent, however fresh the local clock thinks it is (the
+   * session was revoked, the realm key rotated, or the device clock is
+   * behind). Handing that same token back kept the app on 401 until it
+   * expired locally, so it is refreshed unless another caller already
+   * replaced it.
+   */
+  override suspend fun refreshAccessToken(): String? =
+    refresh(rejected = _tokens.value?.accessToken)
+
+  private suspend fun refresh(rejected: String?): String? = refreshLock.withLock {
     val current = _tokens.value ?: return null
     // Another caller may have refreshed while we waited for the lock.
-    if (current.isFresh(clock())) return current.accessToken
+    if (current.accessToken != rejected && current.isFresh(clock())) return current.accessToken
     val refresh = current.refreshToken ?: return signOutAndNull()
     val issuer = current.accessClaims()?.get("iss")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
       ?: return signOutAndNull()
-    val config = discover(issuer)
+    // Unreachable or broken discovery says nothing about the session.
+    val config = try {
+      discover(issuer)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      return null
+    }
     val response = http.submitForm(
       url = config.tokenEndpoint,
       formParameters = parameters {
@@ -146,14 +179,17 @@ class AuthSession(
         append("refresh_token", refresh)
       },
     )
-    if (response.status.value in 400..499) {
-      // invalid_grant: the offline session was revoked or idled out.
-      // Anything else 4xx is equally terminal for this token.
+    val status = response.status.value
+    if (status == 401 || (status == 400 && oauthError(response.bodyAsText()) == "invalid_grant")) {
+      // The offline session was revoked or idled out, or the client is
+      // no longer accepted: the refresh token is dead.
       return signOutAndNull()
     }
-    if (response.status.value >= 500) {
-      // The server is unhappy, not the session. Keep the tokens and
-      // let the caller retry later.
+    if (status >= 400) {
+      // A rate limit (429), a timeout (408), a 5xx or an unexpected
+      // 400 says nothing about the grant. Discarding the 30 day
+      // offline session over one would force an interactive sign-in,
+      // which needs coverage. Keep the tokens and let the caller retry.
       return null
     }
     val r = response.body<TokenResponse>()
@@ -171,6 +207,12 @@ class AuthSession(
     signOut()
     return null
   }
+
+  private fun oauthError(body: String): String? =
+    runCatching {
+      val obj = json.parseToJsonElement(body) as kotlinx.serialization.json.JsonObject
+      (obj["error"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+    }.getOrNull()
 
   private fun describe(body: String): String =
     runCatching {

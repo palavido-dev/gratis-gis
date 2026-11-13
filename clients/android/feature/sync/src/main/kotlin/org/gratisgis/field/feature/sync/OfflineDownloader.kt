@@ -21,6 +21,7 @@ import org.gratisgis.field.core.database.FeatureEntity
 import org.gratisgis.field.core.database.FieldDatabase
 import org.gratisgis.field.core.database.FormEntity
 import org.gratisgis.field.core.database.LayerEntity
+import org.gratisgis.field.core.database.deleteByGlobalIds
 import org.gratisgis.field.core.database.OfflinePackageEntity
 import org.gratisgis.field.core.engine.FieldEngine
 import org.gratisgis.field.core.network.ItemSummary
