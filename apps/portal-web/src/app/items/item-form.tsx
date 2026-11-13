@@ -10,7 +10,6 @@ import {
   Loader2,
   Lock,
   Save,
-  Sparkles,
 } from 'lucide-react';
 import type {
   DerivedLayerData,
@@ -21,10 +20,7 @@ import type {
   ThumbnailDesign,
 } from '@gratis-gis/shared-types';
 import {
-  DEFAULT_ARCGIS_SERVICE,
-  DEFAULT_DATA_LAYER,
   DEFAULT_DERIVED_LAYER,
-  DEFAULT_MAP,
   ITEM_THEMES,
   defaultThumbnailDesign,
   isDerivedLayerData,
@@ -36,12 +32,9 @@ import { ThumbnailDesigner } from '@/components/thumbnail-designer';
 import { DerivedLayerBuilder } from './new/derived-layer-builder';
 import { useT } from '@/lib/i18n/locale-context';
 
-type Mode =
-  | { kind: 'create' }
-  | { kind: 'edit'; itemId: string };
-
 interface Props {
-  mode: Mode;
+  /** The item being edited. New items are created in the wizard. */
+  itemId: string;
   initialValues?: Partial<
     Pick<
       Item,
@@ -56,14 +49,12 @@ interface Props {
     >
   >;
   /**
-   * Optional pre-loaded `data` blob, surfaced in edit mode for item
-   * types that have an inline recipe editor here (currently
-   * `derived_layer`). Untyped on the way in so this prop can carry any
-   * item type's data; consumers narrow against the type before reading.
+   * Optional pre-loaded `data` blob, for item types that have an
+   * inline recipe editor here (currently `derived_layer`). Untyped on
+   * the way in so this prop can carry any item type's data; consumers
+   * narrow against the type before reading.
    */
   initialData?: unknown;
-  /** Item id in edit mode, used as a stable seed for the fallback badge. */
-  itemId?: string;
 }
 
 /**
@@ -102,30 +93,6 @@ const LICENSE_VALUES: string[] = [
   'custom',
 ];
 
-// Item types offered in the create form. Labels + descriptions
-// resolve through i18n at render (itemForm.type.<value>.label / .desc).
-//
-// `dashboard` used to be here, which meant this legacy form could
-// create an item type nothing implements: it rendered the
-// coming-soon placeholder and could never become anything else. A
-// dashboard is a custom web app started from a dashboard template,
-// created through the wizard's app gallery. The enum value stays in
-// the schema so any row created back then still resolves, but
-// nothing offers it for creation any more.
-//
-// `report_template` is gone for exactly the same reason, and it took
-// longer to notice because the note above was already written. There
-// is no report_template editor; creating one gave you a titled item
-// stuck on the coming-soon page forever.
-const ITEM_TYPE_VALUES: ItemType[] = [
-  'map',
-  'data_layer',
-  'arcgis_service',
-  'form',
-  'web_app',
-  'file',
-];
-
 const accessOptions: Array<{
   value: ItemAccess;
   Icon: typeof Lock;
@@ -136,7 +103,8 @@ const accessOptions: Array<{
 ];
 
 /**
- * Create/edit form for item metadata. Most type-specific editors ship
+ * Edit form for item metadata. New items are created in the wizard,
+ * so this form has no create mode. Most type-specific editors ship
  * with their respective pillars (map authoring, form designer, etc.).
  * Derived layers are an exception: the recipe (source + pipeline) is
  * structural to the item's identity, so the same builder used in the
@@ -146,7 +114,7 @@ const accessOptions: Array<{
  * `validateAndEnrich` whenever `data` is included in the body, so the
  * cached `outputSchema` and `bbox` stay in sync.
  */
-export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
+export function ItemForm({ itemId, initialValues, initialData }: Props) {
   const t = useT();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -154,9 +122,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [type, setType] = useState<ItemType>(
-    (initialValues?.type as ItemType) ?? 'map',
-  );
+  const type: ItemType = (initialValues?.type as ItemType) ?? 'map';
   const [title, setTitle] = useState(initialValues?.title ?? '');
   const [description, setDescription] = useState(
     initialValues?.description ?? '',
@@ -189,15 +155,10 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(
     initialThumbnailUrl,
   );
-  // #66: thumbnail design state. Edit mode pre-populates from the
-  // item; create mode lets the user customize the type-default
-  // before saving (the design ships in the create payload so the
-  // backend stores it instead of re-applying its own default).
+  // #66: thumbnail design state, pre-populated from the item. Older
+  // rows without a design start from the type default.
   const [thumbnailDesign, setThumbnailDesign] = useState<ThumbnailDesign>(
-    initialValues?.thumbnailDesign ??
-      defaultThumbnailDesign(
-        (initialValues?.type as ItemType | undefined) ?? type,
-      ),
+    initialValues?.thumbnailDesign ?? defaultThumbnailDesign(type),
   );
   // setThumbnailUrl is kept reachable for legacy uploads even
   // though no UI exposes it any more; preserves existing uploaded
@@ -218,8 +179,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   );
 
   // Derived-layer recipe state. Only consulted when type is
-  // `derived_layer` and the form is in edit mode; for create flows the
-  // wizard owns the builder. We seed from `initialData` when it looks
+  // `derived_layer`. We seed from `initialData` when it looks
   // like a valid recipe and fall back to the default scaffold so the
   // builder always has a coherent value to render. The original recipe
   // (stringified) is captured once so submit can decide whether `data`
@@ -269,20 +229,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       thumbnailDesign,
       license: effectiveLicense,
     };
-    if (mode.kind === 'create') {
-      payload.type = type;
-      // Seed type-specific defaults so the new item renders something
-      // meaningful immediately. Other types can fall through to {} and
-      // get populated by their dedicated editor on the detail page.
-      payload.data =
-        type === 'map'
-          ? DEFAULT_MAP
-          : type === 'data_layer'
-            ? DEFAULT_DATA_LAYER
-            : type === 'arcgis_service'
-              ? DEFAULT_ARCGIS_SERVICE
-              : {};
-    } else if (type === 'derived_layer') {
+    if (type === 'derived_layer') {
       // Only attach `data` to the PATCH when the recipe actually
       // changed. The backend re-runs validateAndEnrich whenever `data`
       // is present, which loads the source layer and recomputes the
@@ -312,11 +259,8 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       }
     }
 
-    const url =
-      mode.kind === 'create'
-        ? '/api/portal/items'
-        : `/api/portal/items/${mode.itemId}`;
-    const method = mode.kind === 'create' ? 'POST' : 'PATCH';
+    const url = `/api/portal/items/${itemId}`;
+    const method = 'PATCH';
 
     let res: Response;
     try {
@@ -349,68 +293,19 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       );
       return;
     }
-    const saved = (await res.json()) as Item;
     if (payload.data !== undefined && type === 'derived_layer') {
       savedDerivedLayerJsonRef.current = JSON.stringify(payload.data);
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
 
-    if (mode.kind === 'create') {
-      // Navigate to the new item's detail page. For types whose first
-      // job on arrival is to bring data in (data_layer), jump
-      // directly to the ingest anchor so the upload panel is the very
-      // first thing the user sees.
-      const anchor =
-        type === 'data_layer'
-          ? '#add-data'
-          : type === 'arcgis_service'
-            ? '#configure-arcgis'
-            : '';
-      startTransition(() => router.push(`/items/${saved.id}${anchor}`));
-    } else {
-      // Stay on the edit page but refresh the server data so any downstream
-      // consumers see the update.
-      startTransition(() => router.refresh());
-    }
+    // Stay on the edit page but refresh the server data so any downstream
+    // consumers see the update.
+    startTransition(() => router.refresh());
   }
 
   return (
     <div className="space-y-8">
-      {mode.kind === 'create' ? (
-        <section>
-          <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-            {t('itemForm.itemType')}
-          </label>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {ITEM_TYPE_VALUES.map((value) => {
-              const selected = type === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setType(value)}
-                  className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
-                    selected
-                      ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
-                      : 'border-border bg-surface-1 hover:bg-surface-2'
-                  }`}
-                >
-                  <span className="text-sm font-medium text-ink-1">
-                    {t(`itemForm.type.${value}.label`)}
-                  </span>
-                  <span className="text-xs text-muted">
-                    {t(`itemForm.type.${value}.desc`)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
       {/* Title / Description / Tags come BEFORE the thumbnail
           designer so the primary content fields are the first
           thing a user sees on the page (#87b feedback). The
@@ -552,9 +447,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           })}
         </div>
         <p className="mt-2 text-xs text-muted">
-          {mode.kind === 'create'
-            ? t('itemForm.visibilityHintCreate')
-            : t('itemForm.visibilityHintEdit')}
+          {t('itemForm.visibilityHintEdit')}
         </p>
       </section>
 
@@ -605,7 +498,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           and pipeline can be changed from the same UI a user already
           knows. The backend re-enriches outputSchema and bbox on
           save, so this surface stays purely structural. */}
-      {mode.kind === 'edit' && type === 'derived_layer' ? (
+      {type === 'derived_layer' ? (
         <section>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
             {t('itemForm.recipe')}
@@ -649,14 +542,10 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
         >
           {submitting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : mode.kind === 'create' ? (
-            <Sparkles className="h-4 w-4" />
           ) : (
             <Save className="h-4 w-4" />
           )}
-          {mode.kind === 'create'
-            ? t('newItem.createButton')
-            : t('itemForm.saveChanges')}
+          {t('itemForm.saveChanges')}
         </button>
       </div>
     </div>
