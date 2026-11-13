@@ -172,8 +172,13 @@ export function HelpDrawerProvider({
   // input.  Escape closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
-      const editable = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag);
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      // A contentEditable editor (the custom app rich text) is typing
+      // too: the "?" was swallowed there and the drawer took focus.
+      const editable =
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) ||
+        target?.isContentEditable === true;
       if (e.key === '?' && !editable && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         setState((s) => ({ open: true, slug: null, picking: false }));

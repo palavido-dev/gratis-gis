@@ -25,9 +25,8 @@
  */
 import { useMemo, useRef } from 'react';
 import { sanitizePopupHtml } from '@gratis-gis/shared-types';
-import { formatDateTime, formatNumber } from '@/lib/i18n/format';
+import { renderLabelTemplate } from '@/lib/label-template';
 import { useLocale } from '@/lib/i18n/locale-context';
-import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 
 interface ExtraInsert {
   /** Button label, e.g. "+line break". */
@@ -116,7 +115,13 @@ export function TemplateInput({
   const preview = useMemo(() => {
     if (!sampleProperties) return null;
     if (!value.trim()) return null;
-    const rendered = renderTemplate(value, sampleProperties, locale);
+    // Same renderer the map search uses, so the preview shows what a
+    // result label will show. Values are escaped only for the HTML
+    // preview; the plain preview is React text and shows them as is.
+    const rendered = renderLabelTemplate(value, sampleProperties, {
+      locale,
+      escape: previewAsHtml,
+    });
     return previewAsHtml ? sanitizePopupHtml(rendered) : rendered;
   }, [value, sampleProperties, locale, previewAsHtml]);
 
@@ -222,67 +227,3 @@ export function TemplateInput({
   );
 }
 
-/**
- * Render a {{field}} template against sample properties.  Mirrors
- * the canvas runtime renderer in popup-editor.tsx and the
- * lighter search-sources renderTemplate.  Kept private so we can
- * evolve the grammar in one place over time.
- *
- * When `previewAsHtml` is true on the caller, the caller is
- * responsible for any extra HTML it injects around the template
- * (e.g. <br>); the renderer escapes field values either way.
- */
-function renderTemplate(
-  template: string,
-  props: Record<string, unknown>,
-  locale: SupportedLocale = DEFAULT_LOCALE,
-): string {
-  return template.replace(
-    /\{\{\s*([\w.-]+)\s*(?:\|\s*([\w.-]+)(?:\s*:\s*([^}]+))?\s*)?\}\}/g,
-    (_, key: string, formatter?: string, arg?: string) => {
-      const raw = props[key];
-      if (raw === undefined || raw === null) return '';
-      const str = String(raw);
-      const fmt = formatter?.toLowerCase();
-      let out = str;
-      if (fmt === 'upper') out = str.toUpperCase();
-      else if (fmt === 'lower') out = str.toLowerCase();
-      else if (fmt === 'number') {
-        const n = Number(str);
-        if (!Number.isNaN(n)) out = formatNumber(n, locale);
-      } else if (fmt === 'currency') {
-        const n = Number(str);
-        if (!Number.isNaN(n)) {
-          try {
-            out = formatNumber(n, locale, {
-              style: 'currency',
-              currency: arg?.trim() || 'USD',
-            });
-          } catch {
-            out = formatNumber(n, locale);
-          }
-        }
-      } else if (fmt === 'date') {
-        const d = new Date(str);
-        if (!Number.isNaN(d.getTime())) {
-          const style = (arg?.trim() as 'short' | 'long' | 'full' | undefined) ?? 'medium';
-          try {
-            out = new Intl.DateTimeFormat(locale, { dateStyle: style }).format(d);
-          } catch {
-            out = formatDateTime(d, locale);
-          }
-        }
-      }
-      return escapeHtml(out);
-    },
-  );
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}

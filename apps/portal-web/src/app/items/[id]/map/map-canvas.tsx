@@ -138,6 +138,8 @@ import {
   scaleUnitForAreaUnit,
 } from './area-scale-control';
 import { isUnsafeApiUrl, isUuid } from '@/lib/api-path-guard';
+import { v3SublayerOf } from '@/lib/layer-extent-url';
+import { normalizeClassBreaks, uniqueCategories } from '@/lib/renderer-classes';
 
 /**
  * An id from saved map JSON, safe to put in an API path. Anything that
@@ -548,6 +550,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         //   - GeoJSON sources (inline FCs, tool-run results,
         //     editor targets): setData with the current URL / FC
         //     forces a refetch, as before.
+        // Editor targets hold only the rows in view; their data URL
+        // is the bbox read, so refresh by re-running it. Setting the
+        // empty seed would blank the layer.
+        if (layer.id.startsWith('editor-target:') && v3SublayerOf(layer.source)) {
+          editorTargetRefetchRef.current?.();
+          return;
+        }
         if (src.type === 'vector') {
           const vectorSrc = src as maplibregl.VectorTileSource;
           const current = vectorSrc.tiles?.[0];
@@ -564,9 +573,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (data === null) return;
         (src as maplibregl.GeoJSONSource).setData(data);
       },
-      flyAndHighlight: ({ bbox, center, layerId, featureProps }) => {
+      flyAndHighlight: ({ bbox, center, layerId, featureId, featureProps }) => {
         const m = mapRef.current;
         if (!m) return;
+        const moving = Boolean(bbox || center);
         if (bbox) {
           m.fitBounds(
             [
@@ -585,12 +595,29 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (!layerId) return;
         const sourceId = `gg:${layerId}`;
         const handle = () => {
-          const rendered = m.querySourceFeatures(sourceId);
-          const match = featureProps
-            ? rendered.find((f) => propertiesMatch(f.properties, featureProps))
-            : rendered[0];
-          if (!match || match.id === undefined) return;
-          const prevId = match.id as string | number;
+          if (mapRef.current !== m || !m.getSource(sourceId)) return;
+          // A v3 `_global_id` is the feature-state key itself (those
+          // sources promote it), so use it directly. Vector tiles carry
+          // only that id and a few style fields, so matching on the
+          // result's full properties could never find the feature.
+          // Other ids are a source's own and not MapLibre's generated
+          // ones, so they still go through the property match.
+          let prevId: string | number | null = null;
+          if (isUuid(featureId)) {
+            prevId = featureId;
+          } else {
+            const isVector = m.getSource(sourceId)?.type === 'vector';
+            const rendered = isVector
+              ? m.querySourceFeatures(sourceId, { sourceLayer: 'features' })
+              : m.querySourceFeatures(sourceId);
+            const match = featureProps
+              ? rendered.find((f) => propertiesMatch(f.properties, featureProps))
+              : rendered[0];
+            if (match && match.id !== undefined) {
+              prevId = match.id as string | number;
+            }
+          }
+          if (prevId === null) return;
           m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: true });
           // Clear after a couple seconds so the pulse feels temporary.
           setTimeout(() => {
@@ -600,7 +627,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
             m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: false });
           }, 2500);
         };
-        m.once('moveend', handle);
+        // Only wait for a move that was started here. With neither a
+        // bbox nor a center, a pending once('moveend') fired on the
+        // user's next unrelated pan.
+        if (moving) m.once('moveend', handle);
+        else handle();
       },
     }),
     [],
@@ -923,11 +954,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     )?.metadata?.basemapTag;
     if (current === desiredTag) return;
 
-    const c = m.getCenter();
-    const z = m.getZoom();
-    const b = m.getBearing();
-    const p = m.getPitch();
-
     for (const name of Object.keys(MAP_ICONS)) {
       const plainId = iconImageId(name);
       const sdfId = iconSdfImageId(name);
@@ -967,7 +993,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       done = true;
       // eslint-disable-next-line no-console
       console.debug('[basemap] applying overlays for', map.basemap);
-      m.jumpTo({ center: [c.lng, c.lat], zoom: z, bearing: b, pitch: p });
+      // No camera restore here. setStyle leaves the camera alone, so
+      // jumping back to where it was when the swap started only ever
+      // undid a pan the user made while the new style loaded.
       await loadAllIcons(m);
       if (cancelled) return;
       syncOverlays(
@@ -1343,6 +1371,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // spatial index + bbox-clipped reads. Small layers see no
   // behaviour change.
   const dataLayerControllers = useRef<Record<string, AbortController>>({});
+  // The current bbox refetch for editor targets, for refreshLayerSource.
+  const editorTargetRefetchRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
@@ -1351,13 +1381,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // to the viewport, so the legacy bbox-fetch-and-setData effect
     // is a no-op for data-layer. Editor-target layers still need
     // the GeoJSON + setData path because the editor reads full
-    // attrs from the source feature; they wear the data-layer kind
-    // but the source URL points at /geojson rather than /tile.
+    // attrs from the source feature. buildEditorMapData makes them
+    // `geojson-url` sources pointing at the sublayer's /geojson, so
+    // they are matched by id prefix and sublayer, not by kind. This
+    // used to require the data-layer kind, matched nothing, and let
+    // MapLibre download every target layer whole.
     const dataLayers = map.layers.filter(
       (l) =>
         l.visible &&
-        l.source.kind === 'data-layer' &&
-        l.id.startsWith('editor-target:'),
+        l.id.startsWith('editor-target:') &&
+        v3SublayerOf(l.source) !== null,
     );
     for (const id of Object.keys(dataLayerControllers.current)) {
       if (!dataLayers.some((l) => l.id === id)) {
@@ -1375,18 +1408,20 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           | maplibregl.GeoJSONSource
           | undefined;
         if (!src) continue;
-        if (layer.source.kind !== 'data-layer') continue;
-        const dataSource = layer.source;
+        const sub = v3SublayerOf(layer.source);
+        if (!sub) continue;
         dataLayerControllers.current[layer.id]?.abort();
         const controller = new AbortController();
         dataLayerControllers.current[layer.id] = controller;
-        const base = dataSource.layerKey
-          ? `/api/portal/items/${pathId(dataSource.itemId)}/layers/${encodeURIComponent(dataSource.layerKey)}/geojson`
-          : `/api/portal/items/${pathId(dataSource.itemId)}/geojson`;
-        const params = new URLSearchParams({ bbox });
-        if (layer.boundaryFilterItemId) {
-          params.set('clip', layer.boundaryFilterItemId);
-        }
+        const base = `/api/portal/items/${pathId(sub.itemId)}/layers/${encodeURIComponent(sub.layerKey)}/geojson`;
+        // A bounded page: the same 5,000-row ceiling the ArcGIS and
+        // PostGIS Live viewport reads use, and installs that refuse
+        // unpaged reads (GRATIS_FEATURE_QUERY_PAGE=required) accept it.
+        const params = new URLSearchParams({ bbox, limit: '5000' });
+        // Per-layer boundary wins over the map-level clip, as in
+        // sourceData.
+        const clip = layer.boundaryFilterItemId ?? map.clipBoundaryId ?? null;
+        if (clip) params.set('clip', clip);
         // #87 -- bitemporal "as of" passthrough.  When the runtime
         // has scrubbed to a past moment, every data-layer fetch
         // asks the engine for that snapshot rather than current
@@ -1414,9 +1449,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       }
     };
     refetchAll();
+    editorTargetRefetchRef.current = refetchAll;
     m.on('moveend', refetchAll);
     return () => {
       m.off('moveend', refetchAll);
+      if (editorTargetRefetchRef.current === refetchAll) {
+        editorTargetRefetchRef.current = null;
+      }
       // Same as the arcgis effect: abort so late responses cannot
       // land on rebuilt sources or a removed map.
       for (const c of Object.values(dataLayerControllers.current)) c.abort();
@@ -1426,7 +1465,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // full refetch with the new `at` parameter -- without this dep,
     // editor-target GeoJSON sources would keep showing current
     // truth until the user pans the camera.
-  }, [map.layers, iconsTick, asOfTime]);
+  }, [map.layers, iconsTick, asOfTime, map.clipBoundaryId]);
 
   // Click handlers for popups, hover handlers for highlight + cursor.
   // Attached once, dispatches dynamically based on the current layer set.
@@ -1603,9 +1642,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     }
     function onClick(e: maplibregl.MapMouseEvent) {
       const tool = selectToolRef.current;
-      // Rectangle & polygon tools have their own handlers: a plain
-      // click should never compete with their drag/vertex logic.
-      if (tool === 'rectangle' || tool === 'polygon') return;
+      // Rectangle, polygon and lasso tools have their own handlers: a
+      // plain click should never compete with their drag/vertex logic
+      // or open a popup.
+      if (tool === 'rectangle' || tool === 'polygon' || tool === 'lasso') return;
       const hits = m!.queryRenderedFeatures(e.point, {
         layers: interactiveIds,
       });
@@ -2200,8 +2240,13 @@ async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
   // Fast path: every icon is already registered. Avoids the
   // Promise.all + per-icon try/catch overhead on every styledata
   // tick after the initial load.
+  // A bundled icon that failed to rasterise once is not retried: it
+  // would miss this fast path forever, and each retry re-ran the sync
+  // whose styledata events call back in here.
+  const failed = iconsFailed.get(m);
   let allLoaded = true;
   for (const name of Object.keys(MAP_ICONS)) {
+    if (failed?.has(name)) continue;
     if (!m.hasImage(iconImageId(name)) || !m.hasImage(iconSdfImageId(name))) {
       allLoaded = false;
       break;
@@ -2210,14 +2255,28 @@ async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
   if (allLoaded) return false;
   iconsInFlight.set(m, true);
   try {
-    await loadAllIconsImpl(m);
+    // Report work only when an image was actually registered.
+    return (await loadAllIconsImpl(m)) > 0;
   } finally {
     iconsInFlight.delete(m);
   }
-  return true;
 }
 
-async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
+/** Bundled icon names that failed to rasterise, per map. */
+const iconsFailed = new WeakMap<maplibregl.Map, Set<string>>();
+
+function noteIconFailed(m: maplibregl.Map, name: string): void {
+  let set = iconsFailed.get(m);
+  if (!set) {
+    set = new Set();
+    iconsFailed.set(m, set);
+  }
+  set.add(name);
+}
+
+/** Registers what is missing; returns how many images it added. */
+async function loadAllIconsImpl(m: maplibregl.Map): Promise<number> {
+  let added = 0;
   // Bundled lucide-derived icons (#73).
   await Promise.all(
     Object.keys(MAP_ICONS).map(async (name) => {
@@ -2229,11 +2288,12 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
           if (svg) {
             const img = await rasterizeSvgIcon(svg);
             if (!m.hasImage(plainId)) {
+              added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
         } catch {
-          /* non-fatal */
+          noteIconFailed(m, name);
         }
       }
       if (!m.hasImage(sdfId)) {
@@ -2242,6 +2302,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
           if (svg) {
             const sdf = await svgToSdf(svg);
             if (!m.hasImage(sdfId)) {
+              added += 1;
               m.addImage(sdfId, sdf, {
                 pixelRatio: ICON_IMAGE_PIXEL_RATIO,
                 sdf: true,
@@ -2249,7 +2310,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
             }
           }
         } catch {
-          /* non-fatal */
+          noteIconFailed(m, name);
         }
       }
     }),
@@ -2265,7 +2326,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
   // upload list doesn't delay the always-cached bundled icons.
   try {
     const resp = await fetch('/api/portal/map-icons');
-    if (!resp.ok) return;
+    if (!resp.ok) return added;
     const rows = (await resp.json()) as Array<{
       storageKey: string;
       storageUrl: string;
@@ -2283,6 +2344,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
           if (raster) {
             const img = await rasterizeBitmapIcon(await fileResp.blob());
             if (!m.hasImage(plainId)) {
+              added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
             return;
@@ -2291,6 +2353,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
           if (!m.hasImage(plainId)) {
             const img = await rasterizeSvgIcon(svgText);
             if (!m.hasImage(plainId)) {
+              added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
@@ -2302,6 +2365,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
             // were authored with currentColor strokes.
             const sdf = await svgToSdf(svgText);
             if (!m.hasImage(sdfId)) {
+              added += 1;
               m.addImage(sdfId, sdf, {
                 pixelRatio: ICON_IMAGE_PIXEL_RATIO,
                 sdf: true,
@@ -2316,6 +2380,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
   } catch {
     /* non-fatal */
   }
+  return added;
 }
 
 /**
@@ -2392,14 +2457,29 @@ function applySelectionMutation({
  * is explicitly false. Feature ids come from the source's generateId
  * setting: matches the indexes the attribute table uses.
  */
+/**
+ * Layers the drag-select tools may pick from: selectable, and not
+ * narrowed to view-only for this viewer. Click-select, hover and
+ * popups already skip `effective.query === false` layers; the box,
+ * polygon and lasso tools did not, so they selected features the
+ * viewer could not click.
+ */
+function selectableQueryableLayers(layers: MapLayer[]): MapLayer[] {
+  return layers.filter(
+    (l) =>
+      l.interactions.selectable !== false &&
+      (l.effective === undefined || l.effective.query !== false),
+  );
+}
+
 function collectFeaturesInBbox(
   m: maplibregl.Map,
   layers: MapLayer[],
   bbox: [[number, number], [number, number]],
 ): Record<string, Set<number | string>> {
-  const wanted = layers
-    .filter((l) => l.interactions.selectable !== false)
-    .flatMap((l) => overlayLayerIds(l.id));
+  const wanted = selectableQueryableLayers(layers).flatMap((l) =>
+    overlayLayerIds(l.id),
+  );
   // Guard against getStyle() returning undefined during style transitions.
   const style = m.getStyle();
   if (!style) return {};
@@ -2425,25 +2505,28 @@ function collectFeaturesInPolygon(
   polygon: Array<[number, number]>,
 ): Record<string, Set<number | string>> {
   if (polygon.length < 3) return {};
+  // Project every vertex and take the pixel box around them. Projecting
+  // only the two corners of the lng/lat box is the screen box only when
+  // the map is neither rotated nor pitched; rotated, the two points can
+  // land almost on one vertical line and the query box collapses.
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const [x, y] of polygon) {
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
+  for (const vertex of polygon) {
+    const p = m.project(vertex);
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
   }
-  const p1 = m.project([minX, minY]);
-  const p2 = m.project([maxX, maxY]);
   const bbox: [[number, number], [number, number]] = [
-    [Math.min(p1.x, p2.x), Math.min(p1.y, p2.y)],
-    [Math.max(p1.x, p2.x), Math.max(p1.y, p2.y)],
+    [minX, minY],
+    [maxX, maxY],
   ];
-  const wanted = layers
-    .filter((l) => l.interactions.selectable !== false)
-    .flatMap((l) => overlayLayerIds(l.id));
+  const wanted = selectableQueryableLayers(layers).flatMap((l) =>
+    overlayLayerIds(l.id),
+  );
   // Guard against getStyle() returning undefined during style transitions.
   const style = m.getStyle();
   if (!style) return {};
@@ -2928,9 +3011,9 @@ function syncOverlays(
   //
   // Deliberately NOT kept: geojson-inline (an inline FC has no URL
   // identity), arcgis-rest / postgis-live (added empty and filled
-  // imperatively by the moveend effects), and editor targets that
-  // wear the data-layer kind (their live data is replaced by bbox
-  // fetches). Those keep the rebuild-every-pass behavior.
+  // imperatively by the moveend effects), and editor targets (their
+  // live data is replaced by bbox fetches). Those keep the
+  // rebuild-every-pass behavior.
   const keepDataUrl = new Map<
     string,
     { url: string; type: 'vector' | 'geojson'; key: string }
@@ -2953,7 +3036,10 @@ function syncOverlays(
         type: 'vector',
         key: dataLayerKeepKey(url, dataLayerSourceZoom(l.source)),
       });
-    } else if (l.source.kind === 'geojson-url') {
+    } else if (
+      l.source.kind === 'geojson-url' &&
+      !l.id.startsWith('editor-target:')
+    ) {
       keepDataUrl.set(`gg:${l.id}`, {
         url: l.source.url,
         type: 'geojson',
@@ -4175,7 +4261,9 @@ function rendererColor(
   if (r.kind === 'unique-values') {
     if (r.categories.length === 0 || !r.field) return fallback;
     const matchExpr: unknown[] = ['match', ['to-string', ['get', r.field]]];
-    for (const cat of r.categories) {
+    // MapLibre rejects a match with a repeated label, so a saved
+    // renderer with duplicate values would draw nothing; first wins.
+    for (const cat of uniqueCategories(r.categories)) {
       matchExpr.push(cat.value, cat.color);
     }
     matchExpr.push(fallback); // default
@@ -4187,14 +4275,15 @@ function rendererColor(
   // We need one more color than stops; fall back to the simple color if
   // the editor hasn't finished wiring this up.
   if (r.kind === 'class-breaks') {
-    if (!r.field || r.stops.length === 0 || r.colors.length !== r.stops.length + 1) {
-      return fallback;
-    }
+    // step needs strictly ascending stops or MapLibre rejects the
+    // paint; sort and drop repeats (saved renderers may hold either).
+    const classes = r.field ? normalizeClassBreaks(r.stops, r.colors) : null;
+    if (!classes) return fallback;
     const input = ['to-number', ['get', r.field]];
-    const stepExpr: unknown[] = ['step', input, r.colors[0]];
-    for (let i = 0; i < r.stops.length; i += 1) {
-      stepExpr.push(r.stops[i]);
-      stepExpr.push(r.colors[i + 1]);
+    const stepExpr: unknown[] = ['step', input, classes.colors[0]];
+    for (let i = 0; i < classes.stops.length; i += 1) {
+      stepExpr.push(classes.stops[i]);
+      stepExpr.push(classes.colors[i + 1]);
     }
     return stepExpr;
   }
@@ -4264,7 +4353,7 @@ function rendererIconImage(
   );
   if (!anyOverride) return fallbackImageId;
   const matchExpr: unknown[] = ['match', ['to-string', ['get', r.field]]];
-  for (const cat of r.categories) {
+  for (const cat of uniqueCategories(r.categories)) {
     const id =
       typeof cat.iconName === 'string' && cat.iconName.length > 0
         ? imageIdFor(cat.iconName)
@@ -4298,6 +4387,15 @@ function sourceData(
    */
   mapClipBoundaryId?: string,
 ): GeoJSON.FeatureCollection | string | null {
+  // Editor targets start empty: the viewport effect fills them with
+  // the rows in view. Handing MapLibre the bare /geojson URL streams
+  // the whole layer, or fails outright where paging is required.
+  if (
+    layer.id.startsWith('editor-target:') &&
+    v3SublayerOf(layer.source) !== null
+  ) {
+    return { type: 'FeatureCollection', features: [] };
+  }
   if (layer.source.kind === 'geojson-url') return layer.source.url;
   if (layer.source.kind === 'geojson-inline') {
     return layer.source.geojson as GeoJSON.FeatureCollection;

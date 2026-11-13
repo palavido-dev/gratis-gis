@@ -778,6 +778,7 @@ export default async function ItemDetailPage(props: Props) {
               access={item.access}
               license={item.license}
               geometryTypes={v3Layers?.map((l) => l.geometryType)}
+              locale={locale}
             />
           </div>
         </div>
@@ -1009,7 +1010,11 @@ export default async function ItemDetailPage(props: Props) {
               which is what keeps it honest under row scoping. */}
           {v3Layers ? (
             <section className="mb-4 space-y-3">
-              <ItemMapPreview itemId={item.id} layers={v3Layers} />
+              <ItemMapPreview
+                itemId={item.id}
+                layers={v3Layers}
+                version={String(item.updatedAt)}
+              />
               <ItemStatsStrip
                 itemId={item.id}
                 layers={v3Layers.map((l) => ({
@@ -1437,6 +1442,7 @@ export default async function ItemDetailPage(props: Props) {
                 : { version: 1, sourceLayerId: '', searchFields: [] }) as import('@gratis-gis/shared-types').GeocodingServiceData
             }
             canEdit={canManage}
+            canRebuildIndexes={me.orgRole === 'admin'}
           />
         </section>
       ) : item.type === 'basemap' ? (

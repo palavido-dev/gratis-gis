@@ -47,8 +47,13 @@ interface CloudEntry {
 interface OverlayState {
   /** layer id -> its dedicated control */
   clouds: Map<string, CloudEntry>;
-  /** maxPitch to restore when the last 3D layer leaves */
-  prevMaxPitch: number;
+  /**
+   * layer id -> the dataUrl that failed to load for it. Such a layer
+   * is not retried until its source changes or it leaves the visible
+   * set, because every layer-panel change runs a reconcile, and each
+   * retry failed again and held the queue for 2.5 s.
+   */
+  failed: Map<string, string>;
   /** "Loading point cloud..." chip shown during initial loads. A
    *  200M-point cloud takes ~10s of header + hierarchy fetches
    *  before the first point draws; without messaging that reads
@@ -206,27 +211,24 @@ async function reconcile(
   let state = states.get(map);
 
   if (desired.length === 0) {
-    if (state) {
-      map.setMaxPitch(state.prevMaxPitch);
-      disposeOverlayState(map);
-    }
+    if (state) disposeOverlayState(map);
     return;
   }
 
   // Create the state entry BEFORE the first await so it exists from
   // the moment this reconcile starts. Ops are serialized through
   // opChains, so nothing else can create a competing entry.
+  // No maxPitch handling here: MapCanvas already creates the map with
+  // maxPitch 85. Saving and restoring it here fought Measure, which
+  // locks the map flat while open, and could leave it flat for good.
   if (!state) {
     state = {
       clouds: new Map(),
-      prevMaxPitch: map.getMaxPitch(),
+      failed: new Map(),
       indicator: makeIndicator(map),
       mod: null,
     };
     states.set(map, state);
-    // 3D needs headroom to look under the horizon; MapLibre's
-    // default 60 reads flat for terrain.
-    map.setMaxPitch(85);
   }
 
   let mod = state.mod;
@@ -250,6 +252,11 @@ async function reconcile(
       state.clouds.delete(layerId);
     }
   }
+  // Hiding or removing a layer clears its failure, so showing it
+  // again is a fresh try.
+  for (const layerId of Array.from(state.failed.keys())) {
+    if (!wantIds.has(layerId)) state.failed.delete(layerId);
+  }
 
   // Create + load a control for each new layer. Loads are slow
   // (network + wasm decode) and the synchronous unmount teardown can
@@ -258,7 +265,10 @@ async function reconcile(
   // trusting a plan computed before the awaits: a stale plan could
   // add a second control for a layer that already has one, or add
   // controls to a map that no longer wants them.
-  const planned = desired.filter((l) => !state.clouds.has(l.id));
+  const planned = desired.filter(
+    (l) =>
+      !state.clouds.has(l.id) && state.failed.get(l.id) !== l.source.dataUrl,
+  );
   for (const [i, layer] of planned.entries()) {
     if (states.get(map) !== state) return; // torn down mid-loop
     if (state.clouds.has(layer.id)) continue; // already has a control
@@ -304,6 +314,7 @@ async function reconcile(
       await control.loadPointCloud(url);
     } catch (err) {
       console.warn(`point cloud layer "${layer.title}" failed to load`, err);
+      state.failed.set(layer.id, layer.source.dataUrl);
       showIndicator(state, `${layer.title} failed to load.`);
       // Leave the failure visible briefly instead of vanishing.
       await new Promise((r) => setTimeout(r, 2500));

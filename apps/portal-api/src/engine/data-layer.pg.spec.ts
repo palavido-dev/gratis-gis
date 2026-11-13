@@ -612,6 +612,19 @@ d('observation-log read paths against real PostGIS', () => {
       expect(page.features.map((f) => f.id).sort()).toEqual([mine, theirs].sort());
     });
 
+    it('pageFeatures carries the creation stamp apart from the last edit', async () => {
+      // The table's Edit history columns read these; the page used to
+      // return only the _edited_* pair, so Created was always blank.
+      const page = await makeEngine().pageFeatures({ itemId, layerId, limit: 100 });
+      const row = page.features.find((f) => f.id === mine)!;
+      expect(row.properties['_created_by']).toBe(ALICE.sub);
+      expect(row.properties['_edited_by']).toBe(BOB.sub);
+      expect(typeof row.properties['_created_at']).toBe('string');
+      expect(
+        Date.parse(row.properties['_created_at'] as string),
+      ).toBeLessThan(Date.parse(row.properties['_edited_at'] as string));
+    });
+
     it('pageFeatures returns only rows the caller created', async () => {
       const page = await makeEngine().pageFeatures({
         itemId,

@@ -33,6 +33,7 @@ import {
   enqueueEdit,
   getDeployment,
   getOfflineIdentity,
+  getOfflineIdentityState,
   listPendingBlobs,
   listPendingBlobsForFeature,
   listQueue,
@@ -685,6 +686,14 @@ describe('device identity', () => {
     expect(await getOfflineIdentity()).toBe(OTHER);
     await clearOfflineIdentity();
     expect(await getOfflineIdentity()).toBeNull();
+  });
+
+  it('keeps an owed purge with the identity until it is cleared', async () => {
+    await setOfflineIdentity(OTHER, { purgePending: true });
+    expect(await getOfflineIdentityState()).toEqual({ userId: OTHER, purgePending: true });
+    expect(await getOfflineIdentity()).toBe(OTHER);
+    await setOfflineIdentity(OTHER);
+    expect(await getOfflineIdentityState()).toEqual({ userId: OTHER, purgePending: false });
   });
 
   it('describes what another account left behind', async () => {

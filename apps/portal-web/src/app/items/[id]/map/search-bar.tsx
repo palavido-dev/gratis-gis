@@ -102,31 +102,54 @@ export function SearchBar({
   // geocoderItemId picked (#74) the runtime uses that geocoder
   // instead of Nominatim, forwarding the current viewport so the
   // similarity scan stays scoped.
+  //
+  // Each of the three remote searches below follows the same rules:
+  // only the newest run may touch state (an aborted request resolves
+  // to an empty list, which used to wipe the results and stop the
+  // spinner while the newer request was still pending), and every
+  // early exit clears its loading flag (a timer cancelled before it
+  // fired used to leave the spinner on).
+  //
+  // The viewport is read when the request goes out, not as a
+  // dependency: it changes on every settled pan, and with text left
+  // in the box each pan re-queried the geocoder.
+  const viewportBboxRef = useRef(viewportBbox);
+  viewportBboxRef.current = viewportBbox;
   useEffect(() => {
     if (!geocodingEnabled) {
       setGeocodeResults([]);
+      setGeocodeLoading(false);
       return;
     }
     const q = query.trim();
     if (q.length < 2) {
       setGeocodeResults([]);
+      setGeocodeLoading(false);
       return;
     }
+    let active = true;
     const controller = new AbortController();
     setGeocodeLoading(true);
     setGeocodeUnavailable(null);
     const handle = setTimeout(() => {
       const promise = geocoderItemId
-        ? geocodeViaItem(q, geocoderItemId, viewportBbox ?? null, controller.signal)
+        ? geocodeViaItem(
+            q,
+            geocoderItemId,
+            viewportBboxRef.current ?? null,
+            controller.signal,
+          )
         : q.length >= 3
           ? geocode(q, controller.signal)
           : Promise.resolve([] as SearchResult[]);
       promise
         .then((rows) => {
+          if (!active) return;
           setGeocodeResults(rows);
           setGeocodeUnavailable(null);
         })
         .catch((err: unknown) => {
+          if (!active) return;
           // Distinguish "the geocoder has nothing for that" from "the
           // geocoder could not be reached". Telling a user to reword
           // a query that was never actually asked wastes their time.
@@ -137,17 +160,20 @@ export function SearchBar({
               : t('errorReason.unknown'),
           );
         })
-        .finally(() => setGeocodeLoading(false));
+        .finally(() => {
+          if (active) setGeocodeLoading(false);
+        });
     }, 350);
     return () => {
+      active = false;
       controller.abort();
       clearTimeout(handle);
     };
-  }, [query, geocodingEnabled, geocoderItemId, viewportBbox, t]);
+  }, [query, geocodingEnabled, geocoderItemId, t]);
 
   // Debounced ArcGIS REST attribute search. Runs only when at least
-  // one visible layer is arcgis-rest and searchable; otherwise we
-  // fall through to the fast local-cache path alone. Short queries
+  // one layer is arcgis-rest and searchable, hidden or not; otherwise
+  // we fall through to the fast local-cache path alone. Short queries
   // are skipped so a parcels service with a million rows doesn't
   // get hammered by every keystroke.
   useEffect(() => {
@@ -160,23 +186,30 @@ export function SearchBar({
     );
     if (q.length < 2 || arcgisLayers.length === 0) {
       setArcgisResults([]);
+      setArcgisLoading(false);
       return;
     }
+    let active = true;
     const controller = new AbortController();
     setArcgisLoading(true);
     const handle = setTimeout(() => {
       searchArcgisLayers(q, arcgisLayers, controller.signal)
-        .then((rows) => setArcgisResults(rows))
-        .finally(() => setArcgisLoading(false));
+        .then((rows) => {
+          if (active) setArcgisResults(rows);
+        })
+        .finally(() => {
+          if (active) setArcgisLoading(false);
+        });
     }, 300);
     return () => {
+      active = false;
       controller.abort();
       clearTimeout(handle);
     };
   }, [query, layers]);
 
   // Debounced v3 data-layer attribute search. Mirrors the ArcGIS
-  // path: runs only when at least one visible layer is a v3
+  // path: runs only when at least one layer (hidden or not) is a v3
   // data_layer sublayer and searchable, hits the server so it can
   // find features outside the viewport (v3 layers stream as tiles and
   // are never fully cached client-side, so searchLayers can't see
@@ -192,16 +225,23 @@ export function SearchBar({
     );
     if (q.length < 2 || v3Layers.length === 0) {
       setV3Results([]);
+      setV3Loading(false);
       return;
     }
+    let active = true;
     const controller = new AbortController();
     setV3Loading(true);
     const handle = setTimeout(() => {
       searchV3Layers(q, v3Layers, controller.signal)
-        .then((rows) => setV3Results(rows))
-        .finally(() => setV3Loading(false));
+        .then((rows) => {
+          if (active) setV3Results(rows);
+        })
+        .finally(() => {
+          if (active) setV3Loading(false);
+        });
     }, 300);
     return () => {
+      active = false;
       controller.abort();
       clearTimeout(handle);
     };

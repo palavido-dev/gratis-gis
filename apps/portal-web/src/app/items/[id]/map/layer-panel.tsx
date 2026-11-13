@@ -64,6 +64,8 @@ import { LayerSwatch } from './layer-swatch';
 import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
 import { useT } from '@/lib/i18n/locale-context';
 import { scaleDenominator } from '@/lib/web-mercator';
+import { toTreeOrder } from '@/lib/layer-tree-order';
+import { layerExtentUrl } from '@/lib/layer-extent-url';
 
 interface Props {
   layers: MapLayer[];
@@ -179,6 +181,8 @@ export function LayerPanel({
   // and meant scrolling between the list and the thing you were
   // editing.
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  // Settings tab for the config column; see LayerRow's `tab` prop.
+  const [configTab, setConfigTab] = useState<LayerTab>('style');
   // Where to put that column.
   //
   // It has to be `fixed`, measured off this panel's box, because
@@ -428,7 +432,11 @@ export function LayerPanel({
       updated = moved;
     }
     next.splice(adjustedTo, 0, updated);
-    onChange(next);
+    // The canvas draws by array position and ignores groups, so the
+    // array has to read in the same order as the panel's tree. A group
+    // header moved alone would otherwise leave its children drawing
+    // in their old place.
+    onChange(toTreeOrder(next));
   }
 
   /**
@@ -678,7 +686,15 @@ export function LayerPanel({
                       }}
                       onDragEnter={() => setDragOver(ki)}
                       onDrop={(sourceIdx) =>
-                        moveAndRegroup(sourceIdx, ki, layer.groupId ?? null)
+                        // Dragging down lands below the target row and
+                        // dragging up lands above it. Always inserting
+                        // above made a drop on the next row a no-op
+                        // and the last place unreachable.
+                        moveAndRegroup(
+                          sourceIdx,
+                          sourceIdx < ki ? ki + 1 : ki,
+                          layer.groupId ?? null,
+                        )
                       }
                       onToggle={() =>
                         updateLayer(layer.id, { visible: !layer.visible })
@@ -737,6 +753,8 @@ export function LayerPanel({
         anchor={anchor}
         key={selectedLayer.id}
         renderAs="config"
+        tab={configTab}
+        onTabChange={setConfigTab}
         layer={selectedLayer}
         index={layers.indexOf(selectedLayer)}
         metadata={
@@ -1039,6 +1057,10 @@ interface RowProps {
    * measurement in LayerPanel.
    */
   anchor?: { left: number; top: number; height: number };
+  /** Settings tab, held by the panel for the config column so it
+   *  carries over from one selected layer to the next. */
+  tab?: LayerTab;
+  onTabChange?: (next: LayerTab) => void;
 }
 
 /**
@@ -1151,6 +1173,8 @@ function LayerRow({
   onSelect,
   renderAs,
   anchor,
+  tab: tabProp,
+  onTabChange,
 }: RowProps) {
   const t = useT();
   // Which half of itself to draw. The settings live in their own
@@ -1202,11 +1226,14 @@ function LayerRow({
         : metadata.geometryTypes && metadata.geometryTypes.size > 0
           ? [...metadata.geometryTypes].sort().join(' + ')
           : null;
-  // Which group of layer settings is showing. Per row, and it
-  // deliberately survives collapsing and re-expanding the row: an
-  // author working through popups on several layers should not be
-  // sent back to Style each time.
-  const [tab, setTab] = useState<LayerTab>('style');
+  // Which group of layer settings is showing. An author working
+  // through popups on several layers should not be sent back to Style
+  // each time, but the config column is keyed by layer id and mounts
+  // fresh per selection, so LayerPanel holds the tab and passes it in.
+  // The local state is the fallback when no one does.
+  const [localTab, setLocalTab] = useState<LayerTab>('style');
+  const tab = tabProp ?? localTab;
+  const setTab = onTabChange ?? setLocalTab;
   // Inline rename (#72). Click the title or the kebab's Rename
   // item to start; commit on blur or Enter, cancel on Escape.
   // Same pattern as GroupHeaderRow so the two row types feel
@@ -1897,8 +1924,9 @@ function LayerRow({
                       onZoomToExtent();
                     }}
                     disabled={
-                      !metadata.featureCollection ||
-                      metadata.featureCollection.features.length === 0
+                      layerExtentUrl(layer.source, layer.filter) === null &&
+                      (!metadata.featureCollection ||
+                        metadata.featureCollection.features.length === 0)
                     }
                   />
                 </>
@@ -2119,9 +2147,12 @@ function ScaledSymbologyEditor({
   function removeClass(idx: number): void {
     update(classes.filter((_, i) => i !== idx));
   }
-  const hasPolygon = !geometryTypes || geometryTypes.has('polygon');
-  const hasLine = !geometryTypes || geometryTypes.has('line');
-  const hasPoint = !geometryTypes || geometryTypes.has('point');
+  // Unknown geometry (still loading, failed, PostGIS Live) shows every
+  // control, as StyleEditor does. An empty set hid all of them.
+  const showAll = !geometryTypes || geometryTypes.size === 0;
+  const hasPolygon = showAll || geometryTypes.has('polygon');
+  const hasLine = showAll || geometryTypes.has('line');
+  const hasPoint = showAll || geometryTypes.has('point');
   return (
     <div className="space-y-2 text-xs">
       <div className="flex items-center justify-between">
@@ -2882,9 +2913,9 @@ function GroupHeaderRow({
             GripVertical span with draggable, onDragStart that sets
             DRAG_MIME with this group's index. The same drop targets
             (other rows + other group headers) handle a group as
-            source -- moveAndRegroup splices the header alone, and
-            the children's groupId keeps them rendered under the
-            header in its new position. */}
+            source. moveAndRegroup splices the header, then rewrites
+            the array in tree order so its children move with it in
+            the map's draw order too, not only in this list. */}
         {canEdit ? (
           <span
             draggable

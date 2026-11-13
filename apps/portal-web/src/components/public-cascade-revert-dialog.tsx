@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
@@ -88,11 +88,10 @@ export function PublicCascadeRevertDialog({
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-
-  // The load effect reads onClose through a ref. Parents pass a fresh
-  // closure on every render, and with onClose in the deps each parent
-  // re-render reloaded the list and re-ticked every row, undoing what
-  // the user had unticked. Loading is keyed on open and parentId only.
+  // The parent passes a new onClose on every render. As an effect
+  // dependency it re-ran the fetch on any parent re-render while the
+  // dialog was open, reloading the list and re-checking items the
+  // author had unchecked. Read it through a ref instead.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 

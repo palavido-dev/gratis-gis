@@ -77,6 +77,7 @@ import {
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
 import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
+import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -2628,8 +2629,9 @@ export function EditorRuntime({
               // This used to compute null on both branches and never
               // zoom. Same sources as the map builder: a bbox stamped
               // on a tile or point-cloud source, else the loaded
-              // features, else the server's extent for a tiled data
-              // layer (which has no features in the browser).
+              // features, else the server's extent for a v3 sublayer
+              // (editor targets included), which has no features in
+              // the browser.
               const layer = mapData.layers.find((l) => l.id === layerId);
               if (!layer) return;
               const src = layer.source;
@@ -2643,23 +2645,11 @@ export function EditorRuntime({
                 canvasRef.current?.zoomTo(local);
                 return;
               }
-              if (src.kind === 'data-layer' && src.layerKey) {
-                void fetch(
-                  `/api/portal/items/${encodeURIComponent(src.itemId)}/layers/${encodeURIComponent(src.layerKey)}/filtered-extent`,
-                )
-                  .then((r) => (r.ok ? r.json() : null))
-                  .then((body: { bbox?: unknown } | null) => {
-                    const b = body?.bbox;
-                    if (
-                      Array.isArray(b) &&
-                      b.length === 4 &&
-                      b.every((n) => typeof n === 'number' && Number.isFinite(n))
-                    ) {
-                      canvasRef.current?.zoomTo(b as [number, number, number, number]);
-                    }
-                  })
-                  .catch(() => undefined);
-              }
+              const url = layerExtentUrl(src, layer.filter);
+              if (!url) return;
+              void fetchLayerExtent(url).then((bbox) => {
+                if (bbox) canvasRef.current?.zoomTo(bbox);
+              });
             }}
             onChange={onLayersChange}
             showAddLayer={false}
@@ -3484,6 +3474,9 @@ export function EditorRuntime({
                   ...(r.kind === 'feature'
                     ? {
                         layerId: r.layerId,
+                        ...(r.feature.id !== undefined
+                          ? { featureId: r.feature.id }
+                          : {}),
                         featureProps: (r.feature.properties ?? {}) as Record<
                           string,
                           unknown

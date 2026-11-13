@@ -117,6 +117,37 @@ import {
 import { RegexQuestionFields } from './regex-builder';
 import { SubmissionReceipts } from './submission-receipts';
 import { apiErrorMessage, parseApiError } from '@/lib/api-error';
+import {
+  COMPARISON_OPERATOR_SPECS,
+  DEFAULT_ROW,
+  composeExpression,
+  decomposeExpression,
+  treeFromExpression,
+  treeToExpression,
+  type ComparisonOp,
+  type ConditionRow,
+  type Rule,
+  type RuleTree,
+} from '@/lib/form-designer-conditions';
+import {
+  mergeQuestionFields,
+  questionToFeatureField,
+  type RawFeatureField,
+} from '@/lib/form-designer-columns';
+import {
+  findById,
+  isLayoutType,
+  savedFormLink,
+  withFormLink,
+  moveInTree,
+  mutateContainer,
+  removeFromTree,
+  renameQuestionInForm,
+  shareRowInTree,
+  uniquifyQuestionIds,
+  updateInTree,
+  type ShareRowSource,
+} from '@/lib/form-designer-tree';
 
 interface Props {
   itemId: string;
@@ -171,6 +202,10 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
   const [importOpen, setImportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [layerSchema, setLayerSchema] = useState<LayerSchema | null>(null);
+  // Set by Unlink until a save carries it to the server. A save that
+  // simply omits the link keeps the stored one, so unlinking has to
+  // be said explicitly.
+  const unlinkRequested = useRef(false);
 
   // Whenever the linked layer changes (initial load + import + unlink),
   // refresh our copy of the layer's full schema (parent columns +
@@ -310,112 +345,28 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
    * row) is treated as a plain reorder; widths stay as-is.
    */
   const shareRowWith = useCallback(
-    (
-      targetId: QuestionId,
-      src:
-        | { kind: 'new'; type: QuestionType }
-        | { kind: 'existing'; id: QuestionId },
-    ) => {
+    (targetId: QuestionId, src: ShareRowSource) => {
       setForm((f) => {
-        const targetLoc = locate(f.questions, targetId);
-        if (!targetLoc) return f;
-        const targetParent = targetLoc.containerId;
-
-        // Same-row reorder shortcut: if the existing source already
-        // lives in the target's row, just reorder, leave widths alone.
-        const initialContainer = childrenOfContainer(f, targetParent);
-        const targetRow = rowContaining(initialContainer, targetId);
-        if (
-          src.kind === 'existing' &&
-          targetRow.some((q) => q.id === src.id)
-        ) {
-          const idx = initialContainer.findIndex((q) => q.id === targetId);
-          return moveInTree(f, src.id, {
-            containerId: targetParent,
-            index: idx + 1,
-          });
+        // Same attachment-subtree rule as moveQuestion: this path
+        // used to skip it.
+        const out = shareRowInTree(
+          f,
+          targetId,
+          src,
+          (moved, containerId) =>
+            containerIsInAttachmentSubtree(f, containerId, layerSchema) &&
+            groupContainsRepeat(moved),
+        );
+        if (out.refused) {
+          setError(t('formDesigner.errors.moveRepeatInAttachment'));
+          return f;
         }
-
-        // For an existing source coming from a different row / container,
-        // detach first so width-update math sees the row at its true size.
-        let next = f;
-        if (src.kind === 'existing') next = removeFromTree(next, src.id);
-
-        const containerNow = childrenOfContainer(next, targetParent);
-        const rowNow = rowContaining(containerNow, targetId);
-        const newWidth = nextWidthFor(rowNow.length + 1);
-
-        // Helper: insert the new/moved question right after the target.
-        const insertAfterTarget = (q: Question): FormSchema => {
-          const idx = childrenOfContainer(next, targetParent).findIndex(
-            (x) => x.id === targetId,
-          );
-          return mutateContainer(next, targetParent, (list) => [
-            ...list.slice(0, idx + 1),
-            q,
-            ...list.slice(idx + 1),
-          ]);
-        };
-
-        if (newWidth === null) {
-          // Row already at the 4-cell cap. Drop in as a new row at
-          // full width right below the target.
-          if (src.kind === 'new') {
-            const id = uniqueQuestionId(
-              next,
-              suggestQuestionId(src.type),
-            );
-            const newQ = defaultQuestion(src.type, id);
-            next = insertAfterTarget(newQ);
-            queueMicrotask(() => setSelectedId(id));
-          } else {
-            const idx = childrenOfContainer(next, targetParent).findIndex(
-              (x) => x.id === targetId,
-            );
-            next = moveInTree(next, src.id, {
-              containerId: targetParent,
-              index: idx + 1,
-            });
-          }
-          return next;
-        }
-
-        // Apply the shared width to every existing row member.
-        for (const memberQ of rowNow) {
-          next = updateInTree(next, memberQ.id, (qq) => {
-            const layout =
-              newWidth === 'full' ? undefined : { width: newWidth };
-            return { ...qq, layout } as Question;
-          });
-        }
-
-        // Insert / move the source with the same width.
-        if (src.kind === 'new') {
-          const id = uniqueQuestionId(next, suggestQuestionId(src.type));
-          const baseQ = defaultQuestion(src.type, id);
-          const newQ: Question = {
-            ...baseQ,
-            layout: newWidth === 'full' ? undefined : { width: newWidth },
-          };
-          next = insertAfterTarget(newQ);
-          queueMicrotask(() => setSelectedId(id));
-        } else {
-          const idx = childrenOfContainer(next, targetParent).findIndex(
-            (x) => x.id === targetId,
-          );
-          next = moveInTree(next, src.id, {
-            containerId: targetParent,
-            index: idx + 1,
-          });
-          next = updateInTree(next, src.id, (qq) => ({
-            ...qq,
-            layout: newWidth === 'full' ? undefined : { width: newWidth },
-          } as Question));
-        }
-        return next;
+        const selectId = out.selectId;
+        if (selectId !== undefined) queueMicrotask(() => setSelectedId(selectId));
+        return out.form;
       });
     },
-    [],
+    [layerSchema, t],
   );
 
   async function save() {
@@ -423,35 +374,55 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await patchItem({ data: form });
+      const unlinking = unlinkRequested.current && !form.linkedLayerId;
+      const res = await patchItem({
+        data: unlinking
+          ? { ...form, linkedLayerId: null, linkedLayerKey: null }
+          : form,
+      });
       if (isStaleItemSave(res)) {
         setError(t('common.itemChangedElsewhere'));
         return;
       }
       if (!res.ok) throw new Error(await apiErrorMessage(res));
+      if (unlinking) unlinkRequested.current = false;
+      // The server decides the link (it keeps a stored one the save
+      // did not name), so take it from the saved item. The designer
+      // used to keep its own idea of the link until a reload, and
+      // skipped the column sync for a link it did not know about.
+      const link = savedFormLink(
+        await res.json().catch(() => null),
+        form,
+      );
+      if (
+        link.linkedLayerId !== form.linkedLayerId ||
+        link.linkedLayerKey !== form.linkedLayerKey
+      ) {
+        setForm((f) => withFormLink(f, link));
+      }
       // Path-1 schema sync (#293 / #281d). Walk top-level and group
       // children for question types that map cleanly to typed
       // columns. Add missing columns to the linked layer's matching
-      // sublayer; preserve existing fields untouched. Pure-additive
-      // semantics: never rename, drop, or change a column's type.
-      // Those fall under the schema-mutation API in #281b.
+      // sublayer. Additive: never rename or drop a column. An existing
+      // column only widens (text to multi_select for list answers, new
+      // codes in a choice list); see mergeQuestionFields.
       //
       // Failure here is non-fatal: the form save already succeeded
       // and the runtime keeps working via the JSONB properties path.
       // We surface the error in-line so the author knows the layer
       // didn't grow but doesn't have to rollback the form.
-      if (form.linkedLayerId) {
+      if (link.linkedLayerId) {
         try {
           await syncPairedLayerColumns(
-            form.linkedLayerId,
-            form.linkedLayerKey ?? 'submissions',
+            link.linkedLayerId,
+            link.linkedLayerKey ?? 'submissions',
             form.questions,
           );
           // Refresh the cached layer schema so the "matched / new
           // column" badges flip green without a page reload.
           const fresh = await fetchLayerSchema(
-            form.linkedLayerId,
-            form.linkedLayerKey,
+            link.linkedLayerId,
+            link.linkedLayerKey,
           );
           setLayerSchema(fresh);
         } catch (err) {
@@ -532,7 +503,10 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
       });
       if (!ok) return;
     }
-    setForm(fromImportEnvelope(result, itemId));
+    // An import replaces the questions, not the form's link to its
+    // layer. The server keeps the stored link anyway, so dropping it
+    // here only hid it from the designer and skipped the column sync.
+    setForm((f) => withFormLink(fromImportEnvelope(result, itemId), f));
     setSelectedId(null);
   }
 
@@ -592,7 +566,7 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
       });
       if (!ok) return;
     }
-    setForm(schema);
+    setForm((f) => withFormLink(schema, f));
     setSelectedId(null);
     if (warnings.length > 0) {
       // Stuff warnings in the error state so the existing banner
@@ -617,9 +591,12 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
     qs: Question[],
     layer: { id: string; title: string; layerKey?: string },
   ) {
+    unlinkRequested.current = false;
     setForm((f) => ({
       ...f,
-      questions: [...f.questions, ...qs],
+      // Generated ids are column names, which repeat across a layer
+      // and its related tables; ids must be unique in the form.
+      questions: [...f.questions, ...uniquifyQuestionIds(f, qs)],
       linkedLayerId: layer.id,
       ...(layer.layerKey !== undefined ? { linkedLayerKey: layer.layerKey } : {}),
       meta: { ...(f.meta ?? {}), linkedLayerTitle: layer.title },
@@ -628,6 +605,7 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
   }
 
   function unlinkLayer() {
+    unlinkRequested.current = true;
     setForm((f) => {
       const next: FormSchema = { ...f };
       delete next.linkedLayerId;
@@ -805,13 +783,9 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
             return;
           }
           setError(null);
-          setForm((f) =>
-            updateInTree(
-              f,
-              selected.id,
-              (q) => ({ ...q, id: newId }) as Question,
-            ),
-          );
+          // Rewrite references in other questions' conditions and
+          // calculations too, or they keep the old id and stop working.
+          setForm((f) => renameQuestionInForm(f, selected.id, newId));
           setSelectedId(newId);
         }}
         onUpdateForm={(patch) => setForm({ ...form, ...patch })}
@@ -1214,11 +1188,15 @@ function ResponseViewSettings({
                 {t('formDesigner.responseSettings.defaultLookbackHint')}
               </span>
             </span>
+            {/* Disabled until the Responses page reads these two
+                settings. Nothing reads them yet, and "Hide submitter"
+                reads as a privacy control while the submitter is
+                still shown. */}
             <input
               type="number"
               min={0}
               step={1}
-              disabled={!canEdit}
+              disabled
               value={rv.defaultLookbackDays ?? ''}
               onChange={(e) => {
                 const v = e.target.value;
@@ -1250,7 +1228,7 @@ function ResponseViewSettings({
             </span>
             <input
               type="checkbox"
-              disabled={!canEdit}
+              disabled
               checked={rv.hideSubmitter ?? false}
               onChange={(e) => {
                 patchResponseView({
@@ -1276,191 +1254,6 @@ function ResponseViewSettings({
       />
     </aside>
   );
-}
-
-// ---- Tree mutation helpers --------------------------------------
-
-function findById(qs: Question[], id: QuestionId): Question | null {
-  for (const q of qs) {
-    if (q.id === id) return q;
-    if (q.type === 'group') {
-      const inner = findById(q.children, id);
-      if (inner) return inner;
-    }
-  }
-  return null;
-}
-
-function mutateContainer(
-  form: FormSchema,
-  containerId: QuestionId | null,
-  fn: (list: Question[]) => Question[],
-): FormSchema {
-  if (containerId === null) {
-    return { ...form, questions: fn(form.questions) };
-  }
-  return {
-    ...form,
-    questions: mapTree(form.questions, (q) => {
-      if (q.type === 'group' && q.id === containerId) {
-        return { ...q, children: fn(q.children) };
-      }
-      return q;
-    }),
-  };
-}
-
-function mapTree(
-  qs: Question[],
-  fn: (q: Question) => Question,
-): Question[] {
-  return qs.map((q) => {
-    const mapped = fn(q);
-    if (mapped.type === 'group') {
-      return { ...mapped, children: mapTree(mapped.children, fn) };
-    }
-    return mapped;
-  });
-}
-
-function updateInTree(
-  form: FormSchema,
-  id: QuestionId,
-  fn: (q: Question) => Question,
-): FormSchema {
-  return {
-    ...form,
-    questions: mapTree(form.questions, (q) => (q.id === id ? fn(q) : q)),
-  };
-}
-
-function removeFromTree(form: FormSchema, id: QuestionId): FormSchema {
-  function rec(list: Question[]): Question[] {
-    return list
-      .filter((q) => q.id !== id)
-      .map((q) => (q.type === 'group' ? { ...q, children: rec(q.children) } : q));
-  }
-  return { ...form, questions: rec(form.questions) };
-}
-
-/**
- * Look up a container's children. `null` containerId means top
- * level. Returns an empty array if the container id doesn't resolve
- * (group was deleted while we were holding a reference).
- */
-function childrenOfContainer(
-  f: FormSchema,
-  containerId: QuestionId | null,
-): Question[] {
-  if (containerId === null) return f.questions;
-  const g = findById(f.questions, containerId);
-  if (g && g.type === 'group') return g.children;
-  return [];
-}
-
-/**
- * Given a flat container's children list and a target question id,
- * return the row that contains the target as packIntoRows would
- * compute it. Used by the share-row gesture to know which siblings
- * to re-balance.
- */
-function rowContaining(list: Question[], targetId: QuestionId): Question[] {
-  const rows = packIntoRows(list);
-  for (const row of rows) {
-    if (row.some((q) => q.id === targetId)) return row;
-  }
-  return [];
-}
-
-/**
- * Width to apply when a row gains its `count`-th cell. We support
- * up to 4 cells per row using the equal-share fractions; beyond
- * that the caller falls back to a new row.
- */
-function nextWidthFor(
-  count: number,
-): 'full' | 'half' | 'third' | 'quarter' | null {
-  if (count <= 1) return 'full';
-  if (count === 2) return 'half';
-  if (count === 3) return 'third';
-  if (count === 4) return 'quarter';
-  return null;
-}
-
-/**
- * True for question types in the palette's "Layout" group: structural
- * or display-only kinds that don't capture a value from the responder.
- * The Properties panel uses this to hide controls that don't apply
- * (e.g. Required), and the QuestionRow's drop handler uses it to
- * decide between insert-before and share-row gestures.
- */
-function isLayoutType(t: QuestionType): boolean {
-  return (
-    t === 'note' ||
-    t === 'divider' ||
-    t === 'page' ||
-    t === 'group' ||
-    t === 'image-display' ||
-    t === 'hidden'
-  );
-}
-
-/** Locate the parent container + index for a given question id. */
-function locate(
-  qs: Question[],
-  id: QuestionId,
-  parent: QuestionId | null = null,
-): { containerId: QuestionId | null; index: number } | null {
-  for (let i = 0; i < qs.length; i += 1) {
-    const q = qs[i]!;
-    if (q.id === id) return { containerId: parent, index: i };
-    if (q.type === 'group') {
-      const inner = locate(q.children, id, q.id);
-      if (inner) return inner;
-    }
-  }
-  return null;
-}
-
-function moveInTree(
-  form: FormSchema,
-  sourceId: QuestionId,
-  target: { containerId: QuestionId | null; index: number },
-): FormSchema {
-  // Reject moving a group into itself or any of its descendants.
-  const moved = findById(form.questions, sourceId);
-  if (!moved) return form;
-  if (target.containerId !== null && isDescendant(moved, target.containerId)) {
-    return form;
-  }
-  // Detach the source first so subsequent index math is consistent
-  // with the post-detach tree.
-  const src = locate(form.questions, sourceId);
-  if (!src) return form;
-
-  // Detach
-  let next = removeFromTree(form, sourceId);
-
-  // Adjust the target index if we removed an item before it from the
-  // same container.
-  let insertIndex = target.index;
-  if (src.containerId === target.containerId && src.index < target.index) {
-    insertIndex -= 1;
-  }
-  insertIndex = Math.max(0, insertIndex);
-
-  next = mutateContainer(next, target.containerId, (list) => {
-    const out = list.slice();
-    out.splice(insertIndex, 0, moved);
-    return out;
-  });
-  return next;
-}
-
-function isDescendant(node: Question, candidateId: QuestionId): boolean {
-  if (node.id === candidateId) return true;
-  if (node.type !== 'group') return false;
-  return node.children.some((c) => isDescendant(c, candidateId));
 }
 
 // ---- Palette ----------------------------------------------------
@@ -4230,46 +4023,6 @@ function ComponentToggleEditor<T extends string>({
   );
 }
 
-/**
- * Operators the inline editor exposes for a single condition row.
- * Mirrors the AST opcodes in `Expression`. We list the comparable
- * subset (no `and`/`or`/`not`/arithmetic/concat/if): those are
- * structural and live at the row-list level, not inside a row. The
- * label is what shows in the dropdown; the AST opcode is what we
- * persist.
- *
- * Numeric-only operators (gt/gte/lt/lte/between) still appear on
- * any field type; the runtime evaluator coerces strings to numbers
- * where it can. The author's choice of operator is more reliable
- * than us trying to guess based on field type, especially when a
- * "text" field actually holds numeric content.
- */
-type ComparisonOp =
-  | 'eq'
-  | 'neq'
-  | 'gt'
-  | 'gte'
-  | 'lt'
-  | 'lte'
-  | 'in'
-  | 'between'
-  | 'matches';
-
-const COMPARISON_OPERATOR_SPECS: ReadonlyArray<{
-  op: ComparisonOp;
-  rhsKind: 'value' | 'list' | 'range';
-}> = [
-  { op: 'eq', rhsKind: 'value' },
-  { op: 'neq', rhsKind: 'value' },
-  { op: 'gt', rhsKind: 'value' },
-  { op: 'gte', rhsKind: 'value' },
-  { op: 'lt', rhsKind: 'value' },
-  { op: 'lte', rhsKind: 'value' },
-  { op: 'in', rhsKind: 'value' },
-  { op: 'between', rhsKind: 'range' },
-  { op: 'matches', rhsKind: 'value' },
-];
-
 function useComparisonOperators() {
   const t = useT();
   return useMemo(
@@ -4280,173 +4033,6 @@ function useComparisonOperators() {
       })),
     [t],
   );
-}
-
-/**
- * One row in the inline editor. Always references a question on the
- * left; `op` picks one of the comparison operators above; the right
- * side is either a single value or, for `between`, a {min, max} pair.
- *
- * We keep `value` typed as a primitive string in the row even when
- * the left field is numeric -- on render we coerce via `Number(...)`
- * before composing the AST, so the user can type freely without the
- * input flickering between empty and 0.
- */
-interface ConditionRow {
-  ref: string;
-  op: ComparisonOp;
-  value: string;
-  min: string;
-  max: string;
-}
-
-const DEFAULT_ROW = (): ConditionRow => ({
-  ref: '',
-  op: 'eq',
-  value: '',
-  min: '',
-  max: '',
-});
-
-/**
- * Try to break an Expression into a list of comparison rows joined
- * by AND or OR. Best-effort: if the expression uses ops we don't
- * model in the inline editor (calls, arithmetic, nested and/or, etc.)
- * we return null and the editor falls back to a "complex expression"
- * banner with a clear-and-start-over button. This keeps the UI
- * predictable -- we don't try to round-trip something we couldn't
- * faithfully render.
- */
-function decomposeExpression(expr: Expression | undefined): {
-  combinator: 'and' | 'or';
-  rows: ConditionRow[];
-} | null {
-  if (!expr) return { combinator: 'and', rows: [] };
-  // Single comparison row at the top level: treat as one-row AND.
-  const single = decomposeRow(expr);
-  if (single) return { combinator: 'and', rows: [single] };
-  // and / or of comparisons.
-  if (expr.op === 'and' || expr.op === 'or') {
-    const rows: ConditionRow[] = [];
-    for (const op of expr.operands) {
-      const r = decomposeRow(op);
-      if (!r) return null; // bail on first non-row operand
-      rows.push(r);
-    }
-    return { combinator: expr.op, rows };
-  }
-  return null;
-}
-
-/**
- * If `expr` is one of our supported comparison shapes, return the
- * matching row. Otherwise null.
- */
-function decomposeRow(expr: Expression): ConditionRow | null {
-  if (
-    expr.op === 'eq' ||
-    expr.op === 'neq' ||
-    expr.op === 'gt' ||
-    expr.op === 'gte' ||
-    expr.op === 'lt' ||
-    expr.op === 'lte' ||
-    expr.op === 'in' ||
-    expr.op === 'matches'
-  ) {
-    if ('ref' in expr.left && 'value' in expr.right) {
-      const v = expr.right.value;
-      return {
-        ...DEFAULT_ROW(),
-        ref: expr.left.ref,
-        op: expr.op,
-        value: v === null || v === undefined ? '' : String(v),
-      };
-    }
-    return null;
-  }
-  if (expr.op === 'between') {
-    if (
-      'ref' in expr.value &&
-      'value' in expr.min &&
-      'value' in expr.max
-    ) {
-      return {
-        ...DEFAULT_ROW(),
-        ref: expr.value.ref,
-        op: 'between',
-        min:
-          expr.min.value === null || expr.min.value === undefined
-            ? ''
-            : String(expr.min.value),
-        max:
-          expr.max.value === null || expr.max.value === undefined
-            ? ''
-            : String(expr.max.value),
-      };
-    }
-    return null;
-  }
-  return null;
-}
-
-/**
- * Compose rows + combinator back into an Expression. Returns
- * undefined when the result would be empty (no rows, or the only
- * row has no field picked). undefined is the schema's "no condition"
- * value, which is what we want for unset visibleIf / constraint.
- */
-function composeExpression(
-  combinator: 'and' | 'or',
-  rows: ConditionRow[],
-): Expression | undefined {
-  const valid = rows.filter((r) => r.ref);
-  if (valid.length === 0) return undefined;
-  const exprs = valid.map(rowToExpression);
-  if (exprs.length === 1) return exprs[0];
-  return { op: combinator, operands: exprs };
-}
-
-function rowToExpression(r: ConditionRow): Expression {
-  if (r.op === 'between') {
-    return {
-      op: 'between',
-      value: { ref: r.ref },
-      min: { value: coerceLiteral(r.min) },
-      max: { value: coerceLiteral(r.max) },
-    };
-  }
-  if (r.op === 'matches') {
-    // RHS is a regex pattern -- never coerce to number/boolean even
-    // if the pattern happens to look like one (e.g. "true|false").
-    return {
-      op: 'matches',
-      left: { ref: r.ref },
-      right: { value: r.value },
-    };
-  }
-  return {
-    op: r.op,
-    left: { ref: r.ref },
-    right: { value: coerceLiteral(r.value) },
-  } as Expression;
-}
-
-/**
- * Coerce a string-typed input value into the literal we persist on
- * the AST. We're permissive: numeric strings become numbers,
- * "true"/"false" become booleans, empty becomes empty string. Anything
- * else stays as a string. The runtime evaluator does its own
- * coercions for comparison, so this is mostly cosmetic -- the AST is
- * cleaner when "5" persists as 5.
- */
-function coerceLiteral(s: string): string | number | boolean {
-  if (s === '') return '';
-  if (s === 'true') return true;
-  if (s === 'false') return false;
-  // Strict numeric: string must parse cleanly and round-trip.
-  const n = Number(s);
-  if (!Number.isNaN(n) && String(n) === s) return n;
-  return s;
 }
 
 /**
@@ -4795,7 +4381,9 @@ function ConditionRowEditor({
               </option>
             ))}
           </select>
-          {opMeta.rhsKind === 'range' ? (
+          {opMeta.rhsKind === 'none' ? (
+            <span />
+          ) : opMeta.rhsKind === 'range' ? (
             <div className="grid grid-cols-2 gap-1">
               <input
                 type="text"
@@ -4907,73 +4495,6 @@ function FieldPicker({
 // emits `{ op: combinator, operands: [...] }` (or a single comparison
 // when there's one rule).
 
-type Rule =
-  | { kind: 'row'; row: ConditionRow }
-  | { kind: 'group'; combinator: 'and' | 'or'; rules: Rule[] };
-
-interface RuleTree {
-  combinator: 'and' | 'or';
-  rules: Rule[];
-}
-
-/**
- * Decode an Expression into the modal's RuleTree shape. Best-effort:
- * comparison ops, in, between become rows; and/or become groups; we
- * recurse one level (deeper nesting is preserved).
- *
- * Anything we can't model (function calls, arithmetic, concat, if)
- * becomes an empty row -- the alternative is silently dropping the
- * expression on Save, which is worse. Slice 4 lifts this restriction
- * by extending the row + group vocabulary to cover calls.
- */
-function treeFromExpression(expr: Expression | undefined): RuleTree {
-  if (!expr) return { combinator: 'and', rules: [] };
-  if (expr.op === 'and' || expr.op === 'or') {
-    return {
-      combinator: expr.op,
-      rules: expr.operands.map(operandToRule),
-    };
-  }
-  const row = decomposeRow(expr);
-  if (row) return { combinator: 'and', rules: [{ kind: 'row', row }] };
-  return { combinator: 'and', rules: [] };
-}
-
-function operandToRule(expr: Expression): Rule {
-  if (expr.op === 'and' || expr.op === 'or') {
-    return {
-      kind: 'group',
-      combinator: expr.op,
-      rules: expr.operands.map(operandToRule),
-    };
-  }
-  const row = decomposeRow(expr);
-  if (row) return { kind: 'row', row };
-  return { kind: 'row', row: DEFAULT_ROW() };
-}
-
-function treeToExpression(tree: RuleTree): Expression | undefined {
-  const exprs: Expression[] = [];
-  for (const rule of tree.rules) {
-    const e = ruleToExpression(rule);
-    if (e !== undefined) exprs.push(e);
-  }
-  if (exprs.length === 0) return undefined;
-  if (exprs.length === 1) return exprs[0];
-  return { op: tree.combinator, operands: exprs };
-}
-
-function ruleToExpression(rule: Rule): Expression | undefined {
-  if (rule.kind === 'row') {
-    if (!rule.row.ref) return undefined;
-    return rowToExpression(rule.row);
-  }
-  return treeToExpression({
-    combinator: rule.combinator,
-    rules: rule.rules,
-  });
-}
-
 /**
  * Quick-start templates for the modal builder (Slice 4, #165). Each
  * appends a pre-shaped row to the tree's top-level rules. The author
@@ -4998,7 +4519,7 @@ function insertQuickStartRow(
   const row: ConditionRow = (() => {
     switch (kind) {
       case 'not-empty':
-        return { ...DEFAULT_ROW(), ref, op: 'neq', value: '' };
+        return { ...DEFAULT_ROW(), ref, op: 'notEmpty' };
       case 'equals':
         return { ...DEFAULT_ROW(), ref, op: 'eq', value: '' };
       case 'range':
@@ -5263,7 +4784,27 @@ function RuleTreeEditor({
         ) : (
           tree.rules.map((rule, idx) => (
             <li key={idx} className="grid grid-cols-[1fr_auto] gap-2">
-              {rule.kind === 'row' ? (
+              {rule.kind === 'raw' ? (
+                <>
+                  {/* An expression the rows cannot show. Kept as it
+                      is and written back unchanged on Save. */}
+                  <p className="rounded border border-warn/30 bg-warn/10 px-2 py-1 text-2xs text-warn">
+                    {t('formDesigner.expressionBuilder.rawRule')}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = tree.rules.slice();
+                      r.splice(idx, 1);
+                      update(r);
+                    }}
+                    aria-label={t('formDesigner.expressionBuilder.removeConditionAria')}
+                    className="self-start rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              ) : rule.kind === 'row' ? (
                 <ConditionRowEditor
                   row={rule.row}
                   allFields={allFields}
@@ -5442,6 +4983,7 @@ function OperatorsReferencePanel({
     'in',
     'between',
     'matches',
+    'notEmpty',
   ];
   const logical: Array<{ name: string; hint: string }> = [
     {
@@ -5668,7 +5210,15 @@ function LayerImportDialog({
     for (const rel of schema.related) {
       qs.push(buildRelatedGroup(rel));
     }
-    onApply(qs, { id: pickedId, title: pickedTitle });
+    // Name the sublayer the columns came from. Without it the form
+    // kept the key of its own paired layer ("submissions"), which the
+    // picked layer does not have, so column sync and every
+    // submission mirror failed.
+    onApply(qs, {
+      id: pickedId,
+      title: pickedTitle,
+      ...(schema.layerKey !== undefined ? { layerKey: schema.layerKey } : {}),
+    });
   }
 
   return (
@@ -6475,23 +6025,8 @@ export interface LayerSchema {
    *  generator appends an "Attachments" repeat group at the top
    *  level when true. */
   attachmentsEnabled?: boolean;
-}
-
-interface RawFeatureField {
-  name: string;
-  type?: string;
-  label?: string;
-  nullable?: boolean;
-  /** Optional value-constraint. Mirrors shared-types FieldDomain --
-   *  inline coded-values OR a reference to a pick_list item.
-   *  fetchLayerSchema resolves the reference into LayerColumn.choices. */
-  domain?:
-    | {
-        type: 'coded-value';
-        values: Array<{ code: string | number; label: string }>;
-      }
-    | { type: 'coded-value-ref'; pickListItemId: string }
-    | { type: 'range'; min: number; max: number };
+  /** Id of the sublayer the columns came from (v3 layers). */
+  layerKey?: string;
 }
 
 interface RawSublayer {
@@ -6523,6 +6058,7 @@ interface RawDataLayerItem {
   id: string;
   title: string;
   updatedAt?: string;
+  tags?: string[];
   data?: {
     version?: number;
     layers?: RawSublayer[];
@@ -6575,12 +6111,19 @@ function sublayerColumns(layer: RawSublayer): LayerColumn[] {
 
 async function fetchItem(id: string): Promise<RawDataLayerItem | null> {
   try {
-    const res = await fetch(`/api/portal/items/${id}`);
-    if (!res.ok) return null;
-    return (await res.json()) as RawDataLayerItem;
+    return await fetchItemOrThrow(id);
   } catch {
     return null;
   }
+}
+
+/** Like fetchItem, but a failed load is an error, not "no item". */
+async function fetchItemOrThrow(id: string): Promise<RawDataLayerItem> {
+  const res = await fetch(`/api/portal/items/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    throw new Error(await parseApiError(res, `Layer could not be loaded (${res.status}).`));
+  }
+  return (await res.json()) as RawDataLayerItem;
 }
 
 /**
@@ -6592,13 +6135,18 @@ async function fetchItem(id: string): Promise<RawDataLayerItem | null> {
  * status.
  *
  * Tolerant of v1, v2, v3 layouts and legacy shapes.
+ *
+ * Throws when the layer cannot be loaded, or when `layerKey` names a
+ * sublayer the layer does not have. Both used to come back as an
+ * empty or a different sublayer, which showed every question as a
+ * new column, or as bound to columns it would never be written to.
+ * `layerKey` in the result is the sublayer the columns came from.
  */
 export async function fetchLayerSchema(
   layerId: string,
   layerKey?: string,
 ): Promise<LayerSchema> {
-  const item = await fetchItem(layerId);
-  if (!item) return { columns: [], related: [] };
+  const item = await fetchItemOrThrow(layerId);
   const data = item.data ?? {};
 
   // Identify the picked sublayer in v3, or the synthetic single-
@@ -6609,13 +6157,22 @@ export async function fetchLayerSchema(
     if (layerKey) {
       picked =
         layers.find((l) => l.key === layerKey || l.id === layerKey) ?? null;
+      if (!picked) {
+        throw new Error(`Linked layer has no sublayer "${layerKey}".`);
+      }
+    } else {
+      picked = layers[0] ?? null;
     }
-    if (!picked) picked = layers[0] ?? null;
   }
 
+  // fieldsToColumns always returns an array, so test its length
+  // before falling back to the legacy schema.columns shape.
+  const v2Columns = fieldsToColumns(data.fields);
   const columns: LayerColumn[] = picked
     ? sublayerColumns(picked)
-    : fieldsToColumns(data.fields) || data.schema?.columns || [];
+    : v2Columns.length > 0
+      ? v2Columns
+      : data.schema?.columns ?? [];
 
   const related: RelatedTable[] = [];
 
@@ -6646,7 +6203,7 @@ export async function fetchLayerSchema(
     const childLayer = child.data?.layers?.[0];
     const cols = childLayer
       ? sublayerColumns(childLayer)
-      : fieldsToColumns(child.data?.fields) ?? [];
+      : fieldsToColumns(child.data?.fields);
     related.push({
       label: rel.label ?? child.title ?? 'Related table',
       layerKeyOrItemId: rel.relatedItemId,
@@ -6665,23 +6222,24 @@ export async function fetchLayerSchema(
     ...related.flatMap((r) => r.columns),
   ]);
 
+  const pickedKey = picked?.key ?? picked?.id;
   return {
     columns,
     related,
     attachmentsEnabled: Boolean(picked?.attachmentsEnabled),
+    ...(pickedKey !== undefined ? { layerKey: pickedKey } : {}),
   };
 }
 
 /**
  * Path-1 schema sync (#293 / #281d): on form designer save, add a
  * typed column to the linked layer for every question whose type
- * maps cleanly to a FeatureField. Pure-additive: never renames,
- * drops, or changes a column's type. Idempotent: re-running with
- * no new questions is a no-op.
+ * maps cleanly to a FeatureField. Additive: never renames or drops
+ * a column, and only widens one (see mergeQuestionFields).
+ * Idempotent: re-running with no new questions is a no-op.
  *
- * Question types that do NOT map to typed columns (multi-choice,
- * matrix, ranking, attachments, identity composites, geometry-
- * specific, layout-only) are left in the form's `properties` JSONB
+ * Question types that do NOT map to typed columns (matrix,
+ * attachments, identity composites, geometry-specific, layout-only) are left in the form's `properties` JSONB
  * column on the data_layer. Per-attachment-table refactor lives in
  * #292; richer multi-choice / repeating data lives in #281b's
  * full mutation API.
@@ -6691,10 +6249,7 @@ async function syncPairedLayerColumns(
   layerKey: string,
   questions: Question[],
 ): Promise<void> {
-  const item = await fetchItem(layerItemId);
-  if (!item) {
-    throw new Error('Linked layer item could not be loaded.');
-  }
+  const item = await fetchItemOrThrow(layerItemId);
   const data = item.data ?? {};
   const layers = Array.isArray(data.layers) ? data.layers : [];
   const subIdx = layers.findIndex(
@@ -6707,7 +6262,11 @@ async function syncPairedLayerColumns(
   }
   const sub = layers[subIdx]!;
   const existing = (sub.fields ?? []) as RawFeatureField[];
-  const existingNames = new Set(existing.map((f) => f.name));
+  // The form's own paired layer was made for it. A layer the author
+  // linked through "Start from a data layer" is someone's existing
+  // data: columns are added to it, but its row policy is left alone
+  // and no new related tables are created in it.
+  const isPairedLayer = (item.tags ?? []).includes('form-paired');
 
   // Walk top-level questions plus non-repeat group children. Repeat
   // groups are NOT traversed for parent-layer columns; they get their
@@ -6782,7 +6341,7 @@ async function syncPairedLayerColumns(
     geometryType: 'point' | 'line' | 'polygon' | null;
   };
   const desiredRelated: DesiredRelated[] = [];
-  for (const q of questions) {
+  for (const q of isPairedLayer ? questions : []) {
     if (q.type !== 'group' || !q.repeat) continue;
     const children = (q.children ?? []) as Question[];
     if (children.length === 0) continue;
@@ -6844,7 +6403,8 @@ async function syncPairedLayerColumns(
     });
   }
 
-  const toAdd = candidates.filter((c) => !existingNames.has(c.name));
+  const parentFields = mergeQuestionFields(existing, candidates);
+  const toAdd = parentFields.added;
 
   // Build the next layers list by:
   //   1. Patching the parent submissions sublayer (toAdd + geo promotion)
@@ -6863,10 +6423,11 @@ async function syncPairedLayerColumns(
   const RESPONDENT_ROW_POLICY = 'own-rows-only';
   // (1) parent
   const parentNeedsPolicy =
+    isPairedLayer &&
     nextLayers[subIdx]!.editingPolicy !== RESPONDENT_ROW_POLICY;
   const parentMerged: RawSublayer = {
     ...nextLayers[subIdx]!,
-    fields: [...existing, ...toAdd],
+    fields: parentFields.fields,
     ...(nextGeometryType !== undefined
       ? { geometryType: nextGeometryType }
       : {}),
@@ -6906,11 +6467,7 @@ async function syncPairedLayerColumns(
     } else {
       const cur = nextLayers[idx]!;
       const existRel = (cur.fields ?? []) as RawFeatureField[];
-      const existRelNames = new Set(existRel.map((f) => f.name));
-      const merged = [
-        ...existRel,
-        ...dr.fields.filter((f) => !existRelNames.has(f.name)),
-      ];
+      const relFields = mergeQuestionFields(existRel, dr.fields);
       // #336 promotion: if the related sublayer is currently
       // non-spatial and the form has gained a per-instance geo
       // question, flip geometryType. Never downgrade an existing
@@ -6934,14 +6491,14 @@ async function syncPairedLayerColumns(
       // without changing semantics for already-policy'd layers.
       const wantPolicy = cur.editingPolicy !== RESPONDENT_ROW_POLICY;
       if (
-        merged.length !== existRel.length ||
+        relFields.changed ||
         wantPromote ||
         wantRelMeta ||
         wantPolicy
       ) {
         nextLayers[idx] = {
           ...cur,
-          fields: merged,
+          fields: relFields.fields,
           ...(wantPromote ? { geometryType: dr.geometryType } : {}),
           ...(wantRelMeta
             ? {
@@ -6999,7 +6556,7 @@ async function syncPairedLayerColumns(
   // policy backfill -- without this, an unchanged-schema save would
   // short-circuit and the layer would stay leaky.
   if (
-    toAdd.length === 0 &&
+    !parentFields.changed &&
     nextGeometryType === undefined &&
     relatedAdds === 0 &&
     !parentNeedsPolicy
@@ -7029,146 +6586,6 @@ async function syncPairedLayerColumns(
   }
   // eslint-disable-next-line no-console
   console.info('[gratisgis] syncPairedLayerColumns PATCH', res.status, 'ok');
-}
-
-/**
- * Map a form question to a FeatureField shape that the v3 layer can
- * provision as a typed column. Returns null when the question type
- * doesn't have a clean column representation; those values continue
- * to live in the layer's `properties` JSONB until a richer column
- * model lands (#281b mutation API).
- */
-function questionToFeatureField(q: Question): RawFeatureField | null {
-  // Layout / structural / non-data question types: no column at all.
-  if (
-    q.type === 'page' ||
-    q.type === 'note' ||
-    q.type === 'divider' ||
-    q.type === 'image-display' ||
-    q.type === 'group' ||
-    q.type === 'hidden' ||
-    q.type === 'acknowledge'
-  ) {
-    return null;
-  }
-  // Attachments still ride along in properties JSONB until #292
-  // refactors them into a child related-table.
-  if (
-    q.type === 'photo' ||
-    q.type === 'audio' ||
-    q.type === 'video' ||
-    q.type === 'file' ||
-    q.type === 'sketch' ||
-    q.type === 'signature'
-  ) {
-    return null;
-  }
-  // Composite / nested-shape answers don't fit a single typed column
-  // cleanly. Stash them in properties JSONB for now.
-  if (
-    q.type === 'name' ||
-    q.type === 'address' ||
-    q.type === 'matrix-single' ||
-    q.type === 'matrix-multi' ||
-    q.type === 'matrix-dropdown' ||
-    q.type === 'matrix-rating' ||
-    q.type === 'image-hotspot' ||
-    q.type === 'pick-feature' ||
-    q.type === 'route' ||
-    q.type === 'area-buffer' ||
-    q.type === 'geopoint' ||
-    q.type === 'geotrace' ||
-    q.type === 'geoshape'
-  ) {
-    return null;
-  }
-  // Use the question id as the column name. The form runtime writes
-  // top-level keyed by question id (post-#288), so this name lines
-  // up with the value it'll receive.
-  const base: RawFeatureField = {
-    name: q.id,
-    label: q.label,
-  };
-  switch (q.type) {
-    case 'boolean':
-      return { ...base, type: 'boolean' };
-    case 'integer':
-    case 'number':
-    case 'rating':
-    case 'nps':
-    case 'slider':
-    case 'likert':
-      return { ...base, type: 'number' };
-    case 'date':
-    case 'datetime':
-      return { ...base, type: 'date' };
-    case 'select-one': {
-      const out: RawFeatureField = { ...base, type: 'string' };
-      // Inline coded-value domain (the form designer's per-question
-      // choice list). Pick-list-backed select-one keeps its
-      // pickListId and we resolve it server-side at render time;
-      // for the column-add path here we pin choices inline because
-      // FeatureField doesn't carry pickListItemId yet.
-      if (Array.isArray(q.choices) && q.choices.length > 0) {
-        out.domain = {
-          type: 'coded-value',
-          values: q.choices.map((c) => ({
-            code: String(c.value),
-            label: c.label,
-          })),
-        };
-      }
-      return out;
-    }
-    // Multi-value answers land as a comma-separated string in a
-    // single text column (#295). Same convention as Survey123: shows
-    // up in the attribute table, round-trips to shapefile / CSV
-    // exports cleanly, and stays sort/filterable. v3-features's
-    // coerce() does the array -> "v1,v2" join at insert time.
-    // Choice domain still attaches so the values stay
-    // self-documenting in the schema panel.
-    case 'select-many': {
-      const out: RawFeatureField = { ...base, type: 'string' };
-      if (Array.isArray(q.choices) && q.choices.length > 0) {
-        out.domain = {
-          type: 'coded-value',
-          values: q.choices.map((c) => ({
-            code: String(c.value),
-            label: c.label,
-          })),
-        };
-      }
-      return out;
-    }
-    case 'ranking':
-      // Ordering is encoded by position in the comma-joined list;
-      // domain stays attached so the choices remain documented.
-      return (() => {
-        const out: RawFeatureField = { ...base, type: 'string' };
-        if (Array.isArray(q.choices) && q.choices.length > 0) {
-          out.domain = {
-            type: 'coded-value',
-            values: q.choices.map((c) => ({
-              code: String(c.value),
-              label: c.label,
-            })),
-          };
-        }
-        return out;
-      })();
-    case 'image-choice': {
-      // Image-choice can be single OR multi depending on the
-      // question's `multi` flag; the column is text either way.
-      // Single-mode lands a single value; multi-mode comma-joins
-      // on insert. Domain not attached because the choices aren't
-      // textual labels in this question type.
-      return { ...base, type: 'string' };
-    }
-    // Everything else (text / multiline / email / url / phone /
-    // regex / barcode / calculated / time) lands as string.
-    default:
-      return { ...base, type: 'string' };
-  }
 }
 
 /**

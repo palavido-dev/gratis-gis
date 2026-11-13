@@ -21,7 +21,45 @@
  * attachments before posting the submission.
  */
 import { formatBytes } from '@/lib/format-bytes';
-import { presignUpload } from '@/lib/presign-upload';
+import { PresignUploadError, presignUpload } from '@/lib/presign-upload';
+
+/** The server's cap for a form attachment (FEATURE_ATTACHMENT_MAX_BYTES
+ *  in portal-api storage.service.ts). It refuses to sign anything
+ *  larger, so a larger file can never be uploaded, now or later. */
+export const FORM_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Why a picked file cannot be attached, or null when it can. Checked
+ * before uploading and before keeping a file offline: a file over the
+ * cap used to be kept as an inline data URL (a 100 MB video becomes a
+ * 133 MB string in memory) that the drain then retried for ever.
+ */
+export function attachmentSizeProblem(
+  sizeBytes: number,
+  questionMaxBytes?: number,
+): string | null {
+  const cap =
+    typeof questionMaxBytes === 'number' && questionMaxBytes > 0
+      ? Math.min(questionMaxBytes, FORM_ATTACHMENT_MAX_BYTES)
+      : FORM_ATTACHMENT_MAX_BYTES;
+  if (sizeBytes <= cap) return null;
+  return `File is ${formatBytes(sizeBytes)}; the limit is ${formatBytes(cap)}.`;
+}
+
+/** The file itself was refused (too large for the signed upload). */
+export class AttachmentRefusedError extends Error {}
+
+/**
+ * True when a failed upload may work later (no network, the server or
+ * storage busy), so keeping the file for the queue drain makes sense.
+ * False when the server refused the file itself; keeping it would only
+ * fail again on every drain.
+ */
+export function isRetryableUploadError(err: unknown): boolean {
+  if (err instanceof PresignUploadError) return err.retryable;
+  if (err instanceof AttachmentRefusedError) return false;
+  return true;
+}
 
 export interface UploadedAttachment {
   /** Original filename or a synthesized one for camera captures. */
@@ -82,7 +120,7 @@ export async function uploadFormAttachment(file: File): Promise<UploadedAttachme
   // The server already refused an over-cap size before signing; this
   // only guards against a signer that did not enforce it.
   if (file.size > presign.maxBytes) {
-    throw new Error(
+    throw new AttachmentRefusedError(
       `File is ${formatBytes(file.size)}; limit is ${formatBytes(presign.maxBytes)}.`,
     );
   }

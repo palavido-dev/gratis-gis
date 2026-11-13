@@ -32,19 +32,27 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
   // "Along line" only makes sense for layers that actually contain line
   // geometry. Hide it otherwise, and self-heal the saved state if an
   // older layer was stuck on `line` but only has points/polygons now.
+  //
+  // Only when the geometry is actually known. The set is empty while
+  // metadata loads, after it failed, and always for PostGIS Live
+  // layers; treating that as "no lines" rewrote a saved along-line
+  // placement to auto, and the next Save kept it.
+  const geometryKnown =
+    !metadata.loading && !metadata.error && metadata.geometryTypes.size > 0;
   const hasLine = metadata.geometryTypes.has('line');
+  const offerLine = hasLine || !geometryKnown;
 
   function patch(p: Partial<MapLayerLabels>) {
     onChange({ ...value, ...p });
   }
 
   useEffect(() => {
-    if (!hasLine && value.placement === 'line') {
+    if (geometryKnown && !hasLine && value.placement === 'line') {
       patch({ placement: 'auto' });
     }
     // hasLine flips when metadata arrives; patch is stable per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasLine, value.placement]);
+  }, [geometryKnown, hasLine, value.placement]);
 
   function insert(text: string) {
     const el = textareaRef.current;
@@ -159,7 +167,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
             />
           </div>
 
-          {hasLine ? (
+          {offerLine ? (
             <div>
               <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
                 {t('mapLabelsEditor.placement')}
