@@ -154,7 +154,7 @@
     --focus-ring: 211 54% 28%;
     --border: 214 12% 82%;
     --radius: 0.5rem;
-    --brand-chart: 211 54% 28%;
+    --brand-chart: 177 82% 24%;     /* brand teal, #0b6e69 */
     --brand-contour: 28 42% 38%;    /* topographic umber */
     --brand-index: 216 18% 26%;     /* inner index contour */
   }
@@ -179,7 +179,7 @@
     --info: 201 64% 68%;
     --focus-ring: 207 48% 74%;
     --border: 216 8% 22%;
-    --brand-chart: 207 48% 74%;
+    --brand-chart: 175 49% 66%;     /* brand teal on dark, #7fd3cc */
     --brand-contour: 32 40% 70%;
     --brand-index: 214 18% 80%;
   }

@@ -158,24 +158,25 @@ Reviewers must:
 
 ## Brand: Contour
 
-The GratisGIS mark is a "G" drawn as three nested elevation
-contours, the Contour identity (#173). It encodes what the product
-is (terrain, layers of information) without borrowing the layer-stack
-cliche every GIS product uses.
+The GratisGIS mark is a "G" drawn as two contour rings around a
+point, in one colour (brand teal). It encodes what the product is
+(terrain, a located point) without borrowing the layer-stack cliche
+every GIS product uses. The same mark is used on gratisgis.org and in
+the QGIS plugin.
 
 Palette (the `--brand-*` tokens in globals.css; light / dark).
 Neutrals are a cool chart sheet, not warm paper and not a blue-gray
 SaaS wash. Status colors (success/warn/danger/info) stay functional
 hues and are not brand colors.
 
-- Chart `hsl(211 54% 28%)` / `hsl(207 48% 74%)`: outer contour and
-  the wordmark's "GIS". Also the app-wide `--accent` (`#21466e` in
-  light), so interactive chrome and the brand agree. White ink on
-  the light accent, and dark ink on the dark accent, both clear AA.
-- Contour `hsl(28 42% 38%)` / `hsl(32 40% 70%)`: middle stroke,
-  topographic umber. The mark only.
-- Index `hsl(216 18% 26%)` / `hsl(214 18% 80%)`: inner stroke. The
-  mark only.
+- Brand teal `hsl(177 82% 24%)` (`#0b6e69`) / `hsl(175 49% 66%)`
+  (`#7fd3cc`), token `--brand-chart`: the whole mark (the inner ring
+  at reduced opacity) and the wordmark's "GIS".
+- The app-wide `--accent` is still chart blue `hsl(211 54% 28%)`
+  (`#21466e` in light) for interactive chrome. White ink on the light
+  accent, and dark ink on the dark accent, both clear AA.
+- `--brand-contour` and `--brand-index` are no longer used by the
+  mark.
 
 Light surfaces: sheet `hsl(210 16% 97%)` (`#f6f7f9`), card white,
 ink `hsl(216 28% 12%)` (`#161d27`). Dark surfaces: charcoal
@@ -189,13 +190,14 @@ Usage rules:
 - `<BrandMark />` and `<BrandWordmark />` from
   `components/brand-mark.tsx` are the only sanctioned renderings.
   Never rebuild the mark ad hoc, never use a lucide icon as a logo.
-- Below 20px, use the `small` variant (single heavy contour). The
-  favicon (public/icon.svg) uses a two-contour tile for legibility.
-- The full three-hue triad appears only in the mark and the few
-  static marketing exports (OG card, favicon, login logo). In-app
-  chrome uses chart blue alone.
-- The wordmark is "Gratis" in ink + "GIS" in chart blue, Inter
+- Below 20px, use the `small` variant (heavier G and point, no inner
+  ring). The favicon uses the same small form on a teal tile.
+- App icons (public/icon.svg, apple-icon, Android launcher) show the
+  mark in warm paper `#f4f2ec` on a teal tile.
+- The wordmark is "Gratis" in ink + "GIS" in brand teal, Inter
   semibold. Do not letterspace, outline, or recolor it.
 - Static exports that must stay in sync when geometry or hues change:
-  public/icon.svg, app/opengraph-image.tsx, components/brand-mark.tsx,
-  and the Keycloak login logo.
+  components/brand-mark.tsx, public/icon.svg, app/favicon.ico,
+  app/apple-icon.png and public/apple-touch-icon*.png,
+  app/opengraph-image.tsx, the Keycloak login logo, and the Android
+  launcher icon (res/drawable/ic_launcher_*.xml and the mipmaps).

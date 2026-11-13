@@ -36,8 +36,8 @@ export default function OgImage() {
           width: '100%',
           height: '100%',
           padding: '80px',
-          // Chart sheet (#173): cool paper + the contour-G mark,
-          // matching the in-app --brand-* tokens.
+          // Cool paper + the contour-G mark in brand teal, matching
+          // the in-app --brand-chart token.
           background: '#f6f7f9',
           color: '#161d27',
           fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -45,25 +45,22 @@ export default function OgImage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-            <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <svg width="56" height="56" viewBox="0 0 48 48" fill="none">
               <path
-                d="M34 8 C16 8 8 20 8 32 C8 46 19 56 34 56 C45 56 53 49 55 40 L37 40"
-                stroke="#21466e"
-                strokeWidth={5}
+                d="M36.73 11.27A18 18 0 1 0 42 24H32"
+                stroke="#0b6e69"
+                strokeWidth={3.6}
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
               <path
-                d="M34 18 C22 18 17 24 17 32 C17 40 24 46 34 46"
-                stroke="#8a5e38"
-                strokeWidth={4}
+                d="M32.49 15.51A12 12 0 1 0 36 24"
+                stroke="#0b6e69"
+                strokeWidth={3.6}
                 strokeLinecap="round"
+                opacity={0.55}
               />
-              <path
-                d="M34 27 C29 27 26 29 26 32 C26 35 29 37 34 37"
-                stroke="#36404e"
-                strokeWidth={3.5}
-                strokeLinecap="round"
-              />
+              <circle cx="24" cy="24" r="3.4" fill="#0b6e69" />
             </svg>
             <div
               style={{
@@ -74,7 +71,7 @@ export default function OgImage() {
               }}
             >
               <span style={{ color: '#161d27' }}>Gratis</span>
-              <span style={{ color: '#21466e' }}>GIS</span>
+              <span style={{ color: '#0b6e69' }}>GIS</span>
             </div>
           </div>
           <div
@@ -100,7 +97,7 @@ export default function OgImage() {
             style={{
               fontSize: 36,
               fontWeight: 500,
-              color: '#21466e',
+              color: '#0b6e69',
               lineHeight: 1.3,
               maxWidth: 1040,
             }}
