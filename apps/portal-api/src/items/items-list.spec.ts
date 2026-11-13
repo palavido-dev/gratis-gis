@@ -222,6 +222,24 @@ describe('ItemsService list paging and projection', () => {
     expect(countWhere).toMatchObject({ type: 'map' });
   });
 
+  it('filters by data.source.itemId when sourceItemId is set', async () => {
+    const prisma = makePrisma();
+    const svc = makeService(prisma);
+    const src = '33333333-3333-4333-8333-333333333333';
+    await svc.listPaged(makeUser(), {
+      lite: false,
+      type: 'derived_layer',
+      mine: true,
+      sourceItemId: src,
+      limit: 50,
+    });
+    const where = (prisma.item.findMany.mock.calls[0]![0] as { where: unknown })
+      .where;
+    expect(where).toMatchObject({
+      data: { path: ['source', 'itemId'], equals: src },
+    });
+  });
+
   it('annotates web_app rows with _template in lite mode', async () => {
     const prisma = makePrisma();
     const webAppId = '22222222-2222-2222-2222-222222222222';
@@ -312,6 +330,32 @@ describe('ItemsController GET /items paging contract', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(listPaged).not.toHaveBeenCalled();
+  });
+
+  it('passes a uuid sourceItemId through and refuses a malformed one', async () => {
+    const listPaged = jest.fn().mockResolvedValue({ rows: [], total: 0 });
+    const { controller, res } = makeController({ listPaged });
+    const src = '33333333-3333-4333-8333-333333333333';
+    const call = (value: string) =>
+      controller.list(
+        makeUser(),
+        res as never,
+        undefined, // mine
+        undefined, // type
+        undefined, // q
+        undefined, // ownerId
+        undefined, // bbox
+        undefined, // buffer
+        undefined, // lite
+        undefined, // full
+        undefined, // limit
+        undefined, // offset
+        undefined, // sharedWithGroupId
+        value,
+      );
+    await call(src);
+    expect((listPaged.mock.calls[0]![1] as Record<string, unknown>).sourceItemId).toBe(src);
+    await expect(call('nope')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('defaults to lite + limit 500 and emits X-Total-Count', async () => {
