@@ -53,8 +53,9 @@ export function CopyButton({
     document.body.appendChild(tmp);
     tmp.select();
     try {
-      document.execCommand('copy');
-      flash();
+      // execCommand reports failure by returning false, not by
+      // throwing, so only show "Copied" when it says it worked.
+      if (document.execCommand('copy')) flash();
     } catch {
       // Give up silently. The value is still on screen next to the
       // button in every current caller, so the user can select it.

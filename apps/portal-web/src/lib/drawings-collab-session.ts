@@ -32,6 +32,12 @@ export async function openDrawingsCollabSession(args: {
   drawingSetId: string;
   onFeatures: (features: DrawingFeature[]) => void;
   onError?: (message: string) => void;
+  /**
+   * The socket closed without the caller asking (sleep, proxy reload,
+   * idle timeout). The session is dead from then on: drop it and
+   * open a new one, whose sync brings back what changed meanwhile.
+   */
+  onClosed?: () => void;
 }): Promise<DrawingsCollabSession | null> {
   const ticketRes = await fetch(
     `/api/portal/realtime/maps/${encodeURIComponent(args.mapId)}/presence/drawings-ticket`,
@@ -67,8 +73,12 @@ export async function openDrawingsCollabSession(args: {
     args.onFeatures(out);
   };
 
+  // Once the socket is gone the doc no longer hears remote changes,
+  // so its list is stale. Emitting it would put that stale list back
+  // into the panel, and the next REST save would then drop shapes
+  // other people added meanwhile.
   features.observe(() => {
-    if (!applyingRemote) emit();
+    if (!applyingRemote && !closed) emit();
   });
 
   const sendUpdate = (update: Uint8Array) => {
@@ -127,18 +137,20 @@ export async function openDrawingsCollabSession(args: {
       }
     };
     ws.onclose = () => {
+      if (closed) return; // close() asked for it
       closed = true;
+      args.onClosed?.();
     };
   });
 
   return {
     role: issued.role,
     upsertFeature(feature) {
-      if (issued.role !== 'writer') return;
+      if (issued.role !== 'writer' || closed) return;
       features.set(feature.id, JSON.stringify(feature));
     },
     deleteFeature(featureId) {
-      if (issued.role !== 'writer') return;
+      if (issued.role !== 'writer' || closed) return;
       features.delete(featureId);
     },
     getFeatures() {

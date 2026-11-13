@@ -188,8 +188,14 @@ async function walkAndUpload(node: any): Promise<void> {
         typeof item.dataUrl === 'string' &&
         typeof item.url !== 'string'
       ) {
+        // Keep any extra fields the capture recorded (a clip's
+        // durationSec, for one) and swap only the bytes for the
+        // uploaded location. Replacing the whole entry dropped them.
         // eslint-disable-next-line no-await-in-loop
-        node[i] = await uploadPendingAttachment(item as PendingAttachment);
+        const uploaded = await uploadPendingAttachment(item as PendingAttachment);
+        const merged: Record<string, unknown> = { ...item, ...uploaded };
+        delete merged.dataUrl;
+        node[i] = merged;
       } else {
         // eslint-disable-next-line no-await-in-loop
         await walkAndUpload(item);
