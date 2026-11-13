@@ -91,3 +91,8 @@ ARG REQUIRED_COMPOSE_REV=3
 ENV GG_VERSION=$GG_VERSION \
     GIT_SHA=$GIT_SHA \
     REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
+
+# Set by deploy.sh to a hash of this image's inputs. Last, so it never
+# invalidates the layers above.
+ARG GG_PG_INPUTS=
+LABEL org.gratisgis.pg-inputs=$GG_PG_INPUTS

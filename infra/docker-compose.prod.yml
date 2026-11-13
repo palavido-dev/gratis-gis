@@ -53,6 +53,10 @@ services:
       # that sit next to this compose file. See postgres/Dockerfile.
       context: .
       dockerfile: postgres/Dockerfile
+      args:
+        # Hash of this image's inputs, stamped as a label so deploy.sh
+        # can leave an unchanged database image out of the build.
+        GG_PG_INPUTS: ${GG_PG_INPUTS:-}
     image: gratis-gis-postgres:prod
     container_name: gratis-gis-prod-postgres
     restart: unless-stopped
