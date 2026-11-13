@@ -5,7 +5,7 @@ organized and how to propose changes.
 
 ## Project state
 
-GratisGIS is at **v1.2.0**. The core portal, web maps, forms, App
+GratisGIS is at **v1.5.0**. The core portal, web maps, forms, App
 Builder, field PWA, and the observation-log engine with Cedar policy
 authorization are the supported surface (see the status section in the
 [README](./README.md)). Dashboards ship as web-app layouts, including
