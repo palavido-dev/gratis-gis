@@ -24,7 +24,6 @@ import { DataLayerEngine } from '../engine/data-layer.js';
 import { EngineService } from '../engine/engine.service.js';
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import {
@@ -123,7 +122,6 @@ d('share limits on v3 writes', () => {
     engine = new DataLayerEngine(
       new EngineService(prisma),
       prisma,
-      { checkFeature: () => true } as unknown as LensPolicyService,
       new TileCacheService(),
     );
     service = new DataLayerFeaturesService(

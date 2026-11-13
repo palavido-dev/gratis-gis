@@ -45,7 +45,6 @@ import { DataLayerEngine } from '../engine/data-layer.js';
 import { EngineService } from '../engine/engine.service.js';
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
@@ -114,9 +113,6 @@ function prismaBridge(q: Pool | PoolClient) {
   return bridge as unknown as PrismaService & { captured: typeof captured };
 }
 
-const lensPolicyPassthrough = {
-  checkFeature: () => true,
-} as unknown as LensPolicyService;
 
 d('per-searchable-field trigram indexes against real PostGIS', () => {
   let admin: Pool;
@@ -162,7 +158,6 @@ d('per-searchable-field trigram indexes against real PostGIS', () => {
     engine = new DataLayerEngine(
       new EngineService(prisma),
       prisma,
-      lensPolicyPassthrough,
       new TileCacheService(),
     );
 

@@ -42,7 +42,6 @@ import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { GeocodingService } from '../geocoding/geocoding.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 import type { AuthUser, AuthSyncService } from '../auth/auth-sync.service.js';
 import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
@@ -105,10 +104,6 @@ function adapterClient(url: string): {
   return { client, prisma: client as unknown as PrismaService };
 }
 
-const lensPolicyPassthrough = {
-  checkFeature: () => true,
-} as unknown as LensPolicyService;
-
 /** Slippy-map tile coordinates containing a lng/lat at zoom z. */
 function tileFor(z: number, lng: number, lat: number): { x: number; y: number } {
   const n = 2 ** z;
@@ -144,7 +139,6 @@ d('observation-log read paths against real PostGIS', () => {
     new DataLayerEngine(
       engineSvc,
       prisma,
-      lensPolicyPassthrough,
       new TileCacheService(),
     );
 
@@ -991,7 +985,7 @@ d('observation-log read paths against real PostGIS', () => {
     it('resolves the keys once for two tiles, then again after the parent changes', async () => {
       // ONE engine with a cache we can read the counters of.
       const cache = new TileCacheService();
-      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const engine = new DataLayerEngine(engineSvc, prisma, cache);
       const { x, y } = tileFor(14, HERE[0], HERE[1]);
 
       const first = await engine.mvtTile({ itemId, layerId, z: 14, x, y, via: viaOver });
@@ -3307,14 +3301,14 @@ d('observation-log read paths against real PostGIS', () => {
       const { x, y } = tileFor(14, HERE[0], HERE[1]);
 
       const first = new TileCacheService();
-      const before = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, first)
+      const before = await new DataLayerEngine(engineSvc, prisma, first)
         .mvtTile({ itemId, layerId, z: 14, x, y });
       expect(tileContains(before.mvt, e)).toBe(true);
       await first.onModuleDestroy();
 
       // "Restart": a fresh cache and engine over the same directory.
       const second = new TileCacheService();
-      const again = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, second)
+      const again = await new DataLayerEngine(engineSvc, prisma, second)
         .mvtTile({ itemId, layerId, z: 14, x, y });
       expect(second.getStats().diskHits).toBe(1);
       expect(again.etag).toBe(before.etag);
@@ -3323,7 +3317,7 @@ d('observation-log read paths against real PostGIS', () => {
       // A delete written while no process was listening.
       await seed(scope, e, 'delete', null, null);
       const third = new TileCacheService();
-      const after = await new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, third)
+      const after = await new DataLayerEngine(engineSvc, prisma, third)
         .mvtTile({ itemId, layerId, z: 14, x, y });
       expect(third.getStats().diskHits).toBe(0);
       expect(tileContains(after.mvt, e)).toBe(false);
@@ -3354,7 +3348,7 @@ d('observation-log read paths against real PostGIS', () => {
       }
       const { x, y } = tileFor(14, HERE[0], HERE[1]);
       const cache = new TileCacheService();
-      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const engine = new DataLayerEngine(engineSvc, prisma, cache);
       const before = await countFiles();
       const plain = await engine.mvtTile({ itemId: childItemId, layerId, z: 14, x, y });
       expect(plain.mvt.length).toBeGreaterThan(1024);
