@@ -331,6 +331,64 @@ describe('DataLayerFeaturesController.append notifications', () => {
       globalIds: ['g-0', 'g-1', 'g-2'],
     });
   });
+
+  it('sends one summary when a request creates more than 10 features', async () => {
+    const base = makeController({ canDownload: true });
+    const notify = jest.fn(async () => undefined);
+    const prisma = {
+      item: {
+        findUnique: jest.fn(async () => ({
+          id: 'editor-1',
+          title: 'Editor',
+          ownerId: 'owner',
+          type: 'editor',
+          data: {},
+        })),
+      },
+      user: { findUnique: jest.fn(async () => ({ fullName: 'Field User' })) },
+    };
+    const n = 25;
+    const ids = Array.from({ length: n }, (_, i) => `g-${i}`);
+    const v3 = {
+      insertFeatures: jest.fn(async () => ({
+        inserted: n,
+        deduplicated: 0,
+        globalIds: ids,
+        insertedIndices: ids.map((_, i) => i),
+      })),
+    };
+    const C = DataLayerFeaturesController as unknown as new (
+      ...args: unknown[]
+    ) => DataLayerFeaturesController;
+    const controller = new C(
+      base.items,
+      base.sharing,
+      v3,
+      prisma,
+      { assertAllows: jest.fn(async () => undefined) },
+      { notify },
+    );
+    await controller.append(
+      makeUser(),
+      ITEM_ID,
+      LAYER_ID,
+      {
+        features: ids.map((g) => ({ globalId: g, properties: { name: g } })),
+      } as never,
+      'editor-1',
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      'owner',
+      'editor_feature_created',
+      expect.objectContaining({
+        featureId: 'g-0',
+        featureCount: 25,
+        summary: '25 new features',
+      }),
+    );
+  });
 });
 
 describe('where fields are checked on every filtered read', () => {
