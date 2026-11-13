@@ -83,6 +83,7 @@ import { discoverLayerMetadata, type LayerMetadata } from './layer-metadata';
 import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
 import { showLayerAndParents } from '@/lib/search-hidden-layers';
+import { fetchCommentPage } from '@/lib/comment-pages';
 
 /**
  * The parts of a layer source that decide what metadata discovery
@@ -508,9 +509,10 @@ export function MapEditor({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/portal/items/${itemId}/comments`);
-        if (!res.ok || cancelled) return;
-        const list = (await res.json()) as CommentThreadDTO[];
+        // Newest page only; the panel's "Load older" adds the rest
+        // and reports them back through onThreadsChange.
+        const { threads: list } =
+          await fetchCommentPage<CommentThreadDTO>(itemId);
         if (!cancelled) setCommentThreads(list);
       } catch {
         /* pins are best-effort */

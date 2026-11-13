@@ -2924,6 +2924,7 @@ export const de: Partial<CatalogShape> = {
     moreNotShown: '+{count} weitere nicht angezeigt.',
   },
   mapComments: {
+    loadOlder: 'Ältere Threads laden',
     title: 'Kommentare',
     panelAria: 'Kartenkommentare',
     closeAria: 'Kommentarfenster schließen',

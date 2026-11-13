@@ -37,6 +37,13 @@ import {
  *     conversation history stays auditable.
  */
 const MAX_BODY_LEN = 10_000;
+/**
+ * Threads per list page. The list is public for public items and
+ * polled by anonymous viewers, so a busy review map with thousands
+ * of threads used to send a multi-MB body on every poll. Pages hold
+ * the newest threads; older ones come with `before=<cursor>`.
+ */
+export const COMMENT_THREAD_PAGE_MAX = 200;
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export interface CommentThreadDTO {
@@ -71,21 +78,56 @@ export class CommentsService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  /**
+   * One page of threads, newest first by creation, returned oldest
+   * first inside the page (the order the panel shows). `nextCursor`
+   * is set when older threads exist; pass it back as `before`.
+   */
   async list(
     user: AuthUser | null,
     itemId: string,
-  ): Promise<CommentThreadDTO[]> {
+    opts: { limit?: number; before?: string } = {},
+  ): Promise<{ threads: CommentThreadDTO[]; nextCursor: string | null }> {
     const item = await this.loadItem(itemId);
     await this.assertCanRead(user, item);
-    const threads = await this.prisma.commentThread.findMany({
-      where: { itemId },
-      orderBy: { createdAt: 'asc' },
+    const limit = Math.min(
+      Math.max(Math.trunc(opts.limit ?? COMMENT_THREAD_PAGE_MAX), 1),
+      COMMENT_THREAD_PAGE_MAX,
+    );
+    // The cursor is the id of the oldest thread on the previous page.
+    // It is looked up inside this item, so a cursor from another item
+    // cannot be used to read across items.
+    let olderThan: { createdAt: Date; id: string } | null = null;
+    if (opts.before !== undefined) {
+      olderThan = await this.prisma.commentThread.findFirst({
+        where: { id: opts.before, itemId },
+        select: { createdAt: true, id: true },
+      });
+      if (!olderThan) throw new BadRequestException('Unknown comments cursor.');
+    }
+    const page = await this.prisma.commentThread.findMany({
+      where: {
+        itemId,
+        ...(olderThan
+          ? {
+              OR: [
+                { createdAt: { lt: olderThan.createdAt } },
+                { createdAt: olderThan.createdAt, id: { lt: olderThan.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       include: {
         comments: {
           orderBy: { createdAt: 'asc' },
         },
       },
     });
+    const hasMore = page.length > limit;
+    const threads = page.slice(0, limit).reverse();
+    const nextCursor = hasMore ? (threads[0]?.id ?? null) : null;
     const authorIds = new Set<string>();
     for (const t of threads) {
       for (const c of t.comments) authorIds.add(c.authorId);
@@ -100,7 +142,10 @@ export class CommentsService {
         a.fullName && a.fullName.trim().length > 0 ? a.fullName : a.username,
       ]),
     );
-    return threads.map((t) => this.threadToDto(t, displayById));
+    return {
+      threads: threads.map((t) => this.threadToDto(t, displayById)),
+      nextCursor,
+    };
   }
 
   async createThread(

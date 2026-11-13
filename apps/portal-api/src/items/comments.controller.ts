@@ -8,9 +8,12 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import {
   IsBoolean,
   IsIn,
@@ -60,7 +63,8 @@ export class CommentsController {
   constructor(private readonly comments: CommentsService) {}
 
   /**
-   * List every thread on an item. Public for public items
+   * List the newest threads on an item (200 at most per page; older
+   * pages via `?before=<X-Next-Cursor>`). Public for public items
    * (the service gates non-public reads against canRead).
    *
    * Rate limit is tighter than the global 300/min default
@@ -72,12 +76,25 @@ export class CommentsController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get()
-  list(
+  async list(
     @CurrentUser() user: AuthUser | null,
     @Param('itemId') itemId: string,
+    @Res({ passthrough: true }) res: Response,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
   ) {
     assertUuid('itemId', itemId);
-    return this.comments.list(user, itemId);
+    if (before !== undefined) assertUuid('before', before);
+    const parsed = Number.parseInt(limit ?? '', 10);
+    const page = await this.comments.list(user, itemId, {
+      ...(Number.isFinite(parsed) && parsed > 0 ? { limit: parsed } : {}),
+      ...(before !== undefined ? { before } : {}),
+    });
+    // The body stays a plain array of threads (newest page, oldest
+    // first) so existing callers keep working. When older threads
+    // exist, this header carries the cursor for the next page.
+    if (page.nextCursor) res.setHeader('X-Next-Cursor', page.nextCursor);
+    return page.threads;
   }
 
   /** Tighter than the global 300/min: mention email fan-out makes

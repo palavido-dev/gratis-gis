@@ -2905,6 +2905,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreNotShown: '+{count} a mais não exibidos.',
   },
   mapComments: {
+    loadOlder: 'Carregar tópicos anteriores',
     title: 'Comentários',
     panelAria: 'Comentários do mapa',
     closeAria: 'Fechar painel de comentários',

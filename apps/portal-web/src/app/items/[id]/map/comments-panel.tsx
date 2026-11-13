@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import type { CommentAnchor } from './comment-anchors';
 import { portalJson as api } from '@/lib/portal-json';
+import { fetchCommentPage, prependOlderThreads } from '@/lib/comment-pages';
 
 interface CommentDTO {
   id: string;
@@ -116,20 +117,44 @@ export function CommentsPanel({
   const [draftBody, setDraftBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  // The list API returns the newest 200 threads. This holds the
+  // cursor for the page before them, or null when all are loaded.
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const fresh = await api<ThreadDTO[]>(`/api/portal/items/${itemId}/comments`);
-      setThreads(fresh);
-      onThreadsChange?.(fresh);
+      const page = await fetchCommentPage<ThreadDTO>(itemId);
+      setThreads(page.threads);
+      setOlderCursor(page.nextCursor);
+      onThreadsChange?.(page.threads);
     } catch (e) {
       setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setLoading(false);
     }
   }, [itemId, t, onThreadsChange]);
+
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor) return;
+    setLoadingOlder(true);
+    setError(null);
+    try {
+      const page = await fetchCommentPage<ThreadDTO>(itemId, olderCursor);
+      setOlderCursor(page.nextCursor);
+      setThreads((curr) => {
+        const next = prependOlderThreads(curr, page.threads);
+        onThreadsChange?.(next);
+        return next;
+      });
+    } catch (e) {
+      setError(message(e, t('mapComments.somethingWrong')));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [itemId, olderCursor, t, onThreadsChange]);
 
   useEffect(() => {
     if (open) refresh();
@@ -328,6 +353,19 @@ export function CommentsPanel({
       </div>
 
       <div className="overflow-y-auto px-2 py-2">
+        {olderCursor ? (
+          <button
+            type="button"
+            onClick={() => void loadOlder()}
+            disabled={loadingOlder}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-60"
+          >
+            {loadingOlder ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
+            ) : null}
+            {t('mapComments.loadOlder')}
+          </button>
+        ) : null}
         {visibleThreads.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">
             {threads.length === 0

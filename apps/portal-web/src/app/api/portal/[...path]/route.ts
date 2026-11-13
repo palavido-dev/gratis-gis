@@ -634,6 +634,10 @@ async function forwardInner(
   // browser can page without an envelope around the JSON array.
   const totalCount = upstream.headers.get('x-total-count');
   if (totalCount) outHeaders.set('x-total-count', totalCount);
+  // Cursor-paged lists (comment threads) say where the next page
+  // starts here, for the same reason.
+  const nextCursor = upstream.headers.get('x-next-cursor');
+  if (nextCursor) outHeaders.set('x-next-cursor', nextCursor);
   outHeaders.set(
     'x-request-id',
     upstream.headers.get('x-request-id') ?? requestId,

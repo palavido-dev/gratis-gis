@@ -3044,6 +3044,7 @@ export const en = {
     moreNotShown: '+{count} more not shown.',
   },
   mapComments: {
+    loadOlder: 'Load older threads',
     title: 'Comments',
     panelAria: 'Map comments',
     closeAria: 'Close comments panel',
