@@ -127,4 +127,27 @@ interface QueueDao {
     for (id in removeIds) delete(collectionId, id)
     if (keep != null) upsert(keep)
   }
+
+  /**
+   * [replaceChain], but only when every row of the chain is still
+   * exactly as the caller read it (status and last attempt). A fold is
+   * read, worked out and then written; if a drain claimed one of those
+   * rows in between, writing the fold would reset a row that is being
+   * sent, and the drain's delete on success would then drop the newer
+   * edit. Returns false, changing nothing, when any row moved on.
+   */
+  @Transaction
+  suspend fun replaceChainIfUnchanged(
+    collectionId: String,
+    readRows: List<QueueEntity>,
+    removeIds: List<String>,
+    keep: QueueEntity?,
+  ): Boolean {
+    for (read in readRows) {
+      val now = get(collectionId, read.id) ?: return false
+      if (now.syncStatus != read.syncStatus || now.lastAttemptAt != read.lastAttemptAt) return false
+    }
+    replaceChain(collectionId, removeIds, keep)
+    return true
+  }
 }

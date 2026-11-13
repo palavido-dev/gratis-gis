@@ -49,6 +49,19 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
   private val json = Json { ignoreUnknownKeys = true }
 
   suspend fun enqueue(edit: FeatureEdit): EnqueueResult {
+    // The fold is read, worked out by the engine and written in separate
+    // steps, so a drain can claim one of the rows in between. The write
+    // only lands when the rows are unchanged; otherwise read again, and
+    // the claimed row is then no longer foldable, so the edit becomes
+    // its own row. A drain claims a row once per attempt, so a few
+    // passes always settle.
+    repeat(MAX_FOLD_ATTEMPTS - 1) {
+      tryEnqueue(edit)?.let { return it }
+    }
+    return tryEnqueue(edit) ?: error("Queue rows kept changing while folding an edit")
+  }
+
+  private suspend fun tryEnqueue(edit: FeatureEdit): EnqueueResult? {
     val now = Instant.now().toString()
     val sameFeature = db.queue().forFeature(edit.collectionId, edit.dataLayerId, edit.layerKey, edit.globalId)
     val foldable = sameFeature.filter { row ->
@@ -87,7 +100,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
     val removeIds = foldable.drop(1).map { it.id }
 
     if (folded["kind"]?.jsonPrimitive?.content == "annihilated") {
-      db.queue().replaceChain(edit.collectionId, removeIds + keep.id, null)
+      if (!db.queue().replaceChainIfUnchanged(edit.collectionId, foldable, removeIds + keep.id, null)) return null
       return EnqueueResult.Annihilated(foldable.size)
     }
     val e = folded.getValue("edit").jsonObject
@@ -105,7 +118,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
       baseObservationId = keep.baseObservationId,
       conflictCurrentJson = null,
     )
-    db.queue().replaceChain(edit.collectionId, removeIds, next)
+    if (!db.queue().replaceChainIfUnchanged(edit.collectionId, foldable, removeIds, next)) return null
     return EnqueueResult.Folded(next, foldable.size)
   }
 
@@ -117,6 +130,10 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
         put("currentUserId", JsonPrimitive(userId))
       },
     ).jsonPrimitive.content.toBoolean()
+
+  private companion object {
+    const val MAX_FOLD_ATTEMPTS = 5
+  }
 
   private fun foldable(op: String, geometry: JsonElement?, properties: JsonElement?): JsonObject = buildJsonObject {
     put("op", JsonPrimitive(op))
