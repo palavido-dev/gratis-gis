@@ -6,6 +6,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- The sign-in page now shows the new logo. Keycloak kept serving the
+  old one after the 1.6.0 deploy: it sends theme files with a 30 day
+  cache lifetime and keeps its own compressed copy on disk, which a
+  restart does not clear. The logo now has a versioned file name like
+  the stylesheets, so browsers and Keycloak fetch it fresh.
+
 ## [1.6.0] - 2026-11-13
 
 Decisions release. Every review finding that was held back for a

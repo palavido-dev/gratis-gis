@@ -215,7 +215,10 @@ label {
   width: 48px;
   height: 48px;
   margin: 0 auto 12px;
-  background-image: url("../img/logo.svg");
+  /* Versioned name, like this stylesheet's: Keycloak serves theme
+     resources with a 30 day max-age and keeps a gzip copy on disk,
+     so a changed file under an old name keeps reaching visitors. */
+  background-image: url("../img/logo.v2.svg");
   background-size: contain;
   background-repeat: no-repeat;
 }
