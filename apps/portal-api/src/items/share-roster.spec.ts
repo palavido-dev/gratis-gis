@@ -88,6 +88,29 @@ describe('ItemsService.stripShareRoster', () => {
     expect(svc.stripShareRoster(u('viewer') as never, item).shares).toEqual([]);
   });
 
+  it('gives a map editor the map principals only, without tier or clip', () => {
+    const svc = service();
+    const editable = {
+      ...item,
+      shares: [...item.shares, share('user', 'editor', { permission: 'edit', geoLimit: { type: 'Polygon' } })],
+    };
+    const out = svc.stripShareRoster(u('editor') as never, editable).shares as Array<Record<string, unknown>>;
+    expect(out).toHaveLength(4);
+    for (const row of out) {
+      expect(Object.keys(row).sort()).toEqual(['itemId', 'principalId', 'principalType']);
+    }
+  });
+
+  it('gives an editor of a non-map item no roster', () => {
+    const svc = service();
+    const layer = {
+      ...item,
+      type: 'data_layer',
+      shares: [...item.shares, share('user', 'editor', { permission: 'edit' })],
+    };
+    expect(svc.stripShareRoster(u('editor') as never, layer).shares).toEqual([]);
+  });
+
   it('empties the roster on getForReader for a view recipient', async () => {
     const svc = service();
     const row = (await svc.getForReader(u('viewer') as never, ITEM)) as { shares: unknown[] };

@@ -12,7 +12,11 @@
  * ranges are not blocked: on a host-network install they are the LAN.
  * An operator can refuse more with POSTGIS_LIVE_DENY_HOSTS, a comma
  * list of host names, IP addresses and IPv4 ranges such as
- * 172.18.0.0/16. An existing saved connection
+ * 172.18.0.0/16. On a host-network install the API's own addresses
+ * include the machine's LAN address, so a database on the same
+ * machine needs POSTGIS_LIVE_ALLOW_HOSTS: host names or addresses
+ * listed there are exempt from the own-address rule (never from the
+ * loopback, link-local or deny-list rules). An existing saved connection
  * is left alone when its host does not change, so an upgrade does
  * not drop a database that was already working.
  */
@@ -54,6 +58,10 @@ export interface HostDenials {
   addresses: ReadonlySet<string>;
   /** IPv4 ranges from the deny list, as [network, mask]. */
   ranges: ReadonlyArray<readonly [number, number]>;
+  /** POSTGIS_LIVE_ALLOW_HOSTS names (lower case) and addresses that
+   *  the own-address rule does not apply to. */
+  allowNames: ReadonlySet<string>;
+  allowAddresses: ReadonlySet<string>;
 }
 
 /**
@@ -92,7 +100,16 @@ export function currentHostDenials(
     if (ip) addresses.add(ip);
     else names.add(item);
   }
-  return { own, names, addresses, ranges };
+  const allowNames = new Set<string>();
+  const allowAddresses = new Set<string>();
+  for (const raw of (env.POSTGIS_LIVE_ALLOW_HOSTS ?? '').split(',')) {
+    const item = raw.trim().toLowerCase();
+    if (!item) continue;
+    const ip = unwrapIp(item);
+    if (ip) allowAddresses.add(ip);
+    else allowNames.add(item);
+  }
+  return { own, names, addresses, ranges, allowNames, allowAddresses };
 }
 
 function ipv4ToInt(ip: string): number | null {
@@ -103,8 +120,15 @@ function ipv4ToInt(ip: string): number | null {
   return (((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0);
 }
 
-function isDeniedAddress(ip: string, denials: HostDenials): boolean {
-  if (denials.own.has(ip) || denials.addresses.has(ip)) return true;
+function isDeniedAddress(
+  ip: string,
+  denials: HostDenials,
+  allowedName = false,
+): boolean {
+  if (denials.addresses.has(ip)) return true;
+  if (denials.own.has(ip) && !allowedName && !denials.allowAddresses.has(ip)) {
+    return true;
+  }
   const n = ipv4ToInt(ip);
   if (n === null) return false;
   return denials.ranges.some(([net, mask]) => ((n & mask) >>> 0) === net);
@@ -164,7 +188,10 @@ export async function assertPostgisHost(
   for (const answer of answers) {
     const address = answer.address.toLowerCase();
     const ip = unwrapIp(address) ?? address;
-    if (isBlockedAddress(ip) || isDeniedAddress(ip, denials)) {
+    if (
+      isBlockedAddress(ip) ||
+      isDeniedAddress(ip, denials, denials.allowNames.has(trimmed.toLowerCase()))
+    ) {
       throw new BadRequestException(REFUSAL);
     }
   }

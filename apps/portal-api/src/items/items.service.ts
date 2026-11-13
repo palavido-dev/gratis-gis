@@ -1344,14 +1344,29 @@ export class ItemsService {
   /**
    * The share roster (who else has access, at what tier, with which
    * clip) is for the people who manage sharing: the owner and admins
-   * of the item's org. Everyone else gets an empty list. Run it last,
-   * after anything that needs the shares to decide what the caller
-   * may see.
+   * of the item's org. One exception: someone who can edit a map
+   * gets who the map is shared with (principal ids only, no tier or
+   * clip), because the map's per-layer access matrix has a column per
+   * principal. Everyone else gets an empty list. Run it last, after
+   * anything that needs the shares to decide what the caller may see.
    */
   stripShareRoster<T>(user: AuthUser, row: T): T {
-    const r = row as T & { shares?: ItemShare[] };
+    const r = row as T & { type?: string; shares?: ItemShare[] };
     if (!Array.isArray(r.shares) || r.shares.length === 0) return row;
     if (this.sharing.canAdmin(user, r as unknown as Item)) return row;
+    if (
+      r.type === 'map' &&
+      this.sharing.canEdit(user, r as unknown as Item, r.shares)
+    ) {
+      return {
+        ...r,
+        shares: r.shares.map((s) => ({
+          itemId: s.itemId,
+          principalType: s.principalType,
+          principalId: s.principalId,
+        })),
+      } as T;
+    }
     return { ...r, shares: [] } as T;
   }
 

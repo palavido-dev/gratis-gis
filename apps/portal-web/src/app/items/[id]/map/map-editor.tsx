@@ -626,8 +626,9 @@ export function MapEditor({
   }, [map.layers]);
 
   async function loadMatrixData() {
-    // Webmap's own shares: drives the principal column list. Only the
-    // map's owner and admins get the roster back.
+    // Webmap's own shares: drives the principal column list. The
+    // owner and admins get the full rows; other map editors get the
+    // principal ids only, which is all the matrix reads.
     let principalShares: ItemShare[] = [];
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
