@@ -44,11 +44,17 @@ cd "$REPO_ROOT"
 # at all; a per-script override would re-split the mutex.
 LOCK_FILE="${GRATISGIS_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
 mkdir -p "$(dirname "$LOCK_FILE")"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  echo "Another deploy is in progress (lock=$LOCK_FILE)." >&2
-  echo "Tail /tmp/deploy.log if you started one in the background, or wait for it to finish before re-running." >&2
-  exit 1
+if [[ -n "${GG_DEPLOY_REEXEC:-}" ]] && { : >&9; } 2>/dev/null; then
+  # Restarted from the new checkout (see "Syncing repo" below). The
+  # first run still holds the lock on fd 9, which exec kept open.
+  :
+else
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    echo "Another deploy is in progress (lock=$LOCK_FILE)." >&2
+    echo "Tail /tmp/deploy.log if you started one in the background, or wait for it to finish before re-running." >&2
+    exit 1
+  fi
 fi
 # The lock auto-releases when fd 9 closes (process exit).
 
@@ -114,7 +120,17 @@ GG_DEPLOY_COMMIT="$(
   echo "FATAL: cannot resolve '${GG_DEPLOY_REF}' to a commit. Check GG_REF." >&2
   exit 1
 }
+GG_SELF_BEFORE="$(git hash-object infra/deploy.sh)"
 git reset --hard "$GG_DEPLOY_COMMIT"
+# Bash keeps reading the copy of this script it opened before the
+# reset, so without a restart every deploy ran the previous release's
+# steps after this point. Restart once from the new copy, pinned to the
+# ref just resolved.
+if [[ -z "${GG_DEPLOY_REEXEC:-}" ]] \
+    && [[ "$(git hash-object infra/deploy.sh)" != "$GG_SELF_BEFORE" ]]; then
+  echo "deploy.sh changed in ${GG_DEPLOY_REF}; restarting with the new copy."
+  GG_DEPLOY_REEXEC=1 GG_REF="$GG_DEPLOY_REF" exec bash infra/deploy.sh
+fi
 echo "Deploying ref ${GG_DEPLOY_REF} at commit:"
 git log --oneline -1
 
@@ -180,7 +196,23 @@ echo "Wrote infra/keycloak/import/realm-gratis-gis.json"
 COMPOSE=(docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod)
 
 echo "=== Building images ==="
-"${COMPOSE[@]}" build
+# The nightly `docker builder prune` drops the build cache, so the
+# database image's apt layer was rebuilt on every deploy. That gave it
+# a new image id, and compose then recreated the postgres container:
+# a short database outage on every deploy even when nothing about the
+# database changed. The image carries a hash of its inputs as a label;
+# when it matches, postgres is left out of the build and keeps running.
+GG_PG_INPUTS="$(cat infra/postgres/Dockerfile infra/init-prod-db.sql infra/init-prod-db.sh \
+  | sha256sum | cut -c1-16)"
+export GG_PG_INPUTS
+GG_BUILD_SERVICES=()
+GG_PG_BUILT_FROM="$(docker image inspect gratis-gis-postgres:prod \
+  --format '{{ index .Config.Labels "org.gratisgis.pg-inputs" }}' 2>/dev/null || true)"
+if [[ "$GG_PG_BUILT_FROM" == "$GG_PG_INPUTS" ]]; then
+  mapfile -t GG_BUILD_SERVICES < <("${COMPOSE[@]}" config --services | grep -vx postgres || true)
+  echo "Database image inputs unchanged; not rebuilding it."
+fi
+"${COMPOSE[@]}" build "${GG_BUILD_SERVICES[@]}"
 
 echo "=== Bringing up stack ==="
 "${COMPOSE[@]}" up -d --remove-orphans
@@ -444,14 +476,23 @@ if rows:
   # to the field app or QGIS: "Offline tokens not allowed for the user
   # or client". Adding offline_access to the default role covers every
   # user who holds it, including future ones. Idempotent.
-  GG_DEFAULT_ROLE="$(KC get realms/gratis-gis --fields defaultRole 2>/dev/null \
+  # kcadm's --fields drops nested objects unless their fields are
+  # named, so plain `--fields defaultRole` returned {} and this step
+  # warned on every deploy. add-roles also fails when the role is
+  # already a composite, so check before adding.
+  GG_DEFAULT_ROLE="$(KC get realms/gratis-gis --fields 'defaultRole(name)' 2>/dev/null \
     | python3 -c 'import sys,json; print((json.load(sys.stdin).get("defaultRole") or {}).get("name",""))' \
       2>/dev/null || true)"
-  if [[ -n "$GG_DEFAULT_ROLE" ]] \
-      && KC add-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --rolename offline_access >/dev/null 2>&1; then
+  if [[ -z "$GG_DEFAULT_ROLE" ]]; then
+    echo "WARN: could not read the realm's default role." >&2
+  elif KC get-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --fields name 2>/dev/null \
+      | python3 -c 'import sys,json; sys.exit(0 if any(r.get("name")=="offline_access" for r in json.load(sys.stdin)) else 1)' \
+        2>/dev/null; then
     echo "Default role $GG_DEFAULT_ROLE includes offline_access."
+  elif KC add-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --rolename offline_access >/dev/null 2>&1; then
+    echo "Added offline_access to the default role $GG_DEFAULT_ROLE."
   else
-    echo "WARN: could not add offline_access to the default role${GG_DEFAULT_ROLE:+ $GG_DEFAULT_ROLE}." >&2
+    echo "WARN: could not add offline_access to the default role $GG_DEFAULT_ROLE." >&2
   fi
 
   # --- offline_access for every realm user ---
