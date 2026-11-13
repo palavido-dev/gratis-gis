@@ -66,6 +66,13 @@ class FeatureHeadRebaseTest {
   }
 
   @Test
+  fun leavesTheSameAccountsRowOnAnotherPortalAlone() {
+    val here = landed.copy(portal = "https://one.example/api")
+    val elsewhere = row("b", "2026-11-01T00:01:00Z").copy(portal = "https://two.example/api")
+    assertTrue(FeatureHeadRebase.rowsToRebase(here, listOf(elsewhere), "obs-2").isEmpty())
+  }
+
+  @Test
   fun aLandedRowWithNoOwnerMovesNothing() {
     val legacy = landed.copy(ownerUserId = null)
     val later = row("b", "2026-11-01T00:01:00Z", owner = null)

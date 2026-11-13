@@ -57,6 +57,10 @@ interface FeatureDao {
     globalIds: List<String>,
   )
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)
+  /** The layers that have cached rows, for pruning layers the map no
+   *  longer has. */
+  @Query("SELECT DISTINCT dataLayerId, layerKey FROM feature WHERE collectionId = :collectionId")
+  suspend fun cachedLayers(collectionId: String): List<CachedLayerRef>
 
   /** Swap one cached feature's JSON only if it is still `expected`. */
   @Query(
@@ -72,6 +76,9 @@ interface FeatureDao {
     next: String,
   ): Int
 }
+
+/** One (dataLayerId, layerKey) pair with cached features. */
+data class CachedLayerRef(val dataLayerId: String, val layerKey: String)
 
 /** Ids per DELETE. Room binds one variable per id, and the platform
  *  SQLite on Android 9 to 11 (minSdk is 28) allows at most 999. */
@@ -135,7 +142,9 @@ interface QueueDao {
    * does the same inside one IndexedDB transaction.
    */
   @Query(
-    "UPDATE queue SET syncStatus = 'syncing', lastAttemptAt = :attemptAt " +
+    // From the claim on, the request may reach the server, so the row
+    // is marked and stays marked on every write-back.
+    "UPDATE queue SET syncStatus = 'syncing', lastAttemptAt = :attemptAt, mayHaveReachedServer = 1 " +
       "WHERE collectionId = :collectionId AND id = :id AND syncStatus = :expectedStatus " +
       // SQLite's IS treats two NULLs as equal, so one clause covers a
       // never-attempted row and an attempted one.

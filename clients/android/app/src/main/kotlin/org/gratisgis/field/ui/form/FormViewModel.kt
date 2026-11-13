@@ -85,6 +85,10 @@ class FormViewModel(
   )
   val state: StateFlow<FormUiState> = _state
 
+  /** The account the form was opened under. Drafts are saved under it
+   *  and only its own drafts are resumed. */
+  private val scope = app.accountScope()
+
   private var formEntity: FormEntity? = null
   private var schema: JsonObject? = null
 
@@ -95,6 +99,7 @@ class FormViewModel(
   private suspend fun load() {
     _state.update { it.copy(busy = true, error = null) }
     try {
+      val account = scope ?: error("Signed out. Sign in to fill in this form.")
       val form = app.db.forms().get(formId)
         ?: error("Form $formId not cached — download the collection offline first")
       formEntity = form
@@ -108,8 +113,14 @@ class FormViewModel(
       // fresh id and starts empty; falling back to "any draft of this
       // form" reopened and overwrote the first one, so a worker could
       // never start a second record.
-      val draft = app.db.drafts().get(draftId)
+      val found = app.db.drafts().get(draftId)
         ?: existingDraftId?.let { app.db.drafts().get(it) }
+      // Another account's draft is neither shown nor overwritten: start
+      // a new one under a fresh id instead.
+      val draft = found?.takeIf(account::ownsDraft)
+      if (found != null && draft == null) {
+        _state.update { it.copy(draftId = UUID.randomUUID().toString()) }
+      }
       if (draft != null) {
         val response = json.parseToJsonElement(draft.responseJson).jsonObject
         values = fields.associate { f ->
@@ -208,6 +219,7 @@ class FormViewModel(
 
   private suspend fun persistDraft(validate: Boolean) {
     val sch = schema ?: error("Form not loaded")
+    val owner = scope ?: error("Signed out")
     val snapshot = _state.value
     val response = buildResponse(snapshot.values, snapshot.fields)
     var ok: Boolean? = null
@@ -248,6 +260,8 @@ class FormViewModel(
         dataLayerId = layer.dataLayerId,
         responseJson = response.toString(),
         updatedAt = now,
+        ownerUserId = owner.userId,
+        portal = owner.portal,
       ),
     )
     _state.update {

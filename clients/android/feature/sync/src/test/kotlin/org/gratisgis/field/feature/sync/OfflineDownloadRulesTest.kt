@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package org.gratisgis.field.feature.sync
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.gratisgis.field.core.database.CachedLayerRef
+import org.gratisgis.field.core.database.LayerEntity
 import org.gratisgis.field.core.database.OfflinePackageEntity
 import org.gratisgis.field.core.network.PortalError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -58,4 +65,70 @@ class OfflineDownloadRulesTest {
     // Three more values are bound besides the ids.
     assertTrue(OfflineDownloadRules.DELETE_CHUNK + 3 <= 999)
   }
+
+  private fun areas(vararg boxes: List<Double>?) = buildJsonObject {
+    put(
+      "offlineAreas",
+      buildJsonArray {
+        for (b in boxes) {
+          add(buildJsonObject { if (b != null) put("bbox", buildJsonArray { b.forEach { add(JsonPrimitive(it)) } }) })
+        }
+      },
+    )
+  }
+
+  @Test
+  fun theAreaEnvelopeHoldsEveryOfflineArea() {
+    val env = OfflineDownloadRules.offlineAreaEnvelope(areas(listOf(-117.0, 33.0, -116.5, 33.5), listOf(-116.0, 34.0, -115.8, 34.2)))
+    assertEquals(listOf(-117.0, 33.0, -115.8, 34.2), env)
+  }
+
+  @Test
+  fun noUsableAreaMeansNoEnvelope() {
+    assertNull(OfflineDownloadRules.offlineAreaEnvelope(null))
+    assertNull(OfflineDownloadRules.offlineAreaEnvelope(buildJsonObject {}))
+    // A missing or inverted bbox is skipped, not trusted.
+    assertNull(OfflineDownloadRules.offlineAreaEnvelope(areas(null, listOf(1.0, 1.0, 0.0, 0.0))))
+  }
+
+  @Test
+  fun onlyALayerOverTheLimitIsLimitedToTheAreas() {
+    val env = listOf(0.0, 0.0, 1.0, 1.0)
+    val over = OfflineDownloadRules.LIMIT_TO_AREAS_ABOVE + 1
+    assertEquals(env, OfflineDownloadRules.fullPullBox(over, env))
+    assertNull(OfflineDownloadRules.fullPullBox(OfflineDownloadRules.LIMIT_TO_AREAS_ABOVE, env))
+    assertNull(OfflineDownloadRules.fullPullBox(null, env))
+    assertNull(OfflineDownloadRules.fullPullBox(over, null))
+  }
+
+  @Test
+  fun aDeltaIsUsedOnlyWhenTheCachedBoxCoversWhatIsWanted() {
+    val big = listOf(0.0, 0.0, 10.0, 10.0)
+    val small = listOf(1.0, 1.0, 2.0, 2.0)
+    assertTrue(OfflineDownloadRules.covers(null, big))
+    assertTrue(OfflineDownloadRules.covers(null, null))
+    assertTrue(OfflineDownloadRules.covers(big, small))
+    assertFalse(OfflineDownloadRules.covers(small, big))
+    // Limited before, whole layer wanted now: needs a full pull.
+    assertFalse(OfflineDownloadRules.covers(small, null))
+  }
+
+  @Test
+  fun aBoxSurvivesTheLayerRow() {
+    val box = listOf(-117.25, 33.5, -116.0, 34.0)
+    assertEquals(box, OfflineDownloadRules.decodeBox(OfflineDownloadRules.encodeBox(box)))
+    assertNull(OfflineDownloadRules.encodeBox(null))
+    assertNull(OfflineDownloadRules.decodeBox(null))
+    assertNull(OfflineDownloadRules.decodeBox("not json"))
+  }
+
+  @Test
+  fun featuresOfLayersNoLongerInTheCollectionArePruned() {
+    fun layer(id: String, key: String) =
+      LayerEntity("c1", id, key, key, "Point", "[]", "h", "all-rows", true, null)
+    val cached = listOf(CachedLayerRef("dl1", "main"), CachedLayerRef("dl1", "old"), CachedLayerRef("dl2", "main"))
+    val gone = OfflineDownloadRules.layersToPrune(cached, listOf(layer("dl1", "main"), layer("dl2", "main")))
+    assertEquals(listOf(CachedLayerRef("dl1", "old")), gone)
+  }
 }
+

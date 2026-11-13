@@ -30,6 +30,8 @@ data class FeatureEdit(
   /** `_observation_id` of the feature as read when the edit was made.
    *  Null for an insert. */
   val baseObservationId: String? = null,
+  /** The portal the edit is made on ([AccountScope.portal]). */
+  val portal: String? = null,
 )
 
 sealed interface EnqueueResult {
@@ -64,8 +66,14 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
   private suspend fun tryEnqueue(edit: FeatureEdit): EnqueueResult? {
     val now = Instant.now().toString()
     val sameFeature = db.queue().forFeature(edit.collectionId, edit.dataLayerId, edit.layerKey, edit.globalId)
+    // A row a drain has already sent may be on the server, so nothing
+    // is folded into it: see QueueEntity.mayHaveReachedServer. The edit
+    // becomes its own row behind it, and the drain orders the two.
     val foldable = sameFeature.filter { row ->
-      (row.syncStatus == "pending" || row.syncStatus == "failed") && ownedBy(row, edit.ownerUserId)
+      (row.syncStatus == "pending" || row.syncStatus == "failed") &&
+        !row.mayHaveReachedServer &&
+        (row.portal == null || row.portal == edit.portal) &&
+        ownedBy(row, edit.ownerUserId)
     }.sortedBy { it.queuedAt }
 
     if (foldable.isEmpty()) {
@@ -86,6 +94,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
         retryCount = null,
         ownerUserId = edit.ownerUserId,
         baseObservationId = edit.baseObservationId,
+        portal = edit.portal,
       )
       db.queue().upsert(row)
       return EnqueueResult.Queued(row)

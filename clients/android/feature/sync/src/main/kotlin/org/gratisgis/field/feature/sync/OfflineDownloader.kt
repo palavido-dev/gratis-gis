@@ -18,6 +18,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
+import org.gratisgis.field.core.database.AccountScope
 import org.gratisgis.field.core.database.CollectionEntity
 import org.gratisgis.field.core.database.FeatureEntity
 import org.gratisgis.field.core.database.FieldDatabase
@@ -43,6 +45,9 @@ data class DownloadProgress(
   val packageBytes: Long = 0,
   val packageTotal: Long? = null,
   val shortfalls: List<String> = emptyList(),
+  /** Labels of the layers whose features were limited to the offline
+   *  areas because the layer is large. */
+  val limitedLayers: List<String> = emptyList(),
 )
 
 /**
@@ -50,8 +55,15 @@ data class DownloadProgress(
  * cache their features and schemas, fetch bound forms, and download
  * every ready basemap package. Mirrors `downloadDeployment` in
  * apps/portal-web/src/lib/offline-download.ts, minus pick lists and
- * attachments for now. Unlike the web download, features are not
- * limited to a bbox: every feature of each layer is cached.
+ * attachments for now. A layer is cached whole, except that a layer
+ * with more than [OfflineDownloadRules.LIMIT_TO_AREAS_ABOVE] features
+ * is pulled only inside the box around the collection's offline areas
+ * (the summary lists those layers).
+ *
+ * The cached copy belongs to the account that downloaded it
+ * ([AccountScope]). Downloading a copy another account (or no
+ * recorded account) left on the device first drops its features and
+ * cursors, so nothing that account could read is carried over.
  *
  * Feature refresh uses `GET .../delta?since=N` when a per-layer
  * `syncVersion` cursor is already stored (portal-web #350 /
@@ -84,27 +96,40 @@ class OfflineDownloader(
    *  shortfall. */
   private suspend fun rethrowIfCancelled() = currentCoroutineContext().ensureActive()
 
-  suspend fun download(collection: ItemSummary, onProgress: (DownloadProgress) -> Unit) {
+  suspend fun download(collection: ItemSummary, scope: AccountScope, onProgress: (DownloadProgress) -> Unit) {
     var progress = DownloadProgress(phase = "resolving")
     fun report(p: DownloadProgress) { progress = p; onProgress(p) }
     val shortfalls = mutableListOf<String>()
     val data = collection.data ?: error("Collection ${collection.id} has no data")
     val mapId = data["mapId"]?.jsonPrimitive?.contentOrNull ?: error("Collection has no mapId")
 
-    // Keep prior syncVersion cursors across the layer wipe+reupsert so
-    // a refresh can delta instead of re-pulling every feature.
-    val priorLayers = db.layers().forCollection(collection.id)
-    val priorCursors = priorLayers.associate { "${it.dataLayerId}:${it.layerKey}" to it.syncVersion }
+    val stored = db.collections().get(collection.id)
+    if (stored != null && !scope.ownsCollection(stored)) {
+      // Another account's copy (or one from before owners were
+      // recorded). Its rows were read with that account's access, so
+      // start from nothing: no features, no cursors to delta from.
+      db.features().deleteForCollection(collection.id)
+      db.layers().deleteForCollection(collection.id)
+    }
+    val own = stored != null && scope.ownsCollection(stored)
+
+    // Keep prior syncVersion cursors (and the box each is good for)
+    // across the layer wipe+reupsert so a refresh can delta instead of
+    // re-pulling every feature.
+    val priorLayers = if (own) db.layers().forCollection(collection.id) else emptyList()
+    val priorByKey = priorLayers.associateBy { "${it.dataLayerId}:${it.layerKey}" }
     // A refresh keeps the previous stamp until this run finishes: the
     // data from the last run is still on the device, and a refresh
     // that fails part way must not make it read as never downloaded.
-    val priorDownloadedAt = db.collections().get(collection.id)?.downloadedAt
+    val priorDownloadedAt = if (own) stored?.downloadedAt else null
+    val envelope = OfflineDownloadRules.offlineAreaEnvelope(data)
+    val featureCounts = HashMap<String, Long>()
 
     // Editable layers.
     val map = portal.getItem(mapId)
-    val layers = resolveLayers(collection, map, priorLayers, shortfalls).map { layer ->
-      val prior = priorCursors["${layer.dataLayerId}:${layer.layerKey}"]
-      if (prior != null) layer.copy(syncVersion = prior) else layer
+    val layers = resolveLayers(collection, map, priorLayers, shortfalls, featureCounts).map { layer ->
+      val prior = priorByKey["${layer.dataLayerId}:${layer.layerKey}"]
+      if (prior?.syncVersion != null) layer.copy(syncVersion = prior.syncVersion, syncBboxJson = prior.syncBboxJson) else layer
     }
     if (shortfalls.isNotEmpty()) report(progress.copy(shortfalls = shortfalls.toList()))
     db.collections().upsert(
@@ -114,6 +139,8 @@ class OfflineDownloader(
         mapId = mapId,
         dataJson = data.toString(),
         downloadedAt = priorDownloadedAt,
+        ownerUserId = scope.userId,
+        portal = scope.portal,
       ),
     )
     db.layers().deleteForCollection(collection.id)
@@ -124,13 +151,23 @@ class OfflineDownloader(
     var featureCount = 0
     var layersPulled = 0
     val layersAfter = layers.toMutableList()
+    val limited = mutableListOf<String>()
     for ((index, layer) in layers.withIndex()) {
       report(progress.copy(detail = layer.label))
       try {
         val cursor = layer.syncVersion
-        val updated = if (cursor != null) {
+        // What a full pull of this layer would fetch now, and what the
+        // cache holds. A delta keeps the box the cache was pulled for;
+        // when that box misses part of what is wanted now (the areas
+        // moved, or the layer is no longer limited), pull in full.
+        val have = OfflineDownloadRules.decodeBox(layer.syncBboxJson)
+        val count = featureCounts["${layer.dataLayerId}:${layer.layerKey}"]
+        // No count this run (its item could not be read) keeps the box
+        // the cache already has, rather than pulling a large layer whole.
+        val want = if (count == null && have != null) have else OfflineDownloadRules.fullPullBox(count, envelope)
+        val updated = if (cursor != null && OfflineDownloadRules.covers(have, want)) {
           try {
-            pullLayerDelta(collection.id, layer, cursor, now)
+            pullLayerDelta(collection.id, layer, cursor, now, have)
           } catch (t: Throwable) {
             // Corrupt / unknown cursor or an older server: fall back
             // to a full GeoJSON once and re-seed (research
@@ -138,15 +175,19 @@ class OfflineDownloader(
             // of those and stays a shortfall.
             rethrowIfCancelled()
             if (OfflineDownloadRules.shouldFallbackToFull(t)) {
-              pullFullAndSeed(collection.id, layer, now)
+              pullFullAndSeed(collection.id, layer, now, want)
             } else {
               throw t
             }
           }
         } else {
-          pullFullAndSeed(collection.id, layer, now)
+          pullFullAndSeed(collection.id, layer, now, want)
         }
         layersAfter[index] = updated.layer
+        if (updated.layer.syncBboxJson != null) {
+          limited += layer.label
+          report(progress.copy(limitedLayers = limited.toList()))
+        }
         db.layers().upsertAll(listOf(updated.layer))
         featureCount += updated.applied
         layersPulled += 1
@@ -228,10 +269,29 @@ class OfflineDownloader(
     // A run in which no layer's features could be fetched has not
     // downloaded anything new, so it keeps the previous stamp (null
     // on a first download) rather than claiming it did.
-    val downloadedAt = if (layers.isNotEmpty() && layersPulled == 0) priorDownloadedAt else now
+    val fetchedAny = layers.isEmpty() || layersPulled > 0
+    val downloadedAt = if (fetchedAny) now else priorDownloadedAt
     db.collections().upsert(
-      CollectionEntity(collection.id, collection.title, mapId, data.toString(), downloadedAt = downloadedAt),
+      CollectionEntity(
+        collection.id,
+        collection.title,
+        mapId,
+        data.toString(),
+        downloadedAt = downloadedAt,
+        ownerUserId = scope.userId,
+        portal = scope.portal,
+      ),
     )
+    // Features of layers the map no longer has cannot be opened from
+    // this collection, so a run that fetched something drops them.
+    // Layers whose item could not be reached this time are still in
+    // `layers` and keep their rows. Basemap packages of removed areas
+    // stay until the collection itself is removed from the device.
+    if (fetchedAny) {
+      for (gone in OfflineDownloadRules.layersToPrune(db.features().cachedLayers(collection.id), layers)) {
+        db.features().deleteForLayer(collection.id, gone.dataLayerId, gone.layerKey)
+      }
+    }
     report(progress.copy(phase = "done", detail = ""))
   }
 
@@ -251,6 +311,7 @@ class OfflineDownloader(
     layer: LayerEntity,
     sinceStart: Long,
     cachedAt: String,
+    bbox: Box?,
   ): LayerPull {
     var since = sinceStart
     var after: String? = null
@@ -263,6 +324,7 @@ class OfflineDownloader(
         since,
         LayerDeltaApply.DELTA_PAGE_LIMIT,
         after,
+        bbox,
       )
       val (upserts, deletes) = LayerDeltaApply.applyDeltaChanges(
         body.changes,
@@ -345,11 +407,16 @@ class OfflineDownloader(
    * stops part way the layer still holds every row it had, some of
    * them newer, and the stored cursor is still the old one, so the
    * next delta brings the rest. The layer is never left empty.
+   *
+   * With a `bbox` only features inside it are pulled, and the sweep
+   * then also removes the rows outside it; the box is stored with the
+   * cursor so later deltas ask for the same box.
    */
   private suspend fun pullFullAndSeed(
     collectionId: String,
     layer: LayerEntity,
     now: String,
+    bbox: Box?,
   ): LayerPull {
     val seeded = seedSyncVersionCursor(layer.dataLayerId, layer.layerKey)
     val stamp = OfflineDownloadRules.fullPullStamp(Instant.now(), now)
@@ -361,6 +428,7 @@ class OfflineDownloader(
       val text = portal.getLayerGeoJson(
         layer.dataLayerId,
         layer.layerKey,
+        bbox = bbox,
         limit = FULL_PAGE_LIMIT,
         cursor = cursor,
         at = at,
@@ -384,7 +452,7 @@ class OfflineDownloader(
       cursor = next
     }
     db.features().deleteStaleForLayer(collectionId, layer.dataLayerId, layer.layerKey, stamp)
-    return LayerPull(layer.copy(syncVersion = seeded), written)
+    return LayerPull(layer.copy(syncVersion = seeded, syncBboxJson = OfflineDownloadRules.encodeBox(bbox)), written)
   }
 
   /**
@@ -430,6 +498,7 @@ class OfflineDownloader(
     map: ItemSummary,
     priorLayers: List<LayerEntity>,
     shortfalls: MutableList<String>,
+    featureCounts: MutableMap<String, Long>,
   ): List<LayerEntity> {
     val mapData = map.data ?: return emptyList()
     val formBindings = collection.data?.get("formBindings") as? JsonObject
@@ -478,6 +547,9 @@ class OfflineDownloader(
       val subId = sub["id"]?.jsonPrimitive?.contentOrNull ?: continue
       if (!seen.add("${item.id}:$subId")) continue
       val fields = sub["fields"] ?: JsonArray(emptyList())
+      // Stamped on the data_layer item by the import worker and the
+      // housekeeping pass; absent on items it has not reached yet.
+      (sub["featureCount"] as? JsonPrimitive)?.longOrNull?.let { featureCounts["${item.id}:$subId"] = it }
       out += LayerEntity(
         collectionId = collection.id,
         dataLayerId = item.id,
