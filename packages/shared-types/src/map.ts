@@ -524,7 +524,26 @@ export type MapFilterOp =
   | '<='
   | 'contains'
   | 'is-null'
-  | 'is-not-null';
+  | 'is-not-null'
+  // Membership in a list of feature ids. Only on the hidden
+  // `_global_id` of a current-format data layer, with the ids comma
+  // separated in `value` (see FILTER_IN_FIELD). Written by the
+  // attribute table's "Use as filter" so the filter matches exactly
+  // the selected features.
+  | 'in';
+
+/** The one field the `in` operator may name. */
+export const FILTER_IN_FIELD = '_global_id';
+/** Most ids one `in` clause may list; the server refuses more. */
+export const FILTER_IN_MAX_VALUES = 1000;
+
+/** The ids an `in` clause lists, blanks dropped. */
+export function filterInValues(value: string): string[] {
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
 
 /**
  * A single where-clause. Stays string-typed so the editor stores a

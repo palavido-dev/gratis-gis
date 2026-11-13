@@ -1223,6 +1223,7 @@ export const de: Partial<CatalogShape> = {
     noIconsMatch: 'Keine Symbole passen.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Nur die {count} in der Attributtabelle gewählten Features',
     clauses: 'Klauseln',
     noFilter: 'Kein Filter',
     matchAll: 'ALLE erfüllen',

@@ -1221,6 +1221,7 @@ export const ptBR: Partial<CatalogShape> = {
     noIconsMatch: 'Nenhum ícone corresponde.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Somente as {count} feições escolhidas na tabela de atributos',
     clauses: 'Cláusulas',
     noFilter: 'Sem filtro',
     matchAll: 'corresponder a TODAS',

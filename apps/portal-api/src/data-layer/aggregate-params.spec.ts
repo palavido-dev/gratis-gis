@@ -8,6 +8,7 @@ import {
   parseWhere,
   rejectUnknownAggregateParams,
   whereClauses,
+  whereFieldNames,
 } from './aggregate-params.js';
 
 /**
@@ -119,6 +120,28 @@ describe('parseAggregateQuery', () => {
  * that stops a filtered dashboard from showing an unfiltered number.
  */
 describe('parseWhere', () => {
+  // Review 37-4: "Use as filter" sends one id list on _global_id.
+  it('accepts an id list on _global_id only, as uuids', () => {
+    const a = '11111111-1111-4111-8111-111111111111';
+    const b = '22222222-2222-4222-8222-222222222222';
+    const ok = parseWhere(
+      JSON.stringify({ clauses: [{ field: '_global_id', op: 'in', value: `${a},${b}` }] }),
+    );
+    expect(ok?.clauses[0]).toEqual({ field: '_global_id', op: 'in', value: `${a},${b}` });
+    // The id is not a schema field, so the field checks skip it.
+    expect(whereFieldNames(ok)).toEqual([]);
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: 'city', op: 'in', value: a }] })),
+    ).toThrow(/only to _global_id/);
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: '_global_id', op: 'in', value: "x'); drop" }] })),
+    ).toThrow(/feature ids/);
+    const many = Array.from({ length: 1001 }, () => a).join(',');
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: '_global_id', op: 'in', value: many }] })),
+    ).toThrow(/1 to 1000/);
+  });
+
   // Review 64-1: a cross-filter selection rides beside the author's
   // filter in `and`, one level deep.
   it('parses a selection carried in and, one level deep', () => {

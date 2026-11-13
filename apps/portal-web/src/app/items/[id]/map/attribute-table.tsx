@@ -33,6 +33,7 @@ import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import {
+  buildIdSelectionFilter,
   buildSelectionFilter,
   MAX_SELECTION_FILTER_CLAUSES,
 } from '@/lib/selection-filter';
@@ -51,7 +52,11 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { andFilters, matchesFilter } from '@gratis-gis/shared-types';
+import {
+  andFilters,
+  FILTER_IN_MAX_VALUES,
+  matchesFilter,
+} from '@gratis-gis/shared-types';
 import type {
   FeatureField,
   MapLayer,
@@ -1279,6 +1284,20 @@ export function AttributeTable({
 
   function selectionToFilter() {
     if (!activeLayer || activeSelection.size === 0) return;
+    // A v3 layer keys rows by `_global_id`, so the selection names
+    // the features themselves: one `in` clause on that id matches
+    // exactly them, including rows not on the loaded page.
+    const byId = buildIdSelectionFilter(activeSelection);
+    if (byId) {
+      if (!byId.ok) {
+        toast.error(
+          t('mapAttributeTable.useAsFilterTooMany', { max: FILTER_IN_MAX_VALUES }),
+        );
+        return;
+      }
+      onPatchLayer(activeLayer.id, { filter: byId.filter });
+      return;
+    }
     // #318: selection keys are heterogeneous (UUID for v3 promoteId,
     // numeric idx otherwise). Resolve to numeric indexes here; keys
     // that are not on the loaded page resolve to -1 and are counted

@@ -35,6 +35,7 @@
  *     layer that stored it as a string.
  */
 import type { MapLayerFilter, ScopedLayerFilter } from './map';
+import { filterInValues } from './map';
 
 /** Text form of an attribute, matching Postgres `attrs->>field`. */
 function textOf(v: unknown): string | null {
@@ -85,6 +86,8 @@ function matchesClause(
       return text === null;
     case 'is-not-null':
       return text !== null;
+    case 'in':
+      return text !== null && filterInValues(clause.value).includes(text);
     default:
       // An operator this build does not know must not silently drop
       // rows: a clause nobody can evaluate is left out.

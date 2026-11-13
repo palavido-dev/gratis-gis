@@ -43,6 +43,22 @@ describe('map layer expressions', () => {
     expect((out[3] as unknown[]).length).toBe(2);
   });
 
+  it('turns an id list into a MapLibre in expression', () => {
+    const geom = ['==', ['geometry-type'], 'Point'];
+    const out = combineFilter(geom, {
+      combinator: 'all',
+      clauses: [{ field: '_global_id', op: 'in', value: 'a,b' }],
+    }) as unknown as unknown[];
+    expect(out[2]).toEqual([
+      'all',
+      [
+        'all',
+        ['!=', ['get', '_global_id'], null],
+        ['in', ['to-string', ['get', '_global_id']], ['literal', ['a', 'b']]],
+      ],
+    ]);
+  });
+
   it('builds time bins as a case chain, never a string step', () => {
     const expr = timeBinsColorExpression({
       kind: 'time-bins',

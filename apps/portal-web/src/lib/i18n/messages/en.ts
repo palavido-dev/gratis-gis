@@ -1271,6 +1271,7 @@ export const en = {
     noIconsMatch: 'No icons match.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Only the {count} features picked in the attribute table',
     /** Filter tab controls (#162). */
     clauses: 'Clauses',
     noFilter: 'No filter',

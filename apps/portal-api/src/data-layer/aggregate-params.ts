@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
-import type {
-  MapFilterOp,
-  ScopedLayerFilter,
-  MapLayerFilterClause,
+import {
+  FILTER_IN_FIELD,
+  FILTER_IN_MAX_VALUES,
+  filterInValues,
+  type MapFilterOp,
+  type ScopedLayerFilter,
+  type MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
 
 /**
@@ -282,7 +285,11 @@ const FILTER_OPS = new Set<MapFilterOp>([
   'contains',
   'is-null',
   'is-not-null',
+  'in',
 ]);
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * A cap on clause count. Each clause is a separate JSONB extraction
@@ -389,6 +396,27 @@ function whereFromObject(
         `${path}.clauses[${i}].value must be a string for "${op}".`,
       );
     }
+    // `in` lists feature ids ("Use as filter" in the attribute table)
+    // and only on the hidden `_global_id`: the engine compiles it to
+    // a match on the row's entity id, never to an attribute lookup.
+    if (op === 'in') {
+      if (field !== FILTER_IN_FIELD) {
+        throw new BadRequestException(
+          `${path}.clauses[${i}]: "in" applies only to ${FILTER_IN_FIELD}.`,
+        );
+      }
+      const ids = filterInValues(value as string);
+      if (ids.length === 0 || ids.length > FILTER_IN_MAX_VALUES) {
+        throw new BadRequestException(
+          `${path}.clauses[${i}].value must list 1 to ${FILTER_IN_MAX_VALUES} feature ids.`,
+        );
+      }
+      if (!ids.every((id) => UUID_RE.test(id))) {
+        throw new BadRequestException(
+          `${path}.clauses[${i}].value must be feature ids separated by commas.`,
+        );
+      }
+    }
     // A comparison operator needs a number to compare against.
     // Postgres would accept the string "abc" as the float NaN and
     // then sort it above everything, so "> abc" would quietly match
@@ -426,6 +454,20 @@ export function whereClauses(
 ): MapLayerFilterClause[] {
   if (!where) return [];
   return [...where.clauses, ...(where.and?.clauses ?? [])];
+}
+
+/**
+ * The layer field names a parsed filter reads, for the "is this a
+ * field on the layer" checks. An `in` clause names the hidden
+ * `_global_id`, which is the row's id rather than a schema field, so
+ * it is left out (parseWhere already pinned it to that one name).
+ */
+export function whereFieldNames(
+  where: ScopedLayerFilter | null | undefined,
+): string[] {
+  return whereClauses(where)
+    .filter((c) => !(c.op === 'in' && c.field === FILTER_IN_FIELD))
+    .map((c) => c.field);
 }
 
 /**

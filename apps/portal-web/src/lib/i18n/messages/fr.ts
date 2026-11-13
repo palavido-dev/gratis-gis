@@ -1223,6 +1223,7 @@ export const fr: Partial<CatalogShape> = {
     noIconsMatch: 'Aucune icône ne correspond.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Seulement les {count} entités choisies dans la table attributaire',
     clauses: 'Clauses',
     noFilter: 'Aucun filtre',
     matchAll: 'correspondre à TOUTES',

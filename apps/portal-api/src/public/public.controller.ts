@@ -27,7 +27,7 @@ import {
   parseAggregateQuery,
   parseVia,
   parseWhere,
-  whereClauses,
+  whereFieldNames,
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
@@ -695,7 +695,7 @@ export class PublicController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
-      ...whereClauses(parsed.where).map((c) => c.field),
+      ...whereFieldNames(parsed.where),
       ...(parsed.via ? [parsed.via.myField] : []),
       ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
@@ -820,7 +820,7 @@ export class PublicController {
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
     for (const name of [
-      ...whereClauses(parsedWhere).map((c) => c.field),
+      ...whereFieldNames(parsedWhere),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -924,7 +924,7 @@ export class PublicController {
     } = {};
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
-    for (const name of whereClauses(parsedWhere).map((c) => c.field)) {
+    for (const name of whereFieldNames(parsedWhere)) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
           `"${name}" is not a field on this layer.`,
@@ -1000,7 +1000,7 @@ export class PublicController {
     const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
     for (const name of [
       parsed.parentField,
-      ...whereClauses(parsed.parentWhere).map((c) => c.field),
+      ...whereFieldNames(parsed.parentWhere),
     ]) {
       if (!parentAllowed.has(name)) {
         throw new BadRequestException(
@@ -1128,10 +1128,10 @@ export class PublicController {
     const where = parseWhere(whereRaw);
     if (where) {
       const allowed = new Set(layer.fields.map((f) => f.name));
-      for (const c of whereClauses(where)) {
-        if (!allowed.has(c.field)) {
+      for (const name of whereFieldNames(where)) {
+        if (!allowed.has(name)) {
           throw new BadRequestException(
-            `"${c.field}" is not a field on this layer.`,
+            `"${name}" is not a field on this layer.`,
           );
         }
       }

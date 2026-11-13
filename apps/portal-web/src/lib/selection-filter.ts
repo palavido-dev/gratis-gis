@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { MapLayerFilter } from '@gratis-gis/shared-types';
+import {
+  FILTER_IN_FIELD,
+  FILTER_IN_MAX_VALUES,
+  type MapLayerFilter,
+} from '@gratis-gis/shared-types';
 
 /** The server refuses a `where` with more clauses than this. */
 export const MAX_SELECTION_FILTER_CLAUSES = 20;
@@ -16,6 +20,35 @@ export type SelectionFilterResult =
        */
       reason: 'not-loaded' | 'too-many' | 'no-id-field';
     };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The exact filter for a current-format (v3) data layer: its rows are
+ * keyed by the hidden `_global_id`, so the selection keys ARE the ids
+ * and one `in` clause names exactly those features, loaded or not.
+ * Null when the keys are not all feature ids (other layer kinds key
+ * rows by position), so the caller falls back to an id field.
+ */
+export function buildIdSelectionFilter(
+  keys: Iterable<string | number>,
+): SelectionFilterResult | null {
+  const ids: string[] = [];
+  for (const k of keys) {
+    if (typeof k !== 'string' || !UUID_RE.test(k)) return null;
+    ids.push(k);
+  }
+  if (ids.length === 0) return null;
+  if (ids.length > FILTER_IN_MAX_VALUES) return { ok: false, reason: 'too-many' };
+  return {
+    ok: true,
+    filter: {
+      combinator: 'all',
+      clauses: [{ field: FILTER_IN_FIELD, op: 'in', value: ids.join(',') }],
+    },
+  };
+}
 
 /**
  * Turn the table's selection into a layer filter that matches exactly

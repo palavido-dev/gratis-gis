@@ -1224,6 +1224,7 @@ export const es: Partial<CatalogShape> = {
     noIconsMatch: 'Ningún icono coincide.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Solo las {count} entidades elegidas en la tabla de atributos',
     clauses: 'Cláusulas',
     noFilter: 'Sin filtro',
     matchAll: 'coincidir TODAS',

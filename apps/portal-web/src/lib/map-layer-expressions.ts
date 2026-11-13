@@ -9,6 +9,7 @@
  * takes numbers, so those layers vanished from the PDF.
  */
 import type * as maplibregl from 'maplibre-gl';
+import { filterInValues } from '@gratis-gis/shared-types';
 import type {
   ScopedLayerFilter,
   MapLayerFilterClause,
@@ -51,6 +52,17 @@ export function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
       return ['==', prop, null];
     case 'is-not-null':
       return ['!=', prop, null];
+    case 'in': {
+      // A list of feature ids ("Use as filter" in the attribute
+      // table). Every v3 tile carries `_global_id` as a property.
+      const ids = filterInValues(clause.value);
+      if (ids.length === 0) return null;
+      return [
+        'all',
+        ['!=', prop, null],
+        ['in', ['to-string', prop], ['literal', ids]],
+      ];
+    }
   }
 }
 
