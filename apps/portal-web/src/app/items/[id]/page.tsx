@@ -1457,6 +1457,7 @@ export default async function ItemDetailPage(props: Props) {
                 : { version: 1, kind: 'tile-url' }) as BasemapData
             }
             canEdit={itemCanEdit}
+            canProbe={me.orgRole === 'admin' && me.orgId === item.orgId}
           />
         </section>
       ) : item.type === 'app_template' ? (

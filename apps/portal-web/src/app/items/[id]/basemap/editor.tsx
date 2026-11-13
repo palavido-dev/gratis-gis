@@ -40,9 +40,11 @@ interface Props {
   itemId: string;
   initial: BasemapData;
   canEdit: boolean;
+  /** Org admin: the Probe tab calls an admin-only route. */
+  canProbe?: boolean;
 }
 
-export function BasemapEditor({ itemId, initial, canEdit }: Props) {
+export function BasemapEditor({ itemId, initial, canEdit, canProbe = false }: Props) {
   const t = useT();
   const router = useRouter();
   const [draft, setDraft] = useState<BasemapData>(initial);
@@ -131,7 +133,7 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
 
       <div className={canEdit ? '' : 'pointer-events-none opacity-70'}>
         <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <BasemapConfigSection value={draft} onChange={setDraft} />
+          <BasemapConfigSection value={draft} onChange={setDraft} canProbe={canProbe} />
           <div className="flex min-w-0 flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
               {t('basemapEditor.preview')}
