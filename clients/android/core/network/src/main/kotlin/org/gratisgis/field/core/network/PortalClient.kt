@@ -121,6 +121,10 @@ class PortalClient(
     at: String? = null,
   ): String =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/geojson") {
+      // A large page on a slow link can take longer than the client's
+      // 60 s whole-request limit; the socket timeout still catches a
+      // stalled transfer.
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
       if (bbox != null) parameter("bbox", bbox.joinToString(","))
       if (limit != null) parameter("limit", limit)
       if (cursor != null) parameter("cursor", cursor)

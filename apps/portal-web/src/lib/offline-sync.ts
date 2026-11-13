@@ -280,21 +280,28 @@ export async function syncQueue(
     // The ownership re-check inside the claim is belt and braces: the
     // row came from an owner-filtered list, but the claim re-reads it,
     // and a row is only ever sent under the account that owns it.
-    const claimed = await claimQueueRow(
-      dataCollectionId,
-      record.id,
-      (row) =>
+    //
+    // From here on only the re-read row is used. `record` is the copy
+    // listed before the loop started, and an edit saved since then may
+    // have been folded into this row. Sending or writing back `record`
+    // would send the old values and drop the newer edit.
+    const seen: { preClaim?: QueueRecord } = {};
+    const claimed = await claimQueueRow(dataCollectionId, record.id, (row) => {
+      const ok =
         isQueueRowOwnedBy(row, currentUserId) &&
-        isQueueRowClaimable(row, Date.now(), claimOpts),
-    );
-    if (!claimed) continue; // another drain took it
+        isQueueRowClaimable(row, Date.now(), claimOpts);
+      if (ok) seen.preClaim = row;
+      return ok;
+    });
+    if (!claimed || !seen.preClaim) continue; // another drain took it
+    const before = seen.preClaim;
     try {
-      await replayRecord(record, currentUserId);
+      await replayRecord(claimed, currentUserId);
       // Synced: drop from the queue. There's no archive; once it's on
       // the server the queue row's job is done. (The server-side
       // queue manifest mirror in Tier 4 of the resilience design is
       // a separate beacon, not a reconciliation log.)
-      await deleteQueueRecord(record.dataCollectionId, record.id);
+      await deleteQueueRecord(claimed.dataCollectionId, claimed.id);
       result.synced += 1;
     } catch (err) {
       const reason =
@@ -308,16 +315,19 @@ export async function syncQueue(
         // can see is queued. Restore the pre-claim status and leave
         // the attempt bookkeeping alone.
         await updateQueueRecord({
-          ...record,
-          syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+          ...before,
+          // Form attachments that did upload are kept (see
+          // uploadPendingInProperties); everything else as it was.
+          properties: claimed.properties,
+          syncStatus: before.syncStatus === 'failed' ? 'failed' : 'pending',
           // The request may have landed with only the answer lost.
           mayHaveReachedServer: true,
         });
         result.failed += 1;
         result.errors.push({
-          recordId: record.id,
-          op: record.op,
-          layerLabel: record.layerKey,
+          recordId: claimed.id,
+          op: claimed.op,
+          layerLabel: claimed.layerKey,
           reason,
           terminal: false,
         });
@@ -327,11 +337,11 @@ export async function syncQueue(
       }
       const terminal = err instanceof ReplayRejected;
       await updateQueueRecord({
-        ...record,
+        ...claimed,
         syncStatus: terminal ? 'rejected' : 'failed',
         mayHaveReachedServer: true,
         failure: reason,
-        retryCount: (record.retryCount ?? 0) + 1,
+        retryCount: (claimed.retryCount ?? 0) + 1,
         // Stamped so the backoff has something to measure from. The
         // claim already wrote one; re-stamping here keeps the wait
         // anchored to when the attempt finished rather than started.
@@ -340,9 +350,9 @@ export async function syncQueue(
       if (terminal) result.rejected += 1;
       else result.failed += 1;
       result.errors.push({
-        recordId: record.id,
-        op: record.op,
-        layerLabel: record.layerKey,
+        recordId: claimed.id,
+        op: claimed.op,
+        layerLabel: claimed.layerKey,
         reason,
         terminal,
       });
@@ -448,18 +458,25 @@ export async function discardRejected(record: QueueRecord): Promise<void> {
  * The record's properties with any form attachment still pending
  * (a photo or signature answer saved as `{ dataUrl }` while offline)
  * uploaded to storage and swapped for its `{ url, key }` descriptor,
- * so the row stores descriptors, not base64. Works on a copy: the
- * queue row keeps its pending shape until the write succeeds, so a
- * failed replay retries the upload. A network failure here is the
- * radio, not the row (ReplayUnreachable), like replayFetch.
+ * so the row stores descriptors, not base64. A network failure here is
+ * the radio, not the row (ReplayUnreachable), like replayFetch.
+ *
+ * Every upload that lands is written back to the queue row at once,
+ * before the feature write and even when a later upload fails. The row
+ * used to keep its pending shape until the write succeeded, so each
+ * failed attempt uploaded the same bytes again under a new key, and a
+ * retried update no longer matched what had landed, so the server's
+ * echo of this device's own write read as a conflict.
  */
 async function uploadPendingInProperties(
-  properties: Record<string, unknown> | null,
+  r: QueueRecord,
 ): Promise<Record<string, unknown>> {
-  const copy = structuredClone(properties ?? {});
+  const before = JSON.stringify(r.properties ?? {});
+  const copy = structuredClone(r.properties ?? {});
   try {
     await uploadPendingAttachmentsInResponse(copy);
   } catch (err) {
+    await keepUploadedAttachments(r, copy, before);
     if (err instanceof TypeError) {
       throw new ReplayUnreachable(
         err.message
@@ -469,7 +486,21 @@ async function uploadPendingInProperties(
     }
     throw err;
   }
+  await keepUploadedAttachments(r, copy, before);
   return copy;
+}
+
+/** Store the uploaded descriptors on the claimed row (and on `r`, so
+ *  the drain's own write-back after a failure carries them too). The
+ *  row is claimed while this runs, so no edit can be folded into it. */
+async function keepUploadedAttachments(
+  r: QueueRecord,
+  properties: Record<string, unknown>,
+  before: string,
+): Promise<void> {
+  if (JSON.stringify(properties) === before) return;
+  r.properties = structuredClone(properties);
+  await updateQueueRecord(r);
 }
 
 async function replayRecord(
@@ -480,11 +511,18 @@ async function replayRecord(
     r.layerKey,
   )}/features`;
   if (r.op === 'insert') {
-    const properties = await uploadPendingInProperties(r.properties);
+    const properties = await uploadPendingInProperties(r);
     // POST has no checkOnly on the API; creates go straight through.
     const res = await replayFetch(layerPath, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // Same header the online add sends. It is what tells the API to
+      // notify the deployment owner that a feature landed; without it
+      // offline captures were never announced. The API only notifies
+      // for rows it actually wrote, so a retried POST does not repeat.
+      headers: {
+        'content-type': 'application/json',
+        'x-data-collection-id': r.dataCollectionId,
+      },
       body: JSON.stringify({
         features: [
           {
@@ -501,7 +539,7 @@ async function replayRecord(
     return;
   }
   if (r.op === 'update') {
-    const properties = await uploadPendingInProperties(r.properties);
+    const properties = await uploadPendingInProperties(r);
     const patchBody: Record<string, unknown> = {
       properties,
       ...(r.geometry !== null ? { geometry: r.geometry } : {}),

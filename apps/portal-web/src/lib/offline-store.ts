@@ -155,6 +155,19 @@ export interface CachedLayerSchema {
    * a full pull once, then start tracking.
    */
   syncVersion?: number;
+  /**
+   * The area `syncVersion` is good for: [west, south, east, north],
+   * or null for the whole layer. The delta endpoint has no area
+   * filter, so a cursor only says "every feature inside this area is
+   * cached as of version N". A refresh for an area outside it has to
+   * pull those features in full first. Absent on caches written
+   * before this field; those fall back to the manifest's `bbox`.
+   */
+  syncBbox?: [number, number, number, number] | null;
+  /** Approximate bytes of this layer's cached features, carried from
+   *  run to run so an incremental refresh does not report only the
+   *  size of the changes it fetched. */
+  bytes?: number;
 }
 
 /** Top-level manifest entry for one cached deployment. */
@@ -694,6 +707,37 @@ export async function purgeCachedReadData(): Promise<void> {
   await clearStore(STORES.features);
   await clearStore(STORES.forms);
   await clearStore(STORES.pickLists);
+  await forgetFeatureCursors();
+}
+
+/**
+ * Drop every manifest's per-layer sync cursor, in step with emptying
+ * the features store. A cursor means "the features store already holds
+ * this layer as of version N"; left behind after a purge, the next
+ * refresh fetched only the changes since N and reported a nearly
+ * empty cache as ready. Without a cursor that refresh does a full pull.
+ */
+async function forgetFeatureCursors(): Promise<void> {
+  await withStore(STORES.deployments, 'readwrite', async (s) => {
+    const rows =
+      ((await reqAsPromise(s.getAll())) as CachedDeployment[] | undefined) ?? [];
+    for (const row of rows) {
+      const layerSchemas: Record<string, CachedLayerSchema> = {};
+      for (const [key, schema] of Object.entries(row.layerSchemas ?? {})) {
+        const {
+          syncVersion: _cursor,
+          syncBbox: _area,
+          bytes: _bytes,
+          ...rest
+        } = schema;
+        void _cursor;
+        void _area;
+        void _bytes;
+        layerSchemas[key] = rest;
+      }
+      s.put({ ...row, layerSchemas });
+    }
+  });
 }
 
 /** Empty one store, tolerating a database that does not exist yet. */

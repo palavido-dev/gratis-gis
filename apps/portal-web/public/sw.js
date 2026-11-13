@@ -937,9 +937,14 @@ async function replayFeatureRecord(r, db) {
   let res;
   if (r.op === 'insert') {
     // POST has no checkOnly on the API; creates go straight through.
+    // The data collection header mirrors offline-sync.ts: it lets the
+    // API notify the deployment owner, as the online add does.
     res = await fetch(layerPath, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-data-collection-id': r.dataCollectionId,
+      },
       body: JSON.stringify({
         features: [
           {
@@ -1183,8 +1188,19 @@ async function drainFeatureQueue() {
     for (const record of todo) {
       const key = [record.dataCollectionId, record.id];
       let claimed = null;
+      // The row as the claim re-read it, before the claim changed it.
+      // `record` is the copy listed before the loop, and an edit saved
+      // since then may have been folded into the row. Everything below
+      // uses the re-read row so that newer edit is the one sent and the
+      // one written back. Mirrors syncQueue in offline-sync.ts.
+      let preClaim = null;
+      const claimThis = (r) => {
+        const ok = canClaim(r);
+        if (ok) preClaim = r;
+        return ok;
+      };
       try {
-        claimed = await claimRow(db, OFFLINE_QUEUE_STORE, key, canClaim, {
+        claimed = await claimRow(db, OFFLINE_QUEUE_STORE, key, claimThis, {
           syncStatus: 'syncing',
           lastAttemptAt: new Date().toISOString(),
           // Mirrors claimQueueRow: the request may reach the server
@@ -1195,9 +1211,16 @@ async function drainFeatureQueue() {
         retry = true;
         continue;
       }
-      if (!claimed) continue; // another drain took it
+      if (!claimed || !preClaim) continue; // another drain took it
+      if (responseHasPendingAttachment(claimed.properties)) {
+        // The folded edit added a form photo or signature that is not
+        // uploaded yet. That is the page's job (see the filter above),
+        // so hand the row back untouched.
+        await idbPut(db, OFFLINE_QUEUE_STORE, preClaim).catch(() => {});
+        continue;
+      }
       try {
-        const outcome = await replayFeatureRecord(record, db);
+        const outcome = await replayFeatureRecord(claimed, db);
         if (outcome === 'done') {
           await idbDelete(db, OFFLINE_QUEUE_STORE, key);
         } else {
@@ -1207,13 +1230,13 @@ async function drainFeatureQueue() {
             Object.assign({}, claimed, {
               syncStatus: outcome.terminal ? 'rejected' : 'failed',
               failure: outcome.reason,
-              retryCount: (record.retryCount || 0) + 1,
+              retryCount: (claimed.retryCount || 0) + 1,
             }),
           );
         }
       } catch {
         // fetch itself threw: still offline / flaky. That is not the
-        // row's fault, so restore the PRE-CLAIM row (`record`, not
+        // row's fault, so restore the PRE-CLAIM row (`preClaim`, not
         // `claimed`): the claim stamped a fresh lastAttemptAt, and
         // writing that back would charge the outage to the backoff
         // ladder and make a worker who has just walked back into
@@ -1223,8 +1246,8 @@ async function drainFeatureQueue() {
         await idbPut(
           db,
           OFFLINE_QUEUE_STORE,
-          Object.assign({}, record, {
-            syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+          Object.assign({}, preClaim, {
+            syncStatus: preClaim.syncStatus === 'failed' ? 'failed' : 'pending',
             mayHaveReachedServer: true,
           }),
         ).catch(() => {});

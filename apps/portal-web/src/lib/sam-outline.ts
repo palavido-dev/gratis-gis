@@ -247,7 +247,7 @@ function traceComponent(
   h: number,
   seedX: number,
   seedY: number,
-): Array<[number, number]> | null {
+): { ring: Array<[number, number]>; comp: Uint8Array } | null {
   const idx = (x: number, y: number) => y * w + x;
   if (!mask[idx(seedX, seedY)]) return null;
 
@@ -331,7 +331,42 @@ function traceComponent(
     if (!found) break; // single-pixel component
     if (cx === sx && cy === sy && ring.length > 2) break;
   }
-  return ring.length >= 3 ? ring : null;
+  return ring.length >= 3 ? { ring, comp } : null;
+}
+
+/**
+ * Runaway-mask guard. Clicking open ground (a field, a lake, a parking
+ * lot) makes SAM segment the whole homogeneous region, which comes
+ * back as a mask that fills most of the view. That is technically
+ * correct SAM but never what the user wanted, so reject a component
+ * that spans nearly the whole window or covers most of its pixels.
+ *
+ * Measured on the clicked component only. Measuring the whole mask
+ * rejected a small building whenever SAM also returned a few stray
+ * specks near opposite corners of the window.
+ */
+export function looksLikeOpenGround(comp: Uint8Array, w: number, h: number): boolean {
+  let minX = w;
+  let minY = h;
+  let maxX = 0;
+  let maxY = 0;
+  let onCount = 0;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (comp[y * w + x]) {
+        onCount += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (onCount === 0) return false;
+  const spanX = (maxX - minX + 1) / w;
+  const spanY = (maxY - minY + 1) / h;
+  const areaFrac = onCount / (w * h);
+  return (spanX >= 0.92 && spanY >= 0.92) || areaFrac >= 0.8;
 }
 
 /** Douglas-Peucker in pixel space. */
@@ -479,32 +514,7 @@ export async function outlineAt(
     );
   }
 
-  // Runaway-mask guard. Clicking open ground (a field, a lake, a
-  // parking lot) makes SAM segment the whole homogeneous region,
-  // which comes back as a mask that fills most of the view. That is
-  // technically-correct SAM but never what the user wanted, so
-  // reject anything that spans nearly the whole window or covers
-  // most of its pixels, and tell them to click a distinct object.
-  let minX = w;
-  let minY = h;
-  let maxX = 0;
-  let maxY = 0;
-  let onCount = 0;
-  for (let y = 0; y < h; y += 1) {
-    for (let x = 0; x < w; x += 1) {
-      if (binary[y * w + x]) {
-        onCount += 1;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  const spanX = (maxX - minX + 1) / w;
-  const spanY = (maxY - minY + 1) / h;
-  const areaFrac = onCount / (w * h);
-  if ((spanX >= 0.92 && spanY >= 0.92) || areaFrac >= 0.8) {
+  if (looksLikeOpenGround(traced.comp, w, h)) {
     throw new Error(
       'That looks like open ground, not a distinct feature. Zoom in and click the middle of a building, pond, or other object.',
     );
@@ -513,7 +523,7 @@ export async function outlineAt(
   // Tolerance grows with squareness so a squared result also sheds
   // the little jogs a purely orthogonal shape shouldn't have.
   const eps = 1.5 + squareness * 2.5;
-  const simplified = simplify(traced, eps);
+  const simplified = simplify(traced.ring, eps);
   if (simplified.length < 3) {
     throw new Error('The outline came out too small to keep.');
   }

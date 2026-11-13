@@ -555,7 +555,6 @@ function LayerCard({
               />
               <Paperclip className="h-3.5 w-3.5 text-muted" />
               {t('layerBuilder.allowAttachments')}
-              <span className="text-2xs text-muted">{t('layerBuilder.attachmentsSoon')}</span>
             </label>
             {/* Layer-level row policy (#41). 'all-rows' (default)
                 lets every editor see / edit every row. 'own-rows-only'

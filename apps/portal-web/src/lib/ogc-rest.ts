@@ -165,16 +165,22 @@ async function fetchXml(url: string, signal?: AbortSignal): Promise<Document> {
   return doc;
 }
 
-function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
+export function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   // WMS 1.3.0 root element is <WMS_Capabilities>; 1.1.1 root is
   // <WMT_MS_Capabilities>. Use either to pick the version, then parse
   // layer entries (also recursive, since WMS allows nested groups).
   const root = doc.documentElement;
+  // Any well-formed XML with a 200 used to count, so an exception
+  // report, or a WFS answering the WMS request, came back as "WMS with
+  // no layers" and could win the auto-probe.
+  if (root.localName !== 'WMS_Capabilities' && root.localName !== 'WMT_MS_Capabilities') {
+    throw new Error(`Not WMS capabilities (root element ${root.localName}).`);
+  }
   const versionAttr = root.getAttribute('version') ?? '1.3.0';
   const protocolVersion: '1.1.1' | '1.3.0' = versionAttr.startsWith('1.1')
     ? '1.1.1'
     : '1.3.0';
-  const title = textOf(root.querySelector('Service > Title'));
+  const title = textOf(directChild(directChild(root, 'Service'), 'Title'));
   const layers: OgcLayerSnapshot[] = [];
   const allBboxes: Array<[number, number, number, number]> = [];
 
@@ -184,7 +190,7 @@ function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   // layers that have a Name (Name-less layers are presentational
   // groups in WMS, not addressable in GetMap).
   function walk(el: Element) {
-    const tag = el.tagName.toLowerCase();
+    const tag = (el.localName ?? el.tagName).toLowerCase();
     if (tag !== 'layer') {
       for (const child of Array.from(el.children)) walk(child);
       return;
@@ -216,15 +222,21 @@ function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   return out;
 }
 
-function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
+export function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
   const root = doc.documentElement;
+  if (root.localName !== 'WFS_Capabilities') {
+    throw new Error(`Not WFS capabilities (root element ${root.localName}).`);
+  }
   const versionAttr = root.getAttribute('version') ?? '2.0.0';
   const protocolVersion: '1.1.0' | '2.0.0' = versionAttr.startsWith('1.1')
     ? '1.1.0'
     : '2.0.0';
+  // Matched by local name throughout: servers write these with or
+  // without a prefix (`wfs:FeatureType`, `ows:Title`), and
+  // getElementsByTagName only matches the qualified name.
   const title = textOf(
-    root.querySelector('ServiceIdentification > Title') ??
-      root.querySelector('Service > Title'),
+    directChild(directChild(root, 'ServiceIdentification'), 'Title') ??
+      directChild(directChild(root, 'Service'), 'Title'),
   );
 
   const layers: OgcLayerSnapshot[] = [];
@@ -235,7 +247,7 @@ function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
   // Name (NamespaceURI:LocalPart or just LocalPart), Title, and a
   // WGS84 bbox via WGS84BoundingBox (2.0.0) or LatLongBoundingBox
   // (1.1.0).
-  const featureTypes = doc.getElementsByTagName('FeatureType');
+  const featureTypes = byLocalName(doc, 'FeatureType');
   for (const ft of Array.from(featureTypes)) {
     const name = textOf(directChild(ft, 'Name'));
     const ftTitle = textOf(directChild(ft, 'Title'));
@@ -271,10 +283,10 @@ function parseWmsBbox(
   if (version === '1.3.0') {
     const ex = directChild(el, 'EX_GeographicBoundingBox');
     if (ex) {
-      const w = numberFrom(ex.getElementsByTagName('westBoundLongitude')[0]);
-      const e = numberFrom(ex.getElementsByTagName('eastBoundLongitude')[0]);
-      const s = numberFrom(ex.getElementsByTagName('southBoundLatitude')[0]);
-      const n = numberFrom(ex.getElementsByTagName('northBoundLatitude')[0]);
+      const w = numberFrom(byLocalName(ex, 'westBoundLongitude')[0]);
+      const e = numberFrom(byLocalName(ex, 'eastBoundLongitude')[0]);
+      const s = numberFrom(byLocalName(ex, 'southBoundLatitude')[0]);
+      const n = numberFrom(byLocalName(ex, 'northBoundLatitude')[0]);
       if ([w, e, s, n].every((v) => Number.isFinite(v))) {
         return [w, s, e, n];
       }
@@ -299,19 +311,17 @@ function parseWmsBbox(
 function parseWfsBbox(
   ft: Element,
 ): [number, number, number, number] | undefined {
-  const bbox =
-    ft.getElementsByTagName('WGS84BoundingBox')[0] ??
-    ft.getElementsByTagName('ows:WGS84BoundingBox')[0];
+  const bbox = byLocalName(ft, 'WGS84BoundingBox')[0];
   if (bbox) {
-    const lower = bbox.getElementsByTagName('LowerCorner')[0]?.textContent ?? '';
-    const upper = bbox.getElementsByTagName('UpperCorner')[0]?.textContent ?? '';
+    const lower = byLocalName(bbox, 'LowerCorner')[0]?.textContent ?? '';
+    const upper = byLocalName(bbox, 'UpperCorner')[0]?.textContent ?? '';
     const lo = lower.trim().split(/\s+/).map(Number);
     const up = upper.trim().split(/\s+/).map(Number);
     if (lo.length === 2 && up.length === 2 && [...lo, ...up].every(Number.isFinite)) {
       return [lo[0]!, lo[1]!, up[0]!, up[1]!];
     }
   }
-  const ll = ft.getElementsByTagName('LatLongBoundingBox')[0];
+  const ll = byLocalName(ft, 'LatLongBoundingBox')[0];
   if (ll) {
     const minx = Number(ll.getAttribute('minx'));
     const miny = Number(ll.getAttribute('miny'));
@@ -339,7 +349,13 @@ function unionBboxes(
   return [w, s, e, n];
 }
 
-function directChild(parent: Element, tag: string): Element | null {
+/** Descendants by local name in any namespace, prefixed or not. */
+export function byLocalName(node: Document | Element, name: string): Element[] {
+  return Array.from(node.getElementsByTagNameNS('*', name));
+}
+
+function directChild(parent: Element | null, tag: string): Element | null {
+  if (!parent) return null;
   // querySelector on namespaced XML is fiddly; iterate children to
   // pick the first matching local name. Handles "ns:Name" too.
   const lower = tag.toLowerCase();

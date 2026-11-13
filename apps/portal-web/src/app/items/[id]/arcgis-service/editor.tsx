@@ -25,6 +25,7 @@ import {
 import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import { useT } from '@/lib/i18n/locale-context';
+import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
 import { probeSelection } from '@/lib/arcgis-service-selection';
 
@@ -355,6 +356,19 @@ export function ArcgisServiceEditor({
       }
       const id = body?.portalItemId;
       if (!id) throw new Error(t('serviceEditors.copyToDataLayerFailed'));
+      // Say how much was copied, and above all when the copy stopped at
+      // the feature cap: otherwise a partial copy looks complete.
+      const inserted = body?.featuresInserted ?? 0;
+      if (body?.truncated) {
+        toast.warning(
+          t('serviceEditors.copyToDataLayerTruncated', {
+            inserted,
+            cap: COPY_FEATURE_HARD_CAP,
+          }),
+        );
+      } else {
+        toast.success(t('serviceEditors.copyToDataLayerSuccess', { inserted }));
+      }
       // Navigate to the new data layer; keep the live pointer item.
       startTransition(() => {
         router.push(`/items/${id}`);

@@ -12,7 +12,7 @@ to keep the current behavior.
 | Variable | Meaning |
 | --- | --- |
 | `GRATIS_SESSION_MAX_AGE_SECONDS` | Lifetime of a new portal cookie. Minimum 15 minutes, maximum 365 days. Unset, empty, or out of range keeps 365 days. |
-| `GRATIS_SESSION_IDLE_SECONDS` | If set, a cookie that is presented after this much inactivity is treated as signed out. Unset means there is no idle check. A cookie that has never recorded activity is not signed out on the first request after an upgrade. |
+| `GRATIS_SESSION_IDLE_SECONDS` | If set, a cookie that is presented after this much inactivity is treated as signed out. Unset means there is no idle check. Minimum 15 minutes, maximum 365 days: a value outside that range is clamped to it, and a value that is not a whole number of seconds uses 15 minutes. Both log a warning. A cookie that has never recorded activity is not signed out on the first request after an upgrade. |
 
 Keycloak access-token lifetime is separate. The portal refreshes it
 while the cookie is still accepted. Idle timeout on the portal cookie

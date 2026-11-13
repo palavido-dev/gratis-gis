@@ -31,7 +31,10 @@ export async function buildOfflineRecoveryZip(
   }> = [];
   const entries: ZipEntry[] = [];
   for (const blob of input.blobs) {
-    const safeName = blob.fileName.replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'file';
+    const cleaned = blob.fileName.replace(/[^\w.\- ]+/g, '_').slice(0, 120);
+    // A name that is only dots would be a `.` or `..` path segment,
+    // which the zip writer refuses.
+    const safeName = /^\.*$/.test(cleaned) ? 'file' : cleaned;
     const path = `files/${blob.blobId}/${safeName}`;
     const bytes = new Uint8Array(await blob.blob.arrayBuffer());
     files.push({

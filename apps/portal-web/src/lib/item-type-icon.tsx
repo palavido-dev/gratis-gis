@@ -38,10 +38,9 @@ import {
  * so the ui package stays free of lucide as a hard dep. Callers that
  * render an item card or thumbnail pass this icon in explicitly.
  *
- * The colored tile background used behind the icon lives in
- * @gratis-gis/ui's ItemCard: keeping the palette there so every
- * render shares the same colors, and keeping the icon component here
- * so portal-web owns the lucide surface.
+ * The colored tile background behind the icon lives here too
+ * (ITEM_TYPE_TILE). ItemCard takes it as `fallbackTileClassName`, so
+ * there is one palette for every render.
  */
 const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   map: MapIcon,
@@ -130,9 +129,9 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   script: 'text-[#6b6f52] dark:text-[#b3b795]',
 };
 
-/** Tailwind class combos for the tile background used in compact
- *  thumbnails (e.g. detail-page header badge). Kept in sync with the
- *  ItemCard full-bleed tile colors. */
+/** Tailwind class combos for the tile background behind a type icon:
+ *  compact thumbnails (detail-page header badge) and the ItemCard
+ *  full-bleed tile. */
 const ITEM_TYPE_TILE: Record<ItemType, string> = {
   map: 'bg-[#5c6b58]/95 text-[#f8f6f0]',
   data_layer: 'bg-[#55677a]/95 text-[#f8f6f0]',
