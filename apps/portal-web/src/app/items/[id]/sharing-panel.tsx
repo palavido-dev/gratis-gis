@@ -1350,6 +1350,7 @@ export function SharingPanel({
           initialGeoLimit={editingGeoLimit.geoLimit ?? null}
           initialGeoBoundaryId={editingGeoLimit.geoBoundaryId ?? null}
           boundaries={boundaries}
+          boundariesLoaded={boundariesLoaded}
           saving={geoLimitSaving}
           onClose={() => setEditingGeoLimit(null)}
           onSave={(next) => saveGeoLimit(editingGeoLimit, next)}

@@ -46,6 +46,7 @@ export * from './source-scope';
 export * from './filter-match';
 export * from './layer-schema-canonical';
 export * from './app-themes';
+export * from './share-clip';
 export * from './app-templates';
 export * from './print-template';
 export * from './print-template-starters';

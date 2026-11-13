@@ -15,6 +15,7 @@ import {
   defaultThumbnailDesign,
   findUnsafeMapColors,
   safeNavigationUrl,
+  isShareClipGeometry,
   sanitizeAttributionHtml,
   unsafeAppThemeTokenKeys,
 } from '@gratis-gis/shared-types';
@@ -4090,6 +4091,19 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
     assertCanShare(user);
+    // The clip is handed to ST_GeomFromGeoJSON on every feature read by
+    // this sharee, so a malformed one (no coordinates, open rings,
+    // projected metres) would fail or match nothing on every read.
+    // Refuse it here, where every share write passes.
+    if (
+      input.geoLimit !== undefined &&
+      input.geoLimit !== null &&
+      !isShareClipGeometry(input.geoLimit)
+    ) {
+      throw new BadRequestException(
+        'geoLimit must be a Polygon, MultiPolygon or GeometryCollection of them in WGS84 longitude and latitude, with closed rings.',
+      );
+    }
     await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit
