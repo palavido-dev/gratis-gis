@@ -3504,6 +3504,18 @@ export const de: Partial<CatalogShape> = {
       'Behalten Sie die Volumes. Der nächste Start aktualisiert Keycloak. Für Tailscale-HTTPS nutzen Sie den MagicDNS-Namen mit https:// und Tailscale Serve. Eine Tailnet-IP bleibt bei http:// mit Port.',
   },
   adminSecurity: {
+    embedTitle:
+      'Websites, die Apps einbetten dürfen',
+    embedIntro:
+      'Das Einbetten-Widget in eigenen Apps kann Seiten dieser Websites anzeigen. Geben Sie pro Zeile eine Adresse ein, z. B. https://dashboards.example.org. Mit https://*.example.org sind alle Subdomains erlaubt. Andere Seiten des Portals betten weiterhin nichts von außen ein.',
+    embedSave:
+      'Websites speichern',
+    embedSaving:
+      'Wird gespeichert…',
+    embedSaved:
+      'Gespeichert.',
+    embedErr:
+      'Die Websites konnten nicht gespeichert werden.',
     pageIntro:
       'Fügen Sie ein Arbeitskonto hinzu, das die Nutzer bereits haben, und legen Sie fest, ob bei der nächsten Anmeldung ein Authenticator eingerichtet werden muss.',
     errLoad: 'Anmeldeeinstellungen konnten nicht geladen werden.',

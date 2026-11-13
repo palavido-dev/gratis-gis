@@ -59,6 +59,7 @@ interface FakePrisma {
   groupMember: { findMany: jest.Mock };
   commentThread: {
     findMany: jest.Mock;
+    findFirst: jest.Mock;
     findUnique: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;

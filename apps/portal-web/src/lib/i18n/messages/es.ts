@@ -3487,6 +3487,18 @@ export const es: Partial<CatalogShape> = {
       'Conserva los volúmenes. El siguiente arranque actualiza Keycloak. Para HTTPS con Tailscale, usa el nombre MagicDNS con https:// y Tailscale Serve. Una IP de la tailnet sigue en http:// con el puerto.',
   },
   adminSecurity: {
+    embedTitle:
+      'Sitios que las apps pueden incrustar',
+    embedIntro:
+      'El widget Incrustar de las apps personalizadas puede mostrar páginas de estos sitios. Escribe una dirección por línea, por ejemplo https://dashboards.example.org. Usa https://*.example.org para todos los subdominios. Las demás páginas del portal siguen sin incrustar nada externo.',
+    embedSave:
+      'Guardar sitios',
+    embedSaving:
+      'Guardando…',
+    embedSaved:
+      'Guardado.',
+    embedErr:
+      'No se pudieron guardar los sitios.',
     pageIntro:
       'Añade una cuenta de trabajo que la gente ya tenga y decide si el próximo inicio de sesión debe configurar un autenticador.',
     errLoad: 'No se pudieron cargar los ajustes de inicio de sesión.',

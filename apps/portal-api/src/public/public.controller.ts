@@ -55,6 +55,7 @@ import {
 } from '../data-layer/tile-settings.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
+import { readEmbedOrigins } from '../admin/embed-origins.js';
 import { ItemsService } from '../items/items.service.js';
 import { redactItemData } from '../items/item-data-redact.js';
 import {
@@ -303,6 +304,20 @@ export class PublicController {
       data: redactItemData(item.type, data, { canEdit: false }) as typeof item.data,
     };
     return withMetaUi(synthesizeThumbnailUrl(safe));
+  }
+
+  /**
+   * Sites the Embed widget may frame on app runtime pages (review
+   * 28b-5). portal-web's middleware reads this to build `frame-src`
+   * for /items/:id/custom/run, so it must answer without a session.
+   * The list is site addresses an admin chose to allow; it holds
+   * nothing private.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @Get('embed-origins')
+  async embedOrigins(): Promise<{ origins: string[] }> {
+    return { origins: await readEmbedOrigins(this.prisma) };
   }
 
   /**

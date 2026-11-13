@@ -5566,7 +5566,7 @@ function EmbedWidgetConfig({
 }) {
   return (
     <div className="space-y-3">
-      <Field label="URL" hint="https only. Some sites refuse to be iframed (X-Frame-Options); test in the runtime.">
+      <Field label="URL" hint="https only. The site must be on the admin's list of sites apps may embed (Admin, Security), and the preview here shows it only in the running app. Some sites refuse to be iframed (X-Frame-Options); test in the runtime.">
         <input
           type="url"
           value={config.url ?? ''}

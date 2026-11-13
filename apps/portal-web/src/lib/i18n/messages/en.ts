@@ -3627,6 +3627,18 @@ export const en = {
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {
+    embedTitle:
+      'Sites apps may embed',
+    embedIntro:
+      'The Embed widget in custom apps can show pages from these sites. Enter one site address per line, such as https://dashboards.example.org. Use https://*.example.org for every subdomain. Other pages of the portal still embed nothing from outside.',
+    embedSave:
+      'Save sites',
+    embedSaving:
+      'Saving…',
+    embedSaved:
+      'Saved.',
+    embedErr:
+      'Could not save the sites.',
     pageIntro:
       'Add a work account people already have, and decide whether the next sign-in must set up an authenticator.',
     errLoad: 'Could not load sign-in settings.',

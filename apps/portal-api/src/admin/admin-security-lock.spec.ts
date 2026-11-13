@@ -15,7 +15,8 @@ describe('AdminSecurityController in public-testing mode', () => {
     deleteIdentityProvider: jest.fn(),
     setMfaRequired: jest.fn(),
   };
-  const ctrl = new AdminSecurityController(kc as never);
+  const prisma = { systemSetting: { upsert: jest.fn(), findUnique: jest.fn() } };
+  const ctrl = new AdminSecurityController(kc as never, prisma as never);
   const user = { id: 'a', orgId: 'o', orgSlug: 'o' } as unknown as AuthUser;
 
   beforeEach(() => {
@@ -44,5 +45,9 @@ describe('AdminSecurityController in public-testing mode', () => {
     expect(kc.createOidcProvider).not.toHaveBeenCalled();
     expect(kc.deleteIdentityProvider).not.toHaveBeenCalled();
     expect(kc.setMfaRequired).not.toHaveBeenCalled();
+    await expect(
+      ctrl.putEmbedOrigins(user, { origins: ['https://example.org'] }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.systemSetting.upsert).not.toHaveBeenCalled();
   });
 });
