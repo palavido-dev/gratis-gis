@@ -34,7 +34,7 @@
  *     and a filter written against a JSON number still matches a
  *     layer that stored it as a string.
  */
-import type { MapLayerFilter } from './map';
+import type { MapLayerFilter, ScopedLayerFilter } from './map';
 
 /** Text form of an attribute, matching Postgres `attrs->>field`. */
 function textOf(v: unknown): string | null {
@@ -99,8 +99,11 @@ function matchesClause(
  */
 export function matchesFilter(
   props: Record<string, unknown> | null | undefined,
-  filter: MapLayerFilter | null | undefined,
+  filter: ScopedLayerFilter | null | undefined,
 ): boolean {
+  // A selection carried beside the filter (ScopedLayerFilter) must
+  // match too.
+  if (filter?.and && !matchesFilter(props, filter.and)) return false;
   if (!filter || filter.clauses.length === 0) return true;
   const results = filter.clauses
     .map((c) => matchesClause(props, c))

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  andFilters,
   applySelectionToLayers,
+  narrowFilter,
   resolveSourceScope,
   selectionClauses,
   type Bbox,
 } from './source-scope.js';
 import type { MapLayerFilter } from './map.js';
 import type { AppDataSource, CrossFilterSelection } from './custom-app.js';
+import { matchesFilter } from './filter-match.js';
 
 /**
  * The scope table.
@@ -90,9 +93,10 @@ describe('resolveSourceScope: what narrows a source', () => {
     expect(s.note).toBe('Status: open');
   });
 
-  // The author may have written combinator 'any'; a reader's click
-  // still narrows rather than widens, so the composition is always all.
-  it("does not let an author's 'any' widen a reader's click", () => {
+  // The author may have written combinator 'any'. A reader's click
+  // narrows it without widening it, and without turning "A or B" into
+  // "A and B" either (review 64-1): the selection rides beside it.
+  it("ANDs a click beside an author's 'any' instead of flattening it", () => {
     const s = resolveSourceScope({
       source: src({
         where: {
@@ -105,8 +109,31 @@ describe('resolveSourceScope: what narrows a source', () => {
       }),
       selection: sel(),
     });
-    expect(s.where?.combinator).toBe('all');
-    expect(s.where?.clauses).toHaveLength(3);
+    expect(s.where).toEqual({
+      combinator: 'any',
+      clauses: [
+        { field: 'a', op: '==', value: '1' },
+        { field: 'b', op: '==', value: '2' },
+      ],
+      and: {
+        combinator: 'all',
+        clauses: [{ field: 'status', op: '==', value: 'open' }],
+      },
+    });
+    // Rows: a=1 open (in), b=2 closed (out: not selected), a=0 b=0
+    // open (out: author's filter), a=1 b=2 open (in).
+    const rows = [
+      { a: '1', b: '0', status: 'open' },
+      { a: '0', b: '2', status: 'closed' },
+      { a: '0', b: '0', status: 'open' },
+      { a: '1', b: '2', status: 'open' },
+    ];
+    expect(rows.map((r) => matchesFilter(r, s.where))).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ]);
   });
 });
 
@@ -589,5 +616,97 @@ describe("resolveSourceScope keeps an author's 'any' with no selection", () => {
     };
     const s = resolveSourceScope({ source: src({ where: anyWhere }) });
     expect(s.where).toEqual(anyWhere);
+  });
+});
+
+// Review 64-1: a chart click on a map layer whose author filter is
+// "match any" emptied the map, because the click was merged into the
+// author's clauses and the combinator became "all".
+describe('narrowFilter and the map layer path', () => {
+  const anyAB: MapLayerFilter = {
+    combinator: 'any',
+    clauses: [
+      { field: 'status', op: '==', value: 'open' },
+      { field: 'status', op: '==', value: 'pending' },
+    ],
+  };
+  const marion = [{ field: 'county', op: '==' as const, value: 'Marion' }];
+
+  it('merges into an "all" filter, which is exact', () => {
+    expect(
+      narrowFilter(
+        { combinator: 'all', clauses: [{ field: 'k', op: '==', value: 'w' }] },
+        marion,
+      ),
+    ).toEqual({
+      combinator: 'all',
+      clauses: [{ field: 'k', op: '==', value: 'w' }, ...marion],
+    });
+  });
+
+  it('keeps an "any" filter whole and carries the click beside it', () => {
+    const out = applySelectionToLayers({
+      layers: [{ id: 'm', filter: anyAB }],
+      targetLayerId: 'm',
+      selection: { field: 'county', value: 'Marion' },
+    });
+    const f = out[0]!.filter!;
+    const rows = [
+      { status: 'open', county: 'Marion' },
+      { status: 'pending', county: 'Marion' },
+      { status: 'closed', county: 'Marion' },
+      { status: 'open', county: 'Lane' },
+    ];
+    expect(rows.map((r) => matchesFilter(r, f))).toEqual([true, true, false, false]);
+  });
+
+  it('a second click narrows the carried selection further', () => {
+    const once = narrowFilter(anyAB, marion);
+    const twice = narrowFilter(once, [{ field: 'y', op: '==', value: '1' }]);
+    expect(twice?.clauses).toEqual(anyAB.clauses);
+    expect(twice?.and?.clauses).toEqual([...marion, { field: 'y', op: '==', value: '1' }]);
+  });
+
+  it('narrows a relate parent filter the same way', () => {
+    type V = { id: string; source: { kind: string; via: { parentWhere?: MapLayerFilter } } };
+    const out = applySelectionToLayers<V>({
+      layers: [{ id: 'c', source: { kind: 'data-layer', via: { parentWhere: anyAB } } }],
+      targetLayerId: null,
+      relatedLayerIds: ['c'],
+      selection: { field: 'county', value: 'Marion' },
+    });
+    expect(out[0]!.source.via.parentWhere).toEqual({ ...anyAB, and: { combinator: 'all', clauses: marion } });
+  });
+});
+
+describe('andFilters', () => {
+  const any2: MapLayerFilter = {
+    combinator: 'any',
+    clauses: [
+      { field: 'a', op: '==', value: '1' },
+      { field: 'b', op: '==', value: '1' },
+    ],
+  };
+  const one: MapLayerFilter = {
+    combinator: 'all',
+    clauses: [{ field: 'c', op: '==', value: '1' }],
+  };
+
+  it('merges "all" groups flat and keeps one "any" group whole', () => {
+    expect(andFilters(one, one)).toEqual({
+      combinator: 'all',
+      clauses: [...one.clauses, ...one.clauses],
+    });
+    expect(andFilters(any2, one)).toEqual({ ...any2, and: one });
+    expect(andFilters(null, any2)).toEqual(any2);
+    expect(andFilters(null, undefined)).toBeUndefined();
+  });
+
+  it('fits two "any" groups and gives up on three', () => {
+    const r = andFilters(any2, any2)!;
+    const row = { a: '1', b: '0' };
+    expect(matchesFilter(row, r)).toBe(true);
+    expect(matchesFilter({ a: '0', b: '0' }, r)).toBe(false);
+    expect(andFilters({ ...any2, and: any2 }, any2)).toBeNull();
   });
 });

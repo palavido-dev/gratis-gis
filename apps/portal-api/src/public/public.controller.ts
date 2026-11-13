@@ -27,6 +27,7 @@ import {
   parseAggregateQuery,
   parseVia,
   parseWhere,
+  whereClauses,
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
@@ -694,7 +695,7 @@ export class PublicController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
-      ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...whereClauses(parsed.where).map((c) => c.field),
       ...(parsed.via ? [parsed.via.myField] : []),
       ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
@@ -819,7 +820,7 @@ export class PublicController {
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
     for (const name of [
-      ...(parsedWhere?.clauses ?? []).map((c) => c.field),
+      ...whereClauses(parsedWhere).map((c) => c.field),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -923,7 +924,7 @@ export class PublicController {
     } = {};
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
-    for (const name of (parsedWhere?.clauses ?? []).map((c) => c.field)) {
+    for (const name of whereClauses(parsedWhere).map((c) => c.field)) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
           `"${name}" is not a field on this layer.`,
@@ -999,7 +1000,7 @@ export class PublicController {
     const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
     for (const name of [
       parsed.parentField,
-      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+      ...whereClauses(parsed.parentWhere).map((c) => c.field),
     ]) {
       if (!parentAllowed.has(name)) {
         throw new BadRequestException(
@@ -1127,7 +1128,7 @@ export class PublicController {
     const where = parseWhere(whereRaw);
     if (where) {
       const allowed = new Set(layer.fields.map((f) => f.name));
-      for (const c of where.clauses) {
+      for (const c of whereClauses(where)) {
         if (!allowed.has(c.field)) {
           throw new BadRequestException(
             `"${c.field}" is not a field on this layer.`,

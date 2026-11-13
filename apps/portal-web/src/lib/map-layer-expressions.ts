@@ -10,7 +10,7 @@
  */
 import type * as maplibregl from 'maplibre-gl';
 import type {
-  MapLayerFilter,
+  ScopedLayerFilter,
   MapLayerFilterClause,
   MapLayerRenderer,
 } from '@gratis-gis/shared-types';
@@ -63,15 +63,21 @@ export function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
  */
 export function combineFilter(
   geomFilter: unknown[],
-  filter: MapLayerFilter | null | undefined,
+  filter: ScopedLayerFilter | null | undefined,
 ): MlFilter {
-  if (!filter || filter.clauses.length === 0) return geomFilter as MlFilter;
-  const exprs = filter.clauses
-    .map((c) => clauseToExpr(c))
-    .filter((e): e is unknown[] => e !== null);
-  if (exprs.length === 0) return geomFilter as MlFilter;
-  const joined = [filter.combinator === 'any' ? 'any' : 'all', ...exprs];
-  return (['all', geomFilter, joined] as unknown) as MlFilter;
+  if (!filter) return geomFilter as MlFilter;
+  const parts: unknown[] = [geomFilter];
+  for (const f of [filter, filter.and]) {
+    if (!f) continue;
+    const exprs = f.clauses
+      .map((c) => clauseToExpr(c))
+      .filter((e): e is unknown[] => e !== null);
+    if (exprs.length > 0) parts.push([f.combinator === 'any' ? 'any' : 'all', ...exprs]);
+  }
+  // A cross-filter selection carried in `and` (ScopedLayerFilter) is
+  // its own operand, so the author's "match any" stays an OR.
+  if (parts.length === 1) return geomFilter as MlFilter;
+  return (['all', ...parts] as unknown) as MlFilter;
 }
 
 /**

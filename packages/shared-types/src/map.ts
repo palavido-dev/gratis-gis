@@ -549,6 +549,23 @@ export interface MapLayerFilter {
 }
 
 /**
+ * A filter with a second filter ANDed beside it. Runtime and wire
+ * only; nothing saves this shape (a saved layer or source filter is
+ * always a plain MapLayerFilter).
+ *
+ * A reader's cross-filter click narrows the author's filter. When the
+ * author wrote "match any" over two or more clauses, the flat shape
+ * cannot say "(A or B) and selection", and merging the clauses
+ * turned it into "A and B and selection". The selection rides in
+ * `and` instead, and every evaluator (MapLibre expression, in-memory
+ * matcher, server SQL) ANDs it with the outer filter. `and` itself
+ * never carries another `and`.
+ */
+export interface ScopedLayerFilter extends MapLayerFilter {
+  and?: MapLayerFilter;
+}
+
+/**
  * Time-attribute filter (#58). Restricts a layer's features to those
  * whose `field` attribute (a date or datetime column) falls inside
  * the [from, to] window. Either bound is optional for open-ended

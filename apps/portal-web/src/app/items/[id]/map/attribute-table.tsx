@@ -51,13 +51,13 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { matchesFilter } from '@gratis-gis/shared-types';
+import { andFilters, matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
   MapLayer,
-  MapLayerFilter,
   PickListData,
   ResolvedVia,
+  ScopedLayerFilter,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { getCachedUserName, prefetchUserNames } from '@/lib/user-name-cache';
@@ -202,7 +202,7 @@ interface Props {
    * whole layer.
    */
   scopeLayerId?: string | null;
-  scopeWhere?: MapLayerFilter | null;
+  scopeWhere?: ScopedLayerFilter | null;
   scopeVia?: ResolvedVia | null;
   /**
    * Bump to refetch the server page. The Editor bumps it after a
@@ -550,21 +550,31 @@ export function AttributeTable({
     scopeLayerId && activeLayer && activeLayer.id === scopeLayerId,
   );
   const whereForServer = useMemo<string | null>(() => {
-    const f = activeLayer?.filter;
+    // The layer's filter may carry a cross-filter selection in `and`.
+    const f: ScopedLayerFilter | null | undefined = activeLayer?.filter;
     const own = f && f.clauses && f.clauses.length > 0 ? f : null;
     // #25: the source scope's predicate joins the layer's own filter
-    // on the fetch. Flattened under 'all' when both exist, the same
-    // convention resolveSourceScope applies: a scope narrows what
-    // the layer shows, it never widens it.
+    // on the fetch. A scope narrows what the layer shows, it never
+    // widens it, and a "match any" on either side stays an OR
+    // (andFilters, review 64-1). In the rare case the two cannot be
+    // said in one request, everything is flattened under 'all', which
+    // can only list fewer rows, never more.
     const extra =
       scopeApplies && scopeWhere && scopeWhere.clauses.length > 0
         ? scopeWhere
         : null;
     if (own && extra) {
-      return JSON.stringify({
-        combinator: 'all' as const,
-        clauses: [...own.clauses, ...extra.clauses],
-      });
+      return JSON.stringify(
+        andFilters(own, extra) ?? {
+          combinator: 'all' as const,
+          clauses: [
+            ...own.clauses,
+            ...(own.and?.clauses ?? []),
+            ...extra.clauses,
+            ...(extra.and?.clauses ?? []),
+          ],
+        },
+      );
     }
     if (extra) return JSON.stringify(extra);
     if (own) return JSON.stringify(own);

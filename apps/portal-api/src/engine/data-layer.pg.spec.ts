@@ -2109,6 +2109,30 @@ d('observation-log read paths against real PostGIS', () => {
       expect(either.groups[0]!.values.count).toBe(2);
     });
 
+    // Review 64-1: a reader's cross-filter click rides in `and`
+    // beside the author's "match any". Flattening it into the
+    // author's clauses would ask for ACRES >= 12 AND ACRES <= 5,
+    // which nothing satisfies.
+    it('ANDs a carried selection beside an "any" filter', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'any',
+          clauses: [
+            { field: 'ACRES', op: '>=', value: '12' },
+            { field: 'ACRES', op: '<=', value: '5' },
+          ],
+          and: {
+            combinator: 'all',
+            clauses: [{ field: 'ACRES', op: '<', value: '10' }],
+          },
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
     it('a numeric comparison skips rows whose value is not a number', async () => {
       // STATUS is text everywhere. Casting it would raise 22P02 and
       // fail the whole request; the guard makes those rows unknown,

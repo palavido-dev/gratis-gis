@@ -7,6 +7,7 @@ import {
   parseVia,
   parseWhere,
   rejectUnknownAggregateParams,
+  whereClauses,
 } from './aggregate-params.js';
 
 /**
@@ -118,6 +119,32 @@ describe('parseAggregateQuery', () => {
  * that stops a filtered dashboard from showing an unfiltered number.
  */
 describe('parseWhere', () => {
+  // Review 64-1: a cross-filter selection rides beside the author's
+  // filter in `and`, one level deep.
+  it('parses a selection carried in and, one level deep', () => {
+    const sel = { combinator: 'all', clauses: [{ field: 'county', op: '==', value: 'Marion' }] };
+    const f = parseWhere(
+      JSON.stringify({
+        combinator: 'any',
+        clauses: [
+          { field: 'status', op: '==', value: 'open' },
+          { field: 'status', op: '==', value: 'pending' },
+        ],
+        and: sel,
+      }),
+    );
+    expect(f?.combinator).toBe('any');
+    expect(f?.and).toEqual(sel);
+    // Field checks see the selection's fields too.
+    expect(whereClauses(f).map((c) => c.field)).toEqual(['status', 'status', 'county']);
+    expect(() =>
+      parseWhere(JSON.stringify({ ...sel, and: { ...sel, and: sel } })),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseWhere(JSON.stringify({ ...sel, and: { combinator: 'all', clauses: [{ field: 'x', op: 'bad', value: '' }] } })),
+    ).toThrow(/where\.and\.clauses\[0\]\.op/);
+  });
+
   it('is absent when the parameter is', () => {
     expect(parseWhere(undefined)).toBeUndefined();
     expect(parseWhere('')).toBeUndefined();

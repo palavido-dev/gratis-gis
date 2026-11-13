@@ -376,10 +376,7 @@ export interface AggregateVia {
   parentItemId: string;
   parentLayerId: string;
   parentBbox?: [number, number, number, number];
-  parentWhere?: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  };
+  parentWhere?: AttrFilterGroup & { and?: AttrFilterGroup };
   parentGeoLimit?: GeoJsonGeometry;
 }
 
@@ -710,11 +707,29 @@ async function compileViaFilter(
 /** What `compileViaFilter` stores in the tile cache, as JSON. */
 type CachedViaKeys = { keys: string[] } | { tooMany: true };
 
+type AttrFilterGroup = {
+  combinator: 'all' | 'any';
+  clauses: Array<{ field: string; op: string; value: string }>;
+};
+
+/**
+ * Compiles a filter to `AND (...)`, or null when nothing applies. A
+ * filter may carry a reader's cross-filter selection in `and`
+ * (ScopedLayerFilter in shared-types); that compiles to a second
+ * `AND (...)`, so the author's "match any" stays an OR.
+ */
 function compileAttrFilter(
-  filter: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  },
+  filter: AttrFilterGroup & { and?: AttrFilterGroup },
+  alias?: 'p',
+): Prisma.Sql | null {
+  const own = compileAttrGroup(filter, alias);
+  const extra = filter.and ? compileAttrGroup(filter.and, alias) : null;
+  if (own && extra) return Prisma.sql`${own} ${extra}`;
+  return own ?? extra;
+}
+
+function compileAttrGroup(
+  filter: AttrFilterGroup,
   /**
    * Table alias to read `attrs` from. Defaults to unqualified, which
    * is what every caller but the relate's semi-join wants; that one
@@ -940,10 +955,7 @@ export interface AggregateFeaturesArgs {
      * against the layer schema; this applies it as a content filter,
      * which is the only place a predicate on row content is safe.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     /**
      * Bin a numeric attribute into ranges and add it as the LAST group
@@ -2947,10 +2959,7 @@ export class DataLayerEngine {
      * button was the sharpest version, since it wrote a filter the
      * table then ignored.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /** Share row-scope (#40). See the collapseFilters push below for
      *  why this is entity-level rather than a content predicate. */
     ownRowsOnly?: { userId: string };
@@ -4115,10 +4124,7 @@ export class DataLayerEngine {
   async filteredExtent(args: {
     itemId: string;
     layerId: string;
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
@@ -4325,10 +4331,7 @@ export class DataLayerEngine {
      * is for pushing an author's static filter down, where the saving
      * is bytes on the wire rather than correctness.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /**
      * Relate. This one IS correctness: a semi-join against the keys
      * surviving on a parent layer cannot be expressed client side,
@@ -4424,10 +4427,7 @@ export class DataLayerEngine {
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
       labelPoints?: boolean;
-      where?: {
-        combinator: 'all' | 'any';
-        clauses: Array<{ field: string; op: string; value: string }>;
-      };
+      where?: AttrFilterGroup & { and?: AttrFilterGroup };
       via?: AggregateVia;
     },
     scope: string,

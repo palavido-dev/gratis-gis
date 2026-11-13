@@ -2,7 +2,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type {
   MapFilterOp,
-  MapLayerFilter,
+  ScopedLayerFilter,
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
 
@@ -55,7 +55,7 @@ export interface ParsedAggregateQuery {
   /** Bitemporal read instant, from `?at=`. */
   asOf?: Date;
   /** Attribute predicate, from `?where=`. */
-  where?: MapLayerFilter;
+  where?: ScopedLayerFilter;
   /** Relate scope, from `?via=`. */
   via?: ParsedVia;
   /** Numeric binning, from `?bin=`. Adds one group level. */
@@ -101,7 +101,7 @@ export interface ParsedVia {
   parentItemId: string;
   parentLayerId: string;
   parentBbox?: [number, number, number, number];
-  parentWhere?: MapLayerFilter;
+  parentWhere?: ScopedLayerFilter;
 }
 
 function parseBbox(raw: unknown, label: string): [number, number, number, number] {
@@ -308,7 +308,7 @@ const MAX_FILTER_CLAUSES = 20;
  * layer, so a chart and the map beside it cannot disagree about what
  * "Heavy Snow" selects.
  */
-export function parseWhere(raw: unknown): MapLayerFilter | undefined {
+export function parseWhere(raw: unknown): ScopedLayerFilter | undefined {
   if (raw === undefined || raw === null || raw === '') return undefined;
   if (Array.isArray(raw)) {
     throw new BadRequestException(
@@ -324,36 +324,49 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
         '{"combinator":"all","clauses":[{"field":"status","op":"==","value":"open"}]}.',
     );
   }
+  return whereFromObject(parsed, 'where', true);
+}
+
+/**
+ * One filter object. `and` (a reader's cross-filter selection carried
+ * beside the author's filter, see ScopedLayerFilter) is accepted one
+ * level deep: the selection itself never carries another `and`.
+ */
+function whereFromObject(
+  parsed: unknown,
+  path: string,
+  allowAnd: boolean,
+): ScopedLayerFilter {
   if (typeof parsed !== 'object' || parsed === null) {
-    throw new BadRequestException('where must be a JSON object.');
+    throw new BadRequestException(`${path} must be a JSON object.`);
   }
-  const obj = parsed as { combinator?: unknown; clauses?: unknown };
+  const obj = parsed as { combinator?: unknown; clauses?: unknown; and?: unknown };
   const combinator = obj.combinator ?? 'all';
   if (combinator !== 'all' && combinator !== 'any') {
     throw new BadRequestException(
-      'where.combinator must be "all" or "any".',
+      `${path}.combinator must be "all" or "any".`,
     );
   }
   if (!Array.isArray(obj.clauses)) {
-    throw new BadRequestException('where.clauses must be an array.');
+    throw new BadRequestException(`${path}.clauses must be an array.`);
   }
   if (obj.clauses.length === 0) {
     // An empty clause list is ambiguous between "match everything"
     // and "the caller meant to send a filter and built it wrong".
     // Refusing costs a caller one line and removes the guess.
     throw new BadRequestException(
-      'where.clauses is empty; omit where entirely to aggregate ' +
+      `${path}.clauses is empty; omit where entirely to aggregate ` +
         'the whole layer.',
     );
   }
   if (obj.clauses.length > MAX_FILTER_CLAUSES) {
     throw new BadRequestException(
-      `where.clauses may hold at most ${MAX_FILTER_CLAUSES} clauses.`,
+      `${path}.clauses may hold at most ${MAX_FILTER_CLAUSES} clauses.`,
     );
   }
   const clauses: MapLayerFilterClause[] = obj.clauses.map((c, i) => {
     if (typeof c !== 'object' || c === null) {
-      throw new BadRequestException(`where.clauses[${i}] must be an object.`);
+      throw new BadRequestException(`${path}.clauses[${i}] must be an object.`);
     }
     const { field, op, value } = c as {
       field?: unknown;
@@ -362,18 +375,18 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
     };
     if (typeof field !== 'string' || field.length === 0) {
       throw new BadRequestException(
-        `where.clauses[${i}].field must be a non-empty string.`,
+        `${path}.clauses[${i}].field must be a non-empty string.`,
       );
     }
     if (typeof op !== 'string' || !FILTER_OPS.has(op as MapFilterOp)) {
       throw new BadRequestException(
-        `where.clauses[${i}].op must be one of: ${[...FILTER_OPS].join(', ')}.`,
+        `${path}.clauses[${i}].op must be one of: ${[...FILTER_OPS].join(', ')}.`,
       );
     }
     const needsValue = op !== 'is-null' && op !== 'is-not-null';
     if (needsValue && typeof value !== 'string') {
       throw new BadRequestException(
-        `where.clauses[${i}].value must be a string for "${op}".`,
+        `${path}.clauses[${i}].value must be a string for "${op}".`,
       );
     }
     // A comparison operator needs a number to compare against.
@@ -385,7 +398,7 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
       !Number.isFinite(strictNumber(value))
     ) {
       throw new BadRequestException(
-        `where.clauses[${i}].value must be a number for "${op}"; ` +
+        `${path}.clauses[${i}].value must be a number for "${op}"; ` +
           `got "${String(value)}".`,
       );
     }
@@ -395,7 +408,24 @@ export function parseWhere(raw: unknown): MapLayerFilter | undefined {
       value: needsValue ? (value as string) : '',
     };
   });
-  return { combinator, clauses };
+  if (obj.and === undefined || obj.and === null) return { combinator, clauses };
+  if (!allowAnd) {
+    throw new BadRequestException(`${path}.and cannot hold another "and".`);
+  }
+  return { combinator, clauses, and: whereFromObject(obj.and, `${path}.and`, false) };
+}
+
+/**
+ * Every clause a parsed filter carries, the selection in `and`
+ * included. Field checks must read through this: a check over
+ * `where.clauses` alone would let an unchecked field into SQL by way
+ * of `and`.
+ */
+export function whereClauses(
+  where: ScopedLayerFilter | null | undefined,
+): MapLayerFilterClause[] {
+  if (!where) return [];
+  return [...where.clauses, ...(where.and?.clauses ?? [])];
 }
 
 /**
