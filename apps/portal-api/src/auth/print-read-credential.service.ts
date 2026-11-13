@@ -19,10 +19,12 @@ import {
 
 /** What the guard knows about the request a credential arrived on. */
 export interface PrintReadRequest {
-  /** The handler is marked @PrintReadable(). */
+  /** The handler is marked @PrintReadable() and the path fits it. */
   routeAllowed: boolean;
+  /** The one method the handler's mark allows. */
+  allowedMethod: 'GET' | 'POST';
   method: string;
-  /** The `:id` route param. */
+  /** The item id route param the mark names. */
   itemId: unknown;
   /** The `?clip=` boundary item, when sent. */
   clip: unknown;
@@ -69,7 +71,7 @@ export class PrintReadCredentialService {
     if (!claims) {
       throw new UnauthorizedException('Print credential is invalid or expired.');
     }
-    if (!req.routeAllowed || req.method.toUpperCase() !== 'GET') {
+    if (!req.routeAllowed || req.method.toUpperCase() !== req.allowedMethod) {
       throw new ForbiddenException('A print credential can only read map layers.');
     }
     if (typeof req.itemId !== 'string' || !claims.ids.includes(req.itemId)) {

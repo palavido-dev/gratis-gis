@@ -69,7 +69,13 @@ function serviceWith(user: Record<string, unknown> | null, groups: string[][]) {
 const LIVE_USER = { deletedAt: null, disabledAt: null, autoDisableAt: null, orgRole: 'user' };
 
 describe('PrintReadCredentialService', () => {
-  const read = { routeAllowed: true, method: 'GET', itemId: MAP_LAYER, clip: undefined };
+  const read = {
+    routeAllowed: true,
+    allowedMethod: 'GET' as const,
+    method: 'GET',
+    itemId: MAP_LAYER,
+    clip: undefined,
+  };
 
   it('mints a one-minute credential naming only the given ids', () => {
     const { svc } = serviceWith(LIVE_USER, [[]]);
@@ -110,6 +116,12 @@ describe('PrintReadCredentialService', () => {
     await expect(
       svc.resolve(token, { ...read, routeAllowed: false }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    // A POST read route takes POST only, never GET or a write verb.
+    for (const method of ['GET', 'PATCH', 'DELETE']) {
+      await expect(
+        svc.resolve(token, { ...read, allowedMethod: 'POST', method }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
     expect(principalForUserId).not.toHaveBeenCalled();
   });
 
@@ -146,13 +158,20 @@ describe('PrintReadCredentialService', () => {
 });
 
 describe('JwtAuthGuard with a print read credential', () => {
-  function run(mark: unknown, method: string, path: string, itemId: string) {
+  const GET = { method: 'GET', idParam: 'id' };
+  function run(
+    mark: unknown,
+    method: string,
+    path: string,
+    itemId: string,
+    params: Record<string, string> = { id: itemId },
+  ) {
     const { svc } = serviceWith(LIVE_USER, [[]]);
     const token = svc.mint('u1', [MAP_LAYER]);
     const req: Record<string, unknown> = {
       method,
       path,
-      params: { id: itemId },
+      params,
       query: {},
       headers: { authorization: `Bearer ${token}` },
     };
@@ -169,7 +188,7 @@ describe('JwtAuthGuard with a print read credential', () => {
   }
 
   it('sets the user on a marked GET for an item in scope', async () => {
-    const { promise, req } = run(true, 'GET', `/api/items/${MAP_LAYER}/geojson`, MAP_LAYER);
+    const { promise, req } = run(GET, 'GET', `/api/items/${MAP_LAYER}/geojson`, MAP_LAYER);
     await expect(promise).resolves.toBe(true);
     expect(req.user).toMatchObject({ id: 'u1', authKind: 'print_read' });
   });
@@ -181,18 +200,35 @@ describe('JwtAuthGuard with a print read credential', () => {
   });
 
   it('holds the proxy to a layer query', async () => {
-    const mark = /\/proxy\/\d+\/query$/;
+    const mark = { ...GET, path: /^\/api\/items\/[^/]+\/proxy\/\d+\/query$/ };
     await expect(
       run(mark, 'GET', `/api/items/${MAP_LAYER}/proxy/0/query`, MAP_LAYER).promise,
     ).resolves.toBe(true);
+    for (const tail of ['0/applyEdits', 'x/proxy/0/query', '0/query/extra']) {
+      await expect(
+        run(mark, 'GET', `/api/items/${MAP_LAYER}/proxy/${tail}`, MAP_LAYER).promise,
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it('reads the item id from the param the mark names', async () => {
+    const mark = { method: 'POST', idParam: 'serviceItemId' };
+    const path = `/api/postgis-live/${MAP_LAYER}/features`;
+    const ok = run(mark, 'POST', path, MAP_LAYER, { serviceItemId: MAP_LAYER });
+    await expect(ok.promise).resolves.toBe(true);
+    expect(ok.req.user).toMatchObject({ authKind: 'print_read' });
     await expect(
-      run(mark, 'GET', `/api/items/${MAP_LAYER}/proxy/0/applyEdits`, MAP_LAYER).promise,
+      run(mark, 'POST', path, OTHER, { serviceItemId: OTHER }).promise,
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // An `id` param the mark does not name is not looked at.
+    await expect(
+      run(mark, 'POST', path, MAP_LAYER, { id: MAP_LAYER, serviceItemId: OTHER }).promise,
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('refuses a write on a marked route', async () => {
     await expect(
-      run(true, 'POST', `/api/items/${MAP_LAYER}/geojson`, MAP_LAYER).promise,
+      run(GET, 'POST', `/api/items/${MAP_LAYER}/geojson`, MAP_LAYER).promise,
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

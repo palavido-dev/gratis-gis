@@ -54,7 +54,7 @@ export interface AuthUser {
    * is refused on unsafe HTTP methods by JwtAuthGuard. See #219.
    *
    * `print_read` is the server-side print's per-job credential. The
-   * guard accepts it only on @PrintReadable() GET handlers and only
+   * guard accepts it only on @PrintReadable() read handlers and only
    * for the item ids it carries (see print-read-credential.ts).
    */
   authKind?: 'jwt' | 'api_key' | 'print_read';

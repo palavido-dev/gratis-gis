@@ -4,7 +4,7 @@ import type { MapData } from '@gratis-gis/shared-types';
 import { printReadItemIds } from './print-read-scope.js';
 
 describe('printReadItemIds', () => {
-  it('names the data layers, proxied services and clip boundaries, nothing else', () => {
+  it('names the data layers, live and proxied services and clip boundaries, nothing else', () => {
     const map = {
       clipBoundaryId: 'clip-map',
       layers: [
@@ -36,7 +36,7 @@ describe('printReadItemIds', () => {
       ],
     } as unknown as MapData;
     expect(printReadItemIds(map).sort()).toEqual(
-      ['clip-layer', 'clip-map', 'dl-1', 'dl-2', 'svc-1'].sort(),
+      ['clip-layer', 'clip-map', 'dl-1', 'dl-2', 'pg-1', 'svc-1'].sort(),
     );
   });
 

@@ -116,7 +116,7 @@ export const PRINT_READ_HEADER = 'x-print-read';
  * with no session. portal-api gives that page a short-lived read
  * credential for the job, and the page sends it in a header (never
  * the URL, so it stays out of access logs and Referer). This lets it
- * through only on the GET routes the print reads layer data from;
+ * through only on the routes the print reads layer data from;
  * portal-api checks it again, along with the item ids and the user's
  * access. A request with a real session never uses it.
  */
@@ -125,7 +125,7 @@ export function printReadBearer(
   suffix: string,
   headerValue: string | null,
 ): string | null {
-  if (method !== 'GET' || !headerValue) return null;
+  if (!headerValue) return null;
   if (
     headerValue.length > 16_384 ||
     !/^ggprint\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(headerValue)
@@ -133,8 +133,11 @@ export function printReadBearer(
     return null;
   }
   const readRoute =
-    /^items\/[^/]+\/geojson$/.test(suffix) ||
-    /^items\/[^/]+\/layers\/[^/]+\/geojson$/.test(suffix) ||
-    /^items\/[^/]+\/proxy\/\d+\/query$/.test(suffix);
+    method === 'GET'
+      ? /^items\/[^/]+\/geojson$/.test(suffix) ||
+        /^items\/[^/]+\/layers\/[^/]+\/geojson$/.test(suffix) ||
+        /^items\/[^/]+\/proxy\/\d+\/query$/.test(suffix)
+      : // The postgis-live read sends its query in a POST body.
+        method === 'POST' && /^postgis-live\/[^/]+\/features$/.test(suffix);
   return readRoute ? headerValue : null;
 }

@@ -12,8 +12,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * these per print job for the user who asked for the print. It names
  * that user and the item ids the print draws, and nothing else.
  *
- * It is not a session. It is accepted only on a short list of GET
- * routes that read layer data (see PrintReadable), only for the item
+ * It is not a session. It is accepted only on a short list of routes
+ * that read layer data (see PrintReadable), only for the item
  * ids it carries, and the request still runs as that user, rebuilt
  * from the database on every request, so it never reads more than the
  * user can read at that moment.

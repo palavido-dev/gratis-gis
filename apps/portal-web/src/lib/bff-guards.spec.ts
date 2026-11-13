@@ -164,14 +164,23 @@ describe('printReadBearer', () => {
     `items/${id}/layers/parcels/features`,
     `items/${id}/proxy/0/applyEdits`,
     `items/${id}/proxy`,
+    `items/${id}/proxy/0/query/x`,
     `postgis-live/${id}/features`,
     'admin/users',
   ])('ignores it on %s', (suffix) => {
     expect(printReadBearer('GET', suffix, cred)).toBeNull();
   });
 
+  it('forwards it on the postgis-live read, which is a POST', () => {
+    expect(printReadBearer('POST', `postgis-live/${id}/features`, cred)).toBe(cred);
+    expect(printReadBearer('POST', `postgis-live/${id}/probe`, cred)).toBeNull();
+    expect(printReadBearer('POST', 'postgis-live/create', cred)).toBeNull();
+    expect(printReadBearer('DELETE', `postgis-live/${id}/features`, cred)).toBeNull();
+  });
+
   it('ignores it on writes, when absent, and when malformed', () => {
     expect(printReadBearer('POST', `items/${id}/geojson`, cred)).toBeNull();
+    expect(printReadBearer('PATCH', `items/${id}/geojson`, cred)).toBeNull();
     expect(printReadBearer('DELETE', `items/${id}/geojson`, cred)).toBeNull();
     expect(printReadBearer('GET', `items/${id}/geojson`, null)).toBeNull();
     expect(printReadBearer('GET', `items/${id}/geojson`, 'Bearer x')).toBeNull();
