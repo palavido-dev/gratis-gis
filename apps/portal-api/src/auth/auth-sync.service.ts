@@ -52,8 +52,12 @@ export interface AuthUser {
    * not, both enforced in the auth layer rather than in services:
    * keys are refused on /admin/* by AdminGuard, and a read-only key
    * is refused on unsafe HTTP methods by JwtAuthGuard. See #219.
+   *
+   * `print_read` is the server-side print's per-job credential. The
+   * guard accepts it only on @PrintReadable() GET handlers and only
+   * for the item ids it carries (see print-read-credential.ts).
    */
-  authKind?: 'jwt' | 'api_key';
+  authKind?: 'jwt' | 'api_key' | 'print_read';
   /** Set only when `authKind === 'api_key'`; drives the method gate. */
   apiKeyReadOnly?: boolean;
 }

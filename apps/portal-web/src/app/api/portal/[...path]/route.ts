@@ -20,6 +20,8 @@ import {
 import {
   hasUnsafePathSegment,
   isCrossOriginMutation,
+  PRINT_READ_HEADER,
+  printReadBearer,
   securityResponseHeaders,
 } from '@/lib/bff-guards';
 import { PAGE_CSP } from '@/lib/content-security-policy.mjs';
@@ -366,8 +368,19 @@ async function forwardInner(
   // an anonymous visitor uses, and everything else gets an explicit
   // session-expired 401 the client can surface.
   const sessionStale = isSessionStale(session);
-  const accessToken = sessionStale ? undefined : session?.accessToken;
+  const sessionToken = sessionStale ? undefined : session?.accessToken;
   if (sessionStale) warnStaleSession(req.method, suffix);
+  // The server-side print's headless page has no session. On its
+  // layer reads it sends a per-job credential instead, which stands
+  // in for the bearer on those GET routes only. A real session wins.
+  const accessToken =
+    sessionToken ??
+    printReadBearer(
+      req.method,
+      suffix,
+      req.headers.get(PRINT_READ_HEADER),
+    ) ??
+    undefined;
 
   // #307: when an anonymous visitor opens a publicly-shared viewer,
   // the runtime makes client-side fetches for layer features and
