@@ -362,6 +362,15 @@ export const en = {
     term: 'metadata XML',
     importTitle:
       'Import a metadata XML file exported by ArcGIS, QGIS or a data catalogue (ISO 19115, FGDC CSDGM or Dublin Core) to pre-fill the fields below',
+    sectionAria: 'Optional metadata XML import',
+    optional: 'Optional',
+    importButton: 'Import metadata XML',
+    parsed: 'Parsed as {standard}. Filled what we could; the rest is yours.',
+    notMetadata:
+      'Got an XML file but it does not look like ISO 19115, FGDC CSDGM, or Dublin Core. Skipping.',
+    readFailed: 'Could not read that file.',
+    metadataOnly:
+      'Metadata only. This does not upload the item\u2019s content. Your file stays in the browser.',
   },
   // The data_layer builder on the new item wizard.
   layerBuilder: {
@@ -626,6 +635,17 @@ export const en = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (not on this layer)',
+  measureLength: 'Length',
+  measurePerimeter: 'Perimeter',
+  measureArea: 'Area',
+  predicateIntersects: 'Intersects',
+  predicateWithin: 'Within',
+  predicateNearest: 'Nearest',
+  predicateContains: 'Contains',
+  predicateTouches: 'Touches',
+  predicateNear: 'Near',
+  loadDataLayersFailed: 'Could not load data layers',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
