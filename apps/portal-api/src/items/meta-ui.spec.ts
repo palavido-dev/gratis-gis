@@ -3,7 +3,7 @@ import { buildMetaUi, withMetaUi } from './meta-ui.js';
 import { ItemsService } from './items.service.js';
 
 describe('buildMetaUi', () => {
-  it('emits one data-layer hint per v3 sublayer with geometry', () => {
+  it('emits one data-layer hint per v3 sublayer, tables included', () => {
     const ui = buildMetaUi({
       id: '11111111-1111-4111-8111-111111111111',
       type: 'data_layer',
@@ -22,7 +22,9 @@ describe('buildMetaUi', () => {
     expect(ui.landingPath).toBe(
       '/items/11111111-1111-4111-8111-111111111111',
     );
-    expect(ui.layers).toHaveLength(1);
+    // The table rides along with geometryType null, so "Add to map"
+    // adds what the Add Layer dialog adds (review 40-9).
+    expect(ui.layers).toHaveLength(2);
     expect(ui.layers[0]).toEqual({
       title: 'Parcels',
       source: {
@@ -31,6 +33,15 @@ describe('buildMetaUi', () => {
         layerKey: 'parcels',
       },
       geometryType: 'Polygon',
+    });
+    expect(ui.layers[1]).toEqual({
+      title: 'Notes',
+      source: {
+        kind: 'data-layer',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        layerKey: 'notes',
+      },
+      geometryType: null,
     });
     expect(ui.downloads).toEqual([
       {
