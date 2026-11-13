@@ -40,7 +40,7 @@ describe('labelForChoice', () => {
       'pl-1': {
         version: 1,
         entries: [{ code: 'oak', label: 'Coast live oak' }],
-      } as PickListData,
+      } as unknown as PickListData,
     };
     expect(labelForChoice(q, 'oak', lists)).toBe('Coast live oak');
   });
