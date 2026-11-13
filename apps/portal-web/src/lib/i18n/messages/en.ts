@@ -3350,6 +3350,7 @@ export const en = {
     done: 'Done',
   },
   sharing: {
+    networkError: "Could not reach the portal. Nothing was changed.",
     sharing: 'Sharing',
     dialogLabel: 'Sharing for {title}',
     whoCanSee: 'Who can see this',
@@ -5491,6 +5492,7 @@ export const en = {
       'Creating layers requires the contributor or admin role.',
     jobStartFailed: 'The job could not be started.',
     intervalRequired: 'Enter a height between lines.',
+    intervalTooSmall: "The interval must be at least {min}.",
     zoneRequired: 'Pick a polygon data layer for the zones.',
     labelContours: 'Contour lines',
     labelSteepness: 'Steepness map',
@@ -5521,6 +5523,8 @@ export const en = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Could not reach the portal. Your uploaded images are kept; try again.",
+    errRetryHttp: "Could not retry the build (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -6034,6 +6038,8 @@ export const en = {
     saving: 'Saving...',
     saved: 'Saved',
     saveFailed: 'Save failed.',
+    reprobeBeforeSave: "Probe the new URL before saving. Its layer list comes from the probe.",
+    pickAtLeastOneLayer: "Pick at least one layer before saving.",
     selectAll: 'Select all',
     selectAllShort: 'All',
     selectNoneShort: 'None',

@@ -358,8 +358,11 @@ export interface AppTemplateSummary {
 export function NewItemWizard({
   appTemplates = [],
   scriptsEnabled = false,
+  canProbeBasemaps = false,
 }: {
   appTemplates?: AppTemplateSummary[];
+  /** The basemap Probe tab calls an org-admin route. */
+  canProbeBasemaps?: boolean;
   /** #221: portal-info features.feedback's sibling. Offering "Script"
    *  on a portal with no runner would create an item that can never
    *  execute, which is worse than not offering it. */
@@ -2180,7 +2183,11 @@ export function NewItemWizard({
       ) : null}
 
       {type === 'basemap' ? (
-        <BasemapConfigSection value={basemapDraft} onChange={setBasemapDraft} />
+        <BasemapConfigSection
+          value={basemapDraft}
+          onChange={setBasemapDraft}
+          canProbe={canProbeBasemaps}
+        />
       ) : null}
 
       {type === 'service' ? (

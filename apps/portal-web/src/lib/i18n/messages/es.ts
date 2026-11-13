@@ -3217,6 +3217,7 @@ export const es: Partial<CatalogShape> = {
     done: 'Hecho',
   },
   sharing: {
+    networkError: "No se pudo contactar con el portal. No se cambió nada.",
     sharing: 'Compartir',
     dialogLabel: 'Compartición de {title}',
     whoCanSee: 'Quién puede ver esto',
@@ -5341,6 +5342,7 @@ export const es: Partial<CatalogShape> = {
       'Crear capas requiere el rol de colaborador o administrador.',
     jobStartFailed: 'No se pudo iniciar el trabajo.',
     intervalRequired: 'Indica una altura entre lineas.',
+    intervalTooSmall: "El intervalo debe ser de al menos {min}.",
     zoneRequired: 'Elige una capa de datos poligonal para las zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de pendiente',
@@ -5371,6 +5373,8 @@ export const es: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "No se pudo contactar con el portal. Las imágenes subidas se conservan; inténtelo de nuevo.",
+    errRetryHttp: "No se pudo reintentar la compilación (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5867,6 +5871,8 @@ export const es: Partial<CatalogShape> = {
     saving: "Guardando...",
     saved: "Guardado",
     saveFailed: "No se pudo guardar.",
+    reprobeBeforeSave: "Sondee la nueva URL antes de guardar. La lista de capas proviene del sondeo.",
+    pickAtLeastOneLayer: "Elija al menos una capa antes de guardar.",
     selectAll: "Seleccionar todo",
     selectAllShort: "Todas",
     selectNoneShort: "Ninguna",

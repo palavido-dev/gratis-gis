@@ -278,11 +278,19 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
                     canEdit={canEdit}
                     onChange={(tagFilters) => {
                       // Drop the field entirely when the list is
-                      // empty so the action JSON stays clean.
+                      // empty so the action JSON stays clean. The
+                      // condition is replaced, not patched: a patch
+                      // without the key merges over the old one and
+                      // left the last filter in place.
                       if (tagFilters.length === 0) {
                         const next = { ...c };
                         delete (next as { tagFilters?: unknown }).tagFilters;
-                        setCondition(i, next);
+                        onChange({
+                          ...action,
+                          conditions: action.conditions.map((x, j) =>
+                            j === i ? next : x,
+                          ),
+                        });
                       } else {
                         setCondition(i, { tagFilters });
                       }

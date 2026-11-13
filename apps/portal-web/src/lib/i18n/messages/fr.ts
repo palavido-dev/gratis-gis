@@ -3225,6 +3225,7 @@ export const fr: Partial<CatalogShape> = {
     done: 'Terminé',
   },
   sharing: {
+    networkError: "Impossible de joindre le portail. Rien n'a été modifié.",
     sharing: 'Partage',
     dialogLabel: 'Partage de {title}',
     whoCanSee: 'Qui peut voir ceci',
@@ -5350,6 +5351,7 @@ export const fr: Partial<CatalogShape> = {
       'La creation de couches exige le role contributeur ou administrateur.',
     jobStartFailed: 'Le travail n a pas pu demarrer.',
     intervalRequired: 'Indiquez une hauteur entre les lignes.',
+    intervalTooSmall: "L'intervalle doit être d'au moins {min}.",
     zoneRequired: 'Choisissez une couche de donnees polygone pour les zones.',
     labelContours: 'Courbes de niveau',
     labelSteepness: 'Carte de pente',
@@ -5380,6 +5382,8 @@ export const fr: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Impossible de joindre le portail. Vos images envoyées sont conservées ; réessayez.",
+    errRetryHttp: "Impossible de relancer la construction (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5876,6 +5880,8 @@ export const fr: Partial<CatalogShape> = {
     saving: "Enregistrement...",
     saved: "Enregistré",
     saveFailed: "Échec de l'enregistrement.",
+    reprobeBeforeSave: "Sondez la nouvelle URL avant d'enregistrer. La liste des couches provient du sondage.",
+    pickAtLeastOneLayer: "Choisissez au moins une couche avant d'enregistrer.",
     selectAll: "Tout sélectionner",
     selectAllShort: "Toutes",
     selectNoneShort: "Aucune",

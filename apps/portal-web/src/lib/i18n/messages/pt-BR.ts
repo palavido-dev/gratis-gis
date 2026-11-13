@@ -3214,6 +3214,7 @@ export const ptBR: Partial<CatalogShape> = {
     done: 'Concluído',
   },
   sharing: {
+    networkError: "Não foi possível acessar o portal. Nada foi alterado.",
     sharing: 'Compartilhamento',
     dialogLabel: 'Compartilhamento de {title}',
     whoCanSee: 'Quem pode ver isto',
@@ -5340,6 +5341,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Criar camadas exige a funcao de colaborador ou administrador.',
     jobStartFailed: 'Nao foi possivel iniciar o trabalho.',
     intervalRequired: 'Informe uma altura entre as linhas.',
+    intervalTooSmall: "O intervalo deve ser de pelo menos {min}.",
     zoneRequired: 'Escolha uma camada de dados poligonal para as zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de inclinacao',
@@ -5370,6 +5372,8 @@ export const ptBR: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Não foi possível acessar o portal. As imagens enviadas foram mantidas; tente novamente.",
+    errRetryHttp: "Não foi possível tentar a compilação novamente (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5866,6 +5870,8 @@ export const ptBR: Partial<CatalogShape> = {
     saving: "Salvando...",
     saved: "Salvo",
     saveFailed: "Falha ao salvar.",
+    reprobeBeforeSave: "Sonde a nova URL antes de salvar. A lista de camadas vem da sondagem.",
+    pickAtLeastOneLayer: "Escolha pelo menos uma camada antes de salvar.",
     selectAll: "Selecionar tudo",
     selectAllShort: "Todas",
     selectNoneShort: "Nenhuma",

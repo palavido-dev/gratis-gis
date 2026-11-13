@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { isShareClipGeometry } from '@gratis-gis/shared-types';
 import {
   AlertTriangle,
   Check,
@@ -59,6 +60,10 @@ interface Props {
   initialGeoBoundaryId: string | null;
   /** Pulled by the sharing panel from /api/items?type=geo_boundary. */
   boundaries: BoundaryOption[];
+  /** False while the panel is still fetching `boundaries`. Until then
+   *  an empty list says nothing about whether the share's current
+   *  boundary exists. */
+  boundariesLoaded?: boolean;
   saving: boolean;
   onSave: (next: ShareGeoLimitSave) => Promise<void> | void;
   onClose: () => void;
@@ -71,6 +76,7 @@ export function ShareGeoLimitDialog({
   initialGeoLimit,
   initialGeoBoundaryId,
   boundaries,
+  boundariesLoaded = true,
   saving,
   onSave,
   onClose,
@@ -94,17 +100,13 @@ export function ShareGeoLimitDialog({
   );
   const [error, setError] = useState<string | null>(null);
 
-  // If the parent passes a fresh list and the current pick isn't in it
-  // (boundary deleted, etc.), reset to the empty selection so the
-  // Save button correctly disables until the admin picks something.
-  useEffect(() => {
-    if (
-      boundaryId &&
-      !boundaries.some((b) => b.id === boundaryId)
-    ) {
-      setBoundaryId('');
-    }
-  }, [boundaries, boundaryId]);
+  // A current boundary that is not in the list is kept, not cleared.
+  // Clearing it on first open (the list arrives after the dialog does)
+  // showed an existing restriction as if none were set. It is shown as
+  // an unavailable option instead, and Save stays disabled for it
+  // through `validated` below until the admin picks another.
+  const boundaryUnlisted =
+    boundaryId !== '' && !boundaries.some((b) => b.id === boundaryId);
 
   const hasExisting =
     (initialGeoLimit !== null && initialGeoLimit !== undefined) ||
@@ -125,6 +127,7 @@ export function ShareGeoLimitDialog({
       if (!boundaryId) return null;
       const picked = boundaries.find((b) => b.id === boundaryId);
       if (!picked) {
+        if (!boundariesLoaded) return null;
         return {
           ok: false,
           error: t('sharing.geoLimit.boundaryMissing'),
@@ -142,7 +145,7 @@ export function ShareGeoLimitDialog({
       try {
         const parsed = JSON.parse(text) as unknown;
         const geom = toGeometry(parsed);
-        if (!geom) {
+        if (!geom || !isShareClipGeometry(geom)) {
           return {
             ok: false,
             error: t('sharing.geoLimit.expectedGeojson'),
@@ -163,8 +166,11 @@ export function ShareGeoLimitDialog({
         };
       }
     }
-    // bbox mode
-    const parts = [minLng, minLat, maxLng, maxLat].map(Number);
+    // bbox mode. A blank field is "not entered yet", not 0: Number('')
+    // is 0, which turned a half-filled box into a clip to (0,0).
+    const fields = [minLng, minLat, maxLng, maxLat];
+    if (fields.some((f) => f.trim() === '')) return null;
+    const parts = fields.map(Number);
     if (parts.some((n) => Number.isNaN(n))) return null;
     const [w, s, e, n] = parts as [number, number, number, number];
     if (w >= e || s >= n) {
@@ -290,7 +296,7 @@ export function ShareGeoLimitDialog({
               <select
                 value={boundaryId}
                 onChange={(e) => setBoundaryId(e.target.value)}
-                disabled={boundaries.length === 0}
+                disabled={boundaries.length === 0 && !boundaryUnlisted}
                 className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
@@ -298,6 +304,13 @@ export function ShareGeoLimitDialog({
                     ? t('sharing.geoLimit.noBoundaries')
                     : t('sharing.geoLimit.pickBoundary')}
                 </option>
+                {boundaryUnlisted ? (
+                  <option value={boundaryId}>
+                    {boundariesLoaded
+                      ? t('sharing.geoLimit.boundaryMissing')
+                      : '...'}
+                  </option>
+                ) : null}
                 {boundaries.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.title}
@@ -457,10 +470,10 @@ function BBoxField({
  * Unwrap a GeoJSON value into a bare geometry. Accepts:
  *   - Polygon / MultiPolygon geometry directly
  *   - Feature with such a geometry
- *   - FeatureCollection with one or more polygon features (unioned
- *     into a MultiPolygon at the call site: today we just pull the
- *     first feature's geometry if there's exactly one, otherwise
- *     reject with a clear message)
+ *   - FeatureCollection with one or more polygon features: one
+ *     feature gives its geometry, several give a GeometryCollection
+ *     of them
+ * The result is then shape-checked with isShareClipGeometry.
  */
 function toGeometry(v: unknown): unknown | null {
   if (!v || typeof v !== 'object') return null;

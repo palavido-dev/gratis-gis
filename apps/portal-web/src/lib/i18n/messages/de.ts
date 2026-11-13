@@ -3233,6 +3233,7 @@ export const de: Partial<CatalogShape> = {
     done: 'Fertig',
   },
   sharing: {
+    networkError: "Das Portal war nicht erreichbar. Es wurde nichts geändert.",
     sharing: 'Freigabe',
     dialogLabel: 'Freigabe für {title}',
     whoCanSee: 'Wer kann das sehen',
@@ -5358,6 +5359,7 @@ export const de: Partial<CatalogShape> = {
       'Layer erstellen erfordert die Rolle Mitwirkender oder Administrator.',
     jobStartFailed: 'Der Auftrag konnte nicht gestartet werden.',
     intervalRequired: 'Geben Sie eine Hoehe zwischen den Linien ein.',
+    intervalTooSmall: "Der Abstand muss mindestens {min} betragen.",
     zoneRequired: 'Waehlen Sie einen Polygon-Datenlayer fuer die Zonen.',
     labelContours: 'Hoehenlinien',
     labelSteepness: 'Steilheitskarte',
@@ -5388,6 +5390,8 @@ export const de: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Das Portal war nicht erreichbar. Ihre hochgeladenen Bilder bleiben erhalten; versuchen Sie es erneut.",
+    errRetryHttp: "Der Build konnte nicht erneut gestartet werden (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5885,6 +5889,8 @@ export const de: Partial<CatalogShape> = {
     saving: "Wird gespeichert...",
     saved: "Gespeichert",
     saveFailed: "Speichern fehlgeschlagen.",
+    reprobeBeforeSave: "Prüfen Sie die neue URL vor dem Speichern. Die Layer-Liste stammt aus der Prüfung.",
+    pickAtLeastOneLayer: "Wählen Sie vor dem Speichern mindestens einen Layer aus.",
     selectAll: "Alle auswählen",
     selectAllShort: "Alle",
     selectNoneShort: "Keine",

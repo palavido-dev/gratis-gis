@@ -15,7 +15,9 @@ import {
   defaultThumbnailDesign,
   findUnsafeMapColors,
   safeNavigationUrl,
+  isShareClipGeometry,
   sanitizeAttributionHtml,
+  unsafeAppThemeTokenKeys,
 } from '@gratis-gis/shared-types';
 
 import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
@@ -649,6 +651,25 @@ function assertRenderSafeData(itemType: string, data: unknown): void {
       );
     }
   }
+}
+
+/**
+ * Drop theme tokens that are not safe `--app-*` values. A theme's
+ * tokens are set as CSS custom properties on the root of every app
+ * that uses it, for every viewer including anonymous ones, so a token
+ * that names a real property or carries `url(...)` would restyle or
+ * blank those apps or send each viewer to an outside host. Stripped
+ * rather than refused so a theme that already holds a bad token can
+ * still be saved. The appliers skip the same tokens on read.
+ */
+export function stripUnsafeThemeTokens(itemType: string, data: unknown): unknown {
+  if (itemType !== 'theme' || !data || typeof data !== 'object') return data;
+  const tokens = (data as { tokens?: unknown }).tokens;
+  const bad = unsafeAppThemeTokenKeys(tokens);
+  if (bad.length === 0) return data;
+  const kept = { ...(tokens as Record<string, unknown>) };
+  for (const k of bad) delete kept[k];
+  return { ...(data as Record<string, unknown>), tokens: kept };
 }
 
 /**
@@ -1706,6 +1727,10 @@ export class ItemsService {
       resolvedData = sanitizeAttributionInData(
         resolvedData,
       ) as Prisma.InputJsonValue;
+      resolvedData = stripUnsafeThemeTokens(
+        input.type,
+        resolvedData,
+      ) as Prisma.InputJsonValue;
 
       const bbox = itemBbox(input.type, resolvedData);
       // #66: every new item ships with an auto-generated thumbnail
@@ -2678,6 +2703,7 @@ export class ItemsService {
     // control for every viewer of every map using this item.
     if (nextData !== undefined) {
       nextData = sanitizeAttributionInData(nextData) as Prisma.InputJsonValue;
+      nextData = stripUnsafeThemeTokens(item.type, nextData) as Prisma.InputJsonValue;
     }
     if (item.type === 'service' && nextData !== undefined) {
       await assertPostgisHostOnSave(item.data, nextData);
@@ -4099,6 +4125,19 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
     assertCanShare(user);
+    // The clip is handed to ST_GeomFromGeoJSON on every feature read by
+    // this sharee, so a malformed one (no coordinates, open rings,
+    // projected metres) would fail or match nothing on every read.
+    // Refuse it here, where every share write passes.
+    if (
+      input.geoLimit !== undefined &&
+      input.geoLimit !== null &&
+      !isShareClipGeometry(input.geoLimit)
+    ) {
+      throw new BadRequestException(
+        'geoLimit must be a Polygon, MultiPolygon or GeometryCollection of them in WGS84 longitude and latitude, with closed rings.',
+      );
+    }
     await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit

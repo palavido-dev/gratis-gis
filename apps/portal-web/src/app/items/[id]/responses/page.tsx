@@ -389,7 +389,9 @@ export default async function FormResponsesPage(props: Props) {
       surveyTargetLayerId={surveyTargetLayerId}
       surveyAttachmentsLayerItemId={dataLayerItem.id}
       surveyAttachmentsLayerKey={layerKey}
-      tableOpenDefault
+      // The attribute table opens on load only when the author kept
+      // it in the toolbar; it used to open regardless.
+      tableOpenDefault={configuredTools.includes('attribute-table')}
     />
   );
 }
@@ -456,67 +458,40 @@ function UnboundShell({
 }
 
 /**
- * Compute a bbox from the live geojson endpoint when the sublayer
- * doesn't have one stored yet (#354 followup). The Recompute Extents
- * pass (#93) populates layer bboxes periodically, but for a brand-
- * new form's paired layer the user might Open Responses before that
- * pass has fired and the auto-frame would silently no-op.
+ * Ask the API for the layer's extent when the sublayer doesn't have
+ * one stored yet (#354 followup). The Recompute Extents pass (#93)
+ * populates layer bboxes periodically, but for a brand-new form's
+ * paired layer the user might Open Responses before that pass has
+ * fired and the auto-frame would silently no-op.
  *
- * This is a one-shot server-side fetch on page render: cheap for the
- * usual form-paired layer (handful to a few hundred features). If
- * the layer eventually grows to the point where this is wasteful,
- * the periodic pass will be populating the stored bbox by then and
- * this branch never runs.
+ * filtered-extent computes the union bbox in PostGIS and returns four
+ * numbers. Reading the whole geojson collection into the web server
+ * to walk its coordinates, as this used to, cost a full download of
+ * the layer on every page view, anonymous ones included.
  */
 async function computeFeatureBboxFromGeojson(
   fetchItem: <T>(path: string) => Promise<T>,
   itemId: string,
   layerKey: string,
 ): Promise<[number, number, number, number] | null> {
-  let fc: GeoJSON.FeatureCollection;
+  let res: { bbox?: unknown };
   try {
-    fc = await fetchItem<GeoJSON.FeatureCollection>(
-      `/api/items/${itemId}/layers/${layerKey}/geojson`,
+    res = await fetchItem<{ bbox?: unknown }>(
+      `/api/items/${itemId}/layers/${encodeURIComponent(layerKey)}/filtered-extent`,
     );
   } catch {
     return null;
   }
-  if (!fc || !Array.isArray(fc.features) || fc.features.length === 0) {
-    return null;
-  }
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  function walkCoords(coords: unknown): void {
-    if (!Array.isArray(coords)) return;
-    if (
-      coords.length >= 2 &&
-      typeof coords[0] === 'number' &&
-      typeof coords[1] === 'number'
-    ) {
-      const [x, y] = coords as [number, number];
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      return;
-    }
-    for (const c of coords) walkCoords(c);
-  }
-  for (const f of fc.features) {
-    if (!f || !f.geometry) continue;
-    const g = f.geometry as { coordinates?: unknown };
-    if (g.coordinates) walkCoords(g.coordinates);
-  }
+  const b = res?.bbox;
   if (
-    !Number.isFinite(minX) ||
-    !Number.isFinite(minY) ||
-    !Number.isFinite(maxX) ||
-    !Number.isFinite(maxY)
+    !Array.isArray(b) ||
+    b.length !== 4 ||
+    !b.every((n) => typeof n === 'number' && Number.isFinite(n))
   ) {
     return null;
   }
+  const [minX, minY, maxX, maxY] = b as [number, number, number, number];
+  if (minX > maxX || minY > maxY) return null;
   return [minX, minY, maxX, maxY];
 }
 

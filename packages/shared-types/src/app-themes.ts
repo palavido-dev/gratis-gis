@@ -353,13 +353,59 @@ export function applyAppThemeTokens(
   tokens: AppThemeTokens['tokens'] | Record<string, unknown>,
 ): void {
   for (const [key, value] of Object.entries(tokens)) {
-    // Custom properties only. Theme items are free-form JSON, and a
-    // key such as `display` or `background-image` would otherwise set
-    // a real CSS property on every viewer's app root.
-    if (typeof value === 'string' && key.startsWith('--app-')) {
+    // Custom properties only, with values that cannot load anything.
+    // Theme items are free-form JSON, and a key such as `display` or
+    // `background-image` would otherwise set a real CSS property on
+    // every viewer's app root.
+    if (isSafeAppThemeToken(key, value)) {
       el.style.setProperty(key, value);
     }
   }
+}
+
+const APP_TOKEN_KEY = /^--app-[a-z0-9-]+$/;
+// Functions that fetch or render a resource. A token value lands
+// inside `hsl(var(...))` and similar, so a value that closes the
+// parenthesis early could add one of these and turn every viewer of
+// the theme into a request to an outside host.
+const APP_TOKEN_FETCHING_FN =
+  /(?:url|src|image|image-set|element|cross-fade|expression)\s*\(/i;
+const APP_TOKEN_BAD_CHAR = /[\\;{}@<>]/;
+const APP_TOKEN_MAX_LENGTH = 300;
+
+/**
+ * True when a theme token is a `--app-*` custom property whose value
+ * is plain CSS (colors, lengths, numbers, font lists, shadows) and
+ * cannot fetch anything or break out of the property it sits in.
+ * Parentheses must balance, so a value cannot close the `hsl(` or
+ * `var(` it is substituted into.
+ */
+export function isSafeAppThemeToken(
+  key: string,
+  value: unknown,
+): value is string {
+  if (!APP_TOKEN_KEY.test(key)) return false;
+  if (typeof value !== 'string') return false;
+  if (value.length > APP_TOKEN_MAX_LENGTH) return false;
+  if (APP_TOKEN_BAD_CHAR.test(value)) return false;
+  if (APP_TOKEN_FETCHING_FN.test(value)) return false;
+  let depth = 0;
+  for (const ch of value) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+
+/** Keys of `tokens` that isSafeAppThemeToken refuses. */
+export function unsafeAppThemeTokenKeys(tokens: unknown): string[] {
+  if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) return [];
+  return Object.entries(tokens as Record<string, unknown>)
+    .filter(([k, v]) => !isSafeAppThemeToken(k, v))
+    .map(([k]) => k);
 }
 
 // ============================================================

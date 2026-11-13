@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
@@ -121,6 +127,37 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
   const ready = hasFile && !building;
   const busy = phase !== 'idle';
   const sourceCount = data.sources?.length ?? 0;
+
+  // One jobs poll for both analysis sections. Each section used to run
+  // its own interval against the same endpoint, forever, even in a
+  // background tab. It runs fast only while a job is in flight and
+  // skips ticks while the tab is hidden.
+  const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
+  const jobsActive = jobs.some((j) => isActiveJobState(j.state));
+  const pollJobs = ready && canEdit;
+  useEffect(() => {
+    if (!pollJobs) return;
+    let cancelled = false;
+    async function load() {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/portal/items/${itemId}/analysis/jobs`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as AnalysisJobRow[];
+        if (!cancelled) setJobs(rows);
+      } catch {
+        /* transient; next poll retries */
+      }
+    }
+    void load();
+    const id = window.setInterval(() => void load(), jobsActive ? 4000 : 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [itemId, pollJobs, jobsActive]);
 
   // While the worker merges tiles (#200), poll the item so the panel
   // flips to ready (or failed) on its own without a manual refresh.
@@ -739,8 +776,12 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
         </div>
       </section>
 
-      {ready && canEdit ? <HillshadeSection itemId={itemId} /> : null}
-      {ready && canEdit ? <ColorizeSection itemId={itemId} /> : null}
+      {ready && canEdit ? (
+        <HillshadeSection itemId={itemId} jobs={jobs} setJobs={setJobs} />
+      ) : null}
+      {ready && canEdit ? (
+        <ColorizeSection itemId={itemId} jobs={jobs} setJobs={setJobs} />
+      ) : null}
     </div>
   );
 }
@@ -786,12 +827,18 @@ function isActiveJobState(state: AnalysisJobRow['state']): boolean {
  * A 503 from the create endpoint means the operator has not
  * deployed the analysis worker; the message is surfaced verbatim.
  */
-function HillshadeSection({ itemId }: { itemId: string }) {
+/** The shared jobs list, owned and polled by PointCloudPanel. */
+interface JobsProps {
+  itemId: string;
+  jobs: AnalysisJobRow[];
+  setJobs: Dispatch<SetStateAction<AnalysisJobRow[]>>;
+}
+
+function HillshadeSection({ itemId, jobs, setJobs }: JobsProps) {
   const [mode, setMode] = useState<'dtm' | 'dsm'>('dtm');
   const [resolution, setResolution] = useState('1');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
   // Guards double-fire on the row's Cancel button; the button also
   // disappears optimistically, but a slow response should not queue
   // a second POST.
@@ -802,27 +849,6 @@ function HillshadeSection({ itemId }: { itemId: string }) {
   const elevationKinds = new Set(['hillshade', 'elevation', 'heightmap']);
   const elevationJobs = jobs.filter((j) => elevationKinds.has(j.kind));
   const active = elevationJobs.some((j) => isActiveJobState(j.state));
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/portal/items/${itemId}/analysis/jobs`);
-        if (!res.ok) return;
-        const rows = (await res.json()) as AnalysisJobRow[];
-        if (!cancelled) setJobs(rows);
-      } catch {
-        /* transient; next poll retries */
-      }
-    }
-    void load();
-    // Poll faster while a job is in flight so progress feels live.
-    const id = window.setInterval(() => void load(), active ? 4000 : 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [itemId, active]);
 
   async function submitTo(path: string, payload: Record<string, unknown>) {
     setSubmitting(true);
@@ -1086,14 +1112,13 @@ function HillshadeSection({ itemId }: { itemId: string }) {
  * or satellite imagery layer. PDAL colorization runs server-side;
  * the result is a new RGB COPC the existing viewer can show.
  */
-function ColorizeSection({ itemId }: { itemId: string }) {
+function ColorizeSection({ itemId, jobs, setJobs }: JobsProps) {
   const [rasterItemId, setRasterItemId] = useState('');
   const [imageryOptions, setImageryOptions] = useState<
     Array<{ id: string; title: string }>
   >([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
   const cancelInFlightRef = useRef<Set<string>>(new Set());
 
   const colorizeJobs = jobs.filter((j) => j.kind === 'colorize');
@@ -1137,25 +1162,6 @@ function ColorizeSection({ itemId }: { itemId: string }) {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/portal/items/${itemId}/analysis/jobs`);
-        if (!res.ok) return;
-        const rows = (await res.json()) as AnalysisJobRow[];
-        if (!cancelled) setJobs(rows);
-      } catch {
-        /* transient; next poll retries */
-      }
-    }
-    void load();
-    const id = window.setInterval(() => void load(), active ? 4000 : 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [itemId, active]);
 
   async function submit() {
     if (!rasterItemId) {
