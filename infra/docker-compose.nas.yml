@@ -50,6 +50,14 @@ x-gratis:
   # 3: optional settings pass through; email links use the portal
   #    address; portal-worker leaves crons to portal-api.
   GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "3"
+  # Written into /boot/ready by bootstrap, and every service waits for
+  # a marker that matches its own copy (58-4). The marker lives on a
+  # volume and survives restarts, so a plain "file exists" test let
+  # services start on the previous boot's env after an upgrade or a
+  # change to the settings above. The image tag and every bootstrap
+  # input are in it, so changing any of them also makes Compose
+  # recreate every service that waits on it.
+  GRATIS_BOOT_STAMP: &GRATIS_BOOT_STAMP "tag=${GG_IMAGE_TAG:-edge};mode=${GRATIS_MODE:-lan};base=${GRATIS_BASE_URL:-};http=${GRATIS_HTTP_PORT:-8080};s3=${GRATIS_S3_PORT:-8900};s3url=${GRATIS_S3_URL:-};tls=${GRATIS_TLS:-};acme=${GRATIS_ACME_EMAIL:-};auth=${GRATIS_AUTH_DOMAIN:-};storage=${GRATIS_STORAGE_DOMAIN:-};analysis=${GRATIS_ANALYSIS:-on}"
 
 name: gratis-gis
 
@@ -80,6 +88,7 @@ services:
       GRATIS_STORAGE_DOMAIN: ${GRATIS_STORAGE_DOMAIN:-}
       GG_IMAGE_TAG: ${GG_IMAGE_TAG:-edge}
       GRATIS_COMPOSE_REV: *GRATIS_COMPOSE_REV
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
       UPDATE_CHECK: ${UPDATE_CHECK:-on}
       BOOT_DIR: /boot
       CHROMIUM_ENV_DIR: /svc/chromium
@@ -1410,7 +1419,14 @@ services:
             if login_txt.exists():
                 login_txt.unlink()
             # ready is last so Keycloak and Silo never read a half-written boot.
-            ready.write_text("ok\n", encoding="utf-8")
+            # It carries this boot's stamp: every service waits for a marker
+            # that matches its own GRATIS_BOOT_STAMP, so a marker left by an
+            # older version or other settings does not let it start early.
+            # Written to a temp name and renamed so a reader never sees half.
+            stamp = os.environ.get("GRATIS_BOOT_STAMP", "").strip() or "ok"
+            tmp_ready = boot / "ready.tmp"
+            tmp_ready.write_text(stamp + "\n", encoding="utf-8")
+            os.replace(tmp_ready, ready)
             print(text, flush=True)
             if os.environ.get("GRATIS_SKIP_PATCH") == "1":
                 return
@@ -1431,7 +1447,7 @@ services:
       - chromium-env:/svc/chromium
       - pointcloud-env:/svc/pointcloud
     healthcheck:
-      test: ["CMD-SHELL", "test -f /boot/ready"]
+      test: ["CMD-SHELL", "test \"$$(cat /boot/ready 2>/dev/null)\" = \"$$GRATIS_BOOT_STAMP\""]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -1447,7 +1463,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
@@ -1461,6 +1477,8 @@ services:
           -c work_mem=16MB \
           -c maintenance_work_mem=256MB \
           -c jit=off
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
     volumes:
       - boot:/boot:ro
       - pgdata:/var/lib/postgresql/data
@@ -1479,12 +1497,13 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
         exec /opt/keycloak/bin/kc.sh start --http-enabled=true --health-enabled=true --proxy-headers=xforwarded --import-realm
     environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
       JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
     volumes:
       # /boot holds /boot/env and /boot/ready. The import directory
@@ -1518,7 +1537,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
@@ -1531,6 +1550,8 @@ services:
       - target: 9000
         published: *GRATIS_S3_PORT
         protocol: tcp
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
     volumes:
       - boot:/boot:ro
       - miniodata:/data
@@ -1556,12 +1577,13 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
     environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
       NODE_OPTIONS: --max-old-space-size=1024
       # Empty keeps unpaged feature reads streaming; `required` refuses
       # them and points at the csv export.
@@ -1652,13 +1674,14 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
         export SKIP_MIGRATE=true
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
     environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
       NODE_OPTIONS: --max-old-space-size=1024
       # Same path and volume as portal-api, so the worker can read
       # the files portal-api staged for import.
@@ -1776,7 +1799,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         set -a
         . /boot/env
         set +a
@@ -1785,6 +1808,7 @@ services:
         export PORT=3000
         exec /usr/bin/tini -- node apps/portal-web/server.js
     environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
       # Map address search. Empty NOMINATIM_URL sends searches to the
       # public nominatim.openstreetmap.org unless
       # NOMINATIM_PUBLIC_FALLBACK is 0.
@@ -1846,7 +1870,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        until [ -f /boot/ready ]; do sleep 1; done
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
         exec caddy run --config /boot/Caddyfile --adapter caddyfile
     ports:
       # Host port -> Caddy's port 8080 inside the container.
@@ -1859,6 +1883,8 @@ services:
       - target: 8080
         published: *GRATIS_HTTP_PORT
         protocol: tcp
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
     volumes:
       - boot:/boot:ro
       - caddy-data:/data
