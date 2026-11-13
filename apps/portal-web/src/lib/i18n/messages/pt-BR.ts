@@ -2159,6 +2159,7 @@ export const ptBR: Partial<CatalogShape> = {
     truncatedBanner: 'Mostrando 5.000+ linhas{extent}. Aproxime{extentHint} ou filtre para ver mais.',
     truncatedInExtent: ' nesta extensão',
     truncatedEnableExtent: ', ative "Na extensão",',
+    showSelectedCapped: 'Mostrando as primeiras {max} linhas selecionadas. Selecione menos para ver o restante.',
     noLayer: 'Nenhuma camada selecionada.',
     loadingFeatures: 'Carregando feições...',
     loadFailed: 'Falha ao carregar: {error}',
@@ -2308,6 +2309,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Nenhum serviço corresponde. Envie dados vetoriais como serviço de feições ou salve uma URL REST do ArcGIS como item de serviço ArcGIS para escolher aqui.',
     portalFootnote:
       'Serviços de feições vêm do PostGIS; serviços ArcGIS consultam a origem ao vivo conforme você move e amplia.',
+    listTruncated: 'Mostrando os primeiros {count} de {total}. Pesquise para refinar a lista.',
     sublayerBadge: '+{count} camadas',
     sublayerBadgeTitle:
       'Este serviço expõe {count} subcamadas; ao clicar, todas são adicionadas.',
@@ -2420,6 +2422,7 @@ export const ptBR: Partial<CatalogShape> = {
     drawContinue:
       'Clique para adicionar pontos. Clique duplo (ou Enter) para terminar.',
     drawAgain: 'Desenhar de novo',
+    emptyHint: 'Desenhe uma linha no mapa para ver a elevação do terreno ao longo dela.',
     reading: 'Lendo a elevação do terreno...',
     fromSource: 'de {title}',
     distance: 'Distância',

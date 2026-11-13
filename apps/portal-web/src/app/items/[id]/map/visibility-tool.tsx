@@ -81,6 +81,17 @@ export function VisibilityTool({
 
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  // One viewshed request at a time. The phase stays 'configure' while
+  // the DEM lookup and the POST run, so a double click used to start
+  // two jobs and leave an orphaned result item.
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  // The poll below reads these through refs so a parent re-render
+  // (every pan gives onLayerReady a new identity) does not restart it.
+  const onLayerReadyRef = useRef(onLayerReady);
+  onLayerReadyRef.current = onLayerReady;
+  const tRef = useRef(t);
+  tRef.current = t;
 
   // ---- Pick interaction ------------------------------------------
   const picking = open && phase.step === 'pick';
@@ -183,7 +194,12 @@ export function VisibilityTool({
   // ---- Submit ----------------------------------------------------
   const submit = useCallback(async () => {
     if (phaseRef.current.step !== 'configure') return;
-    const { lng, lat } = phaseRef.current;
+    if (submittingRef.current) return;
+    const started = phaseRef.current;
+    const { lng, lat } = started;
+    // The user picked another spot (or closed the tool) while this
+    // request was out: its answer no longer applies.
+    const superseded = () => phaseRef.current !== started;
     const height = Number(heightVal);
     const dist = Number(distVal);
     if (!Number.isFinite(height) || !Number.isFinite(dist)) {
@@ -195,8 +211,11 @@ export function VisibilityTool({
     }
     const heightM = units === 'imperial' ? height / M_TO_FT : height;
     const maxDistanceM = units === 'imperial' ? dist / M_TO_MI : dist * 1000;
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const dem = await resolveDemUrl([lng, lat, lng, lat]);
+      if (superseded()) return;
       if (!dem) {
         setPhase({
           step: 'error',
@@ -212,6 +231,7 @@ export function VisibilityTool({
           body: JSON.stringify({ lng, lat, heightM, maxDistanceM }),
         },
       );
+      if (superseded()) return;
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string | string[];
@@ -239,10 +259,14 @@ export function VisibilityTool({
         progress: 1,
       });
     } catch {
+      if (superseded()) return;
       setPhase({
         step: 'error',
         message: t('mapVisibility.startFailed'),
       });
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   }, [heightVal, distVal, units, resolveDemUrl, t]);
 
@@ -268,7 +292,7 @@ export function VisibilityTool({
         if (job.state === 'failed') {
           setPhase({
             step: 'error',
-            message: job.error || t('mapVisibility.jobFailed'),
+            message: job.error || tRef.current('mapVisibility.jobFailed'),
           });
         } else if (job.state === 'cancelled') {
           // Cancelled from the item page (or reclaimed after a
@@ -276,19 +300,19 @@ export function VisibilityTool({
           // would poll a terminal job forever.
           setPhase({
             step: 'error',
-            message: t('mapVisibility.jobCancelled'),
+            message: tRef.current('mapVisibility.jobCancelled'),
           });
         } else if (job.state === 'done') {
           const { item, error } = await fetchHydratedItem({
             id: targetItemId,
-            title: t('mapVisibility.resultTitle'),
+            title: tRef.current('mapVisibility.resultTitle'),
             type: 'tile_layer',
           } as Item);
           if (cancelled) return;
           if (!item) {
             setPhase({
               step: 'error',
-              message: error || t('mapVisibility.loadFailed'),
+              message: error || tRef.current('mapVisibility.loadFailed'),
             });
             return;
           }
@@ -296,7 +320,7 @@ export function VisibilityTool({
           if (built.error !== undefined) {
             setPhase({ step: 'error', message: built.error });
           } else {
-            onLayerReady(built.layer);
+            onLayerReadyRef.current(built.layer);
             setPhase({ step: 'done', title: item.title });
           }
         } else {
@@ -316,11 +340,14 @@ export function VisibilityTool({
       cancelled = true;
       window.clearInterval(timer);
     };
-    // Keyed on the running job's id: a new run re-arms the poll,
+    // Keyed on the running job's id only: a new run re-arms the poll,
     // and leaving 'running' tears it down via the cleanup.
-  }, [phase.step === 'running' ? phase.jobId : null, t, onLayerReady]);
+  }, [phase.step === 'running' ? phase.jobId : null]);
 
   function setUnitsPersist(u: Units) {
+    // Clicking the unit already in use must not convert the numbers
+    // again (6 ft became 20, then 66).
+    if (u === units) return;
     // Convert current field values so the numbers keep meaning.
     const h = Number(heightVal);
     const d = Number(distVal);
@@ -441,7 +468,8 @@ export function VisibilityTool({
                 <button
                   type="button"
                   onClick={() => void submit()}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
+                  disabled={submitting}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
                 >
                   <Eye className="h-3.5 w-3.5" />
                   {t('mapVisibility.seeVisible')}

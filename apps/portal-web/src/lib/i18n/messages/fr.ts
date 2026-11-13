@@ -2171,6 +2171,7 @@ export const fr: Partial<CatalogShape> = {
     truncatedBanner: 'Affichage de 5 000+ lignes{extent}. Zoomez{extentHint} ou filtrez pour en voir plus.',
     truncatedInExtent: " dans cette étendue",
     truncatedEnableExtent: ', activez "Dans l\'étendue",',
+    showSelectedCapped: 'Affichage des {max} premières lignes sélectionnées. Sélectionnez-en moins pour voir le reste.',
     noLayer: 'Aucune couche sélectionnée.',
     loadingFeatures: 'Chargement des entités...',
     loadFailed: 'Échec du chargement : {error}',
@@ -2320,6 +2321,7 @@ export const fr: Partial<CatalogShape> = {
       'Aucun service ne correspond. Importez des données vectorielles comme service d’entités ou enregistrez une URL REST ArcGIS comme élément de service ArcGIS pour la choisir ici.',
     portalFootnote:
       'Les services d’entités proviennent de PostGIS ; les services ArcGIS interrogent la source en direct quand vous déplacez et zoomez.',
+    listTruncated: 'Affichage des {count} premiers sur {total}. Recherchez pour affiner la liste.',
     sublayerBadge: '+{count} couches',
     sublayerBadgeTitle:
       'Ce service expose {count} sous-couches ; un clic les ajoute toutes.',
@@ -2432,6 +2434,7 @@ export const fr: Partial<CatalogShape> = {
     drawContinue:
       'Cliquez pour ajouter des points. Double-cliquez (ou Entrée) pour terminer.',
     drawAgain: 'Dessiner à nouveau',
+    emptyHint: 'Tracez une ligne sur la carte pour voir l’altitude du terrain le long de celle-ci.',
     reading: "Lecture de l'élévation du sol...",
     fromSource: 'depuis {title}',
     distance: 'Distance',

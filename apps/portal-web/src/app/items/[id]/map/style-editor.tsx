@@ -524,16 +524,14 @@ function IconPicker({
   }, [query, category]);
 
   const filteredUploads = useMemo(() => {
+    // Uploads have no category, so picking one hides them, mirroring
+    // the per-category filter on the bundled grid. The empty-search
+    // case used to short-circuit past this and always show them.
+    if (category !== 'all') return [];
     const q = query.trim().toLowerCase();
-    if (!q || category === 'all' || category === 'uploads') {
-      return uploads.filter((u) =>
-        q ? u.label.toLowerCase().includes(q) : true,
-      );
-    }
-    // When the user picks a non-"uploads" category we hide the
-    // uploaded section entirely, mirroring the per-category
-    // filter on the bundled grid.
-    return [];
+    return uploads.filter((u) =>
+      q ? u.label.toLowerCase().includes(q) : true,
+    );
   }, [uploads, query, category]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {

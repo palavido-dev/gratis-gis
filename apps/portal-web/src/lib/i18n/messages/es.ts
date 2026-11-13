@@ -2165,6 +2165,7 @@ export const es: Partial<CatalogShape> = {
     truncatedBanner: 'Mostrando 5.000+ filas{extent}. Acércate{extentHint} o filtra para ver más.',
     truncatedInExtent: ' en esta extensión',
     truncatedEnableExtent: ', activa "En la extensión",',
+    showSelectedCapped: 'Se muestran las primeras {max} filas seleccionadas. Selecciona menos para ver el resto.',
     noLayer: 'Ninguna capa seleccionada.',
     loadingFeatures: 'Cargando entidades...',
     loadFailed: 'Error al cargar: {error}',
@@ -2314,6 +2315,7 @@ export const es: Partial<CatalogShape> = {
       'No hay servicios que coincidan. Sube datos vectoriales como servicio de entidades o guarda una URL REST de ArcGIS como elemento de servicio ArcGIS para elegirla aquí.',
     portalFootnote:
       'Los servicios de entidades se transmiten desde PostGIS; los servicios ArcGIS consultan el origen en vivo al desplazarte y hacer zoom.',
+    listTruncated: 'Se muestran los primeros {count} de {total}. Busca para acotar la lista.',
     sublayerBadge: '+{count} capas',
     sublayerBadgeTitle:
       'Este servicio expone {count} subcapas; al hacer clic se añaden todas.',
@@ -2426,6 +2428,7 @@ export const es: Partial<CatalogShape> = {
     drawContinue:
       'Haz clic para añadir puntos. Doble clic (o Enter) para terminar.',
     drawAgain: 'Dibujar de nuevo',
+    emptyHint: 'Dibuja una línea en el mapa para ver la elevación del terreno a lo largo de ella.',
     reading: 'Leyendo la elevación del terreno...',
     fromSource: 'de {title}',
     distance: 'Distancia',

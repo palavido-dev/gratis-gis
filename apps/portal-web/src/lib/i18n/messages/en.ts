@@ -2304,6 +2304,7 @@ export const en = {
     truncatedBanner: 'Showing 5,000+ rows{extent}. Zoom in{extentHint} or filter to see more.',
     truncatedInExtent: ' in this extent',
     truncatedEnableExtent: ', enable "In extent",',
+    showSelectedCapped: 'Showing the first {max} selected rows. Select fewer to see the rest.',
     noLayer: 'No layer selected.',
     loadingFeatures: 'Loading features...',
     loadFailed: 'Failed to load: {error}',
@@ -2456,6 +2457,7 @@ export const en = {
       'No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here.',
     portalFootnote:
       'Feature services stream from PostGIS; ArcGIS services query the origin live as you pan and zoom.',
+    listTruncated: 'Showing the first {count} of {total}. Search to narrow the list.',
     sublayerBadge: '+{count} layers',
     sublayerBadgeTitle:
       'This service exposes {count} sublayers; clicking adds them all.',
@@ -2569,6 +2571,7 @@ export const en = {
     drawContinue:
       'Click to add points. Double-click (or press Enter) to finish.',
     drawAgain: 'Draw again',
+    emptyHint: 'Draw a line on the map to see the ground elevation along it.',
     reading: 'Reading the ground elevation...',
     fromSource: 'from {title}',
     distance: 'Distance',
