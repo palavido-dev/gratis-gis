@@ -1078,6 +1078,7 @@ export default async function ItemDetailPage(props: Props) {
           <ToolDetail
             itemId={item.id}
             initial={(item.data ?? null) as ToolItemData | null}
+            updatedAt={item.updatedAt}
             canEdit={itemCanEdit}
           />
         </section>)
