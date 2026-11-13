@@ -5336,6 +5336,8 @@ export const ptBR: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Não foi possível acessar o portal. As imagens enviadas foram mantidas; tente novamente.",
+    errRetryHttp: "Não foi possível tentar a compilação novamente (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',

@@ -108,6 +108,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   const [buildEta, setBuildEta] = useState<string | null>(null);
   const uploadedRef = useRef(new Map<string, SourceDescriptor>());
   const limitsRef = useRef<MergeCostCoefficients | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<{
     files: File[];
     endpoint: 'mosaic-build' | 'mosaic-add-sources';
@@ -167,17 +168,23 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
 
   async function retryPyramid() {
     setRetrying(true);
+    setRetryError(null);
     try {
       const res = await fetch(
         `/api/portal/items/${itemId}/tile-layer/retry-pyramid`,
         { method: 'POST', credentials: 'include' },
       );
-      if (res.ok) {
-        const body = (await res.json()) as { data?: unknown };
-        if (body.data && isTileLayerData(body.data)) {
-          setData(body.data);
-        }
+      if (!res.ok) {
+        // A refused retry used to look exactly like nothing happened.
+        setRetryError(t('tileLayerEditor.errRetryHttp', { status: res.status }));
+        return;
       }
+      const body = (await res.json()) as { data?: unknown };
+      if (body.data && isTileLayerData(body.data)) {
+        setData(body.data);
+      }
+    } catch {
+      setRetryError(t('tileLayerEditor.errNetwork'));
     } finally {
       setRetrying(false);
     }
@@ -535,7 +542,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       const sources = files
         .map((f) => uploadedRef.current.get(fileKey(f)))
         .filter((s): s is SourceDescriptor => Boolean(s));
-      await startMosaic(sources, endpoint);
+      await startMosaic(sources, endpoint, files);
     } finally {
       setUploading(false);
       setProgressLabel(null);
@@ -545,15 +552,32 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   async function startMosaic(
     sources: SourceDescriptor[],
     endpoint: 'mosaic-build' | 'mosaic-add-sources',
+    /** The picked files, when known, so a failed start can be retried
+     *  from the uploaded cache instead of leaving the page idle. */
+    files?: File[],
   ) {
-    const res = await fetch(
-      `/api/portal/items/${itemId}/tile-layer/${endpoint}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sources }),
-      },
-    );
+    const offerRetry = () => {
+      if (files) {
+        setPendingRetry({ files, endpoint, uploadedCount: sources.length });
+      }
+    };
+    let res: Response;
+    try {
+      res = await fetch(
+        `/api/portal/items/${itemId}/tile-layer/${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sources }),
+        },
+      );
+    } catch {
+      // Callers run this with `void`, so a rejection here used to be
+      // unhandled: the spinner stopped with no message and no retry.
+      setUploadError(t('tileLayerEditor.errNetwork'));
+      offerRetry();
+      return;
+    }
     if (!res.ok) {
       let msg = t('tileLayerEditor.errMosaicStartHttp', {
         status: res.status,
@@ -565,6 +589,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         /* keep fallback */
       }
       setUploadError(msg);
+      offerRetry();
       return;
     }
     const body = (await res.json()) as { humanEstimate?: unknown };
@@ -594,7 +619,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     if (sources.length === 0) return;
     setUploadError(null);
     setPendingRetry(null);
-    await startMosaic(sources, p.endpoint);
+    await startMosaic(sources, p.endpoint, p.files);
   }
 
   /** Failed-build retry over the retained sources; addedAt is
@@ -957,6 +982,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                       ? t('tileLayerEditor.retryRetrying')
                       : t('tileLayerEditor.retryTryAgain')}
                   </button>
+                ) : null}
+                {retryError ? (
+                  <p className="text-xs text-danger" role="alert">
+                    {retryError}
+                  </p>
                 ) : null}
               </div>
             ) : null}

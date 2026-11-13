@@ -5337,6 +5337,8 @@ export const es: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "No se pudo contactar con el portal. Las imágenes subidas se conservan; inténtelo de nuevo.",
+    errRetryHttp: "No se pudo reintentar la compilación (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
