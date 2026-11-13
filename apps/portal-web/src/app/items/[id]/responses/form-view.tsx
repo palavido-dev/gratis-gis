@@ -15,6 +15,11 @@ import {
 import type { FormSchema, Question } from '@gratis-gis/form-schema';
 import type { MapLayer, PickListData } from '@gratis-gis/shared-types';
 import { formatDateTime } from '@/lib/i18n/format';
+import {
+  formatTemporalAnswer,
+  labelForChoice,
+  mergeUserNames,
+} from '@/lib/form-answer-format';
 import { useLocale, useT } from '@/lib/i18n/locale-context';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 
@@ -130,7 +135,9 @@ export function FormView({
         submittedBy,
       );
     if (!looksLikeUuid) return;
-    if (userNames[submittedBy as string]) return;
+    // `in`, not truthiness: a miss is cached too (see mergeUserNames),
+    // so an id the server cannot resolve is asked for once, not forever.
+    if ((submittedBy as string) in userNames) return;
     let abort = false;
     void (async () => {
       try {
@@ -144,13 +151,9 @@ export function FormView({
           username: string;
         }>;
         if (abort) return;
-        setUserNames((prev) => {
-          const next = { ...prev };
-          for (const u of rows) {
-            next[u.id] = u.fullName?.trim() || u.username;
-          }
-          return next;
-        });
+        setUserNames((prev) =>
+          mergeUserNames(prev, [submittedBy as string], rows),
+        );
       } catch {
         /* non-fatal -- the UUID stays visible as a fallback */
       }
@@ -604,20 +607,20 @@ function renderValue(
       return <span className="italic text-muted">{noAnswerLabel}</span>;
     }
     case 'select-one':
-      return <span>{labelForCode(q, value, pickLists) ?? String(value)}</span>;
+      return <span>{labelForChoice(q, value, pickLists) ?? String(value)}</span>;
     case 'select-many': {
       const parts = Array.isArray(value)
         ? value.map(String)
         : String(value).split(',').map((s) => s.trim());
       const labels = parts.map(
-        (v) => labelForCode(q, v, pickLists) ?? v,
+        (v) => labelForChoice(q, v, pickLists) ?? v,
       );
       return <span>{labels.join(', ')}</span>;
     }
     case 'date':
     case 'time':
     case 'datetime':
-      return <span>{formatDateTime(String(value), locale)}</span>;
+      return <span>{formatTemporalAnswer(q.type, value, locale)}</span>;
     case 'photo':
     case 'video':
     case 'audio':
@@ -722,30 +725,3 @@ function InlineAttachmentList({
     </div>
   );
 }
-
-function labelForCode(
-  q: Question,
-  code: unknown,
-  pickLists: Record<string, PickListData>,
-): string | null {
-  if (
-    !('options' in q) &&
-    !('pickListItemId' in (q as { pickListItemId?: unknown }))
-  ) {
-    return null;
-  }
-  const inline = (q as { options?: Array<{ code: string; label: string }> })
-    .options;
-  if (Array.isArray(inline)) {
-    const hit = inline.find((o) => o.code === String(code));
-    if (hit) return hit.label;
-  }
-  const pickListId = (q as { pickListItemId?: string }).pickListItemId;
-  if (pickListId && pickLists[pickListId]) {
-    const pl = pickLists[pickListId]!;
-    const hit = pl.entries.find((v) => v.code === String(code));
-    if (hit) return hit.label;
-  }
-  return null;
-}
-
