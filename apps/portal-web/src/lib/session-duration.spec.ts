@@ -21,6 +21,14 @@ describe('session duration', () => {
     expect(sessionIdleSeconds(undefined)).toBeNull();
     expect(sessionIdleSeconds('')).toBeNull();
     expect(sessionIdleSeconds('3600')).toBe(3600);
-    expect(sessionIdleSeconds('10')).toBeNull();
+  });
+
+  it('clamps an idle value that is set but out of range, instead of turning it off (54-6)', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(sessionIdleSeconds('600')).toBe(15 * 60);
+    expect(sessionIdleSeconds('10m')).toBe(15 * 60);
+    expect(sessionIdleSeconds(String(400 * 24 * 60 * 60))).toBe(DEFAULT_SESSION_MAX_AGE_SECONDS);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

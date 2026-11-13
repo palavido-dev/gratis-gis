@@ -55,6 +55,44 @@ describe('data layer source zoom', () => {
     expect(dataLayerSourceZoom({ itemId: 'i', layerKey: 'a' })).toEqual(DEFAULT_SOURCE_ZOOM);
   });
 
+  it('retries a failed TileJSON read instead of keeping the default for good (54-7)', async () => {
+    const t0 = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const onChange = jest.fn();
+    const failing = fakeFetch({}, false);
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'a' }], onChange, failing);
+    await flush();
+    await flush();
+    // Right away: not hammered.
+    const ok = fakeFetch({ minzoom: 0, maxzoom: 14 });
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'a' }], onChange, ok);
+    expect(ok).not.toHaveBeenCalled();
+    // A little later: read again, and the real range arrives.
+    now.mockReturnValue(t0 + 20_000);
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'a' }], onChange, ok);
+    await flush();
+    await flush();
+    expect(dataLayerSourceZoom({ itemId: 'i', layerKey: 'a' }).maxzoom).toBe(14);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    now.mockRestore();
+  });
+
+  it('reads the range again after a minute, so changed tile settings show up', async () => {
+    const t0 = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const onChange = jest.fn();
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'a' }], onChange, fakeFetch({ maxzoom: 16 }));
+    await flush();
+    await flush();
+    now.mockReturnValue(t0 + 61_000);
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'a' }], onChange, fakeFetch({ maxzoom: 12 }));
+    await flush();
+    await flush();
+    expect(dataLayerSourceZoom({ itemId: 'i', layerKey: 'a' }).maxzoom).toBe(12);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    now.mockRestore();
+  });
+
   it('reads TileJSON zooms defensively', () => {
     expect(tileJsonSourceZoom({ minzoom: 3, maxzoom: 30 })).toEqual({ minzoom: 3, maxzoom: 24 });
     expect(tileJsonSourceZoom({ minzoom: 'x' })).toEqual(DEFAULT_SOURCE_ZOOM);
