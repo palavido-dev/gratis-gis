@@ -152,6 +152,15 @@ export function backgroundImageId(
  * tall viewBox and no width or height, and a browser then lays them
  * out in a 300 x 150 box, which stretched them when drawn square.
  */
+const SVG_UNIT_PX: Record<string, number> = {
+  px: 1,
+  pt: 96 / 72,
+  pc: 16,
+  mm: 96 / 25.4,
+  cm: 96 / 2.54,
+  in: 96,
+};
+
 export function svgIntrinsicSize(
   svg: string,
 ): { width: number; height: number } | null {
@@ -164,10 +173,16 @@ export function svgIntrinsicSize(
       return { width: parts[2]!, height: parts[3]! };
     }
   }
+  // Absolute CSS units, in px. With no viewBox the drawing's user units
+  // are px, so a `24pt` wide root holds a 32 px wide drawing. Relative
+  // units (%, em) have no size of their own here and give null.
   const num = (attr: string): number | null => {
-    const v = new RegExp(`\\b${attr}\\s*=\\s*["']\\s*([0-9.]+)(px)?\\s*["']`, 'i')
-      .exec(root)?.[1];
-    const n = v ? Number(v) : NaN;
+    const m = new RegExp(
+      `\\b${attr}\\s*=\\s*["']\\s*([0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)\\s*(px|pt|pc|mm|cm|in)?\\s*["']`,
+      'i',
+    ).exec(root);
+    if (!m) return null;
+    const n = Number(m[1]) * SVG_UNIT_PX[(m[2] ?? 'px').toLowerCase()]!;
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   const w = num('width');
@@ -180,13 +195,20 @@ export function svgIntrinsicSize(
  * its aspect ratio, with the long side at `px`. The browser then
  * reports a true natural size, and the rasterizer can fit it into
  * the icon box without distortion.
+ *
+ * When no size can be worked out (no viewBox and no absolute width and
+ * height) the SVG is returned unchanged with width and height 0, and
+ * the caller uses the loaded image's natural size. Guessing 1 x 1 here
+ * used to add `viewBox="0 0 1 1"`, which drew only the top-left corner
+ * of the icon.
  */
 export function sizeSvgForRaster(svg: string, px: number): {
   svg: string;
   width: number;
   height: number;
 } {
-  const intrinsic = svgIntrinsicSize(svg) ?? { width: 1, height: 1 };
+  const intrinsic = svgIntrinsicSize(svg);
+  if (!intrinsic) return { svg, width: 0, height: 0 };
   const box = containRect(intrinsic.width, intrinsic.height, px, px);
   const width = Math.max(1, Math.round(box.w));
   const height = Math.max(1, Math.round(box.h));

@@ -132,6 +132,25 @@ describe('svgIntrinsicSize and sizeSvgForRaster', () => {
     expect(out.svg).toContain('<path d="M0 0"/>');
   });
 
+  it('reads absolute units as px (53-9)', () => {
+    expect(svgIntrinsicSize('<svg width="24pt" height="12pt"></svg>')).toEqual({
+      width: 32,
+      height: 16,
+    });
+    expect(svgIntrinsicSize('<svg width="1in" height=".5in"></svg>')).toEqual({
+      width: 96,
+      height: 48,
+    });
+    const out = sizeSvgForRaster('<svg width="24pt" height="24pt"><path d="M0 0"/></svg>', 96);
+    expect(out.svg).toContain('viewBox="0 0 32 32"');
+  });
+
+  it('leaves an SVG with no usable size alone instead of guessing 1 x 1 (53-9)', () => {
+    const svg = '<svg width="2em" height="2em"><path d="M0 0"/></svg>';
+    const out = sizeSvgForRaster(svg, 96);
+    expect(out).toEqual({ svg, width: 0, height: 0 });
+  });
+
   it('adds a viewBox when only width and height were given', () => {
     const out = sizeSvgForRaster('<svg width="24" height="24"><circle r="1"/></svg>', 96);
     expect(out.svg).toContain('width="96" height="96" viewBox="0 0 24 24"');

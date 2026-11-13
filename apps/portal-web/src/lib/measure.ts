@@ -165,6 +165,7 @@ export function terrainSurfaceAreaSquareMeters(
 
   const n = Math.max(4, Math.min(64, Math.floor(gridSize)));
   let area = 0;
+  let flat = 0;
   let samples = 0;
   for (let iy = 0; iy < n; iy += 1) {
     for (let ix = 0; ix < n; ix += 1) {
@@ -193,12 +194,19 @@ export function terrainSurfaceAreaSquareMeters(
       }
       if (missing) continue;
       const p = corners.map(([lng, lat], i) => toEnu(lng, lat, zs[i]!));
+      const q = corners.map(([lng, lat]) => toEnu(lng, lat, 0));
       area += triArea(p[0]!, p[1]!, p[2]!) + triArea(p[0]!, p[2]!, p[3]!);
+      flat += triArea(q[0]!, q[1]!, q[2]!) + triArea(q[0]!, q[2]!, q[3]!);
       samples += 1;
     }
   }
-  if (samples === 0) return null;
-  return area;
+  if (samples === 0 || !(flat > 0)) return null;
+  // Whole grid cells only approximate the ring's outline (a cell on the
+  // edge counts fully or not at all), and a cell with no elevation is
+  // skipped. Both errors were as large as the slope effect itself and
+  // could put the "ground" area below the flat area on level land. The
+  // cells are used for the slope ratio only; the flat area is exact.
+  return ringAreaSquareMeters(points) * (area / flat);
 }
 
 /**

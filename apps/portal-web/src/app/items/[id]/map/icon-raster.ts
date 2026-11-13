@@ -57,7 +57,13 @@ export async function rasterizeSvgIcon(svg: string): Promise<ImageData> {
     new Blob([sized.svg], { type: 'image/svg+xml;charset=utf-8' }),
   );
   try {
-    return drawContained(img, sized.width, sized.height);
+    // No size from the markup: use what the browser loaded, and the
+    // icon box if even that is unknown.
+    return drawContained(
+      img,
+      sized.width || img.naturalWidth || ICON_RASTER_PX,
+      sized.height || img.naturalHeight || ICON_RASTER_PX,
+    );
   } finally {
     done();
   }
