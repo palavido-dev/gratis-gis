@@ -140,3 +140,32 @@ export function bboxWriteForData(
   if (next === null && hasDerivedExtent(type)) return {};
   return { bbox: next ?? [] };
 }
+
+/**
+ * The envelope(s) an area search matches against, in -180..180.
+ *
+ * A map framed across the antimeridian (a view from 170 to 190) hands
+ * back unwrapped longitudes, and a planar `&&` against
+ * ST_MakeEnvelope(170, .., 190, ..) never matches an item stored at
+ * -175. Such a box is split into its two halves; a span of a full
+ * turn or more becomes the whole world.
+ */
+export function searchEnvelopes(
+  bbox: [number, number, number, number],
+  bufferDeg: number,
+): Array<[number, number, number, number]> {
+  let w = bbox[0] - bufferDeg;
+  let e = bbox[2] + bufferDeg;
+  const s = Math.max(-90, bbox[1] - bufferDeg);
+  const n = Math.min(90, bbox[3] + bufferDeg);
+  if (!(e - w < 360)) return [[-180, s, 180, n]];
+  // Shift so the west edge lands in [-180, 180).
+  const shift = Math.floor((w + 180) / 360) * 360;
+  w -= shift;
+  e -= shift;
+  if (e <= 180) return [[w, s, e, n]];
+  return [
+    [w, s, 180, n],
+    [-180, s, e - 360, n],
+  ];
+}

@@ -3,7 +3,7 @@
 
 import { useFormat } from '@/lib/i18n/format';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -138,6 +138,10 @@ type TranslateFn = (
  *  Used both to ask for explicit pages and as the "batch came back
  *  exactly full, there may be more" heuristic. */
 const LIST_PAGE_SIZE = 500;
+// The area filter pages through the list endpoint at its largest
+// page size, up to a bound so a whole-world box cannot spin.
+const AREA_PAGE_SIZE = 1000;
+const AREA_MAX_PAGES = 5;
 
 /**
  * The list endpoint strips data_json by default and instead
@@ -628,25 +632,46 @@ export function ItemsView({
     setTagFilter(new Set());
   }
 
+  // Bumped by every area request and by Clear area; see applyAreaSearch.
+  const areaSeqRef = useRef(0);
+
   async function applyAreaSearch(
     bbox: [number, number, number, number],
     bufferKm: number,
   ) {
+    // Only the newest request may paint. A slower earlier response,
+    // or one that lands after "Clear area", is dropped.
+    const seq = ++areaSeqRef.current;
     setSpatialBusy(true);
     setSpatialError(null);
     try {
-      const params = new URLSearchParams();
-      params.set('bbox', bbox.join(','));
-      if (bufferKm > 0) params.set('buffer', String(bufferKm));
-      const res = await fetch(`/api/portal/items?${params.toString()}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${res.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      // Same scope and search text as the list itself, so the area
+      // filter narrows what is shown instead of swapping in every
+      // visible org item. Paged, because one page stops at the
+      // server's default size.
+      const next: ItemWithShares[] = [];
+      for (let page = 0; page < AREA_MAX_PAGES; page += 1) {
+        const params = listScopeParams();
+        // Inside a folder the list is the folder's contents, whoever
+        // owns them; the scope tabs do not apply there.
+        if (activeFolder) params.delete('mine');
+        params.set('bbox', bbox.join(','));
+        if (bufferKm > 0) params.set('buffer', String(bufferKm));
+        params.set('limit', String(AREA_PAGE_SIZE));
+        params.set('offset', String(page * AREA_PAGE_SIZE));
+        const res = await fetch(`/api/portal/items?${params.toString()}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const msg =
+            (body as { message?: string | string[] }).message ??
+            `HTTP ${res.status}`;
+          throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+        }
+        const batch = (await res.json()) as ItemWithShares[];
+        next.push(...batch);
+        if (batch.length < AREA_PAGE_SIZE || seq !== areaSeqRef.current) break;
       }
-      const next = (await res.json()) as ItemWithShares[];
+      if (seq !== areaSeqRef.current) return;
       // Same lite-row shim the main list applies; spatial results
       // come from the same endpoint and ship without data_json.
       setSpatialItems(next.map(withListTemplateShim));
@@ -661,13 +686,17 @@ export function ItemsView({
       // Leave the panel mounted; the user closes it explicitly via
       // the X / Cancel button when they're done.
     } catch (e) {
+      if (seq !== areaSeqRef.current) return;
       setSpatialError(e instanceof Error ? e.message : t('items.searchFailed'));
     } finally {
-      setSpatialBusy(false);
+      if (seq === areaSeqRef.current) setSpatialBusy(false);
     }
   }
 
   function clearAreaSearch() {
+    // Invalidate any request still in flight.
+    areaSeqRef.current += 1;
+    setSpatialBusy(false);
     setSpatialActive(null);
     setSpatialItems(null);
     setSpatialError(null);
@@ -680,26 +709,33 @@ export function ItemsView({
    * merge absorbs rows that shift across page boundaries when
    * something is edited mid-paging.
    */
+  /** The list's scope and search text as query params, matching the
+   *  server component's own query. */
+  function listScopeParams(): URLSearchParams {
+    const params = new URLSearchParams();
+    const scopeParam = searchParams?.get('scope');
+    const legacyMine = searchParams?.get('mine');
+    const scopeIsMine =
+      scopeParam === 'all'
+        ? false
+        : scopeParam === 'mine'
+          ? true
+          : legacyMine === 'true'
+            ? true
+            : legacyMine === 'false'
+              ? false
+              : true;
+    if (scopeIsMine) params.set('mine', 'true');
+    const q = searchParams?.get('q');
+    if (q) params.set('q', q);
+    return params;
+  }
+
   async function loadMoreItems() {
     setLoadingMore(true);
     setLoadMoreError(null);
     try {
-      const params = new URLSearchParams();
-      const scopeParam = searchParams?.get('scope');
-      const legacyMine = searchParams?.get('mine');
-      const scopeIsMine =
-        scopeParam === 'all'
-          ? false
-          : scopeParam === 'mine'
-            ? true
-            : legacyMine === 'true'
-              ? true
-              : legacyMine === 'false'
-                ? false
-                : true;
-      if (scopeIsMine) params.set('mine', 'true');
-      const q = searchParams?.get('q');
-      if (q) params.set('q', q);
+      const params = listScopeParams();
       params.set('limit', String(LIST_PAGE_SIZE));
       params.set('offset', String(serverItems.length + extraItems.length));
       const res = await fetch(`/api/portal/items?${params.toString()}`);

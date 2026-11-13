@@ -78,9 +78,14 @@ export function AreaSearchPanel({
 
     // Fit to seed bbox if we have one. Padding keeps the bbox edges
     // off the canvas border so the user sees a bit of context.
+    // The seed fit fires a moveend of its own. Applying that would
+    // widen the filter to the padded view on every reopen, so the
+    // first moveend after the seed is skipped.
+    let skipNextMoveEnd = false;
     if (initialBbox) {
       const [w, s, e, n] = initialBbox;
       map.once('load', () => {
+        skipNextMoveEnd = true;
         map.fitBounds(
           [
             [w, s],
@@ -94,12 +99,15 @@ export function AreaSearchPanel({
     // #86: live area filter. As the user pans / zooms, fire onApply
     // with the new viewport so the items list updates without a
     // separate "Use this area" click. Debounced ~350ms so a drag
-    // settles before the parent fetches; the existing parent-side
-    // logic cancels in-flight requests when a newer apply
-    // supersedes them, so out-of-order responses can't paint stale
-    // results.
+    // settles before the parent fetches; the parent ignores any
+    // response a newer apply (or a clear) has superseded, so
+    // out-of-order responses can't paint stale results.
     let debounceHandle: number | null = null;
     const onMoveEnd = () => {
+      if (skipNextMoveEnd) {
+        skipNextMoveEnd = false;
+        return;
+      }
       if (debounceHandle !== null) window.clearTimeout(debounceHandle);
       debounceHandle = window.setTimeout(() => {
         const m = mapRef.current;
