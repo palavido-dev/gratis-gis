@@ -5849,6 +5849,8 @@ export const de: Partial<CatalogShape> = {
     saving: "Wird gespeichert...",
     saved: "Gespeichert",
     saveFailed: "Speichern fehlgeschlagen.",
+    reprobeBeforeSave: "Prüfen Sie die neue URL vor dem Speichern. Die Layer-Liste stammt aus der Prüfung.",
+    pickAtLeastOneLayer: "Wählen Sie vor dem Speichern mindestens einen Layer aus.",
     selectAll: "Alle auswählen",
     selectAllShort: "Alle",
     selectNoneShort: "Keine",

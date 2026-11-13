@@ -5840,6 +5840,8 @@ export const fr: Partial<CatalogShape> = {
     saving: "Enregistrement...",
     saved: "Enregistré",
     saveFailed: "Échec de l'enregistrement.",
+    reprobeBeforeSave: "Sondez la nouvelle URL avant d'enregistrer. La liste des couches provient du sondage.",
+    pickAtLeastOneLayer: "Choisissez au moins une couche avant d'enregistrer.",
     selectAll: "Tout sélectionner",
     selectAllShort: "Toutes",
     selectNoneShort: "Aucune",

@@ -5830,6 +5830,8 @@ export const ptBR: Partial<CatalogShape> = {
     saving: "Salvando...",
     saved: "Salvo",
     saveFailed: "Falha ao salvar.",
+    reprobeBeforeSave: "Sonde a nova URL antes de salvar. A lista de camadas vem da sondagem.",
+    pickAtLeastOneLayer: "Escolha pelo menos uma camada antes de salvar.",
     selectAll: "Selecionar tudo",
     selectAllShort: "Todas",
     selectNoneShort: "Nenhuma",

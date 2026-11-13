@@ -5831,6 +5831,8 @@ export const es: Partial<CatalogShape> = {
     saving: "Guardando...",
     saved: "Guardado",
     saveFailed: "No se pudo guardar.",
+    reprobeBeforeSave: "Sondee la nueva URL antes de guardar. La lista de capas proviene del sondeo.",
+    pickAtLeastOneLayer: "Elija al menos una capa antes de guardar.",
     selectAll: "Seleccionar todo",
     selectAllShort: "Todas",
     selectNoneShort: "Ninguna",

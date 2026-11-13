@@ -5996,6 +5996,8 @@ export const en = {
     saving: 'Saving...',
     saved: 'Saved',
     saveFailed: 'Save failed.',
+    reprobeBeforeSave: "Probe the new URL before saving. Its layer list comes from the probe.",
+    pickAtLeastOneLayer: "Pick at least one layer before saving.",
     selectAll: 'Select all',
     selectAllShort: 'All',
     selectNoneShort: 'None',

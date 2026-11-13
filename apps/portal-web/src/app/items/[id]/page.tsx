@@ -1048,6 +1048,7 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
+                  updatedAt={item.updatedAt}
                   canEdit={itemCanEdit}
                 />
               );
@@ -1270,6 +1271,7 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
+                  updatedAt={item.updatedAt}
                   canEdit={itemCanEdit}
                 />
               );
@@ -1304,6 +1306,7 @@ export default async function ItemDetailPage(props: Props) {
               <ServiceEditor
                 itemId={item.id}
                 initial={sd}
+                updatedAt={item.updatedAt}
                 canEdit={itemCanEdit}
               />
             );
