@@ -329,14 +329,11 @@ export function layersFromMetaUi(
         'layerKey' in l.source &&
         l.source.layerKey === opts.layerKey,
     );
-    if (!match) {
-      return {
-        error: opts.t('addToMap.layerGone', {
-          item: opts.itemTitle,
-          layerKey: opts.layerKey,
-        }),
-      };
-    }
+    // meta.ui lists only sublayers with geometry, so a missing key may
+    // be a table rather than a deleted layer. Fall through to the
+    // local builder, which tells "this table has no shapes" apart
+    // from "this layer no longer exists".
+    if (!match) return null;
     return { layers: [makeLayer(match.title, match.source)] };
   }
   if (ui.layers.length === 1) {

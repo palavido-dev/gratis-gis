@@ -146,6 +146,14 @@ export class DrawingsService {
       color?: string;
       visible?: boolean;
       features?: DrawingFeature[];
+      /**
+       * Features to add to the set as stored under the lock. A client
+       * that sent the whole array built from its own copy lost
+       * features: two pins dropped in quick succession were both
+       * built from the same base, so the second PATCH erased the
+       * first, and an editor's stale page erased a reviewer's pins.
+       */
+      appendFeatures?: DrawingFeature[];
     },
   ): Promise<DrawingSet> {
     const { data, item } = await this.loadMapForWrite(author, mapId);
@@ -159,6 +167,24 @@ export class DrawingsService {
       const idx = sets.findIndex((s) => s.id === drawingId);
       if (idx < 0) throw new NotFoundException('Drawing set not found');
       const existing = sets[idx]!;
+      const baseFeatures = Array.isArray(patch.features)
+        ? sanitizeFeatures(patch.features)
+        : existing.features;
+      let features: DrawingFeature[] | null = Array.isArray(patch.features)
+        ? baseFeatures
+        : null;
+      if (Array.isArray(patch.appendFeatures) && patch.appendFeatures.length > 0) {
+        const added = sanitizeFeatures(patch.appendFeatures);
+        const known = new Set(baseFeatures.map((f) => f.id));
+        // A retried append must not add the same feature twice.
+        const fresh = added.filter((f) => !known.has(f.id));
+        if (baseFeatures.length + fresh.length > MAX_FEATURES_PER_SET) {
+          throw new BadRequestException(
+            `A markup set holds at most ${MAX_FEATURES_PER_SET} features.`,
+          );
+        }
+        features = [...baseFeatures, ...fresh];
+      }
       const updated: DrawingSet = {
         ...existing,
         ...(typeof patch.title === 'string'
@@ -170,9 +196,7 @@ export class DrawingsService {
         ...(typeof patch.visible === 'boolean'
           ? { visible: patch.visible }
           : {}),
-        ...(Array.isArray(patch.features)
-          ? { features: sanitizeFeatures(patch.features) }
-          : {}),
+        ...(features !== null ? { features } : {}),
         updatedAt: new Date().toISOString(),
       };
       const nextSets = sets.slice();
@@ -262,9 +286,21 @@ export class DrawingsService {
       if (!locked) throw new NotFoundException('Map not found');
       const out = change((locked.data ?? {}) as MapDataLike);
       if (out === null) return undefined as T;
+      // Keep the item's version where it was. Markup is not an edit of
+      // the map, and a map builder open on this item guards its Save
+      // with the updatedAt it loaded; letting every markup write bump
+      // it made that Save fail as "changed elsewhere" until a reload
+      // threw the unsaved work away. A map Save never overwrites
+      // markup anyway: it carries the stored sets over under the same
+      // lock (carryMapDrawingsFrom).
       await tx.item.update({
         where: { id: mapId },
-        data: { data: out.data as object },
+        data: {
+          data: out.data as object,
+          ...(Number.isFinite(locked.updatedAtMs)
+            ? { updatedAt: new Date(locked.updatedAtMs) }
+            : {}),
+        },
       });
       return out.result;
     });

@@ -49,6 +49,27 @@ import {
 } from '@/lib/api-error';
 import { clientUuid } from '@/lib/uuid';
 import { dataLayerSublayers } from '@/lib/data-layer-sublayers';
+import { fetchAllPages } from '@/lib/fetch-all-pages';
+
+/**
+ * Item types the dialog can add to a map, shared by the Items list,
+ * the group drill-in and the folder rows. The three used to keep
+ * their own lists, and the group and folder ones were not updated
+ * when derived layers, point clouds and imagery became addable.
+ */
+const ADDABLE_PORTAL_TYPES = [
+  'data_layer',
+  'derived_layer',
+  'arcgis_service',
+  'service',
+  'wms_service',
+  'wfs_service',
+  'point_cloud',
+  'tile_layer',
+] as const;
+const ADDABLE_PORTAL_TYPE_SET: ReadonlySet<string> = new Set(
+  ADDABLE_PORTAL_TYPES,
+);
 
 interface Props {
   open: boolean;
@@ -199,6 +220,17 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [portalViewMode, setPortalViewMode] = useState<PortalViewMode>('items');
   const [portalQ, setPortalQ] = useState('');
   const [portalItems, setPortalItems] = useState<Item[]>([]);
+  // Total count when the Items list was cut at the fetch cap.
+  const [portalTotal, setPortalTotal] = useState<number | null>(null);
+  // A portal pick that still has to load its item. The sequence moves
+  // on when the dialog closes, which abandons any pick in flight.
+  const pickPendingRef = useRef(false);
+  const pickSeqRef = useRef(0);
+  useEffect(() => {
+    if (open) return;
+    pickSeqRef.current += 1;
+    pickPendingRef.current = false;
+  }, [open]);
   const [portalFolders, setPortalFolders] = useState<Item[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   // Groups view state: list of groups visible to the user, plus the
@@ -324,22 +356,27 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           // #179 unit 3: point_cloud items are addable as 3D layers.
           // #185: tile_layer items (uploaded imagery, analysis
           // results like hillshades) are addable as image overlays.
-          type:
-            'data_layer,derived_layer,arcgis_service,service,wms_service,wfs_service,point_cloud,tile_layer',
+          type: ADDABLE_PORTAL_TYPES.join(','),
           lite: '1',
         });
         if (q) qs.set('q', q);
-        const res = await fetch(`/api/portal/items?${qs}`, {
+        // Read past the server's default page of 500 (up to a cap),
+        // and say so when the org has more than the cap.
+        const all = await fetchAllPages<Item>(`/api/portal/items?${qs}`, {
           signal: controller.signal,
         });
-        if (!res.ok) {
+        if (!all.ok) {
           // eslint-disable-next-line no-console
-          console.warn('[portal] fetch failed:', res.status);
-          if (!cancelled) setPortalItems([]);
+          console.warn('[portal] fetch failed');
+          if (!cancelled) {
+            setPortalItems([]);
+            setPortalTotal(null);
+          }
           return;
         }
-        const items = (await res.json()) as Item[];
+        const items = all.rows;
         if (cancelled) return;
+        setPortalTotal(all.truncated ? all.total : null);
         items.sort((a, b) => {
           const at = new Date(a.updatedAt ?? 0).getTime();
           const bt = new Date(b.updatedAt ?? 0).getTime();
@@ -377,11 +414,15 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         // folders + drill-in children. Folders are tiny rows; the
         // payload cost is negligible vs the data_layer / arcgis_service
         // list we lite-mode for.
-        const res = await fetch('/api/portal/items?type=folder&full=1', {
-          signal: controller.signal,
-        });
-        if (!res.ok || cancelled) return;
-        const folders = (await res.json()) as Item[];
+        // Every page: root folders are worked out from the whole
+        // list, so a parent missing from a partial list would show
+        // its child as a root.
+        const all = await fetchAllPages<Item>(
+          '/api/portal/items?type=folder&full=1',
+          { signal: controller.signal, maxRows: 10_000 },
+        );
+        if (!all.ok || cancelled) return;
+        const folders = all.rows;
         folders.sort((a, b) => a.title.localeCompare(b.title));
         if (!cancelled) setPortalFolders(folders);
       } catch (err) {
@@ -438,21 +479,20 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           // Same expansion as the items-view filter: include the
           // unified `service` type and the legacy OGC types
           // (#304 slice 5).
-          type:
-            'data_layer,arcgis_service,service,wms_service,wfs_service',
+          type: ADDABLE_PORTAL_TYPES.join(','),
           lite: '1',
           sharedWithGroupId: selectedGroup.id,
         });
         const q = portalQ.trim();
         if (q) qs.set('q', q);
-        const res = await fetch(`/api/portal/items?${qs}`, {
+        const all = await fetchAllPages<Item>(`/api/portal/items?${qs}`, {
           signal: controller.signal,
         });
-        if (!res.ok || cancelled) {
+        if (!all.ok || cancelled) {
           if (!cancelled) setGroupItems([]);
           return;
         }
-        const items = (await res.json()) as Item[];
+        const items = all.rows;
         if (!cancelled) setGroupItems(items);
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
@@ -683,9 +723,19 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    * just `itemId` to the layer source) so they skip the hydrate.
    */
   function pickPortalItem(item: Item) {
-    void Promise.resolve(submitPortalItem(item)).catch((err) => {
-      setErrorState(presentClientFailure(t('mapAddLayer.errors.addFailed'), err));
-    });
+    // One pick at a time. Rows stay clickable while an item loads, so
+    // a double-click used to add the layer twice.
+    if (pickPendingRef.current) return;
+    pickPendingRef.current = true;
+    const seq = pickSeqRef.current;
+    void Promise.resolve(submitPortalItem(item))
+      .catch((err) => {
+        if (seq !== pickSeqRef.current) return;
+        setErrorState(presentClientFailure(t('mapAddLayer.errors.addFailed'), err));
+      })
+      .finally(() => {
+        if (seq === pickSeqRef.current) pickPendingRef.current = false;
+      });
   }
 
   async function submitPortalItem(item: Item) {
@@ -1008,8 +1058,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    */
   /** Shared fetch with the dialog's error-state plumbing attached. */
   async function hydratePortalItem(item: Item): Promise<Item | null> {
+    const seq = pickSeqRef.current;
     const { item: hydrated, error: loadError, failure } =
       await fetchHydratedItem(item);
+    // The dialog closed (or was reopened) while the item loaded: drop
+    // the result instead of adding a layer nobody is waiting for.
+    if (seq !== pickSeqRef.current) return null;
     if (!hydrated) {
       const summary = t('mapAddLayer.errors.loadItemFailed', {
         title: item.title,
@@ -1536,11 +1590,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                               <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
                             </button>
                           </li>
-                        ) : item.type === 'data_layer' ||
-                          item.type === 'arcgis_service' ||
-                          item.type === 'service' ||
-                          item.type === 'wms_service' ||
-                          item.type === 'wfs_service' ? (
+                        ) : ADDABLE_PORTAL_TYPE_SET.has(item.type) ? (
                           <PortalItemRow
                             key={item.id}
                             item={item}
@@ -1601,6 +1651,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 />
                 )
               )}
+              {portalViewMode === 'items' && !portalLoading && portalTotal !== null ? (
+                <p className="text-2xs text-warn">
+                  {t('mapAddLayer.listTruncated', {
+                    count: portalItems.length,
+                    total: portalTotal,
+                  })}
+                </p>
+              ) : null}
               <p className="text-2xs text-muted">
                 {t('mapAddLayer.portalFootnote')}
               </p>

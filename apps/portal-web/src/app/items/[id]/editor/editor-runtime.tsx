@@ -76,6 +76,7 @@ import {
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
 import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { useT } from '@/lib/i18n/locale-context';
+import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -2528,11 +2529,16 @@ export function EditorRuntime({
               setTableOpen(true);
             }}
             onZoomToLayer={(layerId) => {
+              // Editor targets are v3 sublayers; the server knows
+              // their extent. Other layers here have no zoom source.
               const layer = mapData.layers.find((l) => l.id === layerId);
-              const bbox = layer
-                ? null /* MapCanvas doesn't expose a bbox helper here yet */
+              const url = layer
+                ? layerExtentUrl(layer.source, layer.filter)
                 : null;
-              if (bbox) canvasRef.current?.zoomTo(bbox);
+              if (!url) return;
+              void fetchLayerExtent(url).then((bbox) => {
+                if (bbox) canvasRef.current?.zoomTo(bbox);
+              });
             }}
             onChange={onLayersChange}
             showAddLayer={false}
@@ -3464,6 +3470,9 @@ export function EditorRuntime({
                   ...(r.kind === 'feature'
                     ? {
                         layerId: r.layerId,
+                        ...(r.feature.id !== undefined
+                          ? { featureId: r.feature.id }
+                          : {}),
                         featureProps: (r.feature.properties ?? {}) as Record<
                           string,
                           unknown

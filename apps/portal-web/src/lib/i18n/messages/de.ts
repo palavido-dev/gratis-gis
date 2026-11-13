@@ -2168,6 +2168,7 @@ export const de: Partial<CatalogShape> = {
     truncatedBanner: 'Es werden 5.000+ Zeilen{extent} angezeigt. Zoomen Sie hinein{extentHint} oder filtern Sie, um mehr zu sehen.',
     truncatedInExtent: ' in diesem Ausschnitt',
     truncatedEnableExtent: ', aktivieren Sie „Im Ausschnitt“,',
+    showSelectedCapped: 'Es werden die ersten {max} ausgewählten Zeilen angezeigt. Wählen Sie weniger aus, um den Rest zu sehen.',
     noLayer: 'Keine Ebene ausgewählt.',
     loadingFeatures: 'Features werden geladen...',
     loadFailed: 'Laden fehlgeschlagen: {error}',
@@ -2317,6 +2318,7 @@ export const de: Partial<CatalogShape> = {
       'Keine passenden Dienste. Laden Sie Vektordaten als Feature-Service hoch oder speichern Sie eine ArcGIS-REST-URL als ArcGIS-Service-Element, um sie hier zu wählen.',
     portalFootnote:
       'Feature-Services streamen aus PostGIS; ArcGIS-Dienste fragen die Quelle live ab, wenn Sie schwenken und zoomen.',
+    listTruncated: 'Es werden die ersten {count} von {total} angezeigt. Suchen Sie, um die Liste einzugrenzen.',
     sublayerBadge: '+{count} Ebenen',
     sublayerBadgeTitle:
       'Dieser Dienst stellt {count} Unterebenen bereit; ein Klick fügt alle hinzu.',
@@ -2429,6 +2431,7 @@ export const de: Partial<CatalogShape> = {
     drawContinue:
       'Klicken Sie, um Punkte hinzuzufügen. Doppelklick (oder Enter) zum Beenden.',
     drawAgain: 'Erneut zeichnen',
+    emptyHint: 'Zeichnen Sie eine Linie auf der Karte, um die Geländehöhe entlang der Linie zu sehen.',
     reading: 'Geländehöhe wird gelesen...',
     fromSource: 'von {title}',
     distance: 'Distanz',

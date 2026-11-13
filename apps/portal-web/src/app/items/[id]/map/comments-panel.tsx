@@ -26,7 +26,7 @@ import { useT } from '@/lib/i18n/locale-context';
  *     can view the map (R2-comments-mentions). Unknown handles stay
  *     literal text.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronDown,
@@ -139,6 +139,28 @@ export function CommentsPanel({
     if (showResolved) return threads;
     return threads.filter((th) => !th.resolved);
   }, [threads, showResolved]);
+
+  // A deep link or pin click names a thread; make sure it is listed
+  // and in view. A resolved thread was filtered out unless "show
+  // resolved" happened to be on, and the list did not scroll, so the
+  // mention email link could open the panel with the thread nowhere.
+  const focusedThreadResolved = threads.some(
+    (th) => th.id === focusThreadId && th.resolved,
+  );
+  useEffect(() => {
+    if (focusedThreadResolved) setShowResolved(true);
+  }, [focusedThreadResolved]);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  useEffect(() => {
+    if (!open || !focusThreadId) return;
+    const items = listRef.current?.children ?? [];
+    for (const el of Array.from(items)) {
+      if ((el as HTMLElement).dataset['threadId'] === focusThreadId) {
+        el.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+    }
+  }, [open, focusThreadId, visibleThreads]);
 
   const startThread = useCallback(async () => {
     if (!currentUser) return;
@@ -313,10 +335,11 @@ export function CommentsPanel({
               : t('mapComments.emptyResolved')}
           </p>
         ) : (
-          <ul className="space-y-3">
+          <ul ref={listRef} className="space-y-3">
             {visibleThreads.map((thread) => (
               <li
                 key={thread.id}
+                data-thread-id={thread.id}
                 className={`rounded border px-2 py-2 ${
                   focusThreadId === thread.id
                     ? 'border-accent/50 bg-accent/5'

@@ -3206,16 +3206,47 @@ export class DataLayerEngine {
 
     const truncated = rows.length > limit;
     const kept = truncated ? rows.slice(0, limit) : rows;
+    // Creation stamps for the kept rows only, so the table's Edit
+    // history columns are filled. One indexed lookup per entity on the
+    // page, after the LIMIT, rather than a join inside the sorted
+    // collapse above. Same rule as listFeatures: the latest create at
+    // or before asOf is the entity's birth, and the head row stands in
+    // when the log holds no create.
+    const created = new Map<string, { by: string; at: Date }>();
+    if (kept.length > 0) {
+      const createRows = await this.prisma.$queryRaw<
+        Array<{ entity: string; created_by: string; created_at: Date }>
+      >`
+        SELECT DISTINCT ON (entity)
+               entity,
+               author_sub AS created_by,
+               tx_time    AS created_at
+        FROM observation
+        WHERE scope = ${scope}
+          AND kind = 'create'
+          AND valid_from <= ${asOf}
+          AND entity = ANY(${kept.map((r) => r.entity)}::uuid[])
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+      `;
+      for (const c of createRows) {
+        created.set(c.entity, { by: c.created_by, at: c.created_at });
+      }
+    }
     return {
-      features: kept.map((r) => ({
-        id: r.entity,
-        properties: {
-          ...(r.attrs ?? {}),
-          _global_id: r.entity,
-          _edited_by: r.edited_by,
-          _edited_at: r.edited_at.toISOString(),
-        },
-      })),
+      features: kept.map((r) => {
+        const c = created.get(r.entity);
+        return {
+          id: r.entity,
+          properties: {
+            ...(r.attrs ?? {}),
+            _global_id: r.entity,
+            _created_by: c?.by ?? r.edited_by,
+            _created_at: (c?.at ?? r.edited_at).toISOString(),
+            _edited_by: r.edited_by,
+            _edited_at: r.edited_at.toISOString(),
+          },
+        };
+      }),
       count: kept.length,
       truncated,
     };

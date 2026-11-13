@@ -16,6 +16,7 @@ import {
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { useT } from '@/lib/i18n/locale-context';
+import { resampleColors, resizeStops } from '@/lib/renderer-classes';
 
 interface Props {
   value: MapLayerRenderer;
@@ -65,15 +66,23 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
     });
   }
   function setBreaks(field?: string) {
+    // Clicking "By range" while already on it changes nothing. It used
+    // to resample to four colours whatever the class count, which left
+    // the colours and stops mismatched.
+    if (isBreaks && field === undefined) return;
     // When switching in, pre-seed with a neutral 3-class ramp so the
     // user sees something immediately; they can replace stops to match
     // their data distribution.
-    const colors = sampleRamp(CLASS_BREAK_RAMPS[DEFAULT_CLASS_BREAK_RAMP]!, 4);
+    const stops = isBreaks && value.stops.length ? value.stops : [33, 66, 100];
+    const colors =
+      isBreaks && value.colors.length === stops.length + 1
+        ? value.colors
+        : sampleRamp(CLASS_BREAK_RAMPS[DEFAULT_CLASS_BREAK_RAMP]!, stops.length + 1);
     onChange({
       kind: 'class-breaks',
       field: field ?? (isBreaks ? value.field : ''),
-      stops: isBreaks && value.stops.length ? value.stops : [33, 66, 100],
-      colors: isBreaks && value.colors.length === 4 ? value.colors : colors,
+      stops,
+      colors,
     });
   }
 
@@ -175,6 +184,9 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
   }
   function addCategory() {
     if (!isUnique) return;
+    // One blank row at a time: two rows with the same value make the
+    // map reject the whole renderer. Fill in the blank one first.
+    if (value.categories.some((c) => c.value === '')) return;
     onChange({
       ...value,
       categories: [
@@ -409,14 +421,15 @@ function ClassBreaksEditor({
 
   function setStopCount(n: number) {
     if (n < 1 || n > 7) return;
-    const nextStops =
-      n > value.stops.length
-        ? [...value.stops, ...Array(n - value.stops.length).fill(value.stops.at(-1) ?? 1)]
-        : value.stops.slice(0, n);
-    const colors = sampleRamp(
-      CLASS_BREAK_RAMPS[DEFAULT_CLASS_BREAK_RAMP]!,
-      n + 1,
-    );
+    // New stops go above the last one, so the list stays strictly
+    // ascending (repeating the last stop made MapLibre reject the
+    // layer's paint). Colours follow the ramp in use, or stretch the
+    // hand-picked ones, rather than jumping back to the default ramp.
+    const nextStops = resizeStops(value.stops, n);
+    const colors =
+      currentRamp === 'custom'
+        ? resampleColors(value.colors, n + 1)
+        : sampleRamp(CLASS_BREAK_RAMPS[currentRamp]!, n + 1);
     onChange({ ...value, stops: nextStops, colors });
   }
 

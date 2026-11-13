@@ -426,12 +426,22 @@ export async function geocodeViaItem(
   const url = `/api/portal/geocode/${encodeURIComponent(geocoderItemId)}?${params.toString()}`;
   const init: RequestInit = { headers: { Accept: 'application/json' } };
   if (signal) init.signal = signal;
+  // Same rule as geocode() below: "could not ask" is not "nothing
+  // matched". A timeout or a 5xx used to read as "No places found",
+  // and the user reworded a query that was never answered. A 403 or
+  // 404 stays an empty list, so a geocoder the viewer may not use
+  // does not announce itself.
   let res: Response;
   try {
     res = await fetch(url, init);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return [];
-    return [];
+    throw new GeocoderUnavailableError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (res.status >= 500) {
+    throw new GeocoderUnavailableError(await parseApiError(res, 'HTTP error'));
   }
   if (!res.ok) return [];
   const body = (await res.json()) as {
