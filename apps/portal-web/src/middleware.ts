@@ -10,7 +10,6 @@
 import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 
-import { PAGE_CSP } from './lib/content-security-policy.mjs';
 import { APP_RUNTIME_PATH_RE, appRuntimeCsp } from './lib/app-runtime-csp';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
@@ -53,6 +52,10 @@ export default withAuth(
     if (!APP_RUNTIME_PATH_RE.test(req.nextUrl.pathname)) {
       return NextResponse.next();
     }
+    // Loaded here rather than at the top: the policy lives in an .mjs
+    // shared with next.config, and the CommonJS jest runner that
+    // imports this module for its matcher cannot load ESM.
+    const { PAGE_CSP } = await import('./lib/content-security-policy.mjs');
     const res = NextResponse.next();
     res.headers.set(
       'Content-Security-Policy',
