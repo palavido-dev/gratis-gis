@@ -15,10 +15,12 @@ import * as maplibregl from 'maplibre-gl';
 import type {
   MapData,
   MapLayer,
-  MapLayerFilter,
   MapLayerVia,
-  MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
+import {
+  combineFilter,
+  timeBinsColorExpression,
+} from '@/lib/map-layer-expressions';
 import {
   ZOOM_MAX,
   ZOOM_MIN,
@@ -4085,65 +4087,6 @@ function formatterExpression(
   }
 }
 
-type MlFilter = maplibregl.FilterSpecification;
-
-/**
- * Translate a single filter clause to a MapLibre expression, or return
- * null if the clause is incomplete / unfit for the chosen operator
- * (e.g. a numeric comparison whose value is not a valid number).
- */
-function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
-  if (!clause.field) return null;
-  const prop = ['get', clause.field];
-  // Same rules as packages/shared-types/src/filter-match.ts and the
-  // engine's SQL: equality on the text form (5 equals "5"), contains
-  // ignoring case, and null meaning absent or JSON null.
-  switch (clause.op) {
-    case '==':
-      return ['all', ['!=', prop, null], ['==', ['to-string', prop], clause.value]];
-    case '!=':
-      return ['any', ['==', prop, null], ['!=', ['to-string', prop], clause.value]];
-    case '>':
-    case '>=':
-    case '<':
-    case '<=': {
-      const n = Number(clause.value);
-      if (Number.isNaN(n)) return null;
-      return [clause.op, prop, n];
-    }
-    case 'contains':
-      return [
-        'all',
-        ['!=', prop, null],
-        ['>=', ['index-of', String(clause.value).toLowerCase(), ['downcase', ['to-string', prop]]], 0],
-      ];
-    case 'is-null':
-      return ['==', prop, null];
-    case 'is-not-null':
-      return ['!=', prop, null];
-  }
-}
-
-/**
- * Combine the always-on geometry-type filter with any attribute clauses.
- * Clauses are joined via the user's chosen combinator (all == AND,
- * any == OR). Incomplete clauses (no field picked yet, or numeric
- * comparison with a non-numeric value) are silently dropped so the
- * map keeps rendering while the user is mid-edit.
- */
-function combineFilter(
-  geomFilter: unknown[],
-  filter: MapLayerFilter | null,
-): MlFilter {
-  if (!filter || filter.clauses.length === 0) return geomFilter as MlFilter;
-  const exprs = filter.clauses
-    .map((c) => clauseToExpr(c))
-    .filter((e): e is unknown[] => e !== null);
-  if (exprs.length === 0) return geomFilter as MlFilter;
-  const joined = [filter.combinator === 'any' ? 'any' : 'all', ...exprs];
-  return (['all', geomFilter, joined] as unknown) as MlFilter;
-}
-
 /**
  * Build a MapLibre paint color for a given style slot, honoring the
  * layer's renderer. Simple renderer → raw hex. Unique-values renderer
@@ -4199,36 +4142,8 @@ function rendererColor(
     return stepExpr;
   }
 
-  // time-bins (#59). MapLibre's `step` only accepts a numeric input,
-  // so we build a `case` chain that compares the field's string
-  // value against each ISO-8601 boundary. ISO-8601 with consistent
-  // zero-padding sorts lexically the same as chronologically, so
-  // a plain `<` comparison gives the right binning. Features
-  // missing the field, or holding a value that isn't a string,
-  // drop to `defaultColor` via the leading guard.
-  if (r.kind === 'time-bins') {
-    const validShape =
-      r.field &&
-      r.boundaries.length > 0 &&
-      r.bins.length === r.boundaries.length + 1;
-    if (!validShape) return fallback;
-    const prop = ['get', r.field];
-    const caseExpr: unknown[] = ['case'];
-    // Guard: only apply binning to features whose field is a
-    // non-empty string. Missing / wrong-type values fall through
-    // to defaultColor.
-    caseExpr.push(['!', ['has', r.field]]);
-    caseExpr.push(r.defaultColor);
-    caseExpr.push(['!=', ['typeof', prop], 'string']);
-    caseExpr.push(r.defaultColor);
-    for (let i = 0; i < r.boundaries.length; i += 1) {
-      caseExpr.push(['<', prop, r.boundaries[i]!]);
-      caseExpr.push(r.bins[i]!.color);
-    }
-    // Final value: >= last boundary.
-    caseExpr.push(r.bins[r.boundaries.length]!.color);
-    return caseExpr;
-  }
+  // time-bins (#59): shared with the print snapshot.
+  if (r.kind === 'time-bins') return timeBinsColorExpression(r) ?? fallback;
 
   return fallback;
 }

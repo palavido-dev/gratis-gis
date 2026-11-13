@@ -32,6 +32,10 @@ import {
   type MapLayerRenderer,
 } from '@gratis-gis/shared-types';
 import { zoomForScale } from '@/lib/web-mercator';
+import {
+  combineFilter,
+  timeBinsColorExpression,
+} from '@/lib/map-layer-expressions';
 
 /**
  * Add the fill / line / circle paint layers for `layer` against
@@ -46,79 +50,95 @@ export function addPaintForLayer(
   sourceId: string,
   layerId: string,
   layer: MapLayer,
-): void {
+): boolean {
   const op = clamp01(layer.opacity ?? 1);
   const style = layer.style;
   const renderer = layer.renderer;
+  // The layer's attribute filter applies to every paint layer, as on
+  // the canvas, so the PDF shows the same features the map does.
+  const where = (geom: unknown[]) => combineFilter(geom, layer.filter);
+  let ok = true;
 
   // Polygon fill. Color expression derives from the renderer, falls
   // back to style.polygon.fillColor.
-  const polyFill = colorExpression(
-    renderer,
-    style.polygon.fillColor,
-  );
-  safeAddLayer(map, {
-    id: `pg:${layerId}:fill`,
-    type: 'fill',
-    source: sourceId,
-    filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: {
-      'fill-color': polyFill as maplibregl.ExpressionSpecification,
-      'fill-opacity': (style.polygon.fillOpacity ?? 0.25) * op,
-    },
-  });
+  ok =
+    safeAddLayer(map, {
+      id: `pg:${layerId}:fill`,
+      type: 'fill',
+      source: sourceId,
+      filter: where(['==', ['geometry-type'], 'Polygon']),
+      paint: {
+        'fill-color': colorExpression(
+          renderer,
+          style.polygon.fillColor,
+        ) as maplibregl.ExpressionSpecification,
+        'fill-opacity': (style.polygon.fillOpacity ?? 0.25) * op,
+      },
+    }) && ok;
 
-  // Polygon outline + line. We use one MapLibre line layer for
-  // both, scoped by a `geometry-type` filter that matches both
-  // LineString and Polygon. Color follows the renderer for
-  // polygons (so a unique-values renderer paints the outline to
-  // match the fill) and falls back to style.line.color for lines.
-  // For a mixed-geometry collection that's not ideal (the renderer
-  // expression is keyed to the polygon field), but the common case
-  // is single-geometry data layers and the print render only ever
-  // needs to look like the canvas.
-  const lineColor = colorExpression(
-    renderer,
-    style.line.color,
-  );
-  safeAddLayer(map, {
-    id: `pg:${layerId}:line`,
-    type: 'line',
-    source: sourceId,
-    filter: [
-      'any',
-      ['==', ['geometry-type'], 'LineString'],
-      ['==', ['geometry-type'], 'Polygon'],
-    ],
-    paint: {
-      'line-color': lineColor as maplibregl.ExpressionSpecification,
-      'line-width': style.line.width ?? 1.5,
-      'line-opacity': op,
-      ...(style.line.dashStyle && style.line.dashStyle !== 'solid'
-        ? { 'line-dasharray': dashArrayFor(style.line.dashStyle) }
-        : {}),
-    },
-  });
+  // Polygon outline, from the polygon stroke settings as the canvas
+  // draws it (the renderer color, else strokeColor). It used to share
+  // one layer with lines and took the line color and width.
+  ok =
+    safeAddLayer(map, {
+      id: `pg:${layerId}:poly-line`,
+      type: 'line',
+      source: sourceId,
+      filter: where(['==', ['geometry-type'], 'Polygon']),
+      paint: {
+        'line-color': colorExpression(
+          renderer,
+          style.polygon.strokeColor,
+        ) as maplibregl.ExpressionSpecification,
+        'line-width': style.polygon.strokeWidth ?? 1.5,
+        'line-opacity': op,
+        ...(style.polygon.strokeDashStyle &&
+        style.polygon.strokeDashStyle !== 'solid'
+          ? { 'line-dasharray': dashArrayFor(style.polygon.strokeDashStyle) }
+          : {}),
+      },
+    }) && ok;
+
+  // Lines.
+  ok =
+    safeAddLayer(map, {
+      id: `pg:${layerId}:line`,
+      type: 'line',
+      source: sourceId,
+      filter: where(['==', ['geometry-type'], 'LineString']),
+      paint: {
+        'line-color': colorExpression(
+          renderer,
+          style.line.color,
+        ) as maplibregl.ExpressionSpecification,
+        'line-width': style.line.width ?? 1.5,
+        'line-opacity': op,
+        ...(style.line.dashStyle && style.line.dashStyle !== 'solid'
+          ? { 'line-dasharray': dashArrayFor(style.line.dashStyle) }
+          : {}),
+      },
+    }) && ok;
 
   // Points / circles. Color expression follows the renderer.
-  const pointColor = colorExpression(
-    renderer,
-    style.point.color,
-  );
-  safeAddLayer(map, {
-    id: `pg:${layerId}:circle`,
-    type: 'circle',
-    source: sourceId,
-    filter: ['==', ['geometry-type'], 'Point'],
-    paint: {
-      'circle-color': pointColor as maplibregl.ExpressionSpecification,
-      'circle-radius': style.point.radius ?? 5,
-      'circle-stroke-color': style.point.strokeColor ?? '#ffffff',
-      'circle-stroke-width': style.point.strokeWidth ?? 1.5,
-      'circle-opacity': op,
-      'circle-stroke-opacity': op,
-    },
-  });
+  ok =
+    safeAddLayer(map, {
+      id: `pg:${layerId}:circle`,
+      type: 'circle',
+      source: sourceId,
+      filter: where(['==', ['geometry-type'], 'Point']),
+      paint: {
+        'circle-color': colorExpression(
+          renderer,
+          style.point.color,
+        ) as maplibregl.ExpressionSpecification,
+        'circle-radius': style.point.radius ?? 5,
+        'circle-stroke-color': style.point.strokeColor ?? '#ffffff',
+        'circle-stroke-width': style.point.strokeWidth ?? 1.5,
+        'circle-opacity': op,
+        'circle-stroke-opacity': op,
+      },
+    }) && ok;
+  return ok;
 }
 
 /**
@@ -131,15 +151,18 @@ export function addLabelLayer(
   sourceId: string,
   layerId: string,
   layer: MapLayer,
-): void {
+): boolean {
   const labels = layer.labels;
-  if (!labels?.enabled || !labels.template) return;
+  if (!labels?.enabled || !labels.template) return true;
   const op = clamp01(layer.opacity ?? 1);
   const textExpr = templateToExpression(labels.template);
-  safeAddLayer(map, {
+  return safeAddLayer(map, {
     id: `pg:${layerId}:label`,
     type: 'symbol',
     source: sourceId,
+    ...(layer.filter && layer.filter.clauses.length > 0
+      ? { filter: combineFilter(['all'], layer.filter) }
+      : {}),
     layout: {
       'text-field':
         textExpr as maplibregl.DataDrivenPropertyValueSpecification<string>,
@@ -209,24 +232,10 @@ function colorExpression(
   }
 
   if (renderer.kind === 'time-bins') {
-    // Same shape as class-breaks but the stops are ISO timestamp
-    // strings compared lexically (Z-suffixed ISO sorts correctly
-    // as a string).
-    if (renderer.boundaries.length === 0 || renderer.bins.length === 0) {
-      return renderer.defaultColor;
-    }
-    const stepArgs: unknown[] = [
-      'step',
-      ['to-string', ['get', renderer.field]],
-      renderer.bins[0]?.color ?? renderer.defaultColor,
-    ];
-    for (let i = 0; i < renderer.boundaries.length; i++) {
-      stepArgs.push(
-        renderer.boundaries[i],
-        renderer.bins[i + 1]?.color ?? renderer.defaultColor,
-      );
-    }
-    return stepArgs;
+    // MapLibre `step` takes numbers only, so an ISO-string `step` was
+    // an invalid expression and the whole layer vanished. Same case
+    // chain as the canvas.
+    return timeBinsColorExpression(renderer) ?? renderer.defaultColor;
   }
 
   return defaultColor;
@@ -301,14 +310,20 @@ function clamp01(n: number): number {
   return n;
 }
 
+/**
+ * Add a layer and say whether it is actually on the map. MapLibre
+ * reports an invalid paint expression through its `error` event and
+ * skips the layer instead of throwing, so check for it afterwards.
+ * The caller lists a failed layer in the sheet's "incomplete" notice.
+ */
 function safeAddLayer(
   map: maplibregl.Map,
   spec: maplibregl.LayerSpecification,
-): void {
+): boolean {
   try {
     map.addLayer(spec);
   } catch {
-    // HMR re-add or duplicate id; ignore. The print render is
-    // single-shot so duplicates are not possible in practice.
+    return false;
   }
+  return Boolean(map.getLayer(spec.id));
 }
