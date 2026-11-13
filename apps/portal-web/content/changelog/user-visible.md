@@ -24,7 +24,7 @@ new release banner when cutting a version tag.
 ## [1.5.0] - 2026-11-12
 
 ## 2026-11-12 - A tighter, more reliable GratisGIS
-This release finishes a full review of the code. Offline edits are no longer lost or sent twice, field maps sync more reliably on weak signal, Editor apps open large layers quickly by loading what is in view, printed maps match the screen, and hundreds of smaller problems across maps, forms, apps and admin pages are fixed.
+This release finishes a full review of the code. Offline edits are no longer lost or sent twice, field maps sync more reliably on weak signal, Viewer apps open large layers quickly by drawing them from map tiles, printed maps match the screen, and hundreds of smaller problems across maps, forms, apps and admin pages are fixed.
 
 ## [1.4.3] - 2026-11-12
 
