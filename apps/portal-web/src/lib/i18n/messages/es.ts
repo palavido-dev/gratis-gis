@@ -3657,6 +3657,7 @@ export const es: Partial<CatalogShape> = {
     maintenanceOff: 'Desactivar mantenimiento',
     failed: 'La solicitud falló.',
     operatorOnly: 'La preparación y el mantenimiento afectan a toda la instalación, así que solo los administradores de la organización operadora pueden usarlos.',
+    backupUiDisabled: 'Las copias de seguridad, la restauración y el mantenimiento están desactivados en esta instalación (GRATIS_DISABLE_BACKUP_UI).',
   },
   opsBackup: {
     failureBanner: 'Una copia no terminó. Lea la ejecución fallida. Se envía un aviso una sola vez si las notificaciones están activas.',
@@ -3982,14 +3983,12 @@ export const es: Partial<CatalogShape> = {
     hidePassword: 'ocultar',
     checkboxEnabled: 'Activado',
     checkboxSslTls: 'SSL / TLS al conectar (puerto 465)',
-    labelSendTestTo: 'Enviar prueba a',
-    placeholderTestEmail: 'tu@ejemplo.com',
     sendTest: 'Enviar prueba',
     smtpSavedRealmWarning:
       'SMTP guardado, pero falló la sincronización del realm de Keycloak: {warning}',
     smtpSavedOk: 'Guardado. El worker usará el nuevo SMTP en el próximo envío.',
     saveFailed: 'Error al guardar.',
-    testEmailInvalid: 'Introduce una dirección de correo válida para la prueba.',
+    testGoesToYou: 'La prueba se envía al correo de tu propia cuenta.',
     testSent: 'Prueba enviada a {email}.',
     testFailedUnclear: 'La prueba falló sin un error claro.',
     testFailed: 'La prueba falló.',

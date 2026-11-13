@@ -59,9 +59,9 @@ interface Props {
  * this UI can NARROW from what the underlying data_layer's
  * `editingEnabled` + `editingPolicy` allows, but never widen. The
  * runtime (slice 3) re-checks when it loads, so a stale config that
- * lists a now-disabled layer offers no edit tools for it. That check
- * is in the browser only: the API does not read `editingEnabled`, so
- * it is not a write permission. The target's capability flags,
+ * lists a now-disabled layer offers no edit tools for it. The API also
+ * refuses writes to a layer with `editingEnabled` off, except from the
+ * item owner and admins, who keep editing it. The target's capability flags,
  * field list and row scope are checked by the API for requests the
  * runtime sends (EditorPolicyService).
  *

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { ItemShare } from '@gratis-gis/shared-types';
 import {
   EVERYONE_ELSE,
+  everyoneHasItemAccess,
   matrixEntryFor,
-  principalHasItemAccess,
   writeMatrixEntry,
 } from './map-access-matrix';
 
@@ -28,22 +27,6 @@ describe('writeMatrixEntry', () => {
   it('never stores edit on a layer that cannot be edited', () => {
     const next = writeMatrixEntry(undefined, [bob], bob, { edit: true }, false);
     expect(matrixEntryFor(next, bob).edit).toBe(false);
-  });
-});
-
-describe('principalHasItemAccess', () => {
-  const none: ItemShare[] = [];
-
-  it('counts org-wide and public items and the owner as reachable', () => {
-    expect(principalHasItemAccess(none, { access: 'public' }, bob, {})).toBe(true);
-    expect(principalHasItemAccess(none, { access: 'org' }, crew, {})).toBe(true);
-    expect(principalHasItemAccess(none, { access: 'private', ownerId: 'bob' }, bob, {})).toBe(true);
-    expect(principalHasItemAccess(none, { access: 'private' }, bob, {})).toBe(false);
-  });
-
-  it('counts a share to one of the user\'s groups', () => {
-    const shares = [{ principalType: 'group', principalId: 'crew' }] as ItemShare[];
-    expect(principalHasItemAccess(shares, { access: 'private' }, bob, { bob: ['crew'] })).toBe(true);
   });
 });
 
@@ -73,7 +56,10 @@ describe('Everyone else column', () => {
   });
 
   it('has item access only through the item access level', () => {
-    expect(principalHasItemAccess([], { access: 'private' }, EVERYONE_ELSE, {})).toBe(false);
-    expect(principalHasItemAccess([], { access: 'org' }, EVERYONE_ELSE, {})).toBe(true);
+    expect(everyoneHasItemAccess({ access: 'private' })).toBe(false);
+    expect(everyoneHasItemAccess({ access: 'org' })).toBe(true);
+    expect(everyoneHasItemAccess({ access: 'public' })).toBe(true);
+    // Not loaded yet: no warning.
+    expect(everyoneHasItemAccess(undefined)).toBe(true);
   });
 });

@@ -17,10 +17,15 @@ export default async function AdminOperationsPage() {
   // to admins of the operator organization. Probe once so other org
   // admins see a note instead of panels that would only return 403.
   let operator = true;
+  let writesDisabled = false;
   try {
-    await apiFetch('/api/admin/maintenance');
+    const status = await apiFetch<{ writesDisabled?: boolean }>(
+      '/api/admin/maintenance',
+    );
+    // GRATIS_DISABLE_BACKUP_UI: the API refuses maintenance writes.
+    writesDisabled = status.writesDisabled === true;
   } catch (err) {
     if ((err as { status?: number }).status === 403) operator = false;
   }
-  return <OperationsView operator={operator} />;
+  return <OperationsView operator={operator} writesDisabled={writesDisabled} />;
 }

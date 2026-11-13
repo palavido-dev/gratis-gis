@@ -800,11 +800,15 @@ model BackupRun {
   finishedAt DateTime?    @map("finished_at")
   status     BackupStatus @default(running)
 
-  /// Filename (NOT full path) relative to BACKUP_DIR. Null while the
+  /// Filename (NOT full path) inside archiveDirectory. Null while the
   /// run is in progress; set atomically at finish. Kept opaque so
   /// operators can move the file to cold storage and just update the
   /// row if they need to.
   filename  String?
+  /// Absolute folder the run wrote its archive to, so changing the
+  /// archive directory later does not hide this archive. Null on rows
+  /// from before the column; those use the current folder.
+  archiveDirectory String? @map("archive_directory")
   /// Bytes on disk after compression. Null if the run failed before
   /// the archive was sealed.
   sizeBytes BigInt? @map("size_bytes")

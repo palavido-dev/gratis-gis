@@ -33,6 +33,11 @@ import type { Response } from 'express';
 import { AdminAuditService } from '../admin/admin-audit.service.js';
 import { AdminGuard } from '../admin/admin.guard.js';
 import { OperatorOrgGuard } from './operator-org.js';
+import {
+  AllowWhenBackupUiDisabled,
+  BackupUiEnabledGuard,
+  backupUiDisabled,
+} from './backup-ui-switch.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { BackupService } from './backup.service.js';
@@ -113,7 +118,9 @@ class UpdateConfigDto {
 
 @ApiTags('admin', 'backup')
 @ApiBearerAuth()
-@UseGuards(AdminGuard, OperatorOrgGuard)
+// GRATIS_DISABLE_BACKUP_UI closes every route here except the
+// availability probe the web uses to hide the page.
+@UseGuards(AdminGuard, OperatorOrgGuard, BackupUiEnabledGuard)
 @Controller('admin/backup')
 export class BackupController {
   constructor(
@@ -142,6 +149,13 @@ export class BackupController {
       targetId,
       outcome,
     });
+  }
+
+  /** Whether this install turned the backup surface off. */
+  @Get('availability')
+  @AllowWhenBackupUiDisabled()
+  availability() {
+    return { disabled: backupUiDisabled() };
   }
 
   @Get('config')

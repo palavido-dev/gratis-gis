@@ -16,9 +16,10 @@
  *      of being a floating URL. Emits a file-item AssetRef pointing
  *      at the newly-created item. Caveat: the bytes go to a public
  *      image prefix (uploadKind), so anyone holding the URL can read
- *      them whatever the File item's sharing says, and purging the
- *      item does not delete them. That is what lets an image show in
- *      a publicly shared app today.
+ *      them whatever the File item's sharing says. That is what lets
+ *      an image show in a publicly shared app. The File item records
+ *      the key (data.publicImageKey), so purging it deletes the
+ *      bytes.
  *
  * Why always create a File item on upload: floating asset URLs are
  * impossible to govern. You can't tell which apps depend on a
@@ -183,7 +184,7 @@ export function AssetPicker({
       // so the maxMb check above is the friendly early answer and the
       // server's cap is the one that holds. A refusal throws with the
       // server's sentence and lands in the catch below.
-      const { uploadUrl, publicUrl } = await presignUpload({
+      const { uploadUrl, publicUrl, key } = await presignUpload({
         kind: uploadKind,
         contentType: file.type,
         sizeBytes: file.size,
@@ -199,9 +200,10 @@ export function AssetPicker({
         return;
       }
 
-      // 2. Create a File item wrapping the uploaded bytes. This is
-      // what makes the asset governed (provenance, sharing,
-      // lifecycle, item-list visibility). Title defaults to the
+      // 2. Create a File item wrapping the uploaded bytes. This gives
+      // the asset provenance, a lifecycle (purge deletes the bytes)
+      // and item-list visibility. Its sharing does not cover the
+      // bytes, which sit on the public image prefix. Title defaults to the
       // filename; access defaults to org so the asset can be
       // reused; tags get an 'asset' marker so they're filterable
       // out of the main items list when the user doesn't want to
@@ -220,6 +222,9 @@ export function AssetPicker({
             mimeType: file.type,
             sizeBytes: file.size,
             storageUrl: publicUrl,
+            // Recorded so purging the File item deletes the object.
+            // The server accepts it only under item-thumb/.
+            ...(uploadKind === 'item-thumb' ? { publicImageKey: key } : {}),
             uploadedAt: new Date().toISOString(),
           },
         }),

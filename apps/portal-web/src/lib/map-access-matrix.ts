@@ -3,11 +3,10 @@
 //
 // Kept out of the dialog so they can be tested: changing one cell
 // used to turn a layer's policy to custom with only that one entry,
-// which hid the layer from everyone else on the map, and the "no item
-// access" warning ignored org-wide and public items and their owners.
+// which hid the layer from everyone else on the map. The "no item
+// access" warning is answered by the server (lib/principal-access.ts).
 import type {
   ItemAccess,
-  ItemShare,
   MapLayerAccess,
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
@@ -110,31 +109,12 @@ export function writeMatrixEntry(
 }
 
 /**
- * Can this principal read the backing item? An explicit share to the
- * user or one of their groups counts, and so does what the server's
- * canRead allows without a share: an org-wide or public item, and the
- * item's owner. `shares` undefined means not loaded yet (no warning).
+ * Can the "Everyone else" column reach the backing item? Viewers no
+ * share names reach it only through its access level (org-wide or
+ * public), so this is decided here from that level and never asked of
+ * the server. `reach` undefined means not loaded yet (no warning).
  */
-export function principalHasItemAccess(
-  shares: readonly ItemShare[] | undefined,
-  reach: ItemReach | undefined,
-  p: MatrixPrincipalRef,
-  groupMemberships: Record<string, string[]>,
-): boolean {
-  if (!shares) return true;
-  if (reach?.access === 'public' || reach?.access === 'org') return true;
-  // Viewers without a share reach the item only through its access
-  // level, checked above; no share can be granted to them.
-  if (p.type === 'everyone') return false;
-  if (p.type === 'user') {
-    if (reach?.ownerId === p.id) return true;
-    if (shares.some((s) => s.principalType === 'user' && s.principalId === p.id)) {
-      return true;
-    }
-    const myGroups = groupMemberships[p.id] ?? [];
-    return myGroups.some((gid) =>
-      shares.some((s) => s.principalType === 'group' && s.principalId === gid),
-    );
-  }
-  return shares.some((s) => s.principalType === 'group' && s.principalId === p.id);
+export function everyoneHasItemAccess(reach: ItemReach | undefined): boolean {
+  if (!reach) return true;
+  return reach.access === 'public' || reach.access === 'org';
 }

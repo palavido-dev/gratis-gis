@@ -98,6 +98,12 @@ export class ImportJobsController {
       itemId,
       (layer as { editingPolicy?: unknown }).editingPolicy,
     );
+    // A layer with editing turned off is frozen for share holders.
+    this.items.assertLayerEditingEnabled(
+      user,
+      item,
+      layer as { editingEnabled?: unknown },
+    );
 
     // Pre-validate the staging so a doomed job never lands in the
     // queue. getStaging throws Forbidden if the staging belongs to

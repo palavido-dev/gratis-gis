@@ -3674,6 +3674,7 @@ export const de: Partial<CatalogShape> = {
     maintenanceOff: 'Wartung ausschalten',
     failed: 'Die Anfrage ist fehlgeschlagen.',
     operatorOnly: 'Bereitschaft und Wartung betreffen die gesamte Installation. Nur Admins der Betreiberorganisation können sie verwenden.',
+    backupUiDisabled: 'Sicherung, Wiederherstellung und Wartung sind in dieser Installation ausgeschaltet (GRATIS_DISABLE_BACKUP_UI).',
   },
   opsBackup: {
     failureBanner: 'Eine Sicherung ist nicht fertig geworden. Lesen Sie den fehlgeschlagenen Lauf. Eine Meldung geht genau einmal raus, wenn Benachrichtigungen an sind.',
@@ -3999,14 +4000,12 @@ export const de: Partial<CatalogShape> = {
     hidePassword: 'ausblenden',
     checkboxEnabled: 'Aktiviert',
     checkboxSslTls: 'SSL / TLS beim Verbinden (Port 465)',
-    labelSendTestTo: 'Test senden an',
-    placeholderTestEmail: 'sie@beispiel.com',
     sendTest: 'Test senden',
     smtpSavedRealmWarning:
       'SMTP gespeichert, aber Keycloak-Realm-Sync fehlgeschlagen: {warning}',
     smtpSavedOk: 'Gespeichert. Der Worker nutzt beim nächsten Versand das neue SMTP.',
     saveFailed: 'Speichern fehlgeschlagen.',
-    testEmailInvalid: 'Geben Sie eine gültige E-Mail-Adresse für den Test ein.',
+    testGoesToYou: 'Der Test geht an die E-Mail-Adresse Ihres eigenen Kontos.',
     testSent: 'Test gesendet an {email}.',
     testFailedUnclear: 'Test fehlgeschlagen ohne klare Fehlermeldung.',
     testFailed: 'Test fehlgeschlagen.',

@@ -29,6 +29,8 @@ const stored: SmtpConfig = {
   hasPassword: true,
 };
 
+const ME = { id: 'admin-1', email: 'a@b.co' } as never;
+
 describe('sameSmtpTarget', () => {
   it('matches only the same host, port and user', () => {
     expect(sameSmtpTarget(stored, { host: 'SMTP.example.org ', port: 587, user: 'relay' })).toBe(true);
@@ -66,14 +68,14 @@ describe('SMTP test send', () => {
   it('refuses to send the stored password to another host', async () => {
     const { ctl, sendTest } = controller();
     await expect(
-      ctl.testSmtp({ to: 'a@b.co', config: config('evil.example') } as never),
+      ctl.testSmtp(ME, { config: config('evil.example') } as never),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(sendTest).not.toHaveBeenCalled();
   });
 
   it('still fills it in for the stored host', async () => {
     const { ctl, sendTest } = controller();
-    await ctl.testSmtp({ to: 'a@b.co', config: config('smtp.example.org') } as never);
+    await ctl.testSmtp(ME, { config: config('smtp.example.org') } as never);
     expect(sendTest).toHaveBeenCalledWith(
       expect.objectContaining({ host: 'smtp.example.org', password: 'REAL-SECRET' }),
       'a@b.co',
@@ -81,6 +83,23 @@ describe('SMTP test send', () => {
       expect.any(String),
       expect.any(String),
     );
+  });
+
+  it('sends only to the signed-in admin', async () => {
+    const { ctl, sendTest } = controller();
+    const out = await ctl.testSmtp(ME, { config: config('smtp.example.org') } as never);
+    expect(out).toMatchObject({ ok: true, sentTo: 'a@b.co' });
+    expect((sendTest.mock.calls[0] as unknown[] | undefined)?.[1]).toBe('a@b.co');
+  });
+
+  it('refuses when the account has only a placeholder address', async () => {
+    const { ctl, sendTest } = controller();
+    const out = await ctl.testSmtp(
+      { id: 'admin-1', email: 'demo@local.gratisgis' } as never,
+      { config: config('smtp.example.org') } as never,
+    );
+    expect(out.ok).toBe(false);
+    expect(sendTest).not.toHaveBeenCalled();
   });
 });
 

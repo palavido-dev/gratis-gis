@@ -357,6 +357,26 @@ will fail with a clearer error pointing at the underlying issue. The
 user row is still created; an admin can re-trigger the email later
 via "Reset password" once SMTP is healthy.
 
+### Who can reach what through the SMTP settings
+
+The SMTP host and port on **Admin -> Notifications** are used as
+given. The portal opens a connection to that address from the API
+container, and that includes hosts on your internal network and the
+other containers in the stack. That is on purpose, because a
+company relay often sits on the LAN. It also means the Save and
+**Send test** buttons can reach internal addresses.
+
+Only admins of the operator organization can open this page and use
+those buttons, so treat that role as trusted:
+
+- Give operator admin to people you would trust with network access
+  from the server.
+- On a shared or demo install, do not publish an operator admin
+  login.
+- The test email always goes to the signed-in admin's own account
+  address. Error messages say only whether the connection, the login
+  or the message failed. The full server reply goes to the API log.
+
 
 ## 9. Common gotchas
 

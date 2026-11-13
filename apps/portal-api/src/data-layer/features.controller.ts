@@ -2257,6 +2257,7 @@ export class DataLayerFeaturesController {
         id: string;
         parentLayerId?: string;
         editingPolicy?: 'all-rows' | 'own-rows-only';
+        editingEnabled?: boolean;
         geometryType?: string | null;
         label?: string;
         fields?: Array<{ name: string; type?: string }>;
@@ -2281,6 +2282,9 @@ export class DataLayerFeaturesController {
     if (mode === 'write') {
       // Authoritative edit gate: same helper update() uses.
       await this.items.assertCanEdit(user, itemId);
+      // A frozen sublayer refuses writes from share holders and from
+      // Editor apps they run. Owner and admins are exempt.
+      this.items.assertLayerEditingEnabled(user, item, layer);
     }
     // #82: geo-limit applies on BOTH reads and writes. Reads narrow
     // the SELECT to the polygon (existing behavior). Writes use the

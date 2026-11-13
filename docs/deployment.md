@@ -159,6 +159,13 @@ is the recovery point.
 balancer can take the portal out of rotation. It does not probe
 Keycloak or MinIO; `./infra/doctor.sh` does.
 
+On an install whose admin login is shared, such as a public demo,
+set `GRATIS_DISABLE_BACKUP_UI=1` in `infra/.env.prod` (or the NAS
+env box). The API then refuses to run, download, delete or restore
+backups, change the backup settings, or turn maintenance on or off,
+and the portal hides those controls. Scheduled backups keep running.
+Remove the setting and restart portal-api to get the controls back.
+
 Downloading an archive in the browser stores it wherever that
 browser saves files. That is not an off-site copy until the file,
 and `infra/.env.prod` or the NAS `boot` volume, are on another disk.

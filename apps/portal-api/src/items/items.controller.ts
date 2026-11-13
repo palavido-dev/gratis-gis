@@ -64,6 +64,11 @@ const ITEM_ID = new UuidPathPipe('Item not found');
  * the largest demo map draws a dozen layers.
  */
 const MAX_PERMISSION_IDS = 100;
+/**
+ * Cap on principals for the principal-access route. Each one costs a
+ * lookup, and the sharing panel asks about the sharees of one item.
+ */
+const MAX_ACCESS_PRINCIPALS = 50;
 
 interface EffectivePermissions {
   canRead: boolean;
@@ -418,6 +423,58 @@ export class ItemsController {
   @Get('trash')
   listTrash(@CurrentUser() user: AuthUser) {
     return this.items.listTrash(user);
+  }
+
+  /**
+   * Yes or no: can each listed principal read each listed item?
+   * `ids` is a comma list of item ids, `principals` a comma list of
+   * `user:<id>` or `group:<id>`. Item reads only show the share roster
+   * to the owner and admins, so the sharing panel asks this instead
+   * to find dependencies a sharee cannot open. Same caps and the same
+   * "leave out what you cannot read" rule as the permissions route.
+   *
+   * MUST stay above `@Get(':id')`; see the note on /items/trash.
+   */
+  @Get('principal-access')
+  async principalAccess(
+    @CurrentUser() user: AuthUser,
+    @Query('ids') ids?: string,
+    @Query('principals') principals?: string,
+  ): Promise<Record<string, Record<string, boolean>>> {
+    const wantedIds = [
+      ...new Set(
+        (typeof ids === 'string' ? ids : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => UUID_RE.test(s)),
+      ),
+    ];
+    const wantedPrincipals = [
+      ...new Set(
+        (typeof principals === 'string' ? principals : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => /^(user|group):/.test(s) && UUID_RE.test(s.slice(s.indexOf(':') + 1))),
+      ),
+    ].map((s) => {
+      const at = s.indexOf(':');
+      return {
+        type: s.slice(0, at) as 'user' | 'group',
+        id: s.slice(at + 1),
+      };
+    });
+    if (wantedIds.length === 0 || wantedPrincipals.length === 0) return {};
+    if (wantedIds.length > MAX_PERMISSION_IDS) {
+      throw new BadRequestException(
+        `At most ${MAX_PERMISSION_IDS} ids per request; received ${wantedIds.length}.`,
+      );
+    }
+    if (wantedPrincipals.length > MAX_ACCESS_PRINCIPALS) {
+      throw new BadRequestException(
+        `At most ${MAX_ACCESS_PRINCIPALS} principals per request; received ${wantedPrincipals.length}.`,
+      );
+    }
+    return this.items.principalAccess(user, wantedIds, wantedPrincipals);
   }
 
   /**

@@ -47,6 +47,7 @@ export async function assertAttachmentAccess(
     layers?: Array<{
       id: string;
       attachmentsEnabled?: boolean;
+      editingEnabled?: boolean;
       editingPolicy?: 'all-rows' | 'own-rows-only';
       geometryType?: string | null;
     }>;
@@ -69,6 +70,8 @@ export async function assertAttachmentAccess(
       );
     }
     await items.assertCanEdit(user, itemId);
+    // A frozen layer takes no attachment changes from share holders.
+    items.assertLayerEditingEnabled(user, item, layer);
   }
   const shares = (
     item as { shares?: Parameters<SharingService['canDownload']>[2] }

@@ -96,6 +96,15 @@ Out of scope:
   point at a specific finding and explain why it matters in our
   context.
 
+Admin-only by design:
+
+- The SMTP host on **Admin -> Notifications** can name any host,
+  internal ones included, and Save and **Send test** connect to it
+  from the API container. Only operator-organization admins can use
+  them. See "Who can reach what through the SMTP settings" in
+  `docs/SETUP.md`. A way for anyone else to reach that page or those
+  routes is in scope.
+
 ## Safe harbor
 
 We want good-faith security research and will not pursue legal action

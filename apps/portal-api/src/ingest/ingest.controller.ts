@@ -670,6 +670,12 @@ export class IngestController {
         itemId,
         (layer as { editingPolicy?: unknown }).editingPolicy,
       );
+      // Same frozen-layer rule as single feature writes.
+      this.items.assertLayerEditingEnabled(
+        user,
+        item,
+        layer as { editingEnabled?: unknown },
+      );
 
       // #234: the replace-mode truncate moved DOWN into the streaming
       // block below, after the source file is resolved and probed.

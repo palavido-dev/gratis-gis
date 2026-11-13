@@ -151,7 +151,13 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
-import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  FILE_PUBLIC_IMAGE_FIELD,
+  FILE_PUBLIC_IMAGE_KIND,
+  ITEM_ASSET_KIND,
+  assetKeyFor,
+  isValidAssetKey,
+} from '../storage/asset-keys.js';
 import {
   assertKeysAttachable,
   deleteIfUnreferenced,
@@ -542,18 +548,29 @@ function assertItemAssetKey(
       }/ for a ${itemType} item.`,
     );
   }
+  // The asset picker's public image key: File items only, and only
+  // under the public image prefix. Empty or absent means none.
+  const image = (data as Record<string, unknown>)[FILE_PUBLIC_IMAGE_FIELD];
+  if (image === undefined || image === null || image === '') return;
+  if (itemType === 'file' && isValidAssetKey(image, FILE_PUBLIC_IMAGE_KIND)) {
+    return;
+  }
+  throw new BadRequestException(
+    `${FILE_PUBLIC_IMAGE_FIELD} must be an upload under ${FILE_PUBLIC_IMAGE_KIND}/ on a file item.`,
+  );
 }
 
 /** Fields in item data that name an object in the shared bucket. */
 const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
 
-/** Every storage key an item's data names: the asset fields plus
- *  mosaic / multi-tile `sources[].storageKey`. */
+/** Every storage key an item's data names: the asset fields, a File
+ *  item's publicImageKey, and mosaic / multi-tile
+ *  `sources[].storageKey`. */
 export function itemDataStorageKeys(data: unknown): string[] {
   if (!data || typeof data !== 'object') return [];
   const d = data as Record<string, unknown>;
   const keys: string[] = [];
-  for (const field of ASSET_KEY_FIELDS) {
+  for (const field of [...ASSET_KEY_FIELDS, FILE_PUBLIC_IMAGE_FIELD]) {
     const v = d[field];
     if (typeof v === 'string' && v.length > 0) keys.push(v);
   }
@@ -1298,7 +1315,12 @@ export class ItemsService {
         updatedAt: Date;
         thumbnailUrl: string | null;
         thumbnailDesign?: Prisma.JsonValue | null;
-      }>).map((r) => this.projectMapForList(user, this.redactRow(user, r))),
+      }>).map(async (r) =>
+        this.stripShareRoster(
+          user,
+          await this.projectMapForList(user, this.redactRow(user, r)),
+        ),
+      ),
     );
     return redacted.map(synthesizeThumbnailUrl);
   }
@@ -1317,6 +1339,100 @@ export class ItemsService {
       return row;
     }
     return { ...r, data: await this.filterMapForViewer(user, r.data) } as T;
+  }
+
+  /**
+   * The share roster (who else has access, at what tier, with which
+   * clip) is for the people who manage sharing: the owner and admins
+   * of the item's org. One exception: someone who can edit a map
+   * gets who the map is shared with (principal ids only, no tier or
+   * clip), because the map's per-layer access matrix has a column per
+   * principal. Everyone else gets an empty list. Run it last, after
+   * anything that needs the shares to decide what the caller may see.
+   */
+  stripShareRoster<T>(user: AuthUser, row: T): T {
+    const r = row as T & { type?: string; shares?: ItemShare[] };
+    if (!Array.isArray(r.shares) || r.shares.length === 0) return row;
+    if (this.sharing.canAdmin(user, r as unknown as Item)) return row;
+    if (
+      r.type === 'map' &&
+      this.sharing.canEdit(user, r as unknown as Item, r.shares)
+    ) {
+      return {
+        ...r,
+        shares: r.shares.map((s) => ({
+          itemId: s.itemId,
+          principalType: s.principalType,
+          principalId: s.principalId,
+        })),
+      } as T;
+    }
+    return { ...r, shares: [] } as T;
+  }
+
+  /**
+   * Can each principal read each item? Answers yes or no per pair and
+   * never returns a roster. The sharing panel uses it to find
+   * dependencies a sharee cannot open, now that item reads only show
+   * the share list to people who manage sharing.
+   *
+   * Items the caller cannot read are left out, the same as the batch
+   * permissions route. Principals outside the caller's org, unknown
+   * ones and trashed groups are left out too. Keys are
+   * `<itemId>` then `user:<id>` or `group:<id>`.
+   */
+  async principalAccess(
+    user: AuthUser,
+    itemIds: readonly string[],
+    principals: ReadonlyArray<{ type: 'user' | 'group'; id: string }>,
+  ): Promise<Record<string, Record<string, boolean>>> {
+    const users = new Map<string, AuthUser>();
+    const groups = new Set<string>();
+    for (const p of principals) {
+      if (p.type === 'user') {
+        if (users.has(p.id) || !this.authSync) continue;
+        const principal = await this.authSync.principalForUserId(p.id);
+        if (principal && principal.orgId === user.orgId) {
+          users.set(p.id, principal);
+        }
+      } else if (!groups.has(p.id)) {
+        const group = await this.prisma.group.findFirst({
+          where: { id: p.id, orgId: user.orgId, deletedAt: null },
+          select: { id: true },
+        });
+        if (group) groups.add(p.id);
+      }
+    }
+    const out: Record<string, Record<string, boolean>> = {};
+    for (const id of itemIds) {
+      let item: Awaited<ReturnType<ItemsService['get']>>;
+      try {
+        item = await this.get(user, id);
+      } catch {
+        continue;
+      }
+      const shares = item.shares ?? [];
+      const row: Record<string, boolean> = {};
+      for (const [uid, principal] of users) {
+        row[`user:${uid}`] = this.sharing.canRead(principal, item, shares);
+      }
+      for (const gid of groups) {
+        // A group reaches an item that is public, org-wide in the
+        // group's org (groups are always in the caller's org here), or
+        // shared to the group by a share that has not expired.
+        row[`group:${gid}`] =
+          item.access === 'public' ||
+          (item.access === 'org' && item.orgId === user.orgId) ||
+          shares.some(
+            (s) =>
+              s.principalType === 'group' &&
+              s.principalId === gid &&
+              (!s.expiresAt || new Date(s.expiresAt).getTime() > Date.now()),
+          );
+      }
+      out[id] = row;
+    }
+    return out;
   }
 
   /** Apply redactItemData to a list or detail row that carries `data`. */
@@ -1462,7 +1578,10 @@ export class ItemsService {
     id: string,
     opts: { includeTrashed?: boolean } = {},
   ) {
-    return this.redactRow(user, await this.get(user, id, opts));
+    return this.stripShareRoster(
+      user,
+      this.redactRow(user, await this.get(user, id, opts)),
+    );
   }
 
   /**
@@ -2329,6 +2448,25 @@ export class ItemsService {
         'You do not have edit permission on this item',
       );
     }
+  }
+
+  /**
+   * A sublayer with `editingEnabled: false` is frozen. Share holders
+   * and Editor apps cannot write to it; the item owner and admins
+   * still can, because imports, analysis outputs and OSM saves create
+   * layers with the flag off and their owners must keep editing them.
+   * `layer` is the target sublayer as stored in the item data.
+   */
+  assertLayerEditingEnabled(
+    user: AuthUser,
+    item: Item,
+    layer: { editingEnabled?: unknown },
+  ): void {
+    if (layer.editingEnabled !== false) return;
+    if (this.sharing.canAdmin(user, item)) return;
+    throw new ForbiddenException(
+      'Editing is turned off for this layer. Ask the owner to turn it on.',
+    );
   }
 
   /**
@@ -3454,10 +3592,17 @@ export class ItemsService {
       // object at worst (the housekeeping orphan card accounts for it).
       const expectedKind =
         ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND];
+      // A File item from the asset picker also names its public image.
+      const publicImage =
+        itemType === 'file' && itemData && typeof itemData === 'object'
+          ? (itemData as Record<string, unknown>)[FILE_PUBLIC_IMAGE_FIELD]
+          : undefined;
       for (const key of new Set(itemDataStorageKeys(itemData))) {
-        if (!isValidAssetKey(key, expectedKind)) {
+        const kind =
+          key === publicImage ? FILE_PUBLIC_IMAGE_KIND : expectedKind;
+        if (!isValidAssetKey(key, kind)) {
           this.log.warn(
-            `purge ${itemId}: refusing to delete storage key ${key}, outside ${expectedKind}/`,
+            `purge ${itemId}: refusing to delete storage key ${key}, outside ${kind}/`,
           );
           continue;
         }
@@ -4550,7 +4695,9 @@ export class ItemsService {
     );
     // Same redaction as list() and get(): a folder is just another way
     // to reach these rows and must not show more than either does.
-    return rows.map((r) => this.redactRow(user, r));
+    return rows.map((r) =>
+      this.stripShareRoster(user, this.redactRow(user, r)),
+    );
   }
 
   /**

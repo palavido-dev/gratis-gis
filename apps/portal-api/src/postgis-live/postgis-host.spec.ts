@@ -4,6 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import {
   assertPostgisHost,
   assertPostgisHostOnSave,
+  currentHostDenials,
   postgisHostBlockReason,
 } from './postgis-host.js';
 
@@ -78,5 +79,78 @@ describe('assertPostgisHostOnSave', () => {
         async () => [{ address: '1.2.3.4' }],
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('own interface addresses and the operator deny list (17-9)', () => {
+  const interfaces = {
+    lo: [{ address: '127.0.0.1' }],
+    eth0: [{ address: '172.18.0.5' }, { address: 'fd00::5' }],
+  } as never;
+
+  it('refuses the API container own addresses but not the rest of its range', () => {
+    const denials = currentHostDenials({}, interfaces);
+    expect(postgisHostBlockReason('172.18.0.5', denials)).toBe('denied');
+    expect(postgisHostBlockReason('[fd00::5]', denials)).toBe('denied');
+    expect(postgisHostBlockReason('172.18.0.6', denials)).toBeNull();
+    expect(postgisHostBlockReason('192.168.1.20', denials)).toBeNull();
+  });
+
+  it('refuses names, addresses and IPv4 ranges from POSTGIS_LIVE_DENY_HOSTS', () => {
+    const denials = currentHostDenials(
+      { POSTGIS_LIVE_DENY_HOSTS: ' gg_default , 10.9.9.9, 172.20.0.0/16 ,bad/99' },
+      {} as never,
+    );
+    expect(postgisHostBlockReason('GG_default', denials)).toBe('denied');
+    expect(postgisHostBlockReason('10.9.9.9', denials)).toBe('denied');
+    expect(postgisHostBlockReason('172.20.4.1', denials)).toBe('denied');
+    expect(postgisHostBlockReason('172.21.0.1', denials)).toBeNull();
+  });
+
+  it('refuses a name that resolves to an own address', async () => {
+    const denials = currentHostDenials({}, interfaces);
+    await expect(
+      assertPostgisHost('postgres.gg_default', async () => [{ address: '172.18.0.5' }], denials),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      assertPostgisHost('gisdb.lan', async () => [{ address: '192.168.1.20' }], denials),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('POSTGIS_LIVE_ALLOW_HOSTS (host-network installs)', () => {
+  const interfaces = {
+    lo: [{ address: '127.0.0.1' }],
+    eth0: [{ address: '192.168.1.10' }],
+  } as never;
+
+  it('exempts a listed address or name from the own-address rule', async () => {
+    const denials = currentHostDenials(
+      { POSTGIS_LIVE_ALLOW_HOSTS: '192.168.1.10, gisbox.lan' },
+      interfaces,
+    );
+    expect(postgisHostBlockReason('192.168.1.10', denials)).toBeNull();
+    await expect(
+      assertPostgisHost('gisbox.lan', async () => [{ address: '192.168.1.10' }], {
+        ...currentHostDenials({ POSTGIS_LIVE_ALLOW_HOSTS: 'gisbox.lan' }, interfaces),
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still refuses the own address when it is not listed', () => {
+    const denials = currentHostDenials({}, interfaces);
+    expect(postgisHostBlockReason('192.168.1.10', denials)).toBe('denied');
+  });
+
+  it('never exempts loopback or a deny-list entry', () => {
+    const denials = currentHostDenials(
+      {
+        POSTGIS_LIVE_ALLOW_HOSTS: '127.0.0.1,10.0.0.5',
+        POSTGIS_LIVE_DENY_HOSTS: '10.0.0.5',
+      },
+      interfaces,
+    );
+    expect(postgisHostBlockReason('127.0.0.1', denials)).toBe('blocked-address');
+    expect(postgisHostBlockReason('10.0.0.5', denials)).toBe('denied');
   });
 });

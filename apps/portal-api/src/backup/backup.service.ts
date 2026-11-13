@@ -612,21 +612,40 @@ export class BackupService implements OnModuleInit {
    */
   async listRunsWithArchiveState(limit = 50) {
     const runs = await this.listRuns(limit);
-    let names: Set<string> | null = null;
-    try {
-      const { archiveDirectory } = await this.getConfig();
-      names = new Set(await fs.readdir(archiveDirectory));
-    } catch {
-      // Unknown beats wrong; the download endpoint reports the miss
-      // with a proper message if it comes to that.
+    // One readdir per folder: runs written before a change of the
+    // archive directory live in the old one.
+    const listings = new Map<string, Set<string> | null>();
+    const out = [];
+    for (const r of runs) {
+      let archiveOnDisk: boolean | null = null;
+      if (r.status === 'succeeded' && r.filename) {
+        const dir = await this.runDirectory(r);
+        if (!listings.has(dir)) {
+          try {
+            listings.set(dir, new Set(await fs.readdir(dir)));
+          } catch {
+            // Unknown beats wrong; the download endpoint reports the
+            // miss with a proper message if it comes to that.
+            listings.set(dir, null);
+          }
+        }
+        const names = listings.get(dir);
+        archiveOnDisk = names ? names.has(r.filename) : null;
+      }
+      out.push({ ...r, archiveOnDisk });
     }
-    return runs.map((r) => ({
-      ...r,
-      archiveOnDisk:
-        r.status === 'succeeded' && r.filename && names
-          ? names.has(r.filename)
-          : null,
-    }));
+    return out;
+  }
+
+  /**
+   * The folder a run's archive lives in: the one recorded on the row,
+   * or the current setting for rows from before that column.
+   */
+  private async runDirectory(run: {
+    archiveDirectory?: string | null;
+  }): Promise<string> {
+    if (run.archiveDirectory) return run.archiveDirectory;
+    return (await this.getConfig()).archiveDirectory;
   }
 
   async getRun(id: string) {
@@ -667,13 +686,12 @@ export class BackupService implements OnModuleInit {
   async reclaimStaleRuns(): Promise<number> {
     const stale = await this.prisma.backupRun.findMany({
       where: this.deadRunningWhere(),
-      select: { id: true, startedAt: true, heartbeatAt: true },
+      select: { id: true, startedAt: true, heartbeatAt: true, archiveDirectory: true },
     });
     if (stale.length === 0) return 0;
 
-    const { archiveDirectory: backupDir } = await this.getConfig();
     for (const run of stale) {
-      await this.reclaimDeadRun(run, backupDir);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
     }
     return stale.length;
   }
@@ -814,11 +832,15 @@ export class BackupService implements OnModuleInit {
       );
     }
 
+    // The folder is recorded on the row so the archive stays reachable
+    // if the setting changes later.
+    const { archiveDirectory: runDirectory } = await this.getConfig();
     let run;
     try {
       run = await this.prisma.backupRun.create({
         data: {
           trigger,
+          archiveDirectory: runDirectory,
           // First beat at birth, so the liveness window never has to
           // special-case the gap before the poll timer's first tick.
           heartbeatAt: new Date(),
@@ -913,7 +935,7 @@ export class BackupService implements OnModuleInit {
       if (abort.signal.aborted) throw new BackupCancelledError();
     };
 
-    const { archiveDirectory: backupDir } = await this.getConfig();
+    const backupDir = await this.runDirectory(run);
     const timestamp = run.startedAt
       .toISOString()
       .replace(/[:.]/g, '-')
@@ -1300,8 +1322,7 @@ export class BackupService implements OnModuleInit {
     if (run.status !== 'succeeded' || !run.filename) {
       throw new NotFoundException('Backup archive is not available');
     }
-    const { archiveDirectory } = await this.getConfig();
-    const p = path.join(archiveDirectory, run.filename);
+    const p = path.join(await this.runDirectory(run), run.filename);
     try {
       await fs.access(p);
     } catch {
@@ -1341,8 +1362,7 @@ export class BackupService implements OnModuleInit {
       // run is gone. Setting the flag anyway would leave the admin
       // staring at "In progress" while nothing polls it (the exact
       // phantom of 2026-08-19), so close the run out here and say so.
-      const { archiveDirectory } = await this.getConfig();
-      await this.reclaimDeadRun(run, archiveDirectory);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
       this.log.warn(
         `Backup ${run.id}: cancel requested on a dead run; closed out as failed.`,
       );
@@ -1456,12 +1476,12 @@ export class BackupService implements OnModuleInit {
           'That backup is still running. Stop it first, then delete it.',
         );
       }
-      const { archiveDirectory } = await this.getConfig();
-      await this.reclaimDeadRun(run, archiveDirectory);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
     }
     if (run.filename) {
-      const { archiveDirectory } = await this.getConfig();
-      const p = path.join(archiveDirectory, run.filename);
+      // The run's own folder, so retention also clears archives left
+      // in a folder the setting no longer names.
+      const p = path.join(await this.runDirectory(run), run.filename);
       await fs.rm(p, { force: true });
     }
     await this.prisma.backupRun.delete({ where: { id: run.id } });

@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Archive, ArrowLeft } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { getServerLocale } from '@/lib/i18n/server';
+import { t } from '@/lib/i18n';
 import { BackupView, type BackupConfig, type BackupRun } from './backup-view';
 
 /**
@@ -22,6 +24,18 @@ export default async function AdminBackupPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+
+  // GRATIS_DISABLE_BACKUP_UI turns the whole surface off; the API
+  // refuses every backup route, so show a note instead of the panels.
+  let disabled = false;
+  try {
+    disabled = (
+      await apiFetch<{ disabled: boolean }>('/api/admin/backup/availability')
+    ).disabled;
+  } catch {
+    /* the config load below reports the real error */
+  }
+  const locale = await getServerLocale();
 
   // Portal display name is the confirmation phrase on Restore
   // plain "Acme Corp" rather than the URL slug "acme-corp". Fetched
@@ -43,15 +57,17 @@ export default async function AdminBackupPage() {
   let config: BackupConfig | null = null;
   let runs: BackupRun[] = [];
   let error: string | null = null;
-  try {
-    const [c, r] = await Promise.all([
-      apiFetch<BackupConfig>('/api/admin/backup/config'),
-      apiFetch<BackupRun[]>('/api/admin/backup/runs'),
-    ]);
-    config = c;
-    runs = r;
-  } catch (err) {
-    error = err instanceof Error ? err.message : 'Could not load backup data.';
+  if (!disabled) {
+    try {
+      const [c, r] = await Promise.all([
+        apiFetch<BackupConfig>('/api/admin/backup/config'),
+        apiFetch<BackupRun[]>('/api/admin/backup/runs'),
+      ]);
+      config = c;
+      runs = r;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Could not load backup data.';
+    }
   }
 
   return (
@@ -78,6 +94,12 @@ export default async function AdminBackupPage() {
           </p>
         </div>
       </header>
+
+      {disabled ? (
+        <p className="mb-6 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-ink-1">
+          {t('opsPage.backupUiDisabled', undefined, locale)}
+        </p>
+      ) : null}
 
       {error ? (
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">

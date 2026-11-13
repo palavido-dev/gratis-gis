@@ -35,7 +35,13 @@ function latestLabel(report: UpdateReport): string {
   return '—';
 }
 
-export function UpdatesView({ report }: { report: UpdateReport }) {
+export function UpdatesView({
+  report,
+  backupDisabled = false,
+}: {
+  report: UpdateReport;
+  backupDisabled?: boolean;
+}) {
   const t = useT();
   const [backup, setBackup] = useState<{ id?: string; error?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,30 +114,34 @@ export function UpdatesView({ report }: { report: UpdateReport }) {
       </section>
 
       <ol className="list-decimal space-y-4 pl-5 text-sm">
-        <li>
-          <button
-            type="button"
-            onClick={createBackup}
-            disabled={busy}
-            className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground disabled:opacity-60"
-          >
-            {busy ? t('updates.backupWorking') : t('updates.createBackup')}
-          </button>
-          {backup?.id ? (
-            <span className="ml-3">
-              <a
-                className="text-accent underline"
-                href={`/api/portal/admin/backup/runs/${backup.id}/download`}
-              >
-                {t('updates.downloadBackup')}
-              </a>
-              <Link href="/admin/backup" className="ml-3 text-accent underline">
-                {t('updates.backupPage')}
-              </Link>
-            </span>
-          ) : null}
-          {backup?.error ? <p className="mt-1 text-danger">{backup.error}</p> : null}
-        </li>
+        {backupDisabled ? (
+          <li className="text-muted">{t('opsPage.backupUiDisabled')}</li>
+        ) : (
+          <li>
+            <button
+              type="button"
+              onClick={createBackup}
+              disabled={busy}
+              className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground disabled:opacity-60"
+            >
+              {busy ? t('updates.backupWorking') : t('updates.createBackup')}
+            </button>
+            {backup?.id ? (
+              <span className="ml-3">
+                <a
+                  className="text-accent underline"
+                  href={`/api/portal/admin/backup/runs/${backup.id}/download`}
+                >
+                  {t('updates.downloadBackup')}
+                </a>
+                <Link href="/admin/backup" className="ml-3 text-accent underline">
+                  {t('updates.backupPage')}
+                </Link>
+              </span>
+            ) : null}
+            {backup?.error ? <p className="mt-1 text-danger">{backup.error}</p> : null}
+          </li>
+        )}
         {nasCompose ? (
           <li>
             {t('updates.nasCompose')}{' '}
