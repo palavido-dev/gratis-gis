@@ -8,7 +8,7 @@ import { PolicyService } from './policy.service.js';
  * depend on it without dragging in items / sharing / prisma.
  *
  * Exports:
- *   - PolicyService -- low-level Cedar evaluator (Phase A); the
+ *   - PolicyService: low-level Cedar evaluator (Phase A); the
  *                      callsite for SharingService's Item-level gate
  *                      (Phase B).
  *
