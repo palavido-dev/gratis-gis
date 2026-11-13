@@ -78,16 +78,13 @@ import {
 } from '@gratis-gis/shared-types';
 import type {
   AppDataSource,
-  AppTemplateId,
   CustomAppData,
 } from '@gratis-gis/shared-types';
 import { ThumbnailDesigner } from '@/components/thumbnail-designer';
+import { parseApiError } from '@/lib/api-error';
 import { formatBytes } from '@/lib/format-bytes';
 import { presignUpload } from '@/lib/presign-upload';
-import {
-  defaultThumbnailDesign,
-  type ThumbnailDesign,
-} from '@gratis-gis/shared-types';
+import type { ThumbnailDesign } from '@gratis-gis/shared-types';
 import {
   describeArcgisService,
   probeService,
@@ -414,12 +411,6 @@ export function NewItemWizard({
   const [description, setDescription] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [access, setAccess] = useState<ItemAccess>('private');
-  // thumbnailUrl is retained at null so the create payload's shape
-  // stays back-compat with the API; uploads are no longer offered
-  // in the wizard now that ThumbnailDesigner is the single thumbnail
-  // surface (#66).
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  void setThumbnailUrl;
   // #66: auto-thumbnail design state. Resolves the wizard's
   // wider-than-ItemType union (viewer/custom both bake to web_app
   // under the hood) to a concrete type for the designer.  Author
@@ -431,9 +422,12 @@ export function NewItemWizard({
       : type === 'postgis_connection'
         ? 'service'
         : (type ?? 'file');
-  const [thumbnailDesign, setThumbnailDesign] = useState<ThumbnailDesign>(() =>
-    defaultThumbnailDesign(resolvedTypeForThumbnail),
-  );
+  // Null until the author edits it, so the designer previews the
+  // palette of whatever type is picked and the server applies that
+  // type's default. Seeding it at mount froze the "file" palette
+  // whenever the type was chosen from the picker.
+  const [thumbnailDesign, setThumbnailDesign] =
+    useState<ThumbnailDesign | null>(null);
 
   // Custom Web App template selection.  Templates are app_template
   // items the user has read access to; the wizard fetches the list
@@ -505,12 +499,6 @@ export function NewItemWizard({
       cancelled = true;
     };
   }, [type, customMapChoice, customMapOptions]);
-  // Legacy state kept around in case some unrelated code reads the
-  // old AppTemplateId.  No longer driven by the gallery.
-  const [customAppTemplateId, setCustomAppTemplateId] =
-    useState<AppTemplateId>('sidebar-explorer');
-  void customAppTemplateId;
-  void setCustomAppTemplateId;
 
   // ArcGIS-specific state. Probe result is staged until Create fires.
   // `userEditedTitle` guards us from clobbering a title the user typed
@@ -961,9 +949,37 @@ export function NewItemWizard({
     applyProbeResult,
   ]);
 
+  // Set synchronously so a double click cannot start two creates:
+  // the custom-app branch makes network calls (template, map) before
+  // the item POST, and the button used to stay enabled through them.
+  const submitLockRef = useRef(false);
+
   async function submit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await submitInner();
+    } catch (err) {
+      // submit() is wired straight to onClick; anything thrown before
+      // the item POST would otherwise be an unhandled rejection with
+      // nothing on screen.
+      console.error('Create request failed:', err);
+      setError(
+        `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitInner() {
     if (!type) return;
     setError(null);
+    // Set when the custom-app branch makes a map, so a failed app
+    // create can say the map exists.
+    let createdMapTitle: string | null = null;
     if (title.trim().length === 0) {
       setError(t('newItem.titleRequired'));
       return;
@@ -1255,6 +1271,7 @@ export function NewItemWizard({
           return;
         }
         dashMapId = ((await mapRes.json()) as { id: string }).id;
+        createdMapTitle = `${title.trim()} map`;
       } else if (customMapChoice === 'existing' && customExistingMapId) {
         dashMapId = customExistingMapId;
       }
@@ -1438,8 +1455,7 @@ export function NewItemWizard({
         .map((t) => t.trim())
         .filter((t) => t.length > 0),
       access,
-      thumbnailUrl,
-      thumbnailDesign,
+      ...(thumbnailDesign ? { thumbnailDesign } : {}),
       data,
     };
 
@@ -1451,9 +1467,11 @@ export function NewItemWizard({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const reason = await parseApiError(res, 'Create failed');
         setError(
-          `Create failed: ${res.status}${body ? ` - ${body}` : ''}`,
+          createdMapTitle
+            ? `${reason} The map "${createdMapTitle}" was created and is in your items; choose it as an existing map when you try again.`
+            : reason,
         );
         return;
       }

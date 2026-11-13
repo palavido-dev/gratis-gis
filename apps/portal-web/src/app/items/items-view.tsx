@@ -434,7 +434,9 @@ export function ItemsView({
   // showed every spatially-matching item in the org -- which was
   // also why an empty folder appeared to show "all items" once a
   // user opened the area filter.
-  const sourceItems = (() => {
+  // Memoised so the counts, the sort and the row list below do not all
+  // recompute on every render (each checkbox tick re-sorted every row).
+  const sourceItems = useMemo(() => {
     let pool: ItemWithShares[];
     if (spatialActive && spatialItems) {
       if (activeFolder) {
@@ -447,7 +449,7 @@ export function ItemsView({
       pool = items;
     }
     return pool.filter((it) => it.type !== 'folder');
-  })();
+  }, [items, spatialActive, spatialItems, activeFolder]);
 
   // Present-in-data type counts, sorted by descending count so the
   // most common types sit at the front of the filter bar. Counts
@@ -622,6 +624,8 @@ export function ItemsView({
     setTypeFilter(new Set());
     setTemplateFilter(new Set());
     setAccessFilter(new Set());
+    setOwnerFilter(new Set());
+    setTagFilter(new Set());
   }
 
   async function applyAreaSearch(
@@ -805,18 +809,19 @@ export function ItemsView({
     });
   }
 
-  function selectAllVisible() {
-    // Ticking the header checkbox ticks every manageable row in the
-    // current filtered view. If they're already all selected, this
-    // clears just the visible-and-manageable ones (leaving any
-    // stale selections from a previous filter alone).
+  function selectAllVisible(ids: ReadonlySet<string>) {
+    // Ticking a header checkbox ticks every manageable row it heads:
+    // the whole filtered view, or one group's rows when the list is
+    // grouped. If they're already all selected, this clears just
+    // those (leaving any stale selections from a previous filter
+    // alone).
     setSelected((prev) => {
       const next = new Set(prev);
-      const allSelected = Array.from(manageableIds).every((id) => next.has(id));
+      const allSelected = Array.from(ids).every((id) => next.has(id));
       if (allSelected) {
-        for (const id of manageableIds) next.delete(id);
+        for (const id of ids) next.delete(id);
       } else {
-        for (const id of manageableIds) next.add(id);
+        for (const id of ids) next.add(id);
       }
       return next;
     });
@@ -1095,6 +1100,8 @@ export function ItemsView({
         accessFilter={accessFilter}
         accessCounts={accessCounts}
         onToggleAccess={onToggleAccess}
+        tagFilter={tagFilter}
+        onClearTags={() => setTagFilter(new Set())}
       />
       {areaPanelOpen ? (
         <AreaSearchPanel
@@ -1921,6 +1928,10 @@ interface ToolbarProps {
   accessFilter: Set<ItemAccess>;
   accessCounts: Array<[ItemAccess, number]>;
   onToggleAccess: (a: ItemAccess) => void;
+  /** Tags picked from item cards; shown as a chip so the list view,
+   *  which renders no tags, still says why it is narrowed. */
+  tagFilter: Set<string>;
+  onClearTags: () => void;
 }
 
 function Toolbar({
@@ -1951,6 +1962,8 @@ function Toolbar({
   accessFilter,
   accessCounts,
   onToggleAccess,
+  tagFilter,
+  onClearTags,
 }: ToolbarProps) {
   const t = useT();
   // Active-filter labels for the inline summary chip below the
@@ -1983,6 +1996,37 @@ function Toolbar({
       key: 'template',
       label: t('items.summaryTemplate', { labels }),
       onClear: onClearFilters,
+    });
+  }
+  if (ownerFilter.size > 0) {
+    const labels = Array.from(ownerFilter)
+      .map((id) => ownerLabels[id] ?? id.slice(0, 8))
+      .sort()
+      .join(', ');
+    summaryParts.push({
+      key: 'owner',
+      label: t('items.summaryOwner', { labels }),
+      onClear: onClearFilters,
+    });
+  }
+  if (accessFilter.size > 0) {
+    const labels = Array.from(accessFilter)
+      .map((a) => t(`sharing.access.${a}`))
+      .sort()
+      .join(', ');
+    summaryParts.push({
+      key: 'access',
+      label: t('items.summaryAccess', { labels }),
+      onClear: onClearFilters,
+    });
+  }
+  if (tagFilter.size > 0) {
+    summaryParts.push({
+      key: 'tags',
+      label: t('items.summaryTags', {
+        labels: Array.from(tagFilter).sort().join(', '),
+      }),
+      onClear: onClearTags,
     });
   }
   if (areaActive && areaActiveLabel) {
@@ -2050,6 +2094,7 @@ function Toolbar({
           accessFilter={accessFilter}
           accessCounts={accessCounts}
           onToggleAccess={onToggleAccess}
+          tagCount={tagFilter.size}
         />
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">
@@ -2133,7 +2178,7 @@ interface BodyProps {
   selected: Set<string>;
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
-  onToggleAll: () => void;
+  onToggleAll: (ids: ReadonlySet<string>) => void;
   /** Per-row kebab actions (#82). Forwarded all the way down to
    *  ItemGrid; ItemRowMenu invokes them. */
   onPreview: (item: ItemWithShares) => void;
@@ -2269,7 +2314,7 @@ interface GridProps {
   selected: Set<string>;
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
-  onToggleAll: () => void;
+  onToggleAll: (ids: ReadonlySet<string>) => void;
   /** Per-row kebab actions (#82). */
   onPreview: (item: ItemWithShares) => void;
   onRowShare: (item: ItemWithShares) => void;
@@ -2414,9 +2459,14 @@ function ItemGrid({
   // bulk select + reassign; it's a fixed 1.5rem-wide column so the
   // layout is pixel-stable whether or not the user has admin rights
   // on any given row.
+  // Only this grid's rows: with Group by on, each group has its own
+  // header box, and it must not select the other groups.
+  const gridManageableIds = new Set(
+    items.filter((it) => manageableIds.has(it.id)).map((it) => it.id),
+  );
   const allManageableSelected =
-    manageableIds.size > 0 &&
-    Array.from(manageableIds).every((id) => selected.has(id));
+    gridManageableIds.size > 0 &&
+    Array.from(gridManageableIds).every((id) => selected.has(id));
   return (
     <ul className="divide-y divide-border rounded-lg border border-border bg-surface-1">
       {/* Header row. Grid template has an extra 1.5rem leading column
@@ -2440,11 +2490,11 @@ function ItemGrid({
           not `hidden` at that tier, in DOM order, because `hidden` is
           display:none and drops out of grid flow entirely. */}
       <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted md:grid lg:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_7rem_1.75rem] xl:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
-        {manageableIds.size > 0 ? (
+        {gridManageableIds.size > 0 ? (
           <input
             type="checkbox"
             checked={allManageableSelected}
-            onChange={onToggleAll}
+            onChange={() => onToggleAll(gridManageableIds)}
             className="h-3.5 w-3.5 cursor-pointer"
             aria-label={t('items.selectAll')}
           />
@@ -2564,6 +2614,9 @@ function ItemGrid({
               <ItemRowMenu
                 itemId={item.id}
                 itemType={item.type}
+                // Needed to recognise a templated web app, so the list
+                // offers "Open" the same as the card view does.
+                itemData={item.data}
                 canManage={canManage}
                 onPreview={() => onPreview(item)}
                 onShare={canManage ? () => onRowShare(item) : undefined}
