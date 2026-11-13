@@ -13,6 +13,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   cache lifetime and keeps its own compressed copy on disk, which a
   restart does not clear. The logo now has a versioned file name like
   the stylesheets, so browsers and Keycloak fetch it fresh.
+- `infra/deploy.sh` now restarts Keycloak, after dropping its
+  compressed file cache, whenever the login theme files changed.
+  Before, a deploy only refreshed Keycloak when its container was
+  recreated, so theme changes waited for a manual restart.
 
 ## [1.6.0] - 2026-11-13
 

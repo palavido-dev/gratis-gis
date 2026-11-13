@@ -81,3 +81,61 @@ gg_sync_caddyfile() {
   fi
   echo "Caddy now serves the current Caddyfile."
 }
+
+# Make the running Keycloak serve the login theme that is on disk.
+#
+# The theme directories are bind-mounted, so a checkout changes the
+# files Keycloak can see, but Keycloak does not serve them: it caches
+# themes in memory until a restart, and it keeps a gzip copy of every
+# static resource under data/tmp/kc-gzip-cache, which a restart does
+# not clear. After the 1.6.0 deploy the sign-in page kept the old logo
+# even after a restart, because logo.svg.gz from July was still being
+# served. `compose up` does not notice either, since the compose file
+# did not change.
+#
+# The container records a digest of the theme files it last loaded in
+# data/tmp. When that differs from the host files, drop the gzip cache
+# and restart Keycloak so both caches start from the current files. A
+# container with no record and no gzip cache was just created and has
+# read nothing stale, so it only gets the record. Restarting is a short
+# sign-in outage; sessions live in the database and survive it.
+#
+# Usage: gg_sync_keycloak_themes <container> <host themes dir> <compose command...>
+gg_sync_keycloak_themes() {
+  local container="$1" themes_dir="$2"
+  shift 2
+  local stamp=/opt/keycloak/data/tmp/gg-theme-digest
+  local cache=/opt/keycloak/data/tmp/kc-gzip-cache
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != "true" ]]; then
+    echo "Keycloak is not running; nothing to sync."
+    return 0
+  fi
+  local want have
+  want="$(cd "$themes_dir" && find . -type f -print0 | LC_ALL=C sort -z \
+    | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)"
+  have="$(docker exec "$container" cat "$stamp" 2>/dev/null || true)"
+  if [[ "$have" == "$want" ]]; then
+    echo "Keycloak is serving the current login theme."
+    return 0
+  fi
+  if [[ -z "$have" ]] && ! docker exec "$container" test -d "$cache"; then
+    docker exec "$container" sh -c 'printf %s "$1" > "$2"' _ "$want" "$stamp"
+    echo "Keycloak has cached no theme files yet; recorded the current theme."
+    return 0
+  fi
+  echo "Keycloak may be serving an older login theme; clearing its cache and restarting it."
+  docker exec "$container" rm -rf "$cache"
+  "$@" restart keycloak
+  local tries="${GG_KC_HEALTH_TRIES:-36}" status=""
+  while (( tries-- > 0 )); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || true)"
+    [[ "$status" == "healthy" ]] && break
+    sleep "${GG_KC_HEALTH_SLEEP:-5}"
+  done
+  if [[ "$status" != "healthy" ]]; then
+    echo "WARN: Keycloak is not healthy after the restart (status: ${status:-unknown})." >&2
+    return 1
+  fi
+  docker exec "$container" sh -c 'printf %s "$1" > "$2"' _ "$want" "$stamp"
+  echo "Keycloak now serves the current login theme."
+}

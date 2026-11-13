@@ -19,6 +19,9 @@ mkdir -p "$work/bin"
 #   running         what `docker inspect` prints for .State.Running
 #   inside          the Caddyfile digest the container sees; a
 #                   `compose restart caddy` copies inside_after over it
+#   health          what `docker inspect` prints for .State.Health.Status
+#   stamp           the theme digest Keycloak recorded; absent = none
+#   cache           present while Keycloak holds a gzip cache
 cat > "$work/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE/calls"
@@ -33,8 +36,19 @@ case "$1" in
     ;;
   ps) cat "$FAKE/ps" ;;
   rm) ;;
-  inspect) cat "$FAKE/running" ;;
-  exec) echo "$(cat "$FAKE/inside")  /etc/caddy/Caddyfile" ;;
+  inspect)
+    if [[ " $* " == *"Health.Status"* ]]; then cat "$FAKE/health"; else cat "$FAKE/running"; fi
+    ;;
+  exec)
+    case "$3" in
+      sha256sum) echo "$(cat "$FAKE/inside")  /etc/caddy/Caddyfile" ;;
+      cat) [[ -f "$FAKE/stamp" ]] || exit 1; cat "$FAKE/stamp" ;;
+      test) [[ -e "$FAKE/cache" ]] ;;
+      rm) rm -f "$FAKE/cache" ;;
+      sh) printf %s "$7" > "$FAKE/stamp" ;;
+      *) echo "unexpected docker exec: $*" >&2; exit 2 ;;
+    esac
+    ;;
   *) echo "unexpected docker call: $*" >&2; exit 2 ;;
 esac
 DOCKER
@@ -152,6 +166,68 @@ fresh
 echo false > "$FAKE/running"
 gg_sync_caddyfile gratis-gis-prod-caddy "$caddyfile" "${COMPOSE[@]}" >/dev/null
 check "a stopped Caddy is left alone" "$(grep -c -e 'exec' -e 'restart' "$FAKE/calls")" "0"
+
+# --- gg_sync_keycloak_themes ----------------------------------------
+
+themes="$work/themes"
+mkdir -p "$themes/portal/login/resources/img"
+echo '<svg>teal</svg>' > "$themes/portal/login/resources/img/logo.v2.svg"
+echo 'parent=keycloak.v2' > "$themes/portal/login/theme.properties"
+theme_digest="$(cd "$themes" && find . -type f -print0 | LC_ALL=C sort -z \
+  | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)"
+export GG_KC_HEALTH_SLEEP=0 GG_KC_HEALTH_TRIES=3
+kc_restarts() { grep -c 'restart keycloak' "$FAKE/calls" || true; }
+
+fresh
+echo true > "$FAKE/running"
+printf %s "$theme_digest" > "$FAKE/stamp"
+touch "$FAKE/cache"
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null
+check "a current theme needs no restart" "$(kc_restarts)" "0"
+check "a current theme keeps the gzip cache" "$([[ -e "$FAKE/cache" ]] && echo kept)" "kept"
+
+fresh
+echo true > "$FAKE/running"
+echo healthy > "$FAKE/health"
+printf %s olddigest > "$FAKE/stamp"
+touch "$FAKE/cache"
+rc=0
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null || rc=$?
+check "a changed theme restarts Keycloak" "$(kc_restarts)" "1"
+check "the restart goes through compose" \
+  "$(grep -c '^compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod restart keycloak$' "$FAKE/calls")" "1"
+check "a changed theme drops the gzip cache" "$([[ -e "$FAKE/cache" ]] && echo kept || echo gone)" "gone"
+check "the cache is dropped before the restart" \
+  "$(grep -n -e '^exec .* rm -rf' -e 'restart keycloak' "$FAKE/calls" | cut -d: -f2 | cut -c1-4 | paste -sd' ' -)" "exec comp"
+check "the new digest is recorded" "$(cat "$FAKE/stamp")" "$theme_digest"
+check "a restart that comes back healthy succeeds" "$rc" "0"
+
+fresh
+echo true > "$FAKE/running"
+echo healthy > "$FAKE/health"
+touch "$FAKE/cache"
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null
+check "no record but a gzip cache counts as stale" "$(kc_restarts)" "1"
+
+fresh
+echo true > "$FAKE/running"
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null
+check "a fresh container is not restarted" "$(kc_restarts)" "0"
+check "a fresh container gets the record" "$(cat "$FAKE/stamp")" "$theme_digest"
+
+fresh
+echo true > "$FAKE/running"
+echo starting > "$FAKE/health"
+printf %s olddigest > "$FAKE/stamp"
+rc=0
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null 2>&1 || rc=$?
+check "an unhealthy restart fails" "$rc" "1"
+check "an unhealthy restart records nothing" "$(cat "$FAKE/stamp")" "olddigest"
+
+fresh
+echo false > "$FAKE/running"
+gg_sync_keycloak_themes gratis-gis-prod-keycloak "$themes" "${COMPOSE[@]}" >/dev/null
+check "a stopped Keycloak is left alone" "$(grep -c -e 'exec' -e 'restart' "$FAKE/calls")" "0"
 
 echo "lib-deploy: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

@@ -16,8 +16,9 @@
 #      when COMPOSE_PROFILES in infra/.env.prod names that profile.
 #   3b. Removes containers whose service left the compose file
 #      (pg_tileserv), since --remove-orphans alone did not on Compose
-#      v5.3.1, and restarts Caddy if it still serves an older Caddyfile
-#      (see infra/lib-deploy.sh).
+#      v5.3.1, restarts Caddy if it still serves an older Caddyfile,
+#      and restarts Keycloak (dropping its gzip cache) when the login
+#      theme files changed (see infra/lib-deploy.sh).
 #   4. Tails recent logs so you can see whether the boot was clean.
 #
 # Migrations: the portal-migrate one-shot service runs `prisma migrate
@@ -225,6 +226,9 @@ gg_sweep_orphans gratis-gis-prod "${COMPOSE[@]}"
 
 echo "=== Checking Caddy config ==="
 gg_sync_caddyfile gratis-gis-prod-caddy infra/Caddyfile "${COMPOSE[@]}" || true
+
+echo "=== Checking Keycloak login theme ==="
+gg_sync_keycloak_themes gratis-gis-prod-keycloak infra/keycloak/themes "${COMPOSE[@]}" || true
 
 echo "=== Status ==="
 "${COMPOSE[@]}" ps
