@@ -6,6 +6,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-13
+
+Patch release: the sign-in page logo, a deploy step that keeps
+Keycloak's login theme current, release tagging, and a dependency
+security update.
+
+### Security
+
+- hono and @hono/node-server, used by the MCP server, are raised past
+  seven published advisories (CSRF and middleware bypasses, a form
+  validation skip, an HTML injection in the css helper, a path
+  bypass behind a reverse proxy, and a crash on WebSocket upgrade).
+
+### Added
+
+- Merging a release pull request now creates the release tag and the
+  GitHub release automatically, and starts the image publish for it.
+
 ### Fixed
 
 - The sign-in page now shows the new logo. Keycloak kept serving the
