@@ -3643,6 +3643,7 @@ export const fr: Partial<CatalogShape> = {
     maintenanceOff: 'Arrêter la maintenance',
     failed: 'La requête a échoué.',
     operatorOnly: 'La disponibilité et la maintenance concernent toute l\'installation : seuls les admins de l\'organisation opératrice peuvent les utiliser.',
+    backupUiDisabled: 'La sauvegarde, la restauration et la maintenance sont désactivées sur cette installation (GRATIS_DISABLE_BACKUP_UI).',
   },
   opsBackup: {
     failureBanner: 'Une sauvegarde n’a pas fini. Lisez l’exécution en échec. Un avis part une seule fois si les notifications sont actives.',
@@ -3968,14 +3969,12 @@ export const fr: Partial<CatalogShape> = {
     hidePassword: 'masquer',
     checkboxEnabled: 'Activé',
     checkboxSslTls: 'SSL / TLS à la connexion (port 465)',
-    labelSendTestTo: 'Envoyer un test à',
-    placeholderTestEmail: 'vous@exemple.com',
     sendTest: 'Envoyer un test',
     smtpSavedRealmWarning:
       'SMTP enregistré, mais la synchro du realm Keycloak a échoué : {warning}',
     smtpSavedOk: 'Enregistré. Le worker utilisera le nouveau SMTP au prochain envoi.',
     saveFailed: 'Échec de l\'enregistrement.',
-    testEmailInvalid: 'Saisissez une adresse e-mail valide pour le test.',
+    testGoesToYou: "Le test est envoyé à l'adresse e-mail de votre propre compte.",
     testSent: 'Test envoyé à {email}.',
     testFailedUnclear: 'Échec du test sans message d\'erreur clair.',
     testFailed: 'Échec du test.',

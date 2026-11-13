@@ -3,11 +3,9 @@
 //
 // Kept out of the dialog so they can be tested: changing one cell
 // used to turn a layer's policy to custom with only that one entry,
-// which hid the layer from everyone else on the map, and the "no item
-// access" warning ignored org-wide and public items and their owners.
+// which hid the layer from everyone else on the map. The "no item
+// access" warning is answered by the server (lib/principal-access.ts).
 import type {
-  ItemAccess,
-  ItemShare,
   MapLayerAccess,
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
@@ -16,12 +14,6 @@ import { DEFAULT_LAYER_ACCESS } from '@gratis-gis/shared-types';
 export interface MatrixPrincipalRef {
   type: 'user' | 'group';
   id: string;
-}
-
-/** Who can reach a backing item without an explicit share. */
-export interface ItemReach {
-  access?: ItemAccess | undefined;
-  ownerId?: string | undefined;
 }
 
 /** What a principal gets on a layer that has no entry for it. */
@@ -85,31 +77,4 @@ export function writeMatrixEntry(
   if (idx >= 0) entries[idx] = merged;
   else entries.push(merged);
   return { policy: 'custom', entries };
-}
-
-/**
- * Can this principal read the backing item? An explicit share to the
- * user or one of their groups counts, and so does what the server's
- * canRead allows without a share: an org-wide or public item, and the
- * item's owner. `shares` undefined means not loaded yet (no warning).
- */
-export function principalHasItemAccess(
-  shares: readonly ItemShare[] | undefined,
-  reach: ItemReach | undefined,
-  p: MatrixPrincipalRef,
-  groupMemberships: Record<string, string[]>,
-): boolean {
-  if (!shares) return true;
-  if (reach?.access === 'public' || reach?.access === 'org') return true;
-  if (p.type === 'user') {
-    if (reach?.ownerId === p.id) return true;
-    if (shares.some((s) => s.principalType === 'user' && s.principalId === p.id)) {
-      return true;
-    }
-    const myGroups = groupMemberships[p.id] ?? [];
-    return myGroups.some((gid) =>
-      shares.some((s) => s.principalType === 'group' && s.principalId === gid),
-    );
-  }
-  return shares.some((s) => s.principalType === 'group' && s.principalId === p.id);
 }

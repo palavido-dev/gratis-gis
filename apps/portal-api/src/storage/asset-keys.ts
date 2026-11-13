@@ -31,6 +31,16 @@ export const ITEM_ASSET_KIND = {
 
 export type AssetKeyedItemType = keyof typeof ITEM_ASSET_KIND;
 
+/**
+ * A File item made by the asset picker keeps its bytes on the public
+ * image prefix, so an image in a publicly shared app still loads for
+ * anonymous viewers. The item records that key in
+ * `data.publicImageKey` (not `storageKey`, which stays pinned to
+ * `item-file/`) so purge can delete the object with the item.
+ */
+export const FILE_PUBLIC_IMAGE_KIND = 'item-thumb' satisfies AssetKind;
+export const FILE_PUBLIC_IMAGE_FIELD = 'publicImageKey';
+
 export function isAssetKeyedItemType(
   type: string,
 ): type is AssetKeyedItemType {

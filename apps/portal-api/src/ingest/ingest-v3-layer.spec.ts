@@ -59,6 +59,7 @@ function makeController(
         data: { version: 3, layers: [{ id: 'L1', fields: [] }] },
       }),
       assertCanImportAllRows,
+      assertLayerEditingEnabled: () => undefined,
     } as never,
     undefined as never,
     {

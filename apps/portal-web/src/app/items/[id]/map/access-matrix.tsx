@@ -12,7 +12,6 @@ import {
   Users,
 } from 'lucide-react';
 import type {
-  ItemShare,
   MapLayer,
   MapLayerAccess,
   MapLayerAccessEntry,
@@ -26,12 +25,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useT } from '@/lib/i18n/locale-context';
+import { matrixEntryFor, writeMatrixEntry } from '@/lib/map-access-matrix';
 import {
-  matrixEntryFor,
-  principalHasItemAccess as itemAccessFor,
-  writeMatrixEntry,
-  type ItemReach,
-} from '@/lib/map-access-matrix';
+  hasAccess as answerHasAccess,
+  type AccessAnswers,
+} from '@/lib/principal-access';
 
 /**
  * Principal surfaced in the matrix columns. Resolved by the parent
@@ -57,18 +55,12 @@ interface Props {
    */
   layerItemIds: Record<string, string | null>;
   /**
-   * Current item-level shares keyed by item id. Matrix uses this to
-   * detect "webmap shared, but underlying item isn't" gaps. Fetched
-   * by the parent when the modal opens.
+   * Server answers to "can this principal read that backing item",
+   * keyed by item id then principal. Matrix uses them to detect
+   * "webmap shared, but underlying item isn't" gaps. Fetched by the
+   * parent when the modal opens; unknown pairs raise no warning.
    */
-  itemShares: Record<string, ItemShare[]>;
-  /**
-   * Access level and owner of each backing item, keyed by item id.
-   * An org-wide or public item, or the item's owner, needs no share.
-   */
-  itemReach?: Record<string, ItemReach>;
-  /** Groups the current user can see; used to resolve group membership. */
-  groupMemberships: Record<string, string[]>;
+  itemAccess: AccessAnswers;
   onClose: () => void;
   /** Patch a single layer's `access` field; parent merges into its state. */
   onPatchAccess: (layerId: string, next: MapLayerAccess) => void;
@@ -76,7 +68,7 @@ interface Props {
    * Grant `view` permission on a backing item to a principal. Matrix
    * calls this for single-cell "fix it" actions and the bulk-grant
    * button at the top. Parent performs the POST to /items/:id/share
-   * and refreshes the itemShares entry.
+   * and marks the pair as granted.
    */
   onGrantItemAccess: (
     itemId: string,
@@ -107,9 +99,7 @@ export function AccessMatrix({
   layers,
   principals,
   layerItemIds,
-  itemShares,
-  itemReach = {},
-  groupMemberships,
+  itemAccess,
   onClose,
   onPatchAccess,
   onGrantItemAccess,
@@ -144,7 +134,7 @@ export function AccessMatrix({
       principal: MatrixPrincipal;
     }> = [];
     const hasAccess = (itemId: string, p: MatrixPrincipal): boolean =>
-      itemAccessFor(itemShares[itemId], itemReach[itemId], p, groupMemberships);
+      answerHasAccess(itemAccess, itemId, p);
     for (const layer of layers) {
       const itemId = layerItemIds[layer.id];
       if (!itemId) continue;
@@ -155,7 +145,7 @@ export function AccessMatrix({
       }
     }
     return out;
-  }, [layers, layerItemIds, itemShares, itemReach, principals, groupMemberships]);
+  }, [layers, layerItemIds, itemAccess, principals]);
 
   const principalKey = (p: MatrixPrincipal) => `${p.type}:${p.id}`;
 
@@ -175,14 +165,14 @@ export function AccessMatrix({
 
   /**
    * Does this principal have at least view access to the given item?
-   * A user matches by their own id; a group matches as itself; a user
-   * also matches any group they belong to (via groupMemberships).
+   * The server decides (owner, org-wide, public, user and group
+   * shares); see lib/principal-access.ts.
    */
   function principalHasItemAccess(
     itemId: string,
     p: MatrixPrincipal,
   ): boolean {
-    return itemAccessFor(itemShares[itemId], itemReach[itemId], p, groupMemberships);
+    return answerHasAccess(itemAccess, itemId, p);
   }
 
   function entryFor(

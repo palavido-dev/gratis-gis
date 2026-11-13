@@ -3777,6 +3777,7 @@ export const en = {
     maintenanceOff: 'Turn maintenance off',
     failed: 'The request failed.',
     operatorOnly: 'Readiness and maintenance cover the whole install, so only admins of the operator organization can use them.',
+    backupUiDisabled: 'Backup, restore and maintenance controls are turned off on this install (GRATIS_DISABLE_BACKUP_UI).',
   },
   opsBackup: {
     failureBanner: 'A backup did not finish. Read the failed run below. A notice is sent once for that run when notifications are enabled.',
@@ -4105,14 +4106,12 @@ export const en = {
     hidePassword: 'hide',
     checkboxEnabled: 'Enabled',
     checkboxSslTls: 'SSL / TLS on connect (port 465)',
-    labelSendTestTo: 'Send test to',
-    placeholderTestEmail: 'you@example.com',
     sendTest: 'Send test',
     smtpSavedRealmWarning:
       'SMTP saved, but Keycloak realm sync failed: {warning}',
     smtpSavedOk: 'Saved. Worker will use new SMTP on next send.',
     saveFailed: 'Save failed.',
-    testEmailInvalid: 'Enter a valid email address to test.',
+    testGoesToYou: 'The test goes to your own account email.',
     testSent: 'Test sent to {email}.',
     testFailedUnclear: 'Test failed without a clear error.',
     testFailed: 'Test failed.',

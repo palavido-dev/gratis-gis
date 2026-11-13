@@ -17,7 +17,6 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
-  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
@@ -71,7 +70,8 @@ class SaveSmtpDto {
 }
 
 export class TestSmtpDto {
-  @IsEmail() to!: string;
+  // No recipient field: the test always goes to the signed-in admin's
+  // own account email, so it cannot be used to mail anyone else.
   /** When provided, send the test against this unsaved config so the
    *  admin can verify before clicking Save. Optional; falls back to
    *  the stored config. ValidateNested + Type make SaveSmtpDto's own
@@ -463,7 +463,19 @@ export class NotificationsAdminController {
   @Post('smtp/test')
   @UseGuards(OperatorOrgGuard)
   @HttpCode(200)
-  async testSmtp(@Body() dto: TestSmtpDto): Promise<{ ok: boolean; error?: string }> {
+  async testSmtp(
+    @CurrentUser() me: AuthUser,
+    @Body() dto: TestSmtpDto,
+  ): Promise<{ ok: boolean; error?: string; sentTo?: string }> {
+    const to = me.email;
+    // Accounts provisioned without an email get a placeholder address
+    // (auth-sync.service.ts) that no server will deliver to.
+    if (!to || !to.includes('@') || to.endsWith('@local.gratisgis')) {
+      return {
+        ok: false,
+        error: 'Your account has no email address. Add one to your profile, then send the test.',
+      };
+    }
     const builtCfg: SmtpConfig | null = await (async () => {
       if (!dto.config) return this.settings.getSmtpConfig();
       const c: SmtpConfig = {
@@ -502,14 +514,14 @@ export class NotificationsAdminController {
     try {
       await this.transport.sendTest(
         cfg,
-        dto.to,
+        to,
         'GratisGIS notifications: test email',
         'This is a test email from your GratisGIS portal. ' +
           'If you can read this, your SMTP relay is working.',
         '<p>This is a test email from your GratisGIS portal.</p>' +
           '<p>If you can read this, your SMTP relay is working.</p>',
       );
-      return { ok: true };
+      return { ok: true, sentTo: to };
     } catch (err) {
       this.log.warn(
         `SMTP test to ${cfg.host}:${cfg.port} failed: ${

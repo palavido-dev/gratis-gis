@@ -71,6 +71,7 @@ function makeController(opts: { canDownload: boolean }) {
   const items = {
     get: jest.fn(async () => item),
     assertCanEdit: jest.fn(async () => undefined),
+    assertLayerEditingEnabled: jest.fn(),
   };
   const sharing = {
     canDownload: jest.fn(() => opts.canDownload),
@@ -412,3 +413,47 @@ describe('time filter bounds', () => {
   });
 });
 
+
+describe('DataLayerFeaturesController frozen layer', () => {
+  it('runs the editing-enabled check on writes and stops before inserting', async () => {
+    const base = makeController({ canDownload: true });
+    base.items.assertLayerEditingEnabled.mockImplementation(() => {
+      throw new ForbiddenException('Editing is turned off for this layer.');
+    });
+    const insertFeatures = jest.fn();
+    const C = DataLayerFeaturesController as unknown as new (
+      ...args: unknown[]
+    ) => DataLayerFeaturesController;
+    const controller = new C(
+      base.items,
+      base.sharing,
+      { insertFeatures },
+      {},
+      { assertAllows: jest.fn(async () => undefined) },
+      {},
+    );
+    await expect(
+      controller.append(
+        makeUser(),
+        ITEM_ID,
+        LAYER_ID,
+        { features: [{ properties: { name: 'a' } }] } as never,
+        'editor-1',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(base.items.assertLayerEditingEnabled).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: ITEM_ID }),
+      expect.objectContaining({ id: LAYER_ID }),
+    );
+    expect(insertFeatures).not.toHaveBeenCalled();
+  });
+
+  it('does not run the check on reads', async () => {
+    const base = makeController({ canDownload: true });
+    await base.controller
+      .filteredExtent(makeUser(), ITEM_ID, LAYER_ID, undefined as never)
+      .catch(() => undefined);
+    expect(base.items.assertLayerEditingEnabled).not.toHaveBeenCalled();
+  });
+});

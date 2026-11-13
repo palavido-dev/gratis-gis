@@ -18,6 +18,10 @@ import {
   failedRestore,
 } from '../backup/maintenance-mode.service.js';
 import { OperatorOrgGuard } from '../backup/operator-org.js';
+import {
+  BackupUiEnabledGuard,
+  backupUiDisabled,
+} from '../backup/backup-ui-switch.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 
@@ -54,11 +58,14 @@ export class MaintenanceAdminController {
       active: snap.active,
       startedAt: snap.startedAt,
       failureHold: failedRestore(snap.reason),
+      // GRATIS_DISABLE_BACKUP_UI: the web hides the on and off buttons.
+      writesDisabled: backupUiDisabled(),
     };
   }
 
   @Post()
   @HttpCode(200)
+  @UseGuards(BackupUiEnabledGuard)
   async set(@CurrentUser() user: AuthUser, @Body() body: MaintenanceDto) {
     const before = this.mode.snapshot();
     // Both directions are refused under a failed-restore hold. Turning

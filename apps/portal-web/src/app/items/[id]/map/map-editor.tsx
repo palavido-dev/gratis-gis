@@ -18,7 +18,6 @@ import type {
   FeatureField,
   Group,
   Item,
-  ItemAccess,
   ItemShare,
   MapData,
   MapFilterOp,
@@ -28,6 +27,11 @@ import type {
   TerrainStackEntry,
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
+import {
+  fetchPrincipalAccess,
+  withGrant,
+  type AccessAnswers,
+} from '@/lib/principal-access';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
@@ -589,18 +593,12 @@ export function MapEditor({
   // item) only happens when an author actually opens the matrix.
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [webmapShares, setWebmapShares] = useState<ItemShare[]>([]);
-  const [itemShares, setItemShares] = useState<Record<string, ItemShare[]>>({});
-  // Access level and owner of each backing item: an org-wide or
-  // public item, or its owner, needs no explicit share, so the matrix
-  // must not offer to grant one.
-  const [itemReach, setItemReach] = useState<
-    Record<string, { access?: ItemAccess; ownerId?: string }>
-  >({});
+  // Server answers to "can this principal read that backing item".
+  // Item reads only carry share rosters for the owner and admins, so
+  // the matrix asks instead of reading each layer item's shares.
+  const [itemAccess, setItemAccess] = useState<AccessAnswers>({});
   const [groupDirectory, setGroupDirectory] = useState<Record<string, string>>({});
   const [userNames, setUserNames] = useState<Record<string, string>>({});
-  const [groupMemberships, setGroupMemberships] = useState<
-    Record<string, string[]>
-  >({});
 
   // Maps layer id → backing item id (null for geojson-url / inline).
   // Matrix uses this to know which layers can have item-level gaps.
@@ -628,17 +626,21 @@ export function MapEditor({
   }, [map.layers]);
 
   async function loadMatrixData() {
-    // Webmap's own shares: drives the principal column list.
+    // Webmap's own shares: drives the principal column list. Only the
+    // map's owner and admins get the roster back.
+    let principalShares: ItemShare[] = [];
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (res.ok) {
         const j = (await res.json()) as { shares?: ItemShare[] };
-        setWebmapShares(j.shares ?? []);
+        principalShares = j.shares ?? [];
+        setWebmapShares(principalShares);
       }
     } catch {
       /* non-fatal: matrix shows empty principals list */
     }
-    // Each distinct backing item: pulls its shares for gap detection.
+    // Each distinct backing item: ask the server which principals can
+    // read it, for gap detection.
     const uniqItemIds = Array.from(
       new Set(
         Object.values(layerItemIds).filter(
@@ -646,31 +648,15 @@ export function MapEditor({
         ),
       ),
     );
-    await Promise.all(
-      uniqItemIds.map(async (id) => {
-        try {
-          const r = await fetch(`/api/portal/items/${id}`);
-          if (!r.ok) return;
-          const j = (await r.json()) as {
-            shares?: ItemShare[];
-            access?: ItemAccess;
-            ownerId?: string;
-          };
-          setItemShares((prev) => ({ ...prev, [id]: j.shares ?? [] }));
-          setItemReach((prev) => ({
-            ...prev,
-            [id]: {
-              ...(j.access ? { access: j.access } : {}),
-              ...(j.ownerId ? { ownerId: j.ownerId } : {}),
-            },
-          }));
-        } catch {
-          /* non-fatal: cell falls back to "no warning" */
-        }
-      }),
-    );
+    void fetchPrincipalAccess(
+      uniqItemIds,
+      principalShares.map((s) => ({
+        type: s.principalType as 'user' | 'group',
+        id: s.principalId,
+      })),
+    ).then(setItemAccess);
     // Groups: fetch all groups visible to the current user so the
-    // matrix can display names + resolve which groups a user is in.
+    // matrix can display names.
     try {
       const r = await fetch('/api/portal/groups');
       if (r.ok) {
@@ -683,21 +669,12 @@ export function MapEditor({
       /* non-fatal: groups show as short ids */
     }
 
-    // Users: batch-resolve names + group memberships for every
-    // principal on the webmap's share list. One call covers the
-    // whole matrix: avoids a per-row fetch during render.
+    // Users: batch-resolve names for every user principal on the
+    // webmap's share list. One call covers the whole matrix.
     try {
-      // Snapshot webmapShares here; the list was just refreshed at
-      // the top of loadMatrixData so whatever's in state now is
-      // current.
       const userIds = Array.from(
         new Set(
-          (await (async () => {
-            const r = await fetch(`/api/portal/items/${itemId}`);
-            if (!r.ok) return [] as ItemShare[];
-            const j = (await r.json()) as { shares?: ItemShare[] };
-            return j.shares ?? [];
-          })())
+          principalShares
             .filter((s) => s.principalType === 'user')
             .map((s) => s.principalId),
         ),
@@ -711,7 +688,6 @@ export function MapEditor({
             id: string;
             username: string;
             fullName: string | null;
-            groupIds?: string[];
           }>;
           setUserNames((prev) => {
             const next = { ...prev };
@@ -720,17 +696,10 @@ export function MapEditor({
             }
             return next;
           });
-          setGroupMemberships((prev) => {
-            const next = { ...prev };
-            for (const u of rows) {
-              next[u.id] = u.groupIds ?? [];
-            }
-            return next;
-          });
         }
       }
     } catch {
-      /* non-fatal: users show as short ids, memberships empty */
+      /* non-fatal: users show as short ids */
     }
   }
 
@@ -776,16 +745,8 @@ export function MapEditor({
       }),
     });
     if (!res.ok) return;
-    // Refresh that item's shares so the gap badge disappears.
-    try {
-      const r = await fetch(`/api/portal/items/${bitemId}`);
-      if (r.ok) {
-        const j = (await r.json()) as { shares?: ItemShare[] };
-        setItemShares((prev) => ({ ...prev, [bitemId]: j.shares ?? [] }));
-      }
-    } catch {
-      /* non-fatal: matrix may show stale state until close/reopen */
-    }
+    // Mark the pair as granted so the gap badge disappears.
+    setItemAccess((prev) => withGrant(prev, bitemId, p));
   }
 
   // Drop selection for layers that have been removed so the state
@@ -2595,9 +2556,7 @@ export function MapEditor({
         layers={map.layers}
         principals={matrixPrincipals}
         layerItemIds={layerItemIds}
-        itemShares={itemShares}
-        itemReach={itemReach}
-        groupMemberships={groupMemberships}
+        itemAccess={itemAccess}
         onClose={() => setMatrixOpen(false)}
         onPatchAccess={patchLayerAccess}
         onGrantItemAccess={grantItemAccess}

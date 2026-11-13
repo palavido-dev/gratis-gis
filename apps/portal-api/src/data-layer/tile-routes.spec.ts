@@ -119,6 +119,7 @@ function makeAuthed(opts: {
   const items = {
     get: jest.fn(opts.getItem ?? (async () => item())),
     assertCanEdit: jest.fn(),
+    assertLayerEditingEnabled: jest.fn(),
   };
   const sharing = {
     geoLimitFor: jest.fn(async () => opts.geoLimit ?? null),

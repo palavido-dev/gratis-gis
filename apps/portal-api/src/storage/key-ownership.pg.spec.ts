@@ -46,6 +46,7 @@ d('storage key ownership against Postgres', () => {
   const tileItem = randomUUID();
   const mosaicItem = randomUUID();
   const refItem = randomUUID();
+  const pickerItem = randomUUID();
   const attachment = randomUUID();
 
   beforeAll(async () => {
@@ -75,8 +76,9 @@ d('storage key ownership against Postgres', () => {
         ($1, NULL, '{"storageKey":"item-file/a"}'),
         ($2, NULL, '{"storageKey":"item-tile-layer/src","cogStorageKey":"item-tile-layer/cog","pmtilesStorageKey":"item-tile-layer/pm"}'),
         ($3, NULL, '{"sources":[{"storageKey":"item-tile-layer/s1"},{"storageKey":"item-tile-layer/s2"}]}'),
-        ($4, 'item-file/ref', '{}')`,
-      [fileItem, tileItem, mosaicItem, refItem],
+        ($4, 'item-file/ref', '{}'),
+        ($5, NULL, '{"storageKey":"","publicImageKey":"item-thumb/picked"}')`,
+      [fileItem, tileItem, mosaicItem, refItem, pickerItem],
     );
     await admin.query(
       `INSERT INTO feature_attachment (id, storage_key) VALUES ($1, 'feature-attachment/p')`,
@@ -104,6 +106,7 @@ d('storage key ownership against Postgres', () => {
       'item-tile-layer/pm',
       'item-tile-layer/s2',
       'item-file/ref',
+      'item-thumb/picked',
       'feature-attachment/p',
     ]) {
       expect(await isKeyReferencedElsewhere(prisma, key)).toBe(true);
@@ -146,7 +149,7 @@ d('storage key ownership against Postgres', () => {
   });
 
   it('public kinds are not recorded, and old grants are pruned', async () => {
-    await recordUploadGrant(prisma, 'item-thumb', 'item-thumb/x', victim);
+    await recordUploadGrant(prisma, 'group-thumb', 'group-thumb/x', victim);
     await admin.query(
       `INSERT INTO ${schema}.storage_upload_grant (key, user_id, created_at)
        VALUES ('item-file/old', $1, now() - interval '3 days')`,
@@ -160,5 +163,15 @@ d('storage key ownership against Postgres', () => {
       'item-file/new',
       'item-file/newer',
     ]);
+  });
+
+  it('records item-thumb grants for the asset picker', async () => {
+    await recordUploadGrant(prisma, 'item-thumb', 'item-thumb/mine', victim);
+    await expect(
+      assertKeysAttachable(prisma, victim, ['item-thumb/mine']),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertKeysAttachable(prisma, attacker, ['item-thumb/mine']),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

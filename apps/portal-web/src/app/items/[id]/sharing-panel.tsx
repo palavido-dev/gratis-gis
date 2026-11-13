@@ -48,9 +48,14 @@ import {
 } from './share-geo-limit-dialog';
 import {
   loadEditorDependencyChain,
-  principalHasItemAccess,
   type EditorDependencyNode,
 } from '@/lib/editor-dependencies';
+import {
+  fetchPrincipalAccess,
+  hasAccess as answerHasAccess,
+  withGrant,
+  type AccessAnswers,
+} from '@/lib/principal-access';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { ItemAccessMatrix } from '@/components/item-access-matrix';
 import { PublicCascadeDialog } from '@/components/public-cascade-dialog';
@@ -294,9 +299,10 @@ export function SharingPanel({
   const [depChainSnapshot, setDepChainSnapshot] = useState<
     EditorDependencyNode[] | null
   >(null);
-  const [matrixMemberships, setMatrixMemberships] = useState<
-    Record<string, string[]>
-  >({});
+  // Server answers to "can this sharee read that dependency". Item
+  // reads no longer carry other items' share rosters, so the panel
+  // cannot work this out from share rows itself.
+  const [depAccess, setDepAccess] = useState<AccessAnswers>({});
   const [matrixPrincipalNames, setMatrixPrincipalNames] = useState<
     Record<string, string>
   >({});
@@ -400,6 +406,15 @@ export function SharingPanel({
         const { nodes } = await loadEditorDependencyChain(itemId);
         if (cancelled) return;
         depChainRef.current.chain = nodes;
+        const answers = await fetchPrincipalAccess(
+          nodes.map((n) => n.id),
+          shares.map((s) => ({
+            type: s.principalType as 'user' | 'group',
+            id: s.principalId,
+          })),
+        );
+        if (cancelled) return;
+        setDepAccess(answers);
         setDepChainSnapshot(nodes);
       } catch {
         /* non-fatal: badge won't render but the panel still works */
@@ -417,25 +432,24 @@ export function SharingPanel({
               id: string;
               username: string;
               fullName: string | null;
-              groupIds?: string[];
             }>;
-            const memberships: Record<string, string[]> = {};
             const names: Record<string, string> = {};
             for (const u of rows) {
-              memberships[u.id] = u.groupIds ?? [];
               names[u.id] = u.fullName || u.username;
             }
-            setMatrixMemberships(memberships);
             setMatrixPrincipalNames((prev) => ({ ...prev, ...names }));
           }
         } catch {
-          /* non-fatal: gaps over-count when memberships missing */
+          /* non-fatal: names fall back to short ids */
         }
       }
     })();
     return () => {
       cancelled = true;
     };
+    // `shares` is read through allPrincipalKey, which changes exactly
+    // when the principal list does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, itemType, userPrincipalKey, allPrincipalKey]);
 
   // Pre-built principal list for the matrix. One row per share on
@@ -468,9 +482,9 @@ export function SharingPanel({
     (depItemId: string, principal: { type: 'user' | 'group'; id: string }) => {
       const node = depChainSnapshot?.find((n) => n.id === depItemId);
       if (!node) return true; // unknown dep: no badge, no fix
-      return principalHasItemAccess(node, principal, matrixMemberships);
+      return answerHasAccess(depAccess, depItemId, principal);
     },
-    [depChainSnapshot, matrixMemberships],
+    [depChainSnapshot, depAccess],
   );
 
   // Total open gaps. Drives the inline badge above the share list
@@ -481,16 +495,16 @@ export function SharingPanel({
     let total = 0;
     for (const dep of depChainSnapshot) {
       for (const p of matrixPrincipals) {
-        if (!principalHasItemAccess(dep, p, matrixMemberships)) total += 1;
+        if (!answerHasAccess(depAccess, dep.id, p)) total += 1;
       }
     }
     return total;
-  }, [depChainSnapshot, matrixPrincipals, matrixMemberships]);
+  }, [depChainSnapshot, matrixPrincipals, depAccess]);
 
   // Grant view permission on a dependency item. Used by the
   // ItemAccessMatrix's per-cell + bulk-grant actions. On success
-  // we splice the new share into the local snapshot so the cell
-  // flips to ✓ without re-fetching the whole chain.
+  // we mark the pair as granted so the cell flips to ✓ without
+  // asking the server again.
   const grantDependencyAccess = useCallback(
     async (
       depItemId: string,
@@ -510,24 +524,7 @@ export function SharingPanel({
           `${res.status} ${(await res.text()) || 'grant failed'}`,
         );
       }
-      const added = (await res.json()) as ItemShare;
-      setDepChainSnapshot((prev) => {
-        if (!prev) return prev;
-        return prev.map((node) => {
-          if (node.id !== depItemId) return node;
-          // Replace any pre-existing row for the same principal,
-          // then append. Same dedupe shape as the editor's own
-          // share-list update.
-          const filtered = node.shares.filter(
-            (s) =>
-              !(
-                s.principalType === added.principalType &&
-                s.principalId === added.principalId
-              ),
-          );
-          return { ...node, shares: [...filtered, added] };
-        });
-      });
+      setDepAccess((prev) => withGrant(prev, depItemId, principal));
     },
     [],
   );
@@ -802,10 +799,9 @@ export function SharingPanel({
   }
 
   /**
-   * Pre-share dependency audit for editor items. Fetches the
-   * principal's group memberships (users only; groups have no
-   * memberships of their own here), runs the full chain through
-   * `principalHasItemAccess`, and either:
+   * Pre-share dependency audit for editor items. Asks the server
+   * whether the principal can read each item in the chain, and
+   * either:
    *   - opens the hard-prompt modal when there are gaps, or
    *   - falls through to addShare() when the principal already
    *     has access to every dependency.
@@ -834,31 +830,13 @@ export function SharingPanel({
         await addShare(principalType, principalId);
         return;
       }
-      let memberships: Record<string, string[]> = {};
-      if (principalType === 'user') {
-        try {
-          const r = await fetch(
-            `/api/portal/users?ids=${encodeURIComponent(principalId)}`,
-          );
-          if (r.ok) {
-            const rows = (await r.json()) as Array<{
-              id: string;
-              groupIds?: string[];
-            }>;
-            for (const u of rows) memberships[u.id] = u.groupIds ?? [];
-          }
-        } catch {
-          /* non-fatal: gap detection treats user as no-groups, which is
-             the conservative default (more gaps shown, not fewer) */
-        }
-      }
+      const principal = { type: principalType, id: principalId };
+      const answers = await fetchPrincipalAccess(
+        chain.map((n) => n.id),
+        [principal],
+      );
       const missing = chain.filter(
-        (n) =>
-          !principalHasItemAccess(
-            n,
-            { type: principalType, id: principalId },
-            memberships,
-          ),
+        (n) => !answerHasAccess(answers, n.id, principal),
       );
       if (missing.length === 0) {
         await addShare(principalType, principalId);

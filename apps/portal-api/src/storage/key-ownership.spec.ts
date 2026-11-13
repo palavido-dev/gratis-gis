@@ -124,6 +124,37 @@ describe('tile-layer finalize (failure a)', () => {
   });
 });
 
+describe('asset picker File items', () => {
+  it('purge deletes the public image key alongside storageKey', async () => {
+    const storage = { deleteObject: jest.fn(async () => undefined) };
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    Object.assign(svc, {
+      prisma: prismaWith({ referenced: false }),
+      storage,
+      log: { warn: jest.fn() },
+    });
+    await svc.tearDownItemBackingStorage('f', 'file', {
+      storageKey: '',
+      publicImageKey: 'item-thumb/picked',
+    });
+    expect(storage.deleteObject).toHaveBeenCalledWith('item-thumb/picked');
+  });
+
+  it('purge will not delete a public image key outside item-thumb/', async () => {
+    const storage = { deleteObject: jest.fn(async () => undefined) };
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    Object.assign(svc, {
+      prisma: prismaWith({ referenced: false }),
+      storage,
+      log: { warn: jest.fn() },
+    });
+    await svc.tearDownItemBackingStorage('f', 'file', {
+      publicImageKey: 'feedback-screenshot/x',
+    });
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+});
+
 describe('point-cloud finalize', () => {
   it("refuses another item's key", async () => {
     const storage = { deleteObject: jest.fn() };

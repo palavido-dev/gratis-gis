@@ -31,6 +31,9 @@ import type { AssetKind } from './storage.service.js';
 export const GRANTED_KINDS: ReadonlySet<AssetKind> = new Set<AssetKind>([
   'feature-attachment',
   'item-file',
+  // The asset picker's File items name an item-thumb key in
+  // data.publicImageKey, which purge deletes.
+  'item-thumb',
   'item-tile-layer',
   'item-point-cloud',
 ]);
@@ -153,6 +156,7 @@ export async function isKeyReferencedElsewhere(
              OR data_json @> jsonb_build_object('storageKey', ${key}::text)
              OR data_json @> jsonb_build_object('cogStorageKey', ${key}::text)
              OR data_json @> jsonb_build_object('pmtilesStorageKey', ${key}::text)
+             OR data_json @> jsonb_build_object('publicImageKey', ${key}::text)
              OR data_json @> jsonb_build_object(
                   'sources',
                   jsonb_build_array(jsonb_build_object('storageKey', ${key}::text))

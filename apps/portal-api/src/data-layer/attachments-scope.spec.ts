@@ -149,6 +149,7 @@ describe('attachment scope', () => {
         shares: [],
       })),
       assertCanEdit: jest.fn(async () => undefined),
+      assertLayerEditingEnabled: jest.fn(),
     };
     const access = await assertAttachmentAccess(
       items as never,

@@ -13,13 +13,17 @@ import { ItemsService } from './items.service.js';
  */
 const USER = { id: 'u1', orgId: 'o1', orgRole: 'contributor' } as unknown as AuthUser;
 
-function serviceFor(existing: unknown, captured: { data?: unknown }) {
+function serviceFor(
+  existing: unknown,
+  captured: { data?: unknown },
+  type = 'tile_layer',
+) {
   const svc = Object.create(ItemsService.prototype) as ItemsService;
   const row = {
     id: 'tl-1',
     orgId: 'o1',
     ownerId: 'u1',
-    type: 'tile_layer',
+    type,
     title: 'Imagery',
     tags: [],
     data: existing,
@@ -78,5 +82,33 @@ describe('tile_layer derived storage keys', () => {
       data: { ...legacy, attribution: 'County' },
     } as never);
     expect(captured.data).toBeDefined();
+  });
+});
+
+describe('file item publicImageKey', () => {
+  const base = { version: 1, storageKey: '', storageUrl: 'https://x/item-thumb/a' };
+
+  it('accepts a key under item-thumb/ on a file item', async () => {
+    const captured: { data?: unknown } = {};
+    await serviceFor(base, captured, 'file').update(USER, 'tl-1', {
+      data: { ...base, publicImageKey: 'item-thumb/a' },
+    } as never);
+    expect(captured.data).toMatchObject({ publicImageKey: 'item-thumb/a' });
+  });
+
+  it('refuses a key outside item-thumb/', async () => {
+    await expect(
+      serviceFor(base, {}, 'file').update(USER, 'tl-1', {
+        data: { ...base, publicImageKey: 'item-file/someone-else' },
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses the field on other item types', async () => {
+    await expect(
+      serviceFor({ kind: 'raster' }, {}).update(USER, 'tl-1', {
+        data: { kind: 'raster', publicImageKey: 'item-thumb/a' },
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

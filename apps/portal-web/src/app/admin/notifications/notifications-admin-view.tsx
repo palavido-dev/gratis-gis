@@ -485,7 +485,6 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
   });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testTo, setTestTo] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [msg, setMsg] = useState<
     { kind: 'ok' | 'warn' | 'err'; text: string } | null
@@ -545,13 +544,6 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
   }
 
   async function sendTest() {
-    if (!testTo.includes('@')) {
-      setMsg({
-        kind: 'err',
-        text: t('adminNotifications.testEmailInvalid'),
-      });
-      return;
-    }
     setTesting(true);
     setMsg(null);
     try {
@@ -568,7 +560,8 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
       const res = await fetch('/api/portal/admin/notifications/smtp/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ to: testTo, config }),
+        // The server sends the test to your own account email.
+        body: JSON.stringify({ config }),
       });
       if (!res.ok) {
         // A 4xx carries the validator's sentence and a 502 an HTML
@@ -579,11 +572,15 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
         });
         return;
       }
-      const out = (await res.json()) as { ok: boolean; error?: string };
+      const out = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        sentTo?: string;
+      };
       if (out.ok) {
         setMsg({
           kind: 'ok',
-          text: t('adminNotifications.testSent', { email: testTo }),
+          text: t('adminNotifications.testSent', { email: out.sentTo ?? '' }),
         });
       } else {
         setMsg({
@@ -752,15 +749,9 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
           {t('common.save')}
         </button>
         <div className="ml-auto flex items-end gap-2">
-          <Field label={t('adminNotifications.labelSendTestTo')}>
-            <input
-              type="email"
-              value={testTo}
-              onChange={(e) => setTestTo(e.target.value)}
-              placeholder={t('adminNotifications.placeholderTestEmail')}
-              className={`${inputClass} w-56`}
-            />
-          </Field>
+          <p className="max-w-xs pb-2 text-2xs text-muted">
+            {t('adminNotifications.testGoesToYou')}
+          </p>
           <button
             type="button"
             onClick={() => void sendTest()}

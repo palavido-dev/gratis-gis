@@ -26,6 +26,16 @@ export default async function AdminUpdatesPage() {
   } catch (err) {
     error = err instanceof Error ? err.message : t('updates.loadFailed', undefined, locale);
   }
+  // GRATIS_DISABLE_BACKUP_UI: hide the "back up first" button, which
+  // the API would refuse.
+  let backupDisabled = false;
+  try {
+    backupDisabled = (
+      await apiFetch<{ disabled: boolean }>('/api/admin/backup/availability')
+    ).disabled;
+  } catch {
+    /* not an operator, or older API: keep the button */
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
@@ -49,7 +59,7 @@ export default async function AdminUpdatesPage() {
         </div>
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {report ? <UpdatesView report={report} /> : null}
+      {report ? <UpdatesView report={report} backupDisabled={backupDisabled} /> : null}
     </div>
   );
 }
