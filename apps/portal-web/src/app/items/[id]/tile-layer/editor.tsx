@@ -1164,26 +1164,22 @@ function TilePreview({ data }: { data: TileLayerData }) {
               },
             } as maplibregl.StyleSpecification['sources'])),
       },
+      // A vector layer must name its source-layer; an empty one fails
+      // style validation and MapLibre then drops the whole style,
+      // backdrop included. The names are only known once the source's
+      // TileJSON has loaded, so vector debug layers are added below.
       layers: [
         { id: 'backdrop', type: 'raster', source: 'backdrop' },
-        isRaster
-          ? {
-              id: 'tilecache-raster',
-              type: 'raster',
-              source: 'tilecache',
-              paint: { 'raster-opacity': 0.9 },
-            }
-          : {
-              id: 'tilecache-vector-debug',
-              type: 'line',
-              source: 'tilecache',
-              // No source-layer specified, MapLibre renders all
-              // layers in the tile. Acceptable for a preview;
-              // production consumers configure source-layer +
-              // style per layer.
-              'source-layer': '',
-              paint: { 'line-color': '#7c3aed', 'line-width': 1 },
-            },
+        ...(isRaster
+          ? [
+              {
+                id: 'tilecache-raster',
+                type: 'raster',
+                source: 'tilecache',
+                paint: { 'raster-opacity': 0.9 },
+              } as maplibregl.LayerSpecification,
+            ]
+          : []),
       ],
     };
 
@@ -1196,6 +1192,30 @@ function TilePreview({ data }: { data: TileLayerData }) {
       attributionControl: { compact: true },
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }));
+    if (!isRaster) {
+      // One outline layer per source-layer the package declares
+      // (vector_layers in its metadata). Enough to see that tiles are
+      // served and where; a real style is the consumer's job.
+      let added = false;
+      map.on('sourcedata', (e) => {
+        if (added || e.sourceId !== 'tilecache') return;
+        const src = map.getSource('tilecache') as
+          | { vectorLayerIds?: string[] }
+          | undefined;
+        const ids = src?.vectorLayerIds;
+        if (!Array.isArray(ids) || ids.length === 0) return;
+        added = true;
+        ids.forEach((id, i) => {
+          map.addLayer({
+            id: `tilecache-vector-debug-${i}`,
+            type: 'line',
+            source: 'tilecache',
+            'source-layer': id,
+            paint: { 'line-color': '#7c3aed', 'line-width': 1 },
+          });
+        });
+      });
+    }
     mapRef.current = map;
     return () => {
       map.remove();
