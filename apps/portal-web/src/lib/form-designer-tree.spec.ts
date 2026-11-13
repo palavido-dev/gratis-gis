@@ -9,8 +9,10 @@ import {
   renameQuestionInForm,
   savedFormLink,
   shareRowInTree,
+  unboundRepeatGroups,
   uniquifyQuestionIds,
   withFormLink,
+  withFormSettings,
 } from './form-designer-tree';
 
 function text(id: string, extra: Partial<Question> = {}): Question {
@@ -130,5 +132,54 @@ describe('form link helpers', () => {
     ).toEqual({ linkedLayerId: 'L1', linkedLayerKey: 'k' });
     expect(savedFormLink({ data: {} }, { linkedLayerId: 'L1' })).toEqual({});
     expect(savedFormLink(null, { linkedLayerId: 'L1' })).toEqual({ linkedLayerId: 'L1' });
+  });
+});
+
+describe('withFormSettings', () => {
+  it("keeps the current form's notify and responseView over the file's", () => {
+    const current = form([]);
+    current.notify = { extraRecipients: ['a@example.test'], notifyOwner: false };
+    current.responseView = { defaultLookbackDays: 7 };
+    const imported = form([text('a')]);
+    imported.notify = { extraRecipients: ['other@example.test'] };
+    const out = withFormSettings(imported, current);
+    expect(out.notify).toEqual(current.notify);
+    expect(out.responseView).toEqual(current.responseView);
+    expect(ids(out.questions)).toEqual(['a']);
+  });
+
+  it('leaves a setting unset when the current form has none', () => {
+    const imported = form([]);
+    imported.notify = { extraRecipients: ['other@example.test'] };
+    const out = withFormSettings(imported, form([]));
+    expect(out).not.toHaveProperty('notify');
+    expect(out).not.toHaveProperty('responseView');
+  });
+});
+
+describe('unboundRepeatGroups', () => {
+  const group = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, type: 'group', label: id.toUpperCase(), repeat: {}, children: [], ...extra }) as unknown as Question;
+  const subs = new Set(['facilities', 'inspections']);
+
+  it('accepts a group bound to a related table of the layer', () => {
+    expect(
+      unboundRepeatGroups([group('g', { bindTo: { layerKey: 'inspections' } })], subs, 'facilities'),
+    ).toEqual([]);
+  });
+
+  it('names groups with no binding, a missing table, or the parent itself', () => {
+    expect(
+      unboundRepeatGroups(
+        [
+          group('a'),
+          group('b', { bindTo: { layerKey: 'gone' } }),
+          group('c', { bindTo: { layerKey: 'facilities' } }),
+          text('plain'),
+        ],
+        subs,
+        'facilities',
+      ),
+    ).toEqual(['A', 'B', 'C']);
   });
 });

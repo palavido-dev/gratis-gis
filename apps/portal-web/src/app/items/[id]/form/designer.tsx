@@ -139,6 +139,8 @@ import {
   isLayoutType,
   savedFormLink,
   withFormLink,
+  withFormSettings,
+  unboundRepeatGroups,
   moveInTree,
   mutateContainer,
   removeFromTree,
@@ -374,6 +376,33 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
     setSaving(true);
     setError(null);
     try {
+      // On a layer the form was linked to (not its own paired layer),
+      // a repeat group's rows can only go into a related table it is
+      // bound to. Refuse the save rather than keep those rows only
+      // inside the parent row without saying so.
+      if (form.linkedLayerId) {
+        const layer = await fetchItemOrThrow(form.linkedLayerId).catch(() => null);
+        if (layer && !(layer.tags ?? []).includes('form-paired')) {
+          const ids = new Set(
+            (Array.isArray(layer.data?.layers) ? layer.data.layers : [])
+              .map((l) => l.id)
+              .filter((id): id is string => typeof id === 'string'),
+          );
+          const unbound = unboundRepeatGroups(
+            form.questions,
+            ids,
+            form.linkedLayerKey ?? 'submissions',
+          );
+          if (unbound.length > 0) {
+            setError(
+              t('formDesigner.errors.repeatGroupUnbound', {
+                groups: unbound.map((g) => `"${g}"`).join(', '),
+              }),
+            );
+            return;
+          }
+        }
+      }
       const unlinking = unlinkRequested.current && !form.linkedLayerId;
       const res = await patchItem({
         data: unlinking
@@ -506,7 +535,10 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
     // An import replaces the questions, not the form's link to its
     // layer. The server keeps the stored link anyway, so dropping it
     // here only hid it from the designer and skipped the column sync.
-    setForm((f) => withFormLink(fromImportEnvelope(result, itemId), f));
+    // Notifications and the response view stay this form's too.
+    setForm((f) =>
+      withFormSettings(withFormLink(fromImportEnvelope(result, itemId), f), f),
+    );
     setSelectedId(null);
   }
 
@@ -566,7 +598,7 @@ export function FormDesigner({ itemId, initial, canEdit, updatedAt }: Props) {
       });
       if (!ok) return;
     }
-    setForm((f) => withFormLink(schema, f));
+    setForm((f) => withFormSettings(withFormLink(schema, f), f));
     setSelectedId(null);
     if (warnings.length > 0) {
       // Stuff warnings in the error state so the existing banner

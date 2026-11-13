@@ -18,6 +18,7 @@ import {
   queueSubmission,
   removeForeignSubmissions,
   resetFormOfflineDbForTests,
+  updateQueuedResponse,
 } from './form-offline';
 import {
   countUnsyncedEdits,
@@ -118,5 +119,15 @@ describe('offline-store includes the form outbox', () => {
     expect(await describeForeignOfflineData('bob')).toEqual({ records: 1, files: 0 });
     expect(await removeForeignOfflineData('bob')).toEqual({ records: 1, files: 0 });
     expect(await describeForeignOfflineData('bob')).toEqual({ records: 0, files: 0 });
+  });
+});
+
+describe('updateQueuedResponse', () => {
+  it('replaces the stored answers of one row and keeps its bookkeeping', async () => {
+    await queueSubmission({ formId: 'f', schemaVersion: 1, response: { a: 1 }, ownerUserId: 'alice' });
+    const [row] = await listQueued('alice');
+    await updateQueuedResponse(row!.clientId, { a: 2 });
+    const [after] = await listQueued('alice');
+    expect(after).toMatchObject({ clientId: row!.clientId, status: 'queued', response: { a: 2 } });
   });
 });

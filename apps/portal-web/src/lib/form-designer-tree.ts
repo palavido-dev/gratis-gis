@@ -425,6 +425,26 @@ export function withFormLink(form: FormSchema, from: FormLink): FormSchema {
 }
 
 /**
+ * Keep the current form's notification and response view settings on
+ * a form an import is replacing it with. They are settings of this
+ * form item (who gets emailed, what the Responses page shows), not
+ * part of the questions a file carries, so an import used to wipe them
+ * or bring in another form's recipients. A setting the current form
+ * does not have is left unset.
+ */
+export function withFormSettings(
+  form: FormSchema,
+  from: Pick<FormSchema, 'notify' | 'responseView'>,
+): FormSchema {
+  const next: FormSchema = { ...form };
+  delete next.notify;
+  delete next.responseView;
+  if (from.notify !== undefined) next.notify = from.notify;
+  if (from.responseView !== undefined) next.responseView = from.responseView;
+  return next;
+}
+
+/**
  * The link a form save ended with, read from the PATCH response body.
  * Falls back to `sent` when the body is not an item with data.
  */
@@ -444,4 +464,31 @@ export function savedFormLink(body: unknown, sent: FormLink): FormLink {
     ...(typeof d.linkedLayerId === 'string' ? { linkedLayerId: d.linkedLayerId } : {}),
     ...(typeof d.linkedLayerKey === 'string' ? { linkedLayerKey: d.linkedLayerKey } : {}),
   };
+}
+
+/**
+ * Top-level repeat groups that would have nowhere to write their rows
+ * on a form linked to an existing layer (not the form's own paired
+ * layer). The submission mirror writes a group's rows into the related
+ * table its `bindTo.layerKey` names, or else into a sublayer named
+ * after the group (repeatGroupTargetSublayer in portal-api
+ * forms.service.ts). On someone else's layer the designer does not
+ * create sublayers, so a group matching neither would silently keep
+ * its rows only inside the parent row. Returns the groups' labels.
+ */
+export function unboundRepeatGroups(
+  questions: readonly Question[],
+  sublayerIds: ReadonlySet<string>,
+  parentLayerKey: string,
+): string[] {
+  const out: string[] = [];
+  for (const q of questions) {
+    if (q.type !== 'group' || !q.repeat) continue;
+    const bound = q.bindTo?.layerKey;
+    const ok =
+      (typeof bound === 'string' && bound !== parentLayerKey && sublayerIds.has(bound)) ||
+      (q.id !== parentLayerKey && sublayerIds.has(q.id));
+    if (!ok) out.push(q.label || q.id);
+  }
+  return out;
 }
