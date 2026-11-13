@@ -947,6 +947,28 @@ model HousekeepingRun {
   @@map("housekeeping_run")
 }
 
+/// One "Build search indexes" request (2026-11 review, 06-5). The
+/// API queues a row and the worker runs the build, because index
+/// builds on big layers outlast an HTTP request. At most one row per
+/// org is queued or running (partial unique index in the migration).
+model SearchIndexBuild {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  /// queued | running | succeeded | failed
+  status      String    @default("queued")
+  requestedBy String?   @map("requested_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  /// SearchIndexBuildResult once the build finished.
+  result      Json?
+  error       String?
+
+  @@index([orgId, createdAt])
+  @@index([status, createdAt])
+  @@map("search_index_build")
+}
+
 /// A share row grants access to an item for a single principal (either a
 /// user or a group). We use (principalType, principalId) rather than two
 /// nullable FK columns so the composite primary key is always valid.

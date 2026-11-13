@@ -280,12 +280,19 @@ export class HousekeepingController {
    * marking fields searchable (schema saves are metadata-only and
    * do not build indexes inline) or after a big import, so the map
    * search bar stops scanning county-scale layers per keystroke.
-   * Synchronous like recompute-extents: the admin waits and gets
-   * the created / kept / dropped breakdown back.
+   * Queues the build for the worker and returns the queued (or
+   * already active) build at once; GET search-index-build reports
+   * its progress and the created / kept / dropped breakdown (06-5).
    */
   @Post('build-search-indexes')
   async buildSearchIndexes(@CurrentUser() user: AuthUser) {
-    return this.housekeeping.buildSearchIndexes(user.orgId);
+    return this.housekeeping.buildSearchIndexes(user.orgId, user.id);
+  }
+
+  /** The org's latest search index build, or null when none ran. */
+  @Get('search-index-build')
+  async searchIndexBuildStatus(@CurrentUser() user: AuthUser) {
+    return this.housekeeping.searchIndexBuildStatus(user.orgId);
   }
 
   /**

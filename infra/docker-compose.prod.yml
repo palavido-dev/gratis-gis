@@ -788,6 +788,8 @@ services:
       # total DB demand (portal-api 2x25 + this + script-runner +
       # Keycloak) inside postgres max_connections=100.
       DB_POOL_MAX: "8"
+      # 06-5: search index builds run here now, queued by portal-api.
+      SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
       # #234: same GDAL network lockdown as portal-api (ingest +
       # tile conversion share this image).
       GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR

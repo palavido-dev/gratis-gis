@@ -249,12 +249,38 @@ export function HousekeepingView({ bundle }: Props) {
     setBusy('search-indexes');
     setError(null);
     try {
+      // The build runs in the worker (it can take minutes on big
+      // layers), so queue it and poll until it ends.
       const r = await fetch(
         '/api/portal/admin/housekeeping/build-search-indexes',
         { method: 'POST' },
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const result = (await r.json()) as {
+      type Build = {
+        id: string;
+        status: 'queued' | 'running' | 'succeeded' | 'failed';
+        result: unknown;
+        error: string | null;
+      };
+      let build = (await r.json()) as Build;
+      while (build.status === 'queued' || build.status === 'running') {
+        await new Promise((res) => setTimeout(res, 3000));
+        const p = await fetch(
+          '/api/portal/admin/housekeeping/search-index-build',
+        );
+        if (!p.ok) throw new Error(`HTTP ${p.status}`);
+        // The org's newest build. It is ours until it ends, because a
+        // second click joins the active build instead of queuing one.
+        const latest = (await p.json()) as Build | null;
+        if (!latest) throw new Error(t('adminHousekeeping.errBuildSearchIndexes'));
+        build = latest;
+      }
+      if (build.status === 'failed') {
+        throw new Error(
+          build.error ?? t('adminHousekeeping.errBuildSearchIndexes'),
+        );
+      }
+      const result = build.result as {
         scannedItems: number;
         indexedLayers: number;
         created: string[];

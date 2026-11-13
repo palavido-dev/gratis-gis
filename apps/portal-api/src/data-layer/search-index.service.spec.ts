@@ -10,6 +10,8 @@
 
 import {
   DataLayerSearchIndexService,
+  MAX_INDEXED_FIELDS_PER_LAYER,
+  MAX_INDEXED_FIELDS_PER_ORG,
 } from './search-index.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
@@ -359,5 +361,58 @@ describe('buildForOrg orphan sweep', () => {
     ]);
     expect(res.scannedItems).toBe(1);
     expect(res.indexedLayers).toBe(1);
+  });
+});
+
+describe('searchable field caps (06-5)', () => {
+  it('indexes at most the per-layer cap and reports the rest as skipped', async () => {
+    const prisma = makePrisma({ existing: [] });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const n = MAX_INDEXED_FIELDS_PER_LAYER + 3;
+    const res = await svc.reconcileItem(ITEM_ID, [
+      layer(
+        Array.from({ length: n }, (_, i) => ({
+          name: `F${i}`,
+          searchable: true,
+        })),
+      ),
+    ]);
+    expect(res.created).toHaveLength(MAX_INDEXED_FIELDS_PER_LAYER);
+    expect(res.skippedFields.map((f) => f.field)).toEqual([
+      `F${n - 3}`,
+      `F${n - 2}`,
+      `F${n - 1}`,
+    ]);
+    expect(res.skippedFields[0]!.reason).toMatch(/per layer/);
+  });
+
+  it('stops at the per-org cap across the items of one pass', async () => {
+    const perItem = MAX_INDEXED_FIELDS_PER_LAYER;
+    const itemCount = Math.ceil(MAX_INDEXED_FIELDS_PER_ORG / perItem) + 1;
+    const items = Array.from({ length: itemCount }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      data: {
+        version: 3,
+        layers: [
+          {
+            id: 'l',
+            geometryType: 'point',
+            fields: Array.from({ length: perItem }, (_, j) => ({
+              name: `F${j}`,
+              type: 'string',
+              searchable: true,
+            })),
+          },
+        ],
+      },
+    }));
+    const prisma = makePrisma({ existing: [], items });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const res = await svc.buildForOrg('org-1');
+    expect(res.created).toHaveLength(MAX_INDEXED_FIELDS_PER_ORG);
+    const orgSkips = res.skippedFields.filter((f) =>
+      /per organization/.test(f.reason),
+    );
+    expect(orgSkips).toHaveLength(itemCount * perItem - MAX_INDEXED_FIELDS_PER_ORG);
   });
 });

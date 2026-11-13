@@ -334,6 +334,8 @@ __NAS_INIT_BODY__
       PORTAL_NAME: ${PORTAL_NAME:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
+      # 06-5: search index builds run here now, queued by portal-api.
+      SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
     volumes:
       - boot:/boot:ro
       - gg-staging:/var/lib/gg-staging
