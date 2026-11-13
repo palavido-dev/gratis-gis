@@ -31,7 +31,11 @@ export function updateRepeatInstance(
   questionId: string,
   update: ValueUpdate,
 ): Answers[] {
-  const next = asInstances(prev).slice();
+  const latest = asInstances(prev);
+  // An instance removed while an upload for it was in flight is gone;
+  // writing at its old index made a new, phantom instance.
+  if (index < 0 || index >= latest.length) return latest;
+  const next = latest.slice();
   const cur = next[index] ?? {};
   next[index] = { ...cur, [questionId]: applyValueUpdate(update, cur[questionId]) };
   return next;
@@ -53,4 +57,19 @@ export function updateGroupAnswer(
 ): Answers {
   const cur = (prev && typeof prev === 'object' ? prev : {}) as Answers;
   return { ...cur, [questionId]: applyValueUpdate(update, cur[questionId]) };
+}
+
+/**
+ * Move one ranked item onto another's place. Dropping on an item means
+ * taking its place, so dragging down by one or to the end works; the
+ * old rule inserted before the target, which made both impossible.
+ */
+export function moveRankedItem<T>(list: readonly T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || from >= list.length || to < 0 || to >= list.length) {
+    return list.slice();
+  }
+  const next = list.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved as T);
+  return next;
 }

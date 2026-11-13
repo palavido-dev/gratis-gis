@@ -26,6 +26,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  matrixEntryFor,
+  principalHasItemAccess as itemAccessFor,
+  writeMatrixEntry,
+  type ItemReach,
+} from '@/lib/map-access-matrix';
 
 /**
  * Principal surfaced in the matrix columns. Resolved by the parent
@@ -56,6 +62,11 @@ interface Props {
    * by the parent when the modal opens.
    */
   itemShares: Record<string, ItemShare[]>;
+  /**
+   * Access level and owner of each backing item, keyed by item id.
+   * An org-wide or public item, or the item's owner, needs no share.
+   */
+  itemReach?: Record<string, ItemReach>;
   /** Groups the current user can see; used to resolve group membership. */
   groupMemberships: Record<string, string[]>;
   onClose: () => void;
@@ -97,6 +108,7 @@ export function AccessMatrix({
   principals,
   layerItemIds,
   itemShares,
+  itemReach = {},
   groupMemberships,
   onClose,
   onPatchAccess,
@@ -131,33 +143,8 @@ export function AccessMatrix({
       layer: MapLayer;
       principal: MatrixPrincipal;
     }> = [];
-    const hasAccess = (itemId: string, p: MatrixPrincipal): boolean => {
-      const shares = itemShares[itemId];
-      if (!shares) return true;
-      if (p.type === 'user') {
-        if (
-          shares.some(
-            (s) => s.principalType === 'user' && s.principalId === p.id,
-          )
-        ) {
-          return true;
-        }
-        const myGroups = groupMemberships[p.id] ?? [];
-        for (const gid of myGroups) {
-          if (
-            shares.some(
-              (s) => s.principalType === 'group' && s.principalId === gid,
-            )
-          ) {
-            return true;
-          }
-        }
-        return false;
-      }
-      return shares.some(
-        (s) => s.principalType === 'group' && s.principalId === p.id,
-      );
-    };
+    const hasAccess = (itemId: string, p: MatrixPrincipal): boolean =>
+      itemAccessFor(itemShares[itemId], itemReach[itemId], p, groupMemberships);
     for (const layer of layers) {
       const itemId = layerItemIds[layer.id];
       if (!itemId) continue;
@@ -168,7 +155,7 @@ export function AccessMatrix({
       }
     }
     return out;
-  }, [layers, layerItemIds, itemShares, principals, groupMemberships]);
+  }, [layers, layerItemIds, itemShares, itemReach, principals, groupMemberships]);
 
   const principalKey = (p: MatrixPrincipal) => `${p.type}:${p.id}`;
 
@@ -195,58 +182,14 @@ export function AccessMatrix({
     itemId: string,
     p: MatrixPrincipal,
   ): boolean {
-    const shares = itemShares[itemId];
-    if (!shares) return true; // haven't loaded yet: don't warn prematurely
-    if (p.type === 'user') {
-      if (
-        shares.some(
-          (s) => s.principalType === 'user' && s.principalId === p.id,
-        )
-      ) {
-        return true;
-      }
-      const myGroups = groupMemberships[p.id] ?? [];
-      for (const gid of myGroups) {
-        if (
-          shares.some(
-            (s) => s.principalType === 'group' && s.principalId === gid,
-          )
-        ) {
-          return true;
-        }
-      }
-      return false;
-    }
-    return shares.some(
-      (s) => s.principalType === 'group' && s.principalId === p.id,
-    );
+    return itemAccessFor(itemShares[itemId], itemReach[itemId], p, groupMemberships);
   }
 
   function entryFor(
     layer: MapLayer,
     p: MatrixPrincipal,
   ): MapLayerAccessEntry {
-    const acc = layer.access ?? DEFAULT_LAYER_ACCESS;
-    const found = acc.entries.find(
-      (e) => e.principalType === p.type && e.principalId === p.id,
-    );
-    if (found) return found;
-    if (acc.policy === 'custom') {
-      return {
-        principalType: p.type,
-        principalId: p.id,
-        view: false,
-        query: false,
-        edit: false,
-      };
-    }
-    return {
-      principalType: p.type,
-      principalId: p.id,
-      view: true,
-      query: true,
-      edit: false,
-    };
+    return matrixEntryFor(layer.access, p);
   }
 
   function writeEntry(
@@ -254,24 +197,10 @@ export function AccessMatrix({
     p: MatrixPrincipal,
     patch: Partial<MapLayerAccessEntry>,
   ) {
-    const acc = layer.access ?? DEFAULT_LAYER_ACCESS;
-    const next: MapLayerAccess = {
-      policy: 'custom',
-      entries: [...acc.entries],
-    };
-    const idx = next.entries.findIndex(
-      (e) => e.principalType === p.type && e.principalId === p.id,
+    onPatchAccess(
+      layer.id,
+      writeMatrixEntry(layer.access, principals, p, patch, layerEditable(layer)),
     );
-    const current = entryFor(layer, p);
-    const merged: MapLayerAccessEntry = { ...current, ...patch };
-    // Clamp edit for non-editable layers so the stored matrix matches
-    // what the UI offers. An author can't toggle Edit on for a layer
-    // that has no editable backing store, and the server would ignore
-    // the flag anyway; being strict here keeps persisted maps honest.
-    if (!layerEditable(layer)) merged.edit = false;
-    if (idx >= 0) next.entries[idx] = merged;
-    else next.entries.push(merged);
-    onPatchAccess(layer.id, next);
   }
 
   async function doGrant(itemId: string, p: MatrixPrincipal) {
@@ -414,7 +343,26 @@ export function AccessMatrix({
                         <div className="text-2xs text-muted">
                           {layer.access?.policy ?? 'inherit'}
                           {itemId ? null : ' · no backing item'}
+                          {layer.access?.policy === 'custom' ? (
+                            <>
+                              {' · '}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onPatchAccess(layer.id, DEFAULT_LAYER_ACCESS)
+                                }
+                                className="text-accent hover:underline"
+                              >
+                                {t('mapLayerAccess.resetToInherit')}
+                              </button>
+                            </>
+                          ) : null}
                         </div>
+                        {layer.access?.policy === 'custom' ? (
+                          <div className="text-2xs text-warn">
+                            {t('mapLayerAccess.customOnlyListed')}
+                          </div>
+                        ) : null}
                       </td>
                       {principals.map((p) => {
                         const key = principalKey(p);

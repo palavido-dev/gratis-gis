@@ -20,7 +20,9 @@ import {
  * around the page.
  *
  * Behavior:
- *   - Polls every 2.5s while at least one job is active.
+ *   - Polls every 2.5s while at least one job is active, every 30s
+ *     when none is, and not at all while the tab is hidden (it polls
+ *     again as soon as the tab is shown or focused).
  *   - When the active set drops to zero (after being non-empty), fires
  *     router.refresh() once so the SSR-rendered feature counts and
  *     bbox preview pick up the freshly-imported rows.
@@ -53,6 +55,10 @@ interface ImportJobWire {
 }
 
 const POLL_MS = 2500;
+// With no job running there is little to watch for: an import is
+// started from the wizard, which lands here and polls on mount. The
+// old loop asked every 2.5 s for the life of every layer page.
+const IDLE_POLL_MS = 30_000;
 const TERMINAL_DISPLAY_MS = 10_000;
 
 interface Props {
@@ -69,6 +75,7 @@ export function ImportJobsBanner({ itemId }: Props) {
     Map<string, { job: ImportJobWire; clearedAt: number }>
   >(new Map());
   const sawActiveRef = useRef(false);
+  const activeCountRef = useRef(0);
   const cancelInFlightRef = useRef<Set<string>>(new Set());
 
   const poll = useCallback(async () => {
@@ -79,6 +86,7 @@ export function ImportJobsBanner({ itemId }: Props) {
       );
       if (!res.ok) return;
       const next = (await res.json()) as ImportJobWire[];
+      activeCountRef.current = next.length;
       setActiveJobs((prev) => {
         // Surface jobs that just left the active list as terminal
         // chips so the user actually sees the outcome before they
@@ -125,13 +133,37 @@ export function ImportJobsBanner({ itemId }: Props) {
   // fired and-and-navigated; the first response paints the rows.
   useEffect(() => {
     let cancelled = false;
-    void poll();
-    const id = setInterval(() => {
-      if (!cancelled) void poll();
-    }, POLL_MS);
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const hidden = () =>
+      typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      // A hidden tab waits for the visibility or focus event below.
+      if (hidden()) return;
+      inFlight = true;
+      try {
+        await poll();
+      } finally {
+        inFlight = false;
+      }
+      if (cancelled) return;
+      timer = setTimeout(
+        () => void tick(),
+        activeCountRef.current > 0 ? POLL_MS : IDLE_POLL_MS,
+      );
+    };
+    const wake = () => void tick();
+    void tick();
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('focus', wake);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (timer !== undefined) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('focus', wake);
     };
   }, [poll]);
 

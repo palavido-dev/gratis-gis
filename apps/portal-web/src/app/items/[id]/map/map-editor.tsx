@@ -18,6 +18,7 @@ import type {
   FeatureField,
   Group,
   Item,
+  ItemAccess,
   ItemShare,
   MapData,
   MapFilterOp,
@@ -583,6 +584,12 @@ export function MapEditor({
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [webmapShares, setWebmapShares] = useState<ItemShare[]>([]);
   const [itemShares, setItemShares] = useState<Record<string, ItemShare[]>>({});
+  // Access level and owner of each backing item: an org-wide or
+  // public item, or its owner, needs no explicit share, so the matrix
+  // must not offer to grant one.
+  const [itemReach, setItemReach] = useState<
+    Record<string, { access?: ItemAccess; ownerId?: string }>
+  >({});
   const [groupDirectory, setGroupDirectory] = useState<Record<string, string>>({});
   const [userNames, setUserNames] = useState<Record<string, string>>({});
   const [groupMemberships, setGroupMemberships] = useState<
@@ -638,8 +645,19 @@ export function MapEditor({
         try {
           const r = await fetch(`/api/portal/items/${id}`);
           if (!r.ok) return;
-          const j = (await r.json()) as { shares?: ItemShare[] };
+          const j = (await r.json()) as {
+            shares?: ItemShare[];
+            access?: ItemAccess;
+            ownerId?: string;
+          };
           setItemShares((prev) => ({ ...prev, [id]: j.shares ?? [] }));
+          setItemReach((prev) => ({
+            ...prev,
+            [id]: {
+              ...(j.access ? { access: j.access } : {}),
+              ...(j.ownerId ? { ownerId: j.ownerId } : {}),
+            },
+          }));
         } catch {
           /* non-fatal: cell falls back to "no warning" */
         }
@@ -2475,6 +2493,7 @@ export function MapEditor({
         principals={matrixPrincipals}
         layerItemIds={layerItemIds}
         itemShares={itemShares}
+        itemReach={itemReach}
         groupMemberships={groupMemberships}
         onClose={() => setMatrixOpen(false)}
         onPatchAccess={patchLayerAccess}

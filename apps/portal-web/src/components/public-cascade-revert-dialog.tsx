@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
@@ -88,6 +88,12 @@ export function PublicCascadeRevertDialog({
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // The parent passes a new onClose on every render. As an effect
+  // dependency it re-ran the fetch on any parent re-render while the
+  // dialog was open, reloading the list and re-checking items the
+  // author had unchecked. Read it through a ref instead.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -110,7 +116,7 @@ export function PublicCascadeRevertDialog({
         // Empty candidate list -> close the modal silently. Either
         // there are no public deps, or every public dep is still
         // needed by some other public consumer.
-        if (json.length === 0) onClose();
+        if (json.length === 0) onCloseRef.current();
       } catch (err) {
         if (abort) return;
         setError(
@@ -123,7 +129,7 @@ export function PublicCascadeRevertDialog({
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose, t]);
+  }, [open, parentId, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
