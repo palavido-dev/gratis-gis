@@ -37,6 +37,13 @@ interface FeatureDao {
   suspend fun firstForLayer(collectionId: String, dataLayerId: String, layerKey: String): FeatureEntity?
   @Query("DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey")
   suspend fun deleteForLayer(collectionId: String, dataLayerId: String, layerKey: String)
+  /** After a full pull: drop the layer's rows that the pull did not
+   *  write (it stamps every row it writes with `keepCachedAt`). */
+  @Query(
+    "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
+      "AND layerKey = :layerKey AND cachedAt != :keepCachedAt",
+  )
+  suspend fun deleteStaleForLayer(collectionId: String, dataLayerId: String, layerKey: String, keepCachedAt: String)
   @Query(
     "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
       "AND layerKey = :layerKey AND globalId IN (:globalIds)",
@@ -48,6 +55,20 @@ interface FeatureDao {
     globalIds: List<String>,
   )
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)
+
+  /** Swap one cached feature's JSON only if it is still `expected`. */
+  @Query(
+    "UPDATE feature SET featureJson = :next WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
+      "AND layerKey = :layerKey AND globalId = :globalId AND featureJson = :expected",
+  )
+  suspend fun replaceJsonIf(
+    collectionId: String,
+    dataLayerId: String,
+    layerKey: String,
+    globalId: String,
+    expected: String,
+    next: String,
+  ): Int
 }
 
 @Dao
@@ -99,6 +120,19 @@ interface QueueDao {
       "AND lastAttemptAt IS :expectedAttemptAt",
   )
   suspend fun claim(collectionId: String, id: String, expectedStatus: String, expectedAttemptAt: String?, attemptAt: String): Int
+
+  /**
+   * Move a queued row's conflict guard to a new head after an earlier
+   * edit of the same feature landed. Touches only the base, and only
+   * while the row is still pending / failed with the base the caller
+   * read, so it never overwrites a fold or a claim that happened since.
+   */
+  @Query(
+    "UPDATE queue SET baseObservationId = :head " +
+      "WHERE collectionId = :collectionId AND id = :id AND syncStatus IN ('pending', 'failed') " +
+      "AND baseObservationId IS :expectedBase",
+  )
+  suspend fun rebase(collectionId: String, id: String, expectedBase: String?, head: String): Int
 
   @Transaction
   suspend fun replaceChain(collectionId: String, removeIds: List<String>, keep: QueueEntity?) {
