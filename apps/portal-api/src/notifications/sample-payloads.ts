@@ -9,7 +9,6 @@ import type {
   DataCollectionFeatureCreatedPayload,
   DataCollectionSchemaBreakPayload,
   FormSubmissionReceivedPayload,
-  UserInvitedPayload,
   CommentMentionedPayload,
 } from './templates.js';
 
@@ -64,13 +63,6 @@ export const SAMPLE_PAYLOADS: { [K in NotificationType]?: unknown } = {
     createdByName: 'Contributor User',
     summary: 'Inspection #4127 (cracked grate)',
   } satisfies EditorFeatureCreatedPayload,
-  user_invited: {
-    invitedEmail: 'newuser@example.com',
-    invitedByName: 'Admin User',
-    inviteLink:
-      'https://auth.example.org/realms/your-org/login-actions/action-token?key=sample-token',
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-  } satisfies UserInvitedPayload,
   data_collection_feature_created: {
     dataCollectionId: '00000000-0000-4000-8000-000000000030',
     dataCollectionTitle: 'Yard Inspection',

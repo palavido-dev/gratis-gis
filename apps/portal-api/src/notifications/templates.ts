@@ -157,18 +157,6 @@ export interface FormSubmissionReceivedPayload {
   answers?: Array<{ label: string; value: string }>;
 }
 
-/** Payload shape for user_invited. The recipient is the invitee, not
- *  the inviting admin; the renderer pulls the invite link directly
- *  from the realm at trigger time. */
-export interface UserInvitedPayload {
-  invitedEmail: string;
-  invitedByName: string;
-  /** One-time-use invite link issued by Keycloak. */
-  inviteLink: string;
-  /** Optional ISO timestamp when the invite link stops working. */
-  expiresAt?: string;
-}
-
 /** Payload shape for data_collection_schema_break (#230 Phase A).
  *  Fired when an admin saves a data_layer change that drops a
  *  layer or swaps its geometryType -- both break offline copies
@@ -346,21 +334,6 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
       description: 'First answered question.',
       example: 'jane@example.com',
     },
-  ],
-  user_invited: [
-    {
-      name: 'invitedEmail',
-      label: 'Invited email',
-      example: 'newuser@example.com',
-    },
-    { name: 'invitedByName', label: 'Invited by', example: 'Admin User' },
-    {
-      name: 'inviteLink',
-      label: 'Invite link',
-      description: 'One-time-use link to accept the invite.',
-      example: 'https://auth.example.org/...',
-    },
-    { name: 'expiresAt', label: 'Expires at', example: 'in 7 days' },
   ],
   data_collection_schema_break: [
     { name: 'dataCollectionId', label: 'Deployment ID' },
@@ -651,29 +624,6 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       `wait until you've revised the deployment yourself before they reconnect.</p>` +
       `<p><a href="${escapeAttr(deploymentUrl)}">Open the deployment</a> &middot; ` +
       `<a href="${escapeAttr(dataLayerUrl)}">open the data layer</a></p>`;
-    return { subject, text, html };
-  }) as Renderer<unknown>,
-
-  user_invited: ((payload: UserInvitedPayload, ctx) => {
-    const expiryNote = payload.expiresAt
-      ? ` (link expires ${formatDate(payload.expiresAt)})`
-      : '';
-    const subject = `${payload.invitedByName} invited you to ${ctx.orgLabel}`;
-    const text =
-      `${payload.invitedByName} invited you to ${ctx.orgLabel}.\n\n` +
-      `Click the link below to set a password and sign in${expiryNote}:\n\n` +
-      `${payload.inviteLink}\n`;
-    const html =
-      `<p><strong>${escapeHtml(payload.invitedByName)}</strong> invited you to ` +
-      `<strong>${escapeHtml(ctx.orgLabel)}</strong>.</p>` +
-      `<p>Click the button below to set a password and sign in${escapeHtml(
-        expiryNote,
-      )}:</p>` +
-      `<p><a href="${escapeAttr(payload.inviteLink)}" ` +
-      `style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">` +
-      `Accept invitation</a></p>` +
-      `<p style="font-size:12px;color:#666;">Or copy this link into your browser: ` +
-      `<a href="${escapeAttr(payload.inviteLink)}">${escapeHtml(payload.inviteLink)}</a></p>`;
     return { subject, text, html };
   }) as Renderer<unknown>,
 

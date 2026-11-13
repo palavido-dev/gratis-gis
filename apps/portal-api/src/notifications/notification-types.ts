@@ -98,17 +98,6 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     defaultByChannel: ALL_DEFAULT_ON,
   },
 
-  // Account (continued)
-  {
-    type: 'user_invited',
-    category: 'account',
-    label: 'New user invited',
-    description:
-      'An admin invited a new user to the org. Sent to the invitee with the realm-managed invite link. Replaces the hand-rolled invite email body that used to live in the admin-invite path.',
-    channels: ALL_CHANNELS,
-    defaultByChannel: ALL_DEFAULT_ON,
-  },
-
   // Editor
   {
     type: 'editor_feature_created',
