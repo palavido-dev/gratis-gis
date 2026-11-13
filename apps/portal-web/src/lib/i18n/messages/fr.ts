@@ -5315,6 +5315,7 @@ export const fr: Partial<CatalogShape> = {
       'La creation de couches exige le role contributeur ou administrateur.',
     jobStartFailed: 'Le travail n a pas pu demarrer.',
     intervalRequired: 'Indiquez une hauteur entre les lignes.',
+    intervalTooSmall: "L'intervalle doit être d'au moins {min}.",
     zoneRequired: 'Choisissez une couche de donnees polygone pour les zones.',
     labelContours: 'Courbes de niveau',
     labelSteepness: 'Carte de pente',

@@ -5323,6 +5323,7 @@ export const de: Partial<CatalogShape> = {
       'Layer erstellen erfordert die Rolle Mitwirkender oder Administrator.',
     jobStartFailed: 'Der Auftrag konnte nicht gestartet werden.',
     intervalRequired: 'Geben Sie eine Hoehe zwischen den Linien ein.',
+    intervalTooSmall: "Der Abstand muss mindestens {min} betragen.",
     zoneRequired: 'Waehlen Sie einen Polygon-Datenlayer fuer die Zonen.',
     labelContours: 'Hoehenlinien',
     labelSteepness: 'Steilheitskarte',

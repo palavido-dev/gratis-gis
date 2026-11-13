@@ -5305,6 +5305,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Criar camadas exige a funcao de colaborador ou administrador.',
     jobStartFailed: 'Nao foi possivel iniciar o trabalho.',
     intervalRequired: 'Informe uma altura entre as linhas.',
+    intervalTooSmall: "O intervalo deve ser de pelo menos {min}.",
     zoneRequired: 'Escolha uma camada de dados poligonal para as zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de inclinacao',

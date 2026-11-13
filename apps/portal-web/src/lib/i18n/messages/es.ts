@@ -5306,6 +5306,7 @@ export const es: Partial<CatalogShape> = {
       'Crear capas requiere el rol de colaborador o administrador.',
     jobStartFailed: 'No se pudo iniciar el trabajo.',
     intervalRequired: 'Indica una altura entre lineas.',
+    intervalTooSmall: "El intervalo debe ser de al menos {min}.",
     zoneRequired: 'Elige una capa de datos poligonal para las zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de pendiente',

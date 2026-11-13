@@ -5454,6 +5454,7 @@ export const en = {
       'Creating layers requires the contributor or admin role.',
     jobStartFailed: 'The job could not be started.',
     intervalRequired: 'Enter a height between lines.',
+    intervalTooSmall: "The interval must be at least {min}.",
     zoneRequired: 'Pick a polygon data layer for the zones.',
     labelContours: 'Contour lines',
     labelSteepness: 'Steepness map',
