@@ -50,6 +50,10 @@ __version__ = "0.7.0"
 # Batch below it so a caller handing us a million rows just works.
 MAX_APPEND_BATCH = 1000
 
+# The portal returns at most this many items per list request
+# (ItemsController.MAX_LIST_LIMIT) and clamps a larger limit silently.
+MAX_LIST_PAGE = 1000
+
 #: Field types a layer may declare. Mirrors FeatureFieldType in
 #: packages/shared-types/src/data-layer.ts.
 FIELD_TYPES = ("string", "number", "boolean", "date", "multi_select")
@@ -386,32 +390,47 @@ class GratisGIS:
             if text:
                 message = text[:400]
 
-        shared = {
-            "status": response.status_code,
-            "method": method,
-            "path": path,
-            "body": body,
-        }
-        code = response.status_code
+        raise GratisGIS._error_for_status(
+            response.status_code,
+            message,
+            retry=response.headers.get("retry-after"),
+            method=method,
+            path=path,
+            body=body,
+        )
+
+    @staticmethod
+    def _error_for_status(
+        code: int,
+        message: str,
+        *,
+        retry: Optional[str] = None,
+        method: str,
+        path: str,
+        body: Any = None,
+    ) -> PortalError:
+        """The exception class for an HTTP status. Shared by plain
+        responses and by the error events of a streamed import, so the
+        same refusal raises the same class either way."""
+        shared = {"status": code, "method": method, "path": path, "body": body}
         if code in (401, 403):
-            raise AuthError(message, **shared)
+            return AuthError(message, **shared)
         if code == 404:
-            raise NotFoundError(message, **shared)
+            return NotFoundError(message, **shared)
         if code == 409:
-            raise ConflictError(message, **shared)
-        retry = response.headers.get("retry-after")
+            return ConflictError(message, **shared)
         if code == 429 or (code == 503 and retry and retry.isdigit()):
             # 503 with a numeric Retry-After is the portal's "busy, come
             # back in N seconds" from a saturated lane, so it is the same
             # back-off signal as 429. A bare 503 stays a PortalError.
-            raise RateLimitError(
+            return RateLimitError(
                 message,
                 retry_after=float(retry) if retry and retry.isdigit() else None,
                 **shared,
             )
         if code in (400, 422):
-            raise ValidationError(message, **shared)
-        raise PortalError(message, **shared)
+            return ValidationError(message, **shared)
+        return PortalError(message, **shared)
 
     # ---------------------------------------------------------------
     # identity
@@ -437,6 +456,7 @@ class GratisGIS:
         type: Optional[str] = None,
         query: Optional[str] = None,
         limit: int = 50,
+        offset: int = 0,
         full: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search items visible to this key.
@@ -444,8 +464,62 @@ class GratisGIS:
         ``full=True`` asks the portal for each item's ``data`` payload,
         which is what you want when you need storage keys or layer
         definitions and what you should avoid when you just need titles.
+
+        ``offset`` skips that many items. The portal returns at most
+        1000 items per request; a larger ``limit`` is fetched in pages
+        so you get up to ``limit`` items rather than a list silently cut
+        at 1000. To walk everything, use :meth:`iter_items`.
         """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+        out: List[Dict[str, Any]] = []
+        while len(out) < limit:
+            want = min(limit - len(out), MAX_LIST_PAGE)
+            page = self._find_items_page(
+                type=type, query=query, limit=want, offset=offset + len(out), full=full
+            )
+            out.extend(page)
+            if len(page) < want:
+                break
+        return out
+
+    def iter_items(
+        self,
+        *,
+        type: Optional[str] = None,
+        query: Optional[str] = None,
+        full: bool = False,
+        page_size: int = MAX_LIST_PAGE,
+    ) -> Iterator[Dict[str, Any]]:
+        """Every item visible to this key that matches, one page at a
+        time. For inventory and cleanup scripts, which must not act on
+        a partial list."""
+        if page_size < 1 or page_size > MAX_LIST_PAGE:
+            raise ValueError(f"page_size must be between 1 and {MAX_LIST_PAGE}")
+        offset = 0
+        while True:
+            page = self._find_items_page(
+                type=type, query=query, limit=page_size, offset=offset, full=full
+            )
+            yield from page
+            if len(page) < page_size:
+                return
+            offset += len(page)
+
+    def _find_items_page(
+        self,
+        *,
+        type: Optional[str],
+        query: Optional[str],
+        limit: int,
+        offset: int,
+        full: bool,
+    ) -> List[Dict[str, Any]]:
         params: Dict[str, Any] = {"limit": limit}
+        if offset:
+            params["offset"] = offset
         if type:
             params["type"] = type
         if query:
@@ -1064,7 +1138,7 @@ class GratisGIS:
         pointing at an external locator, so :meth:`geocode` needs to
         know which one you mean and this is how you find out.
         """
-        return self.find_items(type="geocoding_service", limit=50)
+        return list(self.iter_items(type="geocoding_service"))
 
     def geocode(
         self,
@@ -1126,9 +1200,9 @@ class GratisGIS:
         meant to refresh). A silent default is how a monthly job quietly
         doubles a layer or wipes it, so you have to say which you mean.
 
-        ``mode='replace'`` truncates BEFORE inserting, so a failure part
-        way through leaves the layer empty rather than rolling back to
-        yesterday's data. On anything you cannot re-import, export first.
+        ``mode='replace'`` is all or nothing: the old rows are removed
+        and the new ones written in one transaction, so a failure part
+        way through leaves yesterday's data in place.
 
         ``source_layer`` picks one layer out of a multi-layer archive
         like a .gdb.
@@ -1142,8 +1216,14 @@ class GratisGIS:
         Returns the terminal summary: inserted, driver, sourceSrs, mode.
 
         The default timeout is an hour because a million-row import is a
-        single request that takes as long as it takes. Files are capped
-        at 1 GB by the portal.
+        single request that takes as long as it takes. There is no small
+        file size cap; the portal's real limit is its free disk space.
+
+        A refusal raises the same class as any other call
+        (:class:`ValidationError` for a bad ``source_layer``,
+        :class:`NotFoundError` for a layer that is not part of the
+        item), even when it arrives as an error event after the import
+        started streaming.
         """
         if mode not in ("append", "replace"):
             raise ValueError("mode must be 'append' or 'replace'.")
@@ -1155,6 +1235,7 @@ class GratisGIS:
 
         summary: Optional[Dict[str, Any]] = None
         failure: Optional[str] = None
+        failure_status: Optional[int] = None
         try:
             with open(src, "rb") as fh:
                 with self._client.stream(
@@ -1193,12 +1274,19 @@ class GratisGIS:
                             summary = event
                         elif kind == "error":
                             failure = str(event.get("message") or "Import failed.")
+                            status = event.get("status")
+                            if isinstance(status, int) and not isinstance(status, bool):
+                                failure_status = status
         except httpx.RequestError as exc:
             raise PortalError(
                 f"Could not reach the portal: {exc}", method="POST", path=url
             ) from exc
 
         if failure is not None:
+            if failure_status is not None:
+                raise self._error_for_status(
+                    failure_status, failure, method="POST", path=url
+                )
             raise PortalError(failure, method="POST", path=url)
         if summary is None:
             # No terminal event at all: the connection died mid-import,
@@ -1525,8 +1613,15 @@ class GratisGIS:
 
         Batches automatically: the portal refuses more than 5000
         features in one request, and a monthly refresh script should
-        not have to know that. Returns a summary with the total count
-        actually appended.
+        not have to know that.
+
+        Returns a summary from the portal's own counts: ``appended``
+        (rows actually written), ``deduplicated`` (features whose
+        ``globalId`` the layer already had, so nothing was written; a
+        re-run after a failure shows up here), ``globalIds`` (the id of
+        every feature sent, in order, new or already present), and
+        ``batches``. A server too old to report counts is assumed to
+        have written every feature it accepted.
 
         Each feature is a GeoJSON Feature: ``{"type": "Feature",
         "geometry": {...}, "properties": {...}}``.
@@ -1534,17 +1629,32 @@ class GratisGIS:
         if batch_size < 1 or batch_size > 5000:
             raise ValueError("batch_size must be between 1 and 5000")
 
-        total = 0
+        appended = 0
+        deduplicated = 0
+        global_ids: List[str] = []
         batches = 0
         for batch in _chunks(features, batch_size):
-            self._request(
+            result = self._request(
                 "POST",
                 f"/items/{item_id}/layers/{layer}/features",
                 json={"features": batch},
             )
-            total += len(batch)
+            counts = result if isinstance(result, dict) else {}
+            inserted = counts.get("inserted")
+            appended += inserted if isinstance(inserted, int) else len(batch)
+            dedup = counts.get("deduplicated")
+            if isinstance(dedup, int):
+                deduplicated += dedup
+            ids = counts.get("globalIds")
+            if isinstance(ids, list):
+                global_ids.extend(str(i) for i in ids)
             batches += 1
-        return {"appended": total, "batches": batches}
+        return {
+            "appended": appended,
+            "deduplicated": deduplicated,
+            "globalIds": global_ids,
+            "batches": batches,
+        }
 
     def update_feature(
         self,
