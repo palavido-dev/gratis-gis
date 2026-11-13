@@ -280,21 +280,28 @@ export async function syncQueue(
     // The ownership re-check inside the claim is belt and braces: the
     // row came from an owner-filtered list, but the claim re-reads it,
     // and a row is only ever sent under the account that owns it.
-    const claimed = await claimQueueRow(
-      dataCollectionId,
-      record.id,
-      (row) =>
+    //
+    // From here on only the re-read row is used. `record` is the copy
+    // listed before the loop started, and an edit saved since then may
+    // have been folded into this row. Sending or writing back `record`
+    // would send the old values and drop the newer edit.
+    const seen: { preClaim?: QueueRecord } = {};
+    const claimed = await claimQueueRow(dataCollectionId, record.id, (row) => {
+      const ok =
         isQueueRowOwnedBy(row, currentUserId) &&
-        isQueueRowClaimable(row, Date.now(), claimOpts),
-    );
-    if (!claimed) continue; // another drain took it
+        isQueueRowClaimable(row, Date.now(), claimOpts);
+      if (ok) seen.preClaim = row;
+      return ok;
+    });
+    if (!claimed || !seen.preClaim) continue; // another drain took it
+    const before = seen.preClaim;
     try {
-      await replayRecord(record, currentUserId);
+      await replayRecord(claimed, currentUserId);
       // Synced: drop from the queue. There's no archive; once it's on
       // the server the queue row's job is done. (The server-side
       // queue manifest mirror in Tier 4 of the resilience design is
       // a separate beacon, not a reconciliation log.)
-      await deleteQueueRecord(record.dataCollectionId, record.id);
+      await deleteQueueRecord(claimed.dataCollectionId, claimed.id);
       result.synced += 1;
     } catch (err) {
       const reason =
@@ -308,16 +315,16 @@ export async function syncQueue(
         // can see is queued. Restore the pre-claim status and leave
         // the attempt bookkeeping alone.
         await updateQueueRecord({
-          ...record,
-          syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+          ...before,
+          syncStatus: before.syncStatus === 'failed' ? 'failed' : 'pending',
           // The request may have landed with only the answer lost.
           mayHaveReachedServer: true,
         });
         result.failed += 1;
         result.errors.push({
-          recordId: record.id,
-          op: record.op,
-          layerLabel: record.layerKey,
+          recordId: claimed.id,
+          op: claimed.op,
+          layerLabel: claimed.layerKey,
           reason,
           terminal: false,
         });
@@ -327,11 +334,11 @@ export async function syncQueue(
       }
       const terminal = err instanceof ReplayRejected;
       await updateQueueRecord({
-        ...record,
+        ...claimed,
         syncStatus: terminal ? 'rejected' : 'failed',
         mayHaveReachedServer: true,
         failure: reason,
-        retryCount: (record.retryCount ?? 0) + 1,
+        retryCount: (claimed.retryCount ?? 0) + 1,
         // Stamped so the backoff has something to measure from. The
         // claim already wrote one; re-stamping here keeps the wait
         // anchored to when the attempt finished rather than started.
@@ -340,9 +347,9 @@ export async function syncQueue(
       if (terminal) result.rejected += 1;
       else result.failed += 1;
       result.errors.push({
-        recordId: record.id,
-        op: record.op,
-        layerLabel: record.layerKey,
+        recordId: claimed.id,
+        op: claimed.op,
+        layerLabel: claimed.layerKey,
         reason,
         terminal,
       });
@@ -484,7 +491,14 @@ async function replayRecord(
     // POST has no checkOnly on the API; creates go straight through.
     const res = await replayFetch(layerPath, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // Same header the online add sends. It is what tells the API to
+      // notify the deployment owner that a feature landed; without it
+      // offline captures were never announced. The API only notifies
+      // for rows it actually wrote, so a retried POST does not repeat.
+      headers: {
+        'content-type': 'application/json',
+        'x-data-collection-id': r.dataCollectionId,
+      },
       body: JSON.stringify({
         features: [
           {

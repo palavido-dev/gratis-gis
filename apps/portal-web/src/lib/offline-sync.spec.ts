@@ -748,3 +748,105 @@ describe('syncQueue: conflict guard (docs/sync-protocol.md)', () => {
     expect(await token()).toBe('o2');
   });
 });
+
+describe('syncQueue: an edit folded in after the drain listed the queue', () => {
+  // The drain lists the queue once, then works through it with network
+  // I/O per row. A re-save of a later feature in that window folds into
+  // its still-pending row. The drain must send, and write back, the row
+  // as it is when claimed, never the copy it listed.
+  type Body = { features?: Array<{ globalId: string; properties: Record<string, unknown> }> };
+  const sentBody = (init?: RequestInit): Body =>
+    JSON.parse(String(init?.body ?? '{}')) as Body;
+
+  /** Hold the POST for `globalId` until `release` is called. */
+  function holdFirstFeature(globalId: string) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let reached!: () => void;
+    const reachedGate = new Promise<void>((r) => (reached = r));
+    return {
+      release,
+      reached: reachedGate,
+      async maybeHold(init?: RequestInit) {
+        if (sentBody(init).features?.[0]?.globalId === globalId) {
+          reached();
+          await gate;
+        }
+      },
+    };
+  }
+
+  /** Queue feature-w strictly before feature-x so the drain reaches w
+   *  first (rows queued in the same millisecond have no fixed order). */
+  async function queueWThenX(): Promise<void> {
+    const w = await enqueueEdit(edit({ globalId: 'feature-w' }));
+    if (w.kind !== 'queued') throw new Error('expected a fresh row');
+    await updateQueueRecord({ ...w.record, queuedAt: '2000-01-01T00:00:00.000Z' });
+    await enqueueEdit(edit({ globalId: 'feature-x', properties: { species: 'old' } }));
+  }
+
+  it('sends the newer values once and leaves no row behind', async () => {
+    await queueWThenX();
+    const hold = holdFirstFeature('feature-w');
+    fetchMock.mockImplementation(async (_url, init) => {
+      await hold.maybeHold(init);
+      return json(201, { inserted: 1 });
+    });
+
+    const run = syncQueue(DC, { currentUserId: USER });
+    await hold.reached;
+    // feature-x is re-saved while the drain is busy with feature-w.
+    const folded = await enqueueEdit(
+      edit({ op: 'update', globalId: 'feature-x', geometry: null, properties: { species: 'new' } }),
+    );
+    expect(folded.kind).toBe('folded');
+    hold.release();
+    const result = await run;
+
+    const xBodies = fetchMock.mock.calls
+      .map(([, init]) => sentBody(init).features?.[0])
+      .filter((f) => f?.globalId === 'feature-x');
+    // Sent exactly once, with the newer value.
+    expect(xBodies).toHaveLength(1);
+    expect(xBodies[0]!.properties).toEqual({ species: 'new' });
+    expect(result.synced).toBe(2);
+    expect(await listQueueAllOwners(DC)).toEqual([]);
+  });
+
+  it('keeps the newer values queued when the send cannot reach the network', async () => {
+    await queueWThenX();
+    const hold = holdFirstFeature('feature-w');
+    fetchMock.mockImplementation(async (_url, init) => {
+      await hold.maybeHold(init);
+      if (sentBody(init).features?.[0]?.globalId === 'feature-x') {
+        throw new TypeError('Failed to fetch');
+      }
+      return json(201, { inserted: 1 });
+    });
+
+    const run = syncQueue(DC, { currentUserId: USER });
+    await hold.reached;
+    await enqueueEdit(
+      edit({ op: 'update', globalId: 'feature-x', geometry: null, properties: { species: 'new' } }),
+    );
+    hold.release();
+    await run;
+
+    const rows = await listQueueAllOwners(DC);
+    // One row, still pending, holding the newer value: nothing lost.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.globalId).toBe('feature-x');
+    expect(rows[0]!.syncStatus).toBe('pending');
+    expect(rows[0]!.properties).toEqual({ species: 'new' });
+  });
+});
+
+describe('syncQueue: deployment owner notification', () => {
+  it('sends the data collection header on a queued insert, as the online add does', async () => {
+    await enqueueEdit(edit());
+    fetchMock.mockResolvedValue(json(201, { inserted: 1 }));
+    await syncQueue(DC, { currentUserId: USER });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init?.headers as Record<string, string>)['x-data-collection-id']).toBe(DC);
+  });
+});
