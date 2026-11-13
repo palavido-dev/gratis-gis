@@ -15,7 +15,9 @@ import {
   defaultThumbnailDesign,
   findUnsafeMapColors,
   safeNavigationUrl,
+  isShareClipGeometry,
   sanitizeAttributionHtml,
+  unsafeAppThemeTokenKeys,
 } from '@gratis-gis/shared-types';
 
 import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
@@ -41,7 +43,12 @@ import {
   type FeatureScope,
 } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
-import { bboxWriteForData, hasDerivedExtent, itemBbox } from './item-bbox.js';
+import {
+  bboxWriteForData,
+  hasDerivedExtent,
+  itemBbox,
+  searchEnvelopes,
+} from './item-bbox.js';
 import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
 import {
   carryLayerSyncVersionsFrom,
@@ -114,6 +121,9 @@ const UUID_RE =
  * geodesic computation. 1 degree of latitude is roughly 111 km;
  * longitude varies with latitude so we err on the wide side.
  */
+/** Most rows the legacy item-level GeoJSON read returns. */
+const LEGACY_GEOJSON_MAX_ROWS = 10_000;
+
 function degreesFromKm(km: number): number {
   return Math.min(Math.max(km, 0), 100_000) / 111;
 }
@@ -257,6 +267,12 @@ export interface ItemsListOptions {
    * by anyone else's id requires org-admin, enforced below.
    */
   ownerId?: string;
+  /**
+   * Only items whose `data.source.itemId` equals this id: the derived
+   * layers built from one source item. Narrows a list, never widens
+   * it, like ownerId.
+   */
+  sourceItemId?: string;
   /**
    * Optional spatial filter. When set, the list is restricted to
    * items whose cached `bbox_geom` (set by ItemsService on save
@@ -644,6 +660,25 @@ function assertRenderSafeData(itemType: string, data: unknown): void {
 }
 
 /**
+ * Drop theme tokens that are not safe `--app-*` values. A theme's
+ * tokens are set as CSS custom properties on the root of every app
+ * that uses it, for every viewer including anonymous ones, so a token
+ * that names a real property or carries `url(...)` would restyle or
+ * blank those apps or send each viewer to an outside host. Stripped
+ * rather than refused so a theme that already holds a bad token can
+ * still be saved. The appliers skip the same tokens on read.
+ */
+export function stripUnsafeThemeTokens(itemType: string, data: unknown): unknown {
+  if (itemType !== 'theme' || !data || typeof data !== 'object') return data;
+  const tokens = (data as { tokens?: unknown }).tokens;
+  const bad = unsafeAppThemeTokenKeys(tokens);
+  if (bad.length === 0) return data;
+  const kept = { ...(tokens as Record<string, unknown>) };
+  for (const k of bad) delete kept[k];
+  return { ...(data as Record<string, unknown>), tokens: kept };
+}
+
+/**
  * Depth limit for the attribution walk. Item data blobs nest (a custom
  * app blueprint is the deepest thing we store) but nowhere near this
  * far; the bound exists so a hand-built payload of ten thousand nested
@@ -870,6 +905,9 @@ export class ItemsService {
     // broke smart folders filtered by owner for everyone but that
     // owner and admins.
     if (opts.ownerId) where.ownerId = opts.ownerId;
+    if (opts.sourceItemId) {
+      where.data = { path: ['source', 'itemId'], equals: opts.sourceItemId };
+    }
     // sharedWithGroupId (#100): restrict to items whose shares
     // include a row for the given group. Layered on top of the
     // existing visibleWhere so a user only sees items the group has
@@ -920,8 +958,18 @@ export class ItemsService {
     // computed yet (seeded fixtures, pre-#24 rows) will be hidden
     // here until something writes an extent into item.bbox.
     if (opts.bbox) {
-      const buf = degreesFromKm(opts.bufferKm ?? 0);
-      const [w, s, e, n] = opts.bbox;
+      // One envelope, or two when the box crosses the antimeridian.
+      const boxes = searchEnvelopes(
+        opts.bbox,
+        degreesFromKm(opts.bufferKm ?? 0),
+      );
+      const inArea = Prisma.join(
+        boxes.map(
+          ([bw, bs, be, bn]) =>
+            Prisma.sql`"bbox_geom" && ST_MakeEnvelope(${bw}, ${bs}, ${be}, ${bn}, 4326)`,
+        ),
+        ' OR ',
+      );
       // Filter trashed items out of the spatial id set up front. The
       // visibleWhere AND clause already excludes deletedAt != null
       // for the non-mine path, but $queryRaw runs against the bare
@@ -946,9 +994,7 @@ export class ItemsService {
             OR "access" = 'public'
             OR EXISTS (SELECT 1 FROM "item_share" s WHERE s."item_id" = "item"."id")
           )
-          AND "bbox_geom" && ST_MakeEnvelope(
-            ${w - buf}, ${s - buf}, ${e + buf}, ${n + buf}, 4326
-          )
+          AND (${inArea})
       `;
       const idSet = ids.map((r) => r.id);
       // visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
@@ -1688,6 +1734,10 @@ export class ItemsService {
       // bypassable on the version we are pinned to. Clean it here rather
       // than trusting the renderer.
       resolvedData = sanitizeAttributionInData(
+        resolvedData,
+      ) as Prisma.InputJsonValue;
+      resolvedData = stripUnsafeThemeTokens(
+        input.type,
         resolvedData,
       ) as Prisma.InputJsonValue;
 
@@ -2662,6 +2712,7 @@ export class ItemsService {
     // control for every viewer of every map using this item.
     if (nextData !== undefined) {
       nextData = sanitizeAttributionInData(nextData) as Prisma.InputJsonValue;
+      nextData = stripUnsafeThemeTokens(item.type, nextData) as Prisma.InputJsonValue;
     }
     if (item.type === 'service' && nextData !== undefined) {
       await assertPostgisHostOnSave(item.data, nextData);
@@ -3568,8 +3619,15 @@ export class ItemsService {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      /** Row cap below the built-in 10000, for previews that show a
+       *  few hundred rows and should not read the whole table. */
+      limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
+    const rowCap = Math.min(
+      LEGACY_GEOJSON_MAX_ROWS,
+      Math.max(1, Math.floor(opts.limit ?? LEGACY_GEOJSON_MAX_ROWS)),
+    );
     const item = await this.get(user, id);
 
     if (item.type === 'derived_layer') {
@@ -3773,6 +3831,8 @@ export class ItemsService {
         edited_by: string | null;
         edited_at: Date | string | null;
       };
+      params.push(rowCap);
+      const limitParam = params.length;
       const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
         `SELECT global_id,
                 ST_AsGeoJSON(geom) AS geom,
@@ -3784,7 +3844,7 @@ export class ItemsService {
            FROM "${tbl}"
           ${where}
           ORDER BY gid
-          LIMIT 10000`,
+          LIMIT $${limitParam}`,
         ...params,
       );
 
@@ -3859,7 +3919,7 @@ export class ItemsService {
       }
       features = kept;
     }
-    return { type: 'FeatureCollection', features };
+    return { type: 'FeatureCollection', features: features.slice(0, rowCap) };
   }
 
   /**
@@ -4074,6 +4134,19 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
     assertCanShare(user);
+    // The clip is handed to ST_GeomFromGeoJSON on every feature read by
+    // this sharee, so a malformed one (no coordinates, open rings,
+    // projected metres) would fail or match nothing on every read.
+    // Refuse it here, where every share write passes.
+    if (
+      input.geoLimit !== undefined &&
+      input.geoLimit !== null &&
+      !isShareClipGeometry(input.geoLimit)
+    ) {
+      throw new BadRequestException(
+        'geoLimit must be a Polygon, MultiPolygon or GeometryCollection of them in WGS84 longitude and latitude, with closed rings.',
+      );
+    }
     await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit

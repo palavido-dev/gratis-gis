@@ -321,6 +321,13 @@ export const es: Partial<CatalogShape> = {
     term: 'XML de metadatos',
     importTitle:
       'Importa un archivo XML de metadatos exportado por ArcGIS, QGIS o un catálogo de datos (ISO 19115, FGDC CSDGM o Dublin Core) para rellenar previamente los campos de abajo',
+    sectionAria: 'Importación opcional de metadatos XML',
+    optional: 'Opcional',
+    importButton: 'Importar metadatos XML',
+    parsed: 'Leído como {standard}. Se rellenó lo posible; el resto queda en tus manos.',
+    notMetadata: 'El archivo XML no parece ISO 19115, FGDC CSDGM ni Dublin Core. Se omite.',
+    readFailed: 'No se pudo leer ese archivo.',
+    metadataOnly: 'Solo metadatos. Esto no sube el contenido del elemento. Tu archivo se queda en el navegador.',
   },
   layerBuilder: {
     tableName: 'Nombre de la tabla',
@@ -583,6 +590,17 @@ export const es: Partial<CatalogShape> = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (no está en esta capa)',
+  measureLength: 'Longitud',
+  measurePerimeter: 'Perímetro',
+  measureArea: 'Área',
+  predicateIntersects: 'Interseca',
+  predicateWithin: 'Dentro de',
+  predicateNearest: 'Más cercano',
+  predicateContains: 'Contiene',
+  predicateTouches: 'Toca',
+  predicateNear: 'Cerca',
+  loadDataLayersFailed: 'No se pudieron cargar las capas de datos',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
@@ -800,7 +818,7 @@ export const es: Partial<CatalogShape> = {
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
-    '{count, plural, one {# geometry table} other {# geometry tables}} in {schema}',
+    '{count, plural, =0 {No geometry tables in {schema}} one {# geometry table in {schema}} other {# geometry tables in {schema}}}',
   tablesHint:
     'Save registers every geometry table in this schema. The list below is a preview.',
   tablesEmpty:
@@ -2196,6 +2214,8 @@ export const es: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Cargando esquema de la capa…',
     bundleDone:
       'Listo -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      'No se pudieron descargar {count} adjuntos y no están en el ZIP. Vuelva a exportar.',
     calculateModalTitle: 'Calcular campo',
     calculateUpdatesPrefix: 'Actualiza',
     calculateUpdatesSuffix: 'en todas las filas del alcance.',
@@ -2792,6 +2812,9 @@ export const es: Partial<CatalogShape> = {
     summaryType: 'Tipo: {labels}',
     summaryTemplate: 'Plantilla: {labels}',
     summaryArea: 'Área: {label}',
+    summaryOwner: 'Propietario: {labels}',
+    summaryAccess: 'Acceso: {labels}',
+    summaryTags: 'Etiquetas: {labels}',
     cardView: 'Vista de tarjetas',
     cards: 'Tarjetas',
     listView: 'Vista de lista',
@@ -2837,6 +2860,9 @@ export const es: Partial<CatalogShape> = {
       'Nada en {scope} coincide con "{query}". Prueba otro término o borra la búsqueda.',
     scopeYourItems: 'tus elementos',
     scopeSharedWithYou: 'los elementos compartidos contigo',
+    folderMissingTitle: 'Esta carpeta no está disponible',
+    folderMissingDescription: 'Puede que se haya eliminado o que ya no esté compartida contigo.',
+    backToItems: 'Volver a los elementos',
     emptyFolderTitle: '{folder} está vacía',
     emptyFolderDescription:
       'Añade elementos existentes, crea algo nuevo o arrastra elementos aquí desde la vista de todos los elementos.',
@@ -3192,6 +3218,7 @@ export const es: Partial<CatalogShape> = {
     done: 'Hecho',
   },
   sharing: {
+    networkError: "No se pudo contactar con el portal. No se cambió nada.",
     sharing: 'Compartir',
     dialogLabel: 'Compartición de {title}',
     whoCanSee: 'Quién puede ver esto',
@@ -5316,6 +5343,7 @@ export const es: Partial<CatalogShape> = {
       'Crear capas requiere el rol de colaborador o administrador.',
     jobStartFailed: 'No se pudo iniciar el trabajo.',
     intervalRequired: 'Indica una altura entre lineas.',
+    intervalTooSmall: "El intervalo debe ser de al menos {min}.",
     zoneRequired: 'Elige una capa de datos poligonal para las zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de pendiente',
@@ -5346,6 +5374,8 @@ export const es: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "No se pudo contactar con el portal. Las imágenes subidas se conservan; inténtelo de nuevo.",
+    errRetryHttp: "No se pudo reintentar la compilación (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5842,6 +5872,8 @@ export const es: Partial<CatalogShape> = {
     saving: "Guardando...",
     saved: "Guardado",
     saveFailed: "No se pudo guardar.",
+    reprobeBeforeSave: "Sondee la nueva URL antes de guardar. La lista de capas proviene del sondeo.",
+    pickAtLeastOneLayer: "Elija al menos una capa antes de guardar.",
     selectAll: "Seleccionar todo",
     selectAllShort: "Todas",
     selectNoneShort: "Ninguna",

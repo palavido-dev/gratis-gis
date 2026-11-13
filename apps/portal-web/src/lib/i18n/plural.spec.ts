@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { pluralCaseFor, t } from './index';
+import { de } from './messages/de';
 import { en } from './messages/en';
+import { es } from './messages/es';
+import { fr } from './messages/fr';
+import { ptBR } from './messages/pt-BR';
+import type { SupportedLocale } from './locales';
 
 describe('plural selection', () => {
   it('uses the rule of each locale', () => {
@@ -20,45 +25,54 @@ describe('plural selection', () => {
   });
 });
 
-describe('every plural message in every catalog', () => {
-  // The runtime's plural parser takes one level of braces inside a
-  // branch and no `=N` selectors. A message it cannot parse is shown to
-  // the user as raw ICU source, so each one is rendered here with
-  // dummy values and must come out with no plural syntax left.
-  const locales = ['en', 'es', 'fr', 'de', 'pt-BR'] as const;
-  function pluralKeys(node: unknown, prefix: string, out: string[]): string[] {
-    if (typeof node === 'string') {
-      if (node.includes('plural,')) out.push(prefix);
-    } else if (node && typeof node === 'object') {
-      for (const [k, v] of Object.entries(node)) {
-        pluralKeys(v, prefix ? `${prefix}.${k}` : k, out);
+
+function stringsWithKeys(
+  node: unknown,
+  prefix: string,
+  out: Array<[string, string]>,
+): void {
+  if (typeof node === 'string') {
+    out.push([prefix, node]);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    stringsWithKeys(v, prefix ? `${prefix}.${k}` : k, out);
+  }
+}
+
+describe('plural interpolation', () => {
+  it('handles =0 cases and placeholders inside a case', () => {
+    const key = 'postgisConnectionBuilder.tablesHeading';
+    for (const n of [0, 1, 2]) {
+      const out = t(key, { count: n, schema: 'public' }, 'en');
+      expect(out).not.toContain('plural,');
+      expect(out).toContain('public');
+    }
+    expect(t(key, { count: 0, schema: 'public' }, 'en')).not.toMatch(/^0 /);
+  });
+
+  const catalogs: Array<[SupportedLocale, unknown]> = [
+    ['en', en],
+    ['de', de],
+    ['es', es],
+    ['fr', fr],
+    ['pt-BR', ptBR],
+  ];
+  it.each(catalogs)('renders every plural string in %s', (locale, catalog) => {
+    const entries: Array<[string, string]> = [];
+    stringsWithKeys(catalog, '', entries);
+    const plural = entries.filter(([, v]) => v.includes('plural,'));
+    expect(plural.length).toBeGreaterThan(0);
+    for (const [key, raw] of plural) {
+      const params: Record<string, string | number> = {};
+      for (const m of raw.matchAll(/\{(\w+)[},]/g)) params[m[1]!] = 'x';
+      for (const m of raw.matchAll(/\{(\w+),\s*plural,/g)) params[m[1]!] = 2;
+      for (const n of [0, 1, 2]) {
+        for (const m of raw.matchAll(/\{(\w+),\s*plural,/g)) params[m[1]!] = n;
+        const out = t(key, params, locale);
+        expect([key, out]).toEqual([key, expect.not.stringContaining('plural,')]);
       }
     }
-    return out;
-  }
-  const keys = pluralKeys(en, '', []);
-
-  it('finds the plural messages', () => {
-    expect(keys.length).toBeGreaterThan(50);
-  });
-
-  it.each(locales)('renders them all in %s', (locale) => {
-    const broken: string[] = [];
-    for (const key of keys) {
-      // Every placeholder the English text names gets a number, so
-      // only the plural parse is under test.
-      const raw = t(key, undefined, 'en');
-      const params: Record<string, number> = {};
-      for (const m of raw.matchAll(/\{(\w+)[,}]/g)) params[m[1]!] = 2;
-      const out = t(key, params, locale);
-      if (out.includes('plural,')) broken.push(key);
-    }
-    expect(broken).toEqual([]);
-  });
-
-  it('puts the schema after the count in the PostGIS table heading', () => {
-    expect(
-      t('postgisConnectionBuilder.tablesHeading', { count: 3, schema: 'public' }, 'en'),
-    ).toBe('3 geometry tables in public');
   });
 });

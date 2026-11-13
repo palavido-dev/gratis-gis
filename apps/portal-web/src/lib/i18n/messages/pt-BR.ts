@@ -317,6 +317,13 @@ export const ptBR: Partial<CatalogShape> = {
     term: 'XML de metadados',
     importTitle:
       'Importe um arquivo XML de metadados exportado pelo ArcGIS, QGIS ou por um catálogo de dados (ISO 19115, FGDC CSDGM ou Dublin Core) para preencher previamente os campos abaixo',
+    sectionAria: 'Importação opcional de metadados XML',
+    optional: 'Opcional',
+    importButton: 'Importar metadados XML',
+    parsed: 'Lido como {standard}. Preenchemos o que foi possível; o resto é com você.',
+    notMetadata: 'O arquivo XML não parece ISO 19115, FGDC CSDGM nem Dublin Core. Ignorado.',
+    readFailed: 'Não foi possível ler esse arquivo.',
+    metadataOnly: 'Somente metadados. Isto não envia o conteúdo do item. Seu arquivo fica no navegador.',
   },
   layerBuilder: {
     tableName: 'Nome da tabela',
@@ -579,6 +586,17 @@ export const ptBR: Partial<CatalogShape> = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (não está nesta camada)',
+  measureLength: 'Comprimento',
+  measurePerimeter: 'Perímetro',
+  measureArea: 'Área',
+  predicateIntersects: 'Intersecta',
+  predicateWithin: 'Dentro de',
+  predicateNearest: 'Mais próximo',
+  predicateContains: 'Contém',
+  predicateTouches: 'Toca',
+  predicateNear: 'Perto',
+  loadDataLayersFailed: 'Não foi possível carregar as camadas de dados',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
@@ -796,7 +814,7 @@ export const ptBR: Partial<CatalogShape> = {
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
-    '{count, plural, one {# geometry table} other {# geometry tables}} in {schema}',
+    '{count, plural, =0 {No geometry tables in {schema}} one {# geometry table in {schema}} other {# geometry tables in {schema}}}',
   tablesHint:
     'Save registers every geometry table in this schema. The list below is a preview.',
   tablesEmpty:
@@ -2190,6 +2208,8 @@ export const ptBR: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Carregando esquema da camada…',
     bundleDone:
       'Concluído -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} anexos não puderam ser baixados e não estão no ZIP. Exporte novamente.',
     calculateModalTitle: 'Calcular campo',
     calculateUpdatesPrefix: 'Atualiza',
     calculateUpdatesSuffix: 'em todas as linhas do escopo.',
@@ -2789,6 +2809,9 @@ export const ptBR: Partial<CatalogShape> = {
     summaryType: 'Tipo: {labels}',
     summaryTemplate: 'Modelo: {labels}',
     summaryArea: 'Área: {label}',
+    summaryOwner: 'Proprietário: {labels}',
+    summaryAccess: 'Acesso: {labels}',
+    summaryTags: 'Tags: {labels}',
     cardView: 'Visualização em cartões',
     cards: 'Cartões',
     listView: 'Visualização em lista',
@@ -2834,6 +2857,9 @@ export const ptBR: Partial<CatalogShape> = {
       'Nada em {scope} corresponde a "{query}". Tente outro termo ou limpe a pesquisa.',
     scopeYourItems: 'seus itens',
     scopeSharedWithYou: 'os itens compartilhados com você',
+    folderMissingTitle: 'Esta pasta não está disponível',
+    folderMissingDescription: 'Ela pode ter sido excluída ou não está mais compartilhada com você.',
+    backToItems: 'Voltar aos itens',
     emptyFolderTitle: '{folder} está vazia',
     emptyFolderDescription:
       'Adicione itens existentes, crie algo novo ou arraste itens para cá a partir da visualização de todos os itens.',
@@ -3189,6 +3215,7 @@ export const ptBR: Partial<CatalogShape> = {
     done: 'Concluído',
   },
   sharing: {
+    networkError: "Não foi possível acessar o portal. Nada foi alterado.",
     sharing: 'Compartilhamento',
     dialogLabel: 'Compartilhamento de {title}',
     whoCanSee: 'Quem pode ver isto',
@@ -5315,6 +5342,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Criar camadas exige a funcao de colaborador ou administrador.',
     jobStartFailed: 'Nao foi possivel iniciar o trabalho.',
     intervalRequired: 'Informe uma altura entre as linhas.',
+    intervalTooSmall: "O intervalo deve ser de pelo menos {min}.",
     zoneRequired: 'Escolha uma camada de dados poligonal para as zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de inclinacao',
@@ -5345,6 +5373,8 @@ export const ptBR: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Não foi possível acessar o portal. As imagens enviadas foram mantidas; tente novamente.",
+    errRetryHttp: "Não foi possível tentar a compilação novamente (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -5841,6 +5871,8 @@ export const ptBR: Partial<CatalogShape> = {
     saving: "Salvando...",
     saved: "Salvo",
     saveFailed: "Falha ao salvar.",
+    reprobeBeforeSave: "Sonde a nova URL antes de salvar. A lista de camadas vem da sondagem.",
+    pickAtLeastOneLayer: "Escolha pelo menos uma camada antes de salvar.",
     selectAll: "Selecionar tudo",
     selectAllShort: "Todas",
     selectNoneShort: "Nenhuma",

@@ -304,6 +304,7 @@ export class ItemsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('sharedWithGroupId') sharedWithGroupId?: string,
+    @Query('sourceItemId') sourceItemId?: string,
   ) {
     // Build opts without explicit-undefined keys so `exactOptionalPropertyTypes`
     // is satisfied. Passing `{ type: undefined }` is not the same as omitting it.
@@ -316,6 +317,7 @@ export class ItemsController {
       bufferKm?: number;
       lite?: boolean;
       sharedWithGroupId?: string;
+      sourceItemId?: string;
       limit?: number;
       offset?: number;
     } = {};
@@ -363,6 +365,16 @@ export class ItemsController {
     // off the public list endpoint.
     if (sharedWithGroupId !== undefined && isUuidShape(sharedWithGroupId)) {
       opts.sharedWithGroupId = sharedWithGroupId;
+    }
+    // sourceItemId: derived layers whose recipe reads this item. The
+    // Analyze past runs shelf used to fetch the caller's 50 newest
+    // derived layers and filter in the browser, so older runs for a
+    // layer never showed.
+    if (sourceItemId !== undefined) {
+      if (!isUuidShape(sourceItemId)) {
+        throw new BadRequestException('sourceItemId must be a uuid');
+      }
+      opts.sourceItemId = sourceItemId;
     }
     if (bbox !== undefined) {
       const parts = bbox.split(',').map(Number);
@@ -754,6 +766,7 @@ export class ItemsController {
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
+    @Query('limit') limit?: string,
   ) {
     // Use conditional spread (not `undefined` values) to play nicely
     // with exactOptionalPropertyTypes; the destructure also narrows
@@ -763,7 +776,11 @@ export class ItemsController {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      limit?: number;
     } = {};
+    // Optional row cap; the service bounds it to its own maximum.
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
+    if (Number.isFinite(parsedLimit) && parsedLimit > 0) opts.limit = parsedLimit;
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {

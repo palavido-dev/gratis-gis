@@ -3,7 +3,7 @@
 
 import { useFormat } from '@/lib/i18n/format';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -27,7 +27,6 @@ import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import { DependentsWarning } from '@/components/dependents-warning';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
-  FolderData,
   ItemAccess,
   ItemType,
   ItemWithShares,
@@ -54,6 +53,8 @@ import { DataPreviewDrawer } from './data-preview-drawer';
 import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 import { useT } from '@/lib/i18n/locale-context';
+import { updateFolderChildren } from '@/lib/folder-update';
+import { fetchWithThrottleRetry } from '@/lib/throttle-retry';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 /**
@@ -139,6 +140,10 @@ type TranslateFn = (
  *  Used both to ask for explicit pages and as the "batch came back
  *  exactly full, there may be more" heuristic. */
 const LIST_PAGE_SIZE = 500;
+// The area filter pages through the list endpoint at its largest
+// page size, up to a bound so a whole-world box cannot spin.
+const AREA_PAGE_SIZE = 1000;
+const AREA_MAX_PAGES = 5;
 
 /**
  * The list endpoint strips data_json by default and instead
@@ -435,7 +440,9 @@ export function ItemsView({
   // showed every spatially-matching item in the org -- which was
   // also why an empty folder appeared to show "all items" once a
   // user opened the area filter.
-  const sourceItems = (() => {
+  // Memoised so the counts, the sort and the row list below do not all
+  // recompute on every render (each checkbox tick re-sorted every row).
+  const sourceItems = useMemo(() => {
     let pool: ItemWithShares[];
     if (spatialActive && spatialItems) {
       if (activeFolder) {
@@ -448,7 +455,7 @@ export function ItemsView({
       pool = items;
     }
     return pool.filter((it) => it.type !== 'folder');
-  })();
+  }, [items, spatialActive, spatialItems, activeFolder]);
 
   // Present-in-data type counts, sorted by descending count so the
   // most common types sit at the front of the filter bar. Counts
@@ -623,27 +630,50 @@ export function ItemsView({
     setTypeFilter(new Set());
     setTemplateFilter(new Set());
     setAccessFilter(new Set());
+    setOwnerFilter(new Set());
+    setTagFilter(new Set());
   }
+
+  // Bumped by every area request and by Clear area; see applyAreaSearch.
+  const areaSeqRef = useRef(0);
 
   async function applyAreaSearch(
     bbox: [number, number, number, number],
     bufferKm: number,
   ) {
+    // Only the newest request may paint. A slower earlier response,
+    // or one that lands after "Clear area", is dropped.
+    const seq = ++areaSeqRef.current;
     setSpatialBusy(true);
     setSpatialError(null);
     try {
-      const params = new URLSearchParams();
-      params.set('bbox', bbox.join(','));
-      if (bufferKm > 0) params.set('buffer', String(bufferKm));
-      const res = await fetch(`/api/portal/items?${params.toString()}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${res.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      // Same scope and search text as the list itself, so the area
+      // filter narrows what is shown instead of swapping in every
+      // visible org item. Paged, because one page stops at the
+      // server's default size.
+      const next: ItemWithShares[] = [];
+      for (let page = 0; page < AREA_MAX_PAGES; page += 1) {
+        const params = listScopeParams();
+        // Inside a folder the list is the folder's contents, whoever
+        // owns them; the scope tabs do not apply there.
+        if (activeFolder) params.delete('mine');
+        params.set('bbox', bbox.join(','));
+        if (bufferKm > 0) params.set('buffer', String(bufferKm));
+        params.set('limit', String(AREA_PAGE_SIZE));
+        params.set('offset', String(page * AREA_PAGE_SIZE));
+        const res = await fetch(`/api/portal/items?${params.toString()}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const msg =
+            (body as { message?: string | string[] }).message ??
+            `HTTP ${res.status}`;
+          throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+        }
+        const batch = (await res.json()) as ItemWithShares[];
+        next.push(...batch);
+        if (batch.length < AREA_PAGE_SIZE || seq !== areaSeqRef.current) break;
       }
-      const next = (await res.json()) as ItemWithShares[];
+      if (seq !== areaSeqRef.current) return;
       // Same lite-row shim the main list applies; spatial results
       // come from the same endpoint and ship without data_json.
       setSpatialItems(next.map(withListTemplateShim));
@@ -658,13 +688,17 @@ export function ItemsView({
       // Leave the panel mounted; the user closes it explicitly via
       // the X / Cancel button when they're done.
     } catch (e) {
+      if (seq !== areaSeqRef.current) return;
       setSpatialError(e instanceof Error ? e.message : t('items.searchFailed'));
     } finally {
-      setSpatialBusy(false);
+      if (seq === areaSeqRef.current) setSpatialBusy(false);
     }
   }
 
   function clearAreaSearch() {
+    // Invalidate any request still in flight.
+    areaSeqRef.current += 1;
+    setSpatialBusy(false);
     setSpatialActive(null);
     setSpatialItems(null);
     setSpatialError(null);
@@ -677,26 +711,33 @@ export function ItemsView({
    * merge absorbs rows that shift across page boundaries when
    * something is edited mid-paging.
    */
+  /** The list's scope and search text as query params, matching the
+   *  server component's own query. */
+  function listScopeParams(): URLSearchParams {
+    const params = new URLSearchParams();
+    const scopeParam = searchParams?.get('scope');
+    const legacyMine = searchParams?.get('mine');
+    const scopeIsMine =
+      scopeParam === 'all'
+        ? false
+        : scopeParam === 'mine'
+          ? true
+          : legacyMine === 'true'
+            ? true
+            : legacyMine === 'false'
+              ? false
+              : true;
+    if (scopeIsMine) params.set('mine', 'true');
+    const q = searchParams?.get('q');
+    if (q) params.set('q', q);
+    return params;
+  }
+
   async function loadMoreItems() {
     setLoadingMore(true);
     setLoadMoreError(null);
     try {
-      const params = new URLSearchParams();
-      const scopeParam = searchParams?.get('scope');
-      const legacyMine = searchParams?.get('mine');
-      const scopeIsMine =
-        scopeParam === 'all'
-          ? false
-          : scopeParam === 'mine'
-            ? true
-            : legacyMine === 'true'
-              ? true
-              : legacyMine === 'false'
-                ? false
-                : true;
-      if (scopeIsMine) params.set('mine', 'true');
-      const q = searchParams?.get('q');
-      if (q) params.set('q', q);
+      const params = listScopeParams();
       params.set('limit', String(LIST_PAGE_SIZE));
       params.set('offset', String(serverItems.length + extraItems.length));
       const res = await fetch(`/api/portal/items?${params.toString()}`);
@@ -729,39 +770,15 @@ export function ItemsView({
     setFolderSaving(true);
     setBulkError(null);
     try {
-      // Fetch the current folder so we know the existing childItemIds
-      // and don't have to trust the rail snapshot to be up to date.
-      const fres = await fetch(`/api/portal/items/${folderId}`);
-      if (!fres.ok) {
-        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
-      }
-      const folder = (await fres.json()) as { data: FolderData | null };
-      const existing = Array.isArray(folder.data?.childItemIds)
-        ? folder.data!.childItemIds
-        : [];
-      const seen = new Set(existing);
-      const toAdd = Array.from(selected).filter((id) => !seen.has(id));
-      if (toAdd.length === 0) {
-        setShowAddToFolder(false);
-        setSelected(new Set());
-        return;
-      }
-      const next: FolderData = {
-        version: 1,
-        childItemIds: [...existing, ...toAdd],
-      };
-      const pres = await fetch(`/api/portal/items/${folderId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
+      // Read the folder fresh rather than trusting the rail snapshot,
+      // and keep the rest of its data. Rebuilding data here dropped a
+      // smart folder's saved query.
+      const picked = Array.from(selected);
+      await updateFolderChildren(folderId, (existing) => {
+        const seen = new Set(existing);
+        const toAdd = picked.filter((id) => !seen.has(id));
+        return toAdd.length === 0 ? null : [...existing, ...toAdd];
       });
-      if (!pres.ok) {
-        const body = await pres.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${pres.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
-      }
       setShowAddToFolder(false);
       setSelected(new Set());
       // In targeted add-to-folder mode, send the user back to the
@@ -791,36 +808,14 @@ export function ItemsView({
     if (!activeFolder) return;
     setBulkError(null);
     try {
-      const fres = await fetch(`/api/portal/items/${activeFolder.id}`);
-      if (!fres.ok) {
-        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
-      }
-      const folder = (await fres.json()) as { data: FolderData | null };
-      const existing = Array.isArray(folder.data?.childItemIds)
-        ? folder.data!.childItemIds
-        : [];
-      if (!existing.includes(itemId)) {
-        // Already not in the folder; refresh anyway in case the
-        // server has a different view than our row state.
-        router.refresh();
-        return;
-      }
-      const next: FolderData = {
-        version: 1,
-        childItemIds: existing.filter((id) => id !== itemId),
-      };
-      const pres = await fetch(`/api/portal/items/${activeFolder.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
-      });
-      if (!pres.ok) {
-        const body = await pres.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${pres.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
-      }
+      // Same read-modify-write as handleAddToFolder. If the item is
+      // already gone nothing is written; refresh anyway in case the
+      // server has a different view than our row state.
+      await updateFolderChildren(activeFolder.id, (existing) =>
+        existing.includes(itemId)
+          ? existing.filter((id) => id !== itemId)
+          : null,
+      );
       router.refresh();
     } catch (e) {
       setBulkError(
@@ -852,18 +847,19 @@ export function ItemsView({
     });
   }
 
-  function selectAllVisible() {
-    // Ticking the header checkbox ticks every manageable row in the
-    // current filtered view. If they're already all selected, this
-    // clears just the visible-and-manageable ones (leaving any
-    // stale selections from a previous filter alone).
+  function selectAllVisible(ids: ReadonlySet<string>) {
+    // Ticking a header checkbox ticks every manageable row it heads:
+    // the whole filtered view, or one group's rows when the list is
+    // grouped. If they're already all selected, this clears just
+    // those (leaving any stale selections from a previous filter
+    // alone).
     setSelected((prev) => {
       const next = new Set(prev);
-      const allSelected = Array.from(manageableIds).every((id) => next.has(id));
+      const allSelected = Array.from(ids).every((id) => next.has(id));
       if (allSelected) {
-        for (const id of manageableIds) next.delete(id);
+        for (const id of ids) next.delete(id);
       } else {
-        for (const id of manageableIds) next.add(id);
+        for (const id of ids) next.add(id);
       }
       return next;
     });
@@ -890,9 +886,11 @@ export function ItemsView({
     try {
       for (const id of selected) {
         try {
-          const res = await fetch(`/api/portal/items/${id}`, {
-            method: 'DELETE',
-          });
+          // A 429 is the API's rate limit, not a permission skip;
+          // wait and retry so a big selection finishes.
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}`, { method: 'DELETE' }),
+          );
           if (res.ok || res.status === 204) {
             done += 1;
           } else {
@@ -941,16 +939,18 @@ export function ItemsView({
     try {
       for (const id of selected) {
         try {
-          const res = await fetch(`/api/portal/items/${id}/share`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              principalType,
-              principalId,
-              permission,
-              ...(expiresAt !== null ? { expiresAt } : {}),
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}/share`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                principalType,
+                principalId,
+                permission,
+                ...(expiresAt !== null ? { expiresAt } : {}),
+              }),
             }),
-          });
+          );
           if (res.ok) {
             done += 1;
           } else {
@@ -1000,10 +1000,8 @@ export function ItemsView({
     setBulkError(null);
     let done = 0;
     let skipped = 0;
-    // Capture before clearing -- the cascade prompt for next='public'
-    // walks each id's dependencies after the bulk flip, and `selected`
-    // gets reset to empty at the end of this handler.
-    const targetIds = Array.from(selected);
+    // Only items that actually went public get the cascade prompt.
+    const updatedIds: string[] = [];
     try {
       for (const id of selected) {
         try {
@@ -1015,13 +1013,16 @@ export function ItemsView({
             if (next === 'public') body.publicGeoBoundaryId = boundaryId;
             else body.orgGeoBoundaryId = boundaryId;
           }
-          const res = await fetch(`/api/portal/items/${id}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          });
+          const res = await fetchWithThrottleRetry(() =>
+            fetch(`/api/portal/items/${id}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            }),
+          );
           if (res.ok) {
             done += 1;
+            updatedIds.push(id);
           } else {
             skipped += 1;
           }
@@ -1043,8 +1044,8 @@ export function ItemsView({
       // dependency public manually. The dialog walks dependencies,
       // hides the no-deps case silently, and runs sequentially per
       // parent.
-      if (next === 'public' && done > 0) {
-        setBulkCascadeIds(targetIds);
+      if (next === 'public' && updatedIds.length > 0) {
+        setBulkCascadeIds(updatedIds);
       }
       router.refresh();
     } finally {
@@ -1142,6 +1143,8 @@ export function ItemsView({
         accessFilter={accessFilter}
         accessCounts={accessCounts}
         onToggleAccess={onToggleAccess}
+        tagFilter={tagFilter}
+        onClearTags={() => setTagFilter(new Set())}
       />
       {areaPanelOpen ? (
         <AreaSearchPanel
@@ -1968,6 +1971,10 @@ interface ToolbarProps {
   accessFilter: Set<ItemAccess>;
   accessCounts: Array<[ItemAccess, number]>;
   onToggleAccess: (a: ItemAccess) => void;
+  /** Tags picked from item cards; shown as a chip so the list view,
+   *  which renders no tags, still says why it is narrowed. */
+  tagFilter: Set<string>;
+  onClearTags: () => void;
 }
 
 function Toolbar({
@@ -1998,6 +2005,8 @@ function Toolbar({
   accessFilter,
   accessCounts,
   onToggleAccess,
+  tagFilter,
+  onClearTags,
 }: ToolbarProps) {
   const t = useT();
   // Active-filter labels for the inline summary chip below the
@@ -2030,6 +2039,37 @@ function Toolbar({
       key: 'template',
       label: t('items.summaryTemplate', { labels }),
       onClear: onClearFilters,
+    });
+  }
+  if (ownerFilter.size > 0) {
+    const labels = Array.from(ownerFilter)
+      .map((id) => ownerLabels[id] ?? id.slice(0, 8))
+      .sort()
+      .join(', ');
+    summaryParts.push({
+      key: 'owner',
+      label: t('items.summaryOwner', { labels }),
+      onClear: onClearFilters,
+    });
+  }
+  if (accessFilter.size > 0) {
+    const labels = Array.from(accessFilter)
+      .map((a) => t(`sharing.access.${a}`))
+      .sort()
+      .join(', ');
+    summaryParts.push({
+      key: 'access',
+      label: t('items.summaryAccess', { labels }),
+      onClear: onClearFilters,
+    });
+  }
+  if (tagFilter.size > 0) {
+    summaryParts.push({
+      key: 'tags',
+      label: t('items.summaryTags', {
+        labels: Array.from(tagFilter).sort().join(', '),
+      }),
+      onClear: onClearTags,
     });
   }
   if (areaActive && areaActiveLabel) {
@@ -2097,6 +2137,7 @@ function Toolbar({
           accessFilter={accessFilter}
           accessCounts={accessCounts}
           onToggleAccess={onToggleAccess}
+          tagCount={tagFilter.size}
         />
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">
@@ -2180,7 +2221,7 @@ interface BodyProps {
   selected: Set<string>;
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
-  onToggleAll: () => void;
+  onToggleAll: (ids: ReadonlySet<string>) => void;
   /** Per-row kebab actions (#82). Forwarded all the way down to
    *  ItemGrid; ItemRowMenu invokes them. */
   onPreview: (item: ItemWithShares) => void;
@@ -2316,7 +2357,7 @@ interface GridProps {
   selected: Set<string>;
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
-  onToggleAll: () => void;
+  onToggleAll: (ids: ReadonlySet<string>) => void;
   /** Per-row kebab actions (#82). */
   onPreview: (item: ItemWithShares) => void;
   onRowShare: (item: ItemWithShares) => void;
@@ -2462,9 +2503,14 @@ function ItemGrid({
   // bulk select + reassign; it's a fixed 1.5rem-wide column so the
   // layout is pixel-stable whether or not the user has admin rights
   // on any given row.
+  // Only this grid's rows: with Group by on, each group has its own
+  // header box, and it must not select the other groups.
+  const gridManageableIds = new Set(
+    items.filter((it) => manageableIds.has(it.id)).map((it) => it.id),
+  );
   const allManageableSelected =
-    manageableIds.size > 0 &&
-    Array.from(manageableIds).every((id) => selected.has(id));
+    gridManageableIds.size > 0 &&
+    Array.from(gridManageableIds).every((id) => selected.has(id));
   return (
     <ul className="divide-y divide-border rounded-lg border border-border bg-surface-1">
       {/* Header row. Grid template has an extra 1.5rem leading column
@@ -2488,11 +2534,11 @@ function ItemGrid({
           not `hidden` at that tier, in DOM order, because `hidden` is
           display:none and drops out of grid flow entirely. */}
       <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted md:grid lg:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_7rem_1.75rem] xl:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
-        {manageableIds.size > 0 ? (
+        {gridManageableIds.size > 0 ? (
           <input
             type="checkbox"
             checked={allManageableSelected}
-            onChange={onToggleAll}
+            onChange={() => onToggleAll(gridManageableIds)}
             className="h-3.5 w-3.5 cursor-pointer"
             aria-label={t('items.selectAll')}
           />
@@ -2612,6 +2658,9 @@ function ItemGrid({
               <ItemRowMenu
                 itemId={item.id}
                 itemType={item.type}
+                // Needed to recognise a templated web app, so the list
+                // offers "Open" the same as the card view does.
+                itemData={item.data}
                 canManage={canManage}
                 onPreview={() => onPreview(item)}
                 onShare={canManage ? () => onRowShare(item) : undefined}

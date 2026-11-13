@@ -108,6 +108,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   const [buildEta, setBuildEta] = useState<string | null>(null);
   const uploadedRef = useRef(new Map<string, SourceDescriptor>());
   const limitsRef = useRef<MergeCostCoefficients | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<{
     files: File[];
     endpoint: 'mosaic-build' | 'mosaic-add-sources';
@@ -167,17 +168,23 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
 
   async function retryPyramid() {
     setRetrying(true);
+    setRetryError(null);
     try {
       const res = await fetch(
         `/api/portal/items/${itemId}/tile-layer/retry-pyramid`,
         { method: 'POST', credentials: 'include' },
       );
-      if (res.ok) {
-        const body = (await res.json()) as { data?: unknown };
-        if (body.data && isTileLayerData(body.data)) {
-          setData(body.data);
-        }
+      if (!res.ok) {
+        // A refused retry used to look exactly like nothing happened.
+        setRetryError(t('tileLayerEditor.errRetryHttp', { status: res.status }));
+        return;
       }
+      const body = (await res.json()) as { data?: unknown };
+      if (body.data && isTileLayerData(body.data)) {
+        setData(body.data);
+      }
+    } catch {
+      setRetryError(t('tileLayerEditor.errNetwork'));
     } finally {
       setRetrying(false);
     }
@@ -535,7 +542,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       const sources = files
         .map((f) => uploadedRef.current.get(fileKey(f)))
         .filter((s): s is SourceDescriptor => Boolean(s));
-      await startMosaic(sources, endpoint);
+      await startMosaic(sources, endpoint, files);
     } finally {
       setUploading(false);
       setProgressLabel(null);
@@ -545,15 +552,32 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   async function startMosaic(
     sources: SourceDescriptor[],
     endpoint: 'mosaic-build' | 'mosaic-add-sources',
+    /** The picked files, when known, so a failed start can be retried
+     *  from the uploaded cache instead of leaving the page idle. */
+    files?: File[],
   ) {
-    const res = await fetch(
-      `/api/portal/items/${itemId}/tile-layer/${endpoint}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sources }),
-      },
-    );
+    const offerRetry = () => {
+      if (files) {
+        setPendingRetry({ files, endpoint, uploadedCount: sources.length });
+      }
+    };
+    let res: Response;
+    try {
+      res = await fetch(
+        `/api/portal/items/${itemId}/tile-layer/${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sources }),
+        },
+      );
+    } catch {
+      // Callers run this with `void`, so a rejection here used to be
+      // unhandled: the spinner stopped with no message and no retry.
+      setUploadError(t('tileLayerEditor.errNetwork'));
+      offerRetry();
+      return;
+    }
     if (!res.ok) {
       let msg = t('tileLayerEditor.errMosaicStartHttp', {
         status: res.status,
@@ -565,6 +589,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         /* keep fallback */
       }
       setUploadError(msg);
+      offerRetry();
       return;
     }
     const body = (await res.json()) as { humanEstimate?: unknown };
@@ -594,7 +619,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     if (sources.length === 0) return;
     setUploadError(null);
     setPendingRetry(null);
-    await startMosaic(sources, p.endpoint);
+    await startMosaic(sources, p.endpoint, p.files);
   }
 
   /** Failed-build retry over the retained sources; addedAt is
@@ -958,6 +983,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                       : t('tileLayerEditor.retryTryAgain')}
                   </button>
                 ) : null}
+                {retryError ? (
+                  <p className="text-xs text-danger" role="alert">
+                    {retryError}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1164,26 +1194,22 @@ function TilePreview({ data }: { data: TileLayerData }) {
               },
             } as maplibregl.StyleSpecification['sources'])),
       },
+      // A vector layer must name its source-layer; an empty one fails
+      // style validation and MapLibre then drops the whole style,
+      // backdrop included. The names are only known once the source's
+      // TileJSON has loaded, so vector debug layers are added below.
       layers: [
         { id: 'backdrop', type: 'raster', source: 'backdrop' },
-        isRaster
-          ? {
-              id: 'tilecache-raster',
-              type: 'raster',
-              source: 'tilecache',
-              paint: { 'raster-opacity': 0.9 },
-            }
-          : {
-              id: 'tilecache-vector-debug',
-              type: 'line',
-              source: 'tilecache',
-              // No source-layer specified, MapLibre renders all
-              // layers in the tile. Acceptable for a preview;
-              // production consumers configure source-layer +
-              // style per layer.
-              'source-layer': '',
-              paint: { 'line-color': '#7c3aed', 'line-width': 1 },
-            },
+        ...(isRaster
+          ? [
+              {
+                id: 'tilecache-raster',
+                type: 'raster',
+                source: 'tilecache',
+                paint: { 'raster-opacity': 0.9 },
+              } as maplibregl.LayerSpecification,
+            ]
+          : []),
       ],
     };
 
@@ -1196,6 +1222,30 @@ function TilePreview({ data }: { data: TileLayerData }) {
       attributionControl: { compact: true },
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }));
+    if (!isRaster) {
+      // One outline layer per source-layer the package declares
+      // (vector_layers in its metadata). Enough to see that tiles are
+      // served and where; a real style is the consumer's job.
+      let added = false;
+      map.on('sourcedata', (e) => {
+        if (added || e.sourceId !== 'tilecache') return;
+        const src = map.getSource('tilecache') as
+          | { vectorLayerIds?: string[] }
+          | undefined;
+        const ids = src?.vectorLayerIds;
+        if (!Array.isArray(ids) || ids.length === 0) return;
+        added = true;
+        ids.forEach((id, i) => {
+          map.addLayer({
+            id: `tilecache-vector-debug-${i}`,
+            type: 'line',
+            source: 'tilecache',
+            'source-layer': id,
+            paint: { 'line-color': '#7c3aed', 'line-width': 1 },
+          });
+        });
+      });
+    }
     mapRef.current = map;
     return () => {
       map.remove();

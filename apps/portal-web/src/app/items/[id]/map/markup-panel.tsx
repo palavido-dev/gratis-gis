@@ -173,6 +173,9 @@ export function MarkupPanel({
   const activeSetIdRef = useRef(activeSetId);
   activeSetIdRef.current = activeSetId;
   const collabRef = useRef<DrawingsCollabSession | null>(null);
+  // Bumped to reopen the room after the socket drops on its own.
+  const [collabEpoch, setCollabEpoch] = useState(0);
+  const collabRetriesRef = useRef(0);
 
   // R1-presence-crdt: signed-in co-editors share a Yjs room for the
   // active markup set. Anonymous stays on REST LWW.
@@ -183,9 +186,22 @@ export function MarkupPanel({
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     void (async () => {
       try {
         const session = await openDrawingsCollabSession({
+          // A dropped socket used to leave a dead session in place:
+          // its stale doc kept feeding the panel and the next save
+          // overwrote other editors' shapes. Drop it and reopen after
+          // a growing pause (one try a minute at most); the new
+          // room's sync replaces the stale features.
+          onClosed: () => {
+            if (cancelled) return;
+            collabRef.current = null;
+            const wait = Math.min(2000 * 2 ** collabRetriesRef.current, 60_000);
+            collabRetriesRef.current += 1;
+            retryTimer = setTimeout(() => setCollabEpoch((n) => n + 1), wait);
+          },
           mapId,
           drawingSetId: activeSetId,
           onFeatures: (features) => {
@@ -211,10 +227,11 @@ export function MarkupPanel({
     })();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       collabRef.current?.close();
       collabRef.current = null;
     };
-  }, [open, currentUser, activeSetId, mapId, onDrawingsChange]);
+  }, [open, currentUser, activeSetId, mapId, onDrawingsChange, collabEpoch]);
   const toolRef = useRef(tool);
   toolRef.current = tool;
 

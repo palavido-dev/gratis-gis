@@ -76,11 +76,13 @@ export function TopBarSearch() {
     const next = draft.trim();
     if (next === initial) return;
     const handle = setTimeout(() => {
-      const qs = new URLSearchParams();
-      qs.set('scope', 'all');
-      if (next) qs.set('q', next);
-      const target = qs.toString() ? `/items?${qs.toString()}` : '/items';
-      router.replace(target);
+      // Same rule as submit(): a query searches All items, and a
+      // cleared box goes back to /items without flipping the scope.
+      // Setting scope=all first made a backspaced-empty box land on
+      // All items while Enter on the same empty box did not.
+      router.replace(
+        next ? `/items?scope=all&q=${encodeURIComponent(next)}` : '/items',
+      );
     }, 250);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps

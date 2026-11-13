@@ -951,12 +951,15 @@ type ResponseTool =
   | 'legend'
   | 'print';
 
+/** The tools the Responses page can actually switch: select, measure
+ *  and print go to the runtime, and attribute-table decides whether
+ *  the table opens on load. `query` and `legend` are not offered,
+ *  because the runtime has no query control and always shows the
+ *  legend, so the checkboxes changed nothing. Saved values are kept. */
 const ALL_RESPONSE_TOOL_KEYS: ResponseTool[] = [
   'select',
-  'query',
   'measure',
   'attribute-table',
-  'legend',
   'print',
 ];
 

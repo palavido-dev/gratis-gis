@@ -123,8 +123,14 @@ export function arrowTip(
   ) {
     return null;
   }
+  // The glyph is rotated in the Web Mercator plane
+  // (text-rotation-alignment 'map'), so the bearing has to be taken
+  // there too. Raw degree differences skewed the head off its line
+  // away from the equator (about 13 degrees at 51 N).
+  const rad = Math.PI / 180;
+  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * rad) / 2));
   const bearing =
-    (Math.atan2(b[0] - a[0], b[1] - a[1]) * 180) / Math.PI;
+    Math.atan2((b[0] - a[0]) * rad, mercY(b[1]) - mercY(a[1])) / rad;
   return { coordinates: [b[0], b[1]], bearing };
 }
 

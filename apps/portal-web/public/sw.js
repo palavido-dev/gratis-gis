@@ -175,10 +175,13 @@ const FIELD_SIGNED_IN_MARKER = 'name="gg-field-signed-in"';
 // always fresh. The SwRegistrar should prevent this SW from loading
 // in dev at all, but this guard handles the case where an older SW
 // from a prior session is still running.
+//
+// Not `.local`: that is the mDNS suffix real LAN installs use (a NAS
+// at truenas.local), and treating it as dev turned off static caching
+// there, which the offline shell depends on.
 const IS_DEV_HOST =
   self.location.hostname === 'localhost' ||
   self.location.hostname === '127.0.0.1' ||
-  self.location.hostname.endsWith('.local') ||
   self.location.hostname.endsWith('.localhost');
 
 // Next.js static assets are served from /_next/static/. NOTE: with

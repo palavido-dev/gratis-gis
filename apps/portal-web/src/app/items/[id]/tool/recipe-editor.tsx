@@ -48,6 +48,8 @@ import {
 } from '@gratis-gis/shared-types';
 import { commitChain, syncSteps } from '@/lib/workflow-canvas';
 import { useT } from '@/lib/i18n/locale-context';
+import { metersToDisplay } from '@/lib/length-display';
+import { renameRecipeParameter } from '@/lib/recipe-param-rename';
 import { WorkflowCanvas } from './workflow-canvas';
 
 const PREDICATE_LABELS: Record<SpatialPredicate, string> = {
@@ -80,7 +82,19 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
     'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
   function setParameters(next: ToolParameter[]) {
-    onChange({ ...recipe, parameters: next });
+    // Carry a rename (or a removal) through to everything that refers
+    // to the parameter by name, so the refs follow the parameter.
+    let base: RecipeAction = recipe;
+    const prev = recipe.parameters;
+    if (next.length === prev.length) {
+      const i = prev.findIndex((p, j) => p.name !== next[j]?.name);
+      if (i >= 0) base = renameRecipeParameter(recipe, prev[i]!.name, next[i]!.name);
+    } else if (next.length === prev.length - 1) {
+      const kept = new Set(next.map((p) => p.name));
+      const gone = prev.find((p) => !kept.has(p.name));
+      if (gone) base = renameRecipeParameter(recipe, gone.name, '');
+    }
+    onChange({ ...base, parameters: next });
   }
   function setPipeline(next: ToolStep[]) {
     if (!recipe.graph) {
@@ -276,7 +290,10 @@ function ParametersSection({
         <div className="space-y-2">
           {parameters.map((p, i) => (
             <ParameterCard
-              key={`${p.name}-${i}`}
+              // Index, not the name: the ID field edits the name, and a
+              // key that changes on every keystroke remounted the card,
+              // dropping focus and refetching its preset catalog.
+              key={i}
               parameter={p}
               canEdit={canEdit}
               onChange={(next) => update(i, next)}
@@ -714,11 +731,15 @@ function DistanceBindingEditor({
   const unit: LengthUnit = parameter.unit ?? 'meters';
   const factor = METERS_PER_UNIT[unit];
 
-  // Convert stored meters into the chosen unit for display.
-  const displayValue =
+  // Convert stored meters into the chosen unit for display, rounded
+  // so the conversion noise (7 ft read back as 6.999999999999999) does
+  // not overwrite the field while the author types.
+  const displayValue = metersToDisplay(
     mode === 'hardcoded'
-      ? parameter.binding.meters / factor
-      : (parameter.binding as Extract<DistanceParameter['binding'], { mode: 'runtime-input' }>).defaultMeters / factor;
+      ? parameter.binding.meters
+      : (parameter.binding as Extract<DistanceParameter['binding'], { mode: 'runtime-input' }>).defaultMeters,
+    factor,
+  );
 
   function setMode(next: 'hardcoded' | 'runtime-input') {
     let binding: DistanceParameter['binding'];
@@ -1833,18 +1854,23 @@ function OutputSection({
                 targetParameterRef: featureSourceParams[0]?.name ?? '',
               });
             } else {
-              setOutput({ kind: 'osm-features-overlay' });
               // Auto-seed sourceParameterRef + aoiParameterRef when
               // the recipe already has the right shape so authors
               // don't have to click two more dropdowns after picking
               // the sink.  Idempotent: only sets when the field is
-              // empty.
-              if (!recipe.sourceParameterRef && osmFeatureParams[0]) {
-                setSourceRef(osmFeatureParams[0].name);
-              }
-              if (!recipe.aoiParameterRef && featureSourceParams[0]) {
-                setAoiRef(featureSourceParams[0].name);
-              }
+              // empty.  One onChange: three separate calls each
+              // started from the same stale `recipe`, so only the
+              // last one survived and the sink needed three picks.
+              onChange({
+                ...recipe,
+                output: { kind: 'osm-features-overlay' },
+                ...(!recipe.sourceParameterRef && osmFeatureParams[0]
+                  ? { sourceParameterRef: osmFeatureParams[0].name }
+                  : {}),
+                ...(!recipe.aoiParameterRef && featureSourceParams[0]
+                  ? { aoiParameterRef: featureSourceParams[0].name }
+                  : {}),
+              });
             }
           }}
           className={inputCls}

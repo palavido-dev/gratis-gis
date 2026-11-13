@@ -11,6 +11,7 @@ import {
 import { authOptions } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
+import { isSessionStale } from '@/lib/session-state';
 import {
   groupWhatsNewByRelease,
   loadWhatsNewEntries,
@@ -27,13 +28,16 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: t('whatsNewPage.metaTitle', undefined, locale),
     description: t('whatsNewPage.metaDescription', undefined, locale),
+    alternates: { canonical: '/whats-new' },
   };
 }
 
 export default async function WhatsNewPage() {
   const locale = await getServerLocale();
   const session = await getServerSession(authOptions);
-  const isAuthenticated = !!session;
+  // A stale session gets the bare shell (AppShellChrome), so treat it
+  // as signed out here or the page has no header at all.
+  const isAuthenticated = !!session && !isSessionStale(session);
   const entries = await loadWhatsNewEntries();
   const groups = groupWhatsNewByRelease(entries);
 

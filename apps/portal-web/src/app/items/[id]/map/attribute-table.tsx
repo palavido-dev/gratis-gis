@@ -2064,6 +2064,7 @@ function AttrTableExportMenu({
             name?: string;
             fields?: Array<{ name: string; label?: string }>;
             parentLayerId?: string;
+            parentFkColumn?: string;
           }>;
         };
       };
@@ -2076,6 +2077,7 @@ function AttrTableExportMenu({
           ...(f.label && f.label !== f.name ? { label: f.label } : {}),
         })),
         ...(l.parentLayerId ? { parentLayerId: l.parentLayerId } : {}),
+        ...(l.parentFkColumn ? { parentFkColumn: l.parentFkColumn } : {}),
       }));
 
       // Scope -> featureIdsAllowlist.  For 'all' we pass nothing.
@@ -2121,6 +2123,17 @@ function AttrTableExportMenu({
           mb: (result.bytes / 1024 / 1024).toFixed(1),
         }),
       );
+      if (result.attachmentFailures > 0) {
+        // Keep the dialog open: a ZIP missing photos must not read
+        // as a complete export.
+        setBundleError(
+          t('mapAttributeTable.bundleAttachmentsMissing', {
+            count: result.attachmentFailures,
+          }),
+        );
+        setBundleRunning(false);
+        return;
+      }
       setTimeout(() => {
         setBundleOpen(false);
         setBundleRunning(false);

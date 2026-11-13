@@ -94,4 +94,23 @@ describe('legacy item-level GeoJSON', () => {
     expect(fc.features).toEqual([]);
     expect($queryRawUnsafe).not.toHaveBeenCalled();
   });
+
+  it('caps the rows at the requested limit (45-13)', async () => {
+    const v1 = await service(layer({ version: 1, data: FC }, [share()])).svc.getGeoJson(
+      reader as never,
+      'x',
+      { limit: 1 },
+    );
+    expect(v1.features).toHaveLength(1);
+
+    const { svc, $queryRawUnsafe } = service(
+      layer({ version: 2, storageType: 'postgis' }, [share()]),
+    );
+    await svc.getGeoJson(reader as never, '00000000-0000-4000-8000-0000000000a1', {
+      limit: 500,
+    });
+    const call = $queryRawUnsafe.mock.calls[0] as unknown as [string, ...unknown[]];
+    expect(call[0]).toMatch(/LIMIT \$\d+/);
+    expect(call.slice(1)).toContain(500);
+  });
 });

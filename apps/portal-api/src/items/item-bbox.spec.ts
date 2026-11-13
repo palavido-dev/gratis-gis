@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { bboxWriteForData, itemBbox } from './item-bbox.js';
+import { bboxWriteForData, itemBbox, searchEnvelopes } from './item-bbox.js';
 
 /**
  * The cached-extent rules, per item type.
@@ -72,5 +72,26 @@ describe('bboxWriteForData', () => {
 
   it('clears the column for a type whose extent lives in the blob', () => {
     expect(bboxWriteForData('geo_boundary', {})).toEqual({ bbox: [] });
+  });
+});
+
+describe('searchEnvelopes', () => {
+  it('passes an ordinary box through', () => {
+    expect(searchEnvelopes([-120, 30, -110, 40], 0)).toEqual([[-120, 30, -110, 40]]);
+  });
+
+  it('splits a box that crosses the antimeridian', () => {
+    expect(searchEnvelopes([170, -20, 190, -10], 0)).toEqual([
+      [170, -20, 180, -10],
+      [-180, -20, -170, -10],
+    ]);
+  });
+
+  it('wraps a box framed entirely past 180', () => {
+    expect(searchEnvelopes([185, 0, 190, 5], 0)).toEqual([[-175, 0, -170, 5]]);
+  });
+
+  it('becomes the whole world for a full turn or more, clamping latitude', () => {
+    expect(searchEnvelopes([-200, -95, 200, 95], 1)).toEqual([[-180, -90, 180, 90]]);
   });
 });

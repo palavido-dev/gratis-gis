@@ -356,7 +356,9 @@ function buildFetchUrl(
 ): string {
   if (item.type === 'data_layer') {
     if (sublayerId === 'self') {
-      return `/api/portal/items/${item.id}/geojson`;
+      // The legacy read takes a row cap too, so a big v1/v2 layer is
+      // not read in full just to show the first rows.
+      return `/api/portal/items/${item.id}/geojson?limit=${PREVIEW_LIMIT}`;
     }
     return `/api/portal/items/${item.id}/layers/${encodeURIComponent(
       String(sublayerId),

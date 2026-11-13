@@ -120,11 +120,13 @@ export function RespondClient({ form, formId, formItemTitle, userId = null }: Pr
         rerunRef.current = false;
         await drain(formId, await currentIdentity(), async (row) => {
           // Upload any offline-captured attachments before posting (#280).
-          // The walk mutates row.response in place so a partial drain
-          // (some attachments uploaded, some still pending) doesn't have
-          // to redo successful uploads on retry. uploadPendingAttachments
-          // throws on failure; the outer drain marks the row failed and
-          // the queue will retry next online tick.
+          // The walk mutates this in-memory copy of row.response only;
+          // it is not written back to IndexedDB, so a retry after a
+          // partial failure uploads every attachment again. The stored
+          // row keeps the bytes until the POST succeeds, which is the
+          // safe direction. uploadPendingAttachments throws on failure;
+          // the outer drain marks the row failed and the queue will
+          // retry next online tick.
           await uploadPendingAttachmentsInResponse(row.response);
           const res = await fetch(
             `/api/portal/forms/${formId}/submissions`,

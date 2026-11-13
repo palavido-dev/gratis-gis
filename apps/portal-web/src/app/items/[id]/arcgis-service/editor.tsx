@@ -36,6 +36,10 @@ interface Props {
   itemId: string;
   initial: ArcgisServiceData;
   canEdit: boolean;
+  /** Owner or org admin. Stored credentials need admin on the item,
+   *  which an edit share does not give, so the credentials card is
+   *  gated on this rather than on canEdit. */
+  canAdmin: boolean;
 }
 
 /**
@@ -49,7 +53,12 @@ interface Props {
  * No feature payload lives here: arcgis_service is a live pointer,
  * so the runtime (web-map viewer) is what actually calls the service.
  */
-export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
+export function ArcgisServiceEditor({
+  itemId,
+  initial,
+  canEdit,
+  canAdmin,
+}: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   const [data, setData] = useState<ArcgisServiceData>({
@@ -439,7 +448,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
 
       <CredentialsCard
         itemId={itemId}
-        canEdit={canEdit}
+        canEdit={canAdmin}
         requiresAuth={!!data.requiresAuth}
         onToggleRequiresAuth={async (next) => {
           // Persist the flag against the item's data so the layer
