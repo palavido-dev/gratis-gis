@@ -344,8 +344,7 @@ export const ptBR: Partial<CatalogShape> = {
     expandAria: 'Expand',
     allowEditing: 'Allow editing',
     allowAttachments: 'Allow attachments',
-    attachmentsSoon: '(storage soon)',
-    attachmentsTitle: 'Attachment storage is a Phase E backend change: the toggle persists so you can opt in now.',
+    attachmentsTitle: 'Lets editors attach photos and files to features in this layer. When off, attachment uploads are refused.',
     editorScope: 'Editor scope',
     editorScopeTitle: 'Limit editors to the rows they themselves created',
     allFeatures: 'All features',
@@ -797,7 +796,7 @@ export const ptBR: Partial<CatalogShape> = {
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
-    '{count, plural, =0 {No geometry tables in {schema}} one {# geometry table in {schema}} other {# geometry tables in {schema}}}',
+    '{count, plural, one {# geometry table} other {# geometry tables}} in {schema}',
   tablesHint:
     'Save registers every geometry table in this schema. The list below is a preview.',
   tablesEmpty:
