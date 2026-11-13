@@ -11,8 +11,8 @@ import type { Question } from '@gratis-gis/form-schema';
  * their summed widths exceed 1, then the row breaks.
  *
  * Only genuinely structural types are forced standalone (page break,
- * group, note, divider, hidden, image-display). Everything else --
- * including the wide ones like matrix and ranking -- respects the
+ * group, note, divider, hidden, image-display). Everything else,
+ * including the wide ones like matrix and ranking, respects the
  * author's `layout.width`. If the author sets a matrix to 1/2 they
  * accept the cramped or scrolling consequence; that's an explicit
  * choice we shouldn't second-guess.

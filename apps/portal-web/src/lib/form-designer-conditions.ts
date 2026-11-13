@@ -60,7 +60,7 @@ export const COMPARISON_OPERATOR_SPECS: ReadonlyArray<{
  * side is either a single value or, for `between`, a {min, max} pair.
  *
  * We keep `value` typed as a primitive string in the row even when
- * the left field is numeric -- on render we coerce via `Number(...)`
+ * the left field is numeric; on render we coerce via `Number(...)`
  * before composing the AST, so the user can type freely without the
  * input flickering between empty and 0.
  *
@@ -91,7 +91,7 @@ export const DEFAULT_ROW = (): ConditionRow => ({
  * model in the inline editor (calls, arithmetic, nested and/or, etc.)
  * we return null and the editor falls back to a "complex expression"
  * banner with a clear-and-start-over button. This keeps the UI
- * predictable -- we don't try to round-trip something we couldn't
+ * predictable: we don't try to round-trip something we couldn't
  * faithfully render.
  */
 export function decomposeExpression(expr: Expression | undefined): {
@@ -244,7 +244,7 @@ export function rowToExpression(r: ConditionRow): Expression {
     };
   }
   if (r.op === 'matches') {
-    // RHS is a regex pattern -- never coerce to number/boolean even
+    // RHS is a regex pattern, so never coerce to number/boolean even
     // if the pattern happens to look like one (e.g. "true|false").
     return {
       op: 'matches',

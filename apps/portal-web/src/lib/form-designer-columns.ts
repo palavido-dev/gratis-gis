@@ -15,7 +15,7 @@ export interface RawFeatureField {
   type?: string;
   label?: string;
   nullable?: boolean;
-  /** Optional value-constraint. Mirrors shared-types FieldDomain --
+  /** Optional value-constraint. Mirrors shared-types FieldDomain:
    *  inline coded-values OR a reference to a pick_list item.
    *  fetchLayerSchema resolves the reference into LayerColumn.choices. */
   domain?:
