@@ -66,6 +66,7 @@ import {
 import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { PrintReadable } from '../auth/print-readable.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
 import {
@@ -1301,6 +1302,8 @@ export class DataLayerFeaturesController {
    *  hits this per-layer URL for v3 items, the same way v2 items use
    *  /items/:id/geojson. */
   @Get('geojson')
+  // The server-side print reads layer data here (print-read-credential.ts).
+  @PrintReadable()
   async geojson(
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,

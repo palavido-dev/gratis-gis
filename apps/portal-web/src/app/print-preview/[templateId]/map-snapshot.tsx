@@ -52,6 +52,9 @@ interface Props {
   /** Resolved basemap blob for `mapData.basemap` (when set). Null
    *  drops back to the OSM raster fallback. */
   basemapData: BasemapData | null;
+  /** Per-job print read credential. Sent in a header on layer reads
+   *  through /api/portal only, never to a third-party URL. */
+  readCredential?: string | null;
   /** Optional scale denominator from the print Map element. When
    *  set, the snapshot computes zoom from this scale rather than
    *  reading `mapData.zoom`. */
@@ -61,6 +64,7 @@ interface Props {
 export function MapSnapshot({
   mapData,
   basemapData,
+  readCredential = null,
   scaleOverride,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -178,7 +182,7 @@ export function MapSnapshot({
           continue;
         }
         loads.push(
-          fetchLayerGeoJson(url.href, url.init)
+          fetchLayerGeoJson(url.href, url.init, readCredential)
             .then((data) => {
               // ArcGIS stops at resultRecordCount and says so; a print
               // that drew only part of a layer is incomplete.
@@ -232,7 +236,7 @@ export function MapSnapshot({
       window.clearTimeout(ceiling);
       map.remove();
     };
-  }, [mapData, basemapData, scaleOverride]);
+  }, [mapData, basemapData, scaleOverride, readCredential]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -337,8 +341,16 @@ function layerRequest(
 async function fetchLayerGeoJson(
   url: string,
   init: RequestInit | undefined,
+  readCredential: string | null,
 ): Promise<GeoJSON.FeatureCollection> {
-  const res = await fetch(url, init);
+  // The headless print browser has no session, so the job's read
+  // credential goes along in a header. Only on same-origin portal
+  // reads: an ArcGIS URL without the proxy is a third party.
+  const headers = new Headers(init?.headers);
+  if (readCredential && url.startsWith('/api/portal/')) {
+    headers.set('x-print-read', readCredential);
+  }
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     throw new Error(`request failed with status ${res.status}`);
   }

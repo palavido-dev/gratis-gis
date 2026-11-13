@@ -12,6 +12,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
 import { isReadOnlySafeMethod, looksLikeApiKey } from './api-key-token.js';
 import { ApiKeyService } from './api-key.service.js';
+import { looksLikePrintReadCredential } from './print-read-credential.js';
+import { PrintReadCredentialService } from './print-read-credential.service.js';
+import {
+  PRINT_READABLE_KEY,
+  type PrintReadableRule,
+} from './print-readable.decorator.js';
 
 /**
  * JWT auth guard with proper @Public() semantics.
@@ -39,6 +45,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private readonly reflector: Reflector,
     private readonly apiKeys: ApiKeyService,
+    private readonly printRead: PrintReadCredentialService,
   ) {
     super();
   }
@@ -86,6 +93,33 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
       const req = ctx.switchToHttp().getRequest<{ user?: unknown }>();
       req.user = user;
+      return true;
+    }
+
+    // The server-side print's per-job credential. Unlike a JWT or a
+    // key it has no fallback on any route: it works on a
+    // @PrintReadable() read for an item it names, or it is refused.
+    if (bearer !== null && looksLikePrintReadCredential(bearer)) {
+      const req = ctx.switchToHttp().getRequest<{
+        method?: string;
+        path?: string;
+        params?: Record<string, unknown>;
+        query?: Record<string, unknown>;
+        user?: unknown;
+      }>();
+      const rule = this.reflector.getAllAndOverride<
+        PrintReadableRule | undefined
+      >(PRINT_READABLE_KEY, [ctx.getHandler(), ctx.getClass()]);
+      const routeAllowed =
+        rule !== undefined &&
+        (rule.path === undefined || rule.path.test(req.path ?? ''));
+      req.user = await this.printRead.resolve(bearer, {
+        routeAllowed,
+        allowedMethod: rule?.method ?? 'GET',
+        method: req.method ?? 'GET',
+        itemId: rule ? req.params?.[rule.idParam] : undefined,
+        clip: req.query?.clip,
+      });
       return true;
     }
 

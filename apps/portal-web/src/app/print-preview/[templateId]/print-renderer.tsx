@@ -156,6 +156,8 @@ interface RenderContext {
    *  one (e.g. the basemap item is no longer visible). The
    *  MapSnapshot falls back to OSM raster in that case. */
   basemapData: BasemapData | null;
+  /** Per-job read credential for the snapshot's layer fetches. */
+  readCredential: string | null;
   parameterValues: Record<string, string>;
   parameters: PrintTemplateParameter[];
   userDisplayName: string;
@@ -172,6 +174,9 @@ interface Props {
    *  load-job endpoint so the print PDF uses the bound map's own
    *  basemap rather than vanilla OSM. */
   basemapData: BasemapData | null;
+  /** Per-job print read credential from load-job, so layers that are
+   *  not public still load in the headless browser. */
+  readCredential?: string | null;
   parameterValues: Record<string, string>;
   userDisplayName: string;
   /** Requester's locale and time zone, already validated. */
@@ -184,6 +189,7 @@ export function PrintRenderer({
   mapId,
   mapData,
   basemapData,
+  readCredential = null,
   parameterValues,
   userDisplayName,
   locale = DEFAULT_LOCALE,
@@ -204,6 +210,7 @@ export function PrintRenderer({
     mapId,
     mapData,
     basemapData,
+    readCredential,
     parameterValues,
     parameters: template.parameters,
     userDisplayName,
@@ -377,6 +384,7 @@ function MapBody({
       <MapSnapshot
         mapData={ctx.mapData}
         basemapData={ctx.basemapData}
+        readCredential={ctx.readCredential}
         {...(typeof element.scaleOverride === 'number' &&
         element.scaleOverride > 0
           ? { scaleOverride: element.scaleOverride }

@@ -65,6 +65,8 @@ interface JobBundle {
    *  longer visible to the user; MapSnapshot falls back to a
    *  vanilla OSM raster in those cases. */
   basemap: BasemapData | null;
+  /** Per-job read credential for the snapshot's layer fetches. */
+  readCredential?: string;
 }
 
 export default async function PrintPreviewPage(props: Props) {
@@ -122,6 +124,7 @@ export default async function PrintPreviewPage(props: Props) {
         mapId={bundle.mapId}
         mapData={bundle.map.data}
         basemapData={bundle.basemap}
+        readCredential={bundle.readCredential ?? null}
         parameterValues={parameterValues}
         userDisplayName={bundle.userDisplayName}
         locale={printLocale(lc)}

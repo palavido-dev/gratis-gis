@@ -27,6 +27,8 @@ import {
 } from './print-request-filter.js';
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
+import { printReadItemIds } from './print-read-scope.js';
 
 export interface RenderJobBundle {
   userId: string;
@@ -45,6 +47,13 @@ export interface RenderJobBundle {
    * cases so the print still produces a sensible page.
    */
   basemap: BasemapData | null;
+  /**
+   * Per-job print read credential for this user (see
+   * print-read-credential.ts). The preview page sends it on its layer
+   * data fetches so layers that are not public still print. Reads
+   * only the ids printReadItemIds finds in the map, for one minute.
+   */
+  readCredential: string;
 }
 
 /**
@@ -80,6 +89,7 @@ export class PrintRenderService {
     private readonly prisma: PrismaService,
     private readonly items: ItemsService,
     private readonly authSync: AuthSyncService,
+    private readonly printRead: PrintReadCredentialService,
   ) {}
 
   /**
@@ -178,6 +188,10 @@ export class PrintRenderService {
         data: map.data,
       },
       basemap,
+      readCredential: this.printRead.mint(
+        user.id,
+        printReadItemIds(map.data as MapData | null),
+      ),
     };
   }
 

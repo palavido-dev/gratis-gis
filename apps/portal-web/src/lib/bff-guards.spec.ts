@@ -5,6 +5,7 @@ import {
   hasUnsafePathSegment,
   isCrossOriginMutation,
   isUnsafePathSegment,
+  printReadBearer,
   securityResponseHeaders,
 } from './bff-guards';
 
@@ -143,5 +144,46 @@ describe('PAGE_CSP_SOURCE', () => {
     expect(Boolean(match('/items/abc'))).toBe(true);
     expect(Boolean(match('/api/auth/session'))).toBe(true);
     expect(Boolean(match('/api/portal/items/x/proxy/a'))).toBe(false);
+  });
+});
+
+describe('printReadBearer', () => {
+  const cred = 'ggprint.eyJ1aWQiOiJ1MSJ9.c2ln';
+  const id = '11111111-1111-4111-8111-111111111111';
+
+  it.each([
+    `items/${id}/geojson`,
+    `items/${id}/layers/parcels/geojson`,
+    `items/${id}/proxy/0/query`,
+  ])('forwards the credential on the read route %s', (suffix) => {
+    expect(printReadBearer('GET', suffix, cred)).toBe(cred);
+  });
+
+  it.each([
+    `items/${id}`,
+    `items/${id}/layers/parcels/features`,
+    `items/${id}/proxy/0/applyEdits`,
+    `items/${id}/proxy`,
+    `items/${id}/proxy/0/query/x`,
+    `postgis-live/${id}/features`,
+    'admin/users',
+  ])('ignores it on %s', (suffix) => {
+    expect(printReadBearer('GET', suffix, cred)).toBeNull();
+  });
+
+  it('forwards it on the postgis-live read, which is a POST', () => {
+    expect(printReadBearer('POST', `postgis-live/${id}/features`, cred)).toBe(cred);
+    expect(printReadBearer('POST', `postgis-live/${id}/probe`, cred)).toBeNull();
+    expect(printReadBearer('POST', 'postgis-live/create', cred)).toBeNull();
+    expect(printReadBearer('DELETE', `postgis-live/${id}/features`, cred)).toBeNull();
+  });
+
+  it('ignores it on writes, when absent, and when malformed', () => {
+    expect(printReadBearer('POST', `items/${id}/geojson`, cred)).toBeNull();
+    expect(printReadBearer('PATCH', `items/${id}/geojson`, cred)).toBeNull();
+    expect(printReadBearer('DELETE', `items/${id}/geojson`, cred)).toBeNull();
+    expect(printReadBearer('GET', `items/${id}/geojson`, null)).toBeNull();
+    expect(printReadBearer('GET', `items/${id}/geojson`, 'Bearer x')).toBeNull();
+    expect(printReadBearer('GET', `items/${id}/geojson`, 'ggk_' + 'a'.repeat(43))).toBeNull();
   });
 });

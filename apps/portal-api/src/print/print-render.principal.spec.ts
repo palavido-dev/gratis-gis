@@ -33,6 +33,7 @@ describe('PrintRenderService.loadJobByToken principal', () => {
       prisma as never,
       { get } as never,
       authSync as never,
+      { mint: () => 'ggprint.x.y' } as never,
     );
     return { svc, get, authSync };
   }
