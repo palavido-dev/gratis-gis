@@ -119,6 +119,9 @@ const UUID_RE =
  * geodesic computation. 1 degree of latitude is roughly 111 km;
  * longitude varies with latitude so we err on the wide side.
  */
+/** Most rows the legacy item-level GeoJSON read returns. */
+const LEGACY_GEOJSON_MAX_ROWS = 10_000;
+
 function degreesFromKm(km: number): number {
   return Math.min(Math.max(km, 0), 100_000) / 111;
 }
@@ -3572,8 +3575,15 @@ export class ItemsService {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      /** Row cap below the built-in 10000, for previews that show a
+       *  few hundred rows and should not read the whole table. */
+      limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
+    const rowCap = Math.min(
+      LEGACY_GEOJSON_MAX_ROWS,
+      Math.max(1, Math.floor(opts.limit ?? LEGACY_GEOJSON_MAX_ROWS)),
+    );
     const item = await this.get(user, id);
 
     if (item.type === 'derived_layer') {
@@ -3777,6 +3787,8 @@ export class ItemsService {
         edited_by: string | null;
         edited_at: Date | string | null;
       };
+      params.push(rowCap);
+      const limitParam = params.length;
       const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
         `SELECT global_id,
                 ST_AsGeoJSON(geom) AS geom,
@@ -3788,7 +3800,7 @@ export class ItemsService {
            FROM "${tbl}"
           ${where}
           ORDER BY gid
-          LIMIT 10000`,
+          LIMIT $${limitParam}`,
         ...params,
       );
 
@@ -3863,7 +3875,7 @@ export class ItemsService {
       }
       features = kept;
     }
-    return { type: 'FeatureCollection', features };
+    return { type: 'FeatureCollection', features: features.slice(0, rowCap) };
   }
 
   /**
