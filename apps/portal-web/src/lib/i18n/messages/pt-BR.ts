@@ -1716,6 +1716,7 @@ export const ptBR: Partial<CatalogShape> = {
       'As camadas estão somente para visualização. Ative "Editável em implantações de campo" em uma camada do mapa e confirme que a edição está habilitada na própria camada de dados.',
     nothingToCollectNoLayers:
       "O mapa não tem camadas às quais você possa adicionar.",
+    nothingToCollectSignIn: 'Entre para adicionar ou editar feições nesta implantação.',
     removeFromDevice: "Remover do dispositivo",
     confirmRemoveFromDevice: "Confirmar remoção do dispositivo",
     downloadLayers: "Camadas",
@@ -2565,6 +2566,9 @@ export const ptBR: Partial<CatalogShape> = {
     addAndPrepare: 'Adicionar e preparar',
     saveFailed: 'Não foi possível salvar a área: {status}',
     buildStartFailed: 'Não foi possível iniciar a preparação: {status}',
+    loadFailed: 'Não foi possível carregar as áreas. Adicionar e excluir ficam desativados até que carreguem.',
+    retry: 'Tentar novamente',
+    buildNotStarted: 'A área foi salva, mas a preparação não pôde ser iniciada. Use Preparar agora para tentar de novo.',
   },
   offlineBasemap: {
     preparedMap: 'Mapa preparado',

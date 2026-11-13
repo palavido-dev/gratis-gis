@@ -40,3 +40,36 @@ export function isInsecureGeolocationMessage(message: string | undefined): boole
   const text = (message ?? '').toLowerCase();
   return text.includes('secure origin') || text.includes('only secure origins');
 }
+
+/**
+ * What a watchPosition error means for the watch.
+ *
+ * Only a refusal (permission denied, or an insecure page) ends the
+ * watch. A timeout or a lost signal under canopy is something
+ * watchPosition recovers from by itself; clearing the watch on those
+ * left the app with no tracking and the old fix still live, so the
+ * next one-tap Add dropped the point where the collector used to be.
+ * The stale fix is always dropped, so nothing captures at it.
+ */
+export function geolocationErrorOutcome(
+  code: number,
+  message: string | undefined,
+): {
+  status: 'denied' | 'unavailable' | 'error';
+  keepWatching: boolean;
+  insecure: boolean;
+} {
+  // GeolocationPositionError codes, fixed by the spec.
+  const PERMISSION_DENIED = 1;
+  const POSITION_UNAVAILABLE = 2;
+  const insecure = isInsecureGeolocationMessage(message);
+  if (insecure) return { status: 'unavailable', keepWatching: false, insecure };
+  if (code === PERMISSION_DENIED) {
+    return { status: 'denied', keepWatching: false, insecure };
+  }
+  return {
+    status: code === POSITION_UNAVAILABLE ? 'unavailable' : 'error',
+    keepWatching: true,
+    insecure,
+  };
+}

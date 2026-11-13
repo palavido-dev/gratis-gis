@@ -28,6 +28,11 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  importStreamErrorText,
+  readImportStreamResult,
+  type ImportStreamDone,
+} from '@/lib/import-stream-result';
 import { needsServerGdalStage } from '@/lib/server-gdal-stage';
 import { detectFormat } from '@/lib/spatial-import';
 import {
@@ -381,13 +386,10 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       // #244: replace is the default; #248: append is the opt-in
       // split-button dropdown choice. The endpoint accepts both; we
       // just forward whichever mode the caller picked.
-      const out = await uploadWithProgress<{
-        driver: string;
-        sourceLayer: string | null;
-        inserted: number;
-        mode: 'replace' | 'append';
-        replaced?: number;
-      }>(
+      // The endpoint streams NDJSON and reports a failure after the
+      // first line only as an `error` event under status 200, so the
+      // result is read from the terminal event, not the status.
+      const out = await uploadWithProgress<ImportStreamDone>(
         `/api/portal/items/${itemId}/layers/${layer.id}/import?mode=${mode}`,
         file,
         (e) => {
@@ -398,6 +400,8 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           );
         },
         xhrRef,
+        readImportStreamResult,
+        importStreamErrorText,
       );
       xhrRef.current = null;
       const replacedSuffix =

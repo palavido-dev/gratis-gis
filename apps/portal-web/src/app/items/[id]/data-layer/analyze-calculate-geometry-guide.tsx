@@ -28,6 +28,7 @@ import {
   type CalculateGeometryMeasurement,
   buildCalculateGeometryDerivedLayerCreatePayload,
   defaultCalculateGeometryDerivedLayerTitle,
+  defaultCalculateGeometryFieldName,
   validateCalculateGeometryParams,
 } from '@/lib/analyze-calculate-geometry-derived';
 
@@ -52,7 +53,13 @@ export function AnalyzeCalculateGeometryGuide({
   const [measurement, setMeasurement] =
     useState<CalculateGeometryMeasurement>('area');
   const [unit, setUnit] = useState<LengthUnit | AreaUnit>('acres');
-  const [fieldName, setFieldName] = useState('acres');
+  // Empty until the user types a name; until then the column name
+  // follows the measurement and unit (see defaultCalculateGeometryFieldName).
+  const [fieldNameInput, setFieldNameInput] = useState('');
+  const fieldName =
+    fieldNameInput.trim() !== ''
+      ? fieldNameInput
+      : defaultCalculateGeometryFieldName(measurement, unit);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -96,19 +103,7 @@ export function AnalyzeCalculateGeometryGuide({
   function changeMeasurement(next: CalculateGeometryMeasurement): void {
     if (next === measurement) return;
     setMeasurement(next);
-    if (next === 'area') {
-      setUnit('acres');
-      setFieldName((prev) => (prev === 'length_m' || prev === 'perimeter_m' ? 'acres' : prev || 'acres'));
-    } else {
-      setUnit('meters');
-      setFieldName((prev) =>
-        prev === 'acres' || prev === 'area'
-          ? next === 'perimeter'
-            ? 'perimeter_m'
-            : 'length_m'
-          : prev || (next === 'perimeter' ? 'perimeter_m' : 'length_m'),
-      );
-    }
+    setUnit(next === 'area' ? 'acres' : 'meters');
   }
 
   async function createCalculateGeometryLayer(): Promise<void> {
@@ -158,7 +153,9 @@ export function AnalyzeCalculateGeometryGuide({
         type="button"
         onClick={() => {
           setOpen(true);
-          setTitle(suggestedTitle);
+          // Empty, not a snapshot: the placeholder and the submit
+          // fallback follow the parameters as they change.
+          setTitle('');
         }}
         title={t('analyzeWorkbench.calcGeomActionTitle')}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
@@ -259,8 +256,9 @@ export function AnalyzeCalculateGeometryGuide({
           <span>{t('analyzeWorkbench.calcGeomFieldName')}</span>
           <input
             type="text"
-            value={fieldName}
-            onChange={(e) => setFieldName(e.target.value)}
+            value={fieldNameInput}
+            placeholder={defaultCalculateGeometryFieldName(measurement, unit)}
+            onChange={(e) => setFieldNameInput(e.target.value)}
             maxLength={60}
             disabled={busy}
             className="h-7 w-32 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0 focus:border-accent focus:outline-hidden disabled:opacity-50"

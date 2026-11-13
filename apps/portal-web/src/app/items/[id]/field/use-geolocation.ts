@@ -4,8 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   geolocationBlock,
+  geolocationErrorOutcome,
   INSECURE_GEOLOCATION_MESSAGE,
-  isInsecureGeolocationMessage,
 } from '@/lib/geolocation-context';
 
 /**
@@ -92,7 +92,14 @@ export function useGeolocation(): UseGeolocation {
       navigator.geolocation?.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    setState((prev) => ({ ...prev, status: 'idle', follow: false }));
+    // Drop the last fix too: callers capture at `position` whenever it
+    // is set, and a stopped watch can no longer vouch for it.
+    setState((prev) => ({
+      ...prev,
+      status: 'idle',
+      follow: false,
+      position: null,
+    }));
   }, []);
 
   const start = useCallback(() => {
@@ -135,22 +142,21 @@ export function useGeolocation(): UseGeolocation {
         }));
       },
       (err) => {
-        const status: GpsStatus =
-          err.code === err.PERMISSION_DENIED
-            ? 'denied'
-            : err.code === err.POSITION_UNAVAILABLE
-              ? 'unavailable'
-              : 'error';
+        const outcome = geolocationErrorOutcome(err.code, err.message);
+        // The fix is dropped on every error, so a one-tap Add cannot
+        // commit at a position from before the signal was lost; the
+        // next fix brings it back. See geolocationErrorOutcome.
         setState((prev) => ({
           ...prev,
-          status: isInsecureGeolocationMessage(err.message) ? 'unavailable' : status,
-          errorMessage: isInsecureGeolocationMessage(err.message)
+          status: outcome.status,
+          position: null,
+          errorMessage: outcome.insecure
             ? INSECURE_GEOLOCATION_MESSAGE
             : err.message,
         }));
-        // Don't keep a watch we know is failing; the caller can re-start
+        // End the watch only on a refusal; the caller can re-start
         // after the user fixes permissions.
-        if (watchIdRef.current !== null) {
+        if (!outcome.keepWatching && watchIdRef.current !== null) {
           navigator.geolocation.clearWatch(watchIdRef.current);
           watchIdRef.current = null;
         }

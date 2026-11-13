@@ -1719,6 +1719,7 @@ export const de: Partial<CatalogShape> = {
       'Ihre Ebenen sind schreibgeschützt. Aktivieren Sie „In Feldeinsätzen bearbeitbar“ für eine Kartenebene und stellen Sie sicher, dass die Bearbeitung auf der Datenebene selbst aktiviert ist.',
     nothingToCollectNoLayers:
       "Ihre Karte hat keine Ebenen, zu denen Sie hinzufügen können.",
+    nothingToCollectSignIn: 'Melden Sie sich an, um in dieser Bereitstellung Objekte hinzuzufügen oder zu bearbeiten.',
     removeFromDevice: "Vom Gerät entfernen",
     confirmRemoveFromDevice: "Entfernen vom Gerät bestätigen",
     downloadLayers: "Ebenen",
@@ -2575,6 +2576,9 @@ export const de: Partial<CatalogShape> = {
     addAndPrepare: 'Hinzufügen und vorbereiten',
     saveFailed: 'Gebiet konnte nicht gespeichert werden: {status}',
     buildStartFailed: 'Erstellung konnte nicht gestartet werden: {status}',
+    loadFailed: 'Die Gebiete konnten nicht geladen werden. Hinzufügen und Löschen sind gesperrt, bis sie geladen sind.',
+    retry: 'Erneut versuchen',
+    buildNotStarted: 'Das Gebiet wurde gespeichert, aber die Erstellung konnte nicht gestartet werden. Mit Jetzt vorbereiten erneut versuchen.',
   },
   offlineBasemap: {
     preparedMap: 'Vorbereitete Karte',

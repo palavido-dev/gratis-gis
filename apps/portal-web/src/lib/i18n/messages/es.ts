@@ -1718,6 +1718,7 @@ export const es: Partial<CatalogShape> = {
     nothingToCollectViewOnly:
       'Sus capas están solo de consulta. Active "Editable en despliegues de campo" en una capa del mapa y asegúrese de que la edición esté habilitada en la propia capa de datos.',
     nothingToCollectNoLayers: "Su mapa no tiene capas a las que pueda añadir.",
+    nothingToCollectSignIn: 'Inicia sesión para añadir o editar entidades en esta implementación.',
     removeFromDevice: "Quitar del dispositivo",
     confirmRemoveFromDevice: "Confirmar quitar del dispositivo",
     downloadLayers: "Capas",
@@ -2571,6 +2572,9 @@ export const es: Partial<CatalogShape> = {
     addAndPrepare: 'Añadir y preparar',
     saveFailed: 'No se pudo guardar el área: {status}',
     buildStartFailed: 'No se pudo iniciar la preparación: {status}',
+    loadFailed: 'No se pudieron cargar las áreas. Añadir y eliminar están desactivados hasta que carguen.',
+    retry: 'Reintentar',
+    buildNotStarted: 'El área se guardó, pero no se pudo iniciar la preparación. Usa Preparar ahora para intentarlo de nuevo.',
   },
   offlineBasemap: {
     preparedMap: 'Mapa preparado',

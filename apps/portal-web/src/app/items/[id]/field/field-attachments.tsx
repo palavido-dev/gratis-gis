@@ -131,9 +131,27 @@ export function FieldAttachments({
     }
   }, [dataCollectionId, dataLayerId, layerKey, globalId, currentUserId]);
 
+  // isOnline is a dependency so that coming back online, when the
+  // sync drain uploads the queued photos, re-reads the queue.
   useEffect(() => {
     void reloadPending();
-  }, [reloadPending]);
+  }, [reloadPending, isOnline]);
+
+  // Bumped to re-read the server list (see the poll below).
+  const [serverTick, setServerTick] = useState(0);
+  // The sync drain sends no notice when it uploads a queued photo,
+  // so while photos are queued and the device is online, look again
+  // every few seconds. Without this a sent photo kept its "waiting"
+  // badge, and Discard on it deleted nothing while saying it had.
+  const hasPending = pending.length > 0;
+  useEffect(() => {
+    if (!isOnline || !hasPending) return;
+    const timer = window.setInterval(() => {
+      void reloadPending();
+      setServerTick((n) => n + 1);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [isOnline, hasPending, reloadPending]);
 
   // Server-side list. Skipped entirely offline and in add mode, where
   // there is nothing to ask for and asking would just log a failure.
@@ -146,17 +164,30 @@ export function FieldAttachments({
     void (async () => {
       try {
         const res = await fetch(basePath, { signal: controller.signal });
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Clear rather than keep the list of the feature shown
+          // before: the popup reuses this component across features.
+          if (!controller.signal.aborted) setUploaded([]);
+          return;
+        }
         const body = (await res.json()) as ServerAttachment[];
         if (controller.signal.aborted) return;
         setUploaded(body);
       } catch {
         // Abort, or the network went while we asked. The pending list
-        // is the part that matters offline and it is unaffected.
+        // is the part that matters offline and it is unaffected. A
+        // failed read must not leave another feature's photos up.
+        if (!controller.signal.aborted) setUploaded([]);
       }
     })();
     return () => controller.abort();
-  }, [basePath, isOnline, featureExistsOnServer]);
+  }, [basePath, isOnline, featureExistsOnServer, serverTick]);
+
+  // A different feature: drop the previous one's list at once, so it
+  // is not shown under this feature while the new list loads.
+  useEffect(() => {
+    setUploaded([]);
+  }, [basePath]);
 
   async function capture(file: File) {
     setError(null);
@@ -286,11 +317,14 @@ export function FieldAttachments({
               key={a.id}
               className="overflow-hidden rounded-md border border-border bg-surface-1"
             >
-              <a href={a.storageUrl} target="_blank" rel="noreferrer">
+              {/* The id-keyed download route, not the stored
+                  storageUrl: older rows carry whatever URL the
+                  uploading client sent. */}
+              <a href={`${basePath}/${encodeURIComponent(a.id)}/download`} target="_blank" rel="noreferrer">
                 {a.mime.startsWith('image/') ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={a.storageUrl}
+                    src={`${basePath}/${encodeURIComponent(a.id)}/download`}
                     alt={a.fileName}
                     className="h-20 w-full object-cover"
                   />

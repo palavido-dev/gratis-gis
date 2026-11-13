@@ -10,6 +10,12 @@ import {
   removeOfflineBasemap,
   storedBasemapSize,
 } from '@/lib/offline-basemap';
+import {
+  chooseOfflineAreas,
+  listStoredBasemapAreaIds,
+  loadKnownAreas,
+  saveKnownAreas,
+} from '@/lib/offline-basemap-areas';
 
 /**
  * The field runtime's side of the prepared offline basemap (#71).
@@ -73,74 +79,86 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
   }, []);
 
   /**
-   * Adopt whichever archives are already on the device.
-   *
-   * Runs against the areas the server just described, so an archive
-   * whose area the author has since deleted is not adopted: it would
-   * render coverage the deployment no longer claims, with no way for
-   * the collector to tell why it looked different from a colleague's.
+   * Adopt the given stored archives. Which ones is decided by
+   * chooseOfflineAreas: the server's list when it answered, every
+   * archive on the device when it did not.
    */
   const adoptStored = useCallback(
-    async (known: OfflineAreaWithPackage[]) => {
-      const candidateIds = known.map((k) => k.area.id);
+    async (candidateIds: string[]) => {
+      const clear = () => {
+        setStoredAreaIds([]);
+        setStoredBytes(null);
+        setStyleOverride(null);
+      };
       const sizes = await Promise.all(
         candidateIds.map((id) => storedBasemapSize(itemId, id)),
       );
       const stored = candidateIds.filter((_, i) => sizes[i] !== null);
       if (stored.length === 0) {
-        setStoredAreaIds([]);
-        setStoredBytes(null);
-        setStyleOverride(null);
+        clear();
         return;
       }
       try {
         const built = await offlineBasemapStyle(itemId, stored);
-        if (!built) {
-          setStoredAreaIds([]);
-          setStoredBytes(null);
-          setStyleOverride(null);
+        // Drop only the archives that are actually corrupt. The good
+        // ones stay usable, and with no signal they cannot be fetched
+        // again.
+        if (built && built.corruptAreaIds.length > 0) {
+          await Promise.all(
+            built.corruptAreaIds.map((id) => removeOfflineBasemap(itemId, id)),
+          );
+        }
+        if (!built || !built.style) {
+          clear();
           return;
         }
+        const included = new Set(built.includedAreaIds);
         setStoredAreaIds(built.includedAreaIds);
         setStoredBytes(
-          sizes.reduce<number>((sum, s) => sum + (s ?? 0), 0) || null,
+          candidateIds.reduce<number>(
+            (sum, id, i) => sum + (included.has(id) ? (sizes[i] ?? 0) : 0),
+            0,
+          ) || null,
         );
+        const style = built.style;
         setStyleOverride({
           // Joined ids so adding or removing an area changes the tag
           // and MapCanvas knows to swap styles.
           tag: `${itemId}:${built.includedAreaIds.join('+')}`,
-          style: built.style,
+          style,
         });
       } catch {
-        // A corrupt archive should not take the map down with it.
-        // Drop the stored set and fall through to the online
-        // basemap; the collector can download again with signal.
-        await Promise.all(
-          stored.map((id) => removeOfflineBasemap(itemId, id)),
-        );
-        setStoredAreaIds([]);
-        setStoredBytes(null);
-        setStyleOverride(null);
+        // Not a corrupt archive (those are handled above) but some
+        // other failure. Keep the archives and fall through to the
+        // online basemap for now.
+        clear();
       }
     },
     [itemId],
   );
 
   const load = useCallback(async () => {
-    let known: OfflineAreaWithPackage[] = [];
+    let server: OfflineAreaWithPackage[] | null = null;
     try {
-      const res = await fetch(`/api/portal/items/${itemId}/offline-areas`);
+      const res = await fetch(
+        `/api/portal/items/${encodeURIComponent(itemId)}/offline-areas`,
+      );
       if (res.ok) {
         const body = (await res.json()) as { areas: OfflineAreaWithPackage[] };
-        known = body.areas;
+        server = body.areas;
+        void saveKnownAreas(itemId, server);
       }
     } catch {
       // Offline, which is the normal case for a collector opening a
-      // deployment they already downloaded. Fall through with an
-      // empty list.
+      // deployment they already downloaded.
     }
-    setAreas(known);
-    await adoptStored(known);
+    const [saved, storedIds] = await Promise.all([
+      server ? Promise.resolve(null) : loadKnownAreas(itemId),
+      listStoredBasemapAreaIds(itemId),
+    ]);
+    const chosen = chooseOfflineAreas({ server, saved, storedIds });
+    setAreas(chosen.areas);
+    await adoptStored(chosen.adoptIds);
   }, [itemId, adoptStored]);
 
   useEffect(() => {

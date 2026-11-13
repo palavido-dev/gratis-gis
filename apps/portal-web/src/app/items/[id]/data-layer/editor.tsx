@@ -168,7 +168,10 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
     if (
       !parsed ||
       typeof parsed !== 'object' ||
-      (parsed as { type?: string }).type !== 'FeatureCollection'
+      (parsed as { type?: string }).type !== 'FeatureCollection' ||
+      // `features` is read below; a FeatureCollection without the
+      // array threw in the click handler with no message.
+      !Array.isArray((parsed as { features?: unknown }).features)
     ) {
       setError('Top-level object must be a GeoJSON FeatureCollection.');
       return;
@@ -228,6 +231,10 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       router.refresh();
+    } catch (err) {
+      // A dropped connection rejects the fetch; without this the
+      // spinner stopped and nothing said the save had failed.
+      setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setPending(false);
     }
@@ -287,6 +294,11 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           {currentBbox ? (
             <div className="mt-3">
               <DataLayerBboxPreview
+                // The preview fetches features once on mount, and an
+                // import only refreshes the route, which keeps client
+                // state. Keying on what an import changes remounts it,
+                // so Replace data does not leave the old features drawn.
+                key={`${currentUpdatedAt ?? ''}:${currentFeatureCount}:${currentBbox.join(',')}`}
                 bbox={currentBbox}
                 {...(previewSources.length > 0
                   ? { featureSources: previewSources }

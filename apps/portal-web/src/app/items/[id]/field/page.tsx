@@ -12,6 +12,7 @@ import type {
 import type { FormSchema } from '@gratis-gis/form-schema';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch, hasSession, publicApiFetch } from '@/lib/api';
+import { childLayersOf } from '@/lib/field-child-layers';
 import { FieldRuntime, type EditableLayer } from './field-runtime';
 
 interface Props {
@@ -282,7 +283,7 @@ export default async function FieldRuntimePage(props: Props) {
     // field PWA's Add picker should not offer it as an Add target.
     // Without this gate, the picker shows every map data-layer
     // regardless of editability and the worker can attempt an Add
-    // that the API would reject anyway.
+    // that the API does not refuse on its own.
     // Editability gate (data_layer + per-map). The layer always
     // makes it into editableLayers so the LayerVisibilityPanel can
     // look up its geometry type and surface a toggle row in the
@@ -299,17 +300,9 @@ export default async function FieldRuntimePage(props: Props) {
     // item that reference this layer via parentFkColumn. Used by
     // FormModal's "Add related" affordance so a worker editing a
     // tree feature can drop an inspection under it in one tap.
-    const childLayers = (data.layers ?? [])
-      .filter(
-        (l) =>
-          typeof l.parentFkColumn === 'string' &&
-          l.parentFkColumn.length > 0 &&
-          // Convention: parentFkColumn is the FK back to THIS sublayer
-          // when the column name encodes the parent's id (e.g., the
-          // wizard's Add-event-tracking-related-layer flow names it
-          // <parentLayerName>_id). Filter to only those.
-          l.id !== sublayer.id,
-      )
+    // Only the children whose parentLayerId is THIS sublayer; see
+    // childLayersOf for the legacy rows that predate that field.
+    const childLayers = childLayersOf(data.layers ?? [], sublayer.id)
       .map((l) => ({
         layerKey: l.id,
         layerLabel: l.label ?? l.id,
@@ -360,6 +353,9 @@ export default async function FieldRuntimePage(props: Props) {
         geometryType: sub.geometryType,
         fields: sub.fields,
         editingPolicy: sub.editingPolicy ?? 'all-rows',
+        // A related table marked not editable is still listed so its
+        // rows show, but the popup must not offer Add or Edit on it.
+        addable: sub.editingEnabled !== false && parent.addable !== false,
         ...(binding ? { boundFormItemId: binding.formItemId } : {}),
       });
       seenLayerKey.add(key);

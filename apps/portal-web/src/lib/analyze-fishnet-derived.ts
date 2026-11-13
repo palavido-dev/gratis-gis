@@ -55,8 +55,13 @@ export function clampFishnetCellSize(
 ): number {
   if (!Number.isFinite(cellSize) || cellSize <= 0) return 0;
   const meters = cellSize * METERS_PER_UNIT[unit];
-  const capped = Math.min(meters, MAX_FISHNET_CELL_METERS);
-  return capped / METERS_PER_UNIT[unit];
+  // Under the cap, hand the value back untouched. Converting to
+  // metres and back does not round-trip in floating point for feet,
+  // miles or yards (7 ft came back as 6.999999999999999), and the
+  // guide runs this on every keystroke, so the box rewrote what the
+  // user was typing.
+  if (meters <= MAX_FISHNET_CELL_METERS) return cellSize;
+  return MAX_FISHNET_CELL_METERS / METERS_PER_UNIT[unit];
 }
 
 /**

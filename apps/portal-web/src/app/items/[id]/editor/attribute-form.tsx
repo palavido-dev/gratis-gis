@@ -9,6 +9,12 @@ import {
   type PickListData,
 } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  coerceArrayCodes,
+  isMissingValue,
+  seedFieldValue,
+} from '@/lib/attribute-form-values';
+import { changedProperties } from '@/lib/changed-properties';
 
 interface Props {
   /** Layer schema. Non-system fields drive the form inputs. */
@@ -59,6 +65,14 @@ interface Props {
    * edits without being mistakable for the primary submit.
    */
   extraFooter?: React.ReactNode;
+  /**
+   * Submit only the fields whose value differs from what the form
+   * started with. Used for updates: the server merges a PATCH over
+   * the stored row, so untouched fields are kept, and sending them
+   * rewrote empty values (a blank boolean saved as false) and tripped
+   * an Editor's editable-fields allowlist on read-only columns.
+   */
+  changedOnly?: boolean;
 }
 
 /**
@@ -100,15 +114,19 @@ export function AttributeForm({
   submitLabel = 'Save',
   title = 'New feature attributes',
   extraFooter,
+  changedOnly = false,
 }: Props) {
   const t = useT();
-  const [values, setValues] = useState<Record<string, unknown>>(() => {
-    const seed: Record<string, unknown> = {};
+  // The starting values, kept so an update can send only what the
+  // user changed (see `changedOnly`).
+  const [seed] = useState<Record<string, unknown>>(() => {
+    const out: Record<string, unknown> = {};
     for (const f of fields) {
-      seed[f.name] = initial[f.name] ?? defaultFor(f);
+      out[f.name] = seedFieldValue(f, initial[f.name]) ?? defaultFor(f);
     }
-    return seed;
+    return out;
   });
+  const [values, setValues] = useState<Record<string, unknown>>(seed);
 
   function set(name: string, value: unknown) {
     setValues((cur) => ({ ...cur, [name]: value }));
@@ -131,8 +149,8 @@ export function AttributeForm({
   for (const f of fields) {
     if (!isEditable(f)) continue;
     if (f.nullable) continue;
-    const v = values[f.name];
-    if (v === null || v === undefined || v === '') {
+    // An empty multi_select counts as missing too; [] used to pass.
+    if (isMissingValue(values[f.name])) {
       missing.push(f.label || f.name);
     }
   }
@@ -199,7 +217,9 @@ export function AttributeForm({
         </button>
         <button
           type="button"
-          onClick={() => onSubmit(values)}
+          onClick={() =>
+            onSubmit(changedOnly ? changedProperties(seed, values) : values)
+          }
           disabled={!canSubmit}
           className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
         >
@@ -544,33 +564,4 @@ function defaultFor(f: FeatureField): unknown {
     default:
       return null;
   }
-}
-
-/**
- * Coerce a stored multi_select value into an array of code strings
- * for the checkbox renderer. Accepts:
- *   - null / undefined -> []
- *   - array of strings/numbers -> stringified codes (preserves order)
- *   - legacy comma-separated string ("a, b, c") -> split + trim
- *   - any other scalar (number, etc.) -> single-element array
- *
- * The legacy-CSV branch lets a user open a feature whose multi_select
- * data was imported from AGO before the schema flipped to native
- * arrays, edit it, and have the next save land as a real array. No
- * separate migration pass needed.
- */
-function coerceArrayCodes(v: unknown): string[] {
-  if (v === null || v === undefined) return [];
-  if (Array.isArray(v)) {
-    return v
-      .filter((x) => x !== null && x !== undefined)
-      .map((x) => String(x));
-  }
-  if (typeof v === 'string') {
-    return v
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  return [String(v)];
 }

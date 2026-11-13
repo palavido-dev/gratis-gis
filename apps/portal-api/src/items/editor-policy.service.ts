@@ -29,6 +29,12 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  * write at all), this service is the natural place to drive the
  * "yes, let them in via this Editor" check.
  */
+/** What the target adds to the caller's own share scope. */
+export interface EditorPolicyResult {
+  /** The target limits this Editor's users to rows they created. */
+  ownRowsOnly: boolean;
+}
+
 @Injectable()
 export class EditorPolicyService {
   constructor(private readonly items: ItemsService) {}
@@ -46,7 +52,7 @@ export class EditorPolicyService {
       hasGeometry: boolean;
       propertyKeys: string[];
     };
-  }): Promise<void> {
+  }): Promise<EditorPolicyResult> {
     const editor = await this.items.get(args.user, args.editorId);
     // #258: accept both legacy type='editor' rows and the migrated
     // type='web_app' + data.template='editor' shape. readEditorData
@@ -75,15 +81,21 @@ export class EditorPolicyService {
           'This Editor does not allow creating features on this layer.',
         );
       }
-      return;
+      return { ownRowsOnly: false };
     }
+    // The target's "Only rows they authored" setting. The caller adds
+    // it to the row scope it passes to the engine, which then refuses
+    // an update or delete of another author's row the same way a
+    // share with own-rows scope does. Create is not affected: a new
+    // row is always the caller's own.
+    const ownRowsOnly = target.rowScope === 'own';
     if (args.op === 'delete') {
       if (!target.canDelete) {
         throw new ForbiddenException(
           'This Editor does not allow deleting features on this layer.',
         );
       }
-      return;
+      return { ownRowsOnly };
     }
     // op === 'update'. Pick the stricter of the two attribute /
     // geometry rules based on what the body includes. A PATCH that
@@ -111,5 +123,6 @@ export class EditorPolicyService {
         }
       }
     }
+    return { ownRowsOnly };
   }
 }

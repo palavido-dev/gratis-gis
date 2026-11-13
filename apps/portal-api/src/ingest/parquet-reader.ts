@@ -247,6 +247,7 @@ interface ParquetSource {
 async function describeSource(
   connection: DuckDBConnection,
   filePath: string,
+  tableMode = false,
 ): Promise<ParquetSource> {
   const pathLit = escapeSqlLiteral(filePath);
 
@@ -303,6 +304,30 @@ async function describeSource(
       );
       geometryColumn = conventional?.name ?? null;
     }
+  }
+  // A table target (geometryType null) takes attributes only, so a
+  // file without any geometry column is fine there. Any geometry
+  // column it does have is left out of the properties and ignored,
+  // the same as the GDAL path does for a table target.
+  if (tableMode) {
+    const propertyColumns = columns.filter(
+      (c) =>
+        c.name !== geometryColumn &&
+        !isGeometryType(c.type) &&
+        !(geoMeta?.columns && c.name in geoMeta.columns),
+    );
+    return {
+      geometryColumn: geometryColumn ?? '',
+      geometryExpr: 'NULL',
+      propertyColumns,
+      fields: propertyColumns.map((c) => ({
+        name: c.name,
+        type: duckdbTypeToSimple(c.type),
+      })),
+      geometryType: null,
+      sourceSrs: null,
+      transformSource: null,
+    };
   }
   if (geometryColumn === null) {
     throw new ParquetUserError(
@@ -540,7 +565,14 @@ export async function streamParquetFromPath(
     batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
     progress: { processed: number; total: number },
   ) => Promise<void>,
-  opts: { batchSize?: number } = {},
+  opts: {
+    batchSize?: number;
+    /**
+     * The target layer is a table. Rows are emitted with a null
+     * geometry, and a file without a geometry column is accepted.
+     */
+    isTable?: boolean;
+  } = {},
 ): Promise<{
   fields: SimpleField[];
   driver: string;
@@ -549,12 +581,13 @@ export async function streamParquetFromPath(
   total: number;
 }> {
   const batchSize = Math.max(1, opts.batchSize ?? 5000);
+  const tableMode = opts.isTable === true;
   const layerName = parquetLayerName(filePath);
   if (sourceLayer !== undefined && sourceLayer !== layerName) {
     throw new ParquetUserError(`File has no layer named "${sourceLayer}".`);
   }
   return withSpatialConnection(async (connection, duckdb) => {
-    const source = await describeSource(connection, filePath);
+    const source = await describeSource(connection, filePath, tableMode);
     const total = await countRows(connection, filePath);
 
     const geomOut =
@@ -566,7 +599,7 @@ export async function streamParquetFromPath(
     // access below keeps us safe from any alias collision with a
     // property column that happens to be named "geojson".
     const selectList = [
-      `ST_AsGeoJSON(${geomOut}) AS geojson`,
+      tableMode ? 'NULL AS geojson' : `ST_AsGeoJSON(${geomOut}) AS geojson`,
       ...source.propertyColumns.map((c) => quoteIdent(c.name)),
     ].join(', ');
     const result = await connection.stream(
@@ -584,14 +617,18 @@ export async function streamParquetFromPath(
       for (const row of chunk.getRows()) {
         processed += 1;
         const geoJsonText = row[0];
-        if (typeof geoJsonText !== 'string') continue;
+        if (!tableMode && typeof geoJsonText !== 'string') continue;
         const properties: Record<string, unknown> = {};
         for (let i = 0; i < source.propertyColumns.length; i += 1) {
           const column = source.propertyColumns[i];
           if (!column) continue;
           properties[column.name] = duckValueToJson(row[i + 1] ?? null, duckdb);
         }
-        batch.push({ geometry: JSON.parse(geoJsonText), properties });
+        batch.push({
+          geometry:
+            typeof geoJsonText === 'string' ? JSON.parse(geoJsonText) : null,
+          properties,
+        });
         if (batch.length >= batchSize) {
           await onBatch(batch, { processed, total });
           batch = [];

@@ -47,14 +47,18 @@ import type {
  *   - The client component stays a "render this MapData" component,
  *     no I/O on first paint.
  *
- * Why per-sublayer geojson-url instead of kind: 'data-layer':
- *   The MapLayerSource shape `kind: 'data-layer'; itemId` predates v3
- *   multi-layer items and does not carry a layerKey. The
- *   `/items/:id/geojson` endpoint only handles v1/v2 storage; v3
- *   data is exposed via `/items/:id/layers/:layerKey/geojson`. We
- *   bypass the data-layer source here and use a direct geojson-url
- *   pointing at the per-sublayer endpoint, which is what we want
- *   anyway since each Editor target is layer-key specific.
+ * Why the Editor uses a per-sublayer geojson-url and not
+ * kind: 'data-layer':
+ *   The `data-layer` source does carry a `layerKey` for v3 items, so
+ *   that is no longer the reason. The Editor's forms, inline table
+ *   edits and undo read attributes from the source's own features,
+ *   which only a GeoJSON source has (see map-canvas, isEditorTarget).
+ *   The canvas fills that source with the rows in view (a bbox read
+ *   of up to 5,000 rows per settled move), not the whole layer; the
+ *   url below names the sublayer it reads. The read-only
+ *   Viewer has no such need, so its synthesized layers use the
+ *   `data-layer` source and render from vector tiles with a
+ *   server-paged table.
  */
 
 /**
@@ -133,6 +137,9 @@ const EDITOR_TARGET_STYLE: MapLayerStyle = {
  *  or did it come from the referenced map?" */
 export const EDITOR_TARGET_LAYER_PREFIX = 'editor-target:';
 
+/** Id prefix of a read-only runtime's synthesized target layer. */
+export const VIEWER_TARGET_LAYER_PREFIX = 'viewer-target:';
+
 export function editorTargetLayerId(
   dataLayerId: string,
   layerKey: string,
@@ -177,6 +184,12 @@ export function buildEditorMapData(args: {
 
   const newLayers: MapLayer[] = [];
   const targetLayerIds: string[] = [];
+  // Reference-map layers that draw an Editor target. The Editor draws
+  // its own copy of each target and refreshes only that copy after an
+  // edit, so the reference copy underneath kept showing moved and
+  // deleted features from its cached tiles. It is hidden, not
+  // removed, so the user can still turn it on in the layer list.
+  const hiddenReferenceIds = new Set<string>();
 
   for (const t of resolvedTargets) {
     if (!t.layer) continue;
@@ -188,20 +201,29 @@ export function buildEditorMapData(args: {
     // add child records via the parent feature's related-records
     // panel, slice 3b-6) but they have no map-rendering surface.
     if (t.layer.geometryType === null) continue;
+    const existing = findExistingTargetLayer(
+      base.layers,
+      t.dataLayerId,
+      t.layerKey,
+    );
     if (reuseReferencedLayers) {
-      const existing = findExistingTargetLayer(
-        base.layers,
-        t.dataLayerId,
-        t.layerKey,
-      );
       if (existing) {
         // The map already draws this layer, with the author's own
         // styling. Point the target at it and synthesize nothing.
         targetLayerIds.push(existing.id);
         continue;
       }
+    } else if (existing) {
+      hiddenReferenceIds.add(existing.id);
     }
-    const id = editorTargetLayerId(t.dataLayerId, t.layerKey);
+    // Read-only runtimes take the tiled data-layer source under an id
+    // without the editor-target prefix, which is what keeps a layer
+    // off the tile path. Downloading a whole large layer as one
+    // GeoJSON for a viewer was slow, and failed outright where
+    // unpaged reads are turned off.
+    const id = reuseReferencedLayers
+      ? `${VIEWER_TARGET_LAYER_PREFIX}${t.dataLayerId}:${t.layerKey}`
+      : editorTargetLayerId(t.dataLayerId, t.layerKey);
     targetLayerIds.push(id);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     newLayers.push({
@@ -209,7 +231,9 @@ export function buildEditorMapData(args: {
       title: `${t.dataLayerTitle} / ${t.layer.label}`,
       visible: true,
       opacity: 1,
-      source: { kind: 'geojson-url', url },
+      source: reuseReferencedLayers
+        ? { kind: 'data-layer', itemId: t.dataLayerId, layerKey: t.layerKey }
+        : { kind: 'geojson-url', url },
       style: EDITOR_TARGET_STYLE,
       renderer: DEFAULT_LAYER_RENDERER,
       popup: DEFAULT_LAYER_POPUP,
@@ -227,7 +251,12 @@ export function buildEditorMapData(args: {
       ...base,
       // Targets first: index 0 renders on top, and the editable
       // layers must sit above the reference map's layers.
-      layers: [...newLayers, ...(base.layers ?? [])],
+      layers: [
+        ...newLayers,
+        ...(base.layers ?? []).map((l) =>
+          hiddenReferenceIds.has(l.id) ? { ...l, visible: false } : l,
+        ),
+      ],
     },
     targetLayerIds,
   };

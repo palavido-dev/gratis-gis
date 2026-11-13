@@ -673,6 +673,7 @@ export class IngestService {
       try {
         const streamed = await streamParquetFromPath(filePath, sourceLayer, onBatch, {
           batchSize,
+          isTable: opts.isTable === true,
         });
         // The name in the response is the file the user picked. The
         // path on disk is not a label, and a stored path must not be

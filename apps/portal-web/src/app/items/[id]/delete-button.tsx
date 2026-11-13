@@ -194,10 +194,17 @@ export function DeleteItemButton({
                 </p>
               </div>
             ) : null}
+            {/* Inside the dialog: under it, the message sat behind the
+                modal's overlay and could not be read until Cancel. */}
+            {error ? (
+              <p role="alert" className="mt-3 text-xs text-danger">
+                {error}
+              </p>
+            ) : null}
           </>
         ) : null}
       </ConfirmDialog>
-      {error ? (
+      {error && !open ? (
         <p role="alert" className="mt-2 text-xs text-danger">
           {error}
         </p>

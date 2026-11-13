@@ -1785,6 +1785,7 @@ export const en = {
     nothingToCollectViewOnly:
       'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.',
     nothingToCollectNoLayers: 'Its map has no layers you can add to.',
+    nothingToCollectSignIn: 'Sign in to add or edit features in this deployment.',
     removeFromDevice: 'Remove from device',
     confirmRemoveFromDevice: 'Confirm remove from device',
     downloadLayers: 'Layers',
@@ -2715,6 +2716,9 @@ export const en = {
     addAndPrepare: 'Add and prepare',
     saveFailed: 'Could not save the area: {status}',
     buildStartFailed: 'Could not start the build: {status}',
+    loadFailed: 'Could not load the areas. Adding and deleting are off until they load.',
+    retry: 'Try again',
+    buildNotStarted: 'The area was saved, but the build could not be started. Use Prepare now to try again.',
   },
   offlineBasemap: {
     preparedMap: 'Prepared map',

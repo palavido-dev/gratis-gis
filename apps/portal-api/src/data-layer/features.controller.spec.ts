@@ -223,8 +223,14 @@ describe('DataLayerFeaturesController.geoparquet limits', () => {
       ({ setHeader: jest.fn(), req: undefined }) as unknown as Response;
     const a = controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID);
     const b = controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID);
-    // Let both reach the export before the third asks.
-    await new Promise((r) => setTimeout(r, 20));
+    // Let both reach the export before the third asks. Wait on the
+    // real condition, not a fixed delay: under a loaded CI runner 20 ms
+    // was sometimes not enough, the third call took a slot and hung,
+    // and the leaked slot then failed the next test too.
+    for (let i = 0; i < 500 && release.length < 2; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(release).toHaveLength(2);
     await expect(
       controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID),
     ).rejects.toMatchObject({ status: 429 });
