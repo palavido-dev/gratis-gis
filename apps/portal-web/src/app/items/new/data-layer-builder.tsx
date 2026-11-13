@@ -32,6 +32,8 @@ import {
 } from '@/lib/resumable-upload';
 import { CreateSharedPickListDialog } from './create-shared-pick-list-dialog';
 import { TileSettingsSection } from './tile-settings-section';
+import { finalIdentifier, typingIdentifier } from '@/lib/identifier-input';
+import { StableKeys } from '@/lib/stable-keys';
 import { useT } from '@/lib/i18n/locale-context';
 import type {
   FeatureField,
@@ -78,15 +80,11 @@ function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// The full clean-up, for names derived from a label and for a table
+// name box on blur. The boxes themselves use typingIdentifier while
+// typing; see lib/identifier-input.ts.
 function slugify(label: string): string {
-  return (
-    label
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_|_$/g, '')
-      .slice(0, 60) || 'layer'
-  );
+  return finalIdentifier(label, 'layer');
 }
 
 function newLayer(
@@ -397,6 +395,17 @@ function LayerCard({
     const next = layer.fields.map((f, i) => (i === index ? { ...f, ...patch } : f));
     onPatch({ fields: next });
   };
+  // setField merges, so it cannot remove a key: the old value comes
+  // straight back from the spread. Removing a pick list or the last
+  // storage constraint goes through this instead.
+  const replaceField = (index: number, nextField: FeatureField) => {
+    onPatch({
+      fields: layer.fields.map((f, i) => (i === index ? nextField : f)),
+    });
+  };
+  // Row keys that follow their field through removals, so an open
+  // settings pane does not jump to the neighbouring field.
+  const fieldKeysRef = useRef(new StableKeys());
   const addField = () => {
     // Collapse existing rows as we append so the new blank row isn't
     // buried under hundreds of pixels of pick-list editor.
@@ -404,8 +413,10 @@ function LayerCard({
     setFocusIndex(layer.fields.length);
     onPatch({ fields: [...layer.fields, newField()] });
   };
-  const removeField = (index: number) =>
+  const removeField = (index: number) => {
+    fieldKeysRef.current.remove(index);
     onPatch({ fields: layer.fields.filter((_, i) => i !== index) });
+  };
 
   return (
     <div className="rounded-md border border-border bg-surface-0">
@@ -480,7 +491,10 @@ function LayerCard({
               id={`${layer.id}-name`}
               type="text"
               value={layer.name}
-              onChange={(e) => onPatch({ name: slugify(e.target.value) })}
+              onChange={(e) =>
+                onPatch({ name: typingIdentifier(e.target.value) })
+              }
+              onBlur={(e) => onPatch({ name: slugify(e.target.value) })}
               // An EXAMPLE, not the name of the convention. The
               // placeholder used to read "snake_case", which tells you
               // what shape the answer takes only if you already knew;
@@ -497,6 +511,8 @@ function LayerCard({
             collapseSignal={fieldCollapseSignal}
             focusIndex={focusIndex}
             onFieldChange={setField}
+            onFieldReplace={replaceField}
+            fieldKeys={fieldKeysRef.current.for(layer.fields.length)}
             onFieldRemove={removeField}
             onFieldAdd={addField}
             onCollapseAll={() => setFieldCollapseSignal((v) => v + 1)}
@@ -592,6 +608,9 @@ interface FieldsTableProps {
    *  input after mount. Used to draw the eye to a freshly-added row. */
   focusIndex: number | null;
   onFieldChange: (index: number, patch: Partial<FeatureField>) => void;
+  onFieldReplace: (index: number, next: FeatureField) => void;
+  /** One stable React key per field, in field order. */
+  fieldKeys: readonly string[];
   onFieldRemove: (index: number) => void;
   onFieldAdd: () => void;
   onCollapseAll: () => void;
@@ -602,6 +621,8 @@ function FieldsTable({
   collapseSignal,
   focusIndex,
   onFieldChange,
+  onFieldReplace,
+  fieldKeys,
   onFieldRemove,
   onFieldAdd,
   onCollapseAll,
@@ -661,11 +682,12 @@ function FieldsTable({
             <tbody>
               {fields.map((f, i) => (
                 <FieldRow
-                  key={i}
+                  key={fieldKeys[i] ?? i}
                   field={f}
                   collapseSignal={collapseSignal}
                   autoFocus={focusIndex === i}
                   onChange={(patch) => onFieldChange(i, patch)}
+                  onReplace={(next) => onFieldReplace(i, next)}
                   onRemove={() => onFieldRemove(i)}
                 />
               ))}
@@ -703,6 +725,9 @@ interface FieldRowProps {
   /** When true, auto-focus the name input once after mount. */
   autoFocus: boolean;
   onChange: (patch: Partial<FeatureField>) => void;
+  /** Swap in a whole field. Needed to remove a key, which a merged
+   *  patch cannot do. */
+  onReplace: (next: FeatureField) => void;
   onRemove: () => void;
 }
 
@@ -721,6 +746,7 @@ function FieldRow({
   collapseSignal,
   autoFocus,
   onChange,
+  onReplace,
   onRemove,
 }: FieldRowProps) {
   const t = useT();
@@ -795,7 +821,7 @@ function FieldRow({
     // exactOptionalPropertyTypes: drop the key entirely rather than set undefined.
     const { domain: _d, ...rest } = field;
     void _d;
-    onChange(rest as Partial<FeatureField>);
+    onReplace(rest);
     setExpanded(false);
   }
 
@@ -810,7 +836,8 @@ function FieldRow({
             ref={nameInputRef}
             type="text"
             value={field.name}
-            onChange={(e) => onChange({ name: slugify(e.target.value) })}
+            onChange={(e) => onChange({ name: typingIdentifier(e.target.value) })}
+            onBlur={(e) => onChange({ name: finalIdentifier(e.target.value) })}
             placeholder={t('layerBuilder.fieldNamePlaceholder')}
             className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
@@ -828,7 +855,7 @@ function FieldRow({
               ) {
                 const { domain: _d, ...rest } = field;
                 void _d;
-                onChange({ ...(rest as Partial<FeatureField>), type: nextType });
+                onReplace({ ...rest, type: nextType });
                 return;
               }
               // Switching TO multi_select with no existing domain seeds a
@@ -983,7 +1010,11 @@ function FieldRow({
             ) : null}
 
             {canHaveConstraints ? (
-              <ConstraintsEditor field={field} onChange={onChange} />
+              <ConstraintsEditor
+                field={field}
+                onChange={onChange}
+                onReplace={onReplace}
+              />
             ) : null}
           </td>
         </tr>
@@ -997,6 +1028,7 @@ function FieldRow({
 interface ConstraintsEditorProps {
   field: FeatureField;
   onChange: (patch: Partial<FeatureField>) => void;
+  onReplace: (next: FeatureField) => void;
 }
 
 /**
@@ -1009,7 +1041,11 @@ interface ConstraintsEditorProps {
  * cleared we remove the whole `storage` object so the saved blob
  * stays tidy.
  */
-function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
+function ConstraintsEditor({
+  field,
+  onChange,
+  onReplace,
+}: ConstraintsEditorProps) {
   const t = useT();
   const storage = field.storage ?? {};
 
@@ -1036,7 +1072,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
     if (Object.keys(merged).length === 0) {
       const { storage: _s, ...rest } = field;
       void _s;
-      onChange(rest as Partial<FeatureField>);
+      onReplace(rest);
     } else {
       onChange({ storage: merged });
     }
@@ -1722,7 +1758,10 @@ function ParentLinkRow({
               type="text"
               value={layer.parentFkColumn ?? ''}
               onChange={(e) =>
-                onPatch({ parentFkColumn: slugify(e.target.value) })
+                onPatch({ parentFkColumn: typingIdentifier(e.target.value) })
+              }
+              onBlur={(e) =>
+                onPatch({ parentFkColumn: finalIdentifier(e.target.value) })
               }
               placeholder={t('layerBuilder.fkColumnPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"

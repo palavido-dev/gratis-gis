@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { updateFolderChildren, withChildIds } from './folder-update';
 
-type Call = { url: string; init?: RequestInit };
+type Call = { url: string; init?: RequestInit | undefined };
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
