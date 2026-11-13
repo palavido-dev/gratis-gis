@@ -152,3 +152,62 @@ describe('AgoImportJobsService reclaim leader gating', () => {
     expect(findMany).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AgoImportJobsService concurrency (11-5)', () => {
+  it('runs at most two imports at once and starts the next as one ends', async () => {
+    const statuses = new Map<string, string>();
+    let nextId = 0;
+    const prisma = {
+      agoImportJob: {
+        create: jest.fn(async () => {
+          const id = `j${++nextId}`;
+          statuses.set(id, 'queued');
+          return { id };
+        }),
+        findUnique: jest.fn(async (a: { where: { id: string } }) => ({
+          id: a.where.id,
+          status: statuses.get(a.where.id),
+        })),
+        update: jest.fn(
+          async (a: { where: { id: string }; data: { status?: string } }) => {
+            if (a.data.status) statuses.set(a.where.id, a.data.status);
+            return {};
+          },
+        ),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+    } as unknown as PrismaService;
+    const finish: Array<() => void> = [];
+    const run = jest.fn(
+      () =>
+        new Promise((resolve) => {
+          finish.push(() => resolve({ total: 0, created: 0, failed: 0, skipped: 0 }));
+        }),
+    );
+    const svc = new AgoImportJobsService(
+      prisma,
+      { run } as unknown as AgoImportService,
+      { shouldRun: () => true } as unknown as LeaderElectionService,
+    );
+    const input = {
+      user: { id: 'u', orgId: 'o' },
+      portalUrl: 'p',
+      token: 't',
+      report: { items: [] },
+    } as never;
+    await svc.start(input);
+    await svc.start(input);
+    await svc.start(input);
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+    await settle();
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(statuses.get('j3')).toBe('queued');
+    finish[0]!();
+    await settle();
+    expect(run).toHaveBeenCalledTimes(3);
+    finish[1]!();
+    finish[2]!();
+    await settle();
+    expect([...statuses.values()]).toEqual(['succeeded', 'succeeded', 'succeeded']);
+  });
+});
