@@ -6,6 +6,28 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Self-hosted deploys now run the deploy script of the release being
+  installed. Before, everything after the checkout sync ran the
+  previous release's script, so deploy fixes took effect one release
+  late.
+- The database container is no longer recreated on every deploy when
+  its image has not changed. Each deploy used to restart Postgres for
+  about 25 seconds.
+- Deploys no longer warn that offline_access could not be added to
+  the default role when it is already there.
+
+### Correction to 1.5.0
+
+- The 1.5.0 notes say Editor apps load only the features in view. That
+  is not what shipped. Editor apps add a viewport request, but they
+  still download each editable layer whole, because the attribute
+  table, search and form view read from that full copy, and they
+  download it again after each save or undo. Large layers are as slow
+  to open in an Editor app as in 1.4.3. Viewer apps do draw from map
+  tiles as described.
+
 ## [1.5.0] - 2026-11-12
 
 Reliability release. It finishes the full code review that 1.4.3
