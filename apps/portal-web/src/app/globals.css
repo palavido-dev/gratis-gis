@@ -145,13 +145,13 @@
     --surface-2-ink: 216 28% 12%;
     --muted: 215 10% 32%;           /* #49505a, ~7.5:1 on surface-0 */
     --muted-ink: 216 28% 12%;
-    --accent: 211 54% 28%;          /* chart blue #21466e; white ink */
+    --accent: 177 82% 24%;          /* brand teal #0b6e69; white ink 6.1:1 */
     --accent-ink: 0 0% 100%;
     --success: 158 52% 26%;
     --warn: 32 78% 32%;
     --danger: 355 64% 38%;
     --info: 201 68% 30%;
-    --focus-ring: 211 54% 28%;
+    --focus-ring: 177 82% 24%;
     --border: 214 12% 82%;
     --radius: 0.5rem;
     --brand-chart: 177 82% 24%;     /* brand teal, #0b6e69 */
@@ -171,13 +171,13 @@
        must stay readable on surface-0..2. 72% lands above 7:1. */
     --muted: 214 12% 72%;
     --muted-ink: 210 22% 94%;
-    --accent: 207 48% 74%;          /* lifted chart blue; dark ink */
+    --accent: 175 49% 66%;          /* brand teal on dark #7fd3cc; dark ink */
     --accent-ink: 216 20% 10%;
     --success: 156 38% 62%;
     --warn: 36 74% 64%;
     --danger: 356 62% 70%;
     --info: 201 64% 68%;
-    --focus-ring: 207 48% 74%;
+    --focus-ring: 175 49% 66%;
     --border: 216 8% 22%;
     --brand-chart: 175 49% 66%;     /* brand teal on dark, #7fd3cc */
     --brand-contour: 32 40% 70%;

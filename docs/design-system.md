@@ -172,9 +172,10 @@ hues and are not brand colors.
 - Brand teal `hsl(177 82% 24%)` (`#0b6e69`) / `hsl(175 49% 66%)`
   (`#7fd3cc`), token `--brand-chart`: the whole mark (the inner ring
   at reduced opacity) and the wordmark's "GIS".
-- The app-wide `--accent` is still chart blue `hsl(211 54% 28%)`
-  (`#21466e` in light) for interactive chrome. White ink on the light
-  accent, and dark ink on the dark accent, both clear AA.
+- The app-wide `--accent` and `--focus-ring` use the same teal, so
+  interactive chrome and the brand agree. White ink on the light
+  accent (6.1:1) and dark ink on the dark accent both clear AA. The
+  Keycloak login theme uses the same teal (`--portal-accent`).
 - `--brand-contour` and `--brand-index` are no longer used by the
   mark.
 
