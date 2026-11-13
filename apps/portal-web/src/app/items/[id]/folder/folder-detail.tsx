@@ -3,6 +3,8 @@
 
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { mergeFolderChildIds } from '@/lib/folder-child-ids';
+import { postShareCopy, shareCopyBody } from '@/lib/folder-share-copy';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -149,10 +151,15 @@ export function FolderDetail({
   );
   const [smartSaving, setSmartSaving] = useState(false);
   const isSmart = smartQuery !== null;
+  const smartAtLoad = initial.smartQuery != null;
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  // One folder write at a time. Each write sends the whole list with
+  // the updatedAt it was built from, so a second one started before
+  // the first returned always bounced with a false conflict.
+  const writing = removing.size > 0 || reordering || smartSaving;
   // "Apply folder sharing to all items" bulk action (#64, #67).
   // Opens a dialog that copies each direct share row from this
   // folder onto every visible child the caller has admin on. No
@@ -177,18 +184,17 @@ export function FolderDetail({
         if (!res.ok || cancelled) return;
         const next = (await res.json()) as ItemWithShares[];
         setChildren(next);
-        // Also refresh orderedIds so the parent's authoritative order
-        // matches what the server just returned. Drop ids that no
-        // longer point at a visible row (purged, unshared, trashed).
-        const visibleIds = new Set<string>(next.map((c) => String(c.id)));
-        setOrderedIds((prev) => {
-          const merged = prev.filter((id) => visibleIds.has(id));
-          for (const c of next) {
-            const cid = String(c.id);
-            if (!merged.includes(cid)) merged.push(cid);
-          }
-          return merged;
-        });
+        // Never prune orderedIds to what came back: it is the list
+        // every edit writes, and this response leaves out hidden and
+        // trashed items and, for a smart folder, holds query results.
+        // See mergeFolderChildIds.
+        setOrderedIds((prev) =>
+          mergeFolderChildIds(
+            prev,
+            next.map((c) => String(c.id)),
+            smartAtLoad,
+          ),
+        );
       } catch {
         /* non-fatal: SSR data still rendered */
       }
@@ -196,7 +202,7 @@ export function FolderDetail({
     return () => {
       cancelled = true;
     };
-  }, [itemId]);
+  }, [itemId, smartAtLoad]);
 
   /**
    * A PATCH bounced with 409: someone else changed this folder after
@@ -599,7 +605,7 @@ export function FolderDetail({
                   // Smart folders compute their order from the
                   // query (#38) so manual reorder is suppressed.
                   // Static folders keep the existing drag-drop.
-                  draggable={canEdit && !reordering && !isSmart}
+                  draggable={canEdit && !writing && !isSmart}
                   onDragStart={(e) => {
                     if (!canEdit || isSmart) return;
                     setDragId(child.id);
@@ -657,7 +663,7 @@ export function FolderDetail({
                     <button
                       type="button"
                       onClick={() => removeFromFolder(child.id)}
-                      disabled={busy}
+                      disabled={busy || writing}
                       aria-label={`Remove ${child.title} from this folder`}
                       title="Remove from this folder (does not delete the item)"
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-surface-1 hover:text-ink-1 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -722,12 +728,19 @@ function ShareAllItemsDialog({
 }) {
   const t = useT();
   const eligibleCount = items.length;
-  const shareCount = folderShares.length;
+
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
     failed: number;
+    errored: number;
   } | null>(null);
+  // Shares that have already ended are not copied (or listed); see
+  // shareCopyBody.
+  const liveShares = useMemo(
+    () => folderShares.filter((s) => shareCopyBody(s) !== null),
+    [folderShares],
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Resolve user display names for the folder's user-shares so the
@@ -785,12 +798,13 @@ function ShareAllItemsDialog({
   }
 
   async function commit() {
-    if (folderShares.length === 0) return;
+    if (liveShares.length === 0) return;
     setBusy(true);
     setError(null);
-    setProgress({ done: 0, failed: 0 });
+    setProgress({ done: 0, failed: 0, errored: 0 });
     let done = 0;
     let failed = 0;
+    let errored = 0;
     // For each item, fan out one POST per folder share. We count an
     // "item" as done if at least one share landed (or all were
     // skipped because the recipient already had a share at that
@@ -799,48 +813,37 @@ function ShareAllItemsDialog({
     for (const item of items) {
       let itemHadAtLeastOneOk = false;
       let itemHadAtLeastOneFail = false;
-      for (const share of folderShares) {
-        try {
-          // Forward the same permission, geoLimit, geoBoundaryId.
-          // rowScope and other v3 fields aren't on ItemShare yet, so
-          // they default server-side. The /share endpoint upserts
-          // (re-POST with same principal updates the permission), so
-          // re-running this action is safe.
-          const body: Record<string, unknown> = {
-            principalType: share.principalType,
-            principalId: share.principalId,
-            permission: share.permission,
-          };
-          if (share.geoBoundaryId) {
-            body.geoBoundaryId = share.geoBoundaryId;
-          } else if (share.geoLimit) {
-            body.geoLimit = share.geoLimit;
-          }
-          const res = await fetch(`/api/portal/items/${item.id}/share`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (res.ok) {
-            itemHadAtLeastOneOk = true;
-          } else {
-            // 403: caller doesn't have admin on this item.
-            // 400/404: bad principal or moved item. All are silent
-            // skips for the bulk action.
-            itemHadAtLeastOneFail = true;
-          }
-        } catch {
-          itemHadAtLeastOneFail = true;
-        }
+      let itemHadAtLeastOneError = false;
+      for (const share of liveShares) {
+        // Same principal, permission, geo limit and expiry; see
+        // shareCopyBody. The /share endpoint upserts, so re-running
+        // this action is safe.
+        const body = shareCopyBody(share);
+        if (!body) continue;
+        const outcome = await postShareCopy(
+          `/api/portal/items/${encodeURIComponent(item.id)}/share`,
+          body,
+        );
+        if (outcome === 'ok') itemHadAtLeastOneOk = true;
+        else if (outcome === 'denied') itemHadAtLeastOneFail = true;
+        else itemHadAtLeastOneError = true;
       }
       if (itemHadAtLeastOneOk) {
         done += 1;
+      } else if (itemHadAtLeastOneError) {
+        errored += 1;
       } else if (itemHadAtLeastOneFail) {
         failed += 1;
       }
-      setProgress({ done, failed });
+      setProgress({ done, failed, errored });
     }
     setBusy(false);
+    if (errored > 0) {
+      setError(
+        `${errored} item${errored === 1 ? '' : 's'} could not be updated because the server was busy or failed. Run this again to finish them.`,
+      );
+      return;
+    }
     if (failed > 0 && done === 0) {
       setError(
         `Could not share any items. You may not be the owner or an admin on these items.`,
@@ -878,10 +881,10 @@ function ShareAllItemsDialog({
         <div className="space-y-3 px-4 py-4 text-sm">
           <div>
             <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
-              Will share with ({shareCount})
+              Will share with ({liveShares.length})
             </span>
             <ul className="divide-y divide-border rounded border border-border bg-surface-1 text-xs">
-              {folderShares.map((s) => (
+              {liveShares.map((s) => (
                 <li
                   key={`${s.principalType}:${s.principalId}`}
                   className="flex items-center gap-2 px-2 py-1.5"
@@ -897,6 +900,11 @@ function ShareAllItemsDialog({
                   <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                     can {s.permission}
                   </span>
+                  {s.expiresAt ? (
+                    <span className="text-2xs text-muted">
+                      until {new Date(s.expiresAt).toLocaleDateString()}
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -952,7 +960,7 @@ function ShareAllItemsDialog({
           <button
             type="button"
             onClick={() => void commit()}
-            disabled={busy || shareCount === 0 || eligibleCount === 0}
+            disabled={busy || liveShares.length === 0 || eligibleCount === 0}
             className="h-9 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? t('folderDetail.applying') : t('folderDetail.applySharing')}

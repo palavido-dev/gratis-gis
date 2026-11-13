@@ -58,8 +58,12 @@ interface Props {
  * Authorization is conjunctive (see docs/editing-and-collection.md):
  * this UI can NARROW from what the underlying data_layer's
  * `editingEnabled` + `editingPolicy` allows, but never widen. The
- * runtime (slice 3) re-checks at request time so a stale config that
- * lists a now-disabled layer fails closed.
+ * runtime (slice 3) re-checks when it loads, so a stale config that
+ * lists a now-disabled layer offers no edit tools for it. That check
+ * is in the browser only: the API does not read `editingEnabled`, so
+ * it is not a write permission. The target's capability flags,
+ * field list and row scope are checked by the API for requests the
+ * runtime sends (EditorPolicyService).
  *
  * Persistence: PATCH /api/portal/items/<id> with `{ data: editorData }`.
  * Same shape and dirty/save flow used by every other detail editor
@@ -71,20 +75,34 @@ interface Props {
  *   - Feature template authoring per target.
  *   - The actual editing canvas runtime.
  */
+/**
+ * The working copy for a stored Editor. `tools` is seeded from the
+ * default palette only when the stored shape has no tools field at
+ * all (items older than slice 1). An empty list is the author's
+ * choice and the runtime honours it, so it is kept.
+ */
+function seedEditor(initial: EditorData): EditorData {
+  return {
+    ...initial,
+    tools: Array.isArray(initial.tools) ? initial.tools : DEFAULT_EDITOR_TOOLS,
+  };
+}
+
 export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
   const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
-  // The working copy. We seed `tools` from the default palette when
-  // the persisted shape is older than slice 1 and missing the
-  // field, so users on legacy items see something instead of an
-  // empty palette.
-  const [editor, setEditor] = useState<EditorData>(() => ({
-    ...initial,
-    tools:
-      initial.tools && initial.tools.length > 0
-        ? initial.tools
-        : DEFAULT_EDITOR_TOOLS,
-  }));
+  // The working copy, seeded by seedEditor.
+  const [editor, setEditor] = useState<EditorData>(() => seedEditor(initial));
+  // The last version written to the server. Discard goes back to
+  // this, not to the page-load `initial`, which a save does not
+  // update: going back to `initial` dropped saved changes and the
+  // next save wrote the item without them.
+  const savedRef = useRef<EditorData | null>(null);
+  if (savedRef.current === null) savedRef.current = editor;
+  // The current working copy, for save() to tell whether the user
+  // changed something while the PATCH was in flight.
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -134,18 +152,40 @@ export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
   // human-readable names + warn when a target points at a layer
   // that has been deleted, renamed, or had editing turned off.
   // Keyed by `<dataLayerId>:<layerKey>`.
+  // `item: null` means the data layer could not be loaded (deleted,
+  // no access, network), which the card shows as a broken target.
   const [resolved, setResolved] = useState<
-    Record<string, { item: Item; layer: DataLayerSublayer | null }>
+    Record<string, { item: Item | null; layer: DataLayerSublayer | null }>
   >({});
   const [resolving, setResolving] = useState(false);
   const resolveSeqRef = useRef(0);
 
+  // The set of targets, as a stable string. The resolve effect keys
+  // on this and not on `editor.targets`, which is a new array after
+  // every checkbox or keystroke in a card and refetched every data
+  // layer each time.
+  const targetsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(editor.targets.map((t) => `${t.dataLayerId}:${t.layerKey}`)),
+      )
+        .sort()
+        .join('\n'),
+    [editor.targets],
+  );
+
   // Re-resolve metadata whenever the targets list changes ids.
   // Fetches each unique data_layer in parallel and indexes the
-  // matched sublayer per target. Failures fall through to a
-  // "couldn't load" warning row in the UI.
+  // matched sublayer per target. A failed fetch keeps what was
+  // already resolved for that target, or marks it as not loadable so
+  // the card shows the broken-target warning.
   useEffect(() => {
-    const ids = Array.from(new Set(editor.targets.map((t) => t.dataLayerId)));
+    const keys = targetsKey ? targetsKey.split('\n') : [];
+    const pairs = keys.map((k) => {
+      const at = k.indexOf(':');
+      return { dataLayerId: k.slice(0, at), layerKey: k.slice(at + 1) };
+    });
+    const ids = Array.from(new Set(pairs.map((p) => p.dataLayerId)));
     if (ids.length === 0) {
       setResolved({});
       return;
@@ -168,19 +208,24 @@ export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
           const it = results[i];
           if (it) byId.set(ids[i]!, it);
         }
-        const next: Record<string, { item: Item; layer: DataLayerSublayer | null }> = {};
-        for (const t of editor.targets) {
-          const key = `${t.dataLayerId}:${t.layerKey}`;
-          const item = byId.get(t.dataLayerId);
-          if (!item) continue;
-          const data = item.data as DataLayerData | undefined;
-          const layer =
-            data && data.version === 3
-              ? (data.layers.find((l) => l.id === t.layerKey) ?? null)
-              : null;
-          next[key] = { item, layer };
-        }
-        setResolved(next);
+        setResolved((cur) => {
+          const next: typeof cur = {};
+          for (const t of pairs) {
+            const key = `${t.dataLayerId}:${t.layerKey}`;
+            const item = byId.get(t.dataLayerId);
+            if (!item) {
+              next[key] = cur[key] ?? { item: null, layer: null };
+              continue;
+            }
+            const data = item.data as DataLayerData | undefined;
+            const layer =
+              data && data.version === 3
+                ? (data.layers.find((l) => l.id === t.layerKey) ?? null)
+                : null;
+            next[key] = { item, layer };
+          }
+          return next;
+        });
       } finally {
         if (!cancelled && resolveSeqRef.current === seq) setResolving(false);
       }
@@ -188,7 +233,7 @@ export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [editor.targets]);
+  }, [targetsKey]);
 
   // Browser nag on unsaved changes. Same pattern as MapEditor.
   useEffect(() => {
@@ -376,22 +421,21 @@ export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
         setError(await parseApiError(res, 'Save failed'));
         return;
       }
-      setDirty(false);
+      savedRef.current = editor;
+      // An edit made while the request was out was not sent, so it
+      // stays unsaved.
+      if (editorRef.current === editor) setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
   }
 
   function cancel() {
-    setEditor({
-      ...initial,
-      tools:
-        initial.tools && initial.tools.length > 0
-          ? initial.tools
-          : DEFAULT_EDITOR_TOOLS,
-    });
+    setEditor(savedRef.current ?? seedEditor(initial));
     setDirty(false);
     setError(null);
   }
@@ -725,7 +769,7 @@ const ALL_TOOLS: Array<{ key: EditorTool; label: string; hint: string }> = [
 
 interface TargetRowProps {
   target: EditorTarget;
-  resolved: { item: Item; layer: DataLayerSublayer | null } | null;
+  resolved: { item: Item | null; layer: DataLayerSublayer | null } | null;
   resolving: boolean;
   canEdit: boolean;
   onPatch: (updater: (t: EditorTarget) => EditorTarget) => void;
@@ -775,7 +819,9 @@ function TargetRow({
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-ink-0">
               {item?.title ?? (
-                <span className="text-muted">Loading...</span>
+                <span className="text-muted">
+                  {broken ? target.dataLayerId : 'Loading...'}
+                </span>
               )}
             </span>
             <span className="text-muted">/</span>

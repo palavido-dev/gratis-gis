@@ -27,6 +27,7 @@ import { useFormat } from '@/lib/i18n/format';
  * Retention on the API side:
  *   - TTL: 30 days (default; ITEM_SNAPSHOT_TTL_DAYS)
  *   - Cap: 20 per item (default; ITEM_SNAPSHOT_CAP_PER_ITEM)
+ *   Both are settings, so the panel text names no numbers.
  * A nightly maintenance cron drops rows past either gate.
  *
  * Visibility: API requires edit access: viewers won't see
@@ -170,8 +171,10 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                 Each row is a point-in-time copy of this item's data.
                 Reverting restores that copy: and snapshots the
                 current data first, so you can un-revert if needed.
-                History is retained for 30 days or the last 20
-                versions, whichever comes first.
+                Older versions are removed after a set number of
+                days or once there are more than a set number of
+                versions, whichever comes first. Your administrator
+                sets both limits.
               </p>
               <ul className="divide-y divide-border rounded border border-border bg-surface-0">
                 {snapshots.map((s) => {

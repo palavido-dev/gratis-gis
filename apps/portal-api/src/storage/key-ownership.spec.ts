@@ -257,6 +257,39 @@ describe('feature attachments (failure c)', () => {
     expect(prisma.featureAttachment.create).not.toHaveBeenCalled();
   });
 
+  it('register stores a URL derived from the key, not the one the client sent', async () => {
+    const own = 'feature-attachment/attacker-photo';
+    const prisma = {
+      ...prismaWith({ grants: { [own]: 'attacker' } }),
+      featureAttachment: {
+        create: jest.fn(async (args: unknown) => ({
+          ...(args as { data: object }).data,
+          id: 'a1',
+          createdAt: new Date(0),
+        })),
+      },
+    };
+    const t = service(prisma);
+    await t.svc.register(
+      'attacker-layer',
+      'l1',
+      'f1',
+      {
+        storageKey: own,
+        storageUrl: 'https://attacker.example/p.png',
+        fileName: 'p.png',
+        mime: 'image/png',
+      } as never,
+      'attacker',
+    );
+    const data = (prisma.featureAttachment.create.mock.calls[0]![0] as {
+      data: { storageUrl: string };
+    }).data;
+    expect(data.storageUrl).toBe(
+      '/api/portal/storage/private/feature-attachment/attacker-photo',
+    );
+  });
+
   it('remove leaves an object another row still references', async () => {
     const prisma = {
       ...prismaWith({ referenced: true }),

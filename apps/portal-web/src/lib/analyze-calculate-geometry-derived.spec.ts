@@ -3,6 +3,7 @@ import {
   buildCalculateGeometryDerivedLayerCreatePayload,
   buildCalculateGeometryDerivedLayerData,
   defaultCalculateGeometryDerivedLayerTitle,
+  defaultCalculateGeometryFieldName,
   validateCalculateGeometryFieldName,
   validateCalculateGeometryParams,
 } from './analyze-calculate-geometry-derived';
@@ -69,5 +70,23 @@ describe('analyze-calculate-geometry-derived', () => {
     expect(payload.data.pipeline[0]?.tool).toBe('calculate-geometry');
     expect(payload.description).toMatch(/geography/);
     expect(payload.description).toMatch(/Not Calculate field/);
+  });
+});
+
+describe('defaultCalculateGeometryFieldName', () => {
+  it('follows the unit', () => {
+    expect(defaultCalculateGeometryFieldName('area', 'acres')).toBe('acres');
+    expect(defaultCalculateGeometryFieldName('area', 'hectares')).toBe('hectares');
+    expect(defaultCalculateGeometryFieldName('area', 'square-meters')).toBe('square_meters');
+    expect(defaultCalculateGeometryFieldName('length', 'meters')).toBe('length_m');
+    expect(defaultCalculateGeometryFieldName('perimeter', 'feet')).toBe('perimeter_ft');
+  });
+
+  it('always produces a valid field name', () => {
+    for (const u of ['square-kilometers', 'square-miles', 'miles']) {
+      expect(
+        validateCalculateGeometryFieldName(defaultCalculateGeometryFieldName('area', u)),
+      ).toBeNull();
+    }
   });
 });

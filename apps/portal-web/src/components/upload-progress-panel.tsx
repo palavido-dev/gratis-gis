@@ -162,6 +162,11 @@ export async function uploadWithProgress<T>(
     bytesUploaded: number;
   }) => void,
   ref: { current: XMLHttpRequest | null } = { current: null },
+  // The response is one JSON document unless the caller says
+  // otherwise. The layer import endpoint streams NDJSON, so its
+  // caller passes a parser that reads the terminal event instead.
+  parse: (text: string) => T = (text) => JSON.parse(text) as T,
+  errorText?: (status: number, text: string) => string,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -183,14 +188,18 @@ export async function uploadWithProgress<T>(
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          resolve(JSON.parse(xhr.responseText) as T);
+          resolve(parse(xhr.responseText));
         } catch (err) {
-          reject(
-            new Error(
-              `Server response was not JSON: ${(err as Error).message}`,
-            ),
-          );
+          if (err instanceof SyntaxError) {
+            reject(
+              new Error(`Server response was not JSON: ${err.message}`),
+            );
+          } else {
+            reject(err as Error);
+          }
         }
+      } else if (errorText) {
+        reject(new Error(errorText(xhr.status, xhr.responseText)));
       } else {
         reject(
           new Error(
