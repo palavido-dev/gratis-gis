@@ -38,16 +38,17 @@ import { isOwnStorageUrl, storageBasesFromEnv } from './pyramid-storage-url.js';
  * Build pipeline:
  *
  *   1. Download the COG from MinIO to a local temp file.
- *   2. `gdal2tiles.py -z 0-N` writes a {z}/{x}/{y}.png tree
- *      under workDir/tiles/.
- *   3. `pmtiles convert workDir/tiles workDir/out.pmtiles` packs
- *      the tree into a PMTiles archive.
- *   4. Upload the PMTiles to MinIO under a fresh storage key.
- *   5. Patch the item: set format='pmtiles', point storageKey/
+ *   2. `gdalwarp` to web mercator when the source is not already
+ *      in it (MBTiles requires 3857).
+ *   3. `gdal_translate -of MBTILES` writes the base zoom, then
+ *      `gdaladdo` builds the overview levels down to z0.
+ *   4. `pmtiles convert tiles.mbtiles out.pmtiles` packs it.
+ *   5. Upload the PMTiles to MinIO under a fresh storage key.
+ *   6. Patch the item: set format='pmtiles', point storageKey/
  *      storageUrl at the new PMTiles, populate pmtilesStorageKey/
  *      pmtilesStorageUrl/pmtilesSizeBytes, flip tileUrl from
  *      cog:// to pmtiles://, mark processingState='pmtiles-ready'.
- *   6. The original COG stays in MinIO (referenced by
+ *   7. The original COG stays in MinIO (referenced by
  *      cogStorageKey/Url/SizeBytes) as the archival source.
  *
  * Failure handling: a thrown error during the build flips the
@@ -284,6 +285,22 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     }
     // item.data is owner-writable through older paths; a huge value
     // here built a billion-entry argument list and crashed the worker.
+    // #186: elevation (DEM) layers never get a PNG pyramid; the
+    // re-encode would destroy the float elevation values. Their
+    // web-tiled COG serves directly through /file.cog. The claim has
+    // already flipped the row to 'tiling', so a bare return would
+    // leave it there until reclaim re-arms it and, after three
+    // rounds, reports a crash. Put it straight back to 'ready'
+    // without downloading anything.
+    if ((data as { dem?: boolean }).dem) {
+      const applied = await this.applyPatch(
+        itemId,
+        { processingState: 'ready' } as Partial<TileLayerData>,
+        claimedCogKey,
+      );
+      if (applied) await this.clearTilingError(itemId, claimedCogKey);
+      return;
+    }
     const maxZoom = clampMaxZoom(data.maxZoom);
     const onBeat = () => this.beatHeartbeat(itemId);
 
@@ -296,7 +313,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         `Building pyramid for item ${itemId} (zoom 0-${maxZoom})`,
       );
 
-      // Download the COG to local scratch.  gdal2tiles needs a
+      // Download the COG to local scratch.  The GDAL steps need a
       // local input path.  Prefer the storage KEY through the S3
       // SDK: since item-tile-layer became a private kind, the
       // persisted cogStorageUrl is an API-relative path
@@ -312,14 +329,6 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       }
       await onBeat();
 
-      // #186: elevation (DEM) layers never get a PNG pyramid; the
-      // re-encode would destroy the float elevation values. Their
-      // web-tiled COG serves directly through /file.cog. Guard here
-      // so a stray retry-pyramid on a dem item is a no-op instead
-      // of a corruption.
-      if ((data as { dem?: boolean }).dem) {
-        return;
-      }
       // COG -> web-mercator MBTiles -> PMTiles. The previous
       // gdal2tiles + `pmtiles convert <dir>` sequence silently
       // stopped working when the pmtiles binary moved to
