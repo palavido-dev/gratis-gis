@@ -1529,6 +1529,10 @@ export const en = {
     applyFolderSharing: 'Apply folder sharing',
     applyFolderSharingTitle:
       "Apply this folder's sharing to every item inside it. Each item ends up with the same share rows the folder has.",
+    sortLabel: 'Sort',
+    sortAz: 'A to Z',
+    sortCustom: 'Custom',
+    sortCustomTitle: 'Your saved order. Drag rows to change it.',
     newSubfolder: 'New subfolder',
     newSubfolderTitle: 'Create a new subfolder inside this folder',
     addItems: 'Add items',
@@ -3205,7 +3209,10 @@ export const en = {
   mapLayerAccess: {
     resetToInherit: "Reset to inherit",
     customOnlyListed:
-      "Only the people and groups listed here see this layer. Org members and public viewers the map is not shared with do not.",
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Everyone else',
+    everyoneElseType: 'org and public',
+    everyoneElseHint: 'Org members and public viewers the map is not shared with by name.',
     title: 'Layer access',
     description:
       'Refine what each shared user or group sees on this map. The matrix narrows access; a warning badge appears when a principal has no item-level access to a layer\'s source data.',
@@ -4459,6 +4466,8 @@ export const en = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",

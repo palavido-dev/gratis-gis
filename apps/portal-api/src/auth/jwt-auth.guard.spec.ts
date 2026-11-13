@@ -28,6 +28,7 @@ function guard(isPublic: boolean, resolve: () => Promise<unknown>) {
   return new JwtAuthGuard(
     { getAllAndOverride: () => isPublic } as never,
     { resolve } as never,
+    {} as never,
   );
 }
 

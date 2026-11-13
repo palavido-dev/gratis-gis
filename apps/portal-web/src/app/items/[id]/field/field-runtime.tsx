@@ -4260,6 +4260,10 @@ function FormModal({
   const dirtyRef = useRef(false);
   // True while handleSubmit is saving; see requestCancel.
   const submittingRef = useRef(false);
+  // The same flag as state, so the header Submit (the only submit
+  // control here, since the runtime's own button is hidden) can show
+  // it is busy and refuse a second tap while the save is in flight.
+  const [submitting, setSubmitting] = useState(false);
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
   }, []);
@@ -4363,10 +4367,12 @@ function FormModal({
   async function handleSubmit(response: FormResponse) {
     if (submittingRef.current) return;
     submittingRef.current = true;
+    setSubmitting(true);
     try {
       await submitResponse(response);
     } finally {
       submittingRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -4729,7 +4735,9 @@ function FormModal({
           <button
             type="submit"
             form={`field-form-${modal.layer.layerKey}`}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3"
+            disabled={submitting}
+            aria-busy={submitting}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3 disabled:opacity-50"
           >
             {t('fieldCollect.submit')}
           </button>

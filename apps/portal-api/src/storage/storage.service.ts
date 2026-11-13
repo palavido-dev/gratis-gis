@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { hkdfSync, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import {
   AbortMultipartUploadCommand,
@@ -21,6 +21,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IMAGE_UPLOAD_MAX_BYTES } from '@gratis-gis/shared-types';
+import { deriveServerSigningKey } from './signing-key.js';
 
 /**
  * Kinds of content we host. Each gets its own path prefix inside the
@@ -445,9 +446,7 @@ export class StorageService implements OnModuleInit {
    * sets MINIO_SECRET_KEY, so no new setting is needed.
    */
   deriveSigningKey(label: string): Buffer {
-    return Buffer.from(
-      hkdfSync('sha256', this.s3SecretAccessKey, 'gratis-gis', label, 32),
-    );
+    return deriveServerSigningKey(this.s3SecretAccessKey, label);
   }
 
   /** Start an S3 multipart upload and return its upload id. */

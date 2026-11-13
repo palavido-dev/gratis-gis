@@ -43,6 +43,7 @@ import {
 import { Logger } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { PrintReadable } from '../auth/print-readable.decorator.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { safeFetch } from '../common/net-guards.js';
@@ -817,6 +818,8 @@ export class ItemsController {
    * Visibility goes through the same sharing check as the regular get.
    */
   @Get(':id/geojson')
+  // The server-side print reads layer data here (print-read-credential.ts).
+  @PrintReadable()
   async geojson(
     @CurrentUser() user: AuthUser,
     @Param('id', ITEM_ID) id: string,

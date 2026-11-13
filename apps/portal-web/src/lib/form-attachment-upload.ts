@@ -68,7 +68,9 @@ export interface UploadedAttachment {
   mimeType: string;
   /** Byte length of the file. */
   sizeBytes: number;
-  /** Stable public URL (anonymous-read MinIO bucket). */
+  /** The private attachment route for the key. It serves the object
+   *  only once a submission has registered it, so the runtime previews
+   *  a fresh upload from a local copy (form-local-previews.ts). */
   url: string;
   /** Object key inside the bucket; useful for delete-on-undo. */
   key: string;
@@ -207,4 +209,110 @@ async function walkAndUpload(node: any): Promise<void> {
     // eslint-disable-next-line no-await-in-loop
     await walkAndUpload(node[key]);
   }
+}
+
+/**
+ * How long an upload made by an earlier drain attempt is reused
+ * instead of uploaded again. The server's upload grant for a key, and
+ * the age below which the orphan sweep leaves an unregistered object
+ * alone, are both 48 hours; half that leaves room for a slow POST.
+ * After it the kept bytes are uploaded again under a fresh key.
+ */
+export const QUEUED_UPLOAD_REUSE_MS = 24 * 60 * 60 * 1000;
+
+/** Private bookkeeping on a stored queue entry; never sent. */
+const UPLOADED_AT = 'uploadedAtMs';
+
+type Entry = Record<string, unknown>;
+
+function hasKeptBytes(item: unknown): item is Entry {
+  return (
+    !!item &&
+    typeof item === 'object' &&
+    !Array.isArray(item) &&
+    typeof (item as Entry).dataUrl === 'string'
+  );
+}
+
+function reusable(item: Entry, now: number): boolean {
+  const at = item[UPLOADED_AT];
+  return (
+    typeof item.url === 'string' &&
+    typeof item.key === 'string' &&
+    typeof at === 'number' &&
+    now - at >= 0 &&
+    now - at < QUEUED_UPLOAD_REUSE_MS
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function walkQueued(node: any, now: number, onUploaded: () => void): Promise<void> {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i += 1) {
+      const item = node[i];
+      if (hasKeptBytes(item)) {
+        if (reusable(item, now)) continue;
+        const capture: Entry = { ...item };
+        delete capture.url;
+        delete capture.key;
+        delete capture[UPLOADED_AT];
+        const uploaded = await uploadPendingAttachment(capture as unknown as PendingAttachment);
+        node[i] = { ...capture, ...uploaded, dataUrl: item.dataUrl, [UPLOADED_AT]: now };
+        onUploaded();
+      } else {
+        await walkQueued(item, now, onUploaded);
+      }
+    }
+    return;
+  }
+  for (const key of Object.keys(node)) {
+    await walkQueued(node[key], now, onUploaded);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stripKept(node: any): any {
+  if (node === null || typeof node !== 'object') return node;
+  if (Array.isArray(node)) return node.map(stripKept);
+  if (typeof node.dataUrl === 'string' && typeof node.url === 'string') {
+    const sent: Entry = { ...(node as Entry) };
+    delete sent.dataUrl;
+    delete sent[UPLOADED_AT];
+    return sent;
+  }
+  const out: Entry = {};
+  for (const key of Object.keys(node)) out[key] = stripKept(node[key]);
+  return out;
+}
+
+/**
+ * The queued-submission version of uploadPendingAttachmentsInResponse,
+ * for the form outbox drain.
+ *
+ * Each upload is recorded on the stored row (through `persist`) even
+ * when a later upload or the POST fails, so the next drain attempt
+ * reuses it instead of uploading the same bytes again under a new key.
+ * The device's copy of the bytes (`dataUrl`) stays on the stored row
+ * next to the uploaded location until the POST succeeds: the uploaded
+ * object is not tied to a submission until then, and if it is lost or
+ * its upload grant runs out the bytes can still be sent again.
+ *
+ * Returns the answers to POST: uploaded locations only, no bytes.
+ */
+export async function uploadQueuedAttachments(
+  response: Record<string, unknown>,
+  persist: (stored: Record<string, unknown>) => Promise<void>,
+  now: number = Date.now(),
+): Promise<Record<string, unknown>> {
+  const stored = structuredClone(response);
+  let changed = false;
+  try {
+    await walkQueued(stored, now, () => {
+      changed = true;
+    });
+  } finally {
+    if (changed) await persist(stored);
+  }
+  return stripKept(stored) as Record<string, unknown>;
 }

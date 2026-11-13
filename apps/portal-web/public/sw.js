@@ -1275,6 +1275,22 @@ function responseHasPendingAttachment(node) {
 }
 
 /**
+ * True when a queued form response still holds the device's copy of an
+ * attachment's bytes (any dataUrl). The page's outbox drain keeps the
+ * bytes next to an uploaded url until the POST succeeds
+ * (uploadQueuedAttachments in form-attachment-upload.ts) and strips
+ * them from what it sends. This worker does not strip, so it leaves
+ * every such row to the page; posting it as stored would send the
+ * bytes inline.
+ */
+function responseKeepsAttachmentBytes(node) {
+  if (node === null || typeof node !== 'object') return false;
+  if (typeof node.dataUrl === 'string') return true;
+  if (Array.isArray(node)) return node.some(responseKeepsAttachmentBytes);
+  return Object.keys(node).some((k) => responseKeepsAttachmentBytes(node[k]));
+}
+
+/**
  * Drain the form-submission queue ('gratisgis-forms' / 'submissions').
  * Bookkeeping mirrors form-offline.ts markSent/markFailed: success
  * marks the row 'sent' (kept until the page's clearSent), an HTTP
@@ -1327,7 +1343,7 @@ async function drainFormsQueue() {
       .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)));
     let retry = false;
     for (const row of todo) {
-      if (responseHasPendingAttachment(row.response)) continue;
+      if (responseKeepsAttachmentBytes(row.response)) continue;
       let claimed = null;
       try {
         claimed = await claimRow(db, FORMS_STORE, row.clientId, canClaim, {

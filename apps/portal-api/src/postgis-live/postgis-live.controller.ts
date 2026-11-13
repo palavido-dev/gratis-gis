@@ -28,6 +28,7 @@ import type { MapLayerFilter } from '@gratis-gis/shared-types';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
+import { PrintReadable } from '../auth/print-readable.decorator.js';
 import { PostgisLiveService_ } from './postgis-live.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { CredentialService } from '../items/credential.service.js';
@@ -193,6 +194,10 @@ export class PostgisLiveController {
    * viewport change for a postgis-live layer.
    */
   @Post(':serviceItemId/features')
+  // The server-side print reads live layers here
+  // (print-read-credential.ts). A POST only because the query is in
+  // the body; it reads and never writes.
+  @PrintReadable({ method: 'POST', idParam: 'serviceItemId' })
   readFeatures(
     @CurrentUser() user: AuthUser,
     @Param('serviceItemId') serviceItemId: string,

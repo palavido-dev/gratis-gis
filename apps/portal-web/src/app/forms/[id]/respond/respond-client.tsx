@@ -11,9 +11,10 @@ import {
   queueSubmission,
   type QueuedSubmission,
   isAnonymousSubmission,
+  updateQueuedResponse,
 } from '@/lib/form-offline';
 import { getOfflineIdentity } from '@/lib/offline-store';
-import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
+import { uploadQueuedAttachments } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
 import { useFormat } from '@/lib/i18n/format';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -120,14 +121,15 @@ export function RespondClient({ form, formId, formItemTitle, userId = null }: Pr
         rerunRef.current = false;
         await drain(formId, await currentIdentity(), async (row) => {
           // Upload any offline-captured attachments before posting (#280).
-          // The walk mutates this in-memory copy of row.response only;
-          // it is not written back to IndexedDB, so a retry after a
-          // partial failure uploads every attachment again. The stored
-          // row keeps the bytes until the POST succeeds, which is the
-          // safe direction. uploadPendingAttachments throws on failure;
-          // the outer drain marks the row failed and the queue will
-          // retry next online tick.
-          await uploadPendingAttachmentsInResponse(row.response);
+          // Each upload is written back to the stored row, so a retry
+          // after a partial failure reuses it instead of uploading the
+          // same bytes again. The row also keeps the bytes until the
+          // POST succeeds (see uploadQueuedAttachments). A failure
+          // throws; the outer drain marks the row failed and the queue
+          // retries on the next online tick.
+          const answers = await uploadQueuedAttachments(row.response, (stored) =>
+            updateQueuedResponse(row.clientId, stored),
+          );
           const res = await fetch(
             `/api/portal/forms/${formId}/submissions`,
             {
@@ -136,7 +138,7 @@ export function RespondClient({ form, formId, formItemTitle, userId = null }: Pr
               body: JSON.stringify({
                 clientId: row.clientId,
                 schemaVersion: row.schemaVersion,
-                response: row.response,
+                response: answers,
                 capturedAt: row.capturedAt,
                 ...(typeof row.utcOffsetMinutes === 'number'
                   ? { utcOffsetMinutes: row.utcOffsetMinutes }

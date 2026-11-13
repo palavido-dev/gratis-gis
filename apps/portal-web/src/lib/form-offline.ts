@@ -236,6 +236,19 @@ export async function markFailed(
   }));
 }
 
+/**
+ * Replace a queued row's stored answers. Used by the outbox drain to
+ * keep the attachments it uploaded on a failed attempt, so a retry
+ * does not upload them again.
+ */
+export async function updateQueuedResponse(
+  clientId: string,
+  response: Record<string, unknown>,
+): Promise<void> {
+  const db = await openDb();
+  await update(db, clientId, (row) => ({ ...row, response }));
+}
+
 export async function clearSent(): Promise<void> {
   const db = await openDb();
   const all = (await listAll()).filter((r) => r.status === 'sent');

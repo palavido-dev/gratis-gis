@@ -32,6 +32,7 @@ import {
   withGrant,
   type AccessAnswers,
 } from '@/lib/principal-access';
+import type { ItemReach } from '@/lib/map-access-matrix';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
@@ -597,6 +598,8 @@ export function MapEditor({
   // Item reads only carry share rosters for the owner and admins, so
   // the matrix asks instead of reading each layer item's shares.
   const [itemAccess, setItemAccess] = useState<AccessAnswers>({});
+  // Access level of each backing item, for the "Everyone else" column.
+  const [itemReach, setItemReach] = useState<Record<string, ItemReach>>({});
   const [groupDirectory, setGroupDirectory] = useState<Record<string, string>>({});
   const [userNames, setUserNames] = useState<Record<string, string>>({});
 
@@ -656,6 +659,20 @@ export function MapEditor({
         id: s.principalId,
       })),
     ).then(setItemAccess);
+    // The access level of each backing item decides the "Everyone
+    // else" column; no share can name those viewers.
+    void Promise.all(
+      uniqItemIds.map(async (id) => {
+        try {
+          const r = await fetch(`/api/portal/items/${id}`);
+          if (!r.ok) return;
+          const j = (await r.json()) as { access?: ItemReach['access'] };
+          setItemReach((prev) => ({ ...prev, [id]: { access: j.access } }));
+        } catch {
+          /* non-fatal: the column shows no warning */
+        }
+      }),
+    );
     // Groups: fetch all groups visible to the current user so the
     // matrix can display names.
     try {
@@ -736,6 +753,10 @@ export function MapEditor({
     bitemId: string,
     p: MatrixPrincipal,
   ): Promise<void> {
+    // "Everyone else" is reached through the item's access level; no
+    // share can be granted to it.
+    if (p.type === 'everyone') return;
+    const principal = { type: p.type, id: p.id };
     const res = await fetch(`/api/portal/items/${bitemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -747,7 +768,7 @@ export function MapEditor({
     });
     if (!res.ok) return;
     // Mark the pair as granted so the gap badge disappears.
-    setItemAccess((prev) => withGrant(prev, bitemId, p));
+    setItemAccess((prev) => withGrant(prev, bitemId, principal));
   }
 
   // Drop selection for layers that have been removed so the state
@@ -2558,6 +2579,7 @@ export function MapEditor({
         principals={matrixPrincipals}
         layerItemIds={layerItemIds}
         itemAccess={itemAccess}
+        itemReach={itemReach}
         onClose={() => setMatrixOpen(false)}
         onPatchAccess={patchLayerAccess}
         onGrantItemAccess={grantItemAccess}

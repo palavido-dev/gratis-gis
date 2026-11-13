@@ -65,6 +65,7 @@ import {
 import { formatBytes } from '@/lib/format-bytes';
 import { packIntoRows } from '@/lib/form-layout-rows';
 import { parseManualPoint } from '@/lib/form-coordinates';
+import { LocalPreviews } from '@/lib/form-local-previews';
 
 /**
  * Mobile-first runtime that renders any FormSchema and captures a
@@ -145,6 +146,12 @@ export function FormRuntime({
   // a refused submit, so a second form on the same page cannot be
   // scrolled instead of this one.
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // Local copies of files uploaded from this form, for previews (see
+  // form-local-previews.ts). Released on submit and on unmount.
+  const previewsRef = useRef<LocalPreviews | null>(null);
+  if (previewsRef.current === null) previewsRef.current = new LocalPreviews();
+  const previews = previewsRef.current;
+  useEffect(() => () => previews.clear(), [previews]);
 
   // Re-run calculations whenever a referenced value might have
   // changed. Cheap because applyCalculations short-circuits on
@@ -224,6 +231,7 @@ export function FormRuntime({
     lockedRef.current = true;
     try {
       await onSubmit(pruneHidden(form, response));
+      previews.clear();
       setSubmitted(true);
     } catch (err) {
       lockedRef.current = false;
@@ -311,13 +319,15 @@ export function FormRuntime({
             groups and repeating instances via PackedRows so the
             author's side-by-side layout shows up everywhere, not
             just at the root. Mobile collapses to full-width. */}
-        <PackedRows
-          questions={currentPage.questions}
-          response={response}
-          errorByQuestion={errorByQuestion}
-          readOnly={readOnly}
-          onSet={setValue}
-        />
+        <LocalPreviewsContext.Provider value={previews}>
+          <PackedRows
+            questions={currentPage.questions}
+            response={response}
+            errorByQuestion={errorByQuestion}
+            readOnly={readOnly}
+            onSet={setValue}
+          />
+        </LocalPreviewsContext.Provider>
 
         {submitError ? (
           <p className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger">
@@ -389,6 +399,9 @@ export function FormRuntime({
  * instance and made one instance's radios clear another's.
  */
 const FieldPathContext = createContext('');
+
+/** The runtime's local previews; a fallback instance outside one. */
+const LocalPreviewsContext = createContext<LocalPreviews>(new LocalPreviews());
 
 /** The id a question's control and label use, unique in the form. */
 function useFieldId(q: Question): string {
@@ -1418,9 +1431,6 @@ function normalizePhotoValue(value: unknown): PhotoEntry[] {
     .filter((p): p is PhotoEntry => p !== null);
 }
 
-function photoSrc(p: PhotoEntry): string {
-  return 'url' in p ? p.url : p.dataUrl;
-}
 
 function PhotoInput({
   q,
@@ -1434,6 +1444,7 @@ function PhotoInput({
   onChange: (v: unknown) => void;
 }) {
   const t = useT();
+  const previews = useContext(LocalPreviewsContext);
   const photos = normalizePhotoValue(value);
   const max = q.maxCount ?? 1;
   const [busy, setBusy] = useState(false);
@@ -1447,7 +1458,7 @@ function PhotoInput({
             className="relative h-20 w-20 overflow-hidden rounded-md border border-border bg-surface-2"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photoSrc(p)} alt="" className="h-full w-full object-cover" />
+            <img src={previews.srcFor(p)} alt="" className="h-full w-full object-cover" />
             {!readOnly ? (
               <button
                 type="button"
@@ -1498,6 +1509,7 @@ function PhotoInput({
                   if (typeof navigator !== 'undefined' && navigator.onLine) {
                     try {
                       const uploaded = await uploadFormAttachment(file);
+                      previews.remember(uploaded.key, file);
                       onChange((prev: unknown) => [...normalizePhotoValue(prev), uploaded]);
                       return;
                     } catch (upErr) {
@@ -1598,7 +1610,10 @@ function MediaCaptureInput({
         dataUrl: string;
         durationSec?: number;
       };
-  const clipSrc = (c: Clip): string => ('url' in c ? c.url : c.dataUrl);
+  // An uploaded clip plays from the device's own copy until the
+  // submission registers it (see form-local-previews.ts).
+  const previews = useContext(LocalPreviewsContext);
+  const clipSrc = (c: Clip): string => previews.srcFor(c);
   const clips: Clip[] = Array.isArray(value)
     ? (value as Clip[]).filter(
         (c): c is Clip =>
@@ -1739,9 +1754,10 @@ function MediaCaptureInput({
                 if (typeof navigator !== 'undefined' && navigator.onLine) {
                   try {
                     const uploaded = await uploadFormAttachment(file);
-                    // Probe duration from the public URL post-upload
-                    // (a media element can stream from MinIO).
-                    const durationSec = await probeDuration(uploaded.url);
+                    // Probe duration from the local copy: the uploaded
+                    // url answers 404 until the submission registers it.
+                    const local = previews.remember(uploaded.key, file);
+                    const durationSec = await probeDuration(local);
                     const next: Clip = {
                       ...uploaded,
                       ...(typeof durationSec === 'number'

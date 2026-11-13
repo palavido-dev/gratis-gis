@@ -35,6 +35,7 @@ object FeatureHeadRebase {
         row.dataLayerId == landed.dataLayerId &&
         row.layerKey == landed.layerKey &&
         row.ownerUserId == owner &&
+        row.portal == landed.portal &&
         row.queuedAt > landed.queuedAt &&
         row.baseObservationId != null &&
         (row.syncStatus == "pending" || row.syncStatus == "failed")

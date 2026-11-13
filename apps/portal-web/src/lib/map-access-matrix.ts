@@ -6,14 +6,32 @@
 // which hid the layer from everyone else on the map. The "no item
 // access" warning is answered by the server (lib/principal-access.ts).
 import type {
+  ItemAccess,
   MapLayerAccess,
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_LAYER_ACCESS } from '@gratis-gis/shared-types';
+import { DEFAULT_LAYER_ACCESS, EVERYONE_PRINCIPAL_ID } from '@gratis-gis/shared-types';
 
 export interface MatrixPrincipalRef {
-  type: 'user' | 'group';
+  type: 'user' | 'group' | 'everyone';
   id: string;
+}
+
+/**
+ * The "Everyone else" column: viewers no user or group entry names,
+ * which means org members reaching the map through org-wide sharing
+ * and anonymous viewers of a public map. The server applies its entry
+ * to them (filterMapForViewer).
+ */
+export const EVERYONE_ELSE: MatrixPrincipalRef = {
+  type: 'everyone',
+  id: EVERYONE_PRINCIPAL_ID,
+};
+
+/** Who can reach a backing item without an explicit share. */
+export interface ItemReach {
+  access?: ItemAccess | undefined;
+  ownerId?: string | undefined;
 }
 
 /** What a principal gets on a layer that has no entry for it. */
@@ -38,6 +56,15 @@ export function matrixEntryFor(
   );
   if (found) return found;
   if (acc.policy === 'custom') {
+    // A user or group with no entry of its own gets the Everyone else
+    // entry on the server, so show that.
+    const everyone =
+      p.type === 'everyone'
+        ? undefined
+        : acc.entries.find((e) => e.principalType === 'everyone');
+    if (everyone) {
+      return { ...everyone, principalType: p.type, principalId: p.id };
+    }
     return {
       principalType: p.type,
       principalId: p.id,
@@ -54,6 +81,8 @@ export function matrixEntryFor(
  * inherit to custom first gets an entry for every principal in the
  * matrix with what they inherited, so changing one person's cell does
  * not take the layer away from everyone else the map is shared with.
+ * Pass EVERYONE_ELSE among `principals` so org-wide and public viewers
+ * keep the layer too.
  */
 export function writeMatrixEntry(
   access: MapLayerAccess | undefined,
@@ -77,4 +106,15 @@ export function writeMatrixEntry(
   if (idx >= 0) entries[idx] = merged;
   else entries.push(merged);
   return { policy: 'custom', entries };
+}
+
+/**
+ * Can the "Everyone else" column reach the backing item? Viewers no
+ * share names reach it only through its access level (org-wide or
+ * public), so this is decided here from that level and never asked of
+ * the server. `reach` undefined means not loaded yet (no warning).
+ */
+export function everyoneHasItemAccess(reach: ItemReach | undefined): boolean {
+  if (!reach) return true;
+  return reach.access === 'public' || reach.access === 'org';
 }

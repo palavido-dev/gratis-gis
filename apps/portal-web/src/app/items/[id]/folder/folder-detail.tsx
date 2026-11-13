@@ -5,6 +5,12 @@ import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { mergeFolderChildIds } from '@/lib/folder-child-ids';
 import { postShareCopy, shareCopyBody } from '@/lib/folder-share-copy';
+import {
+  orderFolderChildren,
+  readFolderSort,
+  writeFolderSort,
+  type FolderSort,
+} from '@/lib/folder-child-order';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -254,27 +260,24 @@ export function FolderDetail({
   const visibleCount = children.length;
   const totalRefs = childIds.length;
 
-  // Default ordering for the list: subfolders alphabetical first,
-  // then everything else alphabetical. Drag-drop reorder writes to
-  // `orderedIds` and overrides this; once the user has manually
-  // ordered the folder we honour their order. We detect "no manual
-  // order" as "orderedIds matches childItemIds in initial order"
-  // since we never write through reorderChildren without changing
-  // both. For Phase 1c we just always sort. Manual reorder is
-  // tracked separately in childItemIds and survives the sort
-  // because reorderChildren writes to both. Sort applies whenever
-  // the parent's saved order is the default ingest order; users
-  // can opt back into the manual order in a later slice.
-  const sortedChildren = useMemo(() => {
-    const copy = [...children];
-    copy.sort((a, b) => {
-      const af = a.type === 'folder' ? 0 : 1;
-      const bf = b.type === 'folder' ? 0 : 1;
-      if (af !== bf) return af - bf;
-      return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
-    });
-    return copy;
-  }, [children]);
+  // Row order: A to Z (the default) or the folder's saved order,
+  // which drag and drop writes. Drag is only offered in Custom, where
+  // a drop shows. The choice is remembered per device; it is read
+  // after mount so the server render and the first client render agree.
+  const [sort, setSort] = useState<FolderSort>('az');
+  useEffect(() => {
+    setSort(readFolderSort());
+  }, []);
+  const chooseSort = (next: FolderSort) => {
+    setSort(next);
+    writeFolderSort(next);
+  };
+  const canReorder = canEdit && !isSmart && sort === 'custom';
+  const sortedChildren = useMemo(
+    // A smart folder has no saved order, so it is always A to Z.
+    () => orderFolderChildren(children, isSmart ? 'az' : sort, orderedIds),
+    [children, isSmart, sort, orderedIds],
+  );
 
   async function removeFromFolder(childId: string) {
     setError(null);
@@ -511,6 +514,34 @@ export function FolderDetail({
             : `${visibleCount} visible (${totalRefs - visibleCount} hidden by access)`}
         </div>
         <div className="flex items-center gap-2">
+          {!isSmart && children.length > 1 ? (
+            <div
+              role="group"
+              aria-label={t('folderDetail.sortLabel')}
+              className="inline-flex h-8 items-center overflow-hidden rounded-md border border-border bg-surface-1 text-xs"
+            >
+              {(['az', 'custom'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  aria-pressed={sort === opt}
+                  onClick={() => chooseSort(opt)}
+                  title={
+                    opt === 'custom' && canEdit
+                      ? t('folderDetail.sortCustomTitle')
+                      : undefined
+                  }
+                  className={`h-full px-2.5 ${
+                    sort === opt
+                      ? 'bg-surface-3 font-medium text-ink-0'
+                      : 'text-ink-1 hover:bg-surface-2'
+                  }`}
+                >
+                  {opt === 'az' ? t('folderDetail.sortAz') : t('folderDetail.sortCustom')}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {canEdit && children.length > 0 && folderShares.length > 0 ? (
             <button
               type="button"
@@ -588,10 +619,8 @@ export function FolderDetail({
             : t('folderDetail.emptyHidden')}
         </div>
       ) : (
-        // List view (rows). Subfolders sort alphabetically at the
-        // top, then everything else alphabetically. Reuses the same
-        // dragstart / drop machinery for child reorder, but applied
-        // to row elements rather than card tiles.
+        // List view (rows), in the chosen order (see sortedChildren).
+        // Rows can be dragged to reorder only in Custom order.
         <div className="overflow-hidden rounded-lg border border-border bg-surface-1">
           <ul className="divide-y divide-border">
             {sortedChildren.map((child) => {
@@ -605,21 +634,21 @@ export function FolderDetail({
                   // Smart folders compute their order from the
                   // query (#38) so manual reorder is suppressed.
                   // Static folders keep the existing drag-drop.
-                  draggable={canEdit && !writing && !isSmart}
+                  draggable={canReorder && !writing}
                   onDragStart={(e) => {
-                    if (!canEdit || isSmart) return;
+                    if (!canReorder) return;
                     setDragId(child.id);
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', child.id);
                   }}
                   onDragEnd={() => setDragId(null)}
                   onDragOver={(e) => {
-                    if (!canEdit || !dragId || isSmart) return;
+                    if (!canReorder || !dragId) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                   }}
                   onDrop={(e) => {
-                    if (!canEdit || !dragId || isSmart) return;
+                    if (!canReorder || !dragId) return;
                     e.preventDefault();
                     void reorderChildren(dragId, child.id);
                   }}

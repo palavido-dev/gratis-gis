@@ -14,11 +14,12 @@ import { formatBytes } from '@/lib/format-bytes';
  *      get an <iframe>; everything else falls back to a generic
  *      "no preview" tile so the user still sees the file's identity.
  *
- * The Download button uses Content-Disposition via the `download`
- * attribute so the browser saves with the original filename rather
- * than the random storage UUID. The href is the public MinIO URL --
- * gating is by item visibility (the item-detail page already 404s
- * for users who can't see it).
+ * `storageUrl` is the portal's private file route
+ * (/api/portal/storage/private/item-file/<key>), on this origin. It
+ * checks read access on the item and sends the original filename in
+ * Content-Disposition. It does not apply the download tier: anyone
+ * who can see the item can fetch the file. Hiding Download and showing
+ * "View only" is a hint, not a lock (a product decision, kept).
  */
 export function FileDetail({ data, canDownload }: { data: FileData; canDownload: boolean }) {
   const previewKind = pickPreviewKind(data.mimeType);
@@ -39,20 +40,16 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
           </div>
         </div>
         {data.storageUrl ? (
-          // Copy URL is available to anyone who can see the item.
-          // The URL itself isn't a secret — it's the public-ish
-          // MinIO link that the runtime resolves for embedded
-          // images. Gating is by item visibility (the item-detail
-          // page already 404s for users who can't see it).
+          // Copy URL is available to anyone who can see the item. The
+          // route behind it checks read access on every request, so
+          // the link is no use to someone who cannot see the item.
           <CopyUrlButton url={data.storageUrl} />
         ) : null}
         {canDownload && data.storageUrl ? (
           <a
-            // Anchor `download` only honors a same-origin filename hint
-            // unless the response sets Content-Disposition; MinIO's
-            // bucket policy serves objects with their stored name (the
-            // UUID key). Pass the original filename here so the
-            // browser at least suggests it on save.
+            // The route sends the original filename in
+            // Content-Disposition; `download` repeats it for browsers
+            // that read the attribute first.
             href={data.storageUrl}
             download={data.fileName || undefined}
             target="_blank"
@@ -71,10 +68,9 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
 
       {previewKind === 'image' && data.storageUrl ? (
         <div className="rounded-lg border border-border bg-surface-2 p-2">
-          {/* eslint-disable-next-line @next/next/no-img-element -- the
-              MinIO origin isn't in next.config images.domains; using a
-              raw <img> avoids forcing every operator to whitelist
-              their MinIO host. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- a
+              plain <img> of the file route, so the request goes
+              straight to it with the viewer's session. */}
           <img
             src={data.storageUrl}
             alt={data.fileName}
@@ -85,8 +81,10 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
 
       {previewKind === 'pdf' && data.storageUrl ? (
         <div className="rounded-lg border border-border bg-surface-2 p-2">
+          {/* `inline=1` makes the route serve the PDF in the page,
+              under a sandbox policy, instead of as a download. */}
           <iframe
-            src={data.storageUrl}
+            src={inlinePdfUrl(data.storageUrl)}
             title={data.fileName}
             className="h-[70vh] w-full rounded border border-border bg-white"
           />
@@ -113,6 +111,10 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
       ) : null}
     </div>
   );
+}
+
+function inlinePdfUrl(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}inline=1`;
 }
 
 function FilePreviewIcon({ kind }: { kind: PreviewKind }) {

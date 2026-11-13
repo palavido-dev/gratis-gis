@@ -12,6 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.gratisgis.field.core.database.AccountScope
 import org.gratisgis.field.core.database.FieldDatabase
 import org.gratisgis.field.core.database.QueueEntity
 import org.gratisgis.field.core.engine.FieldEngine
@@ -46,6 +47,10 @@ data class SyncError(val recordId: String, val op: String, val layerKey: String,
  *  - `sync.outcome` decides done / retry / rejected from the status.
  *  - A network failure (no response at all) restores the row without
  *    counting an attempt, so an outage does not climb the ladder.
+ *  - Once claimed, a row is marked as possibly on the server
+ *    (`mayHaveReachedServer`) and stays marked. A marked insert is
+ *    looked up on the server before it is sent again.
+ *  - Only the signed-in account's rows for this portal are sent.
  *  - A 409 on an update whose `current` already holds the queued
  *    values is this device's own earlier write whose response was
  *    lost (`sync.isOwnEditEcho`): the row is done, not a conflict.
@@ -63,9 +68,14 @@ class QueueDrain(
 ) {
   private val json = Json { ignoreUnknownKeys = true }
 
-  suspend fun drain(collectionId: String, currentUserId: String, manual: Boolean): SyncResult {
+  suspend fun drain(collectionId: String, scope: AccountScope, manual: Boolean): SyncResult {
     val nowMs = System.currentTimeMillis()
-    val all = db.queue().forCollection(collectionId).filter { ownedBy(it, currentUserId) }
+    val currentUserId = scope.userId
+    // A row queued on another portal is never sent here: the same ids
+    // there name different features (a delete would come back 404 and
+    // count as done).
+    fun mine(row: QueueEntity) = scope.samePortal(row.portal)
+    val all = db.queue().forCollection(collectionId).filter { mine(it) && ownedBy(it, currentUserId) }
     val byId = all.associateBy { it.id }
     val heads = engine.callOrThrow(
       "queue.chainHeads",
@@ -86,6 +96,8 @@ class QueueDrain(
       val attemptAt = Instant.now().toString()
       val claimed = db.queue().claim(collectionId, record.id, record.syncStatus, record.lastAttemptAt, attemptAt) == 1
       if (!claimed) continue
+      // `record` was read before the claim; every write-back below keeps
+      // the mark the claim set.
       val outcome = replay(record)
       processed += 1
       when (outcome) {
@@ -97,7 +109,13 @@ class QueueDrain(
         is Replay.Unreachable -> {
           // Not the row's fault: restore the pre-claim status and leave
           // the attempt bookkeeping alone.
-          db.queue().upsert(record.copy(syncStatus = if (record.syncStatus == "failed") "failed" else "pending"))
+          // The request may have landed with only the answer lost.
+          db.queue().upsert(
+            record.copy(
+              syncStatus = if (record.syncStatus == "failed") "failed" else "pending",
+              mayHaveReachedServer = true,
+            ),
+          )
           failed += 1
           errors += SyncError(record.id, record.op, record.layerKey, outcome.reason, terminal = false)
         }
@@ -105,6 +123,7 @@ class QueueDrain(
           db.queue().upsert(
             record.copy(
               syncStatus = if (outcome.terminal) "rejected" else "failed",
+              mayHaveReachedServer = true,
               failureJson = outcome.reason.toString(),
               retryCount = (record.retryCount ?: 0) + 1,
               lastAttemptAt = Instant.now().toString(),
@@ -117,6 +136,7 @@ class QueueDrain(
           db.queue().upsert(
             record.copy(
               syncStatus = "rejected",
+              mayHaveReachedServer = true,
               failureJson = outcome.reason.toString(),
               conflictCurrentJson = outcome.current.toString(),
               retryCount = (record.retryCount ?: 0) + 1,
@@ -129,9 +149,9 @@ class QueueDrain(
       }
     }
 
-    val pending = db.queue().byStatus(collectionId, "pending").count { ownedBy(it, currentUserId) }
-    val stillFailed = db.queue().byStatus(collectionId, "failed").count { ownedBy(it, currentUserId) }
-    val allRejected = db.queue().byStatus(collectionId, "rejected").count { ownedBy(it, currentUserId) }
+    val pending = db.queue().byStatus(collectionId, "pending").count { mine(it) && ownedBy(it, currentUserId) }
+    val stillFailed = db.queue().byStatus(collectionId, "failed").count { mine(it) && ownedBy(it, currentUserId) }
+    val allRejected = db.queue().byStatus(collectionId, "rejected").count { mine(it) && ownedBy(it, currentUserId) }
     return SyncResult(processed, synced, failed, allRejected, pending + stillFailed, errors)
   }
 
@@ -177,10 +197,16 @@ class QueueDrain(
     return try {
       var head: String? = null
       when (r.op) {
-        "insert" -> portal.insertFeatures(
-          r.dataLayerId, r.layerKey,
-          InsertFeaturesRequest(listOf(FeatureInsert(r.globalId, geometry ?: JsonNull, properties))),
-        )
+        "insert" -> {
+          // An earlier attempt may have created it with only the answer
+          // lost. Look first, so a retry does not lean on the server's
+          // dedupe to absorb a second create.
+          if (r.mayHaveReachedServer && insertLanded(r)) return Replay.Done()
+          portal.insertFeatures(
+            r.dataLayerId, r.layerKey,
+            InsertFeaturesRequest(listOf(FeatureInsert(r.globalId, geometry ?: JsonNull, properties))),
+          )
+        }
         "update" -> {
           // Dry-run first so a conflict / schema refusal parks the
           // row without applying (mirrors portal-web offline-sync).
@@ -271,6 +297,19 @@ class QueueDrain(
       // cancelled drain stops here.
       currentCoroutineContext().ensureActive()
     }
+  }
+
+  /** Whether the server already holds the feature this insert creates.
+   *  A 404 (the layer or the feature is not there) reads as no; any
+   *  other failure propagates and is handled like a failed send. */
+  private suspend fun insertLanded(r: QueueEntity): Boolean {
+    val text = try {
+      portal.getFeaturesByEntity(r.dataLayerId, r.layerKey, r.globalId)
+    } catch (_: PortalError.NotFound) {
+      return false
+    }
+    val features = (json.parseToJsonElement(text) as? JsonObject)?.get("features") as? kotlinx.serialization.json.JsonArray
+    return !features.isNullOrEmpty()
   }
 
   private suspend fun isOwnEcho(

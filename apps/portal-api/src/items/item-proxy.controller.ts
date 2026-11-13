@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { PrintReadable } from '../auth/print-readable.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from './items.service.js';
 import {
@@ -98,6 +99,11 @@ export class ItemProxyController {
   }
 
   @Get('*')
+  // The server-side print runs a credentialed ArcGIS layer's bbox
+  // query here (print-read-credential.ts). Only `<layer>/query`,
+  // anchored at the start so a longer path that merely ends in
+  // `/0/query` is not let through.
+  @PrintReadable({ path: /^\/api\/items\/[^/]+\/proxy\/\d+\/query$/ })
   async proxy(
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,

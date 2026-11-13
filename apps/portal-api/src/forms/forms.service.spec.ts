@@ -371,6 +371,48 @@ describe('FormsService.submit cleaning', () => {
   });
 });
 
+describe('FormsService.submit verified attachment keys', () => {
+  // Finding 10-2: the mirror repair pass trusts only keys submit
+  // checked against the submitter's upload grants.
+  it('records only the keys the submitter was issued', async () => {
+    const schema = {
+      schemaVersion: 1,
+      id: 'form-1',
+      title: 'Photos',
+      questions: [{ id: 'pics', label: 'Pics', type: 'photo', maxCount: 3 }],
+      linkedLayerId: LAYER_ID,
+    };
+    const m = makeMocks({ formData: schema });
+    const grants = jest.fn(async () => [{ key: 'feature-attachment/mine' }]);
+    Object.assign(m.prisma, { storageUploadGrant: { findMany: grants } });
+    const pic = (key: string) => ({
+      name: 'p.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 1,
+      url: `/x/${key}`,
+      key,
+    });
+    await m.service.submit('form-1', makeUser(), {
+      ...VALID_DTO,
+      response: { pics: [pic('feature-attachment/mine'), pic('feature-attachment/someone-elses')] },
+    });
+    expect(grants).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        key: { in: ['feature-attachment/mine', 'feature-attachment/someone-elses'] },
+      },
+      select: { key: true },
+    });
+    const data = (
+      m.prisma.formSubmission.create.mock.calls[0] as unknown as [
+        { data: { verifiedAttachmentKeys: string[] } },
+      ]
+    )[0].data;
+    expect(data.verifiedAttachmentKeys).toEqual(['feature-attachment/mine']);
+    await flush();
+  });
+});
+
 describe('FormsService mirror target re-check', () => {
   it('does not write into a layer in another org', async () => {
     const m = makeMocks({ layer: { orgId: 'org-2' } });

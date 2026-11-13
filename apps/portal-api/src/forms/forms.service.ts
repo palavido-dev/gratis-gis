@@ -243,6 +243,13 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       });
     }
 
+    // The attachment keys this submitter was issued, checked now while
+    // the upload grants are live. The repair pass may run after they
+    // are pruned and re-registers only these; a key the client named
+    // but was not issued is still stored in the answers, but never
+    // registered on a layer by repair.
+    const verifiedAttachmentKeys = await this.grantedAttachmentKeys(user.id, response);
+
     // Plain insert, so only the request that actually wrote the row
     // counts as created. Two copies of one capture racing (two tabs
     // draining the same outbox, or a retry after a timeout) used to
@@ -260,6 +267,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
           response: response as Prisma.InputJsonValue,
           submittedBy: user.id,
           capturedAt: captured,
+          verifiedAttachmentKeys,
         },
         select: { id: true },
       });
@@ -334,6 +342,20 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
    * A later leader pass picks up anything that still failed.
    * Returns false when every attempt failed. It never throws.
    */
+  /** Keys of the attachments in `response` that `userId` was issued. */
+  private async grantedAttachmentKeys(
+    userId: string,
+    response: Record<string, unknown>,
+  ): Promise<string[]> {
+    const keys = [...new Set(extractAttachments(response).map((a) => a.key))];
+    if (keys.length === 0) return [];
+    const rows = await this.prisma.storageUploadGrant.findMany({
+      where: { userId, key: { in: keys } },
+      select: { key: true },
+    });
+    return [...new Set(rows.map((r) => r.key))];
+  }
+
   private async mirrorWithRetry(
     args: Parameters<FormsService['mirrorToPairedLayer']>[0],
   ): Promise<boolean> {
@@ -441,6 +463,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         capturedAt: submission.capturedAt,
         user,
         fromStoredSubmission: true,
+        verifiedAttachmentKeys: submission.verifiedAttachmentKeys ?? [],
       });
       if (ok) {
         this.repairBackoff.delete(submission.id);
@@ -473,6 +496,9 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
     /** The response comes from a stored form_submission row (the
      *  leader's repair pass), not from the request being served. */
     fromStoredSubmission?: boolean;
+    /** With fromStoredSubmission: the keys checked against the
+     *  submitter's upload grants when the submission was stored. */
+    verifiedAttachmentKeys?: readonly string[];
   }): Promise<void> {
     const data = args.form.data as
       | { linkedLayerId?: unknown; linkedLayerKey?: unknown }
@@ -602,6 +628,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       await this.mirrorRepeatGroupsToChildSublayers({
         formData: args.form.data,
         layerId,
+        parentLayerKey: layerKey,
         // #353: pass the full response (with attachment descriptors)
         // so per-instance child rows on the related sublayer get the
         // same inline-photo treatment the parent row does. The
@@ -659,11 +686,13 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
           // caller with limited access.
           undefined,
           // The repair pass can run up to MIRROR_REPAIR_WINDOW_DAYS
-          // after the upload, past the presign grant's lifetime. The
-          // keys it registers are the ones the saved submission
-          // already names, so it passes them as already referenced.
+          // after the upload, past the presign grant's lifetime. It
+          // passes as already referenced only the keys submit checked
+          // against the submitter's grants. Every other key the stored
+          // answers name came straight from the client and still needs
+          // a live grant, so repair cannot attach someone else's file.
           args.fromStoredSubmission
-            ? { storedKeys: attachments.map((a) => a.key) }
+            ? { storedKeys: [...(args.verifiedAttachmentKeys ?? [])] }
             : {},
         );
         attachmentsOk += 1;
@@ -744,10 +773,14 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
    * temporal versioning, as the latest valid_to range -- both
    * outcomes safe).
    *
+   * A group bound to an existing related table (bindTo.layerKey)
+   * writes into that table instead, with the table's parentFkColumn
+   * set to the parent row; see repeatGroupTargetSublayer.
+   *
    * Skipped groups:
-   *   - groups whose related sublayer the designer didn't create
-   *     (attachment-only, or no column-mapped children). Their
-   *     answers stay in the parent row's properties JSONB only.
+   *   - groups with no target sublayer (attachment-only or no
+   *     column-mapped children on a paired layer, or no binding).
+   *     Their answers stay in the parent row's properties JSONB only.
    *   - groups whose response value isn't an array (the form
    *     runtime always writes an array; defensive against partial
    *     drafts).
@@ -761,6 +794,8 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   private async mirrorRepeatGroupsToChildSublayers(args: {
     formData: Prisma.JsonValue;
     layerId: string;
+    /** The sublayer the parent row went into; never a child target. */
+    parentLayerKey: string;
     response: Record<string, unknown>;
     parentGlobalId: string;
     clientId: string;
@@ -786,6 +821,9 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       layers?: Array<{ id?: unknown; key?: unknown; geometryType?: unknown }>;
     };
     const sublayerKeys = new Set<string>();
+    // Column on each sublayer that holds its parent row's global id,
+    // when the layer declares one (an existing related table does).
+    const sublayerParentFk = new Map<string, string>();
     // #336: track each sublayer's geometryType so we can pick the
     // spatial vs. table insert branch per group. Indexed by id.
     const sublayerGeomTypes = new Map<
@@ -798,6 +836,8 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         const id = (l as { id?: unknown }).id;
         if (typeof id !== 'string') continue;
         sublayerKeys.add(id);
+        const fk = (l as { parentFkColumn?: unknown }).parentFkColumn;
+        if (typeof fk === 'string' && fk) sublayerParentFk.set(id, fk);
         const g = (l as { geometryType?: unknown }).geometryType;
         sublayerGeomTypes.set(
           id,
@@ -830,10 +870,13 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
         id?: unknown;
         repeat?: unknown;
         children?: unknown;
+        bindTo?: { layerKey?: unknown };
       };
       if (q.type !== 'group' || !q.repeat) continue;
       if (typeof q.id !== 'string') continue;
-      if (!sublayerKeys.has(q.id)) continue;
+      const target = repeatGroupTargetSublayer(q, sublayerKeys, args.parentLayerKey);
+      if (!target) continue;
+      const parentFk = sublayerParentFk.get(target);
       const instances = args.response[q.id];
       if (!Array.isArray(instances) || instances.length === 0) continue;
 
@@ -842,7 +885,7 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       // was present at save time), pluck the matching value out of
       // each instance and pack it as GeoJSON; otherwise this stays
       // undefined and data-layer features rides the table insert branch.
-      const subGeomType = sublayerGeomTypes.get(q.id) ?? null;
+      const subGeomType = sublayerGeomTypes.get(target) ?? null;
       const isTable = subGeomType === null;
       const childGeoBinding =
         !isTable && Array.isArray(q.children)
@@ -875,6 +918,10 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
           submitted_at: args.capturedAt.toISOString(),
           submitted_by: args.submittedBy,
           schema_version: args.schemaVersion,
+          // An existing related table links rows to their parent
+          // through its own column; fill it so the rows show up
+          // under the submission's feature.
+          ...(parentFk ? { [parentFk]: args.parentGlobalId } : {}),
         };
         const row: {
           globalId: string;
@@ -905,14 +952,14 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
       try {
         await this.dataLayerFeatures.insertFeatures(
           args.layerId,
-          q.id,
+          target,
           inserts,
           args.user,
           { isTable },
         );
       } catch (err) {
         this.log.warn(
-          `repeat-group child-row insert failed (group=${q.id}, count=${inserts.length}): ${
+          `repeat-group child-row insert failed (group=${q.id}, sublayer=${target}, count=${inserts.length}): ${
             err instanceof Error ? err.message : err
           }`,
         );
@@ -1147,6 +1194,34 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The sublayer a top-level repeat group's rows go into, or null when
+ * it has none (its answers then stay on the parent row only).
+ *
+ * A group bound to a related table (`bindTo.layerKey`, which "Start
+ * from a data layer" sets) writes into that table: the form is linked
+ * to someone's existing layer, and the designer does not create new
+ * sublayers there. Otherwise the group writes into the sublayer named
+ * after its id, which the designer creates on the form's own paired
+ * layer. The parent sublayer is never a target. The designer refuses
+ * to save a form linked to an existing layer with a repeat group that
+ * resolves to nothing here (unboundRepeatGroups in portal-web).
+ */
+export function repeatGroupTargetSublayer(
+  q: { id?: unknown; bindTo?: { layerKey?: unknown } },
+  sublayerKeys: ReadonlySet<string>,
+  parentLayerKey: string,
+): string | null {
+  const bound = q.bindTo?.layerKey;
+  if (typeof bound === 'string' && bound !== parentLayerKey && sublayerKeys.has(bound)) {
+    return bound;
+  }
+  if (typeof q.id === 'string' && q.id !== parentLayerKey && sublayerKeys.has(q.id)) {
+    return q.id;
+  }
+  return null;
+}
 
 function readFormSchema(data: Prisma.JsonValue): FormSchema | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
