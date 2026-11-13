@@ -17,8 +17,8 @@
      light-mode tokens: deep chart-blue accent, cool sheet neutrals.
      Keep in sync with apps/portal-web/src/app/globals.css and
      docs/design-system.md "Brand: Contour". */
-  --portal-accent: #21466e;
-  --portal-accent-hover: #1a3756;
+  --portal-accent: #0b6e69;
+  --portal-accent-hover: #08524e;
   --portal-accent-foreground: #ffffff;
   --portal-ink-0: #161d27;
   --portal-ink-1: #272c35;

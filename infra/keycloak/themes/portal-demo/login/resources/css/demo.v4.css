@@ -28,6 +28,6 @@
 .gg-demo-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--portal-border, #ccd0d7); }
 .gg-demo-role { flex: 0 0 84px; font-size: 12px; font-weight: 600; }
 .gg-demo-cred { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--portal-muted, #49505a); overflow-wrap: anywhere; }
-.gg-demo-fill { flex: 0 0 auto; border: 1px solid var(--portal-accent, #21466e); background: transparent; color: var(--portal-accent, #21466e); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
-.gg-demo-fill:hover { background: var(--portal-accent, #21466e); color: var(--portal-accent-foreground, #fff); }
+.gg-demo-fill { flex: 0 0 auto; border: 1px solid var(--portal-accent, #0b6e69); background: transparent; color: var(--portal-accent, #0b6e69); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.gg-demo-fill:hover { background: var(--portal-accent, #0b6e69); color: var(--portal-accent-foreground, #fff); }
 .gg-demo-fill[data-filled="1"] { border-color: var(--portal-muted, #49505a); color: var(--portal-muted, #49505a); }
