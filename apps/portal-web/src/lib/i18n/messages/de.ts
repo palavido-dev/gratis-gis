@@ -1011,6 +1011,7 @@ export const de: Partial<CatalogShape> = {
     moreAddOptions: 'Weitere Hinzufügen-Optionen',
     addGroup: 'Gruppe hinzufügen',
     emptyNoLayers: 'Noch keine Ebenen.',
+    tablesHeading: 'Tabellen',
     emptyCanEdit: 'Fügen Sie eine per URL, Portal oder Katalog hinzu.',
     emptyViewer: 'Der Eigentümer hat keine Ebenen hinzugefügt.',
     newGroupDefaultTitle: 'Neue Gruppe',
@@ -2288,8 +2289,6 @@ export const de: Partial<CatalogShape> = {
     loadingMaps: 'Karten werden geladen...',
     noMaps: 'Noch keine Karten',
     layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
-    tableNoShapes:
-      '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
   },
   mapAddLayer: {
     title: 'Ebene hinzufügen',
@@ -2431,6 +2430,9 @@ export const de: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Ausgeblendet',
+    hiddenLayerHint:
+      'Diese Ebene ist ausgeblendet. Die Auswahl des Treffers blendet sie ein.',
     geocoderUnavailable:
       'Die Ortssuche ist gerade nicht verfügbar ({reason}). Die Layer-Ergebnisse oben sind davon nicht betroffen.',
     noPlaces:

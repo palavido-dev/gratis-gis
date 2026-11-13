@@ -1011,6 +1011,7 @@ export const fr: Partial<CatalogShape> = {
     moreAddOptions: 'Plus d\'options d\'ajout',
     addGroup: 'Ajouter un groupe',
     emptyNoLayers: 'Aucune couche pour l\'instant.',
+    tablesHeading: 'Tables',
     emptyCanEdit: 'Ajoutez-en une depuis une URL, le portail ou le catalogue.',
     emptyViewer: 'Le propriétaire n\'a ajouté aucune couche.',
     newGroupDefaultTitle: 'Nouveau groupe',
@@ -2290,8 +2291,6 @@ export const fr: Partial<CatalogShape> = {
     loadingMaps: 'Chargement des cartes...',
     noMaps: 'Aucune carte pour le moment',
     layerGone: '{item} n\'a plus de couche "{layerKey}".',
-    tableNoShapes:
-      "{layer} est une table sans formes, il n'y a donc rien à dessiner.",
   },
   mapAddLayer: {
     title: 'Ajouter une couche',
@@ -2433,6 +2432,9 @@ export const fr: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Masquée',
+    hiddenLayerHint:
+      'Cette couche est masquée. Choisir le résultat l\'affiche.',
     geocoderUnavailable:
       'La recherche de lieux est indisponible pour le moment ({reason}). Les résultats de couches ci-dessus ne sont pas affectés.',
     noPlaces:

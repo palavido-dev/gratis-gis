@@ -1058,6 +1058,7 @@ export const en = {
     moreAddOptions: 'More add options',
     addGroup: 'Add group',
     emptyNoLayers: 'No layers yet.',
+    tablesHeading: 'Tables',
     emptyCanEdit: 'Add one from a URL, the portal, or the curated catalog.',
     emptyViewer: 'The owner has not added any layers.',
     newGroupDefaultTitle: 'New group',
@@ -2427,8 +2428,6 @@ export const en = {
     loadingMaps: 'Loading maps...',
     noMaps: 'No maps yet',
     layerGone: '{item} no longer has a layer "{layerKey}".',
-    tableNoShapes:
-      '{layer} is a table with no shapes, so there is nothing to draw.',
   },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {
@@ -2572,6 +2571,9 @@ export const en = {
   },
   // The map builder's search bar: place results from the geocoder.
   mapSearch: {
+    hiddenLayer: 'Hidden',
+    hiddenLayerHint:
+      'This layer is turned off. Picking the result turns it on.',
     geocoderUnavailable:
       'Place search is unavailable right now ({reason}). Layer results above are unaffected.',
     noPlaces:

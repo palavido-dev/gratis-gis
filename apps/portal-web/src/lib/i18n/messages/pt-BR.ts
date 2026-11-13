@@ -1009,6 +1009,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreAddOptions: 'Mais opções de adicionar',
     addGroup: 'Adicionar grupo',
     emptyNoLayers: 'Ainda não há camadas.',
+    tablesHeading: 'Tabelas',
     emptyCanEdit: 'Adicione uma por URL, portal ou catálogo.',
     emptyViewer: 'O proprietário não adicionou camadas.',
     newGroupDefaultTitle: 'Novo grupo',
@@ -2278,8 +2279,6 @@ export const ptBR: Partial<CatalogShape> = {
     loadingMaps: 'Carregando mapas...',
     noMaps: 'Nenhum mapa ainda',
     layerGone: '{item} não tem mais uma camada "{layerKey}".',
-    tableNoShapes:
-      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
   },
   mapAddLayer: {
     title: 'Adicionar camada',
@@ -2421,6 +2420,9 @@ export const ptBR: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Oculta',
+    hiddenLayerHint:
+      'Esta camada está desligada. Escolher o resultado a liga.',
     geocoderUnavailable:
       'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',
     noPlaces:

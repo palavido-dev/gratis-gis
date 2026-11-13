@@ -1012,6 +1012,7 @@ export const es: Partial<CatalogShape> = {
     moreAddOptions: 'Más opciones de añadir',
     addGroup: 'Añadir grupo',
     emptyNoLayers: 'Aún no hay capas.',
+    tablesHeading: 'Tablas',
     emptyCanEdit: 'Añade una desde una URL, el portal o el catálogo curado.',
     emptyViewer: 'El propietario no ha añadido ninguna capa.',
     newGroupDefaultTitle: 'Grupo nuevo',
@@ -2284,8 +2285,6 @@ export const es: Partial<CatalogShape> = {
     loadingMaps: 'Cargando mapas...',
     noMaps: 'Aún no hay mapas',
     layerGone: '{item} ya no tiene una capa "{layerKey}".',
-    tableNoShapes:
-      '{layer} es una tabla sin formas, así que no hay nada que dibujar.',
   },
   mapAddLayer: {
     title: 'Añadir capa',
@@ -2427,6 +2426,9 @@ export const es: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Oculta',
+    hiddenLayerHint:
+      'Esta capa está desactivada. Al elegir el resultado se activa.',
     geocoderUnavailable:
       'La búsqueda de lugares no está disponible ahora mismo ({reason}). Los resultados de capas de arriba no se ven afectados.',
     noPlaces:

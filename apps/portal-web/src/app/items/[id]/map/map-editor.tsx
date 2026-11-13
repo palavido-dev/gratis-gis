@@ -82,6 +82,7 @@ import {
 import { discoverLayerMetadata, type LayerMetadata } from './layer-metadata';
 import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
 import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
 
 /**
  * The parts of a layer source that decide what metadata discovery
@@ -2371,6 +2372,9 @@ export function MapEditor({
                 ? { geocoderItemId: map.search.geocoderId }
                 : {})}
               viewportBbox={mapBbox ?? null}
+              onShowLayer={(id) =>
+                setLayers(showLayerAndParents(map.layers, id))
+              }
               onPick={(r) => {
                 canvasRef.current?.flyAndHighlight({
                   bbox: r.bbox,

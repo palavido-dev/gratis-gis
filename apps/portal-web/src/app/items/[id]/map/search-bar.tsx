@@ -6,6 +6,7 @@ import { Loader2, MapPin, Search, Tag, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
 import { serverSublayerOf } from '@/lib/server-sublayer';
+import { hiddenLayerIds } from '@/lib/search-hidden-layers';
 import {
   GeocoderUnavailableError,
   geocode,
@@ -39,6 +40,13 @@ interface Props {
    */
   onPick: (result: SearchResult) => void;
   /**
+   * Search covers hidden layers too. When the user picks a result
+   * from a hidden layer, this is called with that layer's id (before
+   * onPick) so the host can turn it on. Hosts that cannot change
+   * visibility leave it out; the result is still labelled hidden.
+   */
+  onShowLayer?: (layerId: string) => void;
+  /**
    * #64: render without the map-canvas overlay chrome so the bar can
    * live inside a Custom Web App tool popover. Drops the absolute
    * positioning, fixed width, raised shadow, and backdrop blur, and
@@ -70,6 +78,7 @@ export function SearchBar({
   geocoderItemId,
   viewportBbox,
   onPick,
+  onShowLayer,
   embedded = false,
 }: Props) {
   const t = useT();
@@ -93,6 +102,20 @@ export function SearchBar({
     () => (query.trim() ? searchLayers(query, layers, featuresByLayer) : []),
     [query, layers, featuresByLayer],
   );
+
+  const hiddenIds = useMemo(() => hiddenLayerIds(layers), [layers]);
+  const isHiddenResult = (r: SearchResult) =>
+    r.kind === 'feature' && hiddenIds.has(r.layerId);
+  // Every pick goes through here so a result from a hidden layer
+  // turns that layer on first; otherwise the map would fly to a
+  // feature it does not draw.
+  function pick(r: SearchResult) {
+    if (r.kind === 'feature' && hiddenIds.has(r.layerId)) {
+      onShowLayer?.(r.layerId);
+    }
+    onPick(r);
+    setOpen(false);
+  }
 
   const anyLayerSearchable = layers.some(
     (l) => l.search?.enabled && l.search.fields.length > 0,
@@ -279,11 +302,8 @@ export function SearchBar({
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const pick = all[highlight];
-      if (pick) {
-        onPick(pick);
-        setOpen(false);
-      }
+      const hit = all[highlight];
+      if (hit) pick(hit);
     } else if (e.key === 'Escape') {
       setOpen(false);
       inputRef.current?.blur();
@@ -359,10 +379,8 @@ export function SearchBar({
                   result={r}
                   highlighted={all.indexOf(r) === highlight}
                   onHover={() => setHighlight(all.indexOf(r))}
-                  onClick={() => {
-                    onPick(r);
-                    setOpen(false);
-                  }}
+                  hidden={isHiddenResult(r)}
+                  onClick={() => pick(r)}
                 />
               ))}
               {arcgisResults.map((r, i) => (
@@ -371,10 +389,8 @@ export function SearchBar({
                   result={r}
                   highlighted={all.indexOf(r) === highlight}
                   onHover={() => setHighlight(all.indexOf(r))}
-                  onClick={() => {
-                    onPick(r);
-                    setOpen(false);
-                  }}
+                  hidden={isHiddenResult(r)}
+                  onClick={() => pick(r)}
                 />
               ))}
               {v3Results.map((r, i) => (
@@ -383,10 +399,8 @@ export function SearchBar({
                   result={r}
                   highlighted={all.indexOf(r) === highlight}
                   onHover={() => setHighlight(all.indexOf(r))}
-                  onClick={() => {
-                    onPick(r);
-                    setOpen(false);
-                  }}
+                  hidden={isHiddenResult(r)}
+                  onClick={() => pick(r)}
                 />
               ))}
             </Section>
@@ -401,10 +415,7 @@ export function SearchBar({
                     result={r}
                     highlighted={all.indexOf(r) === highlight}
                     onHover={() => setHighlight(all.indexOf(r))}
-                    onClick={() => {
-                      onPick(r);
-                      setOpen(false);
-                    }}
+                    onClick={() => pick(r)}
                   />
                 ))}
                 <div className="px-3 py-1 text-2xs text-muted">
@@ -472,14 +483,18 @@ function Section({
 function ResultRow({
   result,
   highlighted,
+  hidden = false,
   onHover,
   onClick,
 }: {
   result: SearchResult;
   highlighted: boolean;
+  /** The result's layer is turned off; picking it turns it on. */
+  hidden?: boolean;
   onHover: () => void;
   onClick: () => void;
 }) {
+  const t = useT();
   const Icon = result.kind === 'feature' ? Tag : MapPin;
   return (
     <li>
@@ -493,7 +508,17 @@ function ResultRow({
       >
         <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-ink-0">{result.label}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="min-w-0 truncate text-ink-0">{result.label}</span>
+            {hidden ? (
+              <span
+                className="shrink-0 rounded bg-surface-2 px-1 text-2xs text-muted"
+                title={t('mapSearch.hiddenLayerHint')}
+              >
+                {t('mapSearch.hiddenLayer')}
+              </span>
+            ) : null}
+          </span>
           <span className="block truncate text-xs text-muted">
             {result.kind === 'feature'
               ? result.layerTitle + (result.subtitle ? ` · ${result.subtitle}` : '')
