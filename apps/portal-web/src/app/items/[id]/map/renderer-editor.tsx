@@ -29,13 +29,11 @@ interface Props {
 /**
  * Picker + editor for the layer's rendering strategy.
  *
- * Simple vs. unique-values is a radio; when unique-values is active the
- * editor shows a field dropdown (populated from discovered metadata)
- * and a color-per-category list. An "Auto-populate" button seeds the
- * categories from the metadata's distinct values with palette colors.
- *
- * Keeping this focused: no class-breaks yet. The UI makes the missing
- * strategy obvious so the user knows what's coming.
+ * Simple, unique values and class breaks are the three modes. Unique
+ * values shows a field dropdown (populated from discovered metadata)
+ * and a colour per category; an "Auto-populate" button seeds the
+ * categories from the field's distinct values with palette colours.
+ * Class breaks shows a numeric field, the stops and a colour ramp.
  */
 /**
  * How many categories Auto fill will create.
