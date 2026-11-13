@@ -62,6 +62,7 @@ import type {
 import type { LayerMetadata } from './layer-metadata';
 import { getCachedUserName, prefetchUserNames } from '@/lib/user-name-cache';
 import { featuresBbox } from '@/lib/geo-bbox';
+import { serverSublayerOf } from '@/lib/server-sublayer';
 
 interface Props {
   open: boolean;
@@ -203,6 +204,12 @@ interface Props {
   scopeLayerId?: string | null;
   scopeWhere?: MapLayerFilter | null;
   scopeVia?: ResolvedVia | null;
+  /**
+   * Bump to refetch the server page. The Editor bumps it after a
+   * save, undo or redo, so the rows show the new values without the
+   * table having to watch the layer's source.
+   */
+  reloadToken?: number;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -245,6 +252,7 @@ export function AttributeTable({
   scopeLayerId,
   scopeWhere,
   scopeVia,
+  reloadToken = 0,
 }: Props) {
   const t = useT();
   const fmt = useFormat();
@@ -480,17 +488,19 @@ export function AttributeTable({
   const activeLayer = layers.find((l) => l.id === activeLayerId) ?? null;
 
   /**
-   * Server-paged mode is on when the active layer is a v3 data_layer
-   * sublayer (has both itemId + layerKey on its source). The /features-
+   * Server-paged mode is on when the active layer reads a v3 sublayer:
+   * a `data-layer` source with a layerKey, or an Editor target (a
+   * `geojson-url` source under the editor-target id). The /features-
    * page endpoint only exists for that path; for legacy geojson-url /
    * arcgis-rest / geojson-inline sources we fall back to the parent-
    * fed featuresByLayer cache + client-side filter/sort, which works
    * fine for those source sizes. (#115 P13)
+   *
+   * Editor targets joined this path because the Editor no longer
+   * downloads them whole: the canvas holds only the rows in view, so
+   * there is no full collection for the client path to list.
    */
-  const serverDataLayerSource =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? activeLayer.source
-      : null;
+  const serverDataLayerSource = serverSublayerOf(activeLayer);
   const serverItemId = serverDataLayerSource?.itemId ?? null;
   const serverLayerKey = serverDataLayerSource?.layerKey ?? null;
   const serverMode = Boolean(serverItemId && serverLayerKey);
@@ -625,7 +635,7 @@ export function AttributeTable({
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${serverItemId}/layers/${serverLayerKey}/features-page?${params.toString()}`,
+          `/api/portal/items/${encodeURIComponent(serverItemId)}/layers/${encodeURIComponent(serverLayerKey)}/features-page?${params.toString()}`,
           { signal: ctrl.signal },
         );
         if (!res.ok) {
@@ -661,6 +671,7 @@ export function AttributeTable({
     serverItemId,
     serverLayerKey,
     reloadNonce,
+    reloadToken,
     extentOnly,
     mapBbox,
     debouncedQuery,
@@ -681,21 +692,15 @@ export function AttributeTable({
 
   // #352: AGO-style Attachments column. Surfaces the v3
   // feature_attachment rows for any attribute table sourced from a
-  // v3 data_layer sublayer (those carry the data-layer source kind
-  // with both itemId + layerKey). Other source kinds (legacy
+  // v3 data_layer sublayer (the same layers that use server-paged
+  // mode, Editor targets included). Other source kinds (legacy
   // geojson-url / arcgis-rest / inline) skip the column entirely
   // since the v3 attachments controller is the only path today.
   // The drawer below renders the same thumbnails-or-file-rows the
   // FormView Attachments section ships for the Response Viewer
   // (#351), so the visual shape is consistent across surfaces.
-  const attachmentsItemId =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? activeLayer.source.itemId
-      : null;
-  const attachmentsLayerKey =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? (activeLayer.source.layerKey ?? null)
-      : null;
+  const attachmentsItemId = serverItemId;
+  const attachmentsLayerKey = serverLayerKey;
   const showAttachmentsColumn = Boolean(
     attachmentsItemId && attachmentsLayerKey,
   );
@@ -722,7 +727,7 @@ export function AttributeTable({
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${attachmentsItemId}/layers/${attachmentsLayerKey}/features/${attachmentDrawer.featureId}/attachments`,
+          `/api/portal/items/${encodeURIComponent(attachmentsItemId)}/layers/${encodeURIComponent(attachmentsLayerKey)}/features/${encodeURIComponent(attachmentDrawer.featureId)}/attachments`,
         );
         if (!res.ok) {
           if (!abort) setDrawerAttachments([]);
@@ -1038,7 +1043,7 @@ export function AttributeTable({
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${serverItemId}/layers/${serverLayerKey}/selection-extent?entityIds=${encodeURIComponent(ids)}`,
+          `/api/portal/items/${encodeURIComponent(serverItemId)}/layers/${encodeURIComponent(serverLayerKey)}/selection-extent?entityIds=${encodeURIComponent(ids)}`,
           { cache: 'no-store' },
         );
         if (!res.ok) return;
@@ -1197,7 +1202,8 @@ export function AttributeTable({
         [editingCell.field]: coerced,
       });
       // Success: drop edit state. Parent's refresh will repaint
-      // the new value once the geojson re-fetch lands. Until then
+      // the new value once its re-fetch lands (the Editor bumps
+      // reloadToken, which refetches the server page). Until then
       // the cell briefly shows the stale value, which is fine
       // (sub-second on local; the parent should refresh quickly).
       cancelEditCell();
@@ -1537,16 +1543,8 @@ export function AttributeTable({
               : null
           }
           layerTitle={activeLayer?.title ?? 'layer'}
-          dataLayerItemId={
-            activeLayer?.source.kind === 'data-layer'
-              ? activeLayer.source.itemId
-              : null
-          }
-          dataLayerLayerKey={
-            activeLayer?.source.kind === 'data-layer'
-              ? activeLayer.source.layerKey ?? null
-              : null
-          }
+          dataLayerItemId={serverItemId}
+          dataLayerLayerKey={serverLayerKey}
           activeSelection={activeSelection}
           featureKeyAt={featureKeyAt}
           disabled={activeFeatures.length === 0 || !activeLayer}

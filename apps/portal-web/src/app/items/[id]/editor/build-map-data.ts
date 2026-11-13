@@ -55,7 +55,10 @@ import type {
  *   which only a GeoJSON source has (see map-canvas, isEditorTarget).
  *   The canvas fills that source with the rows in view (a bbox read
  *   of up to 5,000 rows per settled move), not the whole layer; the
- *   url below names the sublayer it reads. The read-only
+ *   url below names the sublayer it reads. The metadata probe, the
+ *   attribute table and search treat it as that v3 sublayer too
+ *   (lib/server-sublayer.ts): schema-only metadata and server-paged
+ *   rows, never a whole-layer download. The read-only
  *   Viewer has no such need, so its synthesized layers use the
  *   `data-layer` source and render from vector tiles with a
  *   server-paged table.

@@ -124,6 +124,19 @@ jobs:
       - name: Check SPDX headers
         run: bash scripts/check-spdx.sh --self-test
 
+  doc-versions:
+    name: Documented version matches package.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # README.md, CONTRIBUTING.md and CITATION.cff must name the version
+    # in package.json. The script has no dependencies, so the runner's
+    # own Node is enough. CI runs the fixture self-test first.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check documented versions
+        run: node scripts/check-doc-versions.mjs --self-test
+
   dependabot-automerge-gate:
     name: Dependabot auto-merge gate
     runs-on: ubuntu-latest
