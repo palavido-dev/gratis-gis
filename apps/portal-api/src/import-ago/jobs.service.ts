@@ -33,6 +33,14 @@ const RECLAIM_INTERVAL_MS = 60_000;
 const RECLAIM_AFTER_MS = 5 * 60_000;
 
 /**
+ * AGO imports running at once in this process (11-5). Each one can
+ * hold a large download and a feature copy in flight, so several at
+ * once could take the API replica down. Later jobs wait their turn in
+ * order, still 'queued', and start as a slot frees.
+ */
+export const AGO_IMPORT_MAX_RUNNING = 2;
+
+/**
  * Snapshot of an AgoImportJob row shaped for the wizard's polling
  * endpoint. We omit the verbose requestPayload here -- the client
  * already has it from the preview step -- but include the final
@@ -68,11 +76,11 @@ export interface StartJobInput {
 /**
  * Owns the AgoImportJob row lifecycle and the background runner
  * (#55). The runner is fire-and-forget in the same node process:
- * `start()` writes the queued row, returns its id, and schedules
- * `runJob()` for the next tick. Single-replica today; if we ever
- * scale portal-api horizontally we'd swap this for a real queue
- * with a `claim` step. The row's `status` + `started_at` would
- * make the migration straightforward.
+ * `start()` writes the queued row, returns its id, and queues
+ * `runJob()`. At most AGO_IMPORT_MAX_RUNNING run at once per
+ * process; the rest wait in order. A cross-replica queue would need
+ * a `claim` step; the row's `status` + `started_at` would make that
+ * migration straightforward.
  *
  * Cancellation: a row flipped to `cancelled` by the controller is
  * observed by the runner at the per-item boundary. Mid-item work
@@ -86,7 +94,13 @@ export class AgoImportJobsService
 {
   private readonly log = new Logger(AgoImportJobsService.name);
   private reclaimTimer: NodeJS.Timeout | null = null;
+  private waitBeatTimer: NodeJS.Timeout | null = null;
   private stopping = false;
+  /** Runners started and not yet finished in this process. */
+  private runningHere = 0;
+  /** Jobs waiting for a slot, oldest first. */
+  private readonly waiting: Array<{ id: string; run: () => Promise<void> }> =
+    [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -117,6 +131,13 @@ export class AgoImportJobsService
     );
     // Never hold the process open for a housekeeping sweep.
     this.reclaimTimer.unref();
+    // Jobs waiting for a slot are alive, so keep their beat fresh and
+    // the never-started sweep away from them.
+    this.waitBeatTimer = setInterval(
+      () => void this.beatWaiting(),
+      HEARTBEAT_MS,
+    );
+    this.waitBeatTimer.unref();
     // Opportunistic first pass so a job abandoned by a prior process is
     // caught within a beat of boot rather than a full interval later.
     // Self-gates on shouldRun(), so a boot before the lock is acquired
@@ -127,6 +148,36 @@ export class AgoImportJobsService
   onModuleDestroy(): void {
     this.stopping = true;
     if (this.reclaimTimer) clearInterval(this.reclaimTimer);
+    if (this.waitBeatTimer) clearInterval(this.waitBeatTimer);
+  }
+
+  private async beatWaiting(): Promise<void> {
+    if (this.waiting.length === 0) return;
+    await this.prisma.agoImportJob
+      .updateMany({
+        where: { id: { in: this.waiting.map((w) => w.id) }, status: 'queued' },
+        data: { lastHeartbeatAt: new Date() },
+      })
+      .catch(() => {
+        /* a missed beat just risks an early reclaim; never fatal */
+      });
+  }
+
+  /** Start waiting runners while this process has a free slot. */
+  private pump(): void {
+    while (
+      this.runningHere < AGO_IMPORT_MAX_RUNNING &&
+      this.waiting.length > 0
+    ) {
+      const next = this.waiting.shift()!;
+      this.runningHere += 1;
+      setImmediate(() => {
+        void next.run().finally(() => {
+          this.runningHere -= 1;
+          this.pump();
+        });
+      });
+    }
   }
 
   private async reclaimSafely(): Promise<void> {
@@ -171,8 +222,14 @@ export class AgoImportJobsService
     // died between the insert and the runner, or the runner's first
     // query threw. The token lives only in that process's memory, so
     // nothing can ever run it. Fail it so the wizard stops polling.
+    // A job waiting for a free slot beats too, so only a row with no
+    // recent beat counts as abandoned.
     const neverStarted = await this.prisma.agoImportJob.updateMany({
-      where: { status: 'queued', createdAt: { lt: cutoff } },
+      where: {
+        status: 'queued',
+        createdAt: { lt: cutoff },
+        OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: cutoff } }],
+      },
       data: {
         status: 'failed',
         finishedAt: new Date(),
@@ -223,14 +280,16 @@ export class AgoImportJobsService
       select: { id: true },
     });
 
-    // Fire-and-forget: schedule the runner for the next tick so
-    // the HTTP response goes back to the caller right away. Any
-    // failure inside runJob lands in the row's `errorMessage` and
-    // flips status to `failed`; the .catch() here is defensive
-    // and just logs (any real failure should already have been
-    // captured by the runner's own try/catch).
-    setImmediate(() => {
-      this.runJob(row.id, input).catch((e) => {
+    // Fire-and-forget: hand the runner to the slot queue so the HTTP
+    // response goes back to the caller right away. It starts on the
+    // next tick when a slot is free, otherwise after the jobs ahead
+    // of it. Any failure inside runJob lands in the row's
+    // `errorMessage` and flips status to `failed`; the .catch() here
+    // is defensive and just logs (any real failure should already
+    // have been captured by the runner's own try/catch).
+    this.waiting.push({
+      id: row.id,
+      run: () => this.runJob(row.id, input).catch((e) => {
         this.log.error(
           `AGO import job ${row.id} threw outside its handler: ${
             e instanceof Error ? e.message : e
@@ -249,8 +308,9 @@ export class AgoImportJobsService
             },
           })
           .catch(() => undefined);
-      });
+      }),
     });
+    this.pump();
 
     return { id: row.id };
   }

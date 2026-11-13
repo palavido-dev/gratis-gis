@@ -17,7 +17,6 @@ import { DataLayerEngine } from '../engine/data-layer.js';
 import { EngineService } from '../engine/engine.service.js';
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import type { SharingService } from '../items/sharing.service.js';
@@ -159,7 +158,6 @@ d('COPY syncVersion through the import worker', () => {
     engine = new DataLayerEngine(
       engineSvc,
       prisma,
-      { checkFeature: () => true } as unknown as LensPolicyService,
       new TileCacheService(),
     );
     service = new DataLayerFeaturesService(

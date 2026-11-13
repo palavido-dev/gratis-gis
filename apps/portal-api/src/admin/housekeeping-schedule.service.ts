@@ -210,12 +210,13 @@ export class HousekeepingScheduleService {
     const recompute = row?.recomputeExtentsEnabled ?? false;
     const fieldQueueAutoPrune = row?.fieldQueueAutoPruneEnabled ?? false;
 
+    // Any mode but 'off' gets a cron, even with every toggle off: the
+    // end-date account disable and the Keycloak user sync in runOnce
+    // are not behind a toggle, so they need the schedule to run
+    // (03-7).
     let effectiveCron: string | null = null;
     let summary = 'Off';
-    if (
-      mode !== 'off' &&
-      (autoTrash || autoDisable || recompute || fieldQueueAutoPrune)
-    ) {
+    if (mode !== 'off') {
       const m = String(minute).padStart(2, '0');
       const h = String(hour).padStart(2, '0');
       if (mode === 'daily') {
@@ -228,14 +229,9 @@ export class HousekeepingScheduleService {
           ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d] ?? 'Monday';
         summary = `Weekly on ${dayName} at ${h}:${m}`;
       }
-    } else if (
-      !autoTrash &&
-      !autoDisable &&
-      !recompute &&
-      !fieldQueueAutoPrune &&
-      mode !== 'off'
-    ) {
-      summary = 'Schedule set, but no auto-actions enabled';
+      if (!autoTrash && !autoDisable && !recompute && !fieldQueueAutoPrune) {
+        summary += ' (account end dates and user sync only)';
+      }
     }
 
     return {
@@ -257,6 +253,29 @@ export class HousekeepingScheduleService {
       effectiveCron,
       timeZone: serverTimeZone(),
     };
+  }
+
+  /**
+   * Mark runs left 'running' as failed (03-12). Called once at API
+   * start by the leader: a run row is only finalized by the process
+   * that started it, so after a restart (deploy, OOM) the row would
+   * otherwise stay 'running', block Run now for STALE_RUN_MS and show
+   * as running in the history forever. If the run was in fact still
+   * going on another replica, its own final update overwrites this.
+   */
+  async failInterruptedRuns(): Promise<number> {
+    const r = await this.prisma.housekeepingRun.updateMany({
+      where: { status: 'running' },
+      data: {
+        status: 'failed',
+        finishedAt: new Date(),
+        error: 'The server restarted before this run finished.',
+      },
+    });
+    if (r.count > 0) {
+      this.log.warn(`Marked ${r.count} interrupted housekeeping run(s) failed.`);
+    }
+    return r.count;
   }
 
   // ---------------------------------------------------------------

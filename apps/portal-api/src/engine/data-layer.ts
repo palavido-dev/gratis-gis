@@ -38,7 +38,6 @@ import {
 import { EngineService } from './engine.service.js';
 import { featureWriteLocksSql } from './feature-locks.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { LensPolicyService } from '../policy/lens-policy.service.js';
 import {
   TileCacheService,
   aggregateCacheKey,
@@ -203,38 +202,6 @@ export interface ListFeaturesArgs {
    * non-spatial layers pass through cleanly.
    */
   isTable?: boolean;
-  /**
-   * Optional row-level policy filter (Cedar Phase D). No caller in
-   * the API passes this today, so lens policies are not enforced on
-   * ANY read path (features, tiles, table, search, aggregates,
-   * paging, delta), not only on tiles. Do not rely on it for access
-   * control until it is wired into every read. When set,
-   * every feature returned by the SQL query is evaluated against
-   * `lensPolicy.policy` via LensPolicyService.checkFeature; rows
-   * that fail are dropped from the FeatureCollection.
-   *
-   * Pass `lens` with both an `id` and a `policy` text. Empty /
-   * absent policy text short-circuits to passthrough; same for
-   * an absent `lensPolicy` argument entirely (Phase B behaviour).
-   *
-   * `user` is the principal the policy evaluates against. Required
-   * when `lens.policy` is set; ignored otherwise.
-   *
-   * `spatialKeysFor` pre-resolves spatial predicates per feature.
-   * Cedar's WASM has no geometry extension, so callers that want
-   * spatial rules ("inside assigned polygon") compute the
-   * containment in PostGIS upstream and hand the engine the
-   * resulting `Set<string>` of qualifying keys per feature. Lens
-   * policies reference the same keys via
-   * `resource.spatial.contains("assigned_area")`. When omitted,
-   * every feature passes an empty spatial set; non-spatial
-   * policies (attribute predicates, role checks) work unchanged.
-   */
-  lensPolicy?: {
-    lens: { id: string; policy?: string };
-    user: AuthUser;
-    spatialKeysFor?: (feature: DataLayerFeature) => string[];
-  };
 }
 
 /**
@@ -246,13 +213,10 @@ export interface ListFeaturesArgs {
  *
  *   - `entity`: a single-entity lookup has nothing to iterate;
  *     callers that want one feature use `listFeatures`.
- *   - `lensPolicy`: no iterating caller needs row policies yet, and
- *     adding them later should be a conscious decision (the per-page
- *     filter would silently change page sizes).
  */
 export type IterateFeaturesArgs = Omit<
   ListFeaturesArgs,
-  'limit' | 'entity' | 'lensPolicy'
+  'limit' | 'entity'
 > & {
   /** Entities fetched per page. Exposed for tests; the default keeps
    *  per-query memory modest while bounding round-trips on big
@@ -1095,7 +1059,6 @@ export class DataLayerEngine {
   constructor(
     private readonly engine: EngineService,
     private readonly prisma: PrismaService,
-    private readonly lensPolicy: LensPolicyService,
     private readonly tileCache: TileCacheService,
   ) {
     this.engine.onWrite((scopes) => this.wrote(scopes));
@@ -2465,14 +2428,7 @@ export class DataLayerEngine {
     }
 
     const features: DataLayerFeature[] = rows.map(rowToFeature);
-
-    // Phase D: row-level filter through LensPolicyService when the
-    // caller attached a lens with policy text. The service short-
-    // circuits on absent / whitespace policy so the unpolicied
-    // path stays at Phase B speed.
-    const filtered = this.applyLensPolicy(features, args.lensPolicy);
-
-    return { type: 'FeatureCollection', features: filtered };
+    return { type: 'FeatureCollection', features };
   }
 
   /**
@@ -4313,12 +4269,8 @@ export class DataLayerEngine {
    * the web client fetches full attrs on demand.
    *
    * Authz model is the same as listFeatures: the caller has already
-   * passed the canRead check via the controller. We do NOT plumb
-   * lens-policy row filters through MVT (nor through any other read:
-   * see ListFeaturesArgs.lensPolicy, which no caller sets). Geo-limit
-   * and boundary clip,
-   * which are the much more common scoping mechanisms, ARE honored
-   * via ST_Intersects clauses.
+   * passed the canRead check via the controller. Geo-limit and
+   * boundary clip ARE honored via ST_Intersects clauses.
    *
    * Geometry-less ("table mode") sublayers return an empty MVT.
    */
@@ -4880,40 +4832,6 @@ export class DataLayerEngine {
       return Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
     }
     return Buffer.alloc(0);
-  }
-
-  /**
-   * Apply a Cedar-evaluated row filter to the engine's read output.
-   * Pulled into its own method so the spec for Phase D can drive
-   * it directly without rebuilding a full PostGIS query path.
-   *
-   * Honours the caller-supplied `spatialKeysFor` to resolve spatial
-   * predicates upstream of the policy check; the policy then sees
-   * a Set<string> of keys the feature qualifies for and evaluates
-   * `.contains("assigned_area")` natively.
-   */
-  private applyLensPolicy(
-    features: DataLayerFeature[],
-    spec: ListFeaturesArgs['lensPolicy'],
-  ): DataLayerFeature[] {
-    if (!spec) return features;
-    if (!spec.lens.policy || spec.lens.policy.trim().length === 0) {
-      return features;
-    }
-    return features.filter((feature) => {
-      const spatial = spec.spatialKeysFor
-        ? spec.spatialKeysFor(feature)
-        : [];
-      return this.lensPolicy.checkFeature({
-        user: spec.user,
-        lens: spec.lens,
-        feature: {
-          entityId: feature.id,
-          attrs: feature.properties as Record<string, unknown>,
-          spatial,
-        },
-      });
-    });
   }
 }
 

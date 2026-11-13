@@ -96,6 +96,7 @@ import {
 } from './layer-delta.js';
 import { parsePagingParams, unpagedFeatureReadAllowed } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
+import { deriveExportFields } from './export-fields.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 import { linkedDataCollection } from './data-collection-link.js';
 import { assertGeometryFamilies } from './geometry-family.js';
@@ -177,6 +178,12 @@ class DeleteFeatureBodyDto {
  */
 const FEATURE_ID_SHAPE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Above this many rows created by one request, the owner gets one
+ * summary notification instead of one per feature.
+ */
+const CREATED_NOTIFY_SUMMARY_THRESHOLD = 10;
 
 /**
  * GeoParquet exports running at once in this process. Each one opens
@@ -1394,7 +1401,9 @@ export class DataLayerFeaturesController {
     };
     if (at) iterOpts.at = at;
 
-    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
+    const fields = await this.exportFields(layer, () =>
+      this.v3.iterateFeatures(itemId, layerId, iterOpts),
+    );
 
     // Geometry-mode opts. `auto` (default) uses lon/lat for point layers
     // and WKT for everything else; explicit modes force the shape.
@@ -1549,8 +1558,6 @@ export class DataLayerFeaturesController {
     } = { ...opts };
     if (at) iterOpts.at = at;
 
-    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
-
     if (geoParquetExportsRunning >= GEOPARQUET_EXPORT_SLOTS) {
       res.setHeader('Retry-After', '30');
       throw new HttpException(
@@ -1565,6 +1572,9 @@ export class DataLayerFeaturesController {
     // dirs (CodeQL js/insecure-temporary-file).
     let workDir: string | undefined;
     try {
+      const fields = await this.exportFields(layer, () =>
+        untilAborted(this.v3.iterateFeatures(itemId, layerId, iterOpts), signal),
+      );
       workDir = await mkdtemp(join(tmpdir(), 'gg-export-'));
       let result: { path: string; rows: number };
       try {
@@ -1831,6 +1841,21 @@ export class DataLayerFeaturesController {
   }
 
   /**
+   * Export columns for a layer. Declared fields when the layer has
+   * any; otherwise one extra pass over the same rows to find the keys
+   * the features carry, so a schema-less layer does not export as
+   * geometry only (06-16).
+   */
+  private async exportFields(
+    layer: { fields?: unknown } | undefined,
+    rows: () => AsyncIterable<Array<{ properties?: unknown }>>,
+  ): Promise<FeatureField[]> {
+    const declared = (layer?.fields ?? []) as FeatureField[];
+    if (declared.length > 0) return declared;
+    return deriveExportFields(rows());
+  }
+
+  /**
    * Helper for the editor_feature_created notification fan-out.
    * Resolves the editor item, the data_layer title, and a best-
    * effort summary string from the first non-empty user-field value
@@ -1862,28 +1887,19 @@ export class DataLayerFeaturesController {
       });
       const createdByName =
         creatorRow?.fullName || creatorRow?.username || 'Someone';
-      // For v1 we notify per inserted feature; the typical editor
-      // submission is one feature at a time. Bulk inserts (e.g. a
-      // future import-via-editor flow) would multiply emails which
-      // is fine for now -- the recipient list is just the owner.
-      for (const f of args.features) {
-        const summary = pickFeatureSummary(f.properties);
-        const featureId = typeof f.globalId === 'string' ? f.globalId : '';
-        await this.notifications.notify(
-          editor.ownerId,
-          'editor_feature_created',
-          {
-            editorId: editor.id,
-            editorTitle: editor.title,
-            dataLayerId: args.dataLayerId,
-            dataLayerTitle,
-            layerKey: args.layerKey,
-            featureId,
-            createdByName,
-            summary,
-          },
-        );
-      }
+      await this.sendCreatedNotifications(
+        editor.ownerId,
+        'editor_feature_created',
+        {
+          editorId: editor.id,
+          editorTitle: editor.title,
+          dataLayerId: args.dataLayerId,
+          dataLayerTitle,
+          layerKey: args.layerKey,
+          createdByName,
+        },
+        args.features,
+      );
     } catch (err) {
       // Notify errors are non-fatal -- the feature already landed.
       // Pinned to debug because a misconfigured editor would
@@ -1894,6 +1910,41 @@ export class DataLayerFeaturesController {
           err instanceof Error ? err.message : err
         }`,
       );
+    }
+  }
+
+  /**
+   * Sends the "feature created" notification for the rows one request
+   * inserted. Up to CREATED_NOTIFY_SUMMARY_THRESHOLD rows get one
+   * notification each, as before. Above that the owner gets a single
+   * summary carrying the count, so one bulk POST (up to 5,000 rows)
+   * cannot queue thousands of emails and get the SMTP sender blocked.
+   */
+  private async sendCreatedNotifications(
+    recipientId: string,
+    type: 'editor_feature_created' | 'data_collection_feature_created',
+    base: Record<string, string>,
+    features: AppendFeatureDto[],
+  ): Promise<void> {
+    if (features.length === 0) return;
+    const idOf = (f: AppendFeatureDto): string =>
+      typeof f.globalId === 'string' ? f.globalId : '';
+    if (features.length > CREATED_NOTIFY_SUMMARY_THRESHOLD) {
+      const first = features[0]!;
+      await this.notifications.notify(recipientId, type, {
+        ...base,
+        featureId: idOf(first),
+        featureCount: features.length,
+        summary: `${features.length} new features`,
+      });
+      return;
+    }
+    for (const f of features) {
+      await this.notifications.notify(recipientId, type, {
+        ...base,
+        featureId: idOf(f),
+        summary: pickFeatureSummary(f.properties),
+      });
     }
   }
 
@@ -1932,24 +1983,19 @@ export class DataLayerFeaturesController {
       });
       const createdByName =
         creatorRow?.fullName || creatorRow?.username || 'Someone';
-      for (const f of args.features) {
-        const summary = pickFeatureSummary(f.properties);
-        const featureId = typeof f.globalId === 'string' ? f.globalId : '';
-        await this.notifications.notify(
-          dc.ownerId,
-          'data_collection_feature_created',
-          {
-            dataCollectionId: dc.id,
-            dataCollectionTitle: dc.title,
-            dataLayerId: args.dataLayerId,
-            dataLayerTitle,
-            layerKey: args.layerKey,
-            featureId,
-            createdByName,
-            summary,
-          },
-        );
-      }
+      await this.sendCreatedNotifications(
+        dc.ownerId,
+        'data_collection_feature_created',
+        {
+          dataCollectionId: dc.id,
+          dataCollectionTitle: dc.title,
+          dataLayerId: args.dataLayerId,
+          dataLayerTitle,
+          layerKey: args.layerKey,
+          createdByName,
+        },
+        args.features,
+      );
     } catch (err) {
       // Same swallow rationale as the editor variant: notify errors
       // are non-fatal because the feature already landed.

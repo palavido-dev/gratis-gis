@@ -2,6 +2,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,6 +25,15 @@ import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { scheduledRunBlockedReason } from './script-provenance.js';
+
+/**
+ * Most runs one user may have queued or running at once, manual and
+ * scheduled together (19-18). The worker claims the oldest queued run
+ * install-wide, so without a cap one person with a dozen slow scripts
+ * could hold the executor for an hour and delay every other org's
+ * runs, then queue more.
+ */
+export const MAX_ACTIVE_SCRIPT_RUNS_PER_USER = 5;
 
 /**
  * Queue and history for `script` item runs (#221).
@@ -126,6 +137,12 @@ export class ScriptsService {
         'This script is already running. Wait for it to finish, or cancel it.',
       );
     }
+    if ((await this.activeRunsFor(user.id)) >= MAX_ACTIVE_SCRIPT_RUNS_PER_USER) {
+      throw new HttpException(
+        `You already have ${MAX_ACTIVE_SCRIPT_RUNS_PER_USER} script runs queued or running. Wait for one to finish, or cancel one.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
 
     const run = await this.prisma.scriptRun.create({
       data: {
@@ -210,6 +227,16 @@ export class ScriptsService {
       );
       return null;
     }
+    if (
+      (await this.activeRunsFor(item.ownerId)) >=
+      MAX_ACTIVE_SCRIPT_RUNS_PER_USER
+    ) {
+      await this.recordSkip(
+        item,
+        `Skipped: the owner already had ${MAX_ACTIVE_SCRIPT_RUNS_PER_USER} script runs queued or running when this one was due.`,
+      );
+      return null;
+    }
 
     const run = await this.prisma.scriptRun.create({
       data: {
@@ -222,6 +249,13 @@ export class ScriptsService {
       select: { id: true },
     });
     return run.id;
+  }
+
+  /** Runs this user has queued or running, across all scripts. */
+  private activeRunsFor(userId: string): Promise<number> {
+    return this.prisma.scriptRun.count({
+      where: { userId, state: { in: ['queued', 'running'] } },
+    });
   }
 
   /** A terminal row explaining why a scheduled fire produced nothing. */

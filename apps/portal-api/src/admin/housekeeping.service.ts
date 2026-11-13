@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { statfs } from 'node:fs/promises';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ItemType, Prisma } from '@prisma/client';
 
@@ -9,9 +9,10 @@ import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { itemBbox } from '../items/item-bbox.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import {
-  DataLayerSearchIndexService,
-  type SearchIndexBuildResult,
-} from '../data-layer/search-index.service.js';
+  SearchIndexJobsService,
+  type SearchIndexBuildView,
+} from '../data-layer/search-index-jobs.service.js';
+import { DataLayerSearchIndexService } from '../data-layer/search-index.service.js';
 import {
   CredentialService,
   type CredentialPayload,
@@ -140,6 +141,7 @@ export class HousekeepingService {
     private readonly searchIndexes: DataLayerSearchIndexService,
     private readonly credentials: CredentialService,
     private readonly storage: StorageService,
+    @Optional() private readonly searchIndexJobs?: SearchIndexJobsService,
   ) {}
 
   /**
@@ -191,9 +193,31 @@ export class HousekeepingService {
    * an operator should choose the moment. Delegates to
    * DataLayerSearchIndexService; see that service for the DDL and
    * the reasons behind non-concurrent builds.
+   *
+   * The build itself runs in the worker (06-5): a build on big layers
+   * outlasts an HTTP request. This queues it, or returns the build
+   * already queued or running for the org, and the page polls
+   * searchIndexBuildStatus for the outcome.
    */
-  async buildSearchIndexes(orgId: string): Promise<SearchIndexBuildResult> {
-    return this.searchIndexes.buildForOrg(orgId);
+  async buildSearchIndexes(
+    orgId: string,
+    userId: string,
+  ): Promise<SearchIndexBuildView> {
+    return this.requireSearchIndexJobs().enqueue(orgId, userId);
+  }
+
+  /** The org's latest search index build, or null. */
+  async searchIndexBuildStatus(
+    orgId: string,
+  ): Promise<SearchIndexBuildView | null> {
+    return this.requireSearchIndexJobs().latest(orgId);
+  }
+
+  private requireSearchIndexJobs(): SearchIndexJobsService {
+    if (!this.searchIndexJobs) {
+      throw new Error('Search index build queue is not available.');
+    }
+    return this.searchIndexJobs;
   }
 
   private get staleItemDays(): number {

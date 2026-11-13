@@ -18,7 +18,6 @@ import { EngineService } from './engine.service.js';
 import { TileCacheService } from './tile-cache.service.js';
 import { decodeMvt } from '../testing/mvt-decode.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
@@ -53,7 +52,6 @@ d('tile settings reach the tile bytes', () => {
     new DataLayerEngine(
       engineSvc,
       prisma,
-      { checkFeature: () => true } as unknown as LensPolicyService,
       new TileCacheService(),
     );
 

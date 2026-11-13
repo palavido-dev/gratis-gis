@@ -191,6 +191,7 @@ describe('ScriptsService.enqueueScheduled', () => {
       user: { findFirst: async () => ({ id: OWNER }) },
       scriptRun: {
         findFirst: async () => null,
+        count: async () => 0,
         create: async (args: { data: { state?: string; error?: string } }) => {
           created.push(args.data);
           return { id: 'run-1' };

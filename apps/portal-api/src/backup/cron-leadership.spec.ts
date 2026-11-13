@@ -113,6 +113,7 @@ describe('housekeeping schedule registers on every replica (API-OPS-06)', () => 
     const schedule = {
       getConfig: jest.fn(async () => cfg),
       onConfigChange: jest.fn(),
+      failInterruptedRuns: jest.fn(async () => 0),
       runOnce: jest.fn(async () => ({
         id: 'h',
         status: 'succeeded',
@@ -137,7 +138,10 @@ describe('housekeeping schedule registers on every replica (API-OPS-06)', () => 
     await run();
     expect(schedule.runOnce).toHaveBeenCalledTimes(1);
 
-    cfg = { ...cfg, autoTrashEnabled: false };
+    // A save on the other replica that turns the schedule off. A
+    // schedule with every toggle off still registers (03-7), so this
+    // is the change that removes the job.
+    cfg = { ...cfg, scheduleMode: 'off', effectiveCron: null as never };
     await jest.advanceTimersByTimeAsync(60_000);
     expect(reg.jobs.has('housekeeping-scheduled')).toBe(false);
     svc.onModuleDestroy();

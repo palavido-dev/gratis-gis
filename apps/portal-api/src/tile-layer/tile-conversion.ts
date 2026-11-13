@@ -12,6 +12,7 @@ import { crc32, createInflateRaw } from 'node:zlib';
 import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
 
 import { rasterMagicMatches } from '../ingest/gdal-open-guard.js';
+import { xyzTreeToMbtiles } from './xyz-to-mbtiles.js';
 
 /**
  * Tile container conversion pipeline (#179).
@@ -35,9 +36,10 @@ import { rasterMagicMatches } from '../ingest/gdal-open-guard.js';
  *     pmtiles Go CLI bundled into the api image handles the
  *     SQLite read + PMTiles directory build.
  *   - .zip (XYZ tile directory): extracted in-process (see
- *     `extractZipToDir`) into a temp dir, then
- *     `pmtiles convert <tile-dir> out.pmtiles`. The CLI walks
- *     {z}/{x}/{y}.{ext} structure and builds a PMTiles archive.
+ *     `extractZipToDir`) into a temp dir, packed into an MBTiles
+ *     in process (`xyzTreeToMbtiles`), then
+ *     `pmtiles convert tiles.mbtiles out.pmtiles`. The CLI does not
+ *     read tile directories.
  *   - .tif / .tiff / .geotiff / .cog : `gdalwarp -t_srs EPSG:3857
  *     -of COG ...` reprojects (if needed) and emits a COG.
  *   - .jp2 : same as GeoTIFF, GDAL's JP2OpenJPEG driver reads it.
@@ -243,11 +245,9 @@ async function convertUploadIn(
 
   let outputPath = join(workDir, 'out.pmtiles');
   if (originalFormat === 'xyz-zip') {
-    // Extract into a tile-dir subdirectory first. The pmtiles CLI
-    // walks the tree expecting {z}/{x}/{y}.{ext} layout (or
-    // {z}/{x}/{y}.pbf for vector). Some zips wrap the tree in
-    // an extra root directory; pmtiles handles either shape
-    // because it scans for the {z} integer pattern.
+    // Extract into a tile-dir subdirectory first. The tree is
+    // {z}/{x}/{y}.{ext} (or .pbf for vector), possibly wrapped in
+    // an extra root directory; xyzTreeToMbtiles handles either.
     //
     // In-process extraction rather than spawning Info-ZIP: the
     // prod api image ships no unzip binary (the advertised format
@@ -257,38 +257,19 @@ async function convertUploadIn(
     const tileDir = join(workDir, 'tiles');
     await mkdir(tileDir, { recursive: true });
     await extractZipToDir(inputPath, tileDir);
-    // The pmtiles convert CLI for directory input requires a
-    // metadata.json at the tile-dir root; if the zip doesn't
-    // include one we synthesize a minimal placeholder. The
-    // header bbox / center will come from the tile pyramid
-    // bounds at runtime.
-    //
-    // Use writeFile with the 'wx' flag (O_CREAT | O_EXCL) so the
-    // create-if-missing is atomic. The stat-then-write pattern
-    // CodeQL flagged as js/file-system-race had a TOCTOU window
-    // where another process could create the file between the
-    // check and the write; the wx flag closes that window and
-    // EEXIST means the zip already shipped a metadata.json (which
-    // is what we wanted -- treat as success).
-    const metaPath = join(tileDir, 'metadata.json');
-    try {
-      await writeFile(
-        metaPath,
-        JSON.stringify({
-          name: fileName.replace(/\.zip$/i, ''),
-          format: 'png',
-          minzoom: 0,
-          maxzoom: 22,
-        }),
-        { flag: 'wx' },
-      );
-    } catch (err) {
-      // EEXIST is the expected race-free signal that the zip
-      // already supplied metadata.json; anything else is real.
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== 'EEXIST') throw err;
-    }
-    await runCommand('pmtiles', ['convert', tileDir, outputPath]);
+    // go-pmtiles converts MBTiles archives, not tile directories
+    // (20-8; pyramid.worker.ts hit the same limit), so pack the tree
+    // into an MBTiles first and convert that.
+    const mbtilesPath = join(workDir, 'tiles.mbtiles');
+    await xyzTreeToMbtiles(
+      tileDir,
+      mbtilesPath,
+      fileName.replace(/\.zip$/i, ''),
+    );
+    // The extracted tree can be up to 10 GiB; drop it before the
+    // convert writes a second copy of the same tiles.
+    await rm(tileDir, { recursive: true, force: true });
+    await runCommand('pmtiles', ['convert', mbtilesPath, outputPath]);
   } else if (originalFormat === 'mbtiles') {
     await runCommand('pmtiles', ['convert', inputPath, outputPath]);
   } else {

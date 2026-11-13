@@ -96,7 +96,12 @@ os.environ["GRATIS_S3_PORT"] = "8900"
 os.environ["GRATIS_SKIP_PATCH"] = "1"
 os.environ.pop("GRATIS_MODE", None)
 os.environ.pop("GRATIS_TLS", None)
+os.environ["GRATIS_BOOT_STAMP"] = "tag=edge;mode=lan;base=http://192.168.4.15:8080"
 text = run(mod)
+# 58-4: the marker carries this boot's stamp, which services compare.
+assert (boot / "ready").read_text() == "tag=edge;mode=lan;base=http://192.168.4.15:8080\n"
+assert not (boot / "ready.tmp").exists()
+os.environ.pop("GRATIS_BOOT_STAMP", None)
 assert "Open this address:  http://192.168.4.15:8080" in text
 assert "Password:" in text
 assert "Do not post it publicly." in text
@@ -298,6 +303,24 @@ if re.search(r"exec minio( |$)", minio_cmd):
 boot_env = cfg["services"]["bootstrap"].get("environment") or {}
 if isinstance(boot_env, list):
     boot_env = dict(item.split("=", 1) for item in boot_env)
+# 58-4: every service that waits on /boot/ready compares the marker to
+# the same stamp bootstrap writes.
+stamp = boot_env.get("GRATIS_BOOT_STAMP")
+if not stamp or "tag=" not in stamp:
+    raise SystemExit("bootstrap has no GRATIS_BOOT_STAMP")
+for name, svc in cfg["services"].items():
+    cmd = svc.get("command") or ""
+    if isinstance(cmd, list):
+        cmd = "\n".join(str(part) for part in cmd)
+    if "/boot/ready" not in cmd:
+        continue
+    env = svc.get("environment") or {}
+    if isinstance(env, list):
+        env = dict(item.split("=", 1) for item in env)
+    if env.get("GRATIS_BOOT_STAMP") != stamp:
+        raise SystemExit(f"{name} waits on /boot/ready without the boot stamp")
+    if "-f /boot/ready" in cmd:
+        raise SystemExit(f"{name} still waits on the bare marker")
 if str(boot_env.get("GRATIS_HTTP_PORT")) != "8080":
     raise SystemExit(f"bootstrap port {boot_env.get('GRATIS_HTTP_PORT')}")
 compose_rev = str(boot_env.get("GRATIS_COMPOSE_REV") or "")

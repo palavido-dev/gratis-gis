@@ -709,6 +709,19 @@ export class AuthSyncService {
   }
 
   /**
+   * Starters this org purged, as "<item type>/<seed kind>" (04-8).
+   * An item that still exists, even in the trash, already stops a
+   * reseed; this covers the ones the trash purge removed for good.
+   */
+  private async dismissedSeedKinds(orgId: string): Promise<Set<string>> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { dismissedSeedKinds: true },
+    });
+    return new Set(org?.dismissedSeedKinds ?? []);
+  }
+
+  /**
    * For each built-in basemap seed, insert an item row if the org
    * doesn't already have one with that `seededKey`. The caller passes
    * `fallbackOwnerId` (the user who just signed in) to use when the
@@ -728,8 +741,13 @@ export class AuthSyncService {
       const key = (row.data as { seededKey?: unknown } | null)?.seededKey;
       if (typeof key === 'string') have.add(key);
     }
-    const missing = BUILTIN_BASEMAP_SEEDS.filter(
+    let missing = BUILTIN_BASEMAP_SEEDS.filter(
       (s) => !have.has(s.seededKey),
+    );
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter(
+      (s) => !dismissed.has(`basemap/basemap:${s.seededKey}`),
     );
     if (missing.length === 0) return;
 
@@ -772,7 +790,8 @@ export class AuthSyncService {
    * #22: For each built-in starter app template, insert an
    * `app_template` item row if the org doesn't already have one
    * with that `seed_kind`.  Idempotent: if the admin previously
-   * deleted a starter, this will not re-create it (the housekeeping
+   * deleted a starter, this will not re-create it, in the trash or
+   * after a purge (dismissedSeedKinds; the housekeeping
    * "Restore starter templates" button is the explicit way to bring
    * them back).  Idempotent on first-run: the seed_kind check
    * prevents duplicates if two processes race.
@@ -794,7 +813,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = STARTERS.filter((s) => !have.has(s.kind));
+    let missing = STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`app_template/${s.kind}`));
     if (missing.length === 0) return;
 
     // Prefer the org's first admin so the seed items match the
@@ -850,7 +872,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = THEME_STARTERS.filter((s) => !have.has(s.kind));
+    let missing = THEME_STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`theme/${s.kind}`));
     if (missing.length === 0) return;
 
     const admin = await this.prisma.user.findFirst({
@@ -900,7 +925,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = PRINT_TEMPLATE_STARTERS.filter((s) => !have.has(s.kind));
+    let missing = PRINT_TEMPLATE_STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`print_template/${s.kind}`));
     if (missing.length === 0) return;
 
     const admin = await this.prisma.user.findFirst({

@@ -1320,7 +1320,14 @@ def main() -> None:
     if login_txt.exists():
         login_txt.unlink()
     # ready is last so Keycloak and Silo never read a half-written boot.
-    ready.write_text("ok\n", encoding="utf-8")
+    # It carries this boot's stamp: every service waits for a marker
+    # that matches its own GRATIS_BOOT_STAMP, so a marker left by an
+    # older version or other settings does not let it start early.
+    # Written to a temp name and renamed so a reader never sees half.
+    stamp = os.environ.get("GRATIS_BOOT_STAMP", "").strip() or "ok"
+    tmp_ready = boot / "ready.tmp"
+    tmp_ready.write_text(stamp + "\n", encoding="utf-8")
+    os.replace(tmp_ready, ready)
     print(text, flush=True)
     if os.environ.get("GRATIS_SKIP_PATCH") == "1":
         return

@@ -84,6 +84,7 @@ const RULES: Record<string, Rule> = {
       'getConfig',
       'recomputeExtents',
       'buildSearchIndexes',
+      'searchIndexBuildStatus',
     ],
   },
   'import-ago/import-ago.controller.ts': {

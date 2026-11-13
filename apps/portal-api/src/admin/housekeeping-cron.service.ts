@@ -21,10 +21,10 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * schedule service's onConfigChange listener triggers re-registration
  * without a process restart.
  *
- * The job is registered only when the config actually has work to
- * do: scheduleMode != 'off' AND at least one of auto-trash /
- * auto-disable is enabled. This avoids spinning a cron just to do
- * nothing every night.
+ * The job is registered whenever scheduleMode != 'off'. Even with
+ * every toggle off a run still has work: users past their explicit
+ * end date are disabled and the Keycloak user mirror is reconciled,
+ * neither of which has a toggle (03-7).
  *
  * Why onApplicationBootstrap and not onModuleInit (#366): the
  * leader lock is acquired asynchronously inside
@@ -48,6 +48,16 @@ export class HousekeepingCronService
   private configTimer: ReturnType<typeof setInterval> | undefined;
   /** What the current job was built from; null before the first apply. */
   private appliedKey: string | null = null;
+  /** Boot time, for the interrupted-run sweep window. */
+  private readonly bootedAt = Date.now();
+  private interruptedSwept = false;
+  /**
+   * The interrupted-run sweep waits for this replica to hold the
+   * leader lock, which is taken asynchronously, but only this long
+   * after boot. A replica that gains leadership much later did not
+   * just restart, and a run in flight on the other replica is real.
+   */
+  private static readonly SWEEP_WINDOW_MS = 3 * 60_000;
 
   constructor(
     private readonly schedule: HousekeepingScheduleService,
@@ -63,10 +73,12 @@ export class HousekeepingCronService
     const cfg = await this.schedule.getConfig();
     this.apply(cfg);
     this.schedule.onConfigChange((next) => this.apply(next));
+    await this.sweepInterruptedRuns();
     // A config save runs the listener only on the replica that served
     // it. Every replica re-reads the row on a short poll so a save
     // that landed on the other one still takes effect here.
     this.configTimer = setInterval(() => {
+      void this.sweepInterruptedRuns();
       void this.schedule
         .getConfig()
         .then((next) => this.apply(next))
@@ -77,6 +89,27 @@ export class HousekeepingCronService
         );
     }, HousekeepingCronService.CONFIG_POLL_MS);
     this.configTimer.unref?.();
+  }
+
+  /**
+   * Once, on the leader, soon after boot: fail housekeeping runs a
+   * dead process left 'running' (03-12).
+   */
+  async sweepInterruptedRuns(): Promise<void> {
+    if (this.interruptedSwept) return;
+    if (Date.now() - this.bootedAt > HousekeepingCronService.SWEEP_WINDOW_MS) {
+      this.interruptedSwept = true;
+      return;
+    }
+    if (!this.leader.shouldRun()) return;
+    this.interruptedSwept = true;
+    try {
+      await this.schedule.failInterruptedRuns();
+    } catch (e) {
+      this.log.warn(
+        `Interrupted housekeeping run sweep failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   onModuleDestroy() {
@@ -102,19 +135,6 @@ export class HousekeepingCronService
     if (cfg.scheduleMode === 'off') {
       this.log.log(
         'Scheduled housekeeping is off; the manual /admin/housekeeping page still works.',
-      );
-      return;
-    }
-    // Same set of actions materialize() counts, so a schedule the
-    // page shows as active (field-queue prune alone) is registered.
-    if (
-      !cfg.autoTrashEnabled &&
-      !cfg.autoDisableEnabled &&
-      !cfg.recomputeExtentsEnabled &&
-      !cfg.fieldQueueAutoPruneEnabled
-    ) {
-      this.log.log(
-        'Schedule set but no auto-actions enabled; nothing to register.',
       );
       return;
     }

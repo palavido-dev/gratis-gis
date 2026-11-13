@@ -208,6 +208,38 @@ describe('DataLayerFeaturesController.csv error handling', () => {
   });
 });
 
+describe('DataLayerFeaturesController.csv on a layer with no declared fields', () => {
+  it('derives the columns from the rows instead of writing geometry only', async () => {
+    const { controller, items, iterateFeatures } = makeController({
+      canDownload: true,
+    });
+    const item = await items.get();
+    (item.data.layers[0] as { fields: unknown[] }).fields = [];
+    items.get.mockResolvedValue(item);
+    iterateFeatures.mockImplementation(async function* () {
+      yield [
+        { id: 'a', properties: { kind: 'oak', height: 12 }, geometry: null },
+        { id: 'b', properties: { kind: 'elm' }, geometry: null },
+      ];
+    });
+    let body = '';
+    const res = {
+      destroyed: false,
+      setHeader: jest.fn(),
+      write: jest.fn((chunk: string) => {
+        body += chunk;
+        return true;
+      }),
+      end: jest.fn(),
+      destroy: jest.fn(),
+    } as unknown as Response;
+    await controller.csv(res, makeUser(), ITEM_ID, LAYER_ID, undefined, undefined, undefined, undefined, undefined, 'none');
+    expect(body.split('\r\n')).toEqual(['kind,height', 'oak,12', 'elm,']);
+    // One pass to find the columns, one to write the rows.
+    expect(iterateFeatures).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('DataLayerFeaturesController.geoparquet limits', () => {
   afterEach(() => writeExport.mockReset());
 
@@ -331,6 +363,64 @@ describe('DataLayerFeaturesController.append notifications', () => {
       deduplicated: 2,
       globalIds: ['g-0', 'g-1', 'g-2'],
     });
+  });
+
+  it('sends one summary when a request creates more than 10 features', async () => {
+    const base = makeController({ canDownload: true });
+    const notify = jest.fn(async () => undefined);
+    const prisma = {
+      item: {
+        findUnique: jest.fn(async () => ({
+          id: 'editor-1',
+          title: 'Editor',
+          ownerId: 'owner',
+          type: 'editor',
+          data: {},
+        })),
+      },
+      user: { findUnique: jest.fn(async () => ({ fullName: 'Field User' })) },
+    };
+    const n = 25;
+    const ids = Array.from({ length: n }, (_, i) => `g-${i}`);
+    const v3 = {
+      insertFeatures: jest.fn(async () => ({
+        inserted: n,
+        deduplicated: 0,
+        globalIds: ids,
+        insertedIndices: ids.map((_, i) => i),
+      })),
+    };
+    const C = DataLayerFeaturesController as unknown as new (
+      ...args: unknown[]
+    ) => DataLayerFeaturesController;
+    const controller = new C(
+      base.items,
+      base.sharing,
+      v3,
+      prisma,
+      { assertAllows: jest.fn(async () => undefined) },
+      { notify },
+    );
+    await controller.append(
+      makeUser(),
+      ITEM_ID,
+      LAYER_ID,
+      {
+        features: ids.map((g) => ({ globalId: g, properties: { name: g } })),
+      } as never,
+      'editor-1',
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(
+      'owner',
+      'editor_feature_created',
+      expect.objectContaining({
+        featureId: 'g-0',
+        featureCount: 25,
+        summary: '25 new features',
+      }),
+    );
   });
 });
 

@@ -8,6 +8,7 @@ import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js'
 import { OfflinePackageWorkerModule } from './offline-package/offline-package-worker.module.js';
 import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
+import { SearchIndexWorkerModule } from './data-layer/search-index-worker.module.js';
 
 /**
  * Module graph for the portal-worker process.
@@ -46,6 +47,9 @@ import { ScriptsModule } from './scripts/scripts.module.js';
     // for the script runner. worker.main.ts never starts a claimer;
     // only the script-runner container does.
     ScriptsModule,
+    // 06-5: runs the housekeeping "Build search indexes" requests the
+    // API queues, so index builds never run inside an HTTP request.
+    SearchIndexWorkerModule,
   ],
 })
 export class WorkerAppModule {}
