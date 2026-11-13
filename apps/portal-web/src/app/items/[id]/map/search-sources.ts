@@ -18,6 +18,7 @@ import type { MapLayer } from '@gratis-gis/shared-types';
 import { parseApiError } from '@/lib/api-error';
 import { renderLabelTemplate } from '@/lib/label-template';
 import { geometryBbox } from '@/lib/geo-bbox';
+import { serverSublayerOf } from '@/lib/server-sublayer';
 
 export type SearchResult =
   | {
@@ -85,6 +86,10 @@ export function searchLayers(
     // the origin directly with a WHERE clause against the whole
     // dataset.
     if (layer.source.kind === 'arcgis-rest') continue;
+    // v3 sublayers (Editor targets included) are searched on the
+    // server by searchV3Layers; whatever rows sit in the browser are
+    // only the viewport, and listing them here would double the hits.
+    if (serverSublayerOf(layer)) continue;
     const fc = featuresByLayer[layer.id];
     if (!fc) continue;
 
@@ -272,8 +277,8 @@ export async function searchArcgisLayers(
 }
 
 /**
- * Search portal-hosted v3 data layers (`source.kind === 'data-layer'`)
- * by hitting the dedicated /features-search endpoint.
+ * Search portal-hosted v3 data layers (`source.kind === 'data-layer'`,
+ * and Editor targets that read a v3 sublayer) by hitting the dedicated /features-search endpoint.
  *
  * This is the data-layer analogue of searchArcgisLayers(): both reach
  * features the local-cache searchLayers() can't, because the relevant
@@ -301,22 +306,18 @@ export async function searchV3Layers(
   const tasks = layers
     .filter(
       (l) =>
-        l.source.kind === 'data-layer' &&
         // Only v3 multi-layer sublayers carry a layerKey and back the
         // per-sublayer endpoints. v1/v2 single-table items omit it and
-        // aren't served by /features-search.
-        (l.source as { layerKey?: string }).layerKey !== undefined &&
+        // aren't served by /features-search. Editor targets read the
+        // same sublayer through a geojson-url source and qualify too.
+        serverSublayerOf(l) !== null &&
         l.search?.enabled &&
         l.search.fields.filter((f) => f.length > 0).length > 0 &&
         // Same matrix-enforcement gate as the other search paths.
         (l.effective === undefined || l.effective.query !== false),
     )
     .map(async (layer) => {
-      const src = layer.source as {
-        kind: 'data-layer';
-        itemId: string;
-        layerKey?: string;
-      };
+      const src = serverSublayerOf(layer)!;
       const fields = layer.search!.fields.filter((f) => f.length > 0);
       const params = new URLSearchParams({
         q,
@@ -325,7 +326,7 @@ export async function searchV3Layers(
       });
       const url = `/api/portal/items/${encodeURIComponent(
         src.itemId,
-      )}/layers/${encodeURIComponent(src.layerKey!)}/features-search?${params.toString()}`;
+      )}/layers/${encodeURIComponent(src.layerKey)}/features-search?${params.toString()}`;
       const init: RequestInit = { headers: { Accept: 'application/json' } };
       if (signal) init.signal = signal;
       try {

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MapPin, Search, Tag, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
+import { serverSublayerOf } from '@/lib/server-sublayer';
 import {
   GeocoderUnavailableError,
   geocode,
@@ -217,9 +218,11 @@ export function SearchBar({
   // every keystroke.
   useEffect(() => {
     const q = query.trim();
+    // Editor targets count too: they are v3 sublayers drawn from a
+    // viewport read, so the browser never holds the whole layer.
     const v3Layers = layers.filter(
       (l) =>
-        l.source.kind === 'data-layer' &&
+        serverSublayerOf(l) !== null &&
         l.search?.enabled &&
         (l.search?.fields?.length ?? 0) > 0,
     );
