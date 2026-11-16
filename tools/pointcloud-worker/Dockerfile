@@ -11,7 +11,7 @@
 #
 # Version pins follow the repo convention after the node:25
 # floating-tag incident: bump deliberately.
-FROM mambaorg/micromamba:2.3.2
+FROM mambaorg/micromamba:2.10.0
 
 USER root
 # Pins chosen as the newest set that co-solves on conda-forge
