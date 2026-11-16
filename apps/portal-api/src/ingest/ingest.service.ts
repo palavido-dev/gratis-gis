@@ -63,6 +63,12 @@ import {
 } from './gdal-open-guard.js';
 import { loadGdalHardened } from '../common/gdal-load.js';
 import { CollectBudget } from './collect-limits.js';
+import {
+  approxPropsBytes,
+  BatchBudget,
+  DEFAULT_BATCH_BYTES,
+  DEFAULT_BATCH_ROWS,
+} from './batch-budget.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -638,6 +644,11 @@ export class IngestService {
     opts: {
       batchSize?: number;
       /**
+       * Flush a GDAL batch early once its estimated size reaches this
+       * many bytes, even below batchSize. See batch-budget.ts.
+       */
+      batchBytes?: number;
+      /**
        * Force table mode: emit every row with a null geometry.
        *
        * Table-ness is a property of the TARGET, not of the file. The
@@ -665,7 +676,7 @@ export class IngestService {
     sourceSrs: string | null;
     total: number;
   }> {
-    const batchSize = opts.batchSize ?? 5000;
+    const batchSize = opts.batchSize ?? DEFAULT_BATCH_ROWS;
     // GeoParquet branch: DuckDB streams vector-sized chunks, so peak
     // memory stays bounded by batchSize exactly like the GDAL cursor
     // walk below. The batch and return contracts are identical.
@@ -799,6 +810,12 @@ export class IngestService {
       // The caller's target wins; the source's own wkbNone is the
       // fallback for a genuine geodatabase table. See opts.isTable.
       const isTable = opts.isTable === true || layer.geomType === 100;
+      // Row count alone let one batch of detailed polygons grow to
+      // hundreds of MB (#573). Flush on size too.
+      const budget = new BatchBudget(
+        batchSize,
+        opts.batchBytes ?? DEFAULT_BATCH_BYTES,
+      );
 
       // Cursor walk via first()/next(). gdal-async's
       // `layer.features.get(i)` looks up by FID, NOT by index --
@@ -812,7 +829,8 @@ export class IngestService {
       let feature = layer.features.first();
       while (feature) {
         processed += 1;
-        const geomJson = isTable ? null : featureGeomJson(feature, xform);
+        const sized = isTable ? null : featureGeomJsonSized(feature, xform);
+        const geomJson = sized ? sized.geom : null;
         // Spatial layer with an undecodable geometry: skip silently
         // (matches what the legacy non-streaming path did). For
         // table-mode layers, the absence of geometry is expected and
@@ -830,9 +848,10 @@ export class IngestService {
             geometry: isTable ? null : geomJson,
             properties: props,
           });
-          if (batch.length >= batchSize) {
+          if (budget.add((sized?.bytes ?? 0) + approxPropsBytes(props))) {
             await onBatch(batch, { processed, total });
             batch = [];
+            budget.reset();
           }
         }
         feature = layer.features.next();
@@ -1758,6 +1777,18 @@ function featureGeomJson(
   feature: unknown,
   transform: unknown | null,
 ): unknown | null {
+  return featureGeomJsonSized(feature, transform)?.geom ?? null;
+}
+
+/**
+ * featureGeomJson plus the length of the GeoJSON text it parsed, so
+ * the streaming reader can size its batches without stringifying
+ * every geometry a second time.
+ */
+function featureGeomJsonSized(
+  feature: unknown,
+  transform: unknown | null,
+): { geom: unknown; bytes: number } | null {
   // Local shape-based access to gdal-async's Feature. Typed-through
   // `unknown` at the boundary because the real `gdal.Feature` type
   // constrains `geom.transform` to `CoordinateTransformation`, and
@@ -1783,10 +1814,16 @@ function featureGeomJson(
       return null;
     }
   }
+  let text: string | null = null;
   try {
-    return JSON.parse(geom.toJSON());
+    text = geom.toJSON();
+    const parsed: unknown = JSON.parse(text);
+    return parsed == null ? null : { geom: parsed, bytes: text.length };
   } catch {
-    return geom.toObject ? geom.toObject() : null;
+    const obj = geom.toObject ? geom.toObject() : null;
+    if (obj == null) return null;
+    // Rare fallback: size it from the text we got, if any.
+    return { geom: obj, bytes: text?.length ?? 0 };
   }
 }
 

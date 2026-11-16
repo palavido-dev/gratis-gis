@@ -33,6 +33,23 @@ import { ResourceQuotaService } from '../admin/resource-quota.service.js';
  * controller doesn't claim or finish jobs, and the worker doesn't
  * care about org-scoped visibility.
  */
+/**
+ * How often a worker beats while it runs a job, on a timer, separate
+ * from the per-batch progress beat. A slow batch or a long commit used
+ * to leave the heartbeat untouched for minutes, so the stale threshold
+ * had to be 5 minutes, and a worker killed mid-import (#573) left the
+ * job showing "running" at its last count for that long.
+ */
+export const IMPORT_HEARTBEAT_EVERY_MS = 20_000;
+
+/** A running job whose heartbeat is older than this has no live worker. */
+export const IMPORT_STALE_AFTER_MS = 2 * 60 * 1000;
+
+/** Shown on a job the stale sweep fails. */
+export const IMPORT_WORKER_STOPPED_MESSAGE =
+  'The import worker stopped partway through this import, most likely because it ran out of memory. ' +
+  'Upload the file again to retry. On a NAS, raising GRATIS_WORKER_MEMORY gives large imports more room.';
+
 @Injectable()
 export class ImportJobsService {
   private readonly log = new Logger(ImportJobsService.name);
@@ -214,6 +231,18 @@ export class ImportJobsService {
     });
   }
 
+  /**
+   * Timer heartbeat. Only touches lastHeartbeatAt, and only while the
+   * job is still running, so it can never revive a cancelled or
+   * finished row.
+   */
+  async touchHeartbeat(jobId: string): Promise<void> {
+    await this.prisma.importJob.updateMany({
+      where: { id: jobId, status: 'running' },
+      data: { lastHeartbeatAt: new Date() },
+    });
+  }
+
   /** Final status flip + final counts. */
   async markSucceeded(
     jobId: string,
@@ -307,13 +336,14 @@ export class ImportJobsService {
    * than the threshold and the boot pass alone would skip it
    * forever, stranding the job as 'running'.
    *
-   * Threshold default 5 minutes is generous; a healthy worker beats
-   * every batch (~10s). If the heartbeat is older than that, the
-   * worker is gone or wedged and the job is effectively dead. The
+   * Threshold default 2 minutes. A live worker beats on a timer every
+   * IMPORT_HEARTBEAT_EVERY_MS whatever its batches are doing, so a
+   * heartbeat older than that means the worker is gone or wedged and
+   * the job is effectively dead. The
    * heartbeat guard also makes concurrent sweeps safe: a job a live
    * worker is actively processing keeps beating and never matches.
    */
-  async recoverStaleRunning(maxAgeMs: number = 5 * 60 * 1000): Promise<void> {
+  async recoverStaleRunning(maxAgeMs: number = IMPORT_STALE_AFTER_MS): Promise<void> {
     const cutoff = new Date(Date.now() - maxAgeMs);
     const stale = await this.prisma.importJob.findMany({
       where: {
@@ -345,8 +375,7 @@ export class ImportJobsService {
         // to retry" is the honest instruction either way; the
         // pre-crash counter was wrong in the common case.)
         insertedFeatures: 0,
-        errorMessage:
-          'Worker crashed before completing this import. Re-upload to retry.',
+        errorMessage: IMPORT_WORKER_STOPPED_MESSAGE,
       },
     });
     this.log.warn(

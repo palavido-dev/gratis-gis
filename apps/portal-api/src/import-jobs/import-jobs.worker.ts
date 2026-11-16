@@ -2,7 +2,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ImportJob } from '@prisma/client';
 
-import { ImportJobsService } from './import-jobs.service.js';
+import {
+  IMPORT_HEARTBEAT_EVERY_MS,
+  ImportJobsService,
+} from './import-jobs.service.js';
 import { IngestService } from '../ingest/ingest.service.js';
 import { IngestStagingService } from '../ingest/ingest-staging.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
@@ -43,16 +46,16 @@ export class ImportJobsWorker implements OnModuleInit {
   private readonly POLL_INTERVAL_MS = 1000;
   /**
    * Run the stale-'running' recovery sweep every this-many loop
-   * iterations (roughly once a minute at the 1s poll). Boot-time
+   * iterations (roughly every 30 seconds at the 1s poll). Boot-time
    * recovery alone cannot catch a crashed job: docker restarts the
    * worker within seconds, so at boot the dead job's heartbeat is
-   * only seconds old and the 5-minute staleness threshold skips it
+   * only seconds old and the staleness threshold skips it
    * forever. The periodic sweep re-checks once the heartbeat has
    * actually gone stale. recoverStaleRunning is heartbeat-guarded
    * and uses a plain conditional updateMany, so sweeping while other
    * replicas work is safe.
    */
-  private readonly RECOVERY_EVERY_TICKS = 60;
+  private readonly RECOVERY_EVERY_TICKS = 30;
   private ticksSinceRecovery = 0;
   private running = false;
 
@@ -113,7 +116,7 @@ export class ImportJobsWorker implements OnModuleInit {
         }
         const job = await this.jobs.claimNext();
         if (job) {
-          await this.runJob(job).catch((err) => {
+          await this.runJobWithHeartbeat(job).catch((err) => {
             // runJob has its own error handling that flips the row
             // to 'failed'. Anything that escapes here is exotic
             // (the markFailed call itself threw); log and keep the
@@ -139,6 +142,30 @@ export class ImportJobsWorker implements OnModuleInit {
         );
         await sleep(5_000);
       }
+    }
+  }
+
+  /**
+   * runJob with a timer heartbeat beside it, so the stale sweep can
+   * tell a slow job from a dead worker within IMPORT_STALE_AFTER_MS
+   * (see import-jobs.service.ts). A failed beat is only logged; the
+   * job itself decides its outcome.
+   */
+  async runJobWithHeartbeat(job: ImportJob): Promise<void> {
+    const beat = setInterval(() => {
+      this.jobs.touchHeartbeat(job.id).catch((err) => {
+        this.log.warn(
+          `Heartbeat for import job ${job.id} failed: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      });
+    }, IMPORT_HEARTBEAT_EVERY_MS);
+    beat.unref();
+    try {
+      await this.runJob(job);
+    } finally {
+      clearInterval(beat);
     }
   }
 

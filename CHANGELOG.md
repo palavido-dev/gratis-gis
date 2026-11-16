@@ -6,6 +6,22 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Large imports no longer stall on a NAS. The NAS stack capped the
+  import worker at 1.5 GB, and a 700 MB shapefile of detailed polygons
+  needed about 2.5 GB on its second batch, so the worker was killed and
+  the import sat at 5,000 rows (#573). The NAS worker now defaults to
+  the same 3.5 GB ceiling as the VPS stack, and `GRATIS_WORKER_MEMORY`
+  and `GRATIS_WORKER_HEAP_MB` change it.
+- Imports flush a batch once it reaches about 16 MB of geometry as
+  well as at 5,000 rows, so files of very detailed polygons use far
+  less memory per batch on every install.
+- An import whose worker dies now fails within about 2 minutes,
+  instead of 5, with a message that names memory as the likely cause.
+  The worker beats on a timer while a job runs, so a slow batch is
+  never mistaken for a dead worker.
+
 ## [1.6.1] - 2026-11-13
 
 Patch release: the sign-in page logo, a deploy step that keeps

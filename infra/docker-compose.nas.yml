@@ -21,6 +21,14 @@
 # small box. TrueNAS Install via YAML cannot turn a Compose
 # profile on, so this is a plain value.
 #
+# IMPORT MEMORY. Big imports (a shapefile of several hundred MB,
+# for example) need about 3 GB for the import worker. The default
+# below is a ceiling, not a reservation. On a box with 4 GB of RAM
+# or less, lower it in Dockge's env box:
+#   GRATIS_WORKER_MEMORY=1536m
+#   GRATIS_WORKER_HEAP_MB=1024
+# Keep the heap about 512 MB below the memory limit.
+#
 # IMAGE CHANNEL. edge (the default) tracks main. For the newest
 # stable release, set GG_IMAGE_TAG to latest before the first
 # start, or in Dockge's env box:
@@ -44,6 +52,11 @@ x-gratis:
   GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
   GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
   GRATIS_ANALYSIS: &GRATIS_ANALYSIS "${GRATIS_ANALYSIS:-on}"
+  # Import worker ceiling. Was 1536m with a 1 GB heap, which a
+  # 700 MB shapefile of detailed polygons outgrew on its second batch
+  # (#573): the worker was killed and the import sat at 5,000 rows.
+  # Same numbers as the VPS stack (docker-compose.prod.yml).
+  GRATIS_WORKER_MEMORY: &GRATIS_WORKER_MEMORY "${GRATIS_WORKER_MEMORY:-3584m}"
   # Bump this together with REQUIRED_COMPOSE_REV in the Dockerfiles
   # whenever this file's contract changes. CI checks they match.
   # 2: portal-api and portal-worker share the gg-staging volume.
@@ -1673,7 +1686,7 @@ services:
       - ALL
     pull_policy: always
     restart: unless-stopped
-    mem_limit: 1536m
+    mem_limit: *GRATIS_WORKER_MEMORY
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -1685,7 +1698,7 @@ services:
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
     environment:
       GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
-      NODE_OPTIONS: --max-old-space-size=1024
+      NODE_OPTIONS: --max-old-space-size=${GRATIS_WORKER_HEAP_MB:-3072}
       # Same path and volume as portal-api, so the worker can read
       # the files portal-api staged for import.
       STAGING_DIR: /var/lib/gg-staging
