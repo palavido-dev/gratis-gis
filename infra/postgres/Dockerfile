@@ -24,7 +24,7 @@
 # docs/UPGRADING.md. Do not flip this tag on its own.
 # infra/postgres/check-major.sh refuses a data directory whose
 # PG_VERSION does not match this image. It does not change the tag.
-FROM postgis/postgis:17-3.5
+FROM postgis/postgis:17-3.6
 
 # This image is bullseye based and bullseye reached end of life, which
 # broke every deploy here on 2026-09-08, on a layer that has nothing to
