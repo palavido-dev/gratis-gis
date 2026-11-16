@@ -11,6 +11,12 @@
 # merge, which is why a checkout of the head would be unsafe. Do
 # not add one.
 #
+# main requires one approving review, so the job approves the pull
+# request itself right before merging, only after every gate below
+# has passed. The repository allows GitHub Actions to approve pull
+# requests for that reason; nothing else in .github/workflows
+# approves.
+#
 # `gh pr merge --auto` is the wrong tool here. allow_auto_merge is
 # false, and main does not enforce required status checks (the rules
 # list is empty and the branch summary reports enforcement_level
@@ -446,6 +452,15 @@ jobs:
                 exit "$commits_rc"
               fi
               rm -f "$commits_err"
+              # main requires one approving review. Every gate above
+              # has passed for this exact head, so approve it as
+              # github-actions[bot] and merge the same commit. Needs
+              # the repository setting "Allow GitHub Actions to create
+              # and approve pull requests". A push after this point
+              # dismisses the approval (dismiss_stale_reviews), and
+              # --match-head-commit refuses the merge.
+              gh pr review "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+                --approve --body "Patch or minor update; CI and Security are green on $sha."
               gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
                 --squash --match-head-commit "$sha"
               echo "squash-merged $sha"
