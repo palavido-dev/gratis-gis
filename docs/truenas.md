@@ -183,6 +183,13 @@ line. In TrueNAS, add them to the app's environment. Then restart.
   volume, so maps load quickly after a restart or an update. Set it to
   `0` to keep tiles in memory only. Deleting the volume is safe; tiles
   are rebuilt as maps ask for them.
+- `GRATIS_WORKER_MEMORY` (`3584m`) and `GRATIS_WORKER_HEAP_MB`
+  (`3072`) size the import worker. Large imports, such as a shapefile
+  of several hundred MB with detailed polygons, need about 3 GB. The
+  limit is a ceiling, not a reservation. On a box with 4 GB of RAM or
+  less, set `1536m` and `1024`, and keep the heap about 512 MB below
+  the limit. An import that stops partway and then fails with "The
+  import worker stopped partway through" ran out of this memory.
 - `METRICS_TOKEN` turns on Prometheus metrics at `portal-api:4000/metrics`
   for a Prometheus on the stack's network
   (docs/operations/metrics.md).
