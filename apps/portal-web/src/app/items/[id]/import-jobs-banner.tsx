@@ -2,6 +2,7 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { importJobPhase } from '@/lib/import-job-phase';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -271,6 +272,10 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
   const pct =
     total > 0 ? Math.min(100, Math.round((inserted / total) * 100)) : null;
 
+  // After the last feature is read the worker still seals, stamps and
+  // commits every row, which takes minutes on a large layer (#573).
+  const finishing = importJobPhase(job) === 'finishing';
+
   let statusEl: React.ReactNode;
   let detail: string;
   if (job.status === 'queued') {
@@ -279,7 +284,9 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
       total > 0 ? `Queued (${fmt.number(total)} features)` : 'Queued';
   } else if (job.status === 'running') {
     statusEl = <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />;
-    if (pct !== null) {
+    if (finishing) {
+      detail = `Finishing up: saving ${fmt.number(inserted)} features. This can take a few minutes on a large layer.`;
+    } else if (pct !== null) {
       detail = `Loaded ${fmt.number(inserted)} of ${fmt.number(total)} (${pct}%)`;
     } else if (inserted > 0) {
       detail = `Loaded ${fmt.number(inserted)} features`;
@@ -321,7 +328,8 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
           </div>
           {!terminal &&
           job.status === 'running' &&
-          pct !== null ? (
+          pct !== null &&
+          !finishing ? (
             <div className="mt-1 h-1 w-full overflow-hidden rounded bg-surface-2">
               <div
                 className="h-full bg-accent transition-[width] duration-500"
@@ -330,7 +338,9 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
             </div>
           ) : null}
         </div>
-        {onCancel ? (
+        {/* The worker stops only at batch boundaries, and there are no
+            batches left once it is finishing, so Cancel would not stop it. */}
+        {onCancel && !finishing ? (
           <button
             type="button"
             onClick={onCancel}
