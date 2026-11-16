@@ -21,6 +21,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   instead of 5, with a message that names memory as the likely cause.
   The worker beats on a timer while a job runs, so a slow batch is
   never mistaken for a dead worker.
+- The import banner says "Finishing up" once every feature is read,
+  instead of sitting at 100% while the rows are saved, which takes a
+  few minutes on a large layer. Cancel is hidden for that step, since
+  it could no longer stop the import.
 
 ## [1.6.1] - 2026-11-13
 
