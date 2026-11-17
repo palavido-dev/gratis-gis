@@ -421,8 +421,23 @@ export class ItemsController {
   // NOTE: /items/trash must be declared before /items/:id so Nest's
   // route matcher doesn't try to treat "trash" as an id parameter.
   @Get('trash')
-  listTrash(@CurrentUser() user: AuthUser) {
-    return this.items.listTrash(user);
+  listTrash(
+    @CurrentUser() user: AuthUser,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    // Paging is opt-in: with no `limit` the whole trash comes back,
+    // which the demo purge script (infra/cleanup-non-admin.mjs)
+    // relies on. The page asks for one page at a time.
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
+    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+      return this.items.listTrash(user);
+    }
+    const parsedOffset = Number.parseInt(offset ?? '', 10);
+    return this.items.listTrash(user, {
+      limit: Math.min(parsedLimit, ItemsController.MAX_LIST_LIMIT),
+      offset: Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0,
+    });
   }
 
   /**

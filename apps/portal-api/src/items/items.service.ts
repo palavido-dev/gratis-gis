@@ -1470,18 +1470,21 @@ export class ItemsService {
    * surface or restore someone else's deleted content. Owner-only
    * matches what users expect from a "my recycle bin" metaphor.
    */
-  async listTrash(user: AuthUser) {
+  async listTrash(user: AuthUser, page?: { limit: number; offset: number }) {
     const where: Prisma.ItemWhereInput =
       user.orgRole === 'admin'
         ? { orgId: user.orgId, deletedAt: { not: null } }
         : { ownerId: user.id, deletedAt: { not: null } };
     const rows = await this.prisma.item.findMany({
       where,
-      orderBy: { deletedAt: 'desc' },
+      // id breaks ties so pages do not overlap or skip rows that were
+      // deleted together (a folder cascade shares one deletedAt).
+      orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+      ...(page ? { take: page.limit, skip: page.offset } : {}),
       // The trash view never shows an item's content, and an admin's
       // trash can hold every deleted item in the org, some with large
-      // blobs. Leave `data` out so the list stays small. There is no
-      // paging: the demo purge script reads the whole list.
+      // blobs. Leave `data` out so the list stays small. Paging is
+      // optional: the demo purge script reads the whole list.
       omit: { data: true },
       // Same lean owner projection as the live list and the detail
       // read. An org admin's trash shows other people's items, so the

@@ -747,4 +747,20 @@ describe('smart folder and trash loads', () => {
     const calls = findMany.mock.calls as unknown as Array<[{ omit?: unknown }]>;
     expect(calls[0]![0].omit).toEqual({ data: true });
   });
+
+  it('the trash list reads every row unless a page is asked for', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const findMany = jest.fn(async () => []);
+    Object.assign(svc, { prisma: { item: { findMany } } });
+    await svc.listTrash(me);
+    await svc.listTrash(me, { limit: 101, offset: 200 });
+    const calls = findMany.mock.calls as unknown as Array<
+      [{ take?: number; skip?: number; orderBy?: unknown }]
+    >;
+    // The demo purge script reads the whole list in one call.
+    expect(calls[0]![0].take).toBeUndefined();
+    expect(calls[1]![0]).toMatchObject({ take: 101, skip: 200 });
+    // A folder cascade shares one deletedAt; id keeps pages stable.
+    expect(calls[1]![0].orderBy).toEqual([{ deletedAt: 'desc' }, { id: 'asc' }]);
+  });
 });
