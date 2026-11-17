@@ -1014,6 +1014,7 @@ export default async function ItemDetailPage(props: Props) {
                 itemId={item.id}
                 layers={v3Layers}
                 version={String(item.updatedAt)}
+                itemBbox={(item as { bbox?: unknown }).bbox}
               />
               <ItemStatsStrip
                 itemId={item.id}
