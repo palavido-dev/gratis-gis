@@ -53,7 +53,7 @@ function service(failOn: string | null) {
     update: jest.fn(async () => ({})),
     remove: jest.fn(async () => undefined),
   };
-  const svc = new AiBuildService(items as never, {} as never, {} as never);
+  const svc = new AiBuildService(items as never, {} as never, {} as never, {} as never);
   const apply = (svc as unknown as {
     apply: (u: unknown, p: BuildPlan) => Promise<Array<{ id: string }>>;
   }).apply.bind(svc);
